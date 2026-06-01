@@ -13,12 +13,50 @@ Two views:
 """
 import os
 import json
+import hmac
 import datetime
 import streamlit as st
 import core
 import db   # storage layer: Supabase if configured, else local files
 
 st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layout="wide")
+
+
+# ============================================================
+# Access gate — keep the public URL private (your résumé lives in this app)
+# ============================================================
+def check_password() -> bool:
+    """Gate the app behind a password stored in secrets. Fails CLOSED: if no
+    `app_password` secret is set, nobody gets in."""
+    try:
+        correct = st.secrets.get("app_password", "")
+    except Exception:
+        correct = ""
+
+    def entered():
+        attempt = st.session_state.get("pw", "")
+        if correct and hmac.compare_digest(attempt, correct):
+            st.session_state["pw_ok"] = True
+            del st.session_state["pw"]          # don't keep the raw password around
+        else:
+            st.session_state["pw_ok"] = False
+
+    if st.session_state.get("pw_ok", False):
+        return True
+
+    st.title("🔒 Private — sign in")
+    st.text_input("Password", type="password", on_change=entered, key="pw")
+    if not correct:
+        st.error("No app password is set, so access is locked. Add `app_password` in "
+                 "Streamlit → Settings → Secrets (and in .streamlit/secrets.toml for local runs).")
+    elif "pw_ok" in st.session_state:           # a wrong attempt was made
+        st.error("😕 Incorrect password")
+    return False
+
+
+if not check_password():
+    st.stop()
+
 
 ACTIONS_FILE = "user_jobs.json"
 PAGE_SIZE = 6
