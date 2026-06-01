@@ -1,0 +1,38 @@
+KUNAL SINGH HADA
+(857) 701-4592 | hada.k@northeastern.edu | LinkedIn | Boston, MA
+
+EDUCATION
+Northeastern University — Boston, MA
+Master of Science in Project Management (Sep 2024 - Dec 2025), GPA 3.7/4.0
+Relevant coursework: Foundations of Project Management, Communication for Project Managers, Project Evaluation, Introduction to Analytics, Risk and Quality Management, Cost Planning & Scheduling, Leading & Managing Tech Projects, Scope Management, Database Management Systems, Agile Lean Product Development, Communication and Visualization for Data Analytics.
+
+EXPERIENCE
+Property Accounting Staff Assistant — Northeastern University, Boston, MA (Feb 2025 - Present)
+- Review 400+ monthly procure-to-pay (P2P) transactions in Workday and IntelliBuy/Jaggaer across all Northeastern campuses, validating asset acquisitions for compliance with university capitalization policy.
+- Manage the annual inventory cycle of 7,011+ fixed assets; conduct in-person audits and tagging across departments and campuses; build Power BI dashboards to track location confirmations, audit progress, and discrepancies.
+- Created SOPs for Workday onboarding and Excel-based workflows to support change management and train new PP&E team members, reducing documentation errors by 18% and improving operational efficiency by 24%.
+- Built Power Automate workflows to automate monthly asset file updates and reconciliation, eliminating hundreds of manual Excel entries per cycle and improving turnaround time by 35%.
+
+Assistant Project Manager — Elbiz System Pvt. Ltd, Indore, India (Feb 2023 - Jul 2024)
+- Led end-to-end execution of a government-funded Garbage Transfer Station (GTS) automation project across 10 sites using MS Project and Excel for scheduling, resource allocation, and milestone tracking; contributed to Indore's recognition as India's cleanest city.
+- Directed a 20+ member cross-functional team of engineers, technicians, and 24+ vendors via MS Project and Trello, delivering all 10 sites on schedule and within budget.
+- Deployed 30+ RFID-based vehicle tracking units and automated weighbridge systems integrated with a centralized dashboard, improving waste-data accuracy and operational efficiency by 15%.
+- Led monthly client meetings with government officials and municipal stakeholders, presenting Power BI dashboards and status reports that improved project visibility.
+
+Business Analyst Intern — Elbiz System Pvt. Ltd, Indore, India (Sep 2022 - Feb 2023)
+- Translated ERP requirements into BRDs, functional specifications, and user stories by leading discovery sessions with clients and internal teams, reducing rework by 30%.
+- Reviewed CRM and FMS reporting gaps using SQL and Tableau, identified 3+ process inefficiencies, and translated findings into backlog items for developers and QA, improving system efficiency by ~18%.
+- Analyzed procurement and inventory workflows for Minoans.in, gathering requirements from 15+ suppliers to design daily-stock SLAs and a vendor-tracking process that reduced stockouts.
+- Tracked last-mile delivery data across 20+ service areas, recommending a zoning model that cut average delivery time by 30%.
+
+VENTURES
+Astrochakra.co — Co-Founder (May 2025 - Present)
+- Built and scaled a bootstrapped astrology and lifestyle brand to 45K+ Instagram followers, 24K+ YouTube subscribers, and 30M+ lifetime views, owning content strategy and growth end-to-end.
+- Bootstrapped to $25K+ in first-year revenue at ~35% net margin, reinvesting into product builds and inventory.
+- Designed and built a custom ERP platform integrating project management, resource allocation, HRM, payroll, inventory, finance, and reporting, deployed as the company's live system of record.
+
+SKILLS
+Project Management & Business Analysis: project planning, project coordination, project implementation, strategic planning, risk assessment, risk management, process improvement, quality control, financial analysis, monitoring and evaluation.
+Tools & Platforms: Microsoft Project, Jira, Trello, Wrike, Asana, Oracle Primavera P6, Visio, Notion, Excel (Advanced), Google Sheets, SQL, R, Power BI, Tableau, Git, GitHub, Python, Figma.
+Soft Skills: analytical thinking, problem-solving, conflict resolution, stakeholder management, vendor management, communication, collaboration, time management, prioritization.
+Methodologies & Certifications: Agile, Scrum, Kanban, Waterfall, SAFe, Six Sigma, Lean, DevOps; Gen AI for PMs (PMI), CPMAI, Harvard ManageMentor - Project Management.

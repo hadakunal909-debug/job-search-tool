@@ -1,0 +1,123 @@
+# H1B sponsor employer names (one per line). '#' lines are ignored.
+# SEED LIST — well-known frequent H1B sponsors + the companies in scraper.py SOURCES.
+# This is just a starter so the sponsor flag works out of the box. For real coverage,
+# download DOL LCA data and run:  python build_sponsors.py <file.xlsx>
+# (That merges thousands of real sponsors into this file without losing these names.)
+
+# --- Companies currently in SOURCES ---
+Samsara
+Stripe
+Verkada
+Brex
+Datadog
+Instacart
+SoFi
+Scale AI
+Airbnb
+Databricks
+Twilio
+Robinhood
+Toast
+Checkr
+Affirm
+Flexport
+MongoDB
+Okta
+Palantir
+Ramp
+Notion
+Vanta
+Replit
+Cursor
+Avery Dennison
+Experian
+
+# --- Big tech ---
+Google
+Alphabet
+Amazon
+Amazon Web Services
+Microsoft
+Meta Platforms
+Apple
+Netflix
+Nvidia
+Intel
+Oracle
+IBM
+Salesforce
+Adobe
+Cisco
+Qualcomm
+Uber
+Lyft
+LinkedIn
+PayPal
+eBay
+Pinterest
+Snap
+Block
+DoorDash
+Coinbase
+Dropbox
+Snowflake
+Workday
+ServiceNow
+Atlassian
+Intuit
+Autodesk
+Micron Technology
+Advanced Micro Devices
+Tesla
+Walmart Global Tech
+Comcast
+Expedia Group
+Booking.com
+ByteDance
+TikTok
+
+# --- Consulting / IT services (very high-volume sponsors) ---
+Deloitte
+Accenture
+Cognizant
+Infosys
+Tata Consultancy Services
+Wipro
+Capgemini
+HCL Technologies
+Tech Mahindra
+EPAM Systems
+Ernst & Young
+PricewaterhouseCoopers
+KPMG
+McKinsey & Company
+Boston Consulting Group
+Booz Allen Hamilton
+Leidos
+
+# --- Banking / finance ---
+JPMorgan Chase
+Goldman Sachs
+Morgan Stanley
+Citigroup
+Bank of America
+Wells Fargo
+BlackRock
+Fidelity Investments
+Bloomberg
+Two Sigma
+Citadel
+Capital One
+Visa
+Mastercard
+American Express
+
+# --- Pharma / healthcare ---
+Pfizer
+Johnson & Johnson
+Merck
+Eli Lilly
+Amgen
+Genentech
+UnitedHealth Group
+CVS Health

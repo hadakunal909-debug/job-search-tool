@@ -1,0 +1,19 @@
+# --- scraper + web app ---
+requests
+beautifulsoup4
+lxml
+rapidfuzz
+streamlit
+python-docx
+# Cloud storage (Supabase) needs no extra package — db.py uses the REST API via `requests`.
+
+# Optional — AI resume tailoring (the "Tailor to this JD" button):
+#     pip install anthropic
+#     then set ANTHROPIC_API_KEY in your environment and restart the app
+#
+# Optional — JavaScript-rendered job sources for the scraper (e.g. Workday):
+#     pip install playwright
+#     playwright install chromium
+#
+# Optional — build sponsors.txt from DOL Excel data (build_sponsors.py):
+#     pip install openpyxl
