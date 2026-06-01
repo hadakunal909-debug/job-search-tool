@@ -1,0 +1,28 @@
+name: Scrape jobs
+
+# Runs the scraper + scorer on a schedule and writes results to Supabase.
+on:
+  schedule:
+    - cron: "0 13 * * *"      # daily at 13:00 UTC (~8am ET). Times are UTC.
+  workflow_dispatch: {}        # also run on demand from the Actions tab
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape and score into Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python scraper.py
+          python score_jobs.py

@@ -1,0 +1,430 @@
+"""
+app.py — Job Match & Resume Tailor  (card-feed UI)
+
+Run it:
+    pip install -r requirements.txt
+    streamlit run app.py        # opens http://localhost:8501
+
+Two views:
+  • FEED  — your scraped jobs as cards, each with a résumé↔JD match ring, an H1B
+            badge, and Like / Hide / Apply actions (saved to user_jobs.json).
+  • TAILOR — click "Tailor / View" on a card to open the resume editor for that job
+            (match score, matched/missing keywords, optional AI tailoring, download).
+"""
+import os
+import json
+import datetime
+import streamlit as st
+import core
+import db   # storage layer: Supabase if configured, else local files
+
+st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layout="wide")
+
+ACTIONS_FILE = "user_jobs.json"
+PAGE_SIZE = 6
+
+# ============================================================
+# Persistence: like / hide / applied  (via db.py — Supabase or user_jobs.json)
+# ============================================================
+st.session_state.setdefault("actions", db.get_statuses())
+st.session_state.setdefault("selected_url", None)     # None = feed view
+st.session_state.setdefault("visible", PAGE_SIZE)
+st.session_state.setdefault("resume_area", "")
+st.session_state.setdefault("jd_area", "")
+st.session_state.setdefault("last_job_url", None)
+
+
+def set_action(url, status):
+    a = st.session_state.actions
+    if a.get(url) == status:        # clicking the same status again clears it
+        a.pop(url, None)
+        db.set_status(url, "")
+    else:
+        a[url] = status
+        db.set_status(url, status)
+
+
+# ============================================================
+# Data + scoring
+# ============================================================
+@st.cache_data(show_spinner=False)
+def get_jobs():
+    return db.load_jobs()
+
+
+@st.cache_data(show_spinner=False)
+def _idf():
+    return core.load_idf()
+
+
+def saved_resume():
+    return open("resume.txt", encoding="utf-8").read() if os.path.exists("resume.txt") else ""
+
+
+@st.cache_data(show_spinner=False)
+def jd_for(url):
+    return core.fetch_jd(url)
+
+
+@st.cache_data(show_spinner=False)
+def score_for(url, resume_text):
+    jd = jd_for(url)
+    return core.match_resume(resume_text, jd)[0] if jd else 0
+
+
+def time_ago(stamp):
+    try:
+        then = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M")
+    except Exception:
+        return stamp or ""
+    secs = (datetime.datetime.now() - then).total_seconds()
+    if secs < 3600:
+        return f"{int(secs // 60)} min ago"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h ago"
+    days = int(secs // 86400)
+    if days < 14:
+        return f"{days}d ago"
+    if days < 60:
+        return f"{days // 7}w ago"
+    return f"{days // 30}mo ago"
+
+
+ROLE_FILTERS = {
+    "Coordinator": ("coordinator",),
+    "Analyst": ("analyst",),
+    "Project / Program Mgr": ("project manager", "program manager", "project management",
+                              "program management", "scrum master", "pmo"),
+    "Operations": ("operations",),
+    "Associate / Jr": ("associate", "junior", "graduate", "rotational", "entry"),
+}
+
+
+# ============================================================
+# Styling
+# ============================================================
+st.markdown("""
+<style>
+[data-testid="stToolbar"], #MainMenu, footer {visibility:hidden;}
+.block-container {padding-top:1.4rem; max-width:1150px;}
+.feedhdr {font-size:28px; font-weight:800; color:#10261D; margin:0 0 .1rem 0;}
+.feedsub {color:#6b7a74; font-size:13px; margin-bottom:.6rem;}
+.avatar {width:48px; height:48px; border-radius:12px; background:#E8F7F0; color:#0f7a52;
+         font-weight:800; font-size:20px; display:flex; align-items:center; justify-content:center;
+         overflow:hidden; border:1px solid #e3efe9;}
+.avatar img {width:30px; height:30px; border-radius:6px;}
+.jtitle {font-size:18px; font-weight:700; color:#10261D; line-height:1.25;}
+.jcompany {color:#6b7a74; font-size:13px; margin-top:1px;}
+.chips {display:flex; flex-wrap:wrap; gap:6px; margin:.5rem 0 .2rem 0;}
+.chip {background:#F1F5F3; border-radius:14px; padding:3px 10px; font-size:12px; color:#3a4a44;}
+.chip.h1b {background:#E3F9EE; color:#0c7a4e; font-weight:700;}
+.chip.noh1b {background:#FBEFEF; color:#b4453c;}
+.matchcard {background:#0E2A22; border-radius:14px; padding:14px 10px; display:flex;
+            flex-direction:column; align-items:center; gap:7px;}
+.ring {width:84px; height:84px; border-radius:50%; display:flex; align-items:center; justify-content:center;}
+.hole {width:64px; height:64px; border-radius:50%; background:#0E2A22; display:flex;
+       align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:19px;}
+.hole span {font-size:11px; margin-left:1px; font-weight:600;}
+.mlabel {color:#bff3df; font-size:10.5px; font-weight:700; letter-spacing:.05em;}
+/* buttons -> pill style */
+div[data-testid="stButton"] > button {border-radius:20px; border:1px solid #dde5e1;
+       padding:.28rem .85rem; font-size:13px;}
+div[data-testid="stButton"] > button:hover {border-color:#16C47F; color:#0f7a52;}
+div[data-testid="stLinkButton"] > a {border-radius:20px;}
+</style>
+""", unsafe_allow_html=True)
+
+
+COMPANY_DOMAINS = {
+    "Samsara": "samsara.com", "Stripe": "stripe.com", "Verkada": "verkada.com",
+    "Brex": "brex.com", "Datadog": "datadoghq.com", "Instacart": "instacart.com",
+    "SoFi": "sofi.com", "Scale AI": "scale.com", "Airbnb": "airbnb.com",
+    "Databricks": "databricks.com", "Twilio": "twilio.com", "Robinhood": "robinhood.com",
+    "Toast": "toasttab.com", "Checkr": "checkr.com", "Affirm": "affirm.com",
+    "Flexport": "flexport.com", "MongoDB": "mongodb.com", "Okta": "okta.com",
+    "Palantir": "palantir.com", "Ramp": "ramp.com", "Notion": "notion.so",
+    "Vanta": "vanta.com", "Replit": "replit.com", "Cursor": "cursor.com",
+    "Avery Dennison": "averydennison.com", "Experian": "experian.com",
+    "Amazon": "amazon.com",
+}
+
+
+def avatar_html(company):
+    domain = COMPANY_DOMAINS.get(company)
+    if domain:
+        src = "https://www.google.com/s2/favicons?domain=%s&sz=64" % domain
+        return f'<div class="avatar"><img src="{src}" alt=""></div>'
+    return f'<div class="avatar">{(company or "?").strip()[:1].upper()}</div>'
+
+
+def badges_html(job):
+    chips = []
+    if job.get("location"):
+        chips.append(f'<span class="chip">📍 {job["location"]}</span>')
+    t = job.get("title", "").lower()
+    if "intern" in t:
+        chips.append('<span class="chip">🎓 Internship</span>')
+    if "remote" in (job.get("location", "").lower()):
+        chips.append('<span class="chip">🏠 Remote</span>')
+    if job.get("sponsors_h1b") == "yes":
+        chips.append('<span class="chip h1b">✅ Sponsors H1B</span>')
+    elif job.get("sponsors_h1b") == "no":
+        chips.append('<span class="chip noh1b">• No H1B data</span>')
+    return '<div class="chips">' + "".join(chips) + "</div>"
+
+
+def match_card_html(score):
+    if score >= 55:
+        color, label = "#16C47F", "STRONG MATCH"
+    elif score >= 42:
+        color, label = "#2FA8E0", "GOOD MATCH"
+    else:
+        color, label = "#E0913B", "FAIR MATCH"
+    return f"""<div class="matchcard">
+      <div class="ring" style="background:conic-gradient({color} {score * 3.6}deg, #24463c 0)">
+        <div class="hole">{score}<span>%</span></div></div>
+      <div class="mlabel">{label}</div></div>"""
+
+
+# ============================================================
+# Sidebar
+# ============================================================
+with st.sidebar:
+    st.markdown("### 🎯 JobMatch")
+    st.caption("Your scraped jobs, scored against your resume.")
+    if st.button("🔄 Reload jobs", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    st.markdown("---")
+    if core.ai_available():
+        st.success("AI tailoring: enabled")
+    else:
+        st.info("AI tailoring is off. To enable: `pip install anthropic`, set "
+                "`ANTHROPIC_API_KEY`, and restart.")
+    st.caption("Match % = the share of each job's skills your **resume.txt** covers.")
+    st.markdown("---")
+    min_match = st.slider("Minimum match %", 0, 100, 45, step=5,
+                          help="Hide jobs whose ATS keyword-match is below this (Recommended tab).")
+    date_posted = st.selectbox("Date posted",
+                               ["Any time", "Past 24 hours", "Past week", "Past month"])
+
+
+jobs_all = get_jobs()
+actions = st.session_state.actions
+
+if not jobs_all:
+    where = "Supabase" if db.using_supabase() else "jobs.csv"
+    st.warning(f"No jobs found in {where}. Run `python scraper.py` and "
+               f"`python score_jobs.py`, then click **Reload**.")
+    st.stop()
+
+
+# ============================================================
+# TAILOR VIEW  (a single job opened from the feed)
+# ============================================================
+def render_tailor(job):
+    if st.button("← Back to jobs"):
+        st.session_state.selected_url = None
+        st.rerun()
+
+    st.markdown(f"<div class='feedhdr'>{job.get('title','')}</div>", unsafe_allow_html=True)
+    meta = f"**{job.get('company','')}**"
+    if job.get("location"):
+        meta += f" · {job['location']}"
+    st.markdown(meta)
+    if job.get("sponsors_h1b") == "yes":
+        st.success("✅ This company has sponsored H1B before")
+    if job.get("url"):
+        st.link_button("Open job posting ↗", job["url"], type="primary")
+        applied = st.session_state.actions.get(job["url"]) == "applied"
+        if st.button("✓ Applied" if applied else "Mark as applied"):
+            set_action(job["url"], "applied"); st.rerun()
+
+    # auto-fetch JD when the opened job changes
+    if job.get("url") and st.session_state.last_job_url != job["url"]:
+        with st.spinner("Fetching job description…"):
+            st.session_state["jd_area"] = jd_for(job["url"])
+        if not st.session_state["resume_area"]:
+            st.session_state["resume_area"] = saved_resume()
+        st.session_state.last_job_url = job["url"]
+
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.text_area("Job description (edit or paste the real JD for the best match)",
+                     height=420, key="jd_area")
+    with right:
+        b1, b2 = st.columns(2)
+        if b1.button("✨ Tailor to this JD (AI)", use_container_width=True,
+                     disabled=not core.ai_available()):
+            if st.session_state["jd_area"].strip():
+                with st.spinner("Tailoring with Claude…"):
+                    try:
+                        st.session_state["resume_area"] = core.tailor_with_ai(
+                            st.session_state["resume_area"], st.session_state["jd_area"])
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"AI tailoring failed: {e}")
+            else:
+                st.warning("No job description to tailor against.")
+        if b2.button("↩︎ Reset resume", use_container_width=True):
+            st.session_state["resume_area"] = saved_resume()
+            st.rerun()
+        st.text_area("Your resume — edit freely (add the missing keywords where true)",
+                     height=360, key="resume_area")
+        d1, d2 = st.columns(2)
+        try:
+            d1.download_button("⬇︎ .docx",
+                               core.resume_to_docx_bytes(st.session_state["resume_area"]),
+                               file_name="resume_tailored.docx", use_container_width=True)
+        except Exception:
+            d1.caption("`pip install python-docx` for .docx")
+        d2.download_button("⬇︎ .md", st.session_state["resume_area"],
+                           file_name="resume_tailored.md", use_container_width=True)
+
+    resume_now, jd_now = st.session_state["resume_area"], st.session_state["jd_area"]
+    score, kw_have, kw_missing = core.skill_match(resume_now, jd_now, _idf())
+    st.markdown("#### 🤖 ATS keyword match")
+    st.progress(score / 100, text=f"{score}% of this job's key terms are in your resume")
+    with st.expander(f"✗ Add these to your resume ({len(kw_missing)}) — JD keywords you're missing",
+                     expanded=True):
+        st.write(", ".join(kw_missing[:20]) if kw_missing else "—")
+    with st.expander(f"✓ Keywords you already match ({len(kw_have)})"):
+        st.write(", ".join(kw_have[:25]) if kw_have else "—")
+
+
+# ============================================================
+# FEED VIEW
+# ============================================================
+def render_feed():
+    st.markdown("<div class='feedhdr'>🎯 Jobs</div>", unsafe_allow_html=True)
+
+    hidden = {u for u, s in actions.items() if s == "hidden"}
+    liked = {u for u, s in actions.items() if s == "liked"}
+    applied = {u for u, s in actions.items() if s == "applied"}
+    n_rec = len([j for j in jobs_all if j.get("url") not in hidden])
+    st.markdown(f"<div class='feedsub'>Recommended {n_rec} · Liked {len(liked)} · "
+                f"Applied {len(applied)} · Hidden {len(hidden)}</div>", unsafe_allow_html=True)
+
+    view = st.segmented_control("View", ["Recommended", "Liked", "Applied", "Hidden"],
+                                default="Recommended", key="view_ctl",
+                                label_visibility="collapsed")
+    c1, c2, c3, c4 = st.columns([2.2, 2.0, 1.5, 1.1])
+    search = c1.text_input("Search", placeholder="🔎 Search by title or company",
+                           label_visibility="collapsed")
+    roles = c2.pills("Role", list(ROLE_FILTERS), selection_mode="multi",
+                     label_visibility="collapsed")
+    sort = c3.selectbox("Sort", ["Best match", "Newest", "Oldest", "Company A-Z"],
+                        label_visibility="collapsed")
+    h1b_only = c4.toggle("H1B only")
+
+    # pick the list for the active tab
+    by_status = {"Liked": liked, "Applied": applied, "Hidden": hidden}
+    if view == "Recommended":
+        jobs = [j for j in jobs_all if j.get("url") not in hidden]
+    else:
+        jobs = [j for j in jobs_all if j.get("url") in by_status[view]]
+
+    def _score_val(j):
+        ms = str(j.get("match_score", ""))
+        return int(ms) if ms.isdigit() else -1
+
+    total_before = len(jobs)
+    # filters
+    if search:
+        s = search.lower()
+        jobs = [j for j in jobs if s in (j.get("title", "") + " " + j.get("company", "")).lower()]
+    if roles:
+        wanted = tuple(kw for r in roles for kw in ROLE_FILTERS[r])
+        jobs = [j for j in jobs if any(k in j.get("title", "").lower() for k in wanted)]
+    if h1b_only:
+        jobs = [j for j in jobs if j.get("sponsors_h1b") == "yes"]
+    if min_match > 0 and view == "Recommended":
+        jobs = [j for j in jobs if _score_val(j) >= min_match]
+        st.caption(f"Showing {len(jobs)} of {total_before} jobs (match >= {min_match}%)")
+
+    _windows = {"Past 24 hours": 1, "Past week": 7, "Past month": 30}
+    if date_posted in _windows:
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=_windows[date_posted])
+
+        def _posted_dt(j):
+            try:
+                return datetime.datetime.strptime(j.get("found_date", ""), "%Y-%m-%d %H:%M")
+            except Exception:
+                return None
+        jobs = [j for j in jobs if (_posted_dt(j) or datetime.datetime.min) >= cutoff]
+
+    if sort == "Newest":
+        jobs.sort(key=lambda j: j.get("found_date", ""), reverse=True)
+    elif sort == "Oldest":
+        jobs.sort(key=lambda j: j.get("found_date", ""))
+    elif sort == "Company A-Z":
+        jobs.sort(key=lambda j: (j.get("company", "").lower(), j.get("title", "").lower()))
+    else:  # Best match
+        jobs.sort(key=_score_val, reverse=True)
+
+    # collapse duplicate postings (same title + company, different locations)
+    _seen_tc, _dedup = set(), []
+    for j in jobs:
+        k = (j.get("title", "").strip().lower(), j.get("company", ""))
+        if k in _seen_tc:
+            continue
+        _seen_tc.add(k)
+        _dedup.append(j)
+    jobs = _dedup
+
+    if not jobs:
+        st.info("No jobs at or above this match %. Lower 'Minimum match %' in the sidebar, "
+                "or clear the search / role filters.")
+        return
+
+    visible = jobs[: st.session_state.visible]
+    resume = saved_resume()
+
+    def card_score(job):
+        ms = str(job.get("match_score", ""))
+        return int(ms) if ms.isdigit() else score_for(job.get("url", ""), resume)
+
+    for i, job in enumerate(visible):
+        url = job.get("url", "")
+        with st.container(border=True):
+            a, mid, ring = st.columns([0.55, 3.3, 1.3])
+            a.markdown(avatar_html(job.get("company", "")), unsafe_allow_html=True)
+            with mid:
+                ago = time_ago(job.get("found_date", ""))
+                posted = f"🕒 Posted {ago}" if ago else ""
+                st.markdown(
+                    f"<div class='jcompany'>{posted}</div>"
+                    f"<div class='jtitle'>{job.get('title','')}</div>"
+                    f"<div class='jcompany'>{job.get('company','')}</div>"
+                    + badges_html(job), unsafe_allow_html=True)
+                bcols = st.columns([0.8, 0.8, 1.5, 1.6])
+                if bcols[0].button("♥" if url in liked else "♡", key=f"like{i}", help="Like"):
+                    set_action(url, "liked"); st.rerun()
+                if bcols[1].button("🚫", key=f"hide{i}", help="Hide this job"):
+                    set_action(url, "hidden"); st.rerun()
+                if bcols[2].button("✎ Tailor", key=f"tailor{i}",
+                                   help="Open the resume editor for this job"):
+                    st.session_state.selected_url = url
+                    st.session_state.last_job_url = None
+                    st.rerun()
+                if url:
+                    bcols[3].link_button("Apply ↗", url, type="primary",
+                                         use_container_width=True)
+            ring.markdown(match_card_html(card_score(job)), unsafe_allow_html=True)
+
+    if len(jobs) > st.session_state.visible:
+        if st.button(f"Show more  ({len(jobs) - st.session_state.visible} left)",
+                     use_container_width=True):
+            st.session_state.visible += PAGE_SIZE
+            st.rerun()
+
+
+# ============================================================
+# Route
+# ============================================================
+sel = st.session_state.selected_url
+job_by_url = {j.get("url"): j for j in jobs_all}
+if sel and sel in job_by_url:
+    render_tailor(job_by_url[sel])
+else:
+    render_feed()
