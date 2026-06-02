@@ -15,6 +15,11 @@ import re
 import html
 import time
 import random
+import sys
+
+# Force UTF-8 stdout (Windows cp1252 consoles crash on em dashes / accents in titles).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import scraper
 import core
