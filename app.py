@@ -230,6 +230,8 @@ def match_card_html(score):
 with st.sidebar:
     st.markdown("### 🎯 JobMatch")
     st.caption("Your scraped jobs, scored against your resume.")
+    nav = st.radio("Go to", ["🎯 Jobs feed", "🏢 Sponsor careers"],
+                   label_visibility="collapsed")
     if st.button("🔄 Reload jobs", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -250,7 +252,7 @@ with st.sidebar:
 jobs_all = get_jobs()
 actions = st.session_state.actions
 
-if not jobs_all:
+if not jobs_all and nav != "🏢 Sponsor careers":
     where = "Supabase" if db.using_supabase() else "jobs.csv"
     st.warning(f"No jobs found in {where}. Run `python scraper.py` and "
                f"`python score_jobs.py`, then click **Reload**.")
@@ -458,11 +460,41 @@ def render_feed():
 
 
 # ============================================================
+# SPONSOR CAREERS VIEW — career links for H1B sponsors (many aren't scrapeable)
+# ============================================================
+@st.cache_data(show_spinner=False)
+def _careers_md():
+    return open("careers_us.md", encoding="utf-8").read() if os.path.exists("careers_us.md") else ""
+
+
+def render_careers():
+    st.markdown("<div class='feedhdr'>🏢 Sponsor career links</div>", unsafe_allow_html=True)
+    st.markdown("<div class='feedsub'>H1B / green-card sponsor employers (DOL data) with direct US "
+                "apply links — for companies the scraper can't reach: banks, pharma, consulting, "
+                "universities, Eightfold portals.</div>", unsafe_allow_html=True)
+    md = _careers_md()
+    if not md:
+        st.info("careers_us.md is missing — run `python make_careers.py` to build it.")
+        return
+    q = st.text_input("Search", placeholder="🔎 Filter companies (e.g. Bloomberg, university, bank)",
+                      label_visibility="collapsed")
+    if q:
+        ql = q.lower()
+        hits = [ln for ln in md.splitlines() if ln.startswith("- ") and ql in ln.lower()]
+        st.caption(f"{len(hits)} compan{'y' if len(hits) == 1 else 'ies'} match")
+        st.markdown("\n".join(hits) if hits else "_No companies match._")
+    else:
+        st.markdown(md)
+
+
+# ============================================================
 # Route
 # ============================================================
 sel = st.session_state.selected_url
 job_by_url = {j.get("url"): j for j in jobs_all}
 if sel and sel in job_by_url:
     render_tailor(job_by_url[sel])
+elif nav == "🏢 Sponsor careers":
+    render_careers()
 else:
     render_feed()
