@@ -98,6 +98,27 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/Visa",        "smartrecruiters", "Visa"),
     ("https://jobs.smartrecruiters.com/Uber",        "smartrecruiters", "Uber"),
     ("https://jobs.smartrecruiters.com/ByteDance",   "smartrecruiters", "ByteDance"),
+    # --- Added 2026-06-01: find_boards.py probe of the DOL sponsor list (20 hits) ---
+    ("https://job-boards.greenhouse.io/anaplan",            "greenhouse", "Anaplan"),
+    ("https://job-boards.greenhouse.io/celonis",            "greenhouse", "Celonis"),
+    ("https://job-boards.greenhouse.io/aurorainnovation",   "greenhouse", "Aurora Innovation"),
+    ("https://job-boards.greenhouse.io/alixpartners",       "greenhouse", "AlixPartners"),
+    ("https://job-boards.greenhouse.io/worldquant",         "greenhouse", "WorldQuant"),
+    ("https://job-boards.greenhouse.io/newrelic",           "greenhouse", "New Relic"),
+    ("https://job-boards.greenhouse.io/bitgo",              "greenhouse", "BitGo"),
+    ("https://job-boards.greenhouse.io/netcracker",         "greenhouse", "Netcracker"),
+    ("https://job-boards.greenhouse.io/maymobility",        "greenhouse", "May Mobility"),
+    ("https://job-boards.greenhouse.io/yipitdata",          "greenhouse", "YipitData"),
+    ("https://job-boards.greenhouse.io/marqeta",            "greenhouse", "Marqeta"),
+    ("https://job-boards.greenhouse.io/enova",              "greenhouse", "Enova"),
+    ("https://job-boards.greenhouse.io/chargepoint",        "greenhouse", "ChargePoint"),
+    ("https://job-boards.greenhouse.io/samsungresearchamerica", "greenhouse", "Samsung Research America"),
+    ("https://jobs.lever.co/saviynt",                       "lever", "Saviynt"),
+    ("https://jobs.lever.co/weride",                        "lever", "WeRide"),
+    ("https://jobs.smartrecruiters.com/IrisSoftware",       "smartrecruiters", "Iris Software"),
+    ("https://jobs.smartrecruiters.com/LegendBiotech",      "smartrecruiters", "Legend Biotech"),
+    ("https://jobs.smartrecruiters.com/TurnerConstruction", "smartrecruiters", "Turner Construction"),
+    ("https://jobs.smartrecruiters.com/UniversityofSouthFlorida", "smartrecruiters", "University of South Florida"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
