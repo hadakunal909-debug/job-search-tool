@@ -121,3 +121,186 @@ Amgen
 Genentech
 UnitedHealth Group
 CVS Health
+
+# --- Top DOL H1B / Green Card sponsors (ranked from disclosure data) ---
+Dell
+University of Michigan
+American Airlines
+Dell EMC
+Slalom
+Bristol-Myers Squibb
+University of Missouri
+Henry Ford Health
+Health Care Service Corporation
+Samsung SDS America
+Jacobs
+Natsoft
+Texas Instruments
+Sumitomo Mitsui Banking Corporation
+Northwell Health
+University of Colorado Denver
+Regeneron Pharmaceuticals
+University of South Carolina
+Arcadis
+Iris Software
+Linea Labs
+Infogain
+Visionet Systems
+AlixPartners
+University of South Florida
+RSM US
+GlobalFoundries
+Asurion
+Blackstone
+MassMutual
+Edwards Lifesciences
+Stanford Health Care
+Guidewire
+Jones Lang LaSalle
+LendingClub
+Credit One Bank
+DirecTV
+RingCentral
+Dematic
+Turner Construction
+TD Securities
+Old Dominion University
+Magna
+Macy's
+Rockwell Automation
+RJT Compuquest
+Bridgewater Associates
+S&P Global
+CME Group
+Marqeta
+ITC Infotech
+Saviynt
+Asta CRS
+Samsung Research America
+University of Delaware
+Tradeweb
+Ecom Consulting
+Everest Consulting
+iTech
+WeRide
+Teradata
+Servesys
+Janssen Research & Development
+Ajinomoto Foods
+State of South Dakota
+Utah State University
+Viasat
+W.W. Grainger
+Altair
+Inrika
+Boston College
+North Dakota State University
+University of Oregon
+James Madison University
+Infodat
+Transamerica
+Santander
+Kansas State University
+Engineering Technology Associates
+Danfoss
+The Morning Star Company
+KISS Products
+First Tek
+Sabre
+ChargePoint
+Milliman
+Wichita State University
+Towson University
+TekHQS
+BioMarin
+Nikola
+University of Idaho
+ITG Technologies
+ITsutra
+Friendly Consultants
+KMK Consulting
+Ciena
+Anaplan
+Ramsai Software
+National Grid
+DigitalOcean
+Kean University
+University of New Hampshire
+Sigma-Aldrich
+Frontier Airlines
+UCSF Medical Center
+Legend Biotech
+Bayview Asset Management
+Toyota Motor North America
+Western Kentucky University
+Alcon
+Southern Illinois University Edwardsville
+DAS North America
+Quanta Technology
+California State University Fullerton
+VRN Technologies
+Montclair State University
+Global IT Investors
+Sam Houston State University
+Q2
+Ivy Enterprises
+Eightfold AI
+Aurora Innovation
+Avant
+Stryder
+AIG
+FNS
+White Collar Technologies
+Drexel University
+University of Akron
+A123 Systems
+Bunge
+Enova
+Novant Health
+University of Detroit Mercy
+Wood Group
+Primera Analytical Solutions
+WorldQuant
+Iqlogg
+Cigna
+Netcracker
+Bentley University
+Seagen
+Arkansas State University
+Hyundai Mobis
+IntelliPro Group
+Firmenich
+Blue Cross Blue Shield of Mississippi
+DataSync
+Berkley Insurance
+Sunrise Futures
+University of Tulsa
+Vsquare Infotech
+Karma Automotive
+YipitData
+Plymouth Rock
+IT Automation
+Celonis
+University of Louisiana at Lafayette
+Tenneco
+Encyclopaedia Britannica
+Weber State University
+University of Southern Mississippi
+iStream Solutions
+College of Charleston
+Sana Biotechnology
+Lacework
+Dassault Systemes
+Infobahn Softworld
+Sungrow
+MetaHorizon
+Seohan-NTN Driveshaft
+BitGo
+Sift Science
+California State University Chico
+SharpEdge Solutions
+Eminent Software
+Clarivate
+May Mobility
+New Relic
+Jacobs Civil Consultants
