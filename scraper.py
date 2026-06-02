@@ -21,6 +21,12 @@ import re
 import datetime
 from urllib.parse import urljoin
 
+# Windows terminals default to cp1252 and crash when printing characters that some job
+# titles contain (em dashes, non-breaking hyphens, accents). Force UTF-8 stdout so a
+# stray character can never abort a scrape mid-run.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import requests
 from bs4 import BeautifulSoup
 
