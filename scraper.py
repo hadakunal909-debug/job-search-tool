@@ -125,6 +125,9 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/LegendBiotech",      "smartrecruiters", "Legend Biotech"),
     ("https://jobs.smartrecruiters.com/TurnerConstruction", "smartrecruiters", "Turner Construction"),
     ("https://jobs.smartrecruiters.com/UniversityofSouthFlorida", "smartrecruiters", "University of South Florida"),
+    # --- Added 2026-06-02: recovered via corrected slugs (find_boards' name-guess missed these) ---
+    ("https://job-boards.greenhouse.io/digitalocean98",     "greenhouse", "DigitalOcean"),
+    ("https://jobs.smartrecruiters.com/clarivateanalytics", "smartrecruiters", "Clarivate"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -139,6 +142,10 @@ WORKDAY_BOARDS = [
     ("https://toyota.wd503.myworkdayjobs.com/TMNA",                   "workday", "Toyota Motor North America"),
     ("https://spgi.wd5.myworkdayjobs.com/SPGI_Careers",               "workday", "S&P Global"),
     ("https://globalfoundries.wd1.myworkdayjobs.com/External",        "workday", "GlobalFoundries"),
+    # --- Added 2026-06-02 (wave 2b): recovered from the false-negative recheck ---
+    ("https://ciena.wd5.myworkdayjobs.com/Careers",                  "workday", "Ciena"),
+    ("https://q2ebanking.wd5.myworkdayjobs.com/Q2",                  "workday", "Q2"),
+    ("https://guidewire.wd5.myworkdayjobs.com/external",             "workday", "Guidewire"),
 ]
 
 # Everything scrapeable: Amazon + 26 original boards + extras + Workday companies.
