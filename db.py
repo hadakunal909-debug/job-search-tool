@@ -381,12 +381,15 @@ def set_user_status(username, url, status):
 
 # ---- job description text (shared; lets us score any resume against any job) ----
 def update_jds(jds):
-    """{url: jd_text} -> persist each job's description (used for per-user scoring)."""
-    rows = [{"url": u, "jd": jd} for u, jd in jds.items() if u]
+    """{url: jd_text} -> persist each job's description (used for per-user scoring).
+    JD text is large, so cap each one and write in small CHUNKS — a single bulk POST
+    of all of them is multiple MB and gets the connection reset."""
+    rows = [{"url": u, "jd": (jd or "")[:12000]} for u, jd in jds.items() if u]
     if not rows:
         return
     if using_supabase():
-        _upsert(rows)            # merges on the `url` primary key
+        for i in range(0, len(rows), 30):     # ~30 JDs/request keeps the body small
+            _upsert(rows[i:i + 30])
         return
     _dump_json(JDS_FILE, jds)
 
