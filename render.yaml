@@ -1,0 +1,26 @@
+# Render Blueprint — deploys this Streamlit app as a FREE web service.
+#
+# How to use:
+#   Render dashboard → New +  →  Blueprint  →  connect this repo  →  Apply.
+#   Render reads this file and fills in build/start/Python for you.
+#
+# Secrets are NOT in this file (never commit secrets). After the service is
+# created, add ONE Secret File under the service's  Environment  tab:
+#   Filename:  .streamlit/secrets.toml
+#   Contents:  copy your local .streamlit/secrets.toml (app_password + [supabase]),
+#              using the NEW Supabase secret key.
+#
+# The daily scrape stays in GitHub Actions (.github/workflows/scrape.yml) — this
+# service only serves the app, so the free tier sleeping when idle is fine.
+services:
+  - type: web
+    name: job-search-tool
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
