@@ -142,8 +142,10 @@ def main():
     print("Scoring with IDF weighting (%d terms in corpus)..." % len(idf))
     scores = {u: core.skill_match(resume, jd, idf)[0] for u, jd in row_jd.items()}
 
-    # 4) Persist the scores (Supabase update, or rewrite jobs.csv).
+    # 4) Persist the scores AND the JD text. The stored JD lets the app score every
+    #    job against each user's OWN resume (the per-user match rings).
     db.update_scores(scores)
+    db.update_jds(row_jd)
     if scores:
         vals = list(scores.values())
         where = "Supabase" if db.using_supabase() else "jobs.csv"
