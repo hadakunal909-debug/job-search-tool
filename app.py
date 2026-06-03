@@ -19,56 +19,63 @@ import requests
 import streamlit as st
 import core
 import db   # storage layer: Supabase if configured, else local files
+import auth  # password hashing for the multi-user login
 
 st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layout="wide")
 
 
 # ============================================================
-# Access gate — keep the public URL private (your résumé lives in this app)
+# Login — per-user accounts (admin-created). Each person has their OWN resume,
+# match scores, and saved jobs. Fails CLOSED (no account => no access).
 # ============================================================
-def check_password() -> bool:
-    """Gate the app behind a password stored in secrets. Fails CLOSED: if no
-    `app_password` secret is set, nobody gets in."""
-    try:
-        correct = st.secrets.get("app_password", "")
-    except Exception:
-        correct = ""
-    if not correct:                       # hosts without a secrets file (e.g. Render)
-        correct = os.environ.get("APP_PASSWORD", "")
-
-    def entered():
-        attempt = st.session_state.get("pw", "")
-        if correct and hmac.compare_digest(attempt, correct):
-            st.session_state["pw_ok"] = True
-            del st.session_state["pw"]          # don't keep the raw password around
-        else:
-            st.session_state["pw_ok"] = False
-
-    if st.session_state.get("pw_ok", False):
+def login_gate() -> bool:
+    if st.session_state.get("user"):
         return True
 
-    st.title("🔒 Private — sign in")
-    st.text_input("Password", type="password", on_change=entered, key="pw")
-    if not correct:
-        st.error("No app password is set, so access is locked. Set the `APP_PASSWORD` "
-                 "environment variable (on Render/your host), or add `app_password` to "
-                 "`.streamlit/secrets.toml` for local runs.")
-    elif "pw_ok" in st.session_state:           # a wrong attempt was made
-        st.error("😕 Incorrect password")
+    def attempt():
+        u = (st.session_state.get("login_user") or "").strip()
+        p = st.session_state.get("login_pw") or ""
+        try:
+            rec = db.get_user(u) if u else None
+        except Exception as e:
+            st.session_state["login_err"] = "Login backend error: %s" % e
+            return
+        if rec and auth.verify_password(p, rec.get("password_hash", "")):
+            st.session_state["user"] = u
+            st.session_state.pop("login_pw", None)      # don't keep the raw password
+            st.session_state.pop("login_err", None)
+        else:
+            st.session_state["login_err"] = "bad"
+
+    st.title("🔒 Sign in")
+    st.text_input("Username", key="login_user")
+    st.text_input("Password", type="password", key="login_pw", on_change=attempt)
+    st.button("Sign in", type="primary", on_click=attempt)
+    err = st.session_state.get("login_err")
+    if err == "bad":
+        st.error("😕 Wrong username or password.")
+    elif err:
+        st.error(err)
+    st.caption("Accounts are created by the admin — there is no public sign-up.")
     return False
 
 
-if not check_password():
+if not login_gate():
     st.stop()
 
-
-ACTIONS_FILE = "user_jobs.json"
+USER = st.session_state["user"]
 PAGE_SIZE = 6
 
+# Load this user's resume once per session (drives match scoring + the Tailor view).
+if "my_resume" not in st.session_state:
+    _rec = db.get_user(USER) or {}
+    st.session_state["my_resume"] = _rec.get("resume", "") or ""
+
 # ============================================================
-# Persistence: like / hide / applied  (via db.py — Supabase or user_jobs.json)
+# Persistence: like / hide / applied  (PER-USER, via db.py)
 # ============================================================
-st.session_state.setdefault("actions", db.get_statuses())
+if "actions" not in st.session_state:                 # network read — only once per session
+    st.session_state["actions"] = db.get_user_statuses(USER)
 st.session_state.setdefault("selected_url", None)     # None = feed view
 st.session_state.setdefault("visible", PAGE_SIZE)
 st.session_state.setdefault("resume_area", "")
@@ -80,10 +87,10 @@ def set_action(url, status):
     a = st.session_state.actions
     if a.get(url) == status:        # clicking the same status again clears it
         a.pop(url, None)
-        db.set_status(url, "")
+        db.set_user_status(USER, url, "")
     else:
         a[url] = status
-        db.set_status(url, status)
+        db.set_user_status(USER, url, status)
 
 
 # ============================================================
@@ -100,7 +107,8 @@ def _idf():
 
 
 def saved_resume():
-    return open("resume.txt", encoding="utf-8").read() if os.path.exists("resume.txt") else ""
+    """This logged-in user's resume (edited in the 📄 My résumé view)."""
+    return st.session_state.get("my_resume", "") or ""
 
 
 @st.cache_data(show_spinner=False)
@@ -112,6 +120,21 @@ def jd_for(url):
 def score_for(url, resume_text):
     jd = jd_for(url)
     return core.match_resume(resume_text, jd)[0] if jd else 0
+
+
+@st.cache_data(show_spinner=False)
+def user_scores(resume_text):
+    """{url: match%} for THIS resume, computed from each job's stored JD text.
+    Returns {} when the resume is empty (feed then falls back to the stored score)."""
+    if not (resume_text or "").strip():
+        return {}
+    idf = _idf()
+    out = {}
+    for j in get_jobs():
+        u, jd = j.get("url", ""), (j.get("jd", "") or "")
+        if u and jd:
+            out[u] = core.skill_match(resume_text, jd, idf)[0]
+    return out
 
 
 def time_ago(stamp):
@@ -277,8 +300,11 @@ def trigger_scrape():
 # ============================================================
 with st.sidebar:
     st.markdown("### 🎯 JobMatch")
-    st.caption("Your scraped jobs, scored against your resume.")
-    nav = st.radio("Go to", ["🎯 Jobs feed", "🏢 Sponsor careers"],
+    st.caption("Signed in as **%s**" % USER)
+    if st.button("Log out", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+    nav = st.radio("Go to", ["🎯 Jobs feed", "📄 My résumé", "🏢 Sponsor careers"],
                    label_visibility="collapsed")
     if st.button("🔄 Reload jobs", use_container_width=True):
         st.cache_data.clear()
@@ -300,7 +326,8 @@ with st.sidebar:
     else:
         st.info("AI tailoring is off. To enable: `pip install anthropic`, set "
                 "`ANTHROPIC_API_KEY`, and restart.")
-    st.caption("Match % = the share of each job's skills your **resume.txt** covers.")
+    st.caption("Match % = the share of each job's skills **your résumé** covers "
+               "(set it in 📄 My résumé).")
     st.markdown("---")
     min_match = st.slider("Minimum match %", 0, 100, 45, step=5,
                           help="Hide jobs whose ATS keyword-match is below this (Recommended tab).")
@@ -311,7 +338,7 @@ with st.sidebar:
 jobs_all = get_jobs()
 actions = st.session_state.actions
 
-if not jobs_all and nav != "🏢 Sponsor careers":
+if not jobs_all and nav not in ("🏢 Sponsor careers", "📄 My résumé"):
     where = "Supabase" if db.using_supabase() else "jobs.csv"
     st.warning(f"No jobs found in {where}. Run `python scraper.py` and "
                f"`python score_jobs.py`, then click **Reload**.")
@@ -397,6 +424,11 @@ def render_tailor(job):
 def render_feed():
     st.markdown("<div class='feedhdr'>🎯 Jobs</div>", unsafe_allow_html=True)
 
+    resume = saved_resume()
+    scores = user_scores(resume)              # {url: match%} for THIS user's resume
+    if not resume.strip():
+        st.info("📄 Add your résumé in **My résumé** (sidebar) to get match scores tailored to you.")
+
     hidden = {u for u, s in actions.items() if s == "hidden"}
     liked = {u for u, s in actions.items() if s == "liked"}
     applied = {u for u, s in actions.items() if s == "applied"}
@@ -424,7 +456,10 @@ def render_feed():
         jobs = [j for j in jobs_all if j.get("url") in by_status[view]]
 
     def _score_val(j):
-        ms = str(j.get("match_score", ""))
+        s = scores.get(j.get("url", ""))
+        if s is not None:
+            return s
+        ms = str(j.get("match_score", ""))    # fallback: stored score (job has no JD yet)
         return int(ms) if ms.isdigit() else -1
 
     total_before = len(jobs)
@@ -477,9 +512,11 @@ def render_feed():
         return
 
     visible = jobs[: st.session_state.visible]
-    resume = saved_resume()
 
     def card_score(job):
+        s = scores.get(job.get("url", ""))
+        if s is not None:
+            return s
         ms = str(job.get("match_score", ""))
         return int(ms) if ms.isdigit() else score_for(job.get("url", ""), resume)
 
@@ -519,6 +556,23 @@ def render_feed():
 
 
 # ============================================================
+# MY RÉSUMÉ VIEW — each user's own resume (drives their personal match scores)
+# ============================================================
+def render_resume():
+    st.markdown("<div class='feedhdr'>📄 My résumé</div>", unsafe_allow_html=True)
+    st.markdown("<div class='feedsub'>Paste your résumé as plain text. Every job's match ring "
+                "is the share of that job's key skills your résumé covers — so keep this current. "
+                "Only you can see it.</div>", unsafe_allow_html=True)
+    txt = st.text_area("Your résumé", value=st.session_state.get("my_resume", ""),
+                       height=460, key="my_resume_edit", label_visibility="collapsed")
+    if st.button("💾 Save résumé", type="primary"):
+        db.set_user_resume(USER, txt)
+        st.session_state["my_resume"] = txt
+        st.cache_data.clear()        # recompute everyone's-eye-view scores against the new résumé
+        st.success("Saved ✓ Your match scores now reflect this résumé. Open the Jobs feed.")
+
+
+# ============================================================
 # SPONSOR CAREERS VIEW — career links for H1B sponsors (many aren't scrapeable)
 # ============================================================
 @st.cache_data(show_spinner=False)
@@ -555,5 +609,7 @@ if sel and sel in job_by_url:
     render_tailor(job_by_url[sel])
 elif nav == "🏢 Sponsor careers":
     render_careers()
+elif nav == "📄 My résumé":
+    render_resume()
 else:
     render_feed()

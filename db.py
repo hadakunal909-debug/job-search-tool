@@ -242,6 +242,155 @@ def import_from_files():
     print("Imported %d jobs into Supabase table '%s'." % (len(payload), TABLE))
 
 
+# ================= multi-user: accounts, per-user saved jobs, JD storage =========
+USERS_TABLE = "users"
+USERJOBS_TABLE = "user_jobs"
+USERS_FILE = "users.json"               # local fallback
+USER_JOBS_FILE = "user_jobs_local.json"  # local fallback (per-user statuses)
+JDS_FILE = "jds.json"                    # local fallback (job description text)
+
+
+def _now():
+    import datetime
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def _load_json(path):
+    if os.path.exists(path):
+        try:
+            return json.load(open(path, encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _dump_json(path, obj):
+    json.dump(obj, open(path, "w", encoding="utf-8"))
+
+
+# ---- accounts ----
+def create_user(username, password_hash, resume=""):
+    if using_supabase():
+        resp = requests.post(
+            _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+            data=json.dumps({"username": username, "password_hash": password_hash,
+                             "resume": resume}), timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("create_user %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    users = _load_json(USERS_FILE)
+    users[username] = {"password_hash": password_hash, "resume": resume, "created_at": _now()}
+    _dump_json(USERS_FILE, users)
+
+
+def get_user(username):
+    """Return {username, password_hash, resume, ...} or None."""
+    if using_supabase():
+        r = requests.get(_rest(USERS_TABLE), headers=_headers(),
+                         params={"username": "eq.%s" % username, "select": "*", "limit": 1},
+                         timeout=30)
+        r.raise_for_status()
+        rows = r.json()
+        return rows[0] if rows else None
+    users = _load_json(USERS_FILE)
+    if username in users:
+        u = dict(users[username]); u["username"] = username
+        return u
+    return None
+
+
+def list_users():
+    if using_supabase():
+        r = requests.get(_rest(USERS_TABLE), headers=_headers(),
+                         params={"select": "username,created_at", "order": "created_at"}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    users = _load_json(USERS_FILE)
+    return [{"username": k, "created_at": v.get("created_at", "")} for k, v in users.items()]
+
+
+def _patch_user(username, fields):
+    if using_supabase():
+        resp = requests.patch(
+            _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+            params={"username": "eq.%s" % username}, data=json.dumps(fields), timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("update user %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    users = _load_json(USERS_FILE)
+    if username in users:
+        users[username].update(fields)
+        _dump_json(USERS_FILE, users)
+
+
+def set_user_password(username, password_hash):
+    _patch_user(username, {"password_hash": password_hash})
+
+
+def set_user_resume(username, resume):
+    _patch_user(username, {"resume": resume})
+
+
+def delete_user(username):
+    if using_supabase():
+        for table in (USERJOBS_TABLE, USERS_TABLE):
+            resp = requests.delete(_rest(table), headers=_headers({"Prefer": "return=minimal"}),
+                                   params={"username": "eq.%s" % username}, timeout=30)
+            if resp.status_code >= 400:
+                raise RuntimeError("delete_user %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    users = _load_json(USERS_FILE); users.pop(username, None); _dump_json(USERS_FILE, users)
+    uj = _load_json(USER_JOBS_FILE); uj.pop(username, None); _dump_json(USER_JOBS_FILE, uj)
+
+
+# ---- per-user liked / hidden / applied ----
+def get_user_statuses(username):
+    """{url: status} for THIS user's liked/hidden/applied jobs."""
+    if using_supabase():
+        r = requests.get(_rest(USERJOBS_TABLE), headers=_headers(),
+                         params={"username": "eq.%s" % username, "select": "url,status"}, timeout=30)
+        r.raise_for_status()
+        return {row["url"]: row["status"] for row in r.json() if row.get("status")}
+    return _load_json(USER_JOBS_FILE).get(username, {})
+
+
+def set_user_status(username, url, status):
+    """status: 'liked' | 'hidden' | 'applied' | '' to clear — scoped to one user."""
+    if using_supabase():
+        if status:
+            resp = requests.post(
+                _rest(USERJOBS_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "username,url"},
+                data=json.dumps({"username": username, "url": url, "status": status}), timeout=30)
+        else:
+            resp = requests.delete(
+                _rest(USERJOBS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                params={"username": "eq.%s" % username, "url": "eq.%s" % url}, timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("set_user_status %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    uj = _load_json(USER_JOBS_FILE)
+    d = uj.setdefault(username, {})
+    if status:
+        d[url] = status
+    else:
+        d.pop(url, None)
+    _dump_json(USER_JOBS_FILE, uj)
+
+
+# ---- job description text (shared; lets us score any resume against any job) ----
+def update_jds(jds):
+    """{url: jd_text} -> persist each job's description (used for per-user scoring)."""
+    rows = [{"url": u, "jd": jd} for u, jd in jds.items() if u]
+    if not rows:
+        return
+    if using_supabase():
+        _upsert(rows)            # merges on the `url` primary key
+        return
+    _dump_json(JDS_FILE, jds)
+
+
 if __name__ == "__main__":
     import sys
     if not using_supabase():

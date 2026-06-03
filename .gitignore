@@ -11,6 +11,9 @@ __pycache__/
 jobs.csv
 user_jobs.json
 log.txt
+users.json
+user_jobs_local.json
+jds.json
 
 # os / misc
 .DS_Store
