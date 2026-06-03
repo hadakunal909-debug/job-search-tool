@@ -4,6 +4,7 @@ beautifulsoup4
 lxml
 rapidfuzz
 streamlit
+extra-streamlit-components
 python-docx
 # Cloud storage (Supabase) needs no extra package — db.py uses the REST API via `requests`.
 

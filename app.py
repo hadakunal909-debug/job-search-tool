@@ -14,6 +14,9 @@ Two views:
 import os
 import json
 import hmac
+import time
+import base64
+import hashlib
 import datetime
 import requests
 import streamlit as st
@@ -26,12 +29,64 @@ st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layou
 
 
 # ============================================================
-# Login — per-user accounts (admin-created). Each person has their OWN resume,
-# match scores, and saved jobs. Fails CLOSED (no account => no access).
+# Persistent login — admin-created accounts, kept signed in via a signed cookie so
+# a refresh / idle / Render sleep does NOT log you out (~30 days). Fails CLOSED, and
+# degrades to the normal form if the cookie layer is ever unavailable.
 # ============================================================
+try:
+    import extra_streamlit_components as stx
+    _cookies = stx.CookieManager(key="jm_cookies")
+except Exception:
+    _cookies = None
+
+_COOKIE = "jm_auth"
+
+
+def _cookie_secret():
+    """Stable signing key derived from the Supabase key — no extra env var to manage."""
+    base = os.environ.get("SUPABASE_KEY", "")
+    if not base:
+        try:
+            base = (st.secrets.get("supabase", {}) or {}).get("key", "")
+        except Exception:
+            base = ""
+    base = base or os.environ.get("APP_PASSWORD", "") or "jm-local-dev-secret"
+    return hashlib.sha256(base.encode()).hexdigest()
+
+
+def _make_token(username, days=30):
+    exp = int(time.time()) + days * 86400
+    sig = hmac.new(_cookie_secret().encode(), ("%s|%d" % (username, exp)).encode(),
+                   hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(("%s|%d|%s" % (username, exp, sig)).encode()).decode()
+
+
+def _read_token(token):
+    try:
+        username, exp, sig = base64.urlsafe_b64decode(token.encode()).decode().split("|")
+        good = hmac.new(_cookie_secret().encode(), ("%s|%s" % (username, exp)).encode(),
+                        hashlib.sha256).hexdigest()
+        if hmac.compare_digest(good, sig) and int(exp) > time.time():
+            return username
+    except Exception:
+        pass
+    return None
+
+
 def login_gate() -> bool:
     if st.session_state.get("user"):
         return True
+
+    # already signed in on this browser? restore from the cookie — no re-login
+    if _cookies is not None:
+        try:
+            tok = _cookies.get(_COOKIE)
+            uname = _read_token(tok) if tok else None
+            if uname and db.get_user(uname):
+                st.session_state["user"] = uname
+                return True
+        except Exception:
+            pass
 
     def attempt():
         u = (st.session_state.get("login_user") or "").strip()
@@ -43,7 +98,8 @@ def login_gate() -> bool:
             return
         if rec and auth.verify_password(p, rec.get("password_hash", "")):
             st.session_state["user"] = u
-            st.session_state.pop("login_pw", None)      # don't keep the raw password
+            st.session_state["_set_cookie"] = True       # write cookie after rerun
+            st.session_state.pop("login_pw", None)        # don't keep the raw password
             st.session_state.pop("login_err", None)
         else:
             st.session_state["login_err"] = "bad"
@@ -57,7 +113,8 @@ def login_gate() -> bool:
         st.error("😕 Wrong username or password.")
     elif err:
         st.error(err)
-    st.caption("Accounts are created by the admin — there is no public sign-up.")
+    st.caption("Accounts are created by the admin — no public sign-up. "
+               "You'll stay signed in on this device.")
     return False
 
 
@@ -65,6 +122,14 @@ if not login_gate():
     st.stop()
 
 USER = st.session_state["user"]
+
+# persist the login cookie right after a fresh sign-in (valid ~30 days)
+if st.session_state.pop("_set_cookie", False) and _cookies is not None:
+    try:
+        _cookies.set(_COOKIE, _make_token(USER),
+                     expires_at=datetime.datetime.now() + datetime.timedelta(days=30))
+    except Exception:
+        pass
 PAGE_SIZE = 6
 
 # Load this user's resume once per session (drives match scoring + the Tailor view).
@@ -310,6 +375,11 @@ with _nav:
         default="🎯 Jobs feed", label_visibility="collapsed", key="topnav")
 with _acct:
     if st.button("🚪 Log out (%s)" % USER, use_container_width=True):
+        if _cookies is not None:
+            try:
+                _cookies.delete(_COOKIE)
+            except Exception:
+                pass
         st.session_state.clear()
         st.rerun()
 nav = nav or "🎯 Jobs feed"
