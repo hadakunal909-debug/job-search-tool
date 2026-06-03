@@ -15,6 +15,7 @@ import os
 import json
 import hmac
 import datetime
+import requests
 import streamlit as st
 import core
 import db   # storage layer: Supabase if configured, else local files
@@ -228,6 +229,50 @@ def match_card_html(score):
 
 
 # ============================================================
+# "Update jobs" — kick off the GitHub Actions scraper on demand
+# ============================================================
+GITHUB_REPO = "hadakunal909-debug/job-search-tool"
+SCRAPE_WORKFLOW = "scrape.yml"
+
+
+def _gh_token() -> str:
+    tok = os.environ.get("GH_TOKEN", "")
+    if not tok:
+        try:
+            tok = st.secrets.get("gh_token", "")
+        except Exception:
+            tok = ""
+    return tok
+
+
+def trigger_scrape():
+    """Ask GitHub to run the 'Scrape jobs' workflow now (workflow_dispatch).
+    Returns (ok, message). The heavy scrape runs on GitHub's servers, not here."""
+    token = _gh_token()
+    if not token:
+        return False, ("No GitHub token set, so the button can't start a scrape. Add a "
+                       "GH_TOKEN env var (on Render) or gh_token in .streamlit/secrets.toml "
+                       "(local).")
+    try:
+        r = requests.post(
+            "https://api.github.com/repos/%s/actions/workflows/%s/dispatches"
+            % (GITHUB_REPO, SCRAPE_WORKFLOW),
+            headers={"Authorization": "Bearer %s" % token,
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"},
+            json={"ref": "main"}, timeout=20)
+    except Exception as e:
+        return False, "Couldn't reach GitHub: %s" % e
+    if r.status_code == 204:
+        return True, "ok"
+    if r.status_code in (401, 403):
+        return False, "GitHub rejected the token (it needs Actions: read & write on this repo)."
+    if r.status_code == 404:
+        return False, "Repo or workflow not found (token can't see the repo, or wrong name)."
+    return False, "GitHub returned %s: %s" % (r.status_code, r.text[:200])
+
+
+# ============================================================
 # Sidebar
 # ============================================================
 with st.sidebar:
@@ -238,6 +283,17 @@ with st.sidebar:
     if st.button("🔄 Reload jobs", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+    if st.button("🛰️ Update jobs (scrape now)", use_container_width=True,
+                 help="Runs your cloud scraper on GitHub and writes fresh jobs to the "
+                      "database. Takes a few minutes — then click Reload jobs."):
+        with st.spinner("Starting the scraper on GitHub…"):
+            ok, msg = trigger_scrape()
+        if ok:
+            st.success("Scrape started ✓  Give it ~3–5 min, then click 🔄 Reload jobs.")
+            st.markdown("[Watch progress on GitHub ↗](https://github.com/%s/actions)"
+                        % GITHUB_REPO)
+        else:
+            st.error(msg)
     st.markdown("---")
     if core.ai_available():
         st.success("AI tailoring: enabled")
