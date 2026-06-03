@@ -32,6 +32,8 @@ def check_password() -> bool:
         correct = st.secrets.get("app_password", "")
     except Exception:
         correct = ""
+    if not correct:                       # hosts without a secrets file (e.g. Render)
+        correct = os.environ.get("APP_PASSWORD", "")
 
     def entered():
         attempt = st.session_state.get("pw", "")
@@ -47,8 +49,9 @@ def check_password() -> bool:
     st.title("🔒 Private — sign in")
     st.text_input("Password", type="password", on_change=entered, key="pw")
     if not correct:
-        st.error("No app password is set, so access is locked. Add `app_password` in "
-                 "Streamlit → Settings → Secrets (and in .streamlit/secrets.toml for local runs).")
+        st.error("No app password is set, so access is locked. Set the `APP_PASSWORD` "
+                 "environment variable (on Render/your host), or add `app_password` to "
+                 "`.streamlit/secrets.toml` for local runs.")
     elif "pw_ok" in st.session_state:           # a wrong attempt was made
         st.error("😕 Incorrect password")
     return False
