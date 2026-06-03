@@ -21,7 +21,8 @@ import core
 import db   # storage layer: Supabase if configured, else local files
 import auth  # password hashing for the multi-user login
 
-st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layout="wide",
+                   initial_sidebar_state="expanded")
 
 
 # ============================================================
