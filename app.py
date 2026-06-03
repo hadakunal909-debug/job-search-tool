@@ -162,7 +162,7 @@ def set_action(url, status):
 # ============================================================
 # Data + scoring
 # ============================================================
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="📥 Loading jobs…")
 def get_jobs():
     return db.load_jobs()
 
@@ -188,18 +188,29 @@ def score_for(url, resume_text):
     return core.match_resume(resume_text, jd)[0] if jd else 0
 
 
-@st.cache_data(show_spinner=False)
-def user_scores(resume_text):
-    """{url: match%} for THIS resume, computed from each job's stored JD text.
-    Returns {} when the resume is empty (feed then falls back to the stored score)."""
+def scores_with_progress(resume_text):
+    """{url: match%} for THIS resume, from each job's stored JD text — shown with a
+    live progress bar while (re)computing. Cached in session_state so warm reruns
+    (clicking around the feed) are instant; 🔄 Reload bumps _load_id to force a fresh
+    pass. Returns {} when the resume is empty (feed then falls back to the stored score)."""
     if not (resume_text or "").strip():
         return {}
+    sig = (hashlib.md5(resume_text.encode("utf-8")).hexdigest(),
+           st.session_state.get("_load_id", 0))
+    cached = st.session_state.get("_scorecache")
+    if cached and cached.get("sig") == sig:
+        return cached["scores"]
     idf = _idf()
+    todo = [j for j in get_jobs() if j.get("url") and (j.get("jd") or "").strip()]
+    n = len(todo) or 1
+    bar = st.progress(0.0, text="🎯 Scoring jobs to your résumé… 0%")
     out = {}
-    for j in get_jobs():
-        u, jd = j.get("url", ""), (j.get("jd", "") or "")
-        if u and jd:
-            out[u] = core.skill_match(resume_text, jd, idf)[0]
+    for i, j in enumerate(todo, 1):
+        out[j["url"]] = core.skill_match(resume_text, j["jd"], idf)[0]
+        if i % 25 == 0 or i == n:
+            bar.progress(i / n, text="🎯 Scoring jobs to your résumé… %d%%" % int(100 * i / n))
+    bar.empty()
+    st.session_state["_scorecache"] = {"sig": sig, "scores": out}
     return out
 
 
@@ -475,7 +486,7 @@ def render_feed():
     st.markdown("<div class='feedhdr'>🎯 Jobs</div>", unsafe_allow_html=True)
 
     resume = saved_resume()
-    scores = user_scores(resume)              # {url: match%} for THIS user's resume
+    scores = scores_with_progress(resume)     # {url: match%}; shows a % bar on (re)compute
     if not resume.strip():
         st.info("📄 Add your résumé in **My résumé** (sidebar) to get match scores tailored to you.")
 
@@ -507,6 +518,7 @@ def render_feed():
         h_re, h_up = st.columns(2)
         if h_re.button("🔄 Reload jobs", use_container_width=True):
             st.cache_data.clear()
+            st.session_state["_load_id"] = st.session_state.get("_load_id", 0) + 1
             st.rerun()
         if h_up.button("🛰️ Update jobs (scrape now)", use_container_width=True,
                        help="Runs your cloud scraper on GitHub; ~3–5 min, then Reload."):
