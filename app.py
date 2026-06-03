@@ -297,43 +297,22 @@ def trigger_scrape():
 
 
 # ============================================================
-# Sidebar
+# Top navigation — lives in the MAIN page so it's ALWAYS reachable, regardless of
+# Streamlit's collapsible sidebar (which could hide). Filters + Reload/Update now
+# live in the feed's "⚙️ Filters & tools" drop-down.
 # ============================================================
-with st.sidebar:
-    st.markdown("### 🎯 JobMatch")
-    st.caption("Signed in as **%s**" % USER)
-    if st.button("Log out", use_container_width=True):
+st.markdown("<div style='font-weight:800;font-size:20px;color:#10261D;'>🎯 JobMatch</div>",
+            unsafe_allow_html=True)
+_nav, _acct = st.columns([3.4, 1])
+with _nav:
+    nav = st.segmented_control(
+        "Go to", ["🎯 Jobs feed", "📄 My résumé", "🏢 Sponsor careers"],
+        default="🎯 Jobs feed", label_visibility="collapsed", key="topnav")
+with _acct:
+    if st.button("🚪 Log out (%s)" % USER, use_container_width=True):
         st.session_state.clear()
         st.rerun()
-    nav = st.radio("Go to", ["🎯 Jobs feed", "📄 My résumé", "🏢 Sponsor careers"],
-                   label_visibility="collapsed")
-    if st.button("🔄 Reload jobs", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-    if st.button("🛰️ Update jobs (scrape now)", use_container_width=True,
-                 help="Runs your cloud scraper on GitHub and writes fresh jobs to the "
-                      "database. Takes a few minutes — then click Reload jobs."):
-        with st.spinner("Starting the scraper on GitHub…"):
-            ok, msg = trigger_scrape()
-        if ok:
-            st.success("Scrape started ✓  Give it ~3–5 min, then click 🔄 Reload jobs.")
-            st.markdown("[Watch progress on GitHub ↗](https://github.com/%s/actions)"
-                        % GITHUB_REPO)
-        else:
-            st.error(msg)
-    st.markdown("---")
-    if core.ai_available():
-        st.success("AI tailoring: enabled")
-    else:
-        st.info("AI tailoring is off. To enable: `pip install anthropic`, set "
-                "`ANTHROPIC_API_KEY`, and restart.")
-    st.caption("Match % = the share of each job's skills **your résumé** covers "
-               "(set it in 📄 My résumé).")
-    st.markdown("---")
-    min_match = st.slider("Minimum match %", 0, 100, 45, step=5,
-                          help="Hide jobs whose ATS keyword-match is below this (Recommended tab).")
-    date_posted = st.selectbox("Date posted",
-                               ["Any time", "Past 24 hours", "Past week", "Past month"])
+nav = nav or "🎯 Jobs feed"
 
 
 jobs_all = get_jobs()
@@ -448,6 +427,26 @@ def render_feed():
     sort = c3.selectbox("Sort", ["Best match", "Newest", "Oldest", "Company A-Z"],
                         label_visibility="collapsed")
     h1b_only = c4.toggle("H1B only")
+
+    with st.expander("⚙️ Filters & tools"):
+        g1, g2 = st.columns(2)
+        min_match = g1.slider("Minimum match %", 0, 100, 45, step=5,
+                              help="Hide jobs whose match is below this (Recommended tab).")
+        date_posted = g2.selectbox("Date posted",
+                                   ["Any time", "Past 24 hours", "Past week", "Past month"])
+        h_re, h_up = st.columns(2)
+        if h_re.button("🔄 Reload jobs", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        if h_up.button("🛰️ Update jobs (scrape now)", use_container_width=True,
+                       help="Runs your cloud scraper on GitHub; ~3–5 min, then Reload."):
+            with st.spinner("Starting the scraper on GitHub…"):
+                ok, msg = trigger_scrape()
+            if ok:
+                st.success("Scrape started ✓  ~3–5 min, then 🔄 Reload jobs.")
+                st.markdown("[Watch on GitHub ↗](https://github.com/%s/actions)" % GITHUB_REPO)
+            else:
+                st.error(msg)
 
     # pick the list for the active tab
     by_status = {"Liked": liked, "Applied": applied, "Hidden": hidden}
