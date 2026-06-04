@@ -155,6 +155,7 @@ SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
 SPONSORS_FILE = "sponsors.txt"    # OPTIONAL: one employer name per line (DOL H1B data)
+RESUME_FILE   = "resume.txt"      # résumé-driven scraping reads this to tune the search
 
 # Keep a posting only if its TITLE matches one of these (whole word/phrase, not
 # substring). Specific phrases keep precision: "program manager" matches, but
@@ -457,6 +458,43 @@ _INCLUDE_RE = _make_matcher(INCLUDE)
 _EXCLUDE_RE = _make_matcher(EXCLUDE)
 
 
+# ---- résumé-driven terms: tune the scrape toward YOUR resume (purely additive) ----
+# Map a detected résumé skill -> extra role phrases to also look for. These get added
+# to the title filter AND the Amazon/Workday search queries, on top of the base lists.
+SKILL_TO_TERMS = {
+    "project management": ("project manager", "project coordinator"),
+    "program management": ("program manager", "program coordinator"),
+    "requirements / business analysis": ("business analyst", "business systems analyst"),
+    "data analysis": ("data analyst",),
+    "reporting & dashboards": ("reporting analyst",),
+    "operations": ("operations analyst", "operations coordinator"),
+    "agile / scrum": ("scrum master",),
+    "process improvement": ("business process analyst",),
+    "change management": ("change management",),
+    "product & roadmap": ("product manager", "associate product manager"),
+    "customer success": ("implementation specialist", "implementation consultant"),
+    "vendor & procurement": ("procurement analyst",),
+    "quality assurance": ("quality analyst",),
+    "budgeting & cost": ("financial analyst",),
+}
+
+
+def resume_terms(path=RESUME_FILE):
+    """Extra role phrases derived from YOUR resume's detected skills. They AUGMENT the
+    base INCLUDE filter + the Amazon/Workday queries (nothing is removed), so scraping
+    leans toward your background. Returns [] if resume.txt is missing/unreadable."""
+    if not os.path.exists(path):
+        return []
+    try:
+        text = open(path, encoding="utf-8").read()
+    except Exception:
+        return []
+    terms = set()
+    for skill in core.skills_in(text):
+        terms.update(SKILL_TO_TERMS.get(skill, ()))
+    return sorted(terms)
+
+
 def title_verdict(title):
     """Judge a posting by its TITLE alone. Returns (keep, reason) so a VERBOSE run
     shows exactly why each title survived or was dropped — makes tuning easy."""
@@ -629,6 +667,16 @@ def main():
     else:
         print(f"No {SPONSORS_FILE} found — keeping all entry-level jobs, "
               f"sponsor status marked 'unknown'.")
+
+    extra = resume_terms()
+    if extra:
+        global _INCLUDE_RE, AMAZON_QUERIES, WORKDAY_QUERIES
+        _INCLUDE_RE = _make_matcher(tuple(INCLUDE) + tuple(extra))   # broaden the title keep-filter
+        AMAZON_QUERIES = tuple(dict.fromkeys(AMAZON_QUERIES + tuple(extra)))     # + Amazon searches
+        WORKDAY_QUERIES = tuple(dict.fromkeys(WORKDAY_QUERIES + tuple(extra)))   # + Workday searches
+        print("Résumé-driven (%s): also searching %s" % (RESUME_FILE, ", ".join(extra)))
+    else:
+        print("No %s found — using the base role filter only." % RESUME_FILE)
 
     seen = db.existing_urls()
     scraped = scrape_all(SOURCES)
