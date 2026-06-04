@@ -273,6 +273,14 @@ div[data-testid="stButton"] > button {border-radius:20px; border:1px solid #dde5
        padding:.28rem .85rem; font-size:13px;}
 div[data-testid="stButton"] > button:hover {border-color:#16C47F; color:#0f7a52;}
 div[data-testid="stLinkButton"] > a {border-radius:20px;}
+/* compact match chip (replaces the big dark match card -> denser cards) */
+.mchip {border:2px solid; border-radius:14px; padding:8px 4px; text-align:center; background:#F7FBF9;}
+.mchip-pct {font-weight:800; font-size:22px; line-height:1;}
+.mchip-pct span {font-size:10px; font-weight:700;}
+.mchip-lab {font-size:9px; font-weight:800; color:#6b7a74; letter-spacing:.04em;
+            text-transform:uppercase; margin-top:3px;}
+.jtitle {font-size:16.5px;}
+.chip {font-size:11.5px; padding:2px 9px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -317,15 +325,14 @@ def badges_html(job):
 
 def match_card_html(score):
     if score >= 55:
-        color, label = "#16C47F", "STRONG MATCH"
+        color, label = "#0f9d63", "Strong"
     elif score >= 42:
-        color, label = "#2FA8E0", "GOOD MATCH"
+        color, label = "#2FA8E0", "Good"
     else:
-        color, label = "#E0913B", "FAIR MATCH"
-    return f"""<div class="matchcard">
-      <div class="ring" style="background:conic-gradient({color} {score * 3.6}deg, #24463c 0)">
-        <div class="hole">{score}<span>%</span></div></div>
-      <div class="mlabel">{label}</div></div>"""
+        color, label = "#E0913B", "Fair"
+    return (f"<div class='mchip' style='border-color:{color}'>"
+            f"<div class='mchip-pct' style='color:{color}'>{score}<span>%</span></div>"
+            f"<div class='mchip-lab'>{label} match</div></div>")
 
 
 # ============================================================
@@ -379,6 +386,8 @@ def trigger_scrape():
 # ============================================================
 st.markdown("<div style='font-weight:800;font-size:20px;color:#10261D;'>🎯 JobMatch</div>",
             unsafe_allow_html=True)
+if st.session_state.pop("_goto_resume", False):   # "Add résumé" CTA → jump to that tab
+    st.session_state["topnav"] = "📄 My résumé"
 _nav, _acct = st.columns([3.4, 1])
 with _nav:
     nav = st.segmented_control(
@@ -488,7 +497,13 @@ def render_feed():
     resume = saved_resume()
     scores = scores_with_progress(resume)     # {url: match%}; shows a % bar on (re)compute
     if not resume.strip():
-        st.info("📄 Add your résumé in **My résumé** (sidebar) to get match scores tailored to you.")
+        b_msg, b_btn = st.columns([3.2, 1])
+        b_msg.warning("📄 Scores below are **baseline**. Add your résumé to tailor every match to you.")
+        if b_btn.button("➕ Add résumé", use_container_width=True, type="primary", key="add_resume_cta"):
+            st.session_state["_goto_resume"] = True
+            st.rerun()
+    else:
+        st.caption("🎯 Match % is personalized to your résumé.")
 
     hidden = {u for u, s in actions.items() if s == "hidden"}
     liked = {u for u, s in actions.items() if s == "liked"}
@@ -589,8 +604,15 @@ def render_feed():
     jobs = _dedup
 
     if not jobs:
-        st.info("No jobs at or above this match %. Lower 'Minimum match %' in the sidebar, "
-                "or clear the search / role filters.")
+        if view == "Liked":
+            st.info("💚 No liked jobs yet — tap ♡ on a job to save it here.")
+        elif view == "Applied":
+            st.info("📨 Nothing marked applied yet — open a job and hit **Mark as applied**.")
+        elif view == "Hidden":
+            st.info("🙈 No hidden jobs.")
+        else:
+            st.info("No jobs match these filters. Lower **Minimum match %** in ⚙️ Filters & tools, "
+                    "or clear the search / role pills.")
         return
 
     visible = jobs[: st.session_state.visible]
@@ -605,7 +627,7 @@ def render_feed():
     for i, job in enumerate(visible):
         url = job.get("url", "")
         with st.container(border=True):
-            a, mid, ring = st.columns([0.55, 3.3, 1.3])
+            a, mid, ring = st.columns([0.5, 3.7, 1.0])
             a.markdown(avatar_html(job.get("company", "")), unsafe_allow_html=True)
             with mid:
                 ago = time_ago(job.get("found_date", ""))
