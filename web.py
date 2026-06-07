@@ -355,11 +355,16 @@ def resume():
 
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
-_ai_keys = {}            # username -> Gemini API key, IN MEMORY ONLY (never persisted)
+def _ai_key_for(_user=None):
+    """The Gemini key to use: the one saved in THIS user's session (a signed, HttpOnly
+    cookie that lasts ~30 days, so it survives app restarts), else GEMINI_API_KEY from
+    the server env. Enter it once — no need to retype it every time."""
+    return session.get("gemini_key") or os.environ.get("GEMINI_API_KEY")
 
 
-def _ai_key_for(user):
-    return _ai_keys.get(user) or os.environ.get("GEMINI_API_KEY")
+def _save_ai_key(key):
+    session["gemini_key"] = key
+    session.permanent = True       # ride the 30-day login cookie
 
 
 @app.route("/tailor")
@@ -389,7 +394,7 @@ def tailor_ai():
     url = request.form.get("url", "")
     key_in = (request.form.get("api_key") or "").strip()
     if key_in:
-        _ai_keys[user] = key_in
+        _save_ai_key(key_in)
     key = _ai_key_for(user)
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
@@ -425,7 +430,7 @@ def api_tailor():
     url = (data.get("url") or "").strip()
     key_in = (data.get("api_key") or "").strip()
     if key_in:
-        _ai_keys[session["user"]] = key_in
+        _save_ai_key(key_in)
     key = _ai_key_for(session["user"])
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
