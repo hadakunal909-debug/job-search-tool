@@ -91,6 +91,33 @@ def _inject():
     return {"current_user": session.get("user")}
 
 
+# --- company logo helpers (Clearbit logo by domain, with a letter-avatar fallback) ---
+_DOMAIN_MAP = {
+    "harvard university": "harvard.edu", "university of washington": "washington.edu",
+    "university of wisconsin system": "wisc.edu", "northeastern university": "northeastern.edu",
+    "rochester institute of technology": "rit.edu", "dana-farber cancer institute": "dana-farber.org",
+    "h&r block": "hrblock.com", "scale ai": "scale.com", "notion": "notion.so",
+    "new relic": "newrelic.com", "people tech group": "peopletech.com",
+    "avery dennison": "averydennison.com", "s&p global": "spglobal.com",
+    "toyota motor north america": "toyota.com", "university of south florida": "usf.edu",
+}
+_PALETTE = ["#0e8a5f", "#2c5bd6", "#b8730a", "#7c3aed", "#c0392b", "#0c7a8a", "#b03060", "#475569"]
+
+
+@app.template_filter("logodomain")
+def logodomain(name):
+    key = (name or "").strip().lower()
+    if key in _DOMAIN_MAP:
+        return _DOMAIN_MAP[key]
+    base = re.sub(r"[^a-z0-9]", "", key)        # join words -> best-effort guess
+    return (base or "example") + ".com"
+
+
+@app.template_filter("logocolor")
+def logocolor(name):
+    return _PALETTE[sum(ord(c) for c in (name or "x")) % len(_PALETTE)]
+
+
 # ----------------------------- auth -----------------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
