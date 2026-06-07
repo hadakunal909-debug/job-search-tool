@@ -496,13 +496,12 @@ def resume_to_docx_bytes(text):
 # (needs `pip install anthropic` and ANTHROPIC_API_KEY set)
 # ------------------------------------------------------------
 def ai_available():
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    """True if an AI key is configured server-side (Gemini preferred, Anthropic optional)."""
+    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key) if api_key else Anthropic()  # else reads the env var
-    prompt = (
+def _tailor_prompt(resume_text, jd_text):
+    return (
         "You are helping a job seeker tailor their resume to one specific job "
         "description. Rewrite the resume so it surfaces the experience and skills "
         "most relevant to the job and mirrors the job's terminology WHERE THE "
@@ -512,13 +511,93 @@ def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
         "- Only reorder, reword, and re-emphasize what is already in the resume.\n"
         "- Keep it concise, truthful, and ATS-friendly.\n"
         "- Return ONLY the revised resume text, no commentary.\n\n"
-        f"=== JOB DESCRIPTION ===\n{jd_text}\n\n"
-        f"=== CURRENT RESUME ===\n{resume_text}\n\n"
-        "=== REVISED RESUME ==="
+        "=== JOB DESCRIPTION ===\n%s\n\n"
+        "=== CURRENT RESUME ===\n%s\n\n"
+        "=== REVISED RESUME ===" % (jd_text, resume_text)
     )
+
+
+# ---- Gemini (Google AI Studio) via REST — no SDK needed, just `requests` ----
+GEMINI_DEFAULT_MODEL = "gemini-2.0-flash"
+_gemini_model_cache = {}
+
+
+def _gemini_list_models(api_key):
+    """Model short-names that support generateContent (e.g. 'gemini-2.0-flash')."""
+    r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
+                     params={"key": api_key}, headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    return [(m.get("name") or "").split("/")[-1] for m in r.json().get("models", [])
+            if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+
+
+def _gemini_resolve_model(api_key, preferred=None):
+    """Pick a chat model. Honors `preferred`/GEMINI_MODEL; otherwise asks the API and
+    prefers the newest stable flash (cheap), then pro. Falls back to a default. Cached."""
+    pref = preferred or os.environ.get("GEMINI_MODEL")
+    if pref:
+        return pref
+    if _gemini_model_cache.get("m"):
+        return _gemini_model_cache["m"]
+    chosen = GEMINI_DEFAULT_MODEL
+    try:
+        def ok(m):
+            bad = ("vision", "thinking", "tts", "image", "audio", "embedding", "exp",
+                   "preview", "learnlm", "aqa", "gemma")
+            return bool(m) and not any(b in m for b in bad)
+        models = _gemini_list_models(api_key)
+        flash = sorted([m for m in models if "flash" in m and ok(m)], reverse=True)
+        pro = sorted([m for m in models if "pro" in m and ok(m)], reverse=True)
+        chosen = (flash or pro or [m for m in models if ok(m)] or [GEMINI_DEFAULT_MODEL])[0]
+    except Exception:
+        pass
+    _gemini_model_cache["m"] = chosen
+    return chosen
+
+
+def tailor_with_gemini(resume_text, jd_text, api_key, model=None):
+    """Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/
+    reword only. `api_key` = a Google AI Studio key (starts 'AIza'). Returns new text."""
+    if not api_key:
+        raise RuntimeError("No Gemini API key provided.")
+    prompt = _tailor_prompt(resume_text, jd_text)
+    mdl = _gemini_resolve_model(api_key, model)
+
+    def _call(m):
+        url = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % m
+        body = {"contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.4}}
+        return requests.post(url, params={"key": api_key}, json=body, timeout=60)
+
+    r = _call(mdl)
+    if r.status_code == 404 and not (model or os.environ.get("GEMINI_MODEL")):
+        _gemini_model_cache.pop("m", None)                  # stale model -> rediscover once
+        try:
+            mdl = _gemini_resolve_model(api_key)
+            r = _call(mdl)
+        except Exception:
+            pass
+    if r.status_code >= 400:
+        raise RuntimeError("Gemini API %s: %s" % (r.status_code, (r.text or "")[:200]))
+    data = r.json()
+    cands = data.get("candidates") or []
+    if not cands:
+        raise RuntimeError("Gemini returned no text (possibly blocked): %s"
+                           % str(data.get("promptFeedback") or "")[:150])
+    parts = ((cands[0].get("content") or {}).get("parts")) or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    if not text:
+        raise RuntimeError("Gemini returned an empty response.")
+    return text
+
+
+def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
+    """Anthropic/Claude variant — used only if you switch to an Anthropic key."""
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key) if api_key else Anthropic()  # else reads the env var
     msg = client.messages.create(
         model=model,
         max_tokens=4096,                       # headroom for a full résumé rewrite
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": _tailor_prompt(resume_text, jd_text)}],
     )
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
