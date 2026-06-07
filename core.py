@@ -502,28 +502,40 @@ def ai_available():
 
 def _tailor_prompt(resume_text, jd_text):
     return (
-        "You are helping a job seeker tailor their resume to one specific job "
-        "description. Rewrite the resume so it surfaces the experience and skills "
-        "most relevant to the job and mirrors the job's terminology WHERE THE "
-        "CANDIDATE GENUINELY HAS THAT EXPERIENCE.\n\n"
-        "Hard rules:\n"
-        "- Do NOT invent or exaggerate experience, employers, titles, dates, or metrics.\n"
-        "- Only reorder, reword, and re-emphasize what is already in the resume.\n"
-        "- Keep it concise, truthful, and ATS-friendly.\n"
-        "- Return ONLY the revised resume text, no commentary.\n\n"
-        "=== JOB DESCRIPTION ===\n%s\n\n"
-        "=== CURRENT RESUME ===\n%s\n\n"
-        "=== REVISED RESUME ===" % (jd_text, resume_text)
+        "You are an expert resume writer and career coach. Tailor the candidate's resume "
+        "to ONE specific job and produce the strongest possible version of THIS "
+        "candidate's resume for THIS job.\n\n"
+        "Do this:\n"
+        "1. Lead with and emphasize the experience, projects, and skills most relevant to "
+        "the job's requirements.\n"
+        "2. Mirror the job description's exact terminology and keywords (titles, tools, "
+        "methodologies, skills) wherever the candidate genuinely has that experience — this "
+        "helps pass ATS keyword screening.\n"
+        "3. Rewrite bullet points to start with strong action verbs; keep and surface any "
+        "quantified results already in the resume.\n"
+        "4. Fold the job's must-have skills that the candidate actually has into the Skills "
+        "section.\n"
+        "5. Keep every real section (contact, summary, experience, education, skills) and all "
+        "true content; keep it concise and ATS-friendly (plain text, standard headers).\n\n"
+        "Hard rules (must follow):\n"
+        "- NEVER invent or exaggerate experience, employers, titles, dates, degrees, metrics, "
+        "or skills the candidate does not have. Truthful reorder/reword only.\n"
+        "- Do not list skills the resume doesn't support.\n"
+        "- Output ONLY the finished resume text — no preamble, notes, or explanation.\n\n"
+        "=== TARGET JOB DESCRIPTION ===\n%s\n\n"
+        "=== CANDIDATE'S CURRENT RESUME ===\n%s\n\n"
+        "=== TAILORED RESUME (output only this) ===" % (jd_text, resume_text)
     )
 
 
 # ---- Gemini (Google AI Studio) via REST — no SDK needed, just `requests` ----
-GEMINI_DEFAULT_MODEL = "gemini-2.0-flash"
-_gemini_model_cache = {}
+# Default to Gemini Flash 3.5 (best Flash quality). If that exact id isn't on the key it
+# auto-falls back to the best available Flash. Override with the GEMINI_MODEL env var.
+GEMINI_DEFAULT_MODEL = "gemini-3.5-flash"
 
 
 def _gemini_list_models(api_key):
-    """Model short-names that support generateContent (e.g. 'gemini-2.0-flash')."""
+    """Model short-names that support generateContent (e.g. 'gemini-3.5-flash')."""
     r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
                      params={"key": api_key}, headers=HEADERS, timeout=20)
     r.raise_for_status()
@@ -531,52 +543,47 @@ def _gemini_list_models(api_key):
             if "generateContent" in (m.get("supportedGenerationMethods") or [])]
 
 
-def _gemini_resolve_model(api_key, preferred=None):
-    """Pick a chat model. Honors `preferred`/GEMINI_MODEL; otherwise asks the API and
-    prefers the newest stable flash (cheap), then pro. Falls back to a default. Cached."""
-    pref = preferred or os.environ.get("GEMINI_MODEL")
-    if pref:
-        return pref
-    if _gemini_model_cache.get("m"):
-        return _gemini_model_cache["m"]
-    chosen = GEMINI_DEFAULT_MODEL
+def _gemini_discover(api_key):
+    """Best available stable Flash (then Pro) model — used only if the preferred id 404s."""
     try:
         def ok(m):
-            bad = ("vision", "thinking", "tts", "image", "audio", "embedding", "exp",
+            bad = ("vision", "tts", "image", "audio", "embedding", "exp",
                    "preview", "learnlm", "aqa", "gemma")
             return bool(m) and not any(b in m for b in bad)
         models = _gemini_list_models(api_key)
         flash = sorted([m for m in models if "flash" in m and ok(m)], reverse=True)
         pro = sorted([m for m in models if "pro" in m and ok(m)], reverse=True)
-        chosen = (flash or pro or [m for m in models if ok(m)] or [GEMINI_DEFAULT_MODEL])[0]
+        return (flash or pro or [m for m in models if ok(m)] or [GEMINI_DEFAULT_MODEL])[0]
     except Exception:
-        pass
-    _gemini_model_cache["m"] = chosen
-    return chosen
+        return GEMINI_DEFAULT_MODEL
 
 
 def tailor_with_gemini(resume_text, jd_text, api_key, model=None):
-    """Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/
-    reword only. `api_key` = a Google AI Studio key (starts 'AIza'). Returns new text."""
+    """Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword
+    only. Uses Gemini Flash 3.5 with dynamic 'thinking' ON for a stronger result (slower +
+    more tokens — by design). `api_key` = a Google AI Studio key (starts 'AIza')."""
     if not api_key:
         raise RuntimeError("No Gemini API key provided.")
     prompt = _tailor_prompt(resume_text, jd_text)
-    mdl = _gemini_resolve_model(api_key, model)
+    mdl = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
 
-    def _call(m):
-        url = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % m
-        body = {"contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.4}}
-        return requests.post(url, params={"key": api_key}, json=body, timeout=60)
+    def _call(m, think=True):
+        gen = {"maxOutputTokens": 8192, "temperature": 0.45}
+        if think:
+            gen["thinkingConfig"] = {"thinkingBudget": -1}      # dynamic: reason as long as helpful
+        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
+        return requests.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % m,
+            params={"key": api_key}, json=body, timeout=120)
 
     r = _call(mdl)
-    if r.status_code == 404 and not (model or os.environ.get("GEMINI_MODEL")):
-        _gemini_model_cache.pop("m", None)                  # stale model -> rediscover once
-        try:
-            mdl = _gemini_resolve_model(api_key)
+    if r.status_code == 404:                                # preferred model not on this key
+        alt = _gemini_discover(api_key)
+        if alt and alt != mdl:
+            mdl = alt
             r = _call(mdl)
-        except Exception:
-            pass
+    if r.status_code == 400 and "think" in (r.text or "").lower():
+        r = _call(mdl, think=False)                         # model doesn't accept thinkingConfig
     if r.status_code >= 400:
         raise RuntimeError("Gemini API %s: %s" % (r.status_code, (r.text or "")[:200]))
     data = r.json()
@@ -587,7 +594,7 @@ def tailor_with_gemini(resume_text, jd_text, api_key, model=None):
     parts = ((cands[0].get("content") or {}).get("parts")) or []
     text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
     if not text:
-        raise RuntimeError("Gemini returned an empty response.")
+        raise RuntimeError("Gemini returned an empty response (try again).")
     return text
 
 
