@@ -15,6 +15,16 @@
     <label class="rng">Min match <b id="minlab">{{ default_min }}</b>%
       <input id="min" type="range" min="0" max="100" value="{{ default_min }}">
     </label>
+    <select id="sort" class="sel" title="Sort by">
+      <option value="score">Sort: Best match</option>
+      <option value="newest">Sort: Newest</option>
+    </select>
+    <select id="date" class="sel" title="Posted within">
+      <option value="any">Any time</option>
+      <option value="1">Past 24 hours</option>
+      <option value="7">Past 7 days</option>
+      <option value="30">Past 30 days</option>
+    </select>
   </div>
   <div class="tabs">
     <button class="tab on" data-tab="recommended">Recommended</button>
@@ -32,6 +42,7 @@
 <div id="feed" class="feedgrid">
 {% for j in jobs %}
 <article class="card" data-status="{{ j.status }}" data-score="{{ j.score }}" data-url="{{ j.url }}"
+     data-date="{{ j.found_date[:10] if j.found_date else '' }}"
      data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
   <div class="cardtop">
     <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img src="https://logo.clearbit.com/{{ j.company|logodomain }}" alt="" loading="lazy" onerror="this.remove()"></div>
