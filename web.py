@@ -354,7 +354,14 @@ def resume():
     return render_template("resume.html", resume=session.get("resume", ""))
 
 
-# ----------------------------- tailor (keyword gaps) -----------------------------
+# ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
+_ai_keys = {}            # username -> Anthropic API key, IN MEMORY ONLY (never persisted)
+
+
+def _ai_key_for(user):
+    return _ai_keys.get(user) or os.environ.get("ANTHROPIC_API_KEY")
+
+
 @app.route("/tailor")
 @login_required
 def tailor():
@@ -368,7 +375,48 @@ def tailor():
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     return render_template("tailor.html", job=job, score=int(score or 0),
-                           have=have, missing=missing, has_resume=bool(resume))
+                           have=have, missing=missing, has_resume=bool(resume),
+                           tailored="", ai_err="", ai_ready=bool(_ai_key_for(session["user"])))
+
+
+@app.route("/tailor/ai", methods=["POST"])
+@login_required
+def tailor_ai():
+    """Rewrite the résumé for this job with Claude (truthful reorder/reword). Uses
+    ANTHROPIC_API_KEY from the environment, or a key the user pastes (held in memory
+    for the session only — never written to the DB or the cookie)."""
+    user = session["user"]
+    url = request.form.get("url", "")
+    key_in = (request.form.get("api_key") or "").strip()
+    if key_in:
+        _ai_keys[user] = key_in
+    key = _ai_key_for(user)
+    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    if not job:
+        return redirect(url_for("feed"))
+    resume = session.get("resume", "")
+    jd = job.get("jd", "") or ""
+    if resume and jd:
+        score, have, missing = core.skill_match(resume, jd, core.load_idf())
+    else:
+        score, have, missing = job.get("match_score") or 0, [], []
+    tailored, ai_err = "", ""
+    if not resume:
+        ai_err = "Add your résumé first (📄 My résumé), then tailor it here."
+    elif not jd:
+        ai_err = "No job description stored for this role yet — open Apply to read it on the company site."
+    elif not key:
+        ai_err = "Paste an Anthropic API key below (or set ANTHROPIC_API_KEY on the server) to enable AI tailoring."
+    else:
+        try:
+            tailored = core.tailor_with_ai(resume, jd, api_key=key)
+        except ImportError:
+            ai_err = "The 'anthropic' package isn't installed on the server (pip install anthropic)."
+        except Exception as e:
+            ai_err = "AI tailoring failed: %s" % str(e)[:200]
+    return render_template("tailor.html", job=job, score=int(score or 0), have=have,
+                           missing=missing, has_resume=bool(resume),
+                           tailored=tailored, ai_err=ai_err, ai_ready=bool(key))
 
 
 # ----------------------------- sponsor careers -----------------------------

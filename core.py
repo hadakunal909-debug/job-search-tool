@@ -499,9 +499,9 @@ def ai_available():
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def tailor_with_ai(resume_text, jd_text, model=AI_MODEL):
+def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
     from anthropic import Anthropic
-    client = Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+    client = Anthropic(api_key=api_key) if api_key else Anthropic()  # else reads the env var
     prompt = (
         "You are helping a job seeker tailor their resume to one specific job "
         "description. Rewrite the resume so it surfaces the experience and skills "
