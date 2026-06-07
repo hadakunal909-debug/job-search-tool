@@ -1,0 +1,60 @@
+:root{--g:#0e8a5f;--g2:#10261d;--bg:#f3f7f4;--card:#fff;--line:#e3ebe6;--muted:#6b7280}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#10261d}
+a{color:var(--g);text-decoration:none}
+main{max-width:880px;margin:0 auto;padding:18px}
+h1{font-size:24px;margin:8px 0}
+.sub{color:var(--muted);margin:0 0 14px}
+.topbar{display:flex;align-items:center;gap:16px;background:var(--g2);color:#fff;padding:10px 18px;flex-wrap:wrap}
+.topbar .brand{font-weight:800}
+.topbar nav{display:flex;gap:14px;flex:1;flex-wrap:wrap}
+.topbar nav a{color:#cfe9dd}
+.topbar nav a:hover{color:#fff}
+.acct{display:flex;align-items:center;gap:10px}
+.who{color:#9fd3bf;font-size:13px}
+.btn{display:inline-block;border:1px solid var(--line);background:#fff;color:var(--g2);padding:7px 12px;border-radius:8px;font-size:14px;cursor:pointer}
+.btn:hover{border-color:var(--g)}
+.btn.primary{background:var(--g);color:#fff;border-color:var(--g)}
+.topbar .btn{background:transparent;color:#fff;border-color:#3a5a4c}
+.flash{background:#e8f6ef;border:1px solid #bfe6d3;color:#0e5e42;padding:10px 12px;border-radius:8px;margin-bottom:14px}
+.login{max-width:340px;margin:8vh auto;text-align:center}
+.login form{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+input,textarea{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:8px;width:100%}
+textarea{resize:vertical}
+.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.filters input[name=q]{flex:1;min-width:160px}
+.rng{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.tabs{display:flex;gap:8px;margin:10px 0}
+.tab{padding:6px 12px;border-radius:20px;background:#fff;border:1px solid var(--line);font-size:14px}
+.tab.on{background:var(--g);color:#fff;border-color:var(--g)}
+.banner{background:#fff7e6;border:1px solid #ffe2a8;padding:9px 12px;border-radius:8px;margin:10px 0;font-size:14px}
+.count{color:var(--muted);font-size:13px;margin:8px 0}
+.card{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.cardmain{flex:1;min-width:0}
+.ctitle{font-weight:700}
+.cmeta{color:var(--muted);font-size:13px;margin-top:2px}
+.chip{min-width:54px;text-align:center;font-weight:800;padding:8px 6px;border-radius:10px;font-size:14px}
+.chip.strong{background:#dff5e9;color:#0c7a52}
+.chip.good{background:#eef7df;color:#5b7a14}
+.chip.low{background:#f0f0f2;color:#8a8a96}
+.chip.big{display:inline-block;font-size:18px;padding:10px 14px;margin:8px 0}
+.h1b{background:#e7eefc;color:#2c5bd6;font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;margin-left:6px}
+.cardact{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.inline{display:inline-flex;gap:4px;margin:0}
+.ico{border:none;background:transparent;font-size:18px;cursor:pointer;padding:2px}
+.empty{background:#fff;border:1px dashed var(--line);border-radius:12px;padding:30px;text-align:center;color:var(--muted)}
+.careers h2{font-size:18px;margin:16px 0 6px}.careers h3{font-size:15px;margin:12px 0 4px}
+.careers li{list-style:none;margin:3px 0}
+.addform{display:flex;flex-direction:column;gap:10px;max-width:560px}
+.result{padding:10px 12px;border-radius:8px;margin:10px 0}
+.result.ok{background:#e8f6ef;border:1px solid #bfe6d3;color:#0e5e42}
+.result.err{background:#fdeaea;border:1px solid #f5c2c2;color:#9b1c1c}
+.result.info,.result.sql{background:#eef3fb;border:1px solid #c9d8f0;color:#274690}
+pre{background:#0e261d;color:#cfe9dd;padding:10px;border-radius:8px;overflow:auto;font-size:12px}
+.brow{display:flex;align-items:center;gap:12px;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0;background:#fff}
+.muted{color:var(--muted);font-size:12px}
+.kw{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:13px;padding:4px 9px;border-radius:14px}
+.tag.miss{background:#fdeaea;color:#9b1c1c}
+.tag.have{background:#e8f6ef;color:#0e5e42}
+.back{font-size:13px}

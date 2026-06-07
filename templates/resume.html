@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>📄 My résumé</h1>
+<p class="sub">Paste your résumé as plain text. Each job's match % is how many of its key skills your résumé covers — keep it current. Only you can see it.</p>
+<form method="post">
+  <textarea name="resume" rows="22" placeholder="Paste your résumé here…">{{ resume }}</textarea>
+  <button class="btn primary" type="submit">💾 Save résumé</button>
+</form>
+{% endblock %}

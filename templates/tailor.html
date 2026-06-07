@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<a class="back" href="{{ url_for('feed') }}">← Back to feed</a>
+<h1>{{ job.title }}</h1>
+<div class="cmeta">{{ job.company }} · {{ job.location or 'n/a' }}
+  {% if job.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
+<div class="chip big {{ 'strong' if score>=55 else ('good' if score>=42 else 'low') }}">{{ score }}% ATS match</div>
+{% if not has_resume %}
+  <div class="banner"><a href="{{ url_for('resume') }}">Add your résumé</a> to see your keyword gaps.</div>
+{% endif %}
+{% if missing %}
+  <h3>Add these to your résumé ({{ missing|length }})</h3>
+  <div class="kw">{% for k in missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
+{% endif %}
+{% if have %}
+  <h3>Skills you already match ({{ have|length }})</h3>
+  <div class="kw">{% for k in have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
+{% endif %}
+<p style="margin-top:18px"><a class="btn primary" href="{{ job.url }}" target="_blank" rel="noopener">Apply ↗</a></p>
+{% endblock %}

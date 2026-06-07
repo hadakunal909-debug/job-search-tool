@@ -1,0 +1,7 @@
+# cPanel / Flask deployment deps (NOT streamlit — that can't run on shared cPanel).
+# In the Python App: Configuration files -> add this filename -> Run Pip Install.
+flask
+requests
+beautifulsoup4
+lxml
+rapidfuzz
