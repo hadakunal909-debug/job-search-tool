@@ -1,4 +1,4 @@
-// Feed: instant tab/search/min filtering, paged rendering (Load more), no-reload actions.
+// Feed: tab/search/min + sort (best-match|newest) + posted-date filter, paged, no-reload actions.
 (function () {
   "use strict";
   var feed = document.getElementById("feed");
@@ -6,6 +6,8 @@
   var q = document.getElementById("q");
   var minR = document.getElementById("min");
   var minLab = document.getElementById("minlab");
+  var sortSel = document.getElementById("sort");
+  var dateSel = document.getElementById("date");
   var countEl = document.getElementById("count");
   var emptyEl = document.getElementById("empty");
   var moreBtn = document.getElementById("loadmore");
@@ -15,7 +17,14 @@
 
   function cards() { return feed.querySelectorAll(".card"); }
 
-  function matches(c) {
+  function dateCutoff() {
+    if (!dateSel || dateSel.value === "any") return "";
+    var d = new Date();
+    d.setDate(d.getDate() - parseInt(dateSel.value, 10));
+    return d.toISOString().slice(0, 10);          // YYYY-MM-DD
+  }
+
+  function matches(c, cut) {
     var st = c.getAttribute("data-status") || "";
     var sc = parseInt(c.getAttribute("data-score"), 10) || 0;
     var ok;
@@ -26,21 +35,34 @@
     if (ok && q && q.value) {
       ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
     }
+    if (ok && cut) {                              // posted-date filter (undated jobs always pass)
+      var dt = c.getAttribute("data-date") || "";
+      if (dt && dt < cut) ok = false;
+    }
     return ok;
+  }
+
+  function sortCards() {
+    var by = sortSel ? sortSel.value : "score";
+    var arr = Array.prototype.slice.call(cards());
+    arr.sort(function (a, b) {
+      if (by === "newest") return (b.getAttribute("data-date") || "").localeCompare(a.getAttribute("data-date") || "");
+      return (parseInt(b.getAttribute("data-score"), 10) || 0) - (parseInt(a.getAttribute("data-score"), 10) || 0);
+    });
+    var frag = document.createDocumentFragment();
+    arr.forEach(function (c) { frag.appendChild(c); });
+    feed.appendChild(frag);
   }
 
   function render(reset) {
     if (reset) limit = PAGE;
-    var list = cards(), total = 0, shown = 0;
+    var cut = dateCutoff(), list = cards(), total = 0, shown = 0;
     for (var i = 0; i < list.length; i++) {
       var c = list[i];
-      if (matches(c)) {
+      if (matches(c, cut)) {
         total++;
-        if (shown < limit) { c.style.display = ""; shown++; }
-        else c.style.display = "none";
-      } else {
-        c.style.display = "none";
-      }
+        if (shown < limit) { c.style.display = ""; shown++; } else c.style.display = "none";
+      } else { c.style.display = "none"; }
     }
     if (countEl) countEl.textContent = total;
     if (emptyEl) emptyEl.style.display = total ? "none" : "";
@@ -61,12 +83,12 @@
   }
   if (q) q.addEventListener("input", function () { render(true); });
   if (minR) minR.addEventListener("input", function () {
-    if (minLab) minLab.textContent = minR.value;
-    render(true);
+    if (minLab) minLab.textContent = minR.value; render(true);
   });
+  if (sortSel) sortSel.addEventListener("change", function () { sortCards(); render(true); });
+  if (dateSel) dateSel.addEventListener("change", function () { render(true); });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
-  // like / applied / hide — no reload
   feed.addEventListener("click", function (e) {
     var btn = e.target.closest ? e.target.closest("button[data-act]") : null;
     if (!btn) return;
