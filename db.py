@@ -32,7 +32,21 @@ def _creds():
     if _creds_cache is None:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
-        if not (url and key):                       # local secrets file (plain runs)
+        if not (url and key):                       # .env file (any Python version; cPanel + cron)
+            try:
+                with open(".env", encoding="utf-8") as f:
+                    for ln in f:
+                        ln = ln.strip()
+                        if ln and not ln.startswith("#") and "=" in ln:
+                            k, v = ln.split("=", 1)
+                            v = v.strip().strip('"').strip("'")
+                            if k.strip() == "SUPABASE_URL":
+                                url = url or v
+                            elif k.strip() == "SUPABASE_KEY":
+                                key = key or v
+            except Exception:
+                pass
+        if not (url and key):                       # local secrets file (Streamlit, py3.11+)
             try:
                 import tomllib
                 with open(os.path.join(".streamlit", "secrets.toml"), "rb") as f:

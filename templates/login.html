@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login">
+  <h1>🎯 JobMatch</h1>
+  <p class="sub">Sign in to see your matched jobs.</p>
+  <form method="post">
+    <input name="username" placeholder="Username" autofocus required>
+    <input name="password" type="password" placeholder="Password" required>
+    <button class="btn primary" type="submit">Log in</button>
+  </form>
+</div>
+{% endblock %}

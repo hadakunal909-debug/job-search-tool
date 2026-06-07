@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobMatch</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% if current_user %}
+<header class="topbar">
+  <div class="brand">🎯 JobMatch</div>
+  <nav>
+    <a href="{{ url_for('feed') }}">Jobs feed</a>
+    <a href="{{ url_for('resume') }}">My résumé</a>
+    <a href="{{ url_for('careers') }}">Sponsor careers</a>
+    <a href="{{ url_for('add_board') }}">➕ Add board</a>
+  </nav>
+  <div class="acct">
+    <span class="who">{{ current_user }}</span>
+    <a class="btn" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+</header>
+{% endif %}
+<main>
+  {% with msgs = get_flashed_messages() %}
+    {% if msgs %}<div class="flash">{% for m in msgs %}<div>{{ m }}</div>{% endfor %}</div>{% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
