@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import random
+import concurrent.futures
 import re
 import datetime
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -399,7 +400,7 @@ def scrape_workday(board_url):
     seen, rows = set(), []
     for term in WORKDAY_QUERIES:
         offset = 0
-        for _ in range(3):                           # up to 3 pages (20 each) per term
+        for _ in range(2):                           # up to 2 pages (20 each) per term
             r = requests.post(cxs, headers=hdr, timeout=25, data=json.dumps(
                 {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": term}))
             if r.status_code != 200:
@@ -419,7 +420,7 @@ def scrape_workday(board_url):
                     "found_date": _workday_date(j.get("postedOn")),
                 })
             offset += len(jp)
-            time.sleep(random.uniform(0.3, 0.7))
+            time.sleep(random.uniform(0.1, 0.25))
     return rows
 
 
@@ -440,7 +441,7 @@ def scrape_amazon(board_url):
     seen, rows = set(), []
     for term in AMAZON_QUERIES:
         offset = 0
-        for _ in range(3):                       # up to 3 pages per term
+        for _ in range(2):                       # up to 2 pages per term
             data = _get_json("https://www.amazon.jobs/en/search.json", params={
                 "base_query": term, "country": country, "loc_query": loc,
                 "result_limit": 100, "offset": offset, "sort": "relevant"})
@@ -875,22 +876,33 @@ def append_jobs(rows, path=OUTPUT_CSV):
 # ORCHESTRATOR  — the scraper itself
 # ============================================================
 
-def scrape_all(sources):
-    all_jobs = []
-    for url, ats_type, company in sources:
-        scraper_fn = SCRAPERS.get(ats_type)
-        if scraper_fn is None:
-            print(f"  SKIP {company:<24} unknown ats_type '{ats_type}'")
-            continue
+def scrape_all(sources, workers=8):
+    """Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes
+    a few minutes, not ~30. One bad source never stops the run."""
+    def _one(entry):
+        url, ats_type, company = entry
+        fn = SCRAPERS.get(ats_type)
+        if fn is None:
+            return company, None, "unknown ats_type '%s'" % ats_type
         try:
-            rows = scraper_fn(url)
+            time.sleep(random.uniform(0, 1.0))          # small stagger so we don't burst one API
+            rows = fn(url)
             for r in rows:
                 r["company"] = company
-            all_jobs.extend(rows)
-            print(f"  OK   {company:<24} {len(rows):>3} postings")
+            return company, rows, None
         except Exception as e:
-            print(f"  FAIL {company:<24} {e}")     # one bad source never stops the run
-        time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
+            return company, None, str(e)
+
+    all_jobs = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        for company, rows, err in ex.map(_one, sources):     # results come back in source order
+            if err is not None:
+                print(f"  FAIL {company:<26} {err}")
+            elif rows is None:
+                print(f"  SKIP {company:<26}")
+            else:
+                all_jobs.extend(rows)
+                print(f"  OK   {company:<26} {len(rows):>3} postings")
     return all_jobs
 
 
