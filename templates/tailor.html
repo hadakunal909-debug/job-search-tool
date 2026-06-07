@@ -36,7 +36,7 @@
 <div class="aibox" id="aibox">
   <h3>✨ AI résumé tailoring <span class="muted2">· Gemini Flash 3.5</span></h3>
   <div id="aimsg">{% if ai_err %}<div class="banner">{{ ai_err }}</div>{% endif %}</div>
-  <p class="muted">Rewrites your résumé to mirror this job — truthfully, nothing invented. It thinks a bit for a stronger result, so it takes ~10–30s.{% if not ai_ready %} Bring your own Google Gemini key — held in memory for your session only, never saved.{% endif %}</p>
+  <p class="muted">Rewrites your résumé to mirror this job — truthfully, nothing invented. It thinks a bit for a stronger result, so it takes ~10–30s.{% if not ai_ready %} Bring your own Google Gemini key — it's saved on this browser (~30 days), so you enter it once.{% endif %}</p>
   <div id="aibar" class="aibar" style="display:none"><div class="aibar-fill"></div><span class="aibar-txt">✨ Tailoring your résumé… ~10–30s</span></div>
   <div id="airesult">
     {% if tailored %}
@@ -46,7 +46,8 @@
   </div>
   <form method="post" action="{{ url_for('tailor_ai') }}" id="aiform">
     <input type="hidden" name="url" value="{{ job.url }}">
-    {% if not ai_ready %}<input class="keyin" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off">{% endif %}
+    <div id="keysaved" class="muted" {% if not ai_ready %}style="display:none"{% endif %}>🔑 Gemini key saved on this browser · <a href="#" id="changekey">change</a></div>
+    <input class="keyin" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off"{% if ai_ready %} style="display:none"{% endif %}>
     <button class="btn primary" type="submit" id="aibtn">{{ '✨ Re-tailor' if tailored else '✨ AI-tailor my résumé' }}</button>
   </form>
 </div>
@@ -59,7 +60,9 @@
   var form = document.getElementById("aiform");
   if (!form) return;
   var bar = document.getElementById("aibar"), msg = document.getElementById("aimsg"),
-      result = document.getElementById("airesult"), btn = document.getElementById("aibtn");
+      result = document.getElementById("airesult"), btn = document.getElementById("aibtn"),
+      keyField = document.getElementById("aikey"), keySaved = document.getElementById("keysaved"),
+      changeKey = document.getElementById("changekey");
   function wireCopy() {
     var c = document.getElementById("aicopy");
     if (c) c.onclick = function () {
@@ -68,6 +71,11 @@
     };
   }
   wireCopy();
+  if (changeKey) changeKey.addEventListener("click", function (e) {
+    e.preventDefault();
+    if (keyField) { keyField.style.display = ""; keyField.focus(); }
+    if (keySaved) keySaved.style.display = "none";
+  });
   form.addEventListener("submit", function (e) {
     if (!window.fetch) return;                 // old browser -> normal POST (full reload)
     e.preventDefault();
@@ -87,6 +95,8 @@
       rb.innerHTML = '<button type="button" class="btn" id="aicopy">Copy</button>';
       result.appendChild(rb);
       btn.textContent = "✨ Re-tailor"; wireCopy();
+      if (keyField) { keyField.value = ""; keyField.style.display = "none"; }   // remembered now
+      if (keySaved) keySaved.style.display = "";
       result.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }).catch(function () {
       bar.style.display = "none"; btn.disabled = false;
