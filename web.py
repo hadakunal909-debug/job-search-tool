@@ -38,6 +38,16 @@ app.permanent_session_lifetime = 60 * 60 * 24 * 30      # 30-day login
 # ----------------------------- caches -----------------------------
 _jobs_cache = {"rows": None, "at": 0}
 _score_cache = {}            # (username, resume_md5) -> {url: score}
+_sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
+_SPONSOR_COUNTS = core.load_sponsor_counts()      # {} until sponsor_counts.json is built
+
+
+def sponsor_signal(job):
+    """(verdict, reason) for a job's JD sponsorship signal, computed once per URL."""
+    u = job.get("url") or ""
+    if u not in _sponsor_cache:
+        _sponsor_cache[u] = core.sponsorship_from_jd(job.get("jd") or "")
+    return _sponsor_cache[u]
 
 
 def get_jobs(force=False):
@@ -191,11 +201,16 @@ def feed():
         st = statuses.get(u, "")
         if st in counts:
             counts[st] += 1
+        sv, sreason = sponsor_signal(j)
+        strength, scount = core.sponsor_strength(j.get("company", ""), _SPONSOR_COUNTS)
         rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
                      "location": j.get("location", ""), "url": u,
                      "sponsors_h1b": j.get("sponsors_h1b", ""),
                      "found_date": j.get("found_date", ""),
-                     "score": scores.get(u, 0), "status": st})
+                     "score": scores.get(u, 0), "status": st,
+                     "sponsor_jd": sv, "sponsor_reason": sreason,
+                     "cap_exempt": core.is_cap_exempt(j.get("company", "")),
+                     "strength": strength, "strength_n": scount})
     rows.sort(key=lambda r: r["score"], reverse=True)
     return render_template("feed.html", jobs=rows, has_resume=bool(resume),
                            total=len(rows), counts=counts, default_min=45 if resume else 0,
@@ -220,9 +235,12 @@ def api_job():
         except Exception:
             score = 0
         have, missing = [], []
+    sv, sreason = core.sponsorship_from_jd(jd)
     return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
             "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
             "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""), "score": int(score or 0),
+            "sponsor_jd": sv, "sponsor_reason": sreason,
+            "cap_exempt": core.is_cap_exempt(job.get("company", "")),
             "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}
 
 
@@ -247,6 +265,7 @@ def api_action():
 def reload_jobs():
     get_jobs(force=True)
     _score_cache.clear()
+    _sponsor_cache.clear()
     flash("Reloaded jobs from the database.")
     return redirect(url_for("feed"))
 

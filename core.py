@@ -317,6 +317,126 @@ def skill_match(resume_text, jd_text, idf=None):
 
 
 # ------------------------------------------------------------
+# Sponsorship signal — the single biggest time-saver for an international student.
+# A company can be a known H-1B sponsor yet post a role that explicitly WON'T work
+# for a visa candidate (no sponsorship, or it needs citizenship / a clearance / a
+# green card). We read that straight from the JD so those roles can be flagged/hidden.
+# ------------------------------------------------------------
+_SPONSOR_BLOCK = [
+    ("no_sponsor", "JD says no visa sponsorship", re.compile(
+        r"(?:will|are|is|can|do(?:es)?)?\s*(?:not|n't|unable|never)\b[^.]{0,40}\bsponsor"
+        r"|\bno\b[^.]{0,15}\bsponsorship"
+        r"|\bwithout[^.]{0,30}\bsponsorship"
+        r"|\bsponsorship[^.]{0,20}\bnot\b[^.]{0,20}(?:available|offered|provided|considered)"
+        r"|\bnot[^.]{0,15}(?:offer|provide|consider)[^.]{0,15}sponsorship"
+        r"|\bdo(?:es)? not (?:require|need)[^.]{0,20}sponsorship"
+        r"|authoriz(?:ed|ation) to work[^.]{0,70}without[^.]{0,25}sponsor", re.I)),
+    ("citizen", "JD requires U.S. citizenship", re.compile(
+        r"\bmust be (?:a |an )?(?:u\.?s\.?\s*)?citizen"
+        r"|\b(?:u\.?s\.?\s*)?citizenship\b[^.]{0,20}\b(?:is required|required|requirement|mandatory|only)"
+        r"|\b(?:require[sd]?|requiring)\b.{0,25}?\bcitizenship", re.I)),
+    ("clearance", "JD requires a security clearance", re.compile(
+        r"\b(?:security|government)\b[^.]{0,15}clearance"
+        r"|\bactive[^.]{0,20}clearance"
+        r"|\bts/sci\b|\btop secret\b|\bsecret clearance\b|\bpublic trust\b"
+        r"|\bclearance (?:is )?(?:required|eligible|active)", re.I)),
+    ("greencard", "JD requires a green card / permanent residency", re.compile(
+        r"\b(?:green card|permanent residen(?:t|cy|ce))\b[^.]{0,25}(?:require|must|only|holder)"
+        r"|must be (?:a )?(?:green card holder|permanent resident)", re.I)),
+]
+_SPONSOR_OPEN = re.compile(
+    r"(?:visa|h-?1b|employment|work)?\s*sponsorship (?:is |may be |are |can be )?"
+    r"(?:available|offered|provided|possible|considered|supported)"
+    r"|(?:will|can|do|happy to|open to|able to|willing to|we)\s+(?:gladly |certainly )?sponsor\b"
+    r"|(?:offer|provide|support)[^.]{0,20}(?:visa |h-?1b )?sponsorship"
+    r"|\bh-?1b[^.]{0,15}sponsorship"
+    r"|\bsponsor[^.]{0,15}(?:visa|h-?1b|work authorization)", re.I)
+
+
+def sponsorship_from_jd(jd_text):
+    """Read a JD for an explicit sponsorship signal. Returns (verdict, reason):
+      'blocked' = the JD says it won't work for a visa candidate (no sponsorship, or it
+                  requires U.S. citizenship / a security clearance / a green card)
+      'open'    = the JD explicitly offers visa sponsorship
+      ''        = no clear signal (most postings)
+    Checks the 'blocked' phrasings first since those are the ones that waste your time."""
+    jd = jd_text or ""
+    if not jd:
+        return "", ""
+    for _cat, msg, rx in _SPONSOR_BLOCK:
+        if rx.search(jd):
+            return "blocked", msg
+    if _SPONSOR_OPEN.search(jd):
+        return "open", "JD offers visa sponsorship"
+    return "", ""
+
+
+# ------------------------------------------------------------
+# H-1B cap-exempt employers (universities, nonprofit hospitals, research institutes).
+# Cap-exempt = NO H-1B lottery — a major edge for an international student, so we badge it.
+# ------------------------------------------------------------
+_CAP_EXEMPT_RE = re.compile(
+    r"\b(?:universit(?:y|ies)|college|polytechnic|institute of technology"
+    r"|school of (?:medicine|public health|nursing|engineering|law)"
+    r"|cancer (?:institute|center|centre)|medical (?:center|centre|college|school)"
+    r"|health system|hospital|children'?s hospital|clinic"
+    r"|national lab(?:oratory)?|research institute)\b", re.I)
+_CAP_EXEMPT_NAMES = ("mayo clinic", "cleveland clinic", "kaiser permanente", "dana-farber",
+                     "memorial sloan", "md anderson", "mass general", "brigham and women",
+                     "national institutes of health")
+
+
+def is_cap_exempt(company):
+    """Heuristic: True if the employer is LIKELY H-1B cap-exempt (universities, nonprofit
+    hospitals, research institutes) → no H-1B lottery. A hint to verify, not a guarantee."""
+    c = (company or "").lower()
+    if not c:
+        return False
+    if any(n in c for n in _CAP_EXEMPT_NAMES):
+        return True
+    return bool(_CAP_EXEMPT_RE.search(c))
+
+
+# ------------------------------------------------------------
+# Sponsor STRENGTH — turn the yes/no flag into a confidence tier using DOL filing
+# VOLUME (a company that files thousands of H-1Bs is a far safer bet than one with two).
+# Needs an optional sponsor_counts.json {normalized_name: count}; degrades to '' without it.
+# ------------------------------------------------------------
+def load_sponsor_counts(path="sponsor_counts.json"):
+    """Optional {normalized_company: H1B_filing_count} built from DOL LCA data.
+    Returns {} when the file is absent (strength just isn't shown)."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        return json.load(open(path, encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def sponsor_strength(company, counts):
+    """Tier a sponsor by filing VOLUME. Returns ('high'|'medium'|'low'|'', count).
+    ('', 0) when there's no number for the company. Counts come from load_sponsor_counts()."""
+    if not counts or not company:
+        return "", 0
+    try:
+        import scraper                      # lazy: scraper imports core (avoid circular at load)
+        key = scraper._norm_name(company)
+    except Exception:
+        key = re.sub(r"[^a-z0-9 ]+", " ", company.lower()).strip()
+    try:
+        n = int(counts.get(key) or counts.get(company.lower()) or 0)
+    except Exception:
+        n = 0
+    if n >= 1000:
+        return "high", n
+    if n >= 100:
+        return "medium", n
+    if n >= 1:
+        return "low", n
+    return "", 0
+
+
+# ------------------------------------------------------------
 # Experience requirement parsing (to keep only entry-level roles)
 # ------------------------------------------------------------
 _EXP_YEARS_RE = re.compile(r"(\d{1,2})\s*\+\s*years?", re.I)   # 'N+ years' (e.g. '5+ years')
