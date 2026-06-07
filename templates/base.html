@@ -4,21 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JobMatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e8a5f'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Ccircle cx='16' cy='16' r='3.6' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
 {% if current_user %}
 <header class="topbar">
-  <div class="brand">🎯 JobMatch</div>
+  <a class="brand" href="{{ url_for('feed') }}">
+    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0e8a5f"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="2.4"/><circle cx="16" cy="16" r="3.6" fill="#fff"/></svg>
+    <span>Job<b>Match</b></span>
+  </a>
   <nav>
-    <a href="{{ url_for('feed') }}">Jobs feed</a>
+    <a href="{{ url_for('feed') }}">Jobs</a>
     <a href="{{ url_for('resume') }}">My résumé</a>
-    <a href="{{ url_for('careers') }}">Sponsor careers</a>
-    <a href="{{ url_for('add_board') }}">➕ Add board</a>
+    <a href="{{ url_for('careers') }}">Sponsors</a>
+    <a href="{{ url_for('add_board') }}">Add board</a>
   </nav>
   <div class="acct">
+    <button id="themetoggle" class="iconbtn" title="Toggle dark mode" aria-label="Toggle theme">🌙</button>
     <span class="who">{{ current_user }}</span>
-    <a class="btn" href="{{ url_for('logout') }}">Log out</a>
+    <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
   </div>
 </header>
 {% endif %}
@@ -28,6 +36,13 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </main>
+<div id="toasts" class="toasts"></div>
+<script>
+(function(){var b=document.getElementById('themetoggle');if(!b)return;
+function set(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('theme',t);}catch(e){}b.textContent=t==='dark'?'☀️':'🌙';}
+set(document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light');
+b.addEventListener('click',function(){set(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');});})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
