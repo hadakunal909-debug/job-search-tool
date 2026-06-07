@@ -417,6 +417,33 @@ def tailor_ai():
                            tailored=tailored, ai_err=ai_err, ai_ready=bool(key))
 
 
+@app.route("/api/tailor", methods=["POST"])
+@login_required
+def api_tailor():
+    """JSON tailoring for the no-reload loading-bar flow. Body: {url, api_key?}."""
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    key_in = (data.get("api_key") or "").strip()
+    if key_in:
+        _ai_keys[session["user"]] = key_in
+    key = _ai_key_for(session["user"])
+    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    if not job:
+        return {"ok": False, "error": "Job not found."}, 404
+    resume = session.get("resume", "")
+    jd = job.get("jd", "") or ""
+    if not resume:
+        return {"ok": False, "error": "Add your résumé first (📄 My résumé), then tailor it here."}
+    if not jd:
+        return {"ok": False, "error": "No job description is stored for this role yet — open Apply to read it on the company site."}
+    if not key:
+        return {"ok": False, "error": "Add a Google Gemini API key (the field below, or GEMINI_API_KEY on the server)."}
+    try:
+        return {"ok": True, "tailored": core.tailor_with_gemini(resume, jd, api_key=key)}
+    except Exception as e:
+        return {"ok": False, "error": "Tailoring failed: %s" % str(e)[:250]}
+
+
 # ----------------------------- sponsor careers -----------------------------
 def _md_to_html(md):
     """Tiny Markdown -> HTML (headings, list items, [text](url) links). Avoids a dep."""

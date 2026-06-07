@@ -4,11 +4,18 @@
 .aibox{margin-top:22px;padding:15px 17px;border:1px solid #e3e8ef;border-radius:12px;background:#fafbfc}
 .aibox h3{margin:0 0 8px}
 .aibox .muted{font-size:12px;color:#777;margin:0 0 8px}
+.muted2{font-size:12px;font-weight:600;color:#0e8a5f}
 .airesume{width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;padding:11px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#111;resize:vertical}
 .keyin{width:100%;max-width:430px;box-sizing:border-box;padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;margin:0 0 9px}
 .rowbtns{margin:9px 0}
+.aibar{position:relative;height:26px;border-radius:8px;background:#e9eef3;overflow:hidden;margin:12px 0}
+.aibar-fill{position:absolute;top:0;height:100%;width:40%;left:-40%;background:linear-gradient(90deg,#0e8a5f,#37b27e);animation:aimove 1.15s ease-in-out infinite}
+.aibar-txt{position:absolute;inset:0;line-height:26px;text-align:center;font-size:12px;color:#0a3d2a;font-weight:600}
+@keyframes aimove{0%{left:-40%}100%{left:100%}}
 [data-theme=dark] .aibox{background:#13181f;border-color:#2a3340}
 [data-theme=dark] .airesume,[data-theme=dark] .keyin{background:#0d1117;border-color:#2a3340;color:#e6edf3}
+[data-theme=dark] .aibar{background:#1c2530}
+[data-theme=dark] .aibar-txt{color:#bfe7d3}
 </style>
 <a class="back" href="{{ url_for('feed') }}">← Back to feed</a>
 <h1>{{ job.title }}</h1>
@@ -26,21 +33,66 @@
   <h3>Skills you already match ({{ have|length }})</h3>
   <div class="kw">{% for k in have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
 {% endif %}
-<div class="aibox">
-  <h3>✨ AI résumé tailoring</h3>
-  {% if ai_err %}<div class="banner">{{ ai_err }}</div>{% endif %}
-  {% if tailored %}
-    <p class="muted">Tailored to this job — a truthful reorder/reword of your résumé (nothing invented). Review before you send it.</p>
-    <textarea class="airesume" rows="18" id="aitext">{{ tailored }}</textarea>
-    <div class="rowbtns"><button type="button" class="btn" onclick="navigator.clipboard.writeText(document.getElementById('aitext').value);this.textContent='Copied ✓';">Copy</button></div>
-  {% elif not ai_err %}
-    <p class="muted">Rewrite your résumé to mirror this job's language (where you genuinely have the experience). {% if not ai_ready %}Bring your own Google Gemini key — held in memory for your session only, never saved.{% endif %}</p>
-  {% endif %}
-  <form method="post" action="{{ url_for('tailor_ai') }}">
+<div class="aibox" id="aibox">
+  <h3>✨ AI résumé tailoring <span class="muted2">· Gemini Flash 3.5</span></h3>
+  <div id="aimsg">{% if ai_err %}<div class="banner">{{ ai_err }}</div>{% endif %}</div>
+  <p class="muted">Rewrites your résumé to mirror this job — truthfully, nothing invented. It thinks a bit for a stronger result, so it takes ~10–30s.{% if not ai_ready %} Bring your own Google Gemini key — held in memory for your session only, never saved.{% endif %}</p>
+  <div id="aibar" class="aibar" style="display:none"><div class="aibar-fill"></div><span class="aibar-txt">✨ Tailoring your résumé… ~10–30s</span></div>
+  <div id="airesult">
+    {% if tailored %}
+      <textarea class="airesume" rows="18" id="aitext">{{ tailored }}</textarea>
+      <div class="rowbtns"><button type="button" class="btn" id="aicopy">Copy</button></div>
+    {% endif %}
+  </div>
+  <form method="post" action="{{ url_for('tailor_ai') }}" id="aiform">
     <input type="hidden" name="url" value="{{ job.url }}">
-    {% if not ai_ready %}<input class="keyin" type="password" name="api_key" placeholder="Gemini API key (AIza…)" autocomplete="off">{% endif %}
-    <button class="btn primary" type="submit">{{ '✨ Re-tailor' if tailored else '✨ AI-tailor my résumé' }}</button>
+    {% if not ai_ready %}<input class="keyin" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off">{% endif %}
+    <button class="btn primary" type="submit" id="aibtn">{{ '✨ Re-tailor' if tailored else '✨ AI-tailor my résumé' }}</button>
   </form>
 </div>
 <p style="margin-top:18px"><a class="btn primary" href="{{ job.url }}" target="_blank" rel="noopener">Apply ↗</a></p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var form = document.getElementById("aiform");
+  if (!form) return;
+  var bar = document.getElementById("aibar"), msg = document.getElementById("aimsg"),
+      result = document.getElementById("airesult"), btn = document.getElementById("aibtn");
+  function wireCopy() {
+    var c = document.getElementById("aicopy");
+    if (c) c.onclick = function () {
+      var t = document.getElementById("aitext");
+      if (t) { navigator.clipboard.writeText(t.value); c.textContent = "Copied ✓"; }
+    };
+  }
+  wireCopy();
+  form.addEventListener("submit", function (e) {
+    if (!window.fetch) return;                 // old browser -> normal POST (full reload)
+    e.preventDefault();
+    msg.innerHTML = ""; bar.style.display = ""; btn.disabled = true;
+    var fd = new FormData(form), body = { url: fd.get("url") };
+    var k = fd.get("api_key"); if (k) body.api_key = k;
+    fetch("{{ url_for('api_tailor') }}", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      bar.style.display = "none"; btn.disabled = false;
+      if (!j || !j.ok) { msg.innerHTML = '<div class="banner">' + ((j && j.error) || "Tailoring failed — try again.") + '</div>'; return; }
+      var ta = document.createElement("textarea");
+      ta.className = "airesume"; ta.rows = 18; ta.id = "aitext"; ta.value = j.tailored;
+      result.innerHTML = "";
+      result.appendChild(ta);
+      var rb = document.createElement("div"); rb.className = "rowbtns";
+      rb.innerHTML = '<button type="button" class="btn" id="aicopy">Copy</button>';
+      result.appendChild(rb);
+      btn.textContent = "✨ Re-tailor"; wireCopy();
+      result.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }).catch(function () {
+      bar.style.display = "none"; btn.disabled = false;
+      msg.innerHTML = '<div class="banner">Network error — try again.</div>';
+    });
+  });
+})();
+</script>
 {% endblock %}
