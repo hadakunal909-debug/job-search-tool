@@ -8,7 +8,11 @@
       <input id="min" type="range" min="0" max="100" value="{{ default_min }}">
     </label>
     <a class="btn" href="{{ url_for('reload_jobs') }}">🔄 Reload</a>
+    <form method="post" action="{{ url_for('scrape_now') }}" class="inline">
+      <button class="btn" type="submit" {{ 'disabled' if scraping else '' }}>🛰️ Update jobs</button>
+    </form>
   </div>
+  {% if scraping %}<div class="banner">⏳ A scrape is running in the background — hit 🔄 Reload in a few minutes for the new jobs.</div>{% endif %}
   <div class="tabs">
     <a class="tab on" data-tab="recommended" href="#">Recommended</a>
     <a class="tab" data-tab="liked" href="#">Liked <span class="tabn">{{ counts.liked }}</span></a>
