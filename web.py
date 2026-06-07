@@ -355,11 +355,11 @@ def resume():
 
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
-_ai_keys = {}            # username -> Anthropic API key, IN MEMORY ONLY (never persisted)
+_ai_keys = {}            # username -> Gemini API key, IN MEMORY ONLY (never persisted)
 
 
 def _ai_key_for(user):
-    return _ai_keys.get(user) or os.environ.get("ANTHROPIC_API_KEY")
+    return _ai_keys.get(user) or os.environ.get("GEMINI_API_KEY")
 
 
 @app.route("/tailor")
@@ -406,12 +406,10 @@ def tailor_ai():
     elif not jd:
         ai_err = "No job description stored for this role yet — open Apply to read it on the company site."
     elif not key:
-        ai_err = "Paste an Anthropic API key below (or set ANTHROPIC_API_KEY on the server) to enable AI tailoring."
+        ai_err = "Paste a Google Gemini API key below (or set GEMINI_API_KEY on the server) to enable AI tailoring."
     else:
         try:
-            tailored = core.tailor_with_ai(resume, jd, api_key=key)
-        except ImportError:
-            ai_err = "The 'anthropic' package isn't installed on the server (pip install anthropic)."
+            tailored = core.tailor_with_gemini(resume, jd, api_key=key)
         except Exception as e:
             ai_err = "AI tailoring failed: %s" % str(e)[:200]
     return render_template("tailor.html", job=job, score=int(score or 0), have=have,

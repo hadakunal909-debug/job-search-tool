@@ -34,11 +34,11 @@
     <textarea class="airesume" rows="18" id="aitext">{{ tailored }}</textarea>
     <div class="rowbtns"><button type="button" class="btn" onclick="navigator.clipboard.writeText(document.getElementById('aitext').value);this.textContent='Copied ✓';">Copy</button></div>
   {% elif not ai_err %}
-    <p class="muted">Rewrite your résumé to mirror this job's language (where you genuinely have the experience). {% if not ai_ready %}Bring your own Anthropic key — it's held in memory for your session only, never saved.{% endif %}</p>
+    <p class="muted">Rewrite your résumé to mirror this job's language (where you genuinely have the experience). {% if not ai_ready %}Bring your own Google Gemini key — held in memory for your session only, never saved.{% endif %}</p>
   {% endif %}
   <form method="post" action="{{ url_for('tailor_ai') }}">
     <input type="hidden" name="url" value="{{ job.url }}">
-    {% if not ai_ready %}<input class="keyin" type="password" name="api_key" placeholder="Anthropic API key (sk-ant-…)" autocomplete="off">{% endif %}
+    {% if not ai_ready %}<input class="keyin" type="password" name="api_key" placeholder="Gemini API key (AIza…)" autocomplete="off">{% endif %}
     <button class="btn primary" type="submit">{{ '✨ Re-tailor' if tailored else '✨ AI-tailor my résumé' }}</button>
   </form>
 </div>

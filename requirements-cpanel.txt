@@ -5,4 +5,4 @@ requests
 beautifulsoup4
 lxml
 rapidfuzz
-anthropic   # AI résumé tailoring (the ✨ AI-tailor button). Harmless if unused.
+# AI résumé tailoring uses Google Gemini via REST (the `requests` dep above) — no extra package needed.
