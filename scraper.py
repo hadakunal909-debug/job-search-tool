@@ -387,41 +387,71 @@ def _workday_parts(board_url):
     return host, tenant, site
 
 
+# Workday caps each page at 20 results (asking for more returns HTTP 400). We walk the
+# WHOLE board with an empty search and let main()'s title/US filter decide what to keep.
+# MAX_JOBS is just a safety stop so a giant tenant can't page forever (3000 = 150 pages).
+WORKDAY_PAGE_LIMIT = 20
+WORKDAY_MAX_JOBS = 3000
+
+
+def _workday_loc_from_path(path):
+    """Multi-location postings report locationsText as a bare count ('3 Locations'),
+    which the US filter can't read. The job's externalPath embeds the primary city, e.g.
+       /job/OFallon-Missouri/Manager--Project---Change-Management_R-279079
+    so recover a readable 'OFallon Missouri' from the segment right after 'job'."""
+    segs = [s for s in (path or "").split("/") if s]
+    if "job" in segs:
+        i = segs.index("job")
+        if i + 1 < len(segs):
+            return segs[i + 1].replace("-", " ").strip()
+    return ""
+
+
 def scrape_workday(board_url):
-    """Workday via its public CXS JSON API (no browser needed). board_url is the
-    company's Workday careers site in either format:
+    """Workday via its public CXS JSON API (no browser needed). Pulls the ENTIRE board
+    by paging through every posting with an empty search; main()'s title + US filter
+    then trims it down. (The old approach ran a few keyword searches 2 pages deep, which
+    MISSED on-target roles that Workday's relevance ranked lower — e.g. a 'Manager,
+    Project & Change Management' sitting at result #48 of 1000+.) board_url is the
+    company's Workday site in either format:
        https://salesforce.wd12.myworkdayjobs.com/External_Career_Site
-       https://wd5.myworkdaysite.com/recruiting/uw/UWHires
-    Queries entry-level role terms (Workday caps results at 20/page)."""
+       https://wd5.myworkdaysite.com/recruiting/uw/UWHires"""
     host, tenant, site = _workday_parts(board_url)
     cxs = "https://%s/wday/cxs/%s/%s/jobs" % (host, tenant, site)
     job_base = ("https://%s/en-US/recruiting/%s/%s" % (host, tenant, site)
                 if "myworkdaysite.com" in host else "https://%s/%s" % (host, site))
     hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
-    seen, rows = set(), []
-    for term in WORKDAY_QUERIES:
-        offset = 0
-        for _ in range(2):                           # up to 2 pages (20 each) per term
-            r = requests.post(cxs, headers=hdr, timeout=25, data=json.dumps(
-                {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": term}))
-            if r.status_code != 200:
-                break
-            jp = r.json().get("jobPostings", [])
-            if not jp:
-                break
-            for j in jp:
-                path = j.get("externalPath") or ""
-                if not path or path in seen:
-                    continue
-                seen.add(path)
-                rows.append({
-                    "title": (j.get("title") or "").strip(),
-                    "url": job_base + path,
-                    "location": j.get("locationsText") or "",
-                    "found_date": _workday_date(j.get("postedOn")),
-                })
-            offset += len(jp)
-            time.sleep(random.uniform(0.1, 0.25))
+    seen, rows, offset, total = set(), [], 0, None
+    while offset < WORKDAY_MAX_JOBS:
+        r = requests.post(cxs, headers=hdr, timeout=25, data=json.dumps(
+            {"appliedFacets": {}, "limit": WORKDAY_PAGE_LIMIT, "offset": offset,
+             "searchText": ""}))
+        if r.status_code != 200:
+            break
+        body = r.json()
+        jp = body.get("jobPostings", [])
+        if not jp:
+            break
+        if total is None:                                # only the FIRST page reports the
+            total = body.get("total") or 0               # real count; later pages send 0
+        for j in jp:
+            path = j.get("externalPath") or ""
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            loc = j.get("locationsText") or ""
+            if not loc or re.search(r"\d+\s+location|multiple", loc, re.I):
+                loc = _workday_loc_from_path(path) or loc    # 'N Locations' -> city from URL
+            rows.append({
+                "title": (j.get("title") or "").strip(),
+                "url": job_base + path,
+                "location": loc,
+                "found_date": _workday_date(j.get("postedOn")),
+            })
+        offset += len(jp)
+        if total and offset >= total:                    # read the whole board
+            break
+        time.sleep(random.uniform(0.1, 0.25))
     return rows
 
 
@@ -940,6 +970,8 @@ def is_us_location(loc):
     if not loc:
         return True
     low = loc.lower()
+    if re.search(r"\b\d+\s+locations?\b|multiple locations?", low):
+        return True                                 # bare 'N Locations' count -> unknown, keep
     if any(tok in low for tok in NON_US):           # explicit non-US signal -> drop
         return False
     if "united states" in low or "usa" in low or "u.s." in low:
