@@ -122,6 +122,9 @@ def logout():
 @app.route("/")
 @login_required
 def feed():
+    """Render EVERY job once with data-* attributes; the client-side JS (static/app.js)
+    does tab/search/min-match filtering + actions with no page reloads. Falls back to
+    plain server rendering when JS is off (all cards just show)."""
     user = session["user"]
     resume = session.get("resume", "")
     scores = user_scores(user, resume)
@@ -130,40 +133,37 @@ def feed():
     except Exception:
         statuses = {}
 
-    tab = request.args.get("tab", "recommended")
-    q = (request.args.get("q") or "").strip().lower()
-    default_min = 45 if resume else 0
-    try:
-        min_match = int(request.args.get("min", default_min))
-    except Exception:
-        min_match = default_min
-
     rows = []
+    counts = {"liked": 0, "applied": 0, "hidden": 0}
     for j in get_jobs():
         u = j.get("url")
+        st = statuses.get(u, "")
+        if st in counts:
+            counts[st] += 1
         rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
                      "location": j.get("location", ""), "url": u,
                      "sponsors_h1b": j.get("sponsors_h1b", ""),
                      "found_date": j.get("found_date", ""),
-                     "score": scores.get(u, 0), "status": statuses.get(u, "")})
-
-    if tab == "liked":
-        rows = [r for r in rows if r["status"] == "liked"]
-    elif tab == "applied":
-        rows = [r for r in rows if r["status"] == "applied"]
-    elif tab == "hidden":
-        rows = [r for r in rows if r["status"] == "hidden"]
-    else:
-        tab = "recommended"
-        rows = [r for r in rows if r["status"] != "hidden" and r["score"] >= min_match]
-
-    if q:
-        rows = [r for r in rows if q in (r["title"] + " " + r["company"]).lower()]
+                     "score": scores.get(u, 0), "status": st})
     rows.sort(key=lambda r: r["score"], reverse=True)
+    return render_template("feed.html", jobs=rows, has_resume=bool(resume),
+                           total=len(rows), counts=counts, default_min=45 if resume else 0)
 
-    return render_template("feed.html", jobs=rows, tab=tab, q=request.args.get("q", ""),
-                           min_match=min_match, has_resume=bool(resume),
-                           total=len(get_jobs()))
+
+@app.route("/api/action", methods=["POST"])
+@login_required
+def api_action():
+    """JSON like/hide/apply for the JS feed. Body: {url, status} (status '' clears)."""
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    status = data.get("status", "")
+    if not url:
+        return {"ok": False, "error": "no url"}, 400
+    try:
+        db.set_user_status(session["user"], url, status)
+        return {"ok": True, "status": status}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500
 
 
 @app.route("/reload")
