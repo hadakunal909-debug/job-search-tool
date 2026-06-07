@@ -11,10 +11,12 @@ On cPanel:     passenger_wsgi.py exposes `application = web.app`
 """
 import os
 import re
+import sys
 import time
 import html
 import hashlib
 import functools
+import subprocess
 
 from flask import (Flask, request, session, redirect, url_for,
                    render_template, flash)
@@ -147,7 +149,8 @@ def feed():
                      "score": scores.get(u, 0), "status": st})
     rows.sort(key=lambda r: r["score"], reverse=True)
     return render_template("feed.html", jobs=rows, has_resume=bool(resume),
-                           total=len(rows), counts=counts, default_min=45 if resume else 0)
+                           total=len(rows), counts=counts, default_min=45 if resume else 0,
+                           scraping=scrape_running())
 
 
 @app.route("/api/action", methods=["POST"])
@@ -172,6 +175,46 @@ def reload_jobs():
     get_jobs(force=True)
     _score_cache.clear()
     flash("Reloaded jobs from the database.")
+    return redirect(url_for("feed"))
+
+
+SCRAPE_LOCK = "scrape.lock"
+
+
+def scrape_running():
+    """True if a scrape was kicked off in the last 20 min (lock not yet cleared)."""
+    try:
+        return os.path.exists(SCRAPE_LOCK) and (time.time() - os.path.getmtime(SCRAPE_LOCK) < 1200)
+    except Exception:
+        return False
+
+
+@app.route("/scrape", methods=["POST"])
+@login_required
+def scrape_now():
+    """Kick off scraper.py + score_jobs.py in a DETACHED background process (survives
+    this request) using the same venv Python. Guarded so two can't overlap."""
+    if scrape_running():
+        flash("A scrape is already running — check back in a few minutes, then hit 🔄 Reload.")
+        return redirect(url_for("feed"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        with open(SCRAPE_LOCK, "w") as f:
+            f.write(str(time.time()))
+        cmd = ("import subprocess,sys,os;"
+               "subprocess.run([sys.executable,'scraper.py']);"
+               "subprocess.run([sys.executable,'score_jobs.py']);"
+               "os.path.exists('scrape.lock') and os.remove('scrape.lock')")
+        subprocess.Popen([sys.executable, "-c", cmd], cwd=here,
+                         stdout=open(os.path.join(here, "scrape.log"), "a"),
+                         stderr=subprocess.STDOUT, start_new_session=True)
+        flash("🛰️ Scrape started in the background (~3–5 min). Hit 🔄 Reload when it's done.")
+    except Exception as e:
+        try:
+            os.remove(SCRAPE_LOCK)
+        except Exception:
+            pass
+        flash("Couldn't start the scrape: %s" % e)
     return redirect(url_for("feed"))
 
 
