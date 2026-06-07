@@ -19,7 +19,7 @@ import time
 import random
 import re
 import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 
 # Windows terminals default to cp1252 and crash when printing characters that some job
 # titles contain (em dashes, non-breaking hyphens, accents). Force UTF-8 stdout so a
@@ -443,6 +443,118 @@ SCRAPERS = {
 
 
 # ============================================================
+# ADD-A-BOARD  — turn a pasted careers link into a scrapeable source
+# ============================================================
+# Only these 5 ATS platforms expose a public job feed we can read. A plain company
+# careers site (Google/Meta-style custom portal, iCIMS, Oracle, Eightfold, Taleo) does
+# NOT, so detect_board() returns None for those — the app routes them to careers links.
+_LOCALES = {"en-us", "en-gb", "en", "us", "global", "en-us"}
+
+
+def _name_from(slug):
+    s = slug.replace("-", " ").replace("_", " ")
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", s)   # split camel/Pascal: AveryDennison -> Avery Dennison
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.title() if (s.islower() or s.isupper()) else s
+
+
+def detect_board(url):
+    """Map a pasted job-board URL to (normalized_board_url, ats_type, suggested_name),
+    or None if it isn't one of the scrapeable ATS feeds. The normalized URL is the exact
+    form the matching scrape_* function expects."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    p = urlparse(url)
+    host = p.netloc.lower()
+    segs = [s for s in p.path.split("/") if s]
+
+    if "greenhouse.io" in host:
+        slug = (parse_qs(p.query).get("for") or [None])[0]      # embed link: ?for=slug
+        if not slug and "boards" in segs:                        # boards-api/v1/boards/<slug>/jobs
+            i = segs.index("boards")
+            slug = segs[i + 1] if i + 1 < len(segs) else None
+        if not slug and segs:
+            slug = segs[0]
+        if slug:
+            return ("https://job-boards.greenhouse.io/%s" % slug, "greenhouse", _name_from(slug))
+
+    if "lever.co" in host and segs:
+        return ("https://jobs.lever.co/%s" % segs[0], "lever", _name_from(segs[0]))
+
+    if "ashbyhq.com" in host and segs:
+        return ("https://jobs.ashbyhq.com/%s" % segs[0], "ashby", _name_from(segs[0]))
+
+    if "smartrecruiters.com" in host and segs:
+        return ("https://jobs.smartrecruiters.com/%s" % segs[0], "smartrecruiters", _name_from(segs[0]))
+
+    if "myworkdayjobs.com" in host:
+        tenant = host.split(".")[0]
+        site_segs = [s for s in segs if s.lower() not in _LOCALES]
+        if site_segs:
+            return ("https://%s/%s" % (host, site_segs[0]), "workday", _name_from(tenant))
+
+    return None
+
+
+def probe_board(board_url, ats_type):
+    """Hit the board's API and return how many postings it exposes right now
+    (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
+    try:
+        slug = board_url.rstrip("/").split("/")[-1]
+        if ats_type == "greenhouse":
+            r = requests.get("https://boards-api.greenhouse.io/v1/boards/%s/jobs" % slug,
+                             headers=HEADERS, timeout=10)
+            return len(r.json().get("jobs", [])) if r.status_code == 200 else None
+        if ats_type == "lever":
+            r = requests.get("https://api.lever.co/v0/postings/%s?mode=json" % slug,
+                             headers=HEADERS, timeout=10)
+            d = r.json() if r.status_code == 200 else None
+            return len(d) if isinstance(d, list) else None
+        if ats_type == "ashby":
+            r = requests.get("https://api.ashbyhq.com/posting-api/job-board/%s" % slug,
+                             headers=HEADERS, timeout=10)
+            return len(r.json().get("jobs", [])) if r.status_code == 200 else None
+        if ats_type == "smartrecruiters":
+            r = requests.get("https://api.smartrecruiters.com/v1/companies/%s/postings?limit=1" % slug,
+                             headers=HEADERS, timeout=10)
+            return r.json().get("totalFound") if r.status_code == 200 else None
+        if ats_type == "workday":
+            p = urlparse(board_url)
+            host, tenant = p.netloc, p.netloc.split(".")[0]
+            parts = [x for x in p.path.split("/") if x and x.lower() not in _LOCALES]
+            site = parts[-1] if parts else ""
+            cxs = "https://%s/wday/cxs/%s/%s/jobs" % (host, tenant, site)
+            hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
+            r = requests.post(cxs, headers=hdr, timeout=12, data=json.dumps(
+                {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}))
+            return r.json().get("total") if r.status_code == 200 else None
+    except Exception:
+        return None
+    return None
+
+
+def custom_sources():
+    """Boards the user added through the app (stored in db) as (url, ats_type, company)
+    tuples, deduped against the built-in SOURCES by URL. Never raises (missing table /
+    no network -> just no extra sources), so it can't break a scrape."""
+    try:
+        boards = db.list_boards()
+    except Exception:
+        boards = []
+    have = {u for u, _, _ in SOURCES}
+    out = []
+    for b in boards or []:
+        u, t, c = b.get("url"), b.get("ats_type"), b.get("company")
+        if u and t in SCRAPERS and u not in have:
+            out.append((u, t, c or u))
+            have.add(u)
+    return out
+
+
+# ============================================================
 # FILTER  — entry-level + H1B sponsor
 # ============================================================
 
@@ -679,7 +791,10 @@ def main():
         print("No %s found — using the base role filter only." % RESUME_FILE)
 
     seen = db.existing_urls()
-    scraped = scrape_all(SOURCES)
+    sources = SOURCES + custom_sources()
+    if len(sources) > len(SOURCES):
+        print("+ %d board(s) added via the app." % (len(sources) - len(SOURCES)))
+    scraped = scrape_all(sources)
 
     kept = []
     for j in scraped:

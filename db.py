@@ -394,6 +394,54 @@ def update_jds(jds):
     _dump_json(JDS_FILE, jds)
 
 
+# ================= custom job boards (added through the app's "Add board" view) ====
+BOARDS_TABLE = "boards"
+BOARDS_FILE = "boards.json"          # local fallback
+
+
+def list_boards():
+    """[{url, ats_type, company, added_by, created_at}] of user-added boards.
+    Defensive: a missing table / failed request returns [] so the scrape never breaks."""
+    if using_supabase():
+        try:
+            r = requests.get(_rest(BOARDS_TABLE), headers=_headers(),
+                             params={"select": "*", "order": "created_at"}, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return []
+    rows = _load_json(BOARDS_FILE)
+    return rows if isinstance(rows, list) else []
+
+
+def add_board(url, ats_type, company, added_by=""):
+    """Insert/replace a custom board (PK = url). Returns (ok, error_message)."""
+    rec = {"url": url, "ats_type": ats_type, "company": company,
+           "added_by": added_by, "created_at": _now()}
+    if using_supabase():
+        resp = requests.post(
+            _rest(BOARDS_TABLE),
+            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+            params={"on_conflict": "url"}, data=json.dumps(rec), timeout=30)
+        if resp.status_code >= 400:
+            return False, "Supabase add_board %s: %s" % (resp.status_code, resp.text[:300])
+        return True, ""
+    rows = [b for b in list_boards() if b.get("url") != url] + [rec]
+    _dump_json(BOARDS_FILE, rows)
+    return True, ""
+
+
+def delete_board(url):
+    if using_supabase():
+        resp = requests.delete(_rest(BOARDS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                               params={"url": "eq.%s" % url}, timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("delete_board %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    rows = [b for b in list_boards() if b.get("url") != url]
+    _dump_json(BOARDS_FILE, rows)
+
+
 if __name__ == "__main__":
     import sys
     if not using_supabase():
