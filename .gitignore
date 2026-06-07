@@ -15,6 +15,7 @@ users.json
 user_jobs_local.json
 jds.json
 boards.json
+last_new_jobs.json
 scrape.log
 scrape.lock
 stemjobs_cpanel.zip
