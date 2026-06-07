@@ -10,29 +10,6 @@
 [data-theme=dark] .nospon{background:#3a1d1d;color:#ff9b9b}
 .ck{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap}
 .ck input{accent-color:#0e8a5f}
-.optclock{background:#fff;border:1px solid #e3e8ef;border-radius:12px;padding:9px 15px;margin:0 0 13px}
-.optclock>summary{cursor:pointer;font-weight:700;font-size:14px;list-style:none}
-.optclock>summary::-webkit-details-marker{display:none}
-.optclock>summary::before{content:"▸ ";color:#0e8a5f}
-.optclock[open]>summary::before{content:"▾ "}
-.optbody{margin-top:11px}
-.optgrid{display:flex;flex-wrap:wrap;gap:13px;align-items:flex-end}
-.optgrid label{display:flex;flex-direction:column;font-size:12px;gap:3px;color:#555}
-.optgrid input[type=date],.optgrid input[type=number]{padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font-size:13px;background:#fff;color:#111;width:150px}
-.optgrid input[type=number]{width:90px}
-.optgrid .ckc{flex-direction:row;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#333}
-.optgrid .ckc input{accent-color:#0e8a5f}
-.optout{margin:11px 0 6px;font-size:14px;color:#222}
-.optbar{height:8px;background:#e5e7eb;border-radius:6px;overflow:hidden}
-.optfill{height:100%;width:0;transition:width .3s}
-.optfill.g{background:#0e8a5f}.optfill.a{background:#d98a0a}.optfill.r{background:#c0392b}
-.opthint{font-size:11px;color:#777;margin-top:7px}
-[data-theme=dark] .optclock{background:#161b22;border-color:#2a3340}
-[data-theme=dark] .optgrid label,[data-theme=dark] .optgrid .ckc{color:#9aa7b4}
-[data-theme=dark] .optgrid input[type=date],[data-theme=dark] .optgrid input[type=number]{background:#0d1117;border-color:#2a3340;color:#e6edf3}
-[data-theme=dark] .optout{color:#e6edf3}
-[data-theme=dark] .optbar{background:#2a3340}
-[data-theme=dark] .opthint{color:#8b97a3}
 </style>
 <div class="feedhead">
   <div class="feedrow">
@@ -73,20 +50,6 @@
   <div class="banner">Showing baseline scores. <a href="{{ url_for('resume') }}">➕ Add your résumé</a> for personalized matches.</div>
   {% endif %}
 </div>
-<details class="optclock" id="optclock">
-  <summary>🛂 OPT / work-authorization tracker</summary>
-  <div class="optbody">
-    <div class="optgrid">
-      <label>Unemployed since<input type="date" id="opt_since"></label>
-      <label>Days used before that<input type="number" id="opt_prior" min="0" max="180" value="0"></label>
-      <label class="ckc"><input type="checkbox" id="opt_emp"> Employed now (pause)</label>
-      <label class="ckc"><input type="checkbox" id="opt_stem"> STEM-OPT (150-day limit)</label>
-    </div>
-    <div class="optout" id="opt_out"></div>
-    <div class="optbar"><div class="optfill g" id="opt_fill" style="width:0%"></div></div>
-    <div class="opthint">USCIS allows <b>90</b> unemployment days on OPT (<b>150</b> on STEM-OPT). Counts from your "unemployed since" date. Saved in this browser only — a personal tracker, not legal advice.</div>
-  </div>
-</details>
 <div class="count"><span id="count">{{ total }}</span> of {{ total }} jobs</div>
 
 <div id="feed" class="feedgrid">
