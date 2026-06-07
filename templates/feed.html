@@ -1,43 +1,49 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="feedhead">
-  <h1>Jobs feed</h1>
+  <div class="feedrow">
+    <h1>Jobs feed</h1>
+    <div class="feedtools">
+      <a class="btn" href="{{ url_for('reload_jobs') }}">🔄 Reload</a>
+      <form method="post" action="{{ url_for('scrape_now') }}" class="inline">
+        <button class="btn" type="submit" {{ 'disabled' if scraping else '' }}>🛰️ Update jobs</button>
+      </form>
+    </div>
+  </div>
   <div class="filters">
     <input id="q" placeholder="🔎 Search title or company" autocomplete="off">
-    <label class="rng">Min match <span id="minlab">{{ default_min }}</span>%
+    <label class="rng">Min match <b id="minlab">{{ default_min }}</b>%
       <input id="min" type="range" min="0" max="100" value="{{ default_min }}">
     </label>
-    <a class="btn" href="{{ url_for('reload_jobs') }}">🔄 Reload</a>
-    <form method="post" action="{{ url_for('scrape_now') }}" class="inline">
-      <button class="btn" type="submit" {{ 'disabled' if scraping else '' }}>🛰️ Update jobs</button>
-    </form>
   </div>
-  {% if scraping %}<div class="banner">⏳ A scrape is running in the background — hit 🔄 Reload in a few minutes for the new jobs.</div>{% endif %}
   <div class="tabs">
-    <a class="tab on" data-tab="recommended" href="#">Recommended</a>
-    <a class="tab" data-tab="liked" href="#">Liked <span class="tabn">{{ counts.liked }}</span></a>
-    <a class="tab" data-tab="applied" href="#">Applied <span class="tabn">{{ counts.applied }}</span></a>
-    <a class="tab" data-tab="hidden" href="#">Hidden <span class="tabn">{{ counts.hidden }}</span></a>
+    <button class="tab on" data-tab="recommended">Recommended</button>
+    <button class="tab" data-tab="liked">Liked <span class="tabn">{{ counts.liked }}</span></button>
+    <button class="tab" data-tab="applied">Applied <span class="tabn">{{ counts.applied }}</span></button>
+    <button class="tab" data-tab="hidden">Hidden <span class="tabn">{{ counts.hidden }}</span></button>
   </div>
+  {% if scraping %}<div class="banner">⏳ A scrape is running — hit 🔄 Reload in a few minutes for new jobs.</div>{% endif %}
   {% if not has_resume %}
   <div class="banner">Showing baseline scores. <a href="{{ url_for('resume') }}">➕ Add your résumé</a> for personalized matches.</div>
   {% endif %}
 </div>
-<div class="count"><span id="count">{{ total }}</span> jobs <span class="muted">· of {{ total }}</span></div>
+<div class="count"><span id="count">{{ total }}</span> of {{ total }} jobs</div>
 
-<div id="feed">
+<div id="feed" class="feedgrid">
 {% for j in jobs %}
-<div class="card" data-status="{{ j.status }}" data-score="{{ j.score }}" data-url="{{ j.url }}"
+<article class="card" data-status="{{ j.status }}" data-score="{{ j.score }}" data-url="{{ j.url }}"
      data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
-  <div class="chip {{ 'strong' if j.score>=55 else ('good' if j.score>=42 else 'low') }}">{{ j.score }}%</div>
-  <div class="cardmain">
-    <div class="ctitle">{{ j.title }}</div>
-    <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · {{ j.found_date }}{% endif %}
-      {% if j.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
+  <div class="cardtop">
+    <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img src="https://logo.clearbit.com/{{ j.company|logodomain }}" alt="" loading="lazy" onerror="this.remove()"></div>
+    <div class="chip {{ 'strong' if j.score>=55 else ('good' if j.score>=42 else 'low') }}">{{ j.score }}%</div>
   </div>
+  <div class="ctitle">{{ j.title }}</div>
+  <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · {{ j.found_date[:10] }}{% endif %}
+    {% if j.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
   <div class="cardact">
-    <a class="btn" href="{{ j.url }}" target="_blank" rel="noopener">Apply ↗</a>
-    <a class="btn" href="{{ url_for('tailor', url=j.url) }}">Tailor</a>
+    <a class="btn primary sm" href="{{ j.url }}" target="_blank" rel="noopener">Apply ↗</a>
+    <a class="btn sm" href="{{ url_for('tailor', url=j.url) }}">Tailor</a>
+    <span class="spacer"></span>
     <form method="post" action="{{ url_for('action') }}" class="inline acts">
       <input type="hidden" name="url" value="{{ j.url }}">
       <button class="ico" data-act="liked"   name="status" value="{{ '' if j.status=='liked'   else 'liked'   }}" title="Like">{{ '💚' if j.status=='liked' else '🤍' }}</button>
@@ -45,10 +51,11 @@
       <button class="ico" data-act="hidden"  name="status" value="{{ '' if j.status=='hidden'  else 'hidden'  }}" title="Hide">🚫</button>
     </form>
   </div>
-</div>
+</article>
 {% endfor %}
 </div>
 <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Min match</b>, clear search, or switch tabs.</div>
+<div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
 {% endblock %}
 
 {% block scripts %}

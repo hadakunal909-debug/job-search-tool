@@ -1,4 +1,4 @@
-// Client-side feed: instant tab/search/min filtering + no-reload like/hide/apply.
+// Feed: instant tab/search/min filtering, paged rendering (Load more), no-reload actions.
 (function () {
   "use strict";
   var feed = document.getElementById("feed");
@@ -8,50 +8,65 @@
   var minLab = document.getElementById("minlab");
   var countEl = document.getElementById("count");
   var emptyEl = document.getElementById("empty");
+  var moreBtn = document.getElementById("loadmore");
+  var tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended";
+  var PAGE = 36, limit = PAGE;
 
   function cards() { return feed.querySelectorAll(".card"); }
 
-  function applyFilter() {
-    var term = (q && q.value ? q.value : "").toLowerCase().trim();
-    var minv = minR ? parseInt(minR.value, 10) || 0 : 0;
-    var shown = 0, list = cards();
+  function matches(c) {
+    var st = c.getAttribute("data-status") || "";
+    var sc = parseInt(c.getAttribute("data-score"), 10) || 0;
+    var ok;
+    if (tab === "liked") ok = st === "liked";
+    else if (tab === "applied") ok = st === "applied";
+    else if (tab === "hidden") ok = st === "hidden";
+    else ok = (st !== "hidden") && (sc >= (minR ? parseInt(minR.value, 10) || 0 : 0));
+    if (ok && q && q.value) {
+      ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
+    }
+    return ok;
+  }
+
+  function render(reset) {
+    if (reset) limit = PAGE;
+    var list = cards(), total = 0, shown = 0;
     for (var i = 0; i < list.length; i++) {
       var c = list[i];
-      var st = c.getAttribute("data-status") || "";
-      var sc = parseInt(c.getAttribute("data-score"), 10) || 0;
-      var ok;
-      if (tab === "liked") ok = st === "liked";
-      else if (tab === "applied") ok = st === "applied";
-      else if (tab === "hidden") ok = st === "hidden";
-      else ok = (st !== "hidden") && (sc >= minv);
-      if (ok && term) ok = (c.getAttribute("data-text") || "").indexOf(term) !== -1;
-      c.style.display = ok ? "" : "none";
-      if (ok) shown++;
+      if (matches(c)) {
+        total++;
+        if (shown < limit) { c.style.display = ""; shown++; }
+        else c.style.display = "none";
+      } else {
+        c.style.display = "none";
+      }
     }
-    if (countEl) countEl.textContent = shown;
-    if (emptyEl) emptyEl.style.display = shown ? "none" : "";
+    if (countEl) countEl.textContent = total;
+    if (emptyEl) emptyEl.style.display = total ? "none" : "";
+    if (moreBtn) {
+      if (total > limit) { moreBtn.style.display = ""; moreBtn.textContent = "Load more (" + (total - limit) + " more)"; }
+      else moreBtn.style.display = "none";
+    }
   }
 
-  // Tabs
-  var tabs = document.querySelectorAll(".tab");
-  for (var t = 0; t < tabs.length; t++) {
-    tabs[t].addEventListener("click", function (e) {
-      e.preventDefault();
-      for (var k = 0; k < tabs.length; k++) tabs[k].classList.remove("on");
+  for (var t = 0; t < tabBtns.length; t++) {
+    tabBtns[t].addEventListener("click", function () {
+      for (var k = 0; k < tabBtns.length; k++) tabBtns[k].classList.remove("on");
       this.classList.add("on");
       tab = this.getAttribute("data-tab");
-      // in non-recommended tabs, ignore the min-match slider
-      applyFilter();
+      render(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     });
   }
-  if (q) q.addEventListener("input", applyFilter);
+  if (q) q.addEventListener("input", function () { render(true); });
   if (minR) minR.addEventListener("input", function () {
     if (minLab) minLab.textContent = minR.value;
-    applyFilter();
+    render(true);
   });
+  if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
-  // Like / Applied / Hide — no reload
+  // like / applied / hide — no reload
   feed.addEventListener("click", function (e) {
     var btn = e.target.closest ? e.target.closest("button[data-act]") : null;
     if (!btn) return;
@@ -60,34 +75,29 @@
     if (!card) return;
     var act = btn.getAttribute("data-act");
     var cur = card.getAttribute("data-status") || "";
-    var next = (cur === act) ? "" : act;       // click again to un-set
+    var next = (cur === act) ? "" : act;
     btn.disabled = true;
     fetch("/api/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: card.getAttribute("data-url"), status: next })
     }).then(function (r) { return r.json(); }).then(function (j) {
       btn.disabled = false;
       if (!j || !j.ok) { alert("Couldn't save — try again."); return; }
       card.setAttribute("data-status", next);
-      paintButtons(card, next);
+      paint(card, next);
       if (next === "hidden" && tab !== "hidden") {
-        card.style.transition = "opacity .25s ease";
-        card.style.opacity = "0";
-        setTimeout(applyFilter, 250);
-      } else {
-        applyFilter();
-      }
+        card.style.transition = "opacity .25s ease"; card.style.opacity = "0";
+        setTimeout(function () { card.style.opacity = ""; render(false); }, 250);
+      } else { render(false); }
     }).catch(function () { btn.disabled = false; alert("Network error — try again."); });
   });
 
-  function paintButtons(card, status) {
+  function paint(card, status) {
     var like = card.querySelector('[data-act="liked"]');
     var app = card.querySelector('[data-act="applied"]');
     if (like) like.textContent = (status === "liked") ? "💚" : "🤍";
     if (app) app.textContent = (status === "applied") ? "✅" : "📨";
-    card.style.opacity = "";   // reset (e.g. un-hide)
   }
 
-  applyFilter();   // initial pass (applies default min-match)
+  render(true);
 })();
