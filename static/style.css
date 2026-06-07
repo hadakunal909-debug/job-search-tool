@@ -58,3 +58,11 @@ pre{background:#0e261d;color:#cfe9dd;padding:10px;border-radius:8px;overflow:aut
 .tag.miss{background:#fdeaea;color:#9b1c1c}
 .tag.have{background:#e8f6ef;color:#0e5e42}
 .back{font-size:13px}
+.tabn{background:rgba(0,0,0,.06);border-radius:10px;padding:0 6px;font-size:12px;margin-left:4px}
+.tab.on .tabn{background:rgba(255,255,255,.25)}
+.card{transition:opacity .25s ease, box-shadow .15s ease}
+.card:hover{box-shadow:0 3px 12px rgba(16,38,29,.10)}
+.ico{transition:transform .1s ease}
+.ico:hover{transform:scale(1.18)}
+.ico:disabled{opacity:.4;cursor:default}
+#q:focus,#min:focus{outline:2px solid var(--g);outline-offset:1px}
