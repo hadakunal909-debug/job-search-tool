@@ -26,3 +26,15 @@ jobs:
         run: |
           python scraper.py
           python score_jobs.py
+
+      - name: Email new-job alerts (dormant unless SMTP_* secrets are set)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+          ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
+        run: python notify.py

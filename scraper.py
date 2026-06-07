@@ -1142,6 +1142,10 @@ def main():
 
     if kept:
         db.add_jobs(kept)
+    try:                                  # breadcrumb so notify.py can email just this run's new jobs
+        json.dump(kept, open("last_new_jobs.json", "w", encoding="utf-8"))
+    except Exception:
+        pass
 
     print(f"\n{len(kept)} NEW matching job(s):")
     for j in kept:
