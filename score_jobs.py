@@ -90,11 +90,15 @@ def sr_detail_jd(url):
 
 
 def wd_detail_jd(url):
-    """Workday list has no JD; fetch the posting detail (CXS) for this one job."""
+    """Workday list has no JD; fetch the posting detail (CXS) for this one job.
+    Handles both URL formats ({tenant}.{dc}.myworkdayjobs.com and
+    {dc}.myworkdaysite.com/recruiting/{tenant}/{site})."""
     from urllib.parse import urlparse
     try:
-        p = urlparse(url); host = p.netloc; tenant = host.split(".")[0]
-        d = scraper._get_json("https://%s/wday/cxs/%s%s" % (host, tenant, p.path))
+        host, tenant, site = scraper._workday_parts(url)
+        segs = [x for x in urlparse(url).path.split("/") if x]
+        jobpath = "/".join(segs[segs.index("job"):]) if "job" in segs else (segs[-1] if segs else "")
+        d = scraper._get_json("https://%s/wday/cxs/%s/%s/%s" % (host, tenant, site, jobpath))
         return _text(d.get("jobPostingInfo", {}).get("jobDescription", ""))
     except Exception:
         return ""
