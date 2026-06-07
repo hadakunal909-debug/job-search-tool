@@ -67,6 +67,32 @@
 </div>
 <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Min match</b>, clear search, or switch tabs.</div>
 <div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
+
+<div class="modal-overlay" id="jobmodal">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="logo" id="m-logo"></div>
+      <div style="flex:1;min-width:0">
+        <h2 id="m-title"></h2>
+        <div class="cmeta" id="m-meta"></div>
+      </div>
+      <div id="m-chip"></div>
+      <button class="modal-x" id="m-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="m-skills"></div>
+      <div class="sechdr">Job description</div>
+      <div class="jd" id="m-jd">Loading…</div>
+    </div>
+    <div class="modal-foot">
+      <a class="btn primary" id="m-apply" target="_blank" rel="noopener">Apply ↗</a>
+      <a class="btn" id="m-tailor">Tailor view</a>
+      <span class="spacer"></span>
+      <button class="btn" id="m-like">🤍 Save</button>
+      <button class="btn" id="m-hide">🚫 Hide</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

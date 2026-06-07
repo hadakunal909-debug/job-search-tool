@@ -183,6 +183,30 @@ def feed():
                            scraping=scrape_running())
 
 
+@app.route("/api/job")
+@login_required
+def api_job():
+    """Full job detail for the slide-in panel: JD text + matched/missing skills."""
+    url = request.args.get("url", "")
+    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    if not job:
+        return {"ok": False}, 404
+    resume = session.get("resume", "")
+    jd = job.get("jd", "") or ""
+    if resume and jd:
+        score, have, missing = core.skill_match(resume, jd, core.load_idf())
+    else:
+        try:
+            score = int(job.get("match_score") or 0)
+        except Exception:
+            score = 0
+        have, missing = [], []
+    return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
+            "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
+            "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""), "score": int(score or 0),
+            "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}
+
+
 @app.route("/api/action", methods=["POST"])
 @login_required
 def api_action():
