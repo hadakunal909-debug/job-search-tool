@@ -5,3 +5,4 @@ requests
 beautifulsoup4
 lxml
 rapidfuzz
+anthropic   # AI résumé tailoring (the ✨ AI-tailor button). Harmless if unused.

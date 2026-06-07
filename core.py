@@ -19,7 +19,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                          "Chrome/124.0 Safari/537.36"}
 
 # Default model for AI tailoring; swap to any model string your key can access.
-AI_MODEL = "claude-sonnet-4-6"
+AI_MODEL = "claude-opus-4-8"
 
 
 # ------------------------------------------------------------
@@ -518,7 +518,7 @@ def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
     )
     msg = client.messages.create(
         model=model,
-        max_tokens=2000,
+        max_tokens=4096,                       # headroom for a full résumé rewrite
         messages=[{"role": "user", "content": prompt}],
     )
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()

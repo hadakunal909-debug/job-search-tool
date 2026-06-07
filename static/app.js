@@ -86,7 +86,6 @@
       .then(function (r) { return r.json(); }).then(function (j) {
         if (!j || !j.ok) { toast("Couldn't save — try again."); return false; }
         var c = cardByUrl(url); if (c) { c.setAttribute("data-status", next); paint(c, next); }
-        recordApplied(url, next);
         return true;
       }).catch(function () { toast("Network error."); return false; });
   }
@@ -172,62 +171,6 @@
       doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); closeModal(); render(false); } });
     });
   }
-
-  // ---- OPT / work-authorization tracker (personal; saved in this browser only) ----
-  var optEls = { since: document.getElementById("opt_since"), prior: document.getElementById("opt_prior"),
-                 emp: document.getElementById("opt_emp"), stem: document.getElementById("opt_stem"),
-                 out: document.getElementById("opt_out"), fill: document.getElementById("opt_fill") };
-  function recordApplied(url, status) {           // remember WHEN a job was marked applied
-    try {
-      var m = JSON.parse(localStorage.getItem("applied_dates") || "{}");
-      if (status === "applied") m[url] = new Date().toISOString().slice(0, 10); else delete m[url];
-      localStorage.setItem("applied_dates", JSON.stringify(m));
-    } catch (e) {}
-    optRender();
-  }
-  function appliedThisWeek() {
-    var m = {}; try { m = JSON.parse(localStorage.getItem("applied_dates") || "{}"); } catch (e) {}
-    var cut = Date.now() - 7 * 86400000, n = 0;
-    for (var k in m) { if (m[k] && new Date(m[k] + "T00:00:00").getTime() >= cut) n++; }
-    return n;
-  }
-  function optRender() {
-    if (!optEls.out) return;
-    var limit = (optEls.stem && optEls.stem.checked) ? 150 : 90;
-    var used = parseInt(optEls.prior && optEls.prior.value, 10) || 0, paused = optEls.emp && optEls.emp.checked;
-    if (!paused && optEls.since && optEls.since.value) {
-      var d = Math.floor((Date.now() - new Date(optEls.since.value + "T00:00:00").getTime()) / 86400000);
-      if (d > 0) used += d;
-    }
-    if (used > limit) used = limit;
-    var left = Math.max(0, limit - used), pct = Math.min(100, Math.round(100 * used / limit));
-    if (optEls.fill) { optEls.fill.style.width = pct + "%"; optEls.fill.className = "optfill " + (pct >= 89 ? "r" : pct >= 66 ? "a" : "g"); }
-    var wk = appliedThisWeek();
-    var head = paused ? "✅ Employed — unemployment clock paused"
-      : (left <= 15 ? "⚠️ " + left + " unemployment days left" : left + " unemployment days left");
-    optEls.out.innerHTML = "<b>" + head + "</b> · " + used + " / " + limit + " days used"
-      + (wk ? (" · 📨 " + wk + " applied this week") : "");
-    try {
-      if (optEls.since) localStorage.setItem("opt_since", optEls.since.value);
-      if (optEls.prior) localStorage.setItem("opt_prior", optEls.prior.value);
-      if (optEls.emp) localStorage.setItem("opt_emp", optEls.emp.checked ? "1" : "0");
-      if (optEls.stem) localStorage.setItem("opt_stem", optEls.stem.checked ? "1" : "0");
-    } catch (e) {}
-  }
-  (function initOpt() {
-    if (!optEls.out) return;
-    try {
-      var s = localStorage.getItem("opt_since"), p = localStorage.getItem("opt_prior");
-      if (s && optEls.since) optEls.since.value = s;
-      if (p && optEls.prior) optEls.prior.value = p;
-      if (optEls.emp) optEls.emp.checked = localStorage.getItem("opt_emp") === "1";
-      if (optEls.stem) optEls.stem.checked = localStorage.getItem("opt_stem") === "1";
-    } catch (e) {}
-    ["since", "prior", "emp", "stem"].forEach(function (k) {
-      if (optEls[k]) { optEls[k].addEventListener("input", optRender); optEls[k].addEventListener("change", optRender); }
-    });
-    optRender();
-  })();
 
   formatDates();
   render(true);
