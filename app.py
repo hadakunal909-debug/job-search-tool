@@ -23,6 +23,7 @@ import streamlit as st
 import core
 import db   # storage layer: Supabase if configured, else local files
 import auth  # password hashing for the multi-user login
+import scraper  # detect_board / probe_board for the "Add board" view
 
 st.set_page_config(page_title="Jobs — Match & Tailor", page_icon="🎯", layout="wide",
                    initial_sidebar_state="expanded")
@@ -391,7 +392,7 @@ if st.session_state.pop("_goto_resume", False):   # "Add résumé" CTA → jump 
 _nav, _acct = st.columns([3.4, 1])
 with _nav:
     nav = st.segmented_control(
-        "Go to", ["🎯 Jobs feed", "📄 My résumé", "🏢 Sponsor careers"],
+        "Go to", ["🎯 Jobs feed", "📄 My résumé", "🏢 Sponsor careers", "➕ Add board"],
         default="🎯 Jobs feed", label_visibility="collapsed", key="topnav")
 with _acct:
     if st.button("🚪 Log out (%s)" % USER, use_container_width=True):
@@ -408,7 +409,7 @@ nav = nav or "🎯 Jobs feed"
 jobs_all = get_jobs()
 actions = st.session_state.actions
 
-if not jobs_all and nav not in ("🏢 Sponsor careers", "📄 My résumé"):
+if not jobs_all and nav not in ("🏢 Sponsor careers", "📄 My résumé", "➕ Add board"):
     where = "Supabase" if db.using_supabase() else "jobs.csv"
     st.warning(f"No jobs found in {where}. Run `python scraper.py` and "
                f"`python score_jobs.py`, then click **Reload**.")
@@ -705,6 +706,93 @@ def render_careers():
 
 
 # ============================================================
+# ADD-A-BOARD VIEW — paste a job-board link to scrape a new company
+# ============================================================
+BOARDS_SQL = """create table if not exists public.boards (
+  url        text primary key,
+  ats_type   text not null,
+  company    text,
+  added_by   text,
+  created_at timestamptz default now()
+);"""
+
+
+def render_add_board():
+    st.markdown("<div class='feedhdr'>➕ Add a job board</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='feedsub'>Paste a company's job-board link to start scraping its postings. "
+        "Works for <b>Greenhouse, Lever, Ashby, SmartRecruiters and Workday</b> boards — these "
+        "expose a public feed. Generic career sites (custom portals, iCIMS, Oracle, Eightfold) "
+        "can't be auto-scraped; add those companies to <code>sponsors.txt</code> and they show up "
+        "under 🏢 Sponsor careers as apply links.</div>", unsafe_allow_html=True)
+
+    with st.expander("How do I find the right link?"):
+        st.markdown(
+            "- Open the company's **careers / open roles** page.\n"
+            "- Look at the address bar (or a 'View all jobs' link) for one of these hosts:\n"
+            "  `greenhouse.io` · `lever.co` · `ashbyhq.com` · `smartrecruiters.com` · `myworkdayjobs.com`\n"
+            "- Paste that link below. Examples: `https://job-boards.greenhouse.io/figma`, "
+            "`https://jobs.lever.co/openai`, `https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite`.")
+
+    url = st.text_input("Board URL", placeholder="https://job-boards.greenhouse.io/figma",
+                        key="addboard_url", label_visibility="collapsed")
+    name_override = st.text_input("Company name (optional — we'll guess from the link)",
+                                  key="addboard_name", placeholder="Company name (optional)")
+    if st.button("🔎 Check & add", type="primary") and url.strip():
+        det = scraper.detect_board(url)
+        if not det:
+            st.error("That isn't a Greenhouse / Lever / Ashby / SmartRecruiters / Workday board, "
+                     "so it can't be auto-scraped. Find a link whose address contains greenhouse.io, "
+                     "lever.co, ashbyhq.com, smartrecruiters.com, or myworkdayjobs.com — or add the "
+                     "company to sponsors.txt for the 🏢 Sponsor careers tab.")
+        elif det[0] in {u for u, _, _ in scraper.SOURCES}:
+            st.info(f"**{det[2]}** is already a built-in source — it's scraped automatically, "
+                    "nothing to add. ✓")
+        else:
+            board_url, ats, guess = det
+            company = name_override.strip() or guess
+            with st.spinner("Reading the board…"):
+                n = scraper.probe_board(board_url, ats)
+            if n is None:
+                st.error(f"Found a **{ats}** link but couldn't read any jobs from `{board_url}` — "
+                         "check it's the company's main job board, not a single job posting.")
+            else:
+                ok, msg = db.add_board(board_url, ats, company, added_by=USER)
+                if ok:
+                    st.cache_data.clear()
+                    extra = "" if n else " (0 open right now — it'll pick up postings when they appear)"
+                    st.success(f"✓ Added **{company}** — {ats}, ~{n} open postings{extra}. "
+                               "It joins the next scrape: open 🎯 Jobs feed → **⚙️ Filters & tools** → "
+                               "**🛰️ Update jobs**, then **🔄 Reload** in a few minutes.")
+                elif "boards" in msg.lower() or "does not exist" in msg or "42P01" in msg:
+                    st.warning("One-time setup: your Supabase needs a `boards` table. Paste this into "
+                               "the Supabase **SQL editor**, run it, then click **Check & add** again:")
+                    st.code(BOARDS_SQL, language="sql")
+                else:
+                    st.error(msg)
+
+    boards = []
+    try:
+        boards = db.list_boards()
+    except Exception:
+        boards = []
+    if boards:
+        st.markdown("<div class='feedhdr' style='font-size:16px;margin-top:22px;'>"
+                    "Boards you've added</div>", unsafe_allow_html=True)
+        for b in boards:
+            c1, c2, c3 = st.columns([3, 1.2, 1])
+            c1.markdown("**%s**  \n<span style='color:#6b7280;font-size:12px;'>%s</span>"
+                        % (b.get("company", "—"), b.get("url", "")), unsafe_allow_html=True)
+            c2.caption(b.get("ats_type", ""))
+            if c3.button("Remove", key="delboard_%s" % b.get("url")):
+                db.delete_board(b.get("url"))
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.caption("No custom boards yet. The built-in sources are always scraped.")
+
+
+# ============================================================
 # Route
 # ============================================================
 sel = st.session_state.selected_url
@@ -715,5 +803,7 @@ elif nav == "🏢 Sponsor careers":
     render_careers()
 elif nav == "📄 My résumé":
     render_resume()
+elif nav == "➕ Add board":
+    render_add_board()
 else:
     render_feed()
