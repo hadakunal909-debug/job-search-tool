@@ -12,11 +12,14 @@ On cPanel:     passenger_wsgi.py exposes `application = web.app`
 import os
 import re
 import sys
+import json
 import time
 import html
 import hashlib
 import functools
 import subprocess
+
+import requests
 
 from flask import (Flask, request, session, redirect, url_for,
                    render_template, flash)
@@ -206,21 +209,69 @@ def reload_jobs():
 
 
 SCRAPE_LOCK = "scrape.lock"
+GH_REPO = os.environ.get("GH_REPO", "hadakunal909-debug/job-search-tool")
+GH_WORKFLOW = os.environ.get("GH_WORKFLOW", "scrape.yml")
 
 
 def scrape_running():
-    """True if a scrape was kicked off in the last 20 min (lock not yet cleared)."""
+    """True if a local scrape was kicked off in the last 20 min (lock not yet cleared)."""
     try:
         return os.path.exists(SCRAPE_LOCK) and (time.time() - os.path.getmtime(SCRAPE_LOCK) < 1200)
     except Exception:
         return False
 
 
+def _gh_token():
+    """GitHub PAT from env or the .env file (so the button can trigger the Action)."""
+    tok = os.environ.get("GH_TOKEN")
+    if not tok and os.path.exists(".env"):
+        try:
+            for ln in open(".env", encoding="utf-8"):
+                ln = ln.strip()
+                if ln.startswith("GH_TOKEN") and "=" in ln:
+                    tok = ln.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
+        except Exception:
+            pass
+    return tok
+
+
+def _trigger_github_action():
+    """Fire workflow_dispatch so the scrape runs on GitHub's servers. Returns None if no
+    token is set (caller falls back to a local scrape), else (ok, message)."""
+    tok = _gh_token()
+    if not tok:
+        return None
+    try:
+        r = requests.post(
+            "https://api.github.com/repos/%s/actions/workflows/%s/dispatches" % (GH_REPO, GH_WORKFLOW),
+            headers={"Authorization": "Bearer %s" % tok,
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"},
+            data=json.dumps({"ref": "main"}), timeout=20)
+        if r.status_code in (201, 204):
+            return (True, "")
+        return (False, "GitHub returned %s: %s" % (r.status_code, r.text[:160]))
+    except Exception as e:
+        return (False, str(e))
+
+
 @app.route("/scrape", methods=["POST"])
 @login_required
 def scrape_now():
-    """Kick off scraper.py + score_jobs.py in a DETACHED background process (survives
-    this request) using the same venv Python. Guarded so two can't overlap."""
+    """Prefer triggering the GitHub Action (runs on GitHub's servers — reliable). If no
+    GH_TOKEN is configured, fall back to a detached background scrape on this server."""
+    gh = _trigger_github_action()
+    if gh is not None:
+        ok, msg = gh
+        if ok:
+            flash("🛰️ Scrape started on GitHub Actions (~3–5 min). Watch the repo's Actions "
+                  "tab, then hit 🔄 Reload here when it finishes.")
+        else:
+            flash("Couldn't start the GitHub Action — " + msg)
+        return redirect(url_for("feed"))
+
+    # No token: scrape on this server instead (may be throttled on shared hosting).
     if scrape_running():
         flash("A scrape is already running — check back in a few minutes, then hit 🔄 Reload.")
         return redirect(url_for("feed"))
@@ -235,7 +286,7 @@ def scrape_now():
         subprocess.Popen([sys.executable, "-c", cmd], cwd=here,
                          stdout=open(os.path.join(here, "scrape.log"), "a"),
                          stderr=subprocess.STDOUT, start_new_session=True)
-        flash("🛰️ Scrape started in the background (~3–5 min). Hit 🔄 Reload when it's done.")
+        flash("🛰️ Scrape started on the server (~3–5 min). Hit 🔄 Reload when it's done.")
     except Exception as e:
         try:
             os.remove(SCRAPE_LOCK)
