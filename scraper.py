@@ -155,6 +155,12 @@ WORKDAY_BOARDS = [
     ("https://ciena.wd5.myworkdayjobs.com/Careers",                  "workday", "Ciena"),
     ("https://q2ebanking.wd5.myworkdayjobs.com/Q2",                  "workday", "Q2"),
     ("https://guidewire.wd5.myworkdayjobs.com/external",             "workday", "Guidewire"),
+    # --- Added 2026-06-06: universities/hospitals on Workday (tenant URL supplied by user) ---
+    ("https://wisconsin.wd1.myworkdayjobs.com/UW_Comprehensives",    "workday", "University of Wisconsin System"),
+    ("https://danafarber.wd5.myworkdayjobs.com/dana-farber",         "workday", "Dana-Farber Cancer Institute"),
+    ("https://northeastern.wd1.myworkdayjobs.com/careers",           "workday", "Northeastern University"),
+    ("https://rit.wd12.myworkdayjobs.com/careers",                   "workday", "Rochester Institute of Technology"),
+    ("https://wd5.myworkdaysite.com/recruiting/uw/UWHires",          "workday", "University of Washington"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -361,18 +367,34 @@ def _workday_date(posted_on):
     return (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M")
 
 
+def _workday_parts(board_url):
+    """(host, tenant, site) for either Workday URL format:
+       {tenant}.{dc}.myworkdayjobs.com/[locale/]{site}
+       {dc}.myworkdaysite.com/recruiting/{tenant}/{site}"""
+    p = urlparse(board_url)
+    host = p.netloc
+    segs = [x for x in p.path.split("/") if x and x.lower() not in _LOCALES]
+    if "myworkdaysite.com" in host:
+        if segs and segs[0].lower() == "recruiting":
+            segs = segs[1:]
+        tenant = segs[0] if segs else ""
+        site = segs[1] if len(segs) > 1 else ""
+    else:
+        tenant = host.split(".")[0]
+        site = segs[0] if segs else ""
+    return host, tenant, site
+
+
 def scrape_workday(board_url):
     """Workday via its public CXS JSON API (no browser needed). board_url is the
-    company's myworkdayjobs careers site, e.g.
-    https://salesforce.wd12.myworkdayjobs.com/External_Career_Site .
+    company's Workday careers site in either format:
+       https://salesforce.wd12.myworkdayjobs.com/External_Career_Site
+       https://wd5.myworkdaysite.com/recruiting/uw/UWHires
     Queries entry-level role terms (Workday caps results at 20/page)."""
-    from urllib.parse import urlparse
-    p = urlparse(board_url)
-    host = p.netloc                                  # e.g. salesforce.wd12.myworkdayjobs.com
-    tenant = host.split(".")[0]
-    parts = [x for x in p.path.split("/") if x and x.lower() != "en-us"]
-    site = parts[-1] if parts else ""
+    host, tenant, site = _workday_parts(board_url)
     cxs = "https://%s/wday/cxs/%s/%s/jobs" % (host, tenant, site)
+    job_base = ("https://%s/en-US/recruiting/%s/%s" % (host, tenant, site)
+                if "myworkdaysite.com" in host else "https://%s/%s" % (host, site))
     hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
     seen, rows = set(), []
     for term in WORKDAY_QUERIES:
@@ -392,7 +414,7 @@ def scrape_workday(board_url):
                 seen.add(path)
                 rows.append({
                     "title": (j.get("title") or "").strip(),
-                    "url": "https://%s/%s%s" % (host, site, path),
+                    "url": job_base + path,
                     "location": j.get("locationsText") or "",
                     "found_date": _workday_date(j.get("postedOn")),
                 })
@@ -556,11 +578,12 @@ def detect_board(url):
     if "smartrecruiters.com" in host and segs:
         return ("https://jobs.smartrecruiters.com/%s" % segs[0], "smartrecruiters", _name_from(segs[0]))
 
-    if "myworkdayjobs.com" in host:
-        tenant = host.split(".")[0]
-        site_segs = [s for s in segs if s.lower() not in _LOCALES]
-        if site_segs:
-            return ("https://%s/%s" % (host, site_segs[0]), "workday", _name_from(tenant))
+    if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
+        _h, tenant, site = _workday_parts(url)
+        if tenant and site:
+            norm = ("https://%s/recruiting/%s/%s" % (_h, tenant, site)
+                    if "myworkdaysite.com" in host else "https://%s/%s" % (_h, site))
+            return (norm, "workday", _name_from(tenant))
 
     return None
 
@@ -621,10 +644,7 @@ def probe_board(board_url, ats_type):
                              headers=HEADERS, timeout=10)
             return r.json().get("totalFound") if r.status_code == 200 else None
         if ats_type == "workday":
-            p = urlparse(board_url)
-            host, tenant = p.netloc, p.netloc.split(".")[0]
-            parts = [x for x in p.path.split("/") if x and x.lower() not in _LOCALES]
-            site = parts[-1] if parts else ""
+            host, tenant, site = _workday_parts(board_url)
             cxs = "https://%s/wday/cxs/%s/%s/jobs" % (host, tenant, site)
             hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
             r = requests.post(cxs, headers=hdr, timeout=12, data=json.dumps(
