@@ -49,7 +49,7 @@
     <div class="chip {{ 'strong' if j.score>=55 else ('good' if j.score>=42 else 'low') }}">{{ j.score }}%</div>
   </div>
   <div class="ctitle">{{ j.title }}</div>
-  <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · {{ j.found_date[:10] }}{% endif %}
+  <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · <span class="posted" data-d="{{ j.found_date[:10] }}">{{ j.found_date[:10] }}</span>{% endif %}
     {% if j.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
   <div class="cardact">
     <a class="btn primary sm" href="{{ j.url }}" target="_blank" rel="noopener">Apply ↗</a>

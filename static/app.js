@@ -17,6 +17,25 @@
     toasts.appendChild(t);
     setTimeout(function () { t.style.transition = "opacity .3s"; t.style.opacity = "0"; setTimeout(function () { t.remove(); }, 300); }, 2300);
   }
+  function relTime(s) {
+    if (!s) return "";
+    var d = new Date(s + "T00:00:00"); if (isNaN(d.getTime())) return s;
+    var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 7) return days + "d ago";
+    if (days < 30) return Math.floor(days / 7) + "w ago";
+    if (days < 365) return Math.floor(days / 30) + "mo ago";
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+  function formatDates() {
+    var ps = feed.querySelectorAll(".posted");
+    for (var i = 0; i < ps.length; i++) {
+      var s = ps[i].getAttribute("data-d");
+      if (s) { ps[i].textContent = relTime(s); ps[i].title = "Posted " + s; }
+    }
+  }
+
   function cards() { return feed.querySelectorAll(".card"); }
   function cardByUrl(u) { var l = cards(); for (var i = 0; i < l.length; i++) if (l[i].getAttribute("data-url") === u) return l[i]; return null; }
   function paint(card, status) {
@@ -145,5 +164,6 @@
     });
   }
 
+  formatDates();
   render(true);
 })();
