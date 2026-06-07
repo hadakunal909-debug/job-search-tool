@@ -304,3 +304,130 @@ Clarivate
 May Mobility
 New Relic
 Jacobs Civil Consultants
+
+# --- Top-200 DOL H1B sponsors by volume (added 2026-06-06) ---
+Citibank
+General Motors
+At&T Services
+Humana
+Ford Motor
+Charter Communications
+Sap America
+Zoox
+Barclays Services
+Elevance Health
+Lucid
+Charles Schwab
+Mayo Clinic
+Fca
+Indeed
+First Citizens Bank and Trust
+Arm
+Cummins
+Home Depot Management
+Medline Industries
+Docusign
+The Mathworks
+Government Employee Insurance Company Geico
+Delta Air Lines
+Yahoo Holdings
+Ntt Data Americas
+T Mobile
+Equifax
+Msr Technology Group
+Medtronic
+Point72
+Vertex Pharmaceuticals
+Crusoe Energy Systems
+The Vanguard Group
+Openai Opco
+Cvs Pharmacy
+Hubspot
+Optum Services
+Traton R&D
+Abbvie
+Hp
+Brookhaven National Laboratory
+Honeywell International
+Relx
+State Street Bank and Trust
+Verizon Data Services
+Insight Direct
+Ubs Business Solutions
+Fis Management Services
+Roblox
+Iqvia
+Caremark
+Applied Materials
+Maplebear
+Safeway
+Manhattan Associates
+The Pnc Financial Services Group
+Motorola Solutions
+Insight Global
+The Bank of New York Mellon
+Wal Mart Associates
+Caterpillar
+Rockwell Collins
+Borgwarner Pds
+Htc Global Services
+Southwest Airlines
+Ntt Data Services
+Barclays Capital
+Samsung Electronics America
+Publix Super Markets
+Credit Karma
+Te Connectivity
+Raymond James & Associates
+Ally Bank
+Analog Devices
+Aetna Resources
+Nokia of America
+Wgu
+Archer Daniels Midland
+Moodys Analytics
+Northwestern Mutual Life Insurance
+Liberty Mutual Technology Group
+New York Life Insurance
+Fiserv Solutions
+Cleveland Clinic Foundation
+Cadence Design Systems
+Reddit
+Cvs Shared Services Resources
+Lowes Companies
+Adventist Health Systemsunbelt
+Gp Technologies
+Randstad Digital
+Deere
+Siemens Industry Software
+Lpl Financial
+Strategic Staffing Solutions
+Mican Technologies
+Target Enterprise
+Deutsche Bank Securities
+Intuitive Surgical Operations
+Harman Becker Automotive Systems
+Marriott International
+Cohesity
+Western Union
+Global Payment Holding
+Robert Bosch
+Intercontinental Exchange Holdings
+Marvell Semiconductor
+Hartford Fire Insurance
+Nike
+Zimmer
+Citizens Financial Group
+Aecom Technical Services
+The Options Clearing
+Autozone
+Pure Storage
+Ameriprise Financial
+United Services Automobile Association
+Joby Aero
+Skilltune Technologies
+Mcdonalds
+Zurich American Insurance
+Wayfair
+Ice Mortgage Technology
+The Depository Trust & Clearing
