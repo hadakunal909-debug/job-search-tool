@@ -45,7 +45,7 @@
      data-date="{{ j.found_date[:10] if j.found_date else '' }}"
      data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
   <div class="cardtop">
-    <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img src="https://logo.clearbit.com/{{ j.company|logodomain }}" alt="" loading="lazy" onerror="this.remove()"></div>
+    <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img src="https://logo.clearbit.com/{{ j.company|logodomain }}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://www.google.com/s2/favicons?domain={{ j.company|logodomain }}&sz=64'"></div>
     <div class="chip {{ 'strong' if j.score>=55 else ('good' if j.score>=42 else 'low') }}">{{ j.score }}%</div>
   </div>
   <div class="ctitle">{{ j.title }}</div>
