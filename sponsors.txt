@@ -431,3 +431,151 @@ Zurich American Insurance
 Wayfair
 Ice Mortgage Technology
 The Depository Trust & Clearing
+
+# --- Level-I DOL H1B sponsors (entry-level wage tier; added 2026-06-06) ---
+Grandison Management
+People Tech Group
+Ut Southwestern Medical Center
+Harvard University
+University of Wisconsin System
+Johns Hopkins University
+Northwestern University
+University of Pittsburgh
+Yale University
+Trustees of the University of Pennsylvania
+Dana Farber Cancer Institute
+General Hospital
+Arizona State University
+The Leland Stanford Jr University
+Washington University
+The Ohio State University
+Massachusetts Institute of Technology
+Purdue University
+University of Minnesota
+Emory University
+Carnegie Mellon University
+University of Maryland College Park
+Cincinnati Childrens Hospital Medical Center
+The University of Texas Md Anderson Cancer Center
+The University of Virginia
+The Devereux Foundation
+Texas A&M University
+Mphasis
+University of Massachusetts Chan Medical School
+The Florida State University
+Cloud Analytics Technologies
+Harmony Public Schools
+Artificial Intelligence
+The University of Iowa
+Stv
+The University of Alabama at Birmingham
+Virtual Reality Technologies
+Nysarc INC Essex County Chapter
+The University of Texas at Austin
+Edu Infotech International Resources
+Board of Regents of the University of Nebraska
+Virginia Polytechnic Institute & State University
+Nyu Grossman School of Medicine
+Auburn University
+Weill Cornell Medical College
+Duke University
+Indiana University Indianapolis
+Bor Usga Obo Augusta University
+Management Health Systems
+Rpa Technologies
+Open Avenues Foundation
+The University of Chicago
+The Trustees of Princeton University
+West Virginia University
+The University of Southern California
+Case Western Reserve University
+Cedars Sinai Medical Center
+Pristine Rehab Care
+Brigham and Womens Hospital
+University of California Los Angeles
+St Jude Childrens Research Hospital
+Texas Tech University
+Artifint Technologies
+Robotics Staffing
+University of Maryland Baltimore
+Trustees of Boston University
+District of Columbia Public Schools
+Georgia Institute of Technology
+Brown University
+Quadrant Technologies
+Triad National Security
+University of Rochester
+Houston Independent School District
+Boise State University
+Costco Wholesale
+Administrators of the Tulane Educational Fund
+Synopsys
+North Carolina State University
+Vastek
+Louisiana State University and A&M College
+University of Oklahoma
+Vanderbilt University Medical Center
+University of California Berkeley
+University of Texas Health Science Center at San Antonio
+Georgetown University
+University of Notre Dame Du Lac
+Little Scholars of Arkansas
+Federal Soft Systems
+University of Texas Medical Branch
+The University of Texas at Dallas
+The University of Tennessee
+Su Escuela Language Academy
+The Stepping Stones Group
+Cornell University
+Newton Consulting
+Machine Intelligence
+The Childrens Hospital of Philadelphia
+Augmented Reality Technologies
+Cloud Social Technologies
+Battelle Memorial Institute
+Mary Hitchcock Memorial Hospital
+Uchicago Argonne
+Trinity Consultants
+The University of Arizona
+Sanford Burnham Prebys Medical Discovery Institute
+The Broad Institute
+Virginia Commonwealth University
+University of New Mexico
+University of North Texas
+Sri Tech Solutions
+Tech Tammina
+Virtusa
+University of Georgia
+Dallas Independent School District
+Paycom Payroll
+George Mason University
+Ati Holdings
+The University of Texas at Arlington
+Temple University A Commonwealth University
+University of Arkansas for Medical Sciences
+Richmond Children Center
+Texas A&M Agrilife Research
+Texas State University
+California Institute of Technology
+Saras America
+Kelly Services
+Medical College of Wisconsin
+Segula Technologies
+Lead IT
+Mississippi State University
+The University of Texas El Paso
+Aceintegrator
+Thirthasoft
+Texas A&M Engineering Experiment Station
+Rensselaer Polytechnic Institute
+Rochester Institute of Technology
+Techpro Solutions
+Venturesoft Global
+Montefiore Medical Center
+Embry Riddle Aeronautical University
+Collaborate Solutions
+National Institutes of Health Hhs
+Future Promise Educational Services
+Satyam Venture Engineering Services
+Cunexus Solutions
+Ut Battelle LLC Oak Ridge National Laboratory
