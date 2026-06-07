@@ -520,6 +520,115 @@ def scrape_jibe(board_url):
     return rows
 
 
+def _sub(board_url):
+    """First DNS label, e.g. https://bunq.recruitee.com -> 'bunq'."""
+    return urlparse(board_url).netloc.split(".")[0]
+
+
+def scrape_recruitee(board_url):
+    """Recruitee public API: https://{slug}.recruitee.com/api/offers/"""
+    d = _get_json("https://%s.recruitee.com/api/offers/" % _sub(board_url))
+    rows = []
+    for o in (d.get("offers", []) if isinstance(d, dict) else []):
+        loc = o.get("location") or ", ".join(
+            x for x in (o.get("city"), o.get("country")) if x)
+        rows.append({"title": (o.get("title") or "").strip(),
+                     "url": o.get("careers_url") or o.get("careers_apply_url") or "",
+                     "location": loc,
+                     "found_date": (o.get("published_at") or "")[:10]})
+    return [r for r in rows if r["url"]]
+
+
+def scrape_breezy(board_url):
+    """Breezy public JSON: https://{slug}.breezy.hr/json"""
+    d = _get_json("https://%s.breezy.hr/json" % _sub(board_url))
+    rows = []
+    for j in (d if isinstance(d, list) else []):
+        loc = j.get("location") or {}
+        if isinstance(loc, dict):
+            def _nm(v):
+                return v.get("name") if isinstance(v, dict) else v
+            loc = ", ".join(str(x) for x in
+                            (_nm(loc.get("city")), _nm(loc.get("state")), _nm(loc.get("country"))) if x)
+        rows.append({"title": (j.get("name") or "").strip(),
+                     "url": j.get("url") or "",
+                     "location": loc,
+                     "found_date": (j.get("published_date") or "")[:10]})
+    return [r for r in rows if r["url"]]
+
+
+def scrape_personio(board_url):
+    """Personio XML feed: https://{slug}.jobs.personio.com/xml"""
+    import xml.etree.ElementTree as ET
+    slug = _sub(board_url)
+    try:
+        r = requests.get("https://%s.jobs.personio.com/xml" % slug, headers=HEADERS, timeout=20)
+        root = ET.fromstring(r.content)
+    except Exception:
+        return []
+    rows = []
+    for pos in root.findall(".//position"):
+        def t(tag):
+            e = pos.find(tag)
+            return (e.text or "").strip() if e is not None and e.text else ""
+        offices = [t("office")] + [o.text for o in pos.findall(".//additionalOffices/office") if o.text]
+        jid = t("id")
+        rows.append({"title": t("name"),
+                     "url": "https://%s.jobs.personio.com/job/%s" % (slug, jid),
+                     "location": ", ".join(x for x in offices if x),
+                     "found_date": (t("createdAt") or "")[:10]})
+    return [r for r in rows if r["title"] and r["url"]]
+
+
+def scrape_jsonld(board_url):
+    """Generic: pull schema.org JobPosting items embedded in a careers page (the same
+    structured data Google for Jobs reads). Works on many custom sites; best-effort."""
+    try:
+        r = requests.get(board_url, headers=HEADERS, timeout=20)
+        soup = BeautifulSoup(r.text, "lxml")
+    except Exception:
+        return []
+
+    def _addr(node):
+        a = (node or {}).get("address") or {}
+        if not isinstance(a, dict):
+            return ""
+        ctry = a.get("addressCountry")
+        ctry = ctry.get("name") if isinstance(ctry, dict) else ctry
+        return ", ".join(str(x) for x in
+                         (a.get("addressLocality"), a.get("addressRegion"), ctry) if x)
+
+    rows = []
+    for tag in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(tag.string or "")
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for it in list(items):
+            if isinstance(it, dict) and isinstance(it.get("@graph"), list):
+                items += it["@graph"]
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            typ = it.get("@type")
+            if typ != "JobPosting" and not (isinstance(typ, list) and "JobPosting" in typ):
+                continue
+            jl = it.get("jobLocation")
+            loc = ("; ".join(_addr(x) for x in jl if _addr(x)) if isinstance(jl, list)
+                   else _addr(jl))
+            rows.append({"title": (it.get("title") or "").strip(),
+                         "url": it.get("url") or board_url,
+                         "location": loc,
+                         "found_date": (str(it.get("datePosted") or ""))[:10]})
+    # de-dupe by url
+    seen, out = set(), []
+    for r in rows:
+        if r["title"] and r["url"] and r["url"] not in seen:
+            seen.add(r["url"]); out.append(r)
+    return out
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "lever": scrape_lever,
@@ -528,6 +637,10 @@ SCRAPERS = {
     "amazon": scrape_amazon,
     "workday": scrape_workday,
     "jibe": scrape_jibe,
+    "recruitee": scrape_recruitee,
+    "breezy": scrape_breezy,
+    "personio": scrape_personio,
+    "jsonld": scrape_jsonld,
 }
 
 
@@ -579,6 +692,18 @@ def detect_board(url):
     if "smartrecruiters.com" in host and segs:
         return ("https://jobs.smartrecruiters.com/%s" % segs[0], "smartrecruiters", _name_from(segs[0]))
 
+    if "recruitee.com" in host:
+        sub = host.split(".")[0]
+        return ("https://%s.recruitee.com" % sub, "recruitee", _name_from(sub))
+
+    if "breezy.hr" in host:
+        sub = host.split(".")[0]
+        return ("https://%s.breezy.hr" % sub, "breezy", _name_from(sub))
+
+    if "personio.com" in host:
+        sub = host.split(".")[0]
+        return ("https://%s.jobs.personio.com" % sub, "personio", _name_from(sub))
+
     if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
         _h, tenant, site = _workday_parts(url)
         if tenant and site:
@@ -622,6 +747,24 @@ def detect_jibe(url):
     return None
 
 
+def detect_jsonld(url):
+    """Last-resort generic detect: if a page embeds schema.org JobPosting structured
+    data, we can read it. Returns (url, 'jsonld', name) when >=1 posting is found."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    try:
+        if scrape_jsonld(url):
+            host = urlparse(url).netloc.split(":")[0]
+            parts = [x for x in host.split(".") if x not in ("www", "careers", "jobs", "job")]
+            return (url, "jsonld", _name_from(parts[0]) if parts else host)
+    except Exception:
+        return None
+    return None
+
+
 def probe_board(board_url, ats_type):
     """Hit the board's API and return how many postings it exposes right now
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
@@ -659,6 +802,14 @@ def probe_board(board_url, ats_type):
                 d = r.json()
                 return d.get("totalCount") or d.get("count") or len(d.get("jobs", []))
             return None
+        if ats_type == "recruitee":
+            return len(scrape_recruitee(board_url))
+        if ats_type == "breezy":
+            return len(scrape_breezy(board_url))
+        if ats_type == "personio":
+            return len(scrape_personio(board_url))
+        if ats_type == "jsonld":
+            return len(scrape_jsonld(board_url))
     except Exception:
         return None
     return None
