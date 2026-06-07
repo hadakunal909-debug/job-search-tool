@@ -128,6 +128,15 @@ EXTRA_BOARDS = [
     # --- Added 2026-06-02: recovered via corrected slugs (find_boards' name-guess missed these) ---
     ("https://job-boards.greenhouse.io/digitalocean98",     "greenhouse", "DigitalOcean"),
     ("https://jobs.smartrecruiters.com/clarivateanalytics", "smartrecruiters", "Clarivate"),
+    # --- Added 2026-06-06: probe of the Level-I DOL list (8 confirmed; slugs verified) ---
+    ("https://job-boards.greenhouse.io/purestorage",            "greenhouse", "Pure Storage"),
+    ("https://job-boards.greenhouse.io/peopletech",             "greenhouse", "People Tech Group"),
+    ("https://jobs.lever.co/softworld",                         "lever", "Softworld Technologies"),
+    ("https://jobs.smartrecruiters.com/HarvardUniversity",      "smartrecruiters", "Harvard University"),
+    ("https://jobs.smartrecruiters.com/SriTechSolutionsINC",    "smartrecruiters", "Sri Tech Solutions"),
+    ("https://jobs.smartrecruiters.com/TechTammina",            "smartrecruiters", "Tech Tammina"),
+    ("https://jobs.smartrecruiters.com/FederalSoftSystemsINC",  "smartrecruiters", "Federal Soft Systems"),
+    ("https://jobs.smartrecruiters.com/SkilltuneTechnologiesINC", "smartrecruiters", "Skilltune Technologies"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -148,9 +157,16 @@ WORKDAY_BOARDS = [
     ("https://guidewire.wd5.myworkdayjobs.com/external",             "workday", "Guidewire"),
 ]
 
-# Everything scrapeable: Amazon + 26 original boards + extras + Workday companies.
+# iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
+# career-site origin. board_url = the careers domain. Add any iCIMS/Jibe employer here
+# (the "➕ Add board" view auto-detects these from a pasted careers.<company>.com link).
+JIBE_BOARDS = [
+    ("https://careers.hrblock.com", "jibe", "H&R Block"),
+]
+
+# Everything scrapeable: Amazon + 26 original boards + extras + Workday + iCIMS/Jibe.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
-SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS
+SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -432,6 +448,55 @@ def scrape_amazon(board_url):
     return rows
 
 
+def _jibe_date(s):
+    """'2026-06-05T21:49:00+0000' -> '2026-06-05' (best-effort)."""
+    try:
+        return datetime.datetime.strptime((s or "")[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def scrape_jibe(board_url):
+    """iCIMS 'Career Sites' (powered by Jibe) via their public /api/jobs JSON feed.
+    board_url is the career-site origin, e.g. https://careers.hrblock.com or
+    https://<client>.jibeapply.com . Pages through ?limit=100&page=N until done.
+    Lots of big US employers on iCIMS expose this — a custom careers domain is fine."""
+    p = urlparse(board_url)
+    base = "%s://%s" % (p.scheme or "https", p.netloc)
+    rows, seen, page = [], set(), 1
+    while page <= 20:                                 # 100/page -> up to 2000 postings
+        r = requests.get("%s/api/jobs?limit=100&page=%d" % (base, page),
+                         headers=HEADERS, timeout=25)
+        if r.status_code != 200:
+            break
+        d = r.json()
+        jobs = d.get("jobs") or []
+        if not jobs:
+            break
+        for w in jobs:
+            j = w.get("data", w) or {}
+            url = j.get("apply_url") or ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            loc = j.get("full_location") or j.get("location_name") or ""
+            ctry = j.get("country") or ""
+            if ctry and ctry.lower() not in loc.lower():
+                loc = (loc + ", " + ctry).strip(", ")
+            rows.append({
+                "title": (j.get("title") or "").strip(),
+                "url": url,
+                "location": loc,
+                "found_date": _jibe_date(j.get("posted_date") or j.get("create_date")),
+            })
+        total = d.get("totalCount") or d.get("count") or 0
+        if len(jobs) < 100 or page * 100 >= total:
+            break
+        page += 1
+        time.sleep(random.uniform(0.3, 0.7))
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "lever": scrape_lever,
@@ -439,6 +504,7 @@ SCRAPERS = {
     "smartrecruiters": scrape_smartrecruiters,
     "amazon": scrape_amazon,
     "workday": scrape_workday,
+    "jibe": scrape_jibe,
 }
 
 
@@ -499,6 +565,39 @@ def detect_board(url):
     return None
 
 
+def detect_jibe(url):
+    """Network probe for iCIMS 'Career Sites' (Jibe). These run on custom domains
+    (careers.<company>.com) or *.jibeapply.com and can't be told apart from any other
+    site by URL alone — but they all expose GET /api/jobs JSON. Returns
+    (origin_url, 'jibe', name) if that feed is present, else None. Used as a fallback
+    when detect_board() doesn't match one of the fixed ATS hosts."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    p = urlparse(url)
+    base = "%s://%s" % (p.scheme, p.netloc)
+    try:
+        r = requests.get(base + "/api/jobs?limit=1", headers=HEADERS, timeout=10)
+        if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
+            d = r.json()
+            if isinstance(d, dict) and "jobs" in d and ("totalCount" in d or "count" in d):
+                name = ""
+                jobs = d.get("jobs") or []
+                if jobs:
+                    data = jobs[0].get("data", {}) or {}
+                    name = data.get("brand") or data.get("hiring_organization") or ""
+                if not name:                          # fall back to the domain label
+                    host = p.netloc.split(":")[0]
+                    parts = [x for x in host.split(".") if x not in ("www", "careers", "jobs")]
+                    name = _name_from(parts[0]) if parts else host
+                return (base, "jibe", name)
+    except Exception:
+        return None
+    return None
+
+
 def probe_board(board_url, ats_type):
     """Hit the board's API and return how many postings it exposes right now
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
@@ -531,6 +630,14 @@ def probe_board(board_url, ats_type):
             r = requests.post(cxs, headers=hdr, timeout=12, data=json.dumps(
                 {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}))
             return r.json().get("total") if r.status_code == 200 else None
+        if ats_type == "jibe":
+            p = urlparse(board_url)
+            base = "%s://%s" % (p.scheme, p.netloc)
+            r = requests.get(base + "/api/jobs?limit=1", headers=HEADERS, timeout=12)
+            if r.status_code == 200:
+                d = r.json()
+                return d.get("totalCount") or d.get("count") or len(d.get("jobs", []))
+            return None
     except Exception:
         return None
     return None

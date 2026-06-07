@@ -26,10 +26,13 @@ create table if not exists public.boards (
 
 ## How it works
 
-- Only **Greenhouse, Lever, Ashby, SmartRecruiters, and Workday** boards expose a
-  public feed the scraper can read. Paste a link whose address contains
-  `greenhouse.io`, `lever.co`, `ashbyhq.com`, `smartrecruiters.com`, or
-  `myworkdayjobs.com`.
+- The scraper can read **Greenhouse, Lever, Ashby, SmartRecruiters, Workday, and
+  iCIMS/Jibe career sites**. Paste a link whose address contains `greenhouse.io`,
+  `lever.co`, `ashbyhq.com`, `smartrecruiters.com`, or `myworkdayjobs.com` — **or**
+  an iCIMS career site on a custom domain (e.g. `careers.company.com`); the app probes
+  for its `/api/jobs` feed and detects it automatically.
+- Other platforms (Oracle, Taleo, SuccessFactors, Eightfold) have no uniform public
+  feed and can't be auto-scraped — add those companies to `sponsors.txt` instead.
 - The app detects the platform from the link, checks it returns live postings, and
   saves it. On the **next scrape** (`python scraper.py`, or the 🛰️ Update jobs
   button), those postings flow through the same entry-level / title / US filters as

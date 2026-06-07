@@ -721,8 +721,8 @@ def render_add_board():
     st.markdown("<div class='feedhdr'>➕ Add a job board</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='feedsub'>Paste a company's job-board link to start scraping its postings. "
-        "Works for <b>Greenhouse, Lever, Ashby, SmartRecruiters and Workday</b> boards — these "
-        "expose a public feed. Generic career sites (custom portals, iCIMS, Oracle, Eightfold) "
+        "Works for <b>Greenhouse, Lever, Ashby, SmartRecruiters, Workday, and iCIMS/Jibe career sites</b> — these "
+        "expose a public feed. Other platforms (Oracle, Taleo, SuccessFactors, Eightfold) "
         "can't be auto-scraped; add those companies to <code>sponsors.txt</code> and they show up "
         "under 🏢 Sponsor careers as apply links.</div>", unsafe_allow_html=True)
 
@@ -739,12 +739,14 @@ def render_add_board():
     name_override = st.text_input("Company name (optional — we'll guess from the link)",
                                   key="addboard_name", placeholder="Company name (optional)")
     if st.button("🔎 Check & add", type="primary") and url.strip():
-        det = scraper.detect_board(url)
+        with st.spinner("Checking the link…"):
+            det = scraper.detect_board(url) or scraper.detect_jibe(url)
         if not det:
-            st.error("That isn't a Greenhouse / Lever / Ashby / SmartRecruiters / Workday board, "
-                     "so it can't be auto-scraped. Find a link whose address contains greenhouse.io, "
-                     "lever.co, ashbyhq.com, smartrecruiters.com, or myworkdayjobs.com — or add the "
-                     "company to sponsors.txt for the 🏢 Sponsor careers tab.")
+            st.error("That doesn't expose a job feed I can read. Supported: **Greenhouse, Lever, "
+                     "Ashby, SmartRecruiters, Workday, and iCIMS/Jibe career sites** "
+                     "(`careers.<company>.com`). Paste the company's main careers/jobs link. If it "
+                     "runs on another platform (Oracle, Taleo, SuccessFactors, Eightfold), it can't "
+                     "be auto-scraped — add the company to sponsors.txt for the 🏢 Sponsor careers tab.")
         elif det[0] in {u for u, _, _ in scraper.SOURCES}:
             st.info(f"**{det[2]}** is already a built-in source — it's scraped automatically, "
                     "nothing to add. ✓")
