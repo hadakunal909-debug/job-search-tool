@@ -58,7 +58,9 @@
       <label>Company<input name="company" required></label>
       <label>Title<input name="title"></label>
       <label>Link to the posting<input name="url" placeholder="https://…"></label>
-      <label>Where you applied<input name="source" placeholder="LinkedIn, company site, referral…"></label>
+      <label>Résumé used
+        <select name="resume_name"><option value="">— none —</option>{% for n in resume_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
+      </label>
       <label>Status
         <select name="status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == 'applied' else '' }}>{{ s }}</option>{% endfor %}</select>
       </label>
@@ -80,7 +82,7 @@
       <div>
         <div class="appco">{{ a.company or '—' }}</div>
         <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View posting' }} ↗</a>{% else %}{{ a.title or '' }}{% endif %}</div>
-        <div class="appmeta">{{ a.source or '—' }}{% if a.applied_date %} · applied {{ a.applied_date[:10] }}{% endif %}{% if a.resume_used %} · <a href="{{ url_for('application_resume', id=a.id) }}">résumé used ⬇</a>{% endif %}</div>
+        <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}—{% endif %}{% if a.resume_name %} · 📄 {{ a.resume_name }}{% endif %}{% if a.resume_used %} <a href="{{ url_for('application_resume', id=a.id) }}" title="Download the résumé used">⬇</a>{% endif %}</div>
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
     </div>
@@ -90,8 +92,8 @@
         <input type="hidden" name="company" value="{{ a.company or '' }}">
         <input type="hidden" name="title" value="{{ a.title or '' }}">
         <input type="hidden" name="url" value="{{ a.url or '' }}">
-        <input type="hidden" name="source" value="{{ a.source or '' }}">
         <select name="status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == a.status else '' }}>{{ s }}</option>{% endfor %}</select>
+        <select name="resume_name" title="Résumé used"><option value="">résumé…</option>{% for n in resume_names %}<option value="{{ n }}"{{ ' selected' if n == a.resume_name else '' }}>{{ n }}</option>{% endfor %}</select>
         <input type="date" name="applied_date" value="{{ a.applied_date[:10] if a.applied_date else '' }}">
         <input name="notes" value="{{ a.notes or '' }}" placeholder="notes" class="appnotes">
         <button class="btn sm" type="submit">Save</button>

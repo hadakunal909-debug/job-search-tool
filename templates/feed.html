@@ -68,7 +68,7 @@
     {% if j.cap_exempt %}<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">🎓 No lottery</span>{% endif %}
     {% if j.sponsor_jd=='blocked' %}<span class="nospon" title="{{ j.sponsor_reason }}">🚫 No sponsorship</span>{% elif j.sponsor_jd=='open' %}<span class="spon" title="{{ j.sponsor_reason }}">✅ Sponsors</span>{% endif %}</div>
   <div class="cardact">
-    <a class="btn primary sm" href="{{ j.url }}" target="_blank" rel="noopener">Apply ↗</a>
+    <a class="btn primary sm" href="{{ j.url }}" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>
     <a class="btn sm" href="{{ url_for('tailor', url=j.url) }}">Tailor</a>
     <span class="spacer"></span>
     <form method="post" action="{{ url_for('action') }}" class="inline acts">

@@ -355,7 +355,40 @@ def resume():
         except Exception:
             flash("Couldn't save — try again.")
         return redirect(url_for("resume"))
-    return render_template("resume.html", resume=session.get("resume", ""))
+    try:
+        versions = db.list_resumes(session["user"])
+    except Exception:
+        versions = []
+    return render_template("resume.html", resume=session.get("resume", ""), versions=versions)
+
+
+@app.route("/resume/version/save", methods=["POST"])
+@login_required
+def resume_version_save():
+    name = (request.form.get("name") or "").strip()
+    content = request.form.get("content", "")
+    if not name or not content.strip():
+        flash("Give the version a name and paste some résumé text.")
+        return redirect(url_for("resume"))
+    ok, msg = db.save_resume(session["user"], {"id": request.form.get("id", "").strip(),
+                                               "name": name, "content": content})
+    if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
+        flash("One-time setup needed — run the SQL shown on the Applications page (it also creates the résumés table).")
+    elif ok:
+        flash("Saved résumé version ✓")
+    else:
+        flash("Couldn't save — " + msg[:120])
+    return redirect(url_for("resume"))
+
+
+@app.route("/resume/version/delete", methods=["POST"])
+@login_required
+def resume_version_delete():
+    try:
+        db.delete_resume(session["user"], request.form.get("id", ""))
+    except Exception:
+        pass
+    return redirect(url_for("resume"))
 
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
@@ -547,6 +580,19 @@ def board_delete():
 APP_STATUSES = ["saved", "applied", "assessment", "interview", "offer", "rejected"]
 
 
+def _resume_options(user):
+    """[(name, text)] the user can attach to an application: their Main résumé + any
+    saved versions. Used to populate the picker and resolve a chosen name to its text."""
+    opts = [("Main résumé", session.get("resume", "") or "")]
+    try:
+        for r in db.list_resumes(user):
+            if r.get("name"):
+                opts.append((r["name"], r.get("content", "") or ""))
+    except Exception:
+        pass
+    return opts
+
+
 def _autolog_application(user, url):
     """When a feed job is marked 'applied', record it in the tracker (deduped by url),
     capturing the résumé currently on file. Never raises."""
@@ -560,7 +606,7 @@ def _autolog_application(user, url):
         db.save_application(user, {
             "company": job.get("company", ""), "title": job.get("title", ""), "url": url,
             "status": "applied", "applied_date": datetime.date.today().isoformat(),
-            "source": "JobMatch", "resume_used": session.get("resume", "") or "", "notes": ""})
+            "resume_name": "Main résumé", "resume_used": session.get("resume", "") or "", "notes": ""})
     except Exception:
         pass
 
@@ -581,8 +627,10 @@ def applications():
         counts[s] = counts.get(s, 0) + 1
         if (a.get("applied_date") or "")[:10] >= cut and s not in ("saved", "rejected"):
             week += 1
+    resume_names = [n for n, _ in _resume_options(user)]
     return render_template("applications.html", apps=apps, statuses=APP_STATUSES,
-                           counts=counts, total=len(apps), week=week, sql=db.APPLICATIONS_SQL)
+                           counts=counts, total=len(apps), week=week, sql=db.APPLICATIONS_SQL,
+                           resume_names=resume_names)
 
 
 @app.route("/application/save", methods=["POST"])
@@ -592,10 +640,16 @@ def application_save():
     rec = {"id": f.get("id", "").strip(), "company": f.get("company", "").strip(),
            "title": f.get("title", "").strip(), "url": f.get("url", "").strip(),
            "status": f.get("status", "applied"), "applied_date": f.get("applied_date", "").strip(),
-           "source": (f.get("source", "").strip() or "Other"), "notes": f.get("notes", "").strip()}
+           "notes": f.get("notes", "").strip()}
     if not rec["company"] and not rec["title"]:
         flash("Add at least a company or a title.")
         return redirect(url_for("applications"))
+    chosen = f.get("resume_name", "").strip()
+    if chosen:                                    # record WHICH résumé, snapshotting its text
+        rec["resume_name"] = chosen
+        txt = dict(_resume_options(session["user"])).get(chosen)
+        if txt is not None:
+            rec["resume_used"] = txt
     ok, msg = db.save_application(session["user"], rec)
     if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
         flash("One-time setup needed — run the SQL at the bottom of this page in Supabase, then try again.")
@@ -628,11 +682,10 @@ def applications_csv():
         apps = []
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["company", "title", "status", "applied_date", "source", "url", "notes"])
+    w.writerow(["company", "title", "status", "applied_date", "url", "notes"])
     for a in apps:
         w.writerow([a.get("company", ""), a.get("title", ""), a.get("status", ""),
-                    a.get("applied_date", "") or "", a.get("source", ""),
-                    a.get("url", ""), a.get("notes", "")])
+                    a.get("applied_date", "") or "", a.get("url", ""), a.get("notes", "")])
     return Response(buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=applications.csv"})
 

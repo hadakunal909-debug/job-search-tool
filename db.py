@@ -462,16 +462,21 @@ def delete_board(url):
 APPLICATIONS_TABLE = "applications"
 APPLICATIONS_FILE = "applications_local.json"   # local fallback {username: [recs]}
 APP_FIELDS = ("id", "username", "company", "title", "url", "status", "applied_date",
-              "source", "resume_used", "notes", "created_at")
+              "resume_name", "resume_used", "notes", "created_at")
 APPLICATIONS_SQL = (
     "create table if not exists public.applications (\n"
     "  id text primary key,\n"
     "  username text not null,\n"
     "  company text, title text, url text,\n"
-    "  status text, applied_date date, source text,\n"
-    "  resume_used text, notes text,\n"
+    "  status text, applied_date date,\n"
+    "  resume_name text, resume_used text, notes text,\n"
     "  created_at timestamptz default now());\n"
-    "create index if not exists applications_user_idx on public.applications (username);")
+    "alter table public.applications add column if not exists resume_name text;\n"
+    "create index if not exists applications_user_idx on public.applications (username);\n\n"
+    "create table if not exists public.resumes (\n"
+    "  id text primary key, username text not null,\n"
+    "  name text, content text, created_at timestamptz default now());\n"
+    "create index if not exists resumes_user_idx on public.resumes (username);")
 
 
 def list_applications(username):
@@ -543,6 +548,72 @@ def delete_application(username, app_id):
     if isinstance(data, dict) and username in data:
         data[username] = [a for a in data[username] if a.get("id") != app_id]
         _dump_json(APPLICATIONS_FILE, data)
+
+
+# ---- saved résumé versions (so you can record WHICH résumé you used per application) ----
+RESUMES_TABLE = "resumes"
+RESUMES_FILE = "resumes_local.json"     # local fallback {username: [recs]}
+RESUME_FIELDS = ("id", "username", "name", "content", "created_at")
+
+
+def list_resumes(username):
+    """This user's saved résumé versions. Defensive: missing table / error -> []."""
+    if using_supabase():
+        try:
+            r = requests.get(_rest(RESUMES_TABLE), headers=_headers(),
+                             params={"username": "eq.%s" % username, "select": "*",
+                                     "order": "created_at"}, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return []
+    data = _load_json(RESUMES_FILE)
+    return data.get(username, []) if isinstance(data, dict) else []
+
+
+def save_resume(username, rec):
+    """Insert/update a named résumé version (PK=id). Returns (ok, id_or_error)."""
+    import uuid
+    rec = dict(rec)
+    rec["username"] = username
+    if not rec.get("id"):
+        rec["id"] = uuid.uuid4().hex
+    if not rec.get("created_at"):
+        rec["created_at"] = _now()
+    payload = {k: rec.get(k) for k in RESUME_FIELDS if k in rec}
+    if using_supabase():
+        resp = requests.post(
+            _rest(RESUMES_TABLE),
+            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+            params={"on_conflict": "id"}, data=json.dumps(payload), timeout=30)
+        if resp.status_code >= 400:
+            return False, "Supabase save_resume %s: %s" % (resp.status_code, resp.text[:300])
+        return True, rec["id"]
+    data = _load_json(RESUMES_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    lst = data.setdefault(username, [])
+    for i, a in enumerate(lst):
+        if a.get("id") == rec["id"]:
+            lst[i] = {**a, **payload}
+            break
+    else:
+        lst.append(payload)
+    _dump_json(RESUMES_FILE, data)
+    return True, rec["id"]
+
+
+def delete_resume(username, rid):
+    if using_supabase():
+        resp = requests.delete(_rest(RESUMES_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                               params={"id": "eq.%s" % rid, "username": "eq.%s" % username}, timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("delete_resume %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    data = _load_json(RESUMES_FILE)
+    if isinstance(data, dict) and username in data:
+        data[username] = [a for a in data[username] if a.get("id") != rid]
+        _dump_json(RESUMES_FILE, data)
 
 
 if __name__ == "__main__":
