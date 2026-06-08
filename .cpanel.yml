@@ -1,0 +1,9 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/bnrqpozr/Stemjobs
+    - /bin/cp -f web.py core.py db.py auth.py scraper.py passenger_wsgi.py requirements-cpanel.txt idf.json careers_us.md $DEPLOYPATH/
+    - /bin/cp -rf templates $DEPLOYPATH/
+    - /bin/cp -rf static $DEPLOYPATH/
+    - /bin/mkdir -p $DEPLOYPATH/tmp
+    - /bin/touch $DEPLOYPATH/tmp/restart.txt
