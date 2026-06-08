@@ -13,9 +13,11 @@
 [data-theme=dark] .tokbox{background:#13181f;border-color:#2a3340}
 </style>
 <h1>👤 Profile</h1>
-<p class="sub">Used by the browser extension to autofill application forms. Private to your account.</p>
+<p class="sub">Your default résumé feeds the application tracker automatically; the rest is optional contact info. Private to your account.</p>
 <form method="post">
   <div class="pgrid">
+    <label class="full">⭐ Default résumé file name <span class="dim">— auto-filled into your tracker each time you apply (the file you keep on your desktop)</span>
+      <input name="default_resume" value="{{ prof.default_resume or '' }}" placeholder="e.g. Kunal_PM_Resume.pdf"></label>
     <label>Full name<input name="name" value="{{ prof.name or '' }}"></label>
     <label>Email<input name="email" type="email" value="{{ prof.email or '' }}"></label>
     <label>Phone<input name="phone" value="{{ prof.phone or '' }}"></label>
@@ -42,7 +44,7 @@
 
 <div class="tokbox">
   <b>🧩 Browser extension</b>
-  <p class="dim">Install the JobMatch Helper extension to save any job to your tracker (one click on LinkedIn, Workday, anywhere) and autofill application forms. Paste this token into the extension — it links the extension to your account, so keep it private:</p>
+  <p class="dim">Install the JobMatch Helper extension to save any job to your tracker with one click — on LinkedIn, Workday, or any company site. Paste this token into the extension; it links the extension to your account, so keep it private:</p>
   <div class="tok">{{ token }}</div>
   <p class="dim">Install: get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code> → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in <code>extension/README.md</code>.</p>
 </div>

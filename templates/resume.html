@@ -1,45 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-.subhd{margin:28px 0 6px;font-size:18px}
-.vrow{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e3e8ef;border-radius:10px;margin-bottom:8px;background:#fff}
-.vrow .vname{font-weight:600;flex:1}
-.vform input[type=text]{padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;width:100%;max-width:340px;box-sizing:border-box}
-.vform textarea{width:100%;box-sizing:border-box;margin-top:8px}
-.dim{color:#778;font-size:13px;margin:0 0 12px}
-[data-theme=dark] .vrow{background:#13181f;border-color:#2a3340}
-[data-theme=dark] .vform input[type=text]{background:#0d1117;border-color:#2a3340;color:#e6edf3}
-</style>
 <h1>📄 My résumé</h1>
-<p class="sub">Paste your résumé as plain text. Each job's match % is how many of its key skills your résumé covers — keep it current. Only you can see it.</p>
+<p class="sub">Paste your résumé as plain text. Each job's match % is how many of its key skills your résumé covers — keep it current. Only you can see it. <em>(To label which résumé file you sent on each application, set a default on the <a href="{{ url_for('profile') }}">Profile</a> page.)</em></p>
 <form method="post">
   <textarea name="resume" rows="22" placeholder="Paste your résumé here…">{{ resume }}</textarea>
   <button class="btn primary" type="submit">💾 Save résumé</button>
-</form>
-
-<h2 class="subhd">📑 Saved résumé versions</h2>
-<p class="dim">Keep a few tailored résumés here (e.g. “PM résumé”, “BA résumé”). When you log an application you can pick which one you used. Your main résumé above is always offered as “Main résumé”.</p>
-
-{% for v in versions %}
-  <div class="vrow">
-    <span class="vname">{{ v.name }}</span>
-    <a class="btn sm" href="#" onclick="var t=document.getElementById('vc-{{ loop.index }}');t.style.display=(t.style.display==='none'?'block':'none');return false;">view / edit</a>
-    <form method="post" action="{{ url_for('resume_version_delete') }}" onsubmit="return confirm('Delete this version?')" style="margin:0">
-      <input type="hidden" name="id" value="{{ v.id }}">
-      <button class="btn sm danger" type="submit">Delete</button>
-    </form>
-  </div>
-  <form method="post" action="{{ url_for('resume_version_save') }}" id="vc-{{ loop.index }}" class="vform" style="display:none;margin-bottom:14px">
-    <input type="hidden" name="id" value="{{ v.id }}">
-    <input type="text" name="name" value="{{ v.name }}">
-    <textarea name="content" rows="14">{{ v.content }}</textarea>
-    <button class="btn primary sm" type="submit">💾 Save changes</button>
-  </form>
-{% endfor %}
-
-<form method="post" action="{{ url_for('resume_version_save') }}" class="vform" style="margin-top:12px">
-  <input type="text" name="name" placeholder="Version name (e.g. PM résumé)" required>
-  <textarea name="content" rows="12" placeholder="Paste this résumé version…"></textarea>
-  <button class="btn primary sm" type="submit">➕ Add version</button>
 </form>
 {% endblock %}

@@ -480,8 +480,9 @@ APPLICATIONS_SQL = (
     "create table if not exists public.profiles (\n"
     "  username text primary key,\n"
     "  name text, email text, phone text, location text, linkedin text,\n"
-    "  work_authorized text, needs_sponsorship text, notes text,\n"
-    "  updated_at timestamptz default now());")
+    "  work_authorized text, needs_sponsorship text, default_resume text, notes text,\n"
+    "  updated_at timestamptz default now());\n"
+    "alter table public.profiles add column if not exists default_resume text;")
 
 
 def list_applications(username):
@@ -625,7 +626,7 @@ def delete_resume(username, rid):
 PROFILES_TABLE = "profiles"
 PROFILES_FILE = "profiles_local.json"
 PROFILE_FIELDS = ("username", "name", "email", "phone", "location", "linkedin",
-                  "work_authorized", "needs_sponsorship", "notes", "updated_at")
+                  "work_authorized", "needs_sponsorship", "default_resume", "notes", "updated_at")
 
 
 def get_profile(username):
