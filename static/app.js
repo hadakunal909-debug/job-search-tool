@@ -118,7 +118,18 @@
       });
       return;
     }
-    if (e.target.closest && e.target.closest("a")) return;       // Apply/Tailor links
+    var lnk = e.target.closest && e.target.closest("a");
+    if (lnk) {                                                    // Apply/Tailor links open normally
+      if (lnk.hasAttribute("data-apply")) {                      // clicking Apply auto-logs it
+        var ac = lnk.closest(".card");
+        if (ac && ac.getAttribute("data-status") !== "applied") {
+          doAction(ac.getAttribute("data-url"), "applied").then(function (ok) {
+            if (ok) { toast("✓ Added to Applications"); render(false); }
+          });
+        }
+      }
+      return;
+    }
     var c = e.target.closest ? e.target.closest(".card") : null;
     if (c) openModal(c);
   });
@@ -169,6 +180,12 @@
     $("m-hide").addEventListener("click", function () {
       var c = cardByUrl(mUrl), cur = c ? c.getAttribute("data-status") : "", next = cur === "hidden" ? "" : "hidden";
       doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); closeModal(); render(false); } });
+    });
+    $("m-apply").addEventListener("click", function () {          // Apply in the modal also auto-logs
+      var c = cardByUrl(mUrl);
+      if (c && c.getAttribute("data-status") !== "applied") {
+        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("✓ Added to Applications"); syncModal("applied"); render(false); } });
+      }
     });
   }
 
