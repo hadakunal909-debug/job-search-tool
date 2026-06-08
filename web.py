@@ -14,6 +14,7 @@ import re
 import json
 import time
 import html
+import hmac
 import hashlib
 import functools
 
@@ -706,6 +707,100 @@ def application_resume():
     name = (rec.get("company") or "job").replace(" ", "_")
     return Response(rec["resume_used"], mimetype="text/plain",
                     headers={"Content-Disposition": "attachment; filename=resume-%s.txt" % name})
+
+
+# ----------------------------- profile + Chrome-extension API -----------------------------
+def _ext_token(username):
+    """A stable per-user token for the browser extension (HMAC of the username with the
+    app secret). No DB storage needed; we re-derive + compare to validate."""
+    sig = hmac.new(str(app.secret_key).encode(), ("ext:" + username).encode(),
+                   hashlib.sha256).hexdigest()[:32]
+    return "%s:%s" % (username, sig)
+
+
+def _ext_user(token):
+    """Username for a valid extension token, else None."""
+    token = (token or "").strip()
+    if ":" not in token:
+        return None
+    username = token.rsplit(":", 1)[0]
+    if username and hmac.compare_digest(_ext_token(username), token):
+        return username
+    return None
+
+
+def _cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
+
+
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    user = session["user"]
+    if request.method == "POST":
+        f = request.form
+        ok, msg = db.save_profile(user, {k: f.get(k, "").strip() for k in
+            ("name", "email", "phone", "location", "linkedin",
+             "work_authorized", "needs_sponsorship", "notes")})
+        flash("Saved ✓" if ok else ("Couldn't save — " + msg[:120]))
+        return redirect(url_for("profile"))
+    try:
+        prof = db.get_profile(user) or {}
+    except Exception:
+        prof = {}
+    return render_template("profile.html", prof=prof, token=_ext_token(user))
+
+
+@app.route("/api/ext/save", methods=["POST", "OPTIONS"])
+def ext_save():
+    """Extension -> log a job to the tracker. Token-authenticated; CORS-open (the token
+    is the secret). Deduped by URL."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    title = (data.get("title") or "").strip()
+    company = (data.get("company") or "").strip()
+    url = (data.get("url") or "").strip()
+    if not (title or company):
+        return _cors(jsonify({"ok": False, "error": "No job info"})), 400
+    try:
+        if url and db.find_application_by_url(user, url):
+            return _cors(jsonify({"ok": True, "dup": True}))
+        import datetime
+        try:
+            ru = (db.get_user(user) or {}).get("resume", "") or ""
+        except Exception:
+            ru = ""
+        db.save_application(user, {"company": company, "title": title, "url": url,
+            "status": "applied", "applied_date": datetime.date.today().isoformat(),
+            "resume_name": "Main résumé", "resume_used": ru, "notes": ""})
+        return _cors(jsonify({"ok": True}))
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
+
+
+@app.route("/api/ext/profile", methods=["GET", "OPTIONS"])
+def ext_profile():
+    """Extension -> the user's profile fields for autofill. Token-authenticated."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _ext_user(request.args.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    try:
+        p = db.get_profile(user) or {}
+    except Exception:
+        p = {}
+    keys = ("name", "email", "phone", "location", "linkedin", "work_authorized", "needs_sponsorship")
+    return _cors(jsonify({"ok": True, "profile": {k: (p.get(k) or "") for k in keys}}))
 
 
 if __name__ == "__main__":

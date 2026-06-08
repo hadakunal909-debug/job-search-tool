@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px;max-width:760px}
+.pgrid label{display:flex;flex-direction:column;font-size:12px;gap:4px;color:#555}
+.pgrid input,.pgrid select,.pgrid textarea{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;background:#fff;color:#111;font-family:inherit}
+.full{grid-column:1 / -1}
+.tokbox{margin-top:26px;padding:15px 17px;border:1px solid #e3e8ef;border-radius:12px;background:#fafbfc;max-width:760px}
+.tok{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;background:#0d1117;color:#7ee2b8;padding:9px 11px;border-radius:8px;word-break:break-all;margin:8px 0}
+.dim{color:#778;font-size:13px}
+[data-theme=dark] .pgrid label{color:#9aa7b4}
+[data-theme=dark] .pgrid input,[data-theme=dark] .pgrid select,[data-theme=dark] .pgrid textarea{background:#0d1117;border-color:#2a3340;color:#e6edf3}
+[data-theme=dark] .tokbox{background:#13181f;border-color:#2a3340}
+</style>
+<h1>👤 Profile</h1>
+<p class="sub">Used by the browser extension to autofill application forms. Private to your account.</p>
+<form method="post">
+  <div class="pgrid">
+    <label>Full name<input name="name" value="{{ prof.name or '' }}"></label>
+    <label>Email<input name="email" type="email" value="{{ prof.email or '' }}"></label>
+    <label>Phone<input name="phone" value="{{ prof.phone or '' }}"></label>
+    <label>Location (city, state)<input name="location" value="{{ prof.location or '' }}"></label>
+    <label>LinkedIn URL<input name="linkedin" value="{{ prof.linkedin or '' }}"></label>
+    <label>Authorized to work in the US?
+      <select name="work_authorized">
+        <option value=""></option>
+        <option value="Yes"{{ ' selected' if prof.work_authorized == 'Yes' else '' }}>Yes</option>
+        <option value="No"{{ ' selected' if prof.work_authorized == 'No' else '' }}>No</option>
+      </select>
+    </label>
+    <label>Will you require sponsorship?
+      <select name="needs_sponsorship">
+        <option value=""></option>
+        <option value="Yes"{{ ' selected' if prof.needs_sponsorship == 'Yes' else '' }}>Yes</option>
+        <option value="No"{{ ' selected' if prof.needs_sponsorship == 'No' else '' }}>No</option>
+      </select>
+    </label>
+    <label class="full">Notes<textarea name="notes" rows="2">{{ prof.notes or '' }}</textarea></label>
+  </div>
+  <button class="btn primary" type="submit" style="margin-top:12px">💾 Save profile</button>
+</form>
+
+<div class="tokbox">
+  <b>🧩 Browser extension</b>
+  <p class="dim">Install the JobMatch Helper extension to save any job to your tracker (one click on LinkedIn, Workday, anywhere) and autofill application forms. Paste this token into the extension — it links the extension to your account, so keep it private:</p>
+  <div class="tok">{{ token }}</div>
+  <p class="dim">Install: get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code> → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in <code>extension/README.md</code>.</p>
+</div>
+{% endblock %}

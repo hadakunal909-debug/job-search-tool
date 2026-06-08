@@ -476,7 +476,12 @@ APPLICATIONS_SQL = (
     "create table if not exists public.resumes (\n"
     "  id text primary key, username text not null,\n"
     "  name text, content text, created_at timestamptz default now());\n"
-    "create index if not exists resumes_user_idx on public.resumes (username);")
+    "create index if not exists resumes_user_idx on public.resumes (username);\n\n"
+    "create table if not exists public.profiles (\n"
+    "  username text primary key,\n"
+    "  name text, email text, phone text, location text, linkedin text,\n"
+    "  work_authorized text, needs_sponsorship text, notes text,\n"
+    "  updated_at timestamptz default now());")
 
 
 def list_applications(username):
@@ -614,6 +619,49 @@ def delete_resume(username, rid):
     if isinstance(data, dict) and username in data:
         data[username] = [a for a in data[username] if a.get("id") != rid]
         _dump_json(RESUMES_FILE, data)
+
+
+# ---- user profile (name/email/phone/work-auth) — for the Chrome extension autofill ----
+PROFILES_TABLE = "profiles"
+PROFILES_FILE = "profiles_local.json"
+PROFILE_FIELDS = ("username", "name", "email", "phone", "location", "linkedin",
+                  "work_authorized", "needs_sponsorship", "notes", "updated_at")
+
+
+def get_profile(username):
+    """This user's profile dict (or {} if none / missing table)."""
+    if using_supabase():
+        try:
+            r = requests.get(_rest(PROFILES_TABLE), headers=_headers(),
+                             params={"username": "eq.%s" % username, "select": "*", "limit": 1}, timeout=30)
+            r.raise_for_status()
+            rows = r.json()
+            return rows[0] if rows else {}
+        except Exception:
+            return {}
+    data = _load_json(PROFILES_FILE)
+    return (data.get(username) or {}) if isinstance(data, dict) else {}
+
+
+def save_profile(username, fields):
+    """Upsert the user's profile (PK=username). Returns (ok, message)."""
+    rec = {k: fields.get(k) for k in PROFILE_FIELDS if k in fields}
+    rec["username"] = username
+    rec["updated_at"] = _now()
+    if using_supabase():
+        resp = requests.post(
+            _rest(PROFILES_TABLE),
+            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+            params={"on_conflict": "username"}, data=json.dumps(rec), timeout=30)
+        if resp.status_code >= 400:
+            return False, "Supabase save_profile %s: %s" % (resp.status_code, resp.text[:300])
+        return True, ""
+    data = _load_json(PROFILES_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    data[username] = {**(data.get(username) or {}), **rec}
+    _dump_json(PROFILES_FILE, data)
+    return True, ""
 
 
 if __name__ == "__main__":
