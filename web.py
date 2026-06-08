@@ -733,9 +733,10 @@ def ext_save():
         if url and db.find_application_by_url(user, url):
             return _cors(jsonify({"ok": True, "dup": True}))
         import datetime
+        rname = (data.get("resume_name") or "").strip() or _default_resume(user)
         db.save_application(user, {"company": company, "title": title, "url": url,
             "status": "applied", "applied_date": datetime.date.today().isoformat(),
-            "resume_name": _default_resume(user), "notes": ""})
+            "resume_name": rname, "notes": ""})
         return _cors(jsonify({"ok": True}))
     except Exception as e:
         return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
@@ -754,8 +755,15 @@ def ext_profile():
         p = db.get_profile(user) or {}
     except Exception:
         p = {}
+    default_resume = p.get("default_resume") or ""
+    try:
+        names = sorted({a.get("resume_name", "") for a in db.list_applications(user) if a.get("resume_name")}
+                       | ({default_resume} if default_resume else set()))
+    except Exception:
+        names = [default_resume] if default_resume else []
     keys = ("name", "email", "phone", "location", "linkedin", "work_authorized", "needs_sponsorship")
-    return _cors(jsonify({"ok": True, "profile": {k: (p.get(k) or "") for k in keys}}))
+    return _cors(jsonify({"ok": True, "profile": {k: (p.get(k) or "") for k in keys},
+                          "default_resume": default_resume, "resume_names": names}))
 
 
 if __name__ == "__main__":
