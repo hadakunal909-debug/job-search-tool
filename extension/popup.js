@@ -59,6 +59,15 @@ async function init() {
     } catch (e) {}
     $("title").value = title;
     $("company").value = company;
+    try {                                          // prefill résumé name + autocomplete list
+      const pr = await (await fetch(cfg.apibase + "/api/ext/profile?token=" + encodeURIComponent(cfg.token))).json();
+      if (pr && pr.ok) {
+        if (pr.default_resume && !$("resume").value) $("resume").value = pr.default_resume;
+        const dl = $("rnames");
+        if (dl) dl.innerHTML = (pr.resume_names || []).map(function (n) {
+          return '<option value="' + String(n).replace(/"/g, "&quot;") + '">'; }).join("");
+      }
+    } catch (e) {}
   } else {
     $("main").style.display = "none";
     $("setup").style.display = "block";
@@ -83,7 +92,8 @@ $("save").onclick = async () => {
     const r = await fetch(cfg.apibase + "/api/ext/save", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: cfg.token, title: $("title").value.trim(),
-                             company: $("company").value.trim(), url: tab && tab.url })
+                             company: $("company").value.trim(),
+                             resume_name: $("resume").value.trim(), url: tab && tab.url })
     });
     const j = await r.json();
     if (j.ok) { $("msg").textContent = j.dup ? "Already in your tracker ✓" : "Saved to JobMatch ✓"; }
