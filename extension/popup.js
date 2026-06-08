@@ -8,7 +8,7 @@ let cfg = { token: "", apibase: "https://stemjobs.astrochakra.co" };
 
 function cleanTitle(t) { return (t || "").split(/\s[|\-–—·]\s/)[0].trim(); }
 
-// Runs IN the page: best-effort job title + company from JSON-LD / meta / known job-site DOM.
+// Runs IN the page: best-effort job title + company from JSON-LD / meta / job-site DOM / URL.
 function extractJob() {
   function fromJsonLd() {
     var out = {};
@@ -31,16 +31,38 @@ function extractJob() {
     return out;
   }
   function meta(sel) { var m = document.querySelector(sel); return m ? (m.content || "").trim() : ""; }
+  function titleCase(s) {
+    return (s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); }).trim();
+  }
+  function fromUrl() {
+    try {
+      var host = location.hostname.replace(/^www\./, "");
+      if (/(linkedin|indeed|glassdoor|ziprecruiter|monster|dice|simplyhired|builtin|wellfound|angellist|google)\./.test(host)) return "";
+      var segs = location.pathname.split("/").filter(Boolean);
+      if (/greenhouse\.io$/.test(host) && segs.length) return segs[0] === "embed" ? "" : segs[0];
+      if (/lever\.co$/.test(host) && segs.length) return segs[0];
+      if (/ashbyhq\.com$/.test(host) && segs.length) return segs[0];
+      if (/smartrecruiters\.com$/.test(host) && segs.length) return segs[0];
+      if (/myworkdaysite\.com$/.test(host)) { var i = segs.indexOf("recruiting"); return (i >= 0 && segs[i + 1]) ? segs[i + 1] : ""; }
+      if (/myworkdayjobs\.com$/.test(host)) return host.split(".")[0];
+      var parts = host.split(".");
+      if (parts.length >= 3 && /^(careers|jobs|boards|apply|job|recruiting|talent|work|hire|hiring)$/.test(parts[0])) return parts[1];
+      return parts.length >= 2 ? parts[parts.length - 2] : host;
+    } catch (e) { return ""; }
+  }
   var j = fromJsonLd();
   var title = j.title || meta('meta[property="og:title"]') || document.title || "";
   var company = j.company || "";
   if (!company) {
     var el = document.querySelector(
       'a.topcard__org-name-link, .topcard__flavor, .jobs-unified-top-card__company-name a, ' +
-      '.jobs-unified-top-card__company-name, [data-testid="inlineHeader-companyName"] a, [class*="companyName"] a');
-    if (el) company = (el.textContent || "").trim();
+      '.jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__company-name a, ' +
+      '.job-details-jobs-unified-top-card__company-name, [data-testid="inlineHeader-companyName"] a, ' +
+      '[data-testid="company-name"], [class*="companyName"] a, [itemprop="hiringOrganization"] [itemprop="name"]');
+    if (el) company = (el.textContent || el.content || "").trim();
   }
   if (!company) company = meta('meta[property="og:site_name"]');
+  if (!company) company = titleCase(fromUrl());
   return { title: (title || "").trim(), company: (company || "").trim() };
 }
 
