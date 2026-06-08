@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "JobMatch Helper",
+  "version": "1.0.0",
+  "description": "Save any job to your JobMatch tracker, and autofill application forms from your profile.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://stemjobs.astrochakra.co/*",
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "JobMatch Helper"
+  }
+}
