@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>a.who{color:inherit;text-decoration:none;font-weight:600;cursor:pointer}a.who:hover{text-decoration:underline}</style>
   <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
@@ -21,13 +22,12 @@
     <a href="{{ url_for('feed') }}">Jobs</a>
     <a href="{{ url_for('applications') }}">Applications</a>
     <a href="{{ url_for('resume') }}">My résumé</a>
-    <a href="{{ url_for('profile') }}">Profile</a>
     <a href="{{ url_for('careers') }}">Sponsors</a>
     <a href="{{ url_for('add_board') }}">Add board</a>
   </nav>
   <div class="acct">
     <button id="themetoggle" class="iconbtn" title="Toggle dark mode" aria-label="Toggle theme">🌙</button>
-    <span class="who">{{ current_user }}</span>
+    <a class="who" href="{{ url_for('profile') }}" title="Your profile">👤 {{ current_user }}</a>
     <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
   </div>
 </header>
