@@ -456,6 +456,95 @@ def delete_board(url):
     _dump_json(BOARDS_FILE, rows)
 
 
+# ================= per-user application tracker =================
+# Each user's applications are scoped by `username` (private to them), exactly like
+# user_jobs. Tracks apps from THIS app AND ones the user made on any other platform.
+APPLICATIONS_TABLE = "applications"
+APPLICATIONS_FILE = "applications_local.json"   # local fallback {username: [recs]}
+APP_FIELDS = ("id", "username", "company", "title", "url", "status", "applied_date",
+              "source", "resume_used", "notes", "created_at")
+APPLICATIONS_SQL = (
+    "create table if not exists public.applications (\n"
+    "  id text primary key,\n"
+    "  username text not null,\n"
+    "  company text, title text, url text,\n"
+    "  status text, applied_date date, source text,\n"
+    "  resume_used text, notes text,\n"
+    "  created_at timestamptz default now());\n"
+    "create index if not exists applications_user_idx on public.applications (username);")
+
+
+def list_applications(username):
+    """This user's applications, newest first. Defensive: missing table / error -> []."""
+    if using_supabase():
+        try:
+            r = requests.get(_rest(APPLICATIONS_TABLE), headers=_headers(),
+                             params={"username": "eq.%s" % username, "select": "*",
+                                     "order": "created_at.desc"}, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return []
+    data = _load_json(APPLICATIONS_FILE)
+    recs = data.get(username, []) if isinstance(data, dict) else []
+    return sorted(recs, key=lambda x: x.get("created_at", ""), reverse=True)
+
+
+def save_application(username, rec):
+    """Insert or update one application (PK=id; id/created_at auto-filled). Columns not
+    provided are left unchanged on update. Returns (ok, id_or_error)."""
+    import uuid
+    rec = dict(rec)
+    rec["username"] = username
+    if not rec.get("id"):
+        rec["id"] = uuid.uuid4().hex
+    if not rec.get("created_at"):
+        rec["created_at"] = _now()
+    payload = {k: rec.get(k) for k in APP_FIELDS if k in rec}
+    if not payload.get("applied_date"):
+        payload["applied_date"] = None              # empty string isn't a valid SQL date
+    if using_supabase():
+        resp = requests.post(
+            _rest(APPLICATIONS_TABLE),
+            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+            params={"on_conflict": "id"}, data=json.dumps(payload), timeout=30)
+        if resp.status_code >= 400:
+            return False, "Supabase save_application %s: %s" % (resp.status_code, resp.text[:300])
+        return True, rec["id"]
+    data = _load_json(APPLICATIONS_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    lst = data.setdefault(username, [])
+    for i, a in enumerate(lst):
+        if a.get("id") == rec["id"]:
+            lst[i] = {**a, **payload}
+            break
+    else:
+        lst.append(payload)
+    _dump_json(APPLICATIONS_FILE, data)
+    return True, rec["id"]
+
+
+def find_application_by_url(username, url):
+    """This user's application for a given apply-url, or None (de-dupes feed auto-log)."""
+    if not url:
+        return None
+    return next((a for a in list_applications(username) if a.get("url") == url), None)
+
+
+def delete_application(username, app_id):
+    if using_supabase():
+        resp = requests.delete(_rest(APPLICATIONS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                               params={"id": "eq.%s" % app_id, "username": "eq.%s" % username}, timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("delete_application %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    data = _load_json(APPLICATIONS_FILE)
+    if isinstance(data, dict) and username in data:
+        data[username] = [a for a in data[username] if a.get("id") != app_id]
+        _dump_json(APPLICATIONS_FILE, data)
+
+
 if __name__ == "__main__":
     import sys
     if not using_supabase():
