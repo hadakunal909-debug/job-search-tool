@@ -255,6 +255,8 @@ def api_action():
         return {"ok": False, "error": "no url"}, 400
     try:
         db.set_user_status(session["user"], url, status)
+        if status == "applied":
+            _autolog_application(session["user"], url)
         return {"ok": True, "status": status}
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
@@ -332,6 +334,8 @@ def action():
     status = request.form.get("status", "")          # liked|hidden|applied|'' (clear)
     try:
         db.set_user_status(session["user"], url, status)
+        if status == "applied":
+            _autolog_application(session["user"], url)
     except Exception:
         flash("Couldn't save that action — try again.")
     return redirect(request.referrer or url_for("feed"))
@@ -537,6 +541,118 @@ def board_delete():
     except Exception:
         pass
     return redirect(url_for("add_board"))
+
+
+# ----------------------------- application tracker -----------------------------
+APP_STATUSES = ["saved", "applied", "assessment", "interview", "offer", "rejected"]
+
+
+def _autolog_application(user, url):
+    """When a feed job is marked 'applied', record it in the tracker (deduped by url),
+    capturing the résumé currently on file. Never raises."""
+    try:
+        if not url or db.find_application_by_url(user, url):
+            return
+        job = next((j for j in get_jobs() if j.get("url") == url), None)
+        if not job:
+            return
+        import datetime
+        db.save_application(user, {
+            "company": job.get("company", ""), "title": job.get("title", ""), "url": url,
+            "status": "applied", "applied_date": datetime.date.today().isoformat(),
+            "source": "JobMatch", "resume_used": session.get("resume", "") or "", "notes": ""})
+    except Exception:
+        pass
+
+
+@app.route("/applications")
+@login_required
+def applications():
+    user = session["user"]
+    try:
+        apps = db.list_applications(user)
+    except Exception:
+        apps = []
+    import datetime
+    cut = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+    counts, week = {}, 0
+    for a in apps:
+        s = a.get("status", "") or ""
+        counts[s] = counts.get(s, 0) + 1
+        if (a.get("applied_date") or "")[:10] >= cut and s not in ("saved", "rejected"):
+            week += 1
+    return render_template("applications.html", apps=apps, statuses=APP_STATUSES,
+                           counts=counts, total=len(apps), week=week, sql=db.APPLICATIONS_SQL)
+
+
+@app.route("/application/save", methods=["POST"])
+@login_required
+def application_save():
+    f = request.form
+    rec = {"id": f.get("id", "").strip(), "company": f.get("company", "").strip(),
+           "title": f.get("title", "").strip(), "url": f.get("url", "").strip(),
+           "status": f.get("status", "applied"), "applied_date": f.get("applied_date", "").strip(),
+           "source": (f.get("source", "").strip() or "Other"), "notes": f.get("notes", "").strip()}
+    if not rec["company"] and not rec["title"]:
+        flash("Add at least a company or a title.")
+        return redirect(url_for("applications"))
+    ok, msg = db.save_application(session["user"], rec)
+    if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
+        flash("One-time setup needed — run the SQL at the bottom of this page in Supabase, then try again.")
+    elif ok:
+        flash("Saved ✓")
+    else:
+        flash("Couldn't save — " + msg[:120])
+    return redirect(url_for("applications"))
+
+
+@app.route("/application/delete", methods=["POST"])
+@login_required
+def application_delete():
+    try:
+        db.delete_application(session["user"], request.form.get("id", ""))
+        flash("Deleted.")
+    except Exception:
+        flash("Couldn't delete — try again.")
+    return redirect(url_for("applications"))
+
+
+@app.route("/applications.csv")
+@login_required
+def applications_csv():
+    import csv, io
+    from flask import Response
+    try:
+        apps = db.list_applications(session["user"])
+    except Exception:
+        apps = []
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["company", "title", "status", "applied_date", "source", "url", "notes"])
+    for a in apps:
+        w.writerow([a.get("company", ""), a.get("title", ""), a.get("status", ""),
+                    a.get("applied_date", "") or "", a.get("source", ""),
+                    a.get("url", ""), a.get("notes", "")])
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=applications.csv"})
+
+
+@app.route("/application/resume")
+@login_required
+def application_resume():
+    from flask import Response
+    aid = request.args.get("id", "")
+    try:
+        apps = db.list_applications(session["user"])
+    except Exception:
+        apps = []
+    rec = next((a for a in apps if a.get("id") == aid), None)
+    if not rec or not rec.get("resume_used"):
+        flash("No saved résumé for that application.")
+        return redirect(url_for("applications"))
+    name = (rec.get("company") or "job").replace(" ", "_")
+    return Response(rec["resume_used"], mimetype="text/plain",
+                    headers={"Content-Disposition": "attachment; filename=resume-%s.txt" % name})
 
 
 if __name__ == "__main__":
