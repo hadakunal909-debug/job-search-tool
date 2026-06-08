@@ -356,40 +356,7 @@ def resume():
         except Exception:
             flash("Couldn't save — try again.")
         return redirect(url_for("resume"))
-    try:
-        versions = db.list_resumes(session["user"])
-    except Exception:
-        versions = []
-    return render_template("resume.html", resume=session.get("resume", ""), versions=versions)
-
-
-@app.route("/resume/version/save", methods=["POST"])
-@login_required
-def resume_version_save():
-    name = (request.form.get("name") or "").strip()
-    content = request.form.get("content", "")
-    if not name or not content.strip():
-        flash("Give the version a name and paste some résumé text.")
-        return redirect(url_for("resume"))
-    ok, msg = db.save_resume(session["user"], {"id": request.form.get("id", "").strip(),
-                                               "name": name, "content": content})
-    if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
-        flash("One-time setup needed — run the SQL shown on the Applications page (it also creates the résumés table).")
-    elif ok:
-        flash("Saved résumé version ✓")
-    else:
-        flash("Couldn't save — " + msg[:120])
-    return redirect(url_for("resume"))
-
-
-@app.route("/resume/version/delete", methods=["POST"])
-@login_required
-def resume_version_delete():
-    try:
-        db.delete_resume(session["user"], request.form.get("id", ""))
-    except Exception:
-        pass
-    return redirect(url_for("resume"))
+    return render_template("resume.html", resume=session.get("resume", ""))
 
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
@@ -581,22 +548,17 @@ def board_delete():
 APP_STATUSES = ["saved", "applied", "assessment", "interview", "offer", "rejected"]
 
 
-def _resume_options(user):
-    """[(name, text)] the user can attach to an application: their Main résumé + any
-    saved versions. Used to populate the picker and resolve a chosen name to its text."""
-    opts = [("Main résumé", session.get("resume", "") or "")]
+def _default_resume(user):
+    """The user's default résumé name (a file label, e.g. 'Kunal_PM_Resume.pdf')."""
     try:
-        for r in db.list_resumes(user):
-            if r.get("name"):
-                opts.append((r["name"], r.get("content", "") or ""))
+        return (db.get_profile(user) or {}).get("default_resume", "") or ""
     except Exception:
-        pass
-    return opts
+        return ""
 
 
 def _autolog_application(user, url):
-    """When a feed job is marked 'applied', record it in the tracker (deduped by url),
-    capturing the résumé currently on file. Never raises."""
+    """When a feed job is marked 'applied', auto-fill a tracker row (deduped by url) with
+    your default résumé name. Never raises."""
     try:
         if not url or db.find_application_by_url(user, url):
             return
@@ -607,7 +569,7 @@ def _autolog_application(user, url):
         db.save_application(user, {
             "company": job.get("company", ""), "title": job.get("title", ""), "url": url,
             "status": "applied", "applied_date": datetime.date.today().isoformat(),
-            "resume_name": "Main résumé", "resume_used": session.get("resume", "") or "", "notes": ""})
+            "resume_name": _default_resume(user), "notes": ""})
     except Exception:
         pass
 
@@ -628,10 +590,12 @@ def applications():
         counts[s] = counts.get(s, 0) + 1
         if (a.get("applied_date") or "")[:10] >= cut and s not in ("saved", "rejected"):
             week += 1
-    resume_names = [n for n, _ in _resume_options(user)]
+    default_resume = _default_resume(user)
+    resume_names = sorted({a.get("resume_name", "") for a in apps if a.get("resume_name")}
+                          | ({default_resume} if default_resume else set()))
     return render_template("applications.html", apps=apps, statuses=APP_STATUSES,
                            counts=counts, total=len(apps), week=week, sql=db.APPLICATIONS_SQL,
-                           resume_names=resume_names)
+                           resume_names=resume_names, default_resume=default_resume)
 
 
 @app.route("/application/save", methods=["POST"])
@@ -645,12 +609,7 @@ def application_save():
     if not rec["company"] and not rec["title"]:
         flash("Add at least a company or a title.")
         return redirect(url_for("applications"))
-    chosen = f.get("resume_name", "").strip()
-    if chosen:                                    # record WHICH résumé, snapshotting its text
-        rec["resume_name"] = chosen
-        txt = dict(_resume_options(session["user"])).get(chosen)
-        if txt is not None:
-            rec["resume_used"] = txt
+    rec["resume_name"] = f.get("resume_name", "").strip()    # just the résumé file name you used
     ok, msg = db.save_application(session["user"], rec)
     if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
         flash("One-time setup needed — run the SQL at the bottom of this page in Supabase, then try again.")
@@ -744,7 +703,7 @@ def profile():
         f = request.form
         ok, msg = db.save_profile(user, {k: f.get(k, "").strip() for k in
             ("name", "email", "phone", "location", "linkedin",
-             "work_authorized", "needs_sponsorship", "notes")})
+             "work_authorized", "needs_sponsorship", "default_resume", "notes")})
         flash("Saved ✓" if ok else ("Couldn't save — " + msg[:120]))
         return redirect(url_for("profile"))
     try:
@@ -774,13 +733,9 @@ def ext_save():
         if url and db.find_application_by_url(user, url):
             return _cors(jsonify({"ok": True, "dup": True}))
         import datetime
-        try:
-            ru = (db.get_user(user) or {}).get("resume", "") or ""
-        except Exception:
-            ru = ""
         db.save_application(user, {"company": company, "title": title, "url": url,
             "status": "applied", "applied_date": datetime.date.today().isoformat(),
-            "resume_name": "Main résumé", "resume_used": ru, "notes": ""})
+            "resume_name": _default_resume(user), "notes": ""})
         return _cors(jsonify({"ok": True}))
     except Exception as e:
         return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500

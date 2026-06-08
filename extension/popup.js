@@ -6,7 +6,43 @@ const activeTab = () => new Promise((r) => chrome.tabs.query({ active: true, cur
 
 let cfg = { token: "", apibase: "https://stemjobs.astrochakra.co" };
 
-function cleanTitle(t) { return (t || "").split(/\s[|\-–—]\s/)[0].trim(); }
+function cleanTitle(t) { return (t || "").split(/\s[|\-–—·]\s/)[0].trim(); }
+
+// Runs IN the page: best-effort job title + company from JSON-LD / meta / known job-site DOM.
+function extractJob() {
+  function fromJsonLd() {
+    var out = {};
+    document.querySelectorAll('script[type="application/ld+json"]').forEach(function (s) {
+      try {
+        var d = JSON.parse(s.textContent);
+        (Array.isArray(d) ? d : [d]).forEach(function (it) {
+          var items = (it && it["@graph"]) ? it["@graph"] : [it];
+          items.forEach(function (o) {
+            if (!o || typeof o !== "object") return;
+            var t = o["@type"];
+            if (!(t === "JobPosting" || (Array.isArray(t) && t.indexOf("JobPosting") >= 0))) return;
+            if (o.title && !out.title) out.title = o.title;
+            var org = o.hiringOrganization;
+            if (org && !out.company) out.company = typeof org === "string" ? org : (org.name || "");
+          });
+        });
+      } catch (e) {}
+    });
+    return out;
+  }
+  function meta(sel) { var m = document.querySelector(sel); return m ? (m.content || "").trim() : ""; }
+  var j = fromJsonLd();
+  var title = j.title || meta('meta[property="og:title"]') || document.title || "";
+  var company = j.company || "";
+  if (!company) {
+    var el = document.querySelector(
+      'a.topcard__org-name-link, .topcard__flavor, .jobs-unified-top-card__company-name a, ' +
+      '.jobs-unified-top-card__company-name, [data-testid="inlineHeader-companyName"] a, [class*="companyName"] a');
+    if (el) company = (el.textContent || "").trim();
+  }
+  if (!company) company = meta('meta[property="og:site_name"]');
+  return { title: (title || "").trim(), company: (company || "").trim() };
+}
 
 async function init() {
   cfg = Object.assign(cfg, await get(["token", "apibase"]));
@@ -15,8 +51,14 @@ async function init() {
     $("setup").style.display = "none";
     $("main").style.display = "block";
     const tab = await activeTab();
-    $("title").value = cleanTitle(tab && tab.title);
-    $("company").value = "";
+    let title = cleanTitle(tab && tab.title), company = "";
+    try {
+      const out = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractJob });
+      const R = out && out[0] && out[0].result;
+      if (R) { if (R.title) title = cleanTitle(R.title); if (R.company) company = R.company; }
+    } catch (e) {}
+    $("title").value = title;
+    $("company").value = company;
   } else {
     $("main").style.display = "none";
     $("setup").style.display = "block";
@@ -50,75 +92,5 @@ $("save").onclick = async () => {
     $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error — check the App URL.";
   }
 };
-
-$("fill").onclick = async () => {
-  $("msg").style.color = "#0b7a52"; $("msg").textContent = "Loading profile…";
-  let prof;
-  try {
-    const r = await fetch(cfg.apibase + "/api/ext/profile?token=" + encodeURIComponent(cfg.token));
-    const j = await r.json();
-    if (!j.ok) { $("msg").style.color = "#c0392b"; $("msg").textContent = "Error: " + (j.error || "failed"); return; }
-    prof = j.profile;
-  } catch (e) { $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error."; return; }
-  const tab = await activeTab();
-  try {
-    const out = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: autofill, args: [prof] });
-    const n = (out && out[0] && out[0].result) || 0;
-    $("msg").textContent = "Filled " + n + " field(s). Upload your résumé file manually.";
-  } catch (e) { $("msg").style.color = "#c0392b"; $("msg").textContent = "Can't autofill this page."; }
-};
-
-// Injected into the page. Best-effort: fills text fields + yes/no selects by matching labels.
-function autofill(p) {
-  function setVal(el, val) {
-    if (val == null || val === "") return false;
-    const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-    setter.call(el, val);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  }
-  function label(el) {
-    let t = (el.name || "") + " " + (el.id || "") + " " + (el.placeholder || "") + " " + (el.getAttribute("aria-label") || "");
-    if (el.labels && el.labels.length) t += " " + el.labels[0].innerText;
-    const al = el.closest("label"); if (al) t += " " + al.innerText;
-    return t.toLowerCase();
-  }
-  const parts = (p.name || "").trim().split(/\s+/);
-  const first = parts[0] || "", last = parts.length > 1 ? parts[parts.length - 1] : "";
-  let n = 0;
-  document.querySelectorAll("input, textarea").forEach((el) => {
-    const ty = (el.type || "text").toLowerCase();
-    if (["hidden", "file", "password", "submit", "button", "checkbox", "radio", "search"].indexOf(ty) !== -1) return;
-    if (el.value && el.value.trim()) return;                 // don't overwrite what's there
-    const L = label(el); let v = null;
-    if (/e-?mail/.test(L)) v = p.email;
-    else if (/phone|mobile|\btel\b/.test(L)) v = p.phone;
-    else if (/first\s*name|given name/.test(L)) v = first;
-    else if (/last\s*name|surname|family name/.test(L)) v = last;
-    else if (/full\s*name|legal name|your name|^name/.test(L) && !/user|company|file/.test(L)) v = p.name;
-    else if (/linkedin/.test(L)) v = p.linkedin;
-    else if (/city|location|address/.test(L)) v = p.location;
-    else if (/sponsor/.test(L)) v = p.needs_sponsorship;
-    else if (/authoriz|eligible to work|work authorization|legally/.test(L)) v = p.work_authorized;
-    if (v && setVal(el, v)) n++;
-  });
-  document.querySelectorAll("select").forEach((sel) => {
-    const al = sel.closest("label");
-    const L = ((sel.name || "") + " " + (sel.id || "") + " " + (al ? al.innerText : "")).toLowerCase();
-    let want = null;
-    if (/sponsor/.test(L)) want = p.needs_sponsorship;
-    else if (/authoriz|eligible to work|legally/.test(L)) want = p.work_authorized;
-    if (want) {
-      for (const o of sel.options) {
-        if (o.text.trim().toLowerCase() === want.toLowerCase()) {
-          sel.value = o.value; sel.dispatchEvent(new Event("change", { bubbles: true })); n++; break;
-        }
-      }
-    }
-  });
-  return n;
-}
 
 init();
