@@ -12,6 +12,15 @@
   var tab = "recommended", PAGE = 36, limit = PAGE;
 
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+  function scoreRing(s) {
+    var cls = s >= 55 ? 'ring-strong' : s >= 42 ? 'ring-good' : 'ring-low';
+    var off = (113.1 * (1 - s / 100)).toFixed(1);
+    return '<svg class="score-ring ' + cls + '" width="46" height="46" viewBox="0 0 46 46" aria-label="' + s + '% match">' +
+      '<circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-track)" stroke-width="4.5"/>' +
+      '<circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-color)" stroke-width="4.5" stroke-dasharray="113.1" stroke-dashoffset="' + off + '" stroke-linecap="round" transform="rotate(-90 23 23)"/>' +
+      '<text x="23" y="27" text-anchor="middle" font-size="10" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">' + s + '%</text>' +
+      '</svg>';
+  }
   function toast(msg) {
     if (!toasts) return;
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
@@ -41,8 +50,8 @@
   function cardByUrl(u) { var l = cards(); for (var i = 0; i < l.length; i++) if (l[i].getAttribute("data-url") === u) return l[i]; return null; }
   function paint(card, status) {
     var like = card.querySelector('[data-act="liked"]'), app = card.querySelector('[data-act="applied"]');
-    if (like) like.textContent = (status === "liked") ? "💚" : "🤍";
-    if (app) app.textContent = (status === "applied") ? "✅" : "📨";
+    if (like) like.textContent = (status === "liked") ? "Saved" : "Save";
+    if (app) app.textContent = (status === "applied") ? "Applied" : "Mark";
   }
 
   function dateCutoff() {
@@ -124,7 +133,7 @@
         var ac = lnk.closest(".card");
         if (ac && ac.getAttribute("data-status") !== "applied") {
           doAction(ac.getAttribute("data-url"), "applied").then(function (ok) {
-            if (ok) { toast("✓ Added to Applications"); render(false); }
+            if (ok) { toast("Added to Applications"); render(false); }
           });
         }
       }
@@ -153,7 +162,7 @@
     modal.classList.add("open"); document.body.style.overflow = "hidden";
     fetch("/api/job?url=" + encodeURIComponent(mUrl)).then(function (r) { return r.json(); }).then(function (j) {
       if (!j || !j.ok) { $("m-jd").textContent = "Couldn't load details."; return; }
-      var chip = $("m-chip"); chip.className = "chip " + (j.score >= 55 ? "strong" : j.score >= 42 ? "good" : "low"); chip.textContent = j.score + "%";
+      $("m-chip").innerHTML = scoreRing(j.score);
       var sk = "";
       if (j.missing && j.missing.length) sk += '<div class="sechdr">Add these to your résumé</div><div class="kw">' + j.missing.map(function (k) { return '<span class="tag miss">' + esc(k) + '</span>'; }).join("") + '</div>';
       if (j.have && j.have.length) sk += '<div class="sechdr">Skills you already match</div><div class="kw">' + j.have.map(function (k) { return '<span class="tag have">' + esc(k) + '</span>'; }).join("") + '</div>';
@@ -175,8 +184,8 @@
   function closeModal() { if (modal) { modal.classList.remove("open"); document.body.style.overflow = ""; } }
   function syncModal(status) {
     var l = $("m-like"), h = $("m-hide");
-    if (l) l.textContent = status === "liked" ? "💚 Saved" : "🤍 Save";
-    if (h) h.textContent = status === "hidden" ? "🚫 Unhide" : "🚫 Hide";
+    if (l) l.textContent = status === "liked" ? "Saved" : "Save";
+    if (h) h.textContent = status === "hidden" ? "Unhide" : "Hide";
   }
   if (modal) {
     $("m-close").addEventListener("click", closeModal);
@@ -193,7 +202,7 @@
     $("m-apply").addEventListener("click", function () {          // Apply in the modal also auto-logs
       var c = cardByUrl(mUrl);
       if (c && c.getAttribute("data-status") !== "applied") {
-        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("✓ Added to Applications"); syncModal("applied"); render(false); } });
+        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); syncModal("applied"); render(false); } });
       }
     });
   }
