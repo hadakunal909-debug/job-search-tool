@@ -144,7 +144,10 @@
     $("m-logo").innerHTML = lg ? lg.innerHTML : ""; $("m-logo").style.background = lg ? lg.style.background : "";
     $("m-title").textContent = card.querySelector(".ctitle") ? card.querySelector(".ctitle").textContent : "";
     $("m-meta").textContent = card.querySelector(".cmeta") ? card.querySelector(".cmeta").textContent : "";
-    $("m-skills").innerHTML = ""; $("m-jd").textContent = "Loading…"; $("m-chip").innerHTML = "";
+    $("m-chip").innerHTML = '<span class="skel skel-chip"></span>';
+    $("m-skills").innerHTML = '<div class="skel-row"><span class="skel skel-tag"></span><span class="skel skel-tag"></span><span class="skel skel-tag" style="width:88px"></span></div>' +
+      '<span class="skel skel-bar w75"></span><span class="skel skel-bar w55"></span>';
+    $("m-jd").innerHTML = '<div class="loading-jd"><span class="spin"></span>Loading description…</div>';
     $("m-apply").href = mUrl; $("m-tailor").href = "/tailor?url=" + encodeURIComponent(mUrl);
     syncModal(card.getAttribute("data-status") || "");
     modal.classList.add("open"); document.body.style.overflow = "hidden";
@@ -159,8 +162,14 @@
       if (j.sponsor_jd === "blocked") spn += '<span class="nospon">🚫 ' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
       else if (j.sponsor_jd === "open") spn += '<span class="spon">✅ ' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
       if (spn) sk = '<div class="kw" style="margin-bottom:10px">' + spn + '</div>' + sk;
-      $("m-skills").innerHTML = sk;
-      $("m-jd").textContent = j.jd || "No description stored — click Apply to read it on the company site.";
+      var skEl = $("m-skills"), jdEl = $("m-jd");
+      skEl.style.opacity = "0"; jdEl.style.opacity = "0";
+      skEl.innerHTML = sk;
+      jdEl.textContent = j.jd || "No description stored — click Apply to read it on the company site.";
+      requestAnimationFrame(function () {
+        skEl.style.transition = "opacity .25s"; skEl.style.opacity = "1";
+        jdEl.style.transition = "opacity .25s"; jdEl.style.opacity = "1";
+      });
     }).catch(function () { $("m-jd").textContent = "Couldn't load details."; });
   }
   function closeModal() { if (modal) { modal.classList.remove("open"); document.body.style.overflow = ""; } }

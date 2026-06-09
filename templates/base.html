@@ -39,11 +39,43 @@
   {% block content %}{% endblock %}
 </main>
 <div id="toasts" class="toasts"></div>
+<div id="pgbar" class="page-progress"></div>
 <script>
 (function(){var b=document.getElementById('themetoggle');if(!b)return;
 function set(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('theme',t);}catch(e){}b.textContent=t==='dark'?'☀️':'🌙';}
 set(document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light');
 b.addEventListener('click',function(){set(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');});})();
+</script>
+<script>
+(function(){
+  var b=document.getElementById('pgbar');if(!b)return;
+  function complete(){
+    b.style.cssText='width:30%;opacity:1;transition:none';
+    requestAnimationFrame(function(){
+      b.style.transition='width .45s ease';b.style.width='100%';
+      setTimeout(function(){b.style.transition='opacity .35s';b.style.opacity='0';
+        setTimeout(function(){b.style.width='0';b.style.transition='none';},350);
+      },420);
+    });
+  }
+  function start(){
+    b.style.cssText='width:0;opacity:1;transition:none';
+    requestAnimationFrame(function(){b.style.transition='width 10s cubic-bezier(.05,.9,.3,1)';b.style.width='85%';});
+  }
+  complete();
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('a[href]');
+    if(!a||a.target||!a.href)return;
+    var href=a.getAttribute('href')||'';
+    if(href.charAt(0)==='#'||a.hostname!==location.hostname)return;
+    if(a.id==='m-apply'||a.id==='m-tailor'||a.hasAttribute('data-apply'))return;
+    start();
+  });
+  document.addEventListener('submit',function(e){
+    if(e.defaultPrevented)return;
+    start();
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>
