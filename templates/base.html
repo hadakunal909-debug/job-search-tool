@@ -26,8 +26,8 @@
     <a href="{{ url_for('add_board') }}">Add board</a>
   </nav>
   <div class="acct">
-    <button id="themetoggle" class="iconbtn" title="Toggle dark mode" aria-label="Toggle theme">🌙</button>
-    <a class="who" href="{{ url_for('profile') }}" title="Your profile">👤 {{ current_user }}</a>
+    <button id="themetoggle" class="iconbtn" title="Toggle dark mode" aria-label="Toggle theme">Dark</button>
+    <a class="who" href="{{ url_for('profile') }}" title="Your profile">{{ current_user }}</a>
     <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
   </div>
 </header>
@@ -42,7 +42,7 @@
 <div id="pgbar" class="page-progress"></div>
 <script>
 (function(){var b=document.getElementById('themetoggle');if(!b)return;
-function set(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('theme',t);}catch(e){}b.textContent=t==='dark'?'☀️':'🌙';}
+function set(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('theme',t);}catch(e){}b.textContent=t==='dark'?'Light':'Dark';}
 set(document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light');
 b.addEventListener('click',function(){set(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');});})();
 </script>

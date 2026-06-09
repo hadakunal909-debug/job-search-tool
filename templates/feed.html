@@ -15,9 +15,9 @@
   <div class="feedrow">
     <h1>Jobs feed</h1>
     <div class="feedtools">
-      <a class="btn" href="{{ url_for('reload_jobs') }}">🔄 Reload</a>
+      <a class="btn" href="{{ url_for('reload_jobs') }}">Reload</a>
       <form method="post" action="{{ url_for('scrape_now') }}" class="inline">
-        <button class="btn" type="submit" {{ 'disabled' if scraping else '' }}>🛰️ Update jobs</button>
+        <button class="btn" type="submit" {{ 'disabled' if scraping else '' }}>Update jobs</button>
       </form>
     </div>
   </div>
@@ -60,7 +60,13 @@
      data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
   <div class="cardtop">
     <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img src="https://logo.clearbit.com/{{ j.company|logodomain }}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://www.google.com/s2/favicons?domain={{ j.company|logodomain }}&sz=64'"></div>
-    <div class="chip {{ 'strong' if j.score>=55 else ('good' if j.score>=42 else 'low') }}">{{ j.score }}%</div>
+    {% set ring_cls = 'ring-strong' if j.score>=55 else ('ring-good' if j.score>=42 else 'ring-low') %}
+    {% set ring_off = (113.1 * (1 - j.score / 100))|round(1) %}
+    <svg class="score-ring {{ ring_cls }}" width="46" height="46" viewBox="0 0 46 46" aria-label="{{ j.score }}% match">
+      <circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-track)" stroke-width="4.5"/>
+      <circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-color)" stroke-width="4.5" stroke-dasharray="113.1" stroke-dashoffset="{{ ring_off }}" stroke-linecap="round" transform="rotate(-90 23 23)"/>
+      <text x="23" y="27" text-anchor="middle" font-size="10" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">{{ j.score }}%</text>
+    </svg>
   </div>
   <div class="ctitle">{{ j.title }}</div>
   <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · <span class="posted" data-d="{{ j.found_date[:10] }}">{{ j.found_date[:10] }}</span>{% endif %}
@@ -73,9 +79,9 @@
     <span class="spacer"></span>
     <form method="post" action="{{ url_for('action') }}" class="inline acts">
       <input type="hidden" name="url" value="{{ j.url }}">
-      <button class="ico" data-act="liked"   name="status" value="{{ '' if j.status=='liked'   else 'liked'   }}" title="Like">{{ '💚' if j.status=='liked' else '🤍' }}</button>
-      <button class="ico" data-act="applied" name="status" value="{{ '' if j.status=='applied' else 'applied' }}" title="Applied">{{ '✅' if j.status=='applied' else '📨' }}</button>
-      <button class="ico" data-act="hidden"  name="status" value="{{ '' if j.status=='hidden'  else 'hidden'  }}" title="Hide">🚫</button>
+      <button class="ico" data-act="liked"   name="status" value="{{ '' if j.status=='liked'   else 'liked'   }}" title="Save">{{ 'Saved' if j.status=='liked' else 'Save' }}</button>
+      <button class="ico" data-act="applied" name="status" value="{{ '' if j.status=='applied' else 'applied' }}" title="Mark applied">{{ 'Applied' if j.status=='applied' else 'Mark' }}</button>
+      <button class="ico" data-act="hidden"  name="status" value="{{ '' if j.status=='hidden'  else 'hidden'  }}" title="Hide">{{ 'Hidden' if j.status=='hidden' else 'Hide' }}</button>
     </form>
   </div>
 </article>
@@ -104,8 +110,8 @@
       <a class="btn primary" id="m-apply" target="_blank" rel="noopener">Apply ↗</a>
       <a class="btn" id="m-tailor">Tailor view</a>
       <span class="spacer"></span>
-      <button class="btn" id="m-like">🤍 Save</button>
-      <button class="btn" id="m-hide">🚫 Hide</button>
+      <button class="btn" id="m-like">Save</button>
+      <button class="btn" id="m-hide">Hide</button>
     </div>
   </div>
 </div>
