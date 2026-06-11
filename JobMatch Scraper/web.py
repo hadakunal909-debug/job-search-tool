@@ -999,19 +999,37 @@ def ext_jds():
     if not isinstance(jds, dict) or not jds:
         return _cors(jsonify({"ok": False, "error": "No jds"})), 400
     known = {j.get("url") for j in get_jobs()}
-    clean = {}
-    for u, txt in list(jds.items())[:200]:
-        if u in known and isinstance(txt, str) and len(txt.strip()) > 200:
-            clean[u] = txt.strip()[:12000]
-    if clean:
-        try:
+    clean, patches = {}, []
+    for u, val in list(jds.items())[:200]:
+        if u not in known:
+            continue
+        # value is either a bare JD string, or {jd, location, found_date} from the
+        # generic detail-fetch (JSON-LD detail pages carry real location + datePosted).
+        jd = val if isinstance(val, str) else (val.get("jd") if isinstance(val, dict) else "")
+        if isinstance(jd, str) and len(jd.strip()) > 200:
+            clean[u] = jd.strip()[:12000]
+        if isinstance(val, dict):
+            patch = {"url": u}
+            loc = (val.get("location") or "").strip()[:300]
+            if loc and re.search(r"[A-Za-z]", loc):
+                patch["location"] = loc
+            date = (val.get("found_date") or "").strip()[:10]
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+                patch["found_date"] = date
+            if len(patch) > 1:
+                patches.append(patch)
+    try:
+        if clean:
             db.update_jds(clean)
-        except Exception as e:
-            return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
-        get_jobs(force=True)                     # re-pull rows so the JDs are visible…
-        _score_cache.clear()                     # …and per-user scores recompute with them
+        if patches:
+            db.update_job_fields(patches)
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
+    if clean or patches:
+        get_jobs(force=True)                     # re-pull rows so the new data is visible…
+        _score_cache.clear()                     # …and per-user scores recompute with JDs
         _sponsor_cache.clear()
-    return _cors(jsonify({"ok": True, "stored": len(clean)}))
+    return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches)}))
 
 
 if __name__ == "__main__":

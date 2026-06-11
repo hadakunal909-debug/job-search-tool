@@ -314,6 +314,39 @@ $("bulk").onclick = async () => {
         if (res.sample) m += " First parsed: " + res.sample;
       }
       $("bulkmsg").textContent = m;
+      // Follow up with DESCRIPTIONS (+ real location/date) for the NEW jobs, fetched
+      // from inside the page (same-origin), so they get real match % not 0.
+      const addedUrls = (j.added_urls || []);
+      if (addedUrls.length) {
+        $("bulkmsg").textContent = m + " Fetching descriptions… keep this popup open (~" +
+          Math.min(addedUrls.length, 20) * 1 + "–" + Math.min(addedUrls.length, 20) * 2 + "s).";
+        try {
+          const isTesla = /(^|\.)tesla\.com$/.test(new URL(tab.url).hostname);
+          let jds = {};
+          if (isTesla) {
+            const ids = addedUrls.map((u) => (u.split("/job/")[1] || "").split(/[/?#]/)[0]).filter(Boolean).slice(0, 20);
+            const out2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmPageFetchJds, args: [ids] });
+            const byId = (out2 && out2[0] && out2[0].result) || {};
+            addedUrls.forEach((u) => { const id = (u.split("/job/")[1] || "").split(/[/?#]/)[0]; if (byId[id]) jds[u] = byId[id]; });
+          } else {
+            const origin = new URL(tab.url).origin;
+            const sameOrigin = addedUrls.filter((u) => { try { return new URL(u).origin === origin; } catch (e) { return false; } }).slice(0, 20);
+            if (sameOrigin.length) {
+              const out2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmPageFetchGenericDetails, args: [sameOrigin] });
+              jds = (out2 && out2[0] && out2[0].result) || {};
+            }
+          }
+          if (Object.keys(jds).length) {
+            const r2 = await fetch(cfg.apibase + "/api/ext/jds", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: cfg.token, jds: jds }),
+            });
+            const j2 = await r2.json();
+            m += " ✓ " + ((j2 && j2.stored) || 0) + " descriptions attached.";
+          } else { m += " (No descriptions readable on this site.)"; }
+        } catch (e) { m += " (Description fetch skipped: " + e.message + ")"; }
+        $("bulkmsg").textContent = m;
+      }
     }
     else { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {

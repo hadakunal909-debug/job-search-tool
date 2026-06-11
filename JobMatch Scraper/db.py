@@ -222,6 +222,27 @@ def add_jobs(rows):
     _write_csv(_read_csv() + new)
 
 
+def update_job_fields(rows):
+    """Patch specific columns on existing jobs: rows = [{url, location?, found_date?}].
+    Used by the extension's detail-fetch to fill in the real location / posting date for
+    browser-imported jobs (the listing page often only had a code or nothing)."""
+    rows = [r for r in rows if r.get("url")]
+    if not rows:
+        return
+    if using_supabase():
+        _upsert(rows)                      # merge-on-url updates only the given columns
+        return
+    by_url = {r["url"]: r for r in rows}
+    out = _read_csv()
+    for r in out:
+        patch = by_url.get(r.get("url"))
+        if patch:
+            for k, v in patch.items():
+                if k != "url" and v:
+                    r[k] = v
+    _write_csv(out)
+
+
 def update_scores(scores):
     """scores = {url: int match_score}."""
     if not scores:

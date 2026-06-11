@@ -141,6 +141,64 @@ async function jmPageFetchJds(ids) {
   return out;
 }
 
+// Generic detail-fetch for ANY careers site (runs IN the page, MAIN world, so fetches
+// are same-origin with the site's cookies). For each job URL: read its detail page's
+// schema.org JobPosting (description + real location + datePosted), else fall back to
+// the page text when it reads like a JD. Returns {url: {jd, location, found_date}}.
+// Self-contained: injected functions can't see outer scope.
+async function jmPageFetchGenericDetails(urls) {
+  function strip(h) {
+    return String(h || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+  }
+  function looksJd(t) { return t.length > 300 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(t); }
+  function fromLd(html) {
+    const out = { jd: "", location: "", found_date: "" };
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
+      if (out.jd) return;
+      try {
+        const d = JSON.parse(s.textContent);
+        const stack = Array.isArray(d) ? d.slice() : [d];
+        while (stack.length) {
+          const o = stack.pop();
+          if (!o || typeof o !== "object") continue;
+          if (Array.isArray(o["@graph"])) stack.push.apply(stack, o["@graph"]);
+          const t = o["@type"];
+          if (!(t === "JobPosting" || (Array.isArray(t) && t.indexOf("JobPosting") >= 0))) continue;
+          const jd = strip(o.description || "");
+          if (jd.length > 200) out.jd = jd.slice(0, 12000);
+          const jl = Array.isArray(o.jobLocation) ? o.jobLocation[0] : o.jobLocation;
+          const addr = (jl && jl.address) || {};
+          const ctry = typeof addr.addressCountry === "object" ? addr.addressCountry.name : addr.addressCountry;
+          out.location = [addr.addressLocality, addr.addressRegion, ctry].filter(Boolean).join(", ");
+          out.found_date = String(o.datePosted || "").slice(0, 10);
+          if (out.jd) break;
+        }
+      } catch (e) {}
+    });
+    return out;
+  }
+  const res = {};
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { credentials: "include" });
+      if (!r.ok) continue;
+      const html = await r.text();
+      const d = fromLd(html);
+      if (!d.jd) {
+        const txt = strip(html);
+        if (looksJd(txt)) d.jd = txt.slice(0, 12000);
+      }
+      if (d.jd || d.location || d.found_date) res[u] = d;
+    } catch (e) {}
+    await new Promise((w) => setTimeout(w, 400));
+  }
+  return res;
+}
+
+
 async function jmTeslaTab() {
   const existing = await chrome.tabs.query({ url: "https://www.tesla.com/*" });
   if (existing && existing.length) return { tabId: existing[0].id, created: false };

@@ -31,6 +31,11 @@ Workday, or any company careers site.
   has a real job board, paste its URL into **➕ Add board** first — the server then scrapes
   it automatically every day, with full descriptions. Use the extension's import for sites
   the server can't reach: bot-walled (Tesla), JavaScript-only, or feed-less pages.
+- **Descriptions + locations come along (v1.3):** after an import, the popup fetches each
+  NEW job's detail page (same site, from inside the page) and reads its description, real
+  location, and posting date — so imported jobs get a real match %, the 🚫/✅ sponsorship
+  badge, and a readable description in the feed, just like scraped boards. Keep the popup
+  open for the ~20s it reports while fetching.
 - **Tesla AUTO-import (v1.1):** no clicking needed anymore. The extension runs the Tesla
   import by itself **once a day** (background alarm, ~3 min after Chrome starts) and also
   whenever you browse **tesla.com/careers** (throttled to once a day). It then fetches each
