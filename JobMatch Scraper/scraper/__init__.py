@@ -987,6 +987,11 @@ def _phenom_body(offset, size):
             "global": True, "selected_fields": {}, "locationData": {}}
 
 
+# Phenom results come back "Most recent" first, so even when a giant tenant exceeds
+# the cap we only lose its OLDEST tail (Actalent: 5.2k postings — cap audited 2026-06-11).
+PHENOM_MAX_JOBS = 6000
+
+
 def scrape_phenom(board_url):
     """Phenom People career sites (careers.<company>.com / jobs.<company>.com) via the
     public POST /widgets JSON their own search uses. board_url is the careers origin.
@@ -996,7 +1001,7 @@ def scrape_phenom(board_url):
     p = urlparse(board_url)
     base = "%s://%s" % (p.scheme or "https", p.netloc)
     rows, seen, offset, total = [], set(), 0, None
-    while offset < 3000:
+    while offset < PHENOM_MAX_JOBS:
         try:
             r = _safe_post(base + "/widgets", _phenom_body(offset, 100), timeout=25)
         except ValueError:
