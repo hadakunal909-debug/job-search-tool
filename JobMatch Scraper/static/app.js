@@ -79,11 +79,14 @@
   }
   function matches(c, cut) {
     var st = c.getAttribute("data-status") || "", sc = parseInt(c.getAttribute("data-score"), 10) || 0, ok;
+    var searching = q && q.value.trim();
     if (tab === "liked") ok = st === "liked";
     else if (tab === "applied") ok = st === "applied";
     else if (tab === "hidden") ok = st === "hidden";
-    else ok = (st !== "hidden") && (sc >= (minR ? parseInt(minR.value, 10) || 0 : 0));
-    if (ok && q && q.value) ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
+    // An active SEARCH bypasses the min-match slider: if you typed "deloitte" you want
+    // to SEE Deloitte's jobs, not have them silently hidden because they score 40%.
+    else ok = (st !== "hidden") && (searching || sc >= (minR ? parseInt(minR.value, 10) || 0 : 0));
+    if (ok && searching) ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = c.getAttribute("data-date") || ""; if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && c.getAttribute("data-sponsor") === "blocked") ok = false;
     return ok;

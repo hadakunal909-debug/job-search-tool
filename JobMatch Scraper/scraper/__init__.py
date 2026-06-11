@@ -295,6 +295,10 @@ INCLUDE = (
     "project specialist", "program specialist", "project associate",
     "operations associate", "scrum master", "project management",
     "program management", "pmo", "implementation",
+    # Entry-level consulting shapes (kept SPECIFIC — a bare "consultant" would flood
+    # the feed with staffing-agency SAP/Java consultant reqs).
+    "consulting analyst", "associate consultant", "management consultant",
+    "strategy consultant", "business consultant", "consulting development analyst",
     # Early-career / new-grad markers (program-style roles; low noise).
     "entry level", "entry-level", "graduate", "new grad", "early career",
     "rotation program", "rotational program", "trainee", "apprentice",
@@ -833,7 +837,7 @@ def scrape_adzuna(board_url):
                         # mentions — for Google that found 0 of its 3.8k listings);
                         # what_or biases the 250-result page budget toward our roles.
                         "company": company,
-                        "what_or": "project program analyst coordinator operations implementation scrum",
+                        "what_or": "project program analyst coordinator operations implementation scrum consultant consulting",
                         "results_per_page": 50, "content-type": "application/json"})
         except Exception:
             break
