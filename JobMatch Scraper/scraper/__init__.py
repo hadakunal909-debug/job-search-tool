@@ -225,6 +225,9 @@ JIBE_BOARDS = [
 # (export them as env vars, or add them as GitHub Actions secrets for the scheduled run).
 ADZUNA_BOARDS = [
     ("adzuna:Tesla", "adzuna", "Tesla"),
+    # Google: their careers site's robots.txt explicitly Disallows the jobs-results
+    # pages, so we do NOT scrape it directly — the aggregator is the sanctioned route.
+    ("adzuna:Google", "adzuna", "Google"),
     # --- Added 2026-06-11: sponsors from the user's H1B LCA list whose own career
     # sites expose NO public feed (custom portals / SuccessFactors / bot-walled).
     # The aggregator is the only way to scrape them; each costs ~1 API call per run.
