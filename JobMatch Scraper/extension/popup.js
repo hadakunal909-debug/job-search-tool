@@ -66,11 +66,14 @@ function extractJob() {
   return { title: (title || "").trim(), company: (company || "").trim() };
 }
 
-// Which sites support "import all jobs on this page", and the label to show. Empty = unsupported.
+// Label for the "import all jobs on this page" button. Tesla gets its tuned importer;
+// every other page gets the generic one (JSON-LD job data, else visible job links).
 function bulkSiteLabel(url) {
   try {
     const h = new URL(url).hostname.replace(/^www\./, "");
     if (/(^|\.)tesla\.com$/.test(h)) return "Tesla careers detected — import its US jobs into your feed.";
+    if (/(^|\.)(linkedin|indeed|glassdoor)\./.test(h)) return "";   // ToS/account-risk sites: single-save only
+    return "Import the job listings on this page (best-effort — works on most career sites).";
   } catch (e) {}
   return "";
 }
@@ -121,7 +124,71 @@ async function grabPageJobs() {
     }
     return { jobs: out, sample: out[0] ? (out[0].title + " @ " + (out[0].location || "?")) : "" };
   }
-  return { error: "Page import isn't set up for this site yet — it works on tesla.com/careers." };
+
+  if (/(^|\.)(linkedin|indeed|glassdoor)\./.test(host)) {
+    return { error: "Bulk import is disabled on this site (their terms ban automated collection " +
+                    "and your account could get flagged). Use 📌 Save for single jobs here." };
+  }
+
+  // ---- GENERIC: any other careers page ----
+  // 1) schema.org JobPosting structured data (the same thing Google for Jobs reads) —
+  //    present on many career sites and carries title + location + a canonical URL.
+  function fromJsonLdJobs() {
+    const out = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
+      try {
+        const d = JSON.parse(s.textContent);
+        const stack = Array.isArray(d) ? d.slice() : [d];
+        while (stack.length) {
+          const o = stack.pop();
+          if (!o || typeof o !== "object") continue;
+          if (Array.isArray(o["@graph"])) stack.push.apply(stack, o["@graph"]);
+          if (Array.isArray(o.itemListElement)) stack.push.apply(stack, o.itemListElement.map((x) => (x && x.item) || x));
+          const t = o["@type"];
+          if (!(t === "JobPosting" || (Array.isArray(t) && t.indexOf("JobPosting") >= 0))) continue;
+          const jl = Array.isArray(o.jobLocation) ? o.jobLocation[0] : o.jobLocation;
+          const addr = (jl && jl.address) || {};
+          const ctry = typeof addr.addressCountry === "object" ? addr.addressCountry.name : addr.addressCountry;
+          const org = o.hiringOrganization;
+          out.push({
+            title: String(o.title || "").trim(),
+            url: String(o.url || ""),
+            location: [addr.addressLocality, addr.addressRegion, ctry].filter(Boolean).join(", "),
+            company: org ? String(org.name || org) : "",
+          });
+        }
+      } catch (e) {}
+    });
+    return out.filter((j) => j.title && /^https?:/i.test(j.url));
+  }
+
+  // 2) Fallback: harvest the RENDERED job links. Noisy by design — the server's strict
+  //    title + US filter keeps only on-target roles, and dedupes by URL.
+  function fromDomLinks() {
+    const seen = new Set(), out = [];
+    const jobUrl = /\/(job|jobs|career|careers|position|positions|opening|openings|vacanc|requisition|posting)(s)?\/|[?&](job|jobid|gh_jid|reqid|requisitionid|positionid)=/i;
+    const junk = /^(apply|apply now|learn more|view( all)?|see |read |share|save|sign in|log ?in|more|details|search|filter|next|previous|back)/i;
+    document.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.href || "";
+      if (!/^https?:/i.test(href) || !jobUrl.test(href) || seen.has(href)) return;
+      let t = (a.getAttribute("aria-label") || a.textContent || "").replace(/\s+/g, " ").trim();
+      t = t.split(/ [|•·–—-] /)[0].trim();
+      if (t.length < 6 || t.length > 90 || junk.test(t)) return;
+      seen.add(href);
+      out.push({ title: t, url: href, location: "", company: "" });
+    });
+    return out;
+  }
+
+  let jobs = fromJsonLdJobs();
+  let how = "structured data";
+  if (jobs.length < 2) {                          // 0-1 from JSON-LD -> try the visible links
+    const dom = fromDomLinks();
+    if (dom.length > jobs.length) { jobs = dom; how = "visible job links"; }
+  }
+  if (!jobs.length) return { error: "No job listings found on this page. If this site has a real job board, paste its URL into ➕ Add board instead — the server can scrape 15 platforms automatically." };
+  return { jobs: jobs.slice(0, 500), how: how,
+           sample: jobs[0].title + " @ " + (jobs[0].location || "?") };
 }
 
 async function init() {
@@ -230,7 +297,9 @@ $("bulk").onclick = async () => {
   }
   const jobs = res.jobs || [];
   if (!jobs.length) { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "No jobs found on this page."; return; }
-  $("bulkmsg").textContent = "Found " + jobs.length + " — importing…";
+  const co = $("company").value.trim();             // generic DOM links carry no company —
+  jobs.forEach((j) => { if (!j.company && co) j.company = co; });   // use the detected one
+  $("bulkmsg").textContent = "Found " + jobs.length + (res.how ? " via " + res.how : "") + " — importing…";
   try {
     const r = await fetch(cfg.apibase + "/api/ext/bulk_jobs", {
       method: "POST", headers: { "Content-Type": "application/json" },
