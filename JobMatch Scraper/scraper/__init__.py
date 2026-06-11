@@ -515,13 +515,23 @@ def fetch_dynamic(url):
 # Workday has no open API, so it is rendered with Playwright.
 # ============================================================
 
+def _posted(s):
+    """ISO timestamp -> 'YYYY-MM-DD' ('' stays '' so main()'s scrape-stamp fallback kicks in)."""
+    return (str(s) if s else "")[:10]
+
+
 def scrape_greenhouse(board_url):
     data = _get_json("https://boards-api.greenhouse.io/v1/boards/%s/jobs" % _slug(board_url))
-    return [{
-        "title": (j.get("title") or "").strip(),
-        "url": j.get("absolute_url", ""),
-        "location": (j.get("location") or {}).get("name", ""),
-    } for j in data.get("jobs", [])]
+    rows = []
+    for j in data.get("jobs", []):
+        row = {"title": (j.get("title") or "").strip(),
+               "url": j.get("absolute_url", ""),
+               "location": (j.get("location") or {}).get("name", "")}
+        d = _posted(j.get("first_published") or j.get("updated_at"))
+        if d:
+            row["found_date"] = d                # the REAL posting date, not the scrape date
+        rows.append(row)
+    return rows
 
 
 def scrape_lever(board_url):
@@ -535,21 +545,34 @@ def scrape_lever(board_url):
         country = (j.get("country") or "").upper()
         if country and country != "US" and country not in loc.upper():
             loc = ("%s, %s" % (loc, country)).strip(", ")
-        rows.append({
+        row = {
             "title": (j.get("text") or "").strip(),
             "url": j.get("hostedUrl", ""),
             "location": loc,
-        })
+        }
+        try:                                     # createdAt is epoch milliseconds
+            row["found_date"] = datetime.datetime.fromtimestamp(
+                int(j.get("createdAt")) / 1000).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        rows.append(row)
     return rows
 
 
 def scrape_ashby(board_url):
     data = _get_json("https://api.ashbyhq.com/posting-api/job-board/%s" % _slug(board_url))
-    return [{
-        "title": (j.get("title") or "").strip(),
-        "url": j.get("jobUrl", ""),
-        "location": j.get("location") or "",
-    } for j in data.get("jobs", []) if j.get("isListed", True)]
+    rows = []
+    for j in data.get("jobs", []):
+        if not j.get("isListed", True):
+            continue
+        row = {"title": (j.get("title") or "").strip(),
+               "url": j.get("jobUrl", ""),
+               "location": j.get("location") or ""}
+        d = _posted(j.get("publishedAt"))
+        if d:
+            row["found_date"] = d
+        rows.append(row)
+    return rows
 
 
 def scrape_smartrecruiters(board_url):
@@ -566,11 +589,15 @@ def scrape_smartrecruiters(board_url):
                 x for x in (loc.get("city"), loc.get("region"), loc.get("country")) if x)
             if loc.get("remote"):
                 location = (location + " (Remote)").strip()
-            rows.append({
+            row = {
                 "title": (j.get("name") or "").strip(),
                 "url": "https://jobs.smartrecruiters.com/%s/%s" % (slug, j.get("id", "")),
                 "location": location,
-            })
+            }
+            d = _posted(j.get("releasedDate"))
+            if d:
+                row["found_date"] = d
+            rows.append(row)
         offset += len(batch)
         if not batch or offset >= data.get("totalFound", 0) or offset >= 1000:
             break
