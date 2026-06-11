@@ -141,6 +141,7 @@ async function init() {
           return '<option value="' + String(n).replace(/"/g, "&quot;") + '">'; }).join("");
       }
     } catch (e) {}
+    refreshAutoStat();
   } else {
     $("main").style.display = "none";
     $("setup").style.display = "block";
@@ -174,6 +175,34 @@ $("save").onclick = async () => {
   } catch (e) {
     $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error — check the App URL.";
   }
+};
+
+function autoStatLine(last) {
+  if (!last || !last.at) return "🤖 Tesla auto-import: not run yet (runs daily in the background)";
+  const when = new Date(last.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  if (!last.ok) return "🤖 Tesla auto-import " + when + ": " + (last.note || "failed");
+  if (last.note) return "🤖 Tesla auto-import " + when + ": " + last.note;
+  return "🤖 Tesla auto-import " + when + ": +" + (last.added || 0) + " jobs (" + (last.jds || 0) + " with descriptions)";
+}
+
+async function refreshAutoStat() {
+  const { tesla_last } = await get(["tesla_last"]);
+  $("autostat").textContent = autoStatLine(tesla_last);
+}
+
+$("teslanow").onclick = () => {
+  $("teslamsg").style.color = "#0b7a52";
+  $("teslamsg").textContent = "Importing Tesla jobs… (~30s with descriptions)";
+  chrome.runtime.sendMessage({ type: "run-tesla-now" }, (res) => {
+    if (chrome.runtime.lastError || !res) {
+      $("teslamsg").style.color = "#c0392b";
+      $("teslamsg").textContent = "Background import didn't respond — try from a tesla.com/careers tab.";
+      return;
+    }
+    if (res.ok) { $("teslamsg").textContent = "Done — " + (res.note || ("+" + (res.added || 0) + " new, " + (res.jds || 0) + " descriptions.")); }
+    else { $("teslamsg").style.color = "#c0392b"; $("teslamsg").textContent = res.note || "Import failed."; }
+    refreshAutoStat();
+  });
 };
 
 $("bulk").onclick = async () => {

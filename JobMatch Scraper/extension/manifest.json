@@ -1,14 +1,22 @@
 {
   "manifest_version": 3,
   "name": "JobMatch Helper",
-  "version": "1.0.0",
-  "description": "Save any job to your JobMatch tracker, and autofill application forms from your profile.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "version": "1.1.0",
+  "description": "Save any job to your JobMatch tracker, autofill applications, and auto-import Tesla's bot-walled job feed daily.",
+  "permissions": ["activeTab", "scripting", "storage", "alarms"],
   "host_permissions": [
     "https://stemjobs.astrochakra.co/*",
     "http://localhost:5000/*",
     "http://127.0.0.1:5000/*",
     "https://www.tesla.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.tesla.com/careers*"],
+      "js": ["tesla_shared.js", "tesla_auto.js"],
+      "run_at": "document_idle"
+    }
   ],
   "action": {
     "default_popup": "popup.html",
