@@ -12,13 +12,15 @@ chrome.runtime.onInstalled.addListener(schedule);
 chrome.runtime.onStartup.addListener(schedule);
 
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "tesla-auto") jmRunTeslaImport({ trigger: "alarm" });
+  // canUseTabs: when Akamai 403s the worker's own fetch, the run transparently
+  // retries through a real tesla.com tab (existing or throwaway-inactive).
+  if (a.name === "tesla-auto") jmRunTeslaImport({ trigger: "alarm", canUseTabs: true });
 });
 
 // The popup's "Run Tesla import now" button (works from any page).
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === "run-tesla-now") {
-    jmRunTeslaImport({ trigger: "manual" }).then(sendResponse);
+    jmRunTeslaImport({ trigger: "manual", canUseTabs: true }).then(sendResponse);
     return true;                                   // keep the channel open for the async reply
   }
 });

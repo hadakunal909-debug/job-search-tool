@@ -95,21 +95,31 @@ async function grabPageJobs() {
     if (!listings) { for (const k in d) { if (Array.isArray(d[k]) && d[k].length && typeof d[k][0] === "object") { listings = d[k]; break; } } }
     if (!listings) return { error: "Tesla data had no job list (the page layout may have changed)." };
 
-    const lk = d.lookup || {};
-    const locs = lk.locations || lk.location || lk.locs || {};
+    // location lookup table may live in several places depending on app version
+    const containers = [d.lookup, d.lookups, d.geo, d];
+    let locs = {};
+    for (const c of containers) {
+      if (c && typeof c === "object") {
+        const m = c.locations || c.location || c.locs;
+        if (m && typeof m === "object") { locs = m; break; }
+      }
+    }
     const out = [];
     for (const j of listings) {
       if (!j || typeof j !== "object") continue;
       let title = pick(j, ["t", "title", "name", "jobTitle", "positionTitle"]) || longestString(j);
       const id = pick(j, ["id", "jobId", "reqId", "jobNum", "j"]);
+      if (!title || id == null) continue;       // no per-job id -> can't build a unique URL
       let loc = pick(j, ["l", "loc", "location", "city", "locations"]);
       if (Array.isArray(loc)) loc = loc.map(function (x) { return (locs && locs[x]) || x; }).filter(Boolean).join("; ");
       else if (loc != null && typeof loc !== "string" && locs && locs[loc] != null) loc = locs[loc];
-      if (typeof loc !== "string") loc = "";
-      const url = id != null ? ("https://www.tesla.com/careers/search/job/" + id) : location.href;
-      if (title) out.push({ title: String(title).trim(), url: url, location: String(loc).trim(), company: "Tesla" });
+      loc = (typeof loc === "string") ? loc.trim() : String(loc == null ? "" : loc);
+      if (!/[a-z]/i.test(loc)) loc = "";        // unresolved numeric code -> unknown, KEEP the job
+      out.push({ title: String(title).trim(),
+                 url: "https://www.tesla.com/careers/search/job/" + id,
+                 location: loc, company: "Tesla" });
     }
-    return { jobs: out };
+    return { jobs: out, sample: out[0] ? (out[0].title + " @ " + (out[0].location || "?")) : "" };
   }
   return { error: "Page import isn't set up for this site yet — it works on tesla.com/careers." };
 }
@@ -227,7 +237,15 @@ $("bulk").onclick = async () => {
       body: JSON.stringify({ token: cfg.token, jobs: jobs })
     });
     const j = await r.json();
-    if (j.ok) { $("bulkmsg").textContent = "Added " + j.added + " new job" + (j.added === 1 ? "" : "s") + " to your feed (scanned " + j.scanned + ")."; }
+    if (j.ok) {
+      let m = "Added " + j.added + " new job" + (j.added === 1 ? "" : "s") + " to your feed (scanned " + j.scanned + ").";
+      if (j.added === 0) {
+        const d = j.dropped || {};
+        if (j.dropped) m += " Dropped: " + (d.title || 0) + " off-target, " + (d.dup || 0) + " already known, " + (d.us || 0) + " non-US.";
+        if (res.sample) m += " First parsed: " + res.sample;
+      }
+      $("bulkmsg").textContent = m;
+    }
     else { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
     $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Network error — check the App URL.";

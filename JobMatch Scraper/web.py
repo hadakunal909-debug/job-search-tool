@@ -938,20 +938,29 @@ def ext_bulk_jobs():
         seen = set()
 
     kept, scanned = [], 0
+    # Tally WHY jobs were dropped — when an import adds 0, this is the diagnosis.
+    dropped = {"dup": 0, "title": 0, "us": 0, "bad": 0}
     for j in jobs[:2000]:
         if not isinstance(j, dict):
             continue
         scanned += 1
         url = (j.get("url") or "").strip()[:1000]
         title = (j.get("title") or "").strip()[:300]
-        if not url or not title or url in seen:
+        if not url or not title:
+            dropped["bad"] += 1
+            continue
+        if url in seen:
+            dropped["dup"] += 1
             continue
         if not scraper.is_http_url(url):                        # block javascript:/data: URLs —
-            continue                                            # these get rendered as <a href> for everyone
+            dropped["bad"] += 1                                 # these get rendered as <a href> for everyone
+            continue
         if not scraper.title_verdict(title)[0]:                 # entry-level PM/analyst filter
+            dropped["title"] += 1
             continue
         loc = (j.get("location") or "").strip()[:300]
         if not scraper.is_us_location(loc):                     # US-only (blank/unknown is kept)
+            dropped["us"] += 1
             continue
         seen.add(url)
         company = (j.get("company") or "").strip()[:200]
@@ -969,6 +978,7 @@ def ext_bulk_jobs():
         get_jobs(force=True)                     # imported jobs show on the next feed load
     # added_urls lets the extension follow up with JDs for just the new jobs
     return _cors(jsonify({"ok": True, "added": len(kept), "scanned": scanned,
+                          "dropped": dropped,
                           "added_urls": [k["url"] for k in kept][:500]}))
 
 
