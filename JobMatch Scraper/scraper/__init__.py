@@ -6,7 +6,7 @@ Visits the career boards you list in SOURCES, pulls the postings, keeps only the
 entry-level ones (and, if you give it H1B data, only companies that have sponsored
 before), and appends anything NEW to jobs.csv.
 
-Run it:           python scraper.py
+Run it:           python -m scraper
 Minimum install:  pip install requests beautifulsoup4 lxml
 Only if you add a Workday/JS source:  pip install playwright  &&  playwright install chromium
 """
@@ -17,6 +17,8 @@ import os
 import sys
 import time
 import random
+import socket
+import ipaddress
 import concurrent.futures
 import re
 import datetime
@@ -163,6 +165,22 @@ WORKDAY_BOARDS = [
     ("https://rit.wd12.myworkdayjobs.com/careers",                   "workday", "Rochester Institute of Technology"),
     ("https://wd5.myworkdaysite.com/recruiting/uw/UWHires",          "workday", "University of Washington"),
     ("https://mastercard.wd1.myworkdayjobs.com/corporatecareers",    "workday", "Mastercard"),
+    # --- Added 2026-06-08: careers.labcorp.com is a Phenom front-end, but its apply
+    # links go to Workday (labcorp.wd1) — so we read the full 1600-job board directly. ---
+    ("https://labcorp.wd1.myworkdayjobs.com/External",               "workday", "Labcorp"),
+    # --- Added 2026-06-10: more Phenom front-ends resolved to their Workday boards
+    # via detect_phenom (counts at add time: Danaher 1401, Baker Hughes 728, SWA 52). ---
+    ("https://danaher.wd1.myworkdayjobs.com/DanaherJobs",            "workday", "Danaher"),
+    ("https://bakerhughes.wd5.myworkdayjobs.com/BakerHughes",        "workday", "Baker Hughes"),
+    ("https://swa.wd1.myworkdayjobs.com/external",                   "workday", "Southwest Airlines"),
+]
+
+# Oracle Cloud Recruiting (ORC) career sites — public recruitingCEJobRequisitions API.
+# The careers URL embeds the site number: .../CandidateExperience/en/sites/{CX_...}.
+ORACLE_BOARDS = [
+    # Oracle itself: ~1400 postings, long-time top-20 H1B sponsor.
+    ("https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001",
+     "oracle", "Oracle"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -172,9 +190,20 @@ JIBE_BOARDS = [
     ("https://careers.hrblock.com", "jibe", "H&R Block"),
 ]
 
-# Everything scrapeable: Amazon + 26 original boards + extras + Workday + iCIMS/Jibe.
+# Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
+# bot wall — every request from a script or even headless Chrome gets 403/429). We pull
+# their US postings from the Adzuna aggregator API instead. board_url is "adzuna:<Company>"
+# — we search that name and keep only exact-employer matches. DORMANT until you set a free
+# Adzuna key (no credit card): https://developer.adzuna.com  ->  ADZUNA_APP_ID / ADZUNA_APP_KEY
+# (export them as env vars, or add them as GitHub Actions secrets for the scheduled run).
+ADZUNA_BOARDS = [
+    ("adzuna:Tesla", "adzuna", "Tesla"),
+]
+
+# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Adzuna.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
-SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
+SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
+           + ORACLE_BOARDS + ADZUNA_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -233,6 +262,28 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
            "Accept": "application/json, text/plain, */*"}
 
 
+def _make_session():
+    """One shared HTTP session for every fetch: connection pooling (keep-alive per ATS
+    host — much faster than a new TLS handshake per request) + automatic retries with
+    backoff on transient failures (connection resets, 429 rate-limits, 5xx). Without
+    this, a single blip loses a whole board for the run. POST is retried too — our only
+    POSTs are Workday CXS searches, which are read-only queries, so replay is safe."""
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    retry = Retry(total=3, connect=3, read=2, backoff_factor=0.5,
+                  status_forcelist=(429, 500, 502, 503, 504),
+                  allowed_methods=frozenset({"GET", "POST", "HEAD"}),
+                  respect_retry_after_header=True)
+    s = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=16, pool_maxsize=16)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
+SESSION = _make_session()
+
+
 # ============================================================
 # FETCHERS  — turn a board URL into job rows
 # Greenhouse / Lever / Ashby / SmartRecruiters each expose a public JSON API,
@@ -241,9 +292,106 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
 # ============================================================
 
 def _get_json(url, params=None):
-    r = requests.get(url, headers=HEADERS, params=params, timeout=25)
+    r = SESSION.get(url, headers=HEADERS, params=params, timeout=25)
     r.raise_for_status()
     return r.json()
+
+
+# ---- SSRF / abuse guards for URLs that come from a USER (added boards, JSON-LD pages) ----
+# The fixed-host scrapers (Greenhouse/Lever/Ashby/SmartRecruiters/Workday/Amazon/Adzuna) hit
+# hard-coded API hosts and don't need this. But the Jibe and JSON-LD scrapers fetch a
+# user-supplied domain — both at "➕ Add board" time AND on every scheduled scrape (custom
+# boards). Without a guard, someone could point those at http://169.254.169.254/ (cloud
+# metadata), http://localhost, or an internal IP and use OUR server as a proxy.
+_MAX_FETCH_BYTES   = 5 * 1024 * 1024                       # cap one user-URL fetch at 5 MB
+_BLOCKED_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
+
+
+def is_http_url(url):
+    """Cheap (no DNS): True only for an http/https URL. Use it to keep dangerous-scheme
+    links (javascript:, data:, file:) out of anything we store or render as a link."""
+    try:
+        return urlparse(url or "").scheme.lower() in ("http", "https")
+    except Exception:
+        return False
+
+
+def _ip_is_public(addr):
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or
+                ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
+def public_http_url(url):
+    """The URL if it's http(s) AND its host resolves only to PUBLIC IPs, else None — so a
+    user URL can't make us reach loopback / private ranges / link-local cloud metadata."""
+    if not is_http_url(url):
+        return None
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
+    if not host or host in _BLOCKED_HOSTNAMES:
+        return None
+    try:
+        infos = socket.getaddrinfo(host, p.port or (443 if p.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except Exception:
+        return None
+    addrs = {i[4][0] for i in infos}
+    return url if addrs and all(_ip_is_public(a) for a in addrs) else None
+
+
+def _safe_get(url, headers=None, timeout=20, params=None):
+    """requests.get hardened for USER-SUPPLIED URLs: rejects non-public targets (SSRF),
+    won't auto-follow a redirect into a private host, and caps the body size. Raises
+    ValueError when the URL/target is disallowed. Returns a normal requests.Response."""
+    headers = headers or HEADERS
+    hops = 0
+    while True:
+        if not public_http_url(url):
+            raise ValueError("blocked non-public URL: %s" % url)
+        r = SESSION.get(url, headers=headers, params=params, timeout=timeout,
+                        allow_redirects=False, stream=True)
+        if r.is_redirect and hops < 3:                     # re-validate each redirect target
+            nxt = urljoin(url, r.headers.get("location", ""))
+            r.close()
+            url, params, hops = nxt, None, hops + 1
+            continue
+        break
+    total, chunks = 0, []
+    for chunk in r.iter_content(8192):
+        total += len(chunk)
+        if total > _MAX_FETCH_BYTES:
+            r.close()
+            raise ValueError("response exceeds %d bytes" % _MAX_FETCH_BYTES)
+        chunks.append(chunk)
+    r._content = b"".join(chunks)
+    r._content_consumed = True
+    return r
+
+
+def _safe_post(url, body, headers=None, timeout=20):
+    """JSON POST hardened for USER-SUPPLIED origins (same checks as _safe_get): the
+    target must resolve to public IPs, redirects are not followed, and the response
+    body is size-capped. Raises ValueError when the URL/target is disallowed."""
+    headers = dict(headers or HEADERS)
+    headers.setdefault("Content-Type", "application/json")
+    if not public_http_url(url):
+        raise ValueError("blocked non-public URL: %s" % url)
+    r = SESSION.post(url, headers=headers, data=json.dumps(body), timeout=timeout,
+                     allow_redirects=False, stream=True)
+    total, chunks = 0, []
+    for chunk in r.iter_content(8192):
+        total += len(chunk)
+        if total > _MAX_FETCH_BYTES:
+            r.close()
+            raise ValueError("response exceeds %d bytes" % _MAX_FETCH_BYTES)
+        chunks.append(chunk)
+    r._content = b"".join(chunks)
+    r._content_consumed = True
+    return r
 
 
 def _slug(board_url):
@@ -423,7 +571,7 @@ def scrape_workday(board_url):
     hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
     seen, rows, offset, total = set(), [], 0, None
     while offset < WORKDAY_MAX_JOBS:
-        r = requests.post(cxs, headers=hdr, timeout=25, data=json.dumps(
+        r = SESSION.post(cxs, headers=hdr, timeout=25, data=json.dumps(
             {"appliedFacets": {}, "limit": WORKDAY_PAGE_LIMIT, "offset": offset,
              "searchText": ""}))
         if r.status_code != 200:
@@ -519,8 +667,10 @@ def scrape_jibe(board_url):
     base = "%s://%s" % (p.scheme or "https", p.netloc)
     rows, seen, page = [], set(), 1
     while page <= 20:                                 # 100/page -> up to 2000 postings
-        r = requests.get("%s/api/jobs?limit=100&page=%d" % (base, page),
-                         headers=HEADERS, timeout=25)
+        try:
+            r = _safe_get("%s/api/jobs?limit=100&page=%d" % (base, page), timeout=25)
+        except ValueError:
+            break                                     # non-public host -> refuse (SSRF guard)
         if r.status_code != 200:
             break
         d = r.json()
@@ -547,6 +697,55 @@ def scrape_jibe(board_url):
         if len(jobs) < 100 or page * 100 >= total:
             break
         page += 1
+        time.sleep(random.uniform(0.3, 0.7))
+    return rows
+
+
+def scrape_adzuna(board_url):
+    """US postings for ONE employer via the Adzuna aggregator API — used for companies
+    whose own careers site blocks scraping (Tesla = Akamai bot-wall, returns 403/429 to
+    any script or headless browser). board_url is 'adzuna:<Company>'; we search that name
+    and keep only rows whose employer matches it (Adzuna's keyword search is broad).
+
+    DORMANT unless a free Adzuna key is configured (no credit card needed):
+        register at https://developer.adzuna.com  ->  set ADZUNA_APP_ID + ADZUNA_APP_KEY
+        (env vars locally, or GitHub Actions secrets for the scheduled scrape).
+    Returns [] (contributes nothing) when the key isn't set, so it never breaks a run."""
+    app_id  = os.environ.get("ADZUNA_APP_ID")
+    app_key = os.environ.get("ADZUNA_APP_KEY")
+    if not (app_id and app_key):
+        return []
+    company = board_url.split(":", 1)[1] if ":" in board_url else board_url
+    target  = _norm_name(company)
+    rows, seen = [], set()
+    for page in range(1, 6):                          # up to 5 pages x 50 = 250 results
+        try:
+            data = _get_json(
+                "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
+                params={"app_id": app_id, "app_key": app_key, "what": company,
+                        "results_per_page": 50, "content-type": "application/json"})
+        except Exception:
+            break
+        results = data.get("results", [])
+        if not results:
+            break
+        for j in results:
+            co = ((j.get("company") or {}).get("display_name") or "").strip()
+            con = _norm_name(co)
+            if not con or not (con == target or con.startswith(target + " ")):
+                continue                              # skip recruiters / unrelated keyword hits
+            url = j.get("redirect_url") or ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            rows.append({
+                "title": (j.get("title") or "").strip(),
+                "url": url,
+                "location": ((j.get("location") or {}).get("display_name") or ""),
+                "found_date": (j.get("created") or "")[:10],
+            })
+        if len(results) < 50 or page * 50 >= data.get("count", 0):
+            break
         time.sleep(random.uniform(0.3, 0.7))
     return rows
 
@@ -593,7 +792,7 @@ def scrape_personio(board_url):
     import xml.etree.ElementTree as ET
     slug = _sub(board_url)
     try:
-        r = requests.get("https://%s.jobs.personio.com/xml" % slug, headers=HEADERS, timeout=20)
+        r = SESSION.get("https://%s.jobs.personio.com/xml" % slug, headers=HEADERS, timeout=20)
         root = ET.fromstring(r.content)
     except Exception:
         return []
@@ -615,7 +814,7 @@ def scrape_jsonld(board_url):
     """Generic: pull schema.org JobPosting items embedded in a careers page (the same
     structured data Google for Jobs reads). Works on many custom sites; best-effort."""
     try:
-        r = requests.get(board_url, headers=HEADERS, timeout=20)
+        r = _safe_get(board_url)
         soup = BeautifulSoup(r.text, "lxml")
     except Exception:
         return []
@@ -652,12 +851,173 @@ def scrape_jsonld(board_url):
                          "url": it.get("url") or board_url,
                          "location": loc,
                          "found_date": (str(it.get("datePosted") or ""))[:10]})
-    # de-dupe by url
+    # de-dupe by url; keep only http(s) links (a malicious page could embed a
+    # "url": "javascript:..." in its JobPosting JSON, which we'd later render as a link)
     seen, out = set(), []
     for r in rows:
-        if r["title"] and r["url"] and r["url"] not in seen:
+        if r["title"] and is_http_url(r["url"]) and r["url"] not in seen:
             seen.add(r["url"]); out.append(r)
     return out
+
+
+# ---- Phenom People (careers.<company>.com sites used by many Fortune-500 sponsors) ----
+def _phenom_body(offset, size):
+    """The POST /widgets body Phenom career sites send for their own job search."""
+    return {"lang": "en_us", "deviceType": "desktop", "country": "us",
+            "pageName": "search-results", "ddoKey": "refineSearch", "sortBy": "Most recent",
+            "subsearch": "", "from": offset, "jobs": True, "counts": True,
+            "all_fields": ["category", "country", "state", "city"], "size": size,
+            "clearAll": False, "jdsource": "facets", "isSliderEnable": False,
+            "pageId": "page-search-results", "siteType": "external", "keywords": "",
+            "global": True, "selected_fields": {}, "locationData": {}}
+
+
+def scrape_phenom(board_url):
+    """Phenom People career sites (careers.<company>.com / jobs.<company>.com) via the
+    public POST /widgets JSON their own search uses. board_url is the careers origin.
+    NOTE: many Phenom tenants are a front-end for Workday — their applyUrl points at
+    myworkdayjobs — and detect_phenom() returns the Workday board instead in that case
+    (better data + JD support). This scraper is for tenants that are Phenom-native."""
+    p = urlparse(board_url)
+    base = "%s://%s" % (p.scheme or "https", p.netloc)
+    rows, seen, offset, total = [], set(), 0, None
+    while offset < 3000:
+        try:
+            r = _safe_post(base + "/widgets", _phenom_body(offset, 100), timeout=25)
+        except ValueError:
+            break                                     # non-public host -> refuse (SSRF guard)
+        if r.status_code != 200:
+            break
+        d = (r.json() or {}).get("refineSearch") or {}
+        if total is None:
+            total = d.get("totalHits") or 0
+        jobs = (d.get("data") or {}).get("jobs") or []
+        if not jobs:
+            break
+        for j in jobs:
+            url = j.get("applyUrl") or ""
+            if not is_http_url(url):                  # native tenants: build the job-page link
+                jid = j.get("jobId") or ""
+                url = "%s/us/en/job/%s" % (base, jid) if jid else ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            loc = ", ".join(x for x in (j.get("city"), j.get("state"), j.get("country")) if x) \
+                  or (j.get("cityState") or "")
+            rows.append({"title": (j.get("title") or "").strip(), "url": url,
+                         "location": loc,
+                         "found_date": (str(j.get("postedDate") or j.get("dateCreated") or ""))[:10]})
+        offset += len(jobs)
+        if total and offset >= total:
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
+# ---- Oracle Cloud Recruiting (ORC) — {tenant}.oraclecloud.com career sites ----
+def _oracle_parts(board_url):
+    """(origin, site_number) from an ORC careers URL, e.g.
+       https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001/..."""
+    p = urlparse(board_url)
+    m = re.search(r"/sites/([A-Za-z0-9_]+)", p.path)
+    return "%s://%s" % (p.scheme or "https", p.netloc), (m.group(1) if m else "CX_1")
+
+
+ORACLE_PAGE = 200
+ORACLE_MAX_JOBS = 3000
+
+
+def scrape_oracle(board_url):
+    """Oracle Cloud Recruiting career sites via the public recruitingCEJobRequisitions
+    REST API (the same one the site's own search calls — no auth). Unlocks employers
+    on Oracle HCM (lots of banks/pharma/industrials) that no other ATS feed covers.
+    Bonus: the list response carries the JD text, so score_jobs needs no detail calls."""
+    origin, site = _oracle_parts(board_url)
+    if not urlparse(origin).netloc.lower().endswith(".oraclecloud.com"):
+        return []                  # a stored 'oracle' board must really be an Oracle host
+    rows, seen, offset, total = [], set(), 0, None
+    while offset < ORACLE_MAX_JOBS:
+        try:
+            d = _get_json(origin + "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+                          params={"onlyData": "true",
+                                  "expand": "requisitionList.secondaryLocations",
+                                  "finder": "findReqs;siteNumber=%s,limit=%d,offset=%d,sortBy=POSTING_DATES_DESC"
+                                            % (site, ORACLE_PAGE, offset)})
+        except Exception:
+            break
+        items = d.get("items") or []
+        reqs = (items[0].get("requisitionList") or []) if items else []
+        if not reqs:
+            break
+        if total is None:
+            total = items[0].get("TotalJobsCount") or 0
+        for q in reqs:
+            jid = str(q.get("Id") or "")
+            if not jid or jid in seen:
+                continue
+            seen.add(jid)
+            locs = [q.get("PrimaryLocation") or ""]
+            for s in (q.get("secondaryLocations") or []):
+                locs.append((s.get("Name") if isinstance(s, dict) else str(s)) or "")
+            rows.append({"title": (q.get("Title") or "").strip(),
+                         "url": "%s/hcmUI/CandidateExperience/en/sites/%s/job/%s"
+                                % (origin, site, jid),
+                         "location": "; ".join(x for x in locs if x),
+                         "found_date": (str(q.get("PostedDate") or ""))[:10]})
+        offset += len(reqs)
+        if total and offset >= total:
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
+# ---- Workable — apply.workable.com/{slug} ----
+def _workable_slug(board_url):
+    p = urlparse(board_url)
+    host = p.netloc.lower()
+    segs = [s for s in p.path.split("/") if s]
+    if host.endswith(".workable.com") and host not in ("apply.workable.com", "www.workable.com"):
+        return host.split(".")[0]                     # {slug}.workable.com vanity host
+    return segs[0] if segs else ""                    # apply.workable.com/{slug}
+
+
+def scrape_workable(board_url):
+    """Workable via the public v3 jobs search the apply.workable.com pages call (POST,
+    paged by a nextPage token). The older v1 'widget' endpoint often returns an empty
+    list even for live tenants — don't use it."""
+    slug = _workable_slug(board_url)
+    if not slug:
+        return []
+    api = "https://apply.workable.com/api/v3/accounts/%s/jobs" % slug
+    hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
+    rows, seen, token = [], set(), ""
+    for _ in range(30):                               # 10/page -> up to 300 postings
+        body = {"query": "", "department": [], "location": [],
+                "remote": [], "workplace": [], "worktype": []}
+        if token:
+            body["token"] = token
+        r = SESSION.post(api, headers=hdr, timeout=20, data=json.dumps(body))
+        if r.status_code != 200:
+            break
+        d = r.json()
+        for j in d.get("results") or []:
+            sc = j.get("shortcode") or ""
+            if not sc or sc in seen:
+                continue
+            seen.add(sc)
+            loc = j.get("location") or {}
+            location = ", ".join(x for x in (loc.get("city"), loc.get("region"),
+                                             loc.get("country")) if x)
+            if j.get("remote"):
+                location = (location + " (Remote)").strip()
+            rows.append({"title": (j.get("title") or "").strip(),
+                         "url": "https://apply.workable.com/%s/j/%s/" % (slug, sc),
+                         "location": location})
+        token = d.get("nextPage") or ""
+        if not token:
+            break
+        time.sleep(random.uniform(0.2, 0.4))
+    return rows
 
 
 SCRAPERS = {
@@ -672,6 +1032,10 @@ SCRAPERS = {
     "breezy": scrape_breezy,
     "personio": scrape_personio,
     "jsonld": scrape_jsonld,
+    "adzuna": scrape_adzuna,
+    "phenom": scrape_phenom,
+    "oracle": scrape_oracle,
+    "workable": scrape_workable,
 }
 
 
@@ -742,6 +1106,16 @@ def detect_board(url):
                     if "myworkdaysite.com" in host else "https://%s/%s" % (_h, site))
             return (norm, "workday", _name_from(tenant))
 
+    if host.endswith(".oraclecloud.com") and "/sites/" in p.path:
+        origin, site = _oracle_parts(url)
+        return ("%s/hcmUI/CandidateExperience/en/sites/%s" % (origin, site),
+                "oracle", _name_from(host.split(".")[0]))
+
+    if host.endswith("workable.com"):
+        slug = _workable_slug(url)
+        if slug:
+            return ("https://apply.workable.com/%s" % slug, "workable", _name_from(slug))
+
     return None
 
 
@@ -759,7 +1133,7 @@ def detect_jibe(url):
     p = urlparse(url)
     base = "%s://%s" % (p.scheme, p.netloc)
     try:
-        r = requests.get(base + "/api/jobs?limit=1", headers=HEADERS, timeout=10)
+        r = _safe_get(base + "/api/jobs?limit=1", timeout=10)
         if r.status_code == 200 and "json" in r.headers.get("content-type", "").lower():
             d = r.json()
             if isinstance(d, dict) and "jobs" in d and ("totalCount" in d or "count" in d):
@@ -776,6 +1150,40 @@ def detect_jibe(url):
     except Exception:
         return None
     return None
+
+
+def detect_phenom(url):
+    """Network probe for Phenom People career sites (careers.<company>.com style) —
+    custom domains can't be told apart by URL, but they all answer the public
+    POST /widgets job-search JSON. When the tenant's apply links point at Workday
+    (Phenom is often just the front-end — Labcorp, Southwest), return the WORKDAY
+    board behind it instead: richer data and JD support. Else (origin,'phenom',name)."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    p = urlparse(url)
+    base = "%s://%s" % (p.scheme, p.netloc)
+    try:
+        r = _safe_post(base + "/widgets", _phenom_body(0, 1), timeout=12)
+        if r.status_code != 200 or "json" not in r.headers.get("content-type", "").lower():
+            return None
+        d = (r.json() or {}).get("refineSearch") or {}
+        if not isinstance(d.get("totalHits"), int):
+            return None
+        jobs = (d.get("data") or {}).get("jobs") or []
+        apply_url = (jobs[0].get("applyUrl") or "") if jobs else ""
+        if "myworkdayjobs.com" in apply_url or "myworkdaysite.com" in apply_url:
+            wd = detect_board(apply_url)
+            if wd:
+                return wd
+        host = p.netloc.split(":")[0]
+        parts = [x for x in host.split(".")
+                 if x not in ("www", "careers", "jobs", "career", "mycareer")]
+        return (base, "phenom", _name_from(parts[0]) if parts else host)
+    except Exception:
+        return None
 
 
 def detect_jsonld(url):
@@ -802,37 +1210,53 @@ def probe_board(board_url, ats_type):
     try:
         slug = board_url.rstrip("/").split("/")[-1]
         if ats_type == "greenhouse":
-            r = requests.get("https://boards-api.greenhouse.io/v1/boards/%s/jobs" % slug,
-                             headers=HEADERS, timeout=10)
+            r = SESSION.get("https://boards-api.greenhouse.io/v1/boards/%s/jobs" % slug,
+                            headers=HEADERS, timeout=10)
             return len(r.json().get("jobs", [])) if r.status_code == 200 else None
         if ats_type == "lever":
-            r = requests.get("https://api.lever.co/v0/postings/%s?mode=json" % slug,
-                             headers=HEADERS, timeout=10)
+            r = SESSION.get("https://api.lever.co/v0/postings/%s?mode=json" % slug,
+                            headers=HEADERS, timeout=10)
             d = r.json() if r.status_code == 200 else None
             return len(d) if isinstance(d, list) else None
         if ats_type == "ashby":
-            r = requests.get("https://api.ashbyhq.com/posting-api/job-board/%s" % slug,
-                             headers=HEADERS, timeout=10)
+            r = SESSION.get("https://api.ashbyhq.com/posting-api/job-board/%s" % slug,
+                            headers=HEADERS, timeout=10)
             return len(r.json().get("jobs", [])) if r.status_code == 200 else None
         if ats_type == "smartrecruiters":
-            r = requests.get("https://api.smartrecruiters.com/v1/companies/%s/postings?limit=1" % slug,
-                             headers=HEADERS, timeout=10)
+            r = SESSION.get("https://api.smartrecruiters.com/v1/companies/%s/postings?limit=1" % slug,
+                            headers=HEADERS, timeout=10)
             return r.json().get("totalFound") if r.status_code == 200 else None
         if ats_type == "workday":
             host, tenant, site = _workday_parts(board_url)
             cxs = "https://%s/wday/cxs/%s/%s/jobs" % (host, tenant, site)
             hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
-            r = requests.post(cxs, headers=hdr, timeout=12, data=json.dumps(
+            r = SESSION.post(cxs, headers=hdr, timeout=12, data=json.dumps(
                 {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}))
             return r.json().get("total") if r.status_code == 200 else None
         if ats_type == "jibe":
             p = urlparse(board_url)
             base = "%s://%s" % (p.scheme, p.netloc)
-            r = requests.get(base + "/api/jobs?limit=1", headers=HEADERS, timeout=12)
+            r = _safe_get(base + "/api/jobs?limit=1", timeout=12)
             if r.status_code == 200:
                 d = r.json()
                 return d.get("totalCount") or d.get("count") or len(d.get("jobs", []))
             return None
+        if ats_type == "phenom":
+            p = urlparse(board_url)
+            r = _safe_post("%s://%s/widgets" % (p.scheme or "https", p.netloc),
+                           _phenom_body(0, 1), timeout=12)
+            if r.status_code == 200:
+                return ((r.json() or {}).get("refineSearch") or {}).get("totalHits")
+            return None
+        if ats_type == "oracle":
+            origin, site = _oracle_parts(board_url)
+            d = _get_json(origin + "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+                          params={"onlyData": "true",
+                                  "finder": "findReqs;siteNumber=%s,limit=1,offset=0" % site})
+            items = d.get("items") or []
+            return items[0].get("TotalJobsCount") if items else None
+        if ats_type == "workable":
+            return len(scrape_workable(board_url))
         if ats_type == "recruitee":
             return len(scrape_recruitee(board_url))
         if ats_type == "breezy":
@@ -841,6 +1265,8 @@ def probe_board(board_url, ats_type):
             return len(scrape_personio(board_url))
         if ats_type == "jsonld":
             return len(scrape_jsonld(board_url))
+        if ats_type == "adzuna":
+            return len(scrape_adzuna(board_url))
     except Exception:
         return None
     return None
@@ -1120,12 +1546,19 @@ def main():
     scraped = scrape_all(sources)
 
     kept = []
+    tally = {"already known": 0, "senior/off-target title": 0,
+             "no matching role keyword": 0, "non-US location": 0}
     for j in scraped:
         if j["url"] in seen:
+            tally["already known"] += 1
             continue                       # already in jobs.csv from a past run
         keep, why = title_verdict(j["title"])
-        if keep and US_ONLY and not is_us_location(j.get("location", "")):
+        if not keep:
+            tally["senior/off-target title" if why.startswith("looks senior")
+                  else "no matching role keyword"] += 1
+        elif US_ONLY and not is_us_location(j.get("location", "")):
             keep, why = False, "non-US location (%s)" % (j.get("location") or "n/a")
+            tally["non-US location"] += 1
         if VERBOSE:
             print("  %s %-52s %s" % ("KEEP " if keep else "drop ", j["title"][:52], why))
         if not keep:
@@ -1147,14 +1580,16 @@ def main():
     except Exception:
         pass
 
-    print(f"\n{len(kept)} NEW matching job(s):")
+    dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
+    print(f"\nScanned {len(scraped)} postings ({dropped or 'nothing dropped'}).")
+    print(f"{len(kept)} NEW matching job(s):")
     for j in kept:
         flag = "" if j["sponsors_h1b"] != "yes" else "  [sponsors H1B]"
         print(f"  - {j['title']} - {j['company']} ({j['location'] or 'n/a'}){flag}")
         print(f"    {j['url']}")
     if kept:
         where = "Supabase" if db.using_supabase() else OUTPUT_CSV
-        print(f"\nSaved to {where}. Run `python score_jobs.py` next to score them.")
+        print(f"\nSaved to {where}. Run `python -m scraper.score_jobs` next to score them.")
     else:
         print("Nothing new this run.")
 

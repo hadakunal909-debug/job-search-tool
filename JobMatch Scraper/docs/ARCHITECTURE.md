@@ -2,12 +2,12 @@
 
 Two scripts produce **`jobs.csv`**; the Streamlit app only reads it. No paid jobs API, no database — everything is file-based.
 
-**Run order:** `python scraper.py` → `python score_jobs.py` → `streamlit run app.py`
+**Run order:** `python -m scraper` → `python -m scraper.score_jobs` → `streamlit run app.py`
 
 ```mermaid
 flowchart TB
 
-subgraph C["① COLLECT — scraper.py"]
+subgraph C["① COLLECT — scraper/ (python -m scraper)"]
   direction TB
   SRC["SOURCES: 26 verified company boards<br/>(company, ats_type, url)"]
   API["ATS public JSON APIs<br/>Greenhouse · Lever · Ashby · SmartRecruiters"]
@@ -18,7 +18,7 @@ end
 CSV[("jobs.csv<br/>title, company, location, url, sponsors_h1b")]
 FILT --> CSV
 
-subgraph S["② SCORE — score_jobs.py"]
+subgraph S["② SCORE — scraper/score_jobs.py"]
   direction TB
   GETJD["Fetch full job description<br/>from the same ATS APIs"]
   SKILL["skill_match(resume, JD)<br/>= % of the job's skills your resume covers"]
@@ -36,7 +36,7 @@ subgraph D["③ DISPLAY — app.py (Streamlit)"]
 end
 CSV2 --> FEED
 
-subgraph SP["sponsor data (optional) — build_sponsors.py"]
+subgraph SP["sponsor data (optional) — scraper/build_sponsors.py"]
   direction TB
   DOL["DOL H1B disclosure data (.xlsx)"] --> SPT["sponsors.txt"]
 end
@@ -50,8 +50,8 @@ YOU -.-> FEED
 
 ## Stages
 
-1. **COLLECT — `scraper.py`** — calls each board's public ATS JSON API, then keeps only postings that are new (deduped by URL), entry-level + on-target (title filter), US-based, and tags an H1B flag. Writes survivors to `jobs.csv`.
-2. **SCORE — `score_jobs.py`** — pulls each job's full description from the APIs and scores it against `resume.txt` with `skill_match` (share of the job's skills your resume covers). Writes a `match_score` column.
+1. **COLLECT — `scraper/`** (`python -m scraper`) — calls each board's public ATS JSON API, then keeps only postings that are new (deduped by URL), entry-level + on-target (title filter), US-based, and tags an H1B flag. Writes survivors to `jobs.csv`.
+2. **SCORE — `scraper/score_jobs.py`** — pulls each job's full description from the APIs and scores it against `resume.txt` with `skill_match` (share of the job's skills your resume covers). Writes a `match_score` column.
 3. **DISPLAY — `app.py`** — a Streamlit card feed that reads `jobs.csv`: match ring, H1B badge, logo, best-match sort, filters/tabs, and a per-job tailor view (live JD fetch, skill gaps, optional AI tailoring, download).
 
 Solid arrows = data flow · dashed = your inputs / optional pieces.

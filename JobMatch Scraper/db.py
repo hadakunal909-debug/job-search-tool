@@ -18,6 +18,28 @@ import json
 
 import requests
 
+
+def _make_http():
+    """Session for all Supabase REST calls: keep-alive pooling + automatic retry with
+    backoff on transient failures. Shared-network blips (the recurring WinError 10054
+    'connection forcibly closed' during chunked JD upserts) used to abort a whole
+    score run; now each request retries itself. Retrying writes is safe here because
+    every write is idempotent — upserts keyed on url, patches/deletes on eq filters."""
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    retry = Retry(total=3, connect=3, read=2, backoff_factor=0.5,
+                  status_forcelist=(429, 500, 502, 503, 504),
+                  allowed_methods=frozenset({"GET", "POST", "PATCH", "DELETE", "HEAD"}),
+                  respect_retry_after_header=True)
+    s = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=8)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
+_http = _make_http()
+
 JOBS_CSV = "jobs.csv"
 ACTIONS_FILE = "user_jobs.json"
 TABLE = "jobs"
@@ -94,7 +116,7 @@ def _upsert(rows):
         return
     keys = sorted({k for r in rows for k in r})
     body = [{k: r.get(k) for k in keys} for r in rows]
-    resp = requests.post(
+    resp = _http.post(
         _rest(TABLE),
         headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
         params={"on_conflict": "url"}, data=json.dumps(body), timeout=60)
@@ -134,7 +156,7 @@ def _save_actions(a):
 # ---------------- public API (scraper / score_jobs / app use these) ----------------
 def load_jobs():
     if using_supabase():
-        r = requests.get(_rest(TABLE), headers=_headers(),
+        r = _http.get(_rest(TABLE), headers=_headers(),
                          params={"select": "*"}, timeout=30)
         r.raise_for_status()
         return r.json()
@@ -147,7 +169,7 @@ def load_jobs():
 
 def existing_urls():
     if using_supabase():
-        r = requests.get(_rest(TABLE), headers=_headers(),
+        r = _http.get(_rest(TABLE), headers=_headers(),
                          params={"select": "url"}, timeout=30)
         r.raise_for_status()
         return {row["url"] for row in r.json() if row.get("url")}
@@ -183,7 +205,7 @@ def update_scores(scores):
 def set_status(url, status):
     """status: 'liked' | 'hidden' | 'applied' | '' to clear."""
     if using_supabase():
-        r = requests.patch(
+        r = _http.patch(
             _rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
             params={"url": "eq.%s" % url},
             data=json.dumps({"status": status or None}), timeout=30)
@@ -200,7 +222,7 @@ def set_status(url, status):
 def get_statuses():
     """{url: status} for liked/hidden/applied jobs."""
     if using_supabase():
-        r = requests.get(_rest(TABLE), headers=_headers(),
+        r = _http.get(_rest(TABLE), headers=_headers(),
                          params={"select": "url,status"}, timeout=30)
         r.raise_for_status()
         return {row["url"]: row["status"] for row in r.json() if row.get("status")}
@@ -214,7 +236,7 @@ def delete_urls(urls):
         return
     if using_supabase():
         for u in urls:
-            resp = requests.delete(
+            resp = _http.delete(
                 _rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
                 params={"url": "eq.%s" % u}, timeout=30)
             if resp.status_code >= 400:
@@ -227,7 +249,7 @@ def delete_urls(urls):
 def delete_all():
     """Wipe the jobs table (used when switching the whole source set)."""
     if using_supabase():
-        resp = requests.delete(_rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
+        resp = _http.delete(_rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"url": "neq.__none__"}, timeout=60)
         resp.raise_for_status()
     else:
@@ -285,7 +307,7 @@ def _dump_json(path, obj):
 # ---- accounts ----
 def create_user(username, password_hash, resume=""):
     if using_supabase():
-        resp = requests.post(
+        resp = _http.post(
             _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
             data=json.dumps({"username": username, "password_hash": password_hash,
                              "resume": resume}), timeout=30)
@@ -300,7 +322,7 @@ def create_user(username, password_hash, resume=""):
 def get_user(username):
     """Return {username, password_hash, resume, ...} or None."""
     if using_supabase():
-        r = requests.get(_rest(USERS_TABLE), headers=_headers(),
+        r = _http.get(_rest(USERS_TABLE), headers=_headers(),
                          params={"username": "eq.%s" % username, "select": "*", "limit": 1},
                          timeout=30)
         r.raise_for_status()
@@ -315,7 +337,7 @@ def get_user(username):
 
 def list_users():
     if using_supabase():
-        r = requests.get(_rest(USERS_TABLE), headers=_headers(),
+        r = _http.get(_rest(USERS_TABLE), headers=_headers(),
                          params={"select": "username,created_at", "order": "created_at"}, timeout=30)
         r.raise_for_status()
         return r.json()
@@ -325,7 +347,7 @@ def list_users():
 
 def _patch_user(username, fields):
     if using_supabase():
-        resp = requests.patch(
+        resp = _http.patch(
             _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
             params={"username": "eq.%s" % username}, data=json.dumps(fields), timeout=30)
         if resp.status_code >= 400:
@@ -348,7 +370,7 @@ def set_user_resume(username, resume):
 def delete_user(username):
     if using_supabase():
         for table in (USERJOBS_TABLE, USERS_TABLE):
-            resp = requests.delete(_rest(table), headers=_headers({"Prefer": "return=minimal"}),
+            resp = _http.delete(_rest(table), headers=_headers({"Prefer": "return=minimal"}),
                                    params={"username": "eq.%s" % username}, timeout=30)
             if resp.status_code >= 400:
                 raise RuntimeError("delete_user %s: %s" % (resp.status_code, resp.text[:200]))
@@ -361,7 +383,7 @@ def delete_user(username):
 def get_user_statuses(username):
     """{url: status} for THIS user's liked/hidden/applied jobs."""
     if using_supabase():
-        r = requests.get(_rest(USERJOBS_TABLE), headers=_headers(),
+        r = _http.get(_rest(USERJOBS_TABLE), headers=_headers(),
                          params={"username": "eq.%s" % username, "select": "url,status"}, timeout=30)
         r.raise_for_status()
         return {row["url"]: row["status"] for row in r.json() if row.get("status")}
@@ -372,13 +394,13 @@ def set_user_status(username, url, status):
     """status: 'liked' | 'hidden' | 'applied' | '' to clear — scoped to one user."""
     if using_supabase():
         if status:
-            resp = requests.post(
+            resp = _http.post(
                 _rest(USERJOBS_TABLE),
                 headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
                 params={"on_conflict": "username,url"},
                 data=json.dumps({"username": username, "url": url, "status": status}), timeout=30)
         else:
-            resp = requests.delete(
+            resp = _http.delete(
                 _rest(USERJOBS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                 params={"username": "eq.%s" % username, "url": "eq.%s" % url}, timeout=30)
         if resp.status_code >= 400:
@@ -418,7 +440,7 @@ def list_boards():
     Defensive: a missing table / failed request returns [] so the scrape never breaks."""
     if using_supabase():
         try:
-            r = requests.get(_rest(BOARDS_TABLE), headers=_headers(),
+            r = _http.get(_rest(BOARDS_TABLE), headers=_headers(),
                              params={"select": "*", "order": "created_at"}, timeout=30)
             r.raise_for_status()
             return r.json()
@@ -433,7 +455,7 @@ def add_board(url, ats_type, company, added_by=""):
     rec = {"url": url, "ats_type": ats_type, "company": company,
            "added_by": added_by, "created_at": _now()}
     if using_supabase():
-        resp = requests.post(
+        resp = _http.post(
             _rest(BOARDS_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
             params={"on_conflict": "url"}, data=json.dumps(rec), timeout=30)
@@ -447,7 +469,7 @@ def add_board(url, ats_type, company, added_by=""):
 
 def delete_board(url):
     if using_supabase():
-        resp = requests.delete(_rest(BOARDS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+        resp = _http.delete(_rest(BOARDS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"url": "eq.%s" % url}, timeout=30)
         if resp.status_code >= 400:
             raise RuntimeError("delete_board %s: %s" % (resp.status_code, resp.text[:200]))
@@ -489,7 +511,7 @@ def list_applications(username):
     """This user's applications, newest first. Defensive: missing table / error -> []."""
     if using_supabase():
         try:
-            r = requests.get(_rest(APPLICATIONS_TABLE), headers=_headers(),
+            r = _http.get(_rest(APPLICATIONS_TABLE), headers=_headers(),
                              params={"username": "eq.%s" % username, "select": "*",
                                      "order": "created_at.desc"}, timeout=30)
             r.raise_for_status()
@@ -515,7 +537,7 @@ def save_application(username, rec):
     if not payload.get("applied_date"):
         payload["applied_date"] = None              # empty string isn't a valid SQL date
     if using_supabase():
-        resp = requests.post(
+        resp = _http.post(
             _rest(APPLICATIONS_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
             params={"on_conflict": "id"}, data=json.dumps(payload), timeout=30)
@@ -545,7 +567,7 @@ def find_application_by_url(username, url):
 
 def delete_application(username, app_id):
     if using_supabase():
-        resp = requests.delete(_rest(APPLICATIONS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+        resp = _http.delete(_rest(APPLICATIONS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"id": "eq.%s" % app_id, "username": "eq.%s" % username}, timeout=30)
         if resp.status_code >= 400:
             raise RuntimeError("delete_application %s: %s" % (resp.status_code, resp.text[:200]))
@@ -566,7 +588,7 @@ def list_resumes(username):
     """This user's saved résumé versions. Defensive: missing table / error -> []."""
     if using_supabase():
         try:
-            r = requests.get(_rest(RESUMES_TABLE), headers=_headers(),
+            r = _http.get(_rest(RESUMES_TABLE), headers=_headers(),
                              params={"username": "eq.%s" % username, "select": "*",
                                      "order": "created_at"}, timeout=30)
             r.raise_for_status()
@@ -588,7 +610,7 @@ def save_resume(username, rec):
         rec["created_at"] = _now()
     payload = {k: rec.get(k) for k in RESUME_FIELDS if k in rec}
     if using_supabase():
-        resp = requests.post(
+        resp = _http.post(
             _rest(RESUMES_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
             params={"on_conflict": "id"}, data=json.dumps(payload), timeout=30)
@@ -611,7 +633,7 @@ def save_resume(username, rec):
 
 def delete_resume(username, rid):
     if using_supabase():
-        resp = requests.delete(_rest(RESUMES_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+        resp = _http.delete(_rest(RESUMES_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"id": "eq.%s" % rid, "username": "eq.%s" % username}, timeout=30)
         if resp.status_code >= 400:
             raise RuntimeError("delete_resume %s: %s" % (resp.status_code, resp.text[:200]))
@@ -633,7 +655,7 @@ def get_profile(username):
     """This user's profile dict (or {} if none / missing table)."""
     if using_supabase():
         try:
-            r = requests.get(_rest(PROFILES_TABLE), headers=_headers(),
+            r = _http.get(_rest(PROFILES_TABLE), headers=_headers(),
                              params={"username": "eq.%s" % username, "select": "*", "limit": 1}, timeout=30)
             r.raise_for_status()
             rows = r.json()
@@ -650,7 +672,7 @@ def save_profile(username, fields):
     rec["username"] = username
     rec["updated_at"] = _now()
     if using_supabase():
-        resp = requests.post(
+        resp = _http.post(
             _rest(PROFILES_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
             params={"on_conflict": "username"}, data=json.dumps(rec), timeout=30)

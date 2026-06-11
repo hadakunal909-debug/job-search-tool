@@ -5,8 +5,8 @@
   "description": "Personal job-search tool. This is a PYTHON/Streamlit app — package.json only exists so `npm run dev` works out of habit; the scripts just call Python.",
   "scripts": {
     "dev": "python -m streamlit run app.py",
-    "scrape": "python scraper.py",
-    "score": "python score_jobs.py",
-    "refresh": "python scraper.py && python score_jobs.py"
+    "scrape": "python -m scraper",
+    "score": "python -m scraper.score_jobs",
+    "refresh": "python -m scraper && python -m scraper.score_jobs"
   }
 }

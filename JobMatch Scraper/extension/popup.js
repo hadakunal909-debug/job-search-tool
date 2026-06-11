@@ -66,6 +66,54 @@ function extractJob() {
   return { title: (title || "").trim(), company: (company || "").trim() };
 }
 
+// Which sites support "import all jobs on this page", and the label to show. Empty = unsupported.
+function bulkSiteLabel(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    if (/(^|\.)tesla\.com$/.test(h)) return "Tesla careers detected — import its US jobs into your feed.";
+  } catch (e) {}
+  return "";
+}
+
+// Runs IN the PAGE (MAIN world) so fetch() executes as the page itself: same-origin, carries
+// the site's real cookies, and rides the bot-wall session the user already passed in normal
+// browsing. That's why this reads Tesla's feed when every server-side scraper gets blocked.
+async function grabPageJobs() {
+  const host = location.hostname.replace(/^www\./, "");
+  function pick(o, keys) { for (const k of keys) { const v = o[k]; if (v !== undefined && v !== null && v !== "") return v; } return null; }
+  function longestString(o) { let best = ""; for (const k in o) { const v = o[k]; if (typeof v === "string" && v.length > best.length) best = v; } return best; }
+
+  if (/(^|\.)tesla\.com$/.test(host)) {
+    let d;
+    try {
+      const r = await fetch("/cua-api/apps/careers/state", { headers: { Accept: "application/json" }, credentials: "include" });
+      if (!r.ok) return { error: "Tesla returned HTTP " + r.status + ". Open tesla.com/careers/search and let it load, then retry." };
+      d = await r.json();
+    } catch (e) { return { error: "Couldn't read Tesla jobs: " + e.message }; }
+
+    let listings = Array.isArray(d.listings) ? d.listings : (Array.isArray(d.jobs) ? d.jobs : null);
+    if (!listings) { for (const k in d) { if (Array.isArray(d[k]) && d[k].length && typeof d[k][0] === "object") { listings = d[k]; break; } } }
+    if (!listings) return { error: "Tesla data had no job list (the page layout may have changed)." };
+
+    const lk = d.lookup || {};
+    const locs = lk.locations || lk.location || lk.locs || {};
+    const out = [];
+    for (const j of listings) {
+      if (!j || typeof j !== "object") continue;
+      let title = pick(j, ["t", "title", "name", "jobTitle", "positionTitle"]) || longestString(j);
+      const id = pick(j, ["id", "jobId", "reqId", "jobNum", "j"]);
+      let loc = pick(j, ["l", "loc", "location", "city", "locations"]);
+      if (Array.isArray(loc)) loc = loc.map(function (x) { return (locs && locs[x]) || x; }).filter(Boolean).join("; ");
+      else if (loc != null && typeof loc !== "string" && locs && locs[loc] != null) loc = locs[loc];
+      if (typeof loc !== "string") loc = "";
+      const url = id != null ? ("https://www.tesla.com/careers/search/job/" + id) : location.href;
+      if (title) out.push({ title: String(title).trim(), url: url, location: String(loc).trim(), company: "Tesla" });
+    }
+    return { jobs: out };
+  }
+  return { error: "Page import isn't set up for this site yet — it works on tesla.com/careers." };
+}
+
 async function init() {
   cfg = Object.assign(cfg, await get(["token", "apibase"]));
   if (cfg.apibase) $("apibase").value = cfg.apibase;
@@ -81,6 +129,9 @@ async function init() {
     } catch (e) {}
     $("title").value = title;
     $("company").value = company;
+    const blbl = bulkSiteLabel(tab && tab.url);    // show "import all jobs" only on supported sites
+    if (blbl) { $("bulklbl").textContent = blbl; $("bulkwrap").style.display = "block"; }
+    else { $("bulkwrap").style.display = "none"; }
     try {                                          // prefill résumé name + autocomplete list
       const pr = await (await fetch(cfg.apibase + "/api/ext/profile?token=" + encodeURIComponent(cfg.token))).json();
       if (pr && pr.ok) {
@@ -122,6 +173,35 @@ $("save").onclick = async () => {
     else { $("msg").style.color = "#c0392b"; $("msg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
     $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error — check the App URL.";
+  }
+};
+
+$("bulk").onclick = async () => {
+  const tab = await activeTab();
+  $("bulkmsg").style.color = "#0b7a52"; $("bulkmsg").textContent = "Reading jobs on the page…";
+  let res;
+  try {
+    const out = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: grabPageJobs });
+    res = out && out[0] && out[0].result;
+  } catch (e) {
+    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Couldn't read the page: " + e.message; return;
+  }
+  if (!res || res.error) {
+    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = (res && res.error) || "No jobs found on this page."; return;
+  }
+  const jobs = res.jobs || [];
+  if (!jobs.length) { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "No jobs found on this page."; return; }
+  $("bulkmsg").textContent = "Found " + jobs.length + " — importing…";
+  try {
+    const r = await fetch(cfg.apibase + "/api/ext/bulk_jobs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: cfg.token, jobs: jobs })
+    });
+    const j = await r.json();
+    if (j.ok) { $("bulkmsg").textContent = "Added " + j.added + " new job" + (j.added === 1 ? "" : "s") + " to your feed (scanned " + j.scanned + ")."; }
+    else { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Error: " + (j.error || "failed"); }
+  } catch (e) {
+    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Network error — check the App URL.";
   }
 };
 

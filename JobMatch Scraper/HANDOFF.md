@@ -14,13 +14,14 @@ operations**. Can run/edit Python but isn't a pro dev — keep it practical.
 
 ## What it is
 Personal job-search tool (no paid jobs API). Files:
-- `scraper.py` — scrapes ATS feeds → Supabase (or jobs.csv).
-- `score_jobs.py` — computes the ATS-style match score per job; builds `idf.json`.
+- `scraper/` — the scraper package; its main module `scraper/__init__.py` scrapes ATS feeds → Supabase (or jobs.csv). Run with `python -m scraper`.
+- `scraper/score_jobs.py` — computes the ATS-style match score per job; builds `idf.json`. Run with `python -m scraper.score_jobs`.
 - `core.py` — matching / JD-fetch / resume logic (no Streamlit).
 - `db.py` — storage: Supabase via PostgREST+`requests`, else local files.
 - `app.py` — Streamlit card-feed UI (match rings, H1B badges, filters, Tailor view).
-- helpers: `build_sponsors.py` (DOL→sponsors.txt), `find_boards.py` (probe a company for a board),
-  `make_careers.py`→`careers_us.md` (per-sponsor US careers + LinkedIn links).
+- helpers (in `scraper/`, run via `python -m scraper.<name>`): `build_sponsors.py` (DOL→sponsors.txt),
+  `find_boards.py` (probe a company for a board), `make_careers.py`→`careers_us.md`
+  (per-sponsor US careers + LinkedIn links).
 
 ## Current state (2026-05-31)
 - **Supabase is LIVE** — project `oxvikayddpeczlrzanlb`, table `jobs`; creds in
@@ -41,11 +42,11 @@ Personal job-search tool (no paid jobs API). Files:
   switch on when `ANTHROPIC_API_KEY` is set (currently key-free by choice).
 
 ## Run / refresh
-1. `python scraper.py`  →  2. `python score_jobs.py`  →  3. `python -m streamlit run app.py` (localhost:8501)
+1. `python -m scraper`  →  2. `python -m scraper.score_jobs`  →  3. `python -m streamlit run app.py` (localhost:8501)
 Daily auto-scrape: `.github/workflows/scrape.yml` (needs GH repo secrets once deployed).
 
 ## Config knobs
-- `scraper.py`: `SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS`; `MAX_YEARS`;
+- `scraper/__init__.py`: `SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS`; `MAX_YEARS`;
   `INCLUDE`/`EXCLUDE`; `AMAZON_QUERIES` / `WORKDAY_QUERIES`; `US_ONLY`; `VERBOSE`.
 - `core.py`: `ATS_KEYWORDS`, `SKILL_WEIGHTS`, the SKILLS aliases.
 - `app.py`: ring tiers in `match_card_html` (Strong ≥55 / Good ≥42); min-match slider default 45.
@@ -55,7 +56,7 @@ Daily auto-scrape: `.github/workflows/scrape.yml` (needs GH repo secrets once de
    (see `DEPLOY.md`) → public URL + daily scrape.
 2. **Rotate the Supabase secret key** (it was pasted in chat) → Supabase → Settings → API.
 3. Optional **Claude deep-match** for real semantic matching (set `ANTHROPIC_API_KEY`).
-4. More **Workday** companies (look up each `*.myworkdayjobs.com` URL) or other boards via `find_boards.py`.
+4. More **Workday** companies (look up each `*.myworkdayjobs.com` URL) or other boards via `python -m scraper.find_boards`.
 5. `README.md` is stale (new ATS types, Supabase, ATS matching, UI).
 
 ## Not scrapeable (use careers_us.md links + email alerts)

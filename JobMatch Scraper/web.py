@@ -16,12 +16,13 @@ import time
 import html
 import hmac
 import hashlib
+import secrets
 import functools
 
 import requests
 
 from flask import (Flask, request, session, redirect, url_for,
-                   render_template, flash)
+                   render_template, flash, g)
 
 import core
 import db
@@ -29,11 +30,84 @@ import auth
 import scraper
 
 app = Flask(__name__)
-# Session signing key: explicit APP_SECRET env var, else derived from the Supabase key,
-# else a dev fallback. Stable across restarts so logins persist.
-app.secret_key = (os.environ.get("APP_SECRET")
-                  or hashlib.sha256((db._creds()[1] or "dev-secret").encode()).hexdigest())
+
+
+def _fallback_secret():
+    """Signing key when neither APP_SECRET nor a Supabase key is configured (local dev).
+    Derive a stable, MACHINE-LOCAL value rather than a globally-known constant, so the
+    session/extension-token signature can't be forged just by reading this source."""
+    import platform
+    seed = "jobmatch-dev|%s|%s" % (platform.node(), os.path.abspath(__file__))
+    return hashlib.sha256(seed.encode()).hexdigest()
+
+
+# Session signing key: explicit APP_SECRET, else the (secret, server-side) Supabase key,
+# else a machine-local dev fallback. Stable across restarts so logins persist.
+_explicit_secret = os.environ.get("APP_SECRET")
+_supabase_key = db._creds()[1]
+app.secret_key = (_explicit_secret
+                  or (hashlib.sha256(_supabase_key.encode()).hexdigest() if _supabase_key
+                      else _fallback_secret()))
+if not _explicit_secret and not _supabase_key:
+    import sys as _sys
+    print("WARNING: no APP_SECRET or SUPABASE_KEY set — using a machine-local dev signing "
+          "key. Set APP_SECRET in production so sessions/tokens can't be forged.", file=_sys.stderr)
+
 app.permanent_session_lifetime = 60 * 60 * 24 * 30      # 30-day login
+# Cookie hardening: HttpOnly (no JS access) + SameSite=Lax (blocks cross-site POST CSRF on
+# our cookie-auth forms). Secure is opt-in via env so local/preview over http still works —
+# set SESSION_COOKIE_SECURE=1 in production (https) to stop the cookie leaking over http.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes"),
+)
+
+
+@app.before_request
+def _csp_nonce():
+    """A fresh random nonce per request. Templates stamp it onto their inline <script>
+    tags (nonce="{{ csp_nonce }}") so the CSP can allowlist OUR inline scripts by nonce
+    without opening the door to all inline script ('unsafe-inline')."""
+    g.csp_nonce = secrets.token_urlsafe(16)
+
+
+# Resources the UI legitimately loads from off-site, kept here so the CSP stays readable:
+# Google Fonts (CSS from googleapis, font files from gstatic) + company logos (Clearbit,
+# with a Google-favicon fallback). Everything else is same-origin ('self').
+_CSP_TEMPLATE = (
+    "default-src 'self'; "
+    "script-src 'self' 'nonce-%s'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; "
+    "img-src 'self' data: https://logo.clearbit.com https://www.google.com; "
+    "connect-src 'self'; "
+    "form-action 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'none'"
+)
+
+
+@app.after_request
+def _security_headers(resp):
+    """Baseline hardening headers on every response (set-if-absent, so CORS/other headers
+    are untouched). The CSP restricts script execution to same-origin files plus this
+    request's nonce — inline <script> must carry nonce="{{ csp_nonce }}", and inline on*=
+    handlers (which a nonce can't cover) have all been removed — so an injected <script> or
+    event-handler attribute can't run, giving XSS defense-in-depth beyond input escaping.
+    Inline styles stay allowed ('unsafe-inline' in style-src) — low risk and the templates
+    rely on <style> blocks and dynamic style="" attributes."""
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Content-Security-Policy",
+                            _CSP_TEMPLATE % getattr(g, "csp_nonce", ""))
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Permissions-Policy",
+                            "camera=(), microphone=(), geolocation=()")
+    if request.is_secure or request.headers.get("X-Forwarded-Proto", "").lower() == "https":
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
 
 
 # ----------------------------- caches -----------------------------
@@ -100,7 +174,8 @@ def login_required(f):
 
 @app.context_processor
 def _inject():
-    return {"current_user": session.get("user")}
+    return {"current_user": session.get("user"),
+            "csp_nonce": getattr(g, "csp_nonce", "")}
 
 
 # --- company logo helpers (Clearbit logo by domain, with a letter-avatar fallback) ---
@@ -152,6 +227,37 @@ def logocolor(name):
 
 
 # ----------------------------- auth -----------------------------
+# In-memory per-username throttle. Bounds online brute-force AND the CPU cost of PBKDF2
+# (each guess against a real user runs a 200k-iteration hash). Keyed by username so a
+# shared proxy IP can't lock everyone out; self-heals as old failures age past the window.
+# Only real usernames get tracked (a failed lookup is cheap and not counted), so the dict
+# can't be grown without bound by spraying random names.
+_login_fails = {}
+_LOGIN_WINDOW = 600        # seconds to remember a failed attempt
+_LOGIN_MAX = 12            # failures within the window before we make them wait
+
+
+def _safe_next(target):
+    """Only follow a same-site relative ?next= path — never an absolute/scheme-relative URL,
+    so a crafted login link can't open-redirect the user to a phishing site after sign-in."""
+    if target and target.startswith("/") and not target.startswith("//") and "\\" not in target:
+        return target
+    return None
+
+
+def _too_many_logins(username):
+    hist = _login_fails.get(username)
+    if not hist:
+        return False
+    now = time.time()
+    q = [t for t in hist if now - t < _LOGIN_WINDOW]
+    if q:
+        _login_fails[username] = q
+    else:
+        _login_fails.pop(username, None)
+    return len(q) >= _LOGIN_MAX
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if session.get("user"):
@@ -159,17 +265,22 @@ def login():
     if request.method == "POST":
         u = (request.form.get("username") or "").strip()
         p = request.form.get("password") or ""
+        if u and _too_many_logins(u):              # short-circuit BEFORE the expensive hash
+            flash("Too many sign-in attempts. Please wait a few minutes and try again.")
+            return render_template("login.html")
         rec = None
         try:
             rec = db.get_user(u)
         except Exception:
             flash("Couldn't reach the database. Try again.")
         if rec and auth.verify_password(p, rec.get("password_hash", "")):
+            _login_fails.pop(u, None)              # clear on success
             session.permanent = True
             session["user"] = u
             session["resume"] = rec.get("resume", "") or ""
-            return redirect(request.args.get("next") or url_for("feed"))
+            return redirect(_safe_next(request.args.get("next")) or url_for("feed"))
         if rec is not None:
+            _login_fails.setdefault(u, []).append(time.time())
             flash("Wrong username or password.")
     return render_template("login.html")
 
@@ -206,6 +317,8 @@ def feed():
         strength, scount = core.sponsor_strength(j.get("company", ""), _SPONSOR_COUNTS)
         rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
                      "location": j.get("location", ""), "url": u,
+                     # safe value for the Apply href; the raw `url` stays the action key.
+                     "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
                      "sponsors_h1b": j.get("sponsors_h1b", ""),
                      "found_date": j.get("found_date", ""),
                      "score": scores.get(u, 0), "status": st,
@@ -505,11 +618,12 @@ def add_board():
         name = (request.form.get("name") or "").strip()
         if url:
             det = (scraper.detect_board(url) or scraper.detect_jibe(url)
-                   or scraper.detect_jsonld(url))
+                   or scraper.detect_phenom(url) or scraper.detect_jsonld(url))
             if not det:
                 result = ("err", "That isn't a readable job board (Greenhouse, Lever, Ashby, "
-                          "SmartRecruiters, Workday, iCIMS/Jibe, Recruitee, Breezy, Personio, or "
-                          "a page with embedded job data). Add the company to sponsors.txt instead.")
+                          "SmartRecruiters, Workday, Oracle Cloud, Workable, Phenom, iCIMS/Jibe, "
+                          "Recruitee, Breezy, Personio, or a page with embedded job data). "
+                          "Add the company to sponsors.txt instead.")
             elif det[0] in {u for u, _, _ in scraper.SOURCES}:
                 result = ("info", "%s is already a built-in source — nothing to add." % det[2])
             else:
@@ -724,9 +838,11 @@ def ext_save():
     user = _ext_user(data.get("token", ""))
     if not user:
         return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
-    title = (data.get("title") or "").strip()
-    company = (data.get("company") or "").strip()
-    url = (data.get("url") or "").strip()
+    title = (data.get("title") or "").strip()[:300]
+    company = (data.get("company") or "").strip()[:200]
+    url = (data.get("url") or "").strip()[:1000]
+    if url and not scraper.is_http_url(url):       # never store a javascript:/data: link
+        url = ""
     if not (title or company):
         return _cors(jsonify({"ok": False, "error": "No job info"})), 400
     try:
@@ -764,6 +880,68 @@ def ext_profile():
     keys = ("name", "email", "phone", "location", "linkedin", "work_authorized", "needs_sponsorship")
     return _cors(jsonify({"ok": True, "profile": {k: (p.get(k) or "") for k in keys},
                           "default_resume": default_resume, "resume_names": names}))
+
+
+@app.route("/api/ext/bulk_jobs", methods=["POST", "OPTIONS"])
+def ext_bulk_jobs():
+    """Extension -> bulk-add postings READ FROM A PAGE in the user's own browser into the
+    shared jobs feed. This is how we get jobs from sites that block server-side scraping
+    (e.g. Tesla's Akamai bot-wall): the user's real, already-trusted browser can read the
+    listings the page loaded, so the extension hands them to us. We apply the SAME
+    title + US-location filter as the scraper, flag H1B sponsors, and de-dupe by URL —
+    so a bulk import looks identical to a scraped board in the feed."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    if not _ext_user(data.get("token", "")):
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        return _cors(jsonify({"ok": False, "error": "No jobs in payload"})), 400
+
+    import datetime
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        names = scraper.load_sponsors()
+        sidx = scraper.build_sponsor_index(names) if names else None
+    except Exception:
+        sidx = None
+    try:
+        seen = db.existing_urls()
+    except Exception:
+        seen = set()
+
+    kept, scanned = [], 0
+    for j in jobs[:2000]:
+        if not isinstance(j, dict):
+            continue
+        scanned += 1
+        url = (j.get("url") or "").strip()[:1000]
+        title = (j.get("title") or "").strip()[:300]
+        if not url or not title or url in seen:
+            continue
+        if not scraper.is_http_url(url):                        # block javascript:/data: URLs —
+            continue                                            # these get rendered as <a href> for everyone
+        if not scraper.title_verdict(title)[0]:                 # entry-level PM/analyst filter
+            continue
+        loc = (j.get("location") or "").strip()[:300]
+        if not scraper.is_us_location(loc):                     # US-only (blank/unknown is kept)
+            continue
+        seen.add(url)
+        company = (j.get("company") or "").strip()[:200]
+        spons = "unknown"
+        if sidx is not None and company:
+            spons = "yes" if scraper.sponsors_h1b(company, sidx) else "no"
+        kept.append({"found_date": (j.get("found_date") or stamp), "title": title,
+                     "company": company, "location": loc, "url": url, "sponsors_h1b": spons})
+
+    if kept:
+        try:
+            db.add_jobs(kept)
+        except Exception as e:
+            return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
+    return _cors(jsonify({"ok": True, "added": len(kept), "scanned": scanned}))
 
 
 if __name__ == "__main__":

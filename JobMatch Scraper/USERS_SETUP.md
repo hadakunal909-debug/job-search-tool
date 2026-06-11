@@ -47,7 +47,7 @@ Run the scorer once — it now also saves each job's description text into the n
 column, which is what lets the app score a job against each person's own résumé:
 
 ```powershell
-python score_jobs.py
+python -m scraper.score_jobs
 ```
 
 ## 4. Each person sets their résumé

@@ -100,7 +100,7 @@
         <input name="notes" value="{{ a.notes or '' }}" placeholder="notes" class="appnotes">
         <button class="btn sm" type="submit">Save</button>
       </form>
-      <form method="post" action="{{ url_for('application_delete') }}" class="dform" onsubmit="return confirm('Delete this application?')">
+      <form method="post" action="{{ url_for('application_delete') }}" class="dform">
         <input type="hidden" name="id" value="{{ a.id }}">
         <button class="btn sm danger" type="submit">Delete</button>
       </form>
@@ -114,4 +114,18 @@
   <p>If saving doesn't stick, the <code>applications</code> table doesn't exist yet. Run this once in Supabase → SQL Editor:</p>
   <pre>{{ sql }}</pre>
 </details>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+// Confirm before deleting — wired in JS (not an inline onsubmit=) so the strict CSP holds.
+(function () {
+  var forms = document.querySelectorAll("form.dform");
+  for (var i = 0; i < forms.length; i++) {
+    forms[i].addEventListener("submit", function (e) {
+      if (!confirm("Delete this application?")) e.preventDefault();
+    });
+  }
+})();
+</script>
 {% endblock %}

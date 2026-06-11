@@ -1,8 +1,12 @@
-# Render Blueprint — deploys this Streamlit app as a FREE web service.
+# Render Blueprint — deploys the Streamlit app as a FREE web service.
 #
 # How to use:
 #   Render dashboard → New +  →  Blueprint  →  connect this repo  →  Apply.
 #   Render reads this file and fills in build/start/Python for you.
+#
+# The app lives in the "JobMatch Scraper/" subfolder (rootDir below). If you have
+# an EXISTING Render service created before this layout change, update its
+# Settings → Root Directory to "JobMatch Scraper" or the next deploy will fail.
 #
 # Secrets are NOT in this file (never commit secrets). After the service is
 # created, add ONE Secret File under the service's  Environment  tab:
@@ -19,6 +23,7 @@ services:
     plan: free
     region: oregon
     branch: main
+    rootDir: JobMatch Scraper
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false
     envVars:
