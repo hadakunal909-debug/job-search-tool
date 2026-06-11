@@ -46,18 +46,19 @@
     }
   }
 
-  // Company-logo fallback: Clearbit logo -> Google favicon if it fails to load. Done in JS
-  // (not an inline onerror= attribute) so the strict CSP can forbid inline handlers.
+  // Company-logo fallback: if the favicon fails to load, try data-fallback once (when
+  // present), then hide the broken <img> so the colored letter-avatar behind it shows.
+  // Done in JS (not an inline onerror= attribute) so the strict CSP can forbid inline handlers.
   function wireLogoFallback(img) {
     if (!img || img.getAttribute("data-fb-wired")) return;
     img.setAttribute("data-fb-wired", "1");
-    function swap() {
-      img.removeEventListener("error", swap);                 // one-shot, no loop
+    function fail() {
       var fb = img.getAttribute("data-fallback");
-      if (fb && img.getAttribute("src") !== fb) img.src = fb;
+      if (fb && img.getAttribute("src") !== fb) { img.src = fb; return; }
+      img.style.display = "none";                              // let the letter avatar show
     }
-    img.addEventListener("error", swap);
-    if (img.complete && img.naturalWidth === 0) swap();        // already failed before JS ran
+    img.addEventListener("error", fail);
+    if (img.complete && img.naturalWidth === 0) fail();        // already failed before JS ran
   }
   function wireLogos(root) {
     var imgs = (root || feed).querySelectorAll(".logo-img");
