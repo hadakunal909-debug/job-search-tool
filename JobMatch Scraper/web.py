@@ -925,8 +925,6 @@ def ext_bulk_jobs():
     if not isinstance(jobs, list) or not jobs:
         return _cors(jsonify({"ok": False, "error": "No jobs in payload"})), 400
 
-    import datetime
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     try:
         names = scraper.load_sponsors()
         sidx = scraper.build_sponsor_index(names) if names else None
@@ -940,6 +938,11 @@ def ext_bulk_jobs():
     kept, scanned = [], 0
     # Tally WHY jobs were dropped — when an import adds 0, this is the diagnosis.
     dropped = {"dup": 0, "title": 0, "us": 0, "bad": 0}
+    # Already-imported jobs that still have NO stored description: re-running an import
+    # returns them as needs_jd so the extension can backfill their JDs (a first import
+    # may have failed mid-fetch, or predates JD support).
+    no_jd = {j.get("url") for j in get_jobs() if not (j.get("jd") or "")}
+    needs_jd = []
     for j in jobs[:2000]:
         if not isinstance(j, dict):
             continue
@@ -951,6 +954,8 @@ def ext_bulk_jobs():
             continue
         if url in seen:
             dropped["dup"] += 1
+            if url in no_jd and len(needs_jd) < 25:
+                needs_jd.append(url)
             continue
         if not scraper.is_http_url(url):                        # block javascript:/data: URLs —
             dropped["bad"] += 1                                 # these get rendered as <a href> for everyone
@@ -967,7 +972,10 @@ def ext_bulk_jobs():
         spons = "unknown"
         if sidx is not None and company:
             spons = "yes" if scraper.sponsors_h1b(company, sidx) else "no"
-        kept.append({"found_date": (j.get("found_date") or stamp), "title": title,
+        # NO import-time stamp: an imported job's posting date is UNKNOWN until the
+        # detail-fetch finds a real datePosted — a stamp would show as "Today" in the
+        # feed and lie about freshness. Empty -> the card simply shows no date.
+        kept.append({"found_date": (j.get("found_date") or ""), "title": title,
                      "company": company, "location": loc, "url": url, "sponsors_h1b": spons})
 
     if kept:
@@ -976,9 +984,10 @@ def ext_bulk_jobs():
         except Exception as e:
             return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
         get_jobs(force=True)                     # imported jobs show on the next feed load
-    # added_urls lets the extension follow up with JDs for just the new jobs
+    # added_urls lets the extension follow up with JDs for the new jobs;
+    # needs_jd asks it to also backfill known jobs whose JD is still missing.
     return _cors(jsonify({"ok": True, "added": len(kept), "scanned": scanned,
-                          "dropped": dropped,
+                          "dropped": dropped, "needs_jd": needs_jd,
                           "added_urls": [k["url"] for k in kept][:500]}))
 
 

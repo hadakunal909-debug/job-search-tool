@@ -244,13 +244,37 @@ async function jmPageFetchGenericDetails(urls) {
   const res = {};
   for (const u of urls) {
     try {
-      const r = await fetch(u, { credentials: "include" });
-      if (!r.ok) continue;
-      const html = await r.text();
-      const d = fromLd(html);
+      const d = { jd: "", location: "", found_date: "" };
+      // Tesla job pages are JS shells with no JSON-LD — but the cua-api detail
+      // endpoint answers same-origin requests from inside the page.
+      const tm = u.match(/tesla\.com\/careers\/search\/job\/(\d+)/i);
+      if (tm) {
+        try {
+          const r0 = await fetch("/cua-api/careers/job/" + tm[1],
+                                 { headers: { Accept: "application/json" }, credentials: "include" });
+          if (r0.ok && (r0.headers.get("content-type") || "").includes("json")) {
+            let txt = "";
+            (function walk(o) {
+              if (!o) return;
+              if (typeof o === "string") { if (o.length > 80) txt += " " + o; return; }
+              if (Array.isArray(o)) { o.forEach(walk); return; }
+              if (typeof o === "object") { for (const k in o) walk(o[k]); }
+            })(await r0.json());
+            txt = strip(txt);
+            if (looksJd(txt)) d.jd = txt.slice(0, 12000);
+          }
+        } catch (e) {}
+      }
       if (!d.jd) {
-        const txt = strip(html);
-        if (looksJd(txt)) d.jd = txt.slice(0, 12000);
+        const r = await fetch(u, { credentials: "include" });
+        if (r.ok) {
+          const html = await r.text();
+          Object.assign(d, fromLd(html), d.jd ? { jd: d.jd } : {});
+          if (!d.jd) {
+            const txt = strip(html);
+            if (looksJd(txt)) d.jd = txt.slice(0, 12000);
+          }
+        }
       }
       if (d.jd || d.location || d.found_date) res[u] = d;
     } catch (e) {}
@@ -350,7 +374,8 @@ async function jmRunTeslaImport(opts) {
   //    job page's JSON-LD (description + REAL location + datePosted). The server then
   //    scores them properly AND deletes any whose real location turns out non-US.
   let jdsStored = 0, removedNonUs = 0;
-  const addedUrls = (bulk.added_urls || []).slice(0, JM_JD_LIMIT);
+  // new jobs first, then known jobs whose JD is still missing (server-driven backfill)
+  const addedUrls = (bulk.added_urls || []).concat(bulk.needs_jd || []).slice(0, JM_JD_LIMIT);
   if (addedUrls.length) {
     let jds = {};
     try {
