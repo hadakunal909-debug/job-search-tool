@@ -140,6 +140,9 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/TechTammina",            "smartrecruiters", "Tech Tammina"),
     ("https://jobs.smartrecruiters.com/FederalSoftSystemsINC",  "smartrecruiters", "Federal Soft Systems"),
     ("https://jobs.smartrecruiters.com/SkilltuneTechnologiesINC", "smartrecruiters", "Skilltune Technologies"),
+    # --- Added 2026-06-10: probe of the user's H1B LCA list (board names verified) ---
+    ("https://job-boards.greenhouse.io/byd",                    "greenhouse", "BYD America"),
+    ("https://jobs.ashbyhq.com/deel",                           "ashby", "Deel"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -173,6 +176,18 @@ WORKDAY_BOARDS = [
     ("https://danaher.wd1.myworkdayjobs.com/DanaherJobs",            "workday", "Danaher"),
     ("https://bakerhughes.wd5.myworkdayjobs.com/BakerHughes",        "workday", "Baker Hughes"),
     ("https://swa.wd1.myworkdayjobs.com/external",                   "workday", "Southwest Airlines"),
+    # --- Added 2026-06-10 (user's H1B LCA list): Cisco via detect_phenom's Workday
+    # redirect (962 jobs); UChicago tenant found by direct CXS probe (394; cap-exempt). ---
+    ("https://cisco.wd5.myworkdayjobs.com/Cisco_Careers",            "workday", "Cisco"),
+    ("https://uchicago.wd5.myworkdayjobs.com/External",              "workday", "University of Chicago"),
+]
+
+# Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
+# those get added as Workday boards instead; see detect_phenom).
+PHENOM_BOARDS = [
+    # Actalent: huge engineering/sciences staffing firm, heavy H1B sponsor (~5k postings;
+    # scrape_phenom caps at 3000 — the title filter keeps only on-target PM/analyst roles).
+    ("https://careers.actalentservices.com", "phenom", "Actalent"),
 ]
 
 # Oracle Cloud Recruiting (ORC) career sites — public recruitingCEJobRequisitions API.
@@ -200,10 +215,10 @@ ADZUNA_BOARDS = [
     ("adzuna:Tesla", "adzuna", "Tesla"),
 ]
 
-# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Adzuna.
+# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Adzuna.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
-           + ORACLE_BOARDS + ADZUNA_BOARDS)
+           + ORACLE_BOARDS + PHENOM_BOARDS + ADZUNA_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)

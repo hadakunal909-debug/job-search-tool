@@ -108,6 +108,25 @@ def _headers(extra=None):
     return h
 
 
+def _fetch_all(table, params):
+    """GET every row from a PostgREST table, paging past the server's per-request row
+    cap (default 1000). Without this, a table that grows beyond the cap silently
+    truncates — the feed and scorer would just never see the newest rows. Ordered by
+    a stable column so pages don't shift mid-walk."""
+    rows, offset, page = [], 0, 1000
+    while True:
+        p = dict(params)
+        p.setdefault("order", "url")
+        p["limit"], p["offset"] = page, offset
+        r = _http.get(_rest(table), headers=_headers(), params=p, timeout=30)
+        r.raise_for_status()
+        batch = r.json()
+        rows.extend(batch)
+        if len(batch) < page:
+            return rows
+        offset += page
+
+
 def _upsert(rows):
     """Insert/merge rows on the `url` primary key (PostgREST upsert).
     PostgREST needs every object in a bulk write to share the SAME keys, so we
@@ -156,10 +175,7 @@ def _save_actions(a):
 # ---------------- public API (scraper / score_jobs / app use these) ----------------
 def load_jobs():
     if using_supabase():
-        r = _http.get(_rest(TABLE), headers=_headers(),
-                         params={"select": "*"}, timeout=30)
-        r.raise_for_status()
-        return r.json()
+        return _fetch_all(TABLE, {"select": "*"})
     rows = _read_csv()
     actions = _load_actions()
     for r in rows:                       # fold like/hide/applied in for the app
@@ -169,10 +185,7 @@ def load_jobs():
 
 def existing_urls():
     if using_supabase():
-        r = _http.get(_rest(TABLE), headers=_headers(),
-                         params={"select": "url"}, timeout=30)
-        r.raise_for_status()
-        return {row["url"] for row in r.json() if row.get("url")}
+        return {row["url"] for row in _fetch_all(TABLE, {"select": "url"}) if row.get("url")}
     return {r["url"] for r in _read_csv()}
 
 
@@ -222,10 +235,8 @@ def set_status(url, status):
 def get_statuses():
     """{url: status} for liked/hidden/applied jobs."""
     if using_supabase():
-        r = _http.get(_rest(TABLE), headers=_headers(),
-                         params={"select": "url,status"}, timeout=30)
-        r.raise_for_status()
-        return {row["url"]: row["status"] for row in r.json() if row.get("status")}
+        return {row["url"]: row["status"]
+                for row in _fetch_all(TABLE, {"select": "url,status"}) if row.get("status")}
     return _load_actions()
 
 
@@ -383,10 +394,10 @@ def delete_user(username):
 def get_user_statuses(username):
     """{url: status} for THIS user's liked/hidden/applied jobs."""
     if using_supabase():
-        r = _http.get(_rest(USERJOBS_TABLE), headers=_headers(),
-                         params={"username": "eq.%s" % username, "select": "url,status"}, timeout=30)
-        r.raise_for_status()
-        return {row["url"]: row["status"] for row in r.json() if row.get("status")}
+        return {row["url"]: row["status"]
+                for row in _fetch_all(USERJOBS_TABLE,
+                                      {"username": "eq.%s" % username, "select": "url,status"})
+                if row.get("status")}
     return _load_json(USER_JOBS_FILE).get(username, {})
 
 
