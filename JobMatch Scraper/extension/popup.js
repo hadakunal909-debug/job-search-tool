@@ -362,9 +362,9 @@ $("bulk").onclick = async () => {
         if (res.sample) m += " First parsed: " + res.sample;
       }
       $("bulkmsg").textContent = m;
-      // Follow up with DESCRIPTIONS (+ real location/date) for the NEW jobs, fetched
-      // from inside the page (same-origin), so they get real match % not 0.
-      const addedUrls = (j.added_urls || []);
+      // Follow up with DESCRIPTIONS (+ real location/date) for the NEW jobs — plus any
+      // already-known jobs the server says still lack a JD (backfill on re-runs).
+      const addedUrls = (j.added_urls || []).concat(j.needs_jd || []);
       if (addedUrls.length) {
         $("bulkmsg").textContent = m + " Fetching descriptions… keep this popup open (~" +
           Math.min(addedUrls.length, 20) * 1 + "–" + Math.min(addedUrls.length, 20) * 2 + "s).";
