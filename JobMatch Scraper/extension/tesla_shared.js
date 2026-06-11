@@ -52,6 +52,7 @@ function jmParseTeslaState(d) {
     }
   }
   const out = [];
+  let unresolved = 0;
   for (const j of listings) {
     if (!j || typeof j !== "object") continue;
     let title = pick(j, ["t", "title", "name", "jobTitle", "positionTitle"]) || longestString(j);
@@ -61,14 +62,25 @@ function jmParseTeslaState(d) {
     if (Array.isArray(loc)) loc = loc.map((x) => (locs && locs[x]) || x).filter(Boolean).join("; ");
     else if (loc != null && typeof loc !== "string" && locs && locs[loc] != null) loc = locs[loc];
     loc = (typeof loc === "string") ? loc.trim() : String(loc == null ? "" : loc);
-    if (!/[a-z]/i.test(loc)) loc = "";           // unresolved numeric code -> unknown, KEEP the job
+    if (!/[a-z]/i.test(loc)) { loc = ""; unresolved++; }   // code didn't resolve to text
     out.push({
       title: String(title).trim(),
       url: "https://www.tesla.com/careers/search/job/" + id,
       location: loc, company: "Tesla",
     });
   }
-  return out;
+  // ANTI-FLOOD: Tesla's board is GLOBAL. If most locations failed to resolve we can't
+  // tell US from Osaka — importing would flood the feed with location-less world jobs
+  // (it did once). Refuse, and report the data shape so the lookup can be fixed.
+  if (out.length && unresolved / out.length > 0.4) {
+    const sample = listings.find((x) => x && typeof x === "object") || {};
+    return { error: "Tesla location lookup failed for " + unresolved + "/" + out.length +
+                    " jobs — not importing to avoid non-US junk. DIAG state keys=[" +
+                    Object.keys(d).slice(0, 10).join(",") + "] listing keys=[" +
+                    Object.keys(sample).slice(0, 12).join(",") + "] sample loc=" +
+                    JSON.stringify(pick(sample, ["l", "loc", "location", "city", "locations"])).slice(0, 80) };
+  }
+  return { jobs: out };
 }
 
 // JD for one job id: try the JSON detail endpoint, fall back to the job page's HTML.
@@ -169,10 +181,26 @@ async function jmPageFetchGenericDetails(urls) {
           if (!(t === "JobPosting" || (Array.isArray(t) && t.indexOf("JobPosting") >= 0))) continue;
           const jd = strip(o.description || "");
           if (jd.length > 200) out.jd = jd.slice(0, 12000);
+          // jobLocation comes in many shapes: object w/ address object, address as a
+          // bare STRING (McKinsey), a Place with just .name, or a plain string.
           const jl = Array.isArray(o.jobLocation) ? o.jobLocation[0] : o.jobLocation;
-          const addr = (jl && jl.address) || {};
-          const ctry = typeof addr.addressCountry === "object" ? addr.addressCountry.name : addr.addressCountry;
-          out.location = [addr.addressLocality, addr.addressRegion, ctry].filter(Boolean).join(", ");
+          let loc = "";
+          if (typeof jl === "string") loc = jl;
+          else if (jl && typeof jl === "object") {
+            const addr = jl.address;
+            if (typeof addr === "string") loc = addr;
+            else if (addr && typeof addr === "object") {
+              const ctry = typeof addr.addressCountry === "object" ? addr.addressCountry.name : addr.addressCountry;
+              loc = [addr.addressLocality, addr.addressRegion, ctry].filter(Boolean).join(", ");
+            }
+            if (!loc && jl.name) loc = String(jl.name);
+          }
+          if (!loc && o.applicantLocationRequirements) {
+            const alr = Array.isArray(o.applicantLocationRequirements)
+              ? o.applicantLocationRequirements[0] : o.applicantLocationRequirements;
+            if (alr && alr.name) loc = String(alr.name);
+          }
+          out.location = loc.trim();
           out.found_date = String(o.datePosted || "").slice(0, 10);
           if (out.jd) break;
         }
@@ -260,11 +288,12 @@ async function jmRunTeslaImport(opts) {
     }
   }
 
-  const jobs = state ? jmParseTeslaState(state) : null;
-  if (!jobs || !jobs.length) {
+  const parsed = state ? jmParseTeslaState(state) : null;
+  if (!parsed || parsed.error || !(parsed.jobs || []).length) {
     if (viaTab && viaTab.created) try { chrome.tabs.remove(viaTab.tabId); } catch (e) {}
-    return finish({ ok: false, note: "Tesla data had no job list (layout change?)" });
+    return finish({ ok: false, note: (parsed && parsed.error) || "Tesla data had no job list (layout change?)" });
   }
+  const jobs = parsed.jobs;
   const sample = jobs[0] ? (jobs[0].title + " @ " + (jobs[0].location || "?")) : "";
 
   // 2) Push through the server's filter.
@@ -284,21 +313,26 @@ async function jmRunTeslaImport(opts) {
     return finish({ ok: false, note: "import failed: " + ((bulk && bulk.error) || "?") });
   }
 
-  // 3) JDs for the jobs that were actually NEW, so they score properly.
-  let jdsStored = 0;
+  // 3) Details for the jobs that were actually NEW: the generic detail-fetch reads the
+  //    job page's JSON-LD (description + REAL location + datePosted). The server then
+  //    scores them properly AND deletes any whose real location turns out non-US.
+  let jdsStored = 0, removedNonUs = 0;
   const addedUrls = (bulk.added_urls || []).slice(0, JM_JD_LIMIT);
-  const ids = addedUrls.map((u) => (u.split("/job/")[1] || "").split(/[/?#]/)[0]).filter(Boolean);
-  if (ids.length) {
-    const byId = {};
+  if (addedUrls.length) {
+    let jds = {};
     try {
-      if (viaTab) Object.assign(byId, (await jmInTab(viaTab.tabId, jmPageFetchJds, [ids])) || {});
-      else for (const id of ids) { const jd = await jmFetchTeslaJd(id); if (jd) byId[id] = jd; await jmSleep(500); }
+      if (viaTab) jds = (await jmInTab(viaTab.tabId, jmPageFetchGenericDetails, [addedUrls])) || {};
+      else if (typeof DOMParser !== "undefined") jds = await jmPageFetchGenericDetails(addedUrls);
+      else {                                       // service worker: no DOMParser — id-based fallback
+        for (const u of addedUrls) {
+          const id = (u.split("/job/")[1] || "").split(/[/?#]/)[0];
+          if (!id) continue;
+          const jd = await jmFetchTeslaJd(id);
+          if (jd) jds[u] = jd;
+          await jmSleep(500);
+        }
+      }
     } catch (e) {}
-    const jds = {};
-    for (const u of addedUrls) {
-      const id = (u.split("/job/")[1] || "").split(/[/?#]/)[0];
-      if (byId[id]) jds[u] = byId[id];
-    }
     if (Object.keys(jds).length) {
       try {
         const r = await fetch(base + "/api/ext/jds", {
@@ -306,7 +340,7 @@ async function jmRunTeslaImport(opts) {
           body: JSON.stringify({ token: cfg.token, jds: jds }),
         });
         const j = await r.json();
-        if (j && j.ok) jdsStored = j.stored || 0;
+        if (j && j.ok) { jdsStored = j.stored || 0; removedNonUs = j.removed_nonus || 0; }
       } catch (e) {}
     }
   }
@@ -318,5 +352,6 @@ async function jmRunTeslaImport(opts) {
     ? " — dropped: " + (d.title || 0) + " off-target, " + (d.dup || 0) + " already known, " + (d.us || 0) + " non-US"
     : "";
   return finish({ ok: true, added: bulk.added, scanned: bulk.scanned, jds: jdsStored,
-                  note: (bulk.added === 0 ? "0 new" + dropNote + " | first parsed: " + sample : "") });
+                  note: (bulk.added === 0 ? "0 new" + dropNote + " | first parsed: " + sample
+                         : (removedNonUs ? removedNonUs + " removed as non-US after detail check" : "")) });
 }

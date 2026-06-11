@@ -108,6 +108,7 @@ async function grabPageJobs() {
       }
     }
     const out = [];
+    let unresolved = 0;
     for (const j of listings) {
       if (!j || typeof j !== "object") continue;
       let title = pick(j, ["t", "title", "name", "jobTitle", "positionTitle"]) || longestString(j);
@@ -117,10 +118,20 @@ async function grabPageJobs() {
       if (Array.isArray(loc)) loc = loc.map(function (x) { return (locs && locs[x]) || x; }).filter(Boolean).join("; ");
       else if (loc != null && typeof loc !== "string" && locs && locs[loc] != null) loc = locs[loc];
       loc = (typeof loc === "string") ? loc.trim() : String(loc == null ? "" : loc);
-      if (!/[a-z]/i.test(loc)) loc = "";        // unresolved numeric code -> unknown, KEEP the job
+      if (!/[a-z]/i.test(loc)) { loc = ""; unresolved++; }   // code didn't resolve to text
       out.push({ title: String(title).trim(),
                  url: "https://www.tesla.com/careers/search/job/" + id,
                  location: loc, company: "Tesla" });
+    }
+    // Tesla's board is GLOBAL: if most locations failed to resolve, importing would
+    // flood the feed with location-less world jobs. Refuse + report the data shape.
+    if (out.length && unresolved / out.length > 0.4) {
+      const sm = listings.find(function (x) { return x && typeof x === "object"; }) || {};
+      return { error: "Tesla location lookup failed for " + unresolved + "/" + out.length +
+                      " jobs — not importing to avoid non-US junk. DIAG state keys=[" +
+                      Object.keys(d).slice(0, 10).join(",") + "] listing keys=[" +
+                      Object.keys(sm).slice(0, 12).join(",") + "] sample loc=" +
+                      JSON.stringify(pick(sm, ["l", "loc", "location", "city", "locations"])).slice(0, 80) };
     }
     return { jobs: out, sample: out[0] ? (out[0].title + " @ " + (out[0].location || "?")) : "" };
   }
@@ -147,13 +158,22 @@ async function grabPageJobs() {
           const t = o["@type"];
           if (!(t === "JobPosting" || (Array.isArray(t) && t.indexOf("JobPosting") >= 0))) continue;
           const jl = Array.isArray(o.jobLocation) ? o.jobLocation[0] : o.jobLocation;
-          const addr = (jl && jl.address) || {};
-          const ctry = typeof addr.addressCountry === "object" ? addr.addressCountry.name : addr.addressCountry;
+          let loc = "";
+          if (typeof jl === "string") loc = jl;
+          else if (jl && typeof jl === "object") {
+            const addr = jl.address;
+            if (typeof addr === "string") loc = addr;          // McKinsey-style bare string
+            else if (addr && typeof addr === "object") {
+              const ctry = typeof addr.addressCountry === "object" ? addr.addressCountry.name : addr.addressCountry;
+              loc = [addr.addressLocality, addr.addressRegion, ctry].filter(Boolean).join(", ");
+            }
+            if (!loc && jl.name) loc = String(jl.name);
+          }
           const org = o.hiringOrganization;
           out.push({
             title: String(o.title || "").trim(),
             url: String(o.url || ""),
-            location: [addr.addressLocality, addr.addressRegion, ctry].filter(Boolean).join(", "),
+            location: loc.trim(),
             company: org ? String(org.name || org) : "",
           });
         }
@@ -321,20 +341,13 @@ $("bulk").onclick = async () => {
         $("bulkmsg").textContent = m + " Fetching descriptions… keep this popup open (~" +
           Math.min(addedUrls.length, 20) * 1 + "–" + Math.min(addedUrls.length, 20) * 2 + "s).";
         try {
-          const isTesla = /(^|\.)tesla\.com$/.test(new URL(tab.url).hostname);
+          // generic detail-fetch works for every site incl. Tesla (same-origin from the tab)
+          const origin = new URL(tab.url).origin;
           let jds = {};
-          if (isTesla) {
-            const ids = addedUrls.map((u) => (u.split("/job/")[1] || "").split(/[/?#]/)[0]).filter(Boolean).slice(0, 20);
-            const out2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmPageFetchJds, args: [ids] });
-            const byId = (out2 && out2[0] && out2[0].result) || {};
-            addedUrls.forEach((u) => { const id = (u.split("/job/")[1] || "").split(/[/?#]/)[0]; if (byId[id]) jds[u] = byId[id]; });
-          } else {
-            const origin = new URL(tab.url).origin;
-            const sameOrigin = addedUrls.filter((u) => { try { return new URL(u).origin === origin; } catch (e) { return false; } }).slice(0, 20);
-            if (sameOrigin.length) {
-              const out2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmPageFetchGenericDetails, args: [sameOrigin] });
-              jds = (out2 && out2[0] && out2[0].result) || {};
-            }
+          const sameOrigin = addedUrls.filter((u) => { try { return new URL(u).origin === origin; } catch (e) { return false; } }).slice(0, 20);
+          if (sameOrigin.length) {
+            const out2 = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmPageFetchGenericDetails, args: [sameOrigin] });
+            jds = (out2 && out2[0] && out2[0].result) || {};
           }
           if (Object.keys(jds).length) {
             const r2 = await fetch(cfg.apibase + "/api/ext/jds", {
@@ -342,7 +355,8 @@ $("bulk").onclick = async () => {
               body: JSON.stringify({ token: cfg.token, jds: jds }),
             });
             const j2 = await r2.json();
-            m += " ✓ " + ((j2 && j2.stored) || 0) + " descriptions attached.";
+            m += " ✓ " + ((j2 && j2.stored) || 0) + " descriptions attached" +
+                 ((j2 && j2.removed_nonus) ? ", " + j2.removed_nonus + " removed as non-US" : "") + ".";
           } else { m += " (No descriptions readable on this site.)"; }
         } catch (e) { m += " (Description fetch skipped: " + e.message + ")"; }
         $("bulkmsg").textContent = m;
