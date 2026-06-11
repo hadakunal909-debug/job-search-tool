@@ -999,7 +999,7 @@ def ext_jds():
     if not isinstance(jds, dict) or not jds:
         return _cors(jsonify({"ok": False, "error": "No jds"})), 400
     known = {j.get("url") for j in get_jobs()}
-    clean, patches = {}, []
+    clean, patches, removed = {}, [], []
     for u, val in list(jds.items())[:200]:
         if u not in known:
             continue
@@ -1012,6 +1012,13 @@ def ext_jds():
             patch = {"url": u}
             loc = (val.get("location") or "").strip()[:300]
             if loc and re.search(r"[A-Za-z]", loc):
+                # SELF-CLEAN: a job imported with an unknown location only survived the
+                # US filter by benefit of the doubt. If its real location turns out
+                # non-US, remove it — it never belonged in a US feed (Tesla Osaka bug).
+                if not scraper.is_us_location(loc):
+                    removed.append(u)
+                    clean.pop(u, None)
+                    continue
                 patch["location"] = loc
             date = (val.get("found_date") or "").strip()[:10]
             if re.match(r"^\d{4}-\d{2}-\d{2}$", date):
@@ -1023,13 +1030,16 @@ def ext_jds():
             db.update_jds(clean)
         if patches:
             db.update_job_fields(patches)
+        if removed:
+            db.delete_urls(removed)
     except Exception as e:
         return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
-    if clean or patches:
+    if clean or patches or removed:
         get_jobs(force=True)                     # re-pull rows so the new data is visible…
         _score_cache.clear()                     # …and per-user scores recompute with JDs
         _sponsor_cache.clear()
-    return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches)}))
+    return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches),
+                          "removed_nonus": len(removed)}))
 
 
 if __name__ == "__main__":

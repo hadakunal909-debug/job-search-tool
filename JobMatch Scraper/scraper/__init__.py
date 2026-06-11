@@ -182,6 +182,9 @@ WORKDAY_BOARDS = [
     ("https://uchicago.wd5.myworkdayjobs.com/External",              "workday", "University of Chicago"),
     # Found by detect_linked_ats on flowserve.com/en/careers (site really is "applied").
     ("https://flowserve.wd1.myworkdayjobs.com/applied",              "workday", "Flowserve"),
+    # Accenture (2026-06-11): one of the largest H1B sponsors, period. Found behind
+    # accenture.com/careers via the detect chain (~2k+ postings).
+    ("https://accenture.wd103.myworkdayjobs.com/AccentureCareers",   "workday", "Accenture"),
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -190,6 +193,8 @@ PHENOM_BOARDS = [
     # Actalent: huge engineering/sciences staffing firm, heavy H1B sponsor (~5k postings;
     # scrape_phenom caps at 3000 — the title filter keeps only on-target PM/analyst roles).
     ("https://careers.actalentservices.com", "phenom", "Actalent"),
+    # BCG: top-tier consulting sponsor; careers.bcg.com is Phenom-native (~900 postings).
+    ("https://careers.bcg.com", "phenom", "Boston Consulting Group"),
 ]
 
 # Oracle Cloud Recruiting (ORC) career sites — public recruitingCEJobRequisitions API.
@@ -258,6 +263,15 @@ ADZUNA_BOARDS = [
     ("adzuna:Elemica",              "adzuna", "Elemica"),
     ("adzuna:Fortanix",             "adzuna", "Fortanix"),
     ("adzuna:Tigo Energy",          "adzuna", "Tigo Energy"),
+    # --- Added 2026-06-11: big consulting sponsors with NO public feed (custom /
+    # SuccessFactors / bot-walled careers sites). BCG + Accenture scrape directly.
+    ("adzuna:McKinsey & Company",   "adzuna", "McKinsey & Company"),
+    ("adzuna:Bain & Company",       "adzuna", "Bain & Company"),
+    ("adzuna:Deloitte",             "adzuna", "Deloitte"),
+    ("adzuna:EY",                   "adzuna", "EY"),
+    ("adzuna:PwC",                  "adzuna", "PwC"),
+    ("adzuna:KPMG",                 "adzuna", "KPMG"),
+    ("adzuna:Capgemini",            "adzuna", "Capgemini"),
 ]
 
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Adzuna.
@@ -295,6 +309,11 @@ EXCLUDE = (
     # Manager". Comment any of these back in if you DO want that function.
     "engineer", "developer", "designer", "scientist", "counsel", "attorney",
     "physician", "nurse", "account executive", "sales development", "sdr",
+    # Trades / retail / hospitality — these sneak in via the early-career markers
+    # ("apprentice"/"trainee"): e.g. Tesla's "Apprentice Collision Technician".
+    "technician", "technicien", "mechanic", "machinist", "welder", "electrician",
+    "plumber", "detailer", "collision", "culinary", "chef", "barista", "advisor",
+    "cashier", "janitor", "custodian",
 )
 
 # If sponsors.txt is loaded: True = DROP companies not on the list; False = keep
