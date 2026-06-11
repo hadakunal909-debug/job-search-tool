@@ -642,7 +642,8 @@ def add_board():
         name = (request.form.get("name") or "").strip()
         if url:
             det = (scraper.detect_board(url) or scraper.detect_jibe(url)
-                   or scraper.detect_phenom(url) or scraper.detect_jsonld(url))
+                   or scraper.detect_phenom(url) or scraper.detect_linked_ats(url)
+                   or scraper.detect_jsonld(url))
             if not det:
                 result = ("err", "That isn't a readable job board (Greenhouse, Lever, Ashby, "
                           "SmartRecruiters, Workday, Oracle Cloud, Workable, Phenom, iCIMS/Jibe, "

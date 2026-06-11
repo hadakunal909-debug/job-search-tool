@@ -180,6 +180,8 @@ WORKDAY_BOARDS = [
     # redirect (962 jobs); UChicago tenant found by direct CXS probe (394; cap-exempt). ---
     ("https://cisco.wd5.myworkdayjobs.com/Cisco_Careers",            "workday", "Cisco"),
     ("https://uchicago.wd5.myworkdayjobs.com/External",              "workday", "University of Chicago"),
+    # Found by detect_linked_ats on flowserve.com/en/careers (site really is "applied").
+    ("https://flowserve.wd1.myworkdayjobs.com/applied",              "workday", "Flowserve"),
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -196,6 +198,13 @@ ORACLE_BOARDS = [
     # Oracle itself: ~1400 postings, long-time top-20 H1B sponsor.
     ("https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001",
      "oracle", "Oracle"),
+    # --- Added 2026-06-11 via detect_linked_ats on each company's careers page ---
+    # EXL: analytics/operations consulting, steady H1B sponsor (~3k postings).
+    ("https://fa-ewjt-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2",
+     "oracle", "EXL Service"),
+    # Providence: large nonprofit health system (~1.9k postings; cap-exempt employer).
+    ("https://evac.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Providence"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -203,6 +212,9 @@ ORACLE_BOARDS = [
 # (the "➕ Add board" view auto-detects these from a pasted careers.<company>.com link).
 JIBE_BOARDS = [
     ("https://careers.hrblock.com", "jibe", "H&R Block"),
+    # Mount Sinai (Icahn School of Medicine + hospital system): cap-exempt sponsor,
+    # ~1.8k postings; apply links go to its Oracle site but the Jibe feed is cleaner.
+    ("https://careers.mountsinai.org", "jibe", "Mount Sinai"),
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
@@ -213,6 +225,36 @@ JIBE_BOARDS = [
 # (export them as env vars, or add them as GitHub Actions secrets for the scheduled run).
 ADZUNA_BOARDS = [
     ("adzuna:Tesla", "adzuna", "Tesla"),
+    # --- Added 2026-06-11: sponsors from the user's H1B LCA list whose own career
+    # sites expose NO public feed (custom portals / SuccessFactors / bot-walled).
+    # The aggregator is the only way to scrape them; each costs ~1 API call per run.
+    ("adzuna:IBM",                  "adzuna", "IBM"),
+    ("adzuna:CGI",                  "adzuna", "CGI"),
+    ("adzuna:Mphasis",              "adzuna", "Mphasis"),
+    ("adzuna:HCLTech",              "adzuna", "HCL America"),
+    ("adzuna:Tech Mahindra",        "adzuna", "Tech Mahindra"),
+    ("adzuna:Coforge",              "adzuna", "Coforge"),
+    ("adzuna:Brillio",              "adzuna", "Brillio"),
+    ("adzuna:L&T Technology Services", "adzuna", "L&T Technology Services"),
+    ("adzuna:Persistent Systems",   "adzuna", "Persistent Systems"),
+    ("adzuna:Birlasoft",            "adzuna", "Birlasoft"),
+    ("adzuna:Hexaware Technologies", "adzuna", "Hexaware"),
+    ("adzuna:Nagarro",              "adzuna", "Nagarro"),
+    ("adzuna:Cyient",               "adzuna", "Cyient"),
+    ("adzuna:HTC Global Services",  "adzuna", "HTC Global Services"),
+    ("adzuna:Movate",               "adzuna", "Movate"),
+    ("adzuna:Atos",                 "adzuna", "Atos Syntel"),
+    ("adzuna:Tencent",              "adzuna", "Tencent America"),
+    ("adzuna:Munich Re",            "adzuna", "Munich Re America"),
+    ("adzuna:Cornerstone OnDemand", "adzuna", "Cornerstone OnDemand"),
+    ("adzuna:Holtec International", "adzuna", "Holtec International"),
+    ("adzuna:Hendrickson",          "adzuna", "Hendrickson"),
+    ("adzuna:Saama Technologies",   "adzuna", "Saama Technologies"),
+    ("adzuna:CAST Software",        "adzuna", "Cast Software"),
+    ("adzuna:Ideagen",              "adzuna", "Ideagen"),
+    ("adzuna:Elemica",              "adzuna", "Elemica"),
+    ("adzuna:Fortanix",             "adzuna", "Fortanix"),
+    ("adzuna:Tigo Energy",          "adzuna", "Tigo Energy"),
 ]
 
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Adzuna.
@@ -1199,6 +1241,59 @@ def detect_phenom(url):
         return (base, "phenom", _name_from(parts[0]) if parts else host)
     except Exception:
         return None
+
+
+# URLs of scrapeable ATS platforms as they appear inside a company careers PAGE.
+# detect_linked_ats() fetches the page and follows the first of these it finds.
+_ATS_LINK_RE = re.compile(
+    r"""https?://(?:
+        (?:job-boards|boards)\.greenhouse\.io/[A-Za-z0-9_-]+
+      | boards\.greenhouse\.io/embed/job_board\?for=[A-Za-z0-9_-]+
+      | jobs\.lever\.co/[A-Za-z0-9_-]+
+      | jobs\.ashbyhq\.com/[A-Za-z0-9_-]+
+      | jobs\.smartrecruiters\.com/[A-Za-z0-9_-]+
+      | [a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/[A-Za-z0-9_/-]+
+      | wd\d+\.myworkdaysite\.com/recruiting/[A-Za-z0-9_/-]+
+      | [a-z0-9-]+\.jibeapply\.com
+      | apply\.workable\.com/[A-Za-z0-9_-]+
+      | [a-z0-9-]+\.recruitee\.com
+      | [a-z0-9-]+\.breezy\.hr
+      | [a-z0-9-]+\.jobs\.personio\.com
+      | [a-z0-9.-]+\.oraclecloud\.com/hcmUI/CandidateExperience[A-Za-z0-9_/.-]*/sites/[A-Za-z0-9_]+
+    )""", re.X | re.I)
+
+
+def detect_linked_ats(url):
+    """Follow-the-link detect: fetch a company CAREERS PAGE and look for a link to a
+    scrapeable ATS inside its HTML (lots of corporate sites are a marketing page whose
+    'View jobs' button goes to Greenhouse/Workday/etc.). Returns the same
+    (board_url, ats_type, name) tuple as detect_board, or None."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    try:
+        r = _safe_get(url, timeout=15)
+        if r.status_code != 200:
+            return None
+        html_text = r.text
+    except Exception:
+        return None
+    seen = set()
+    for m in _ATS_LINK_RE.finditer(html_text):
+        cand = m.group(0)
+        if cand in seen:
+            continue
+        seen.add(cand)
+        det = detect_board(cand)
+        if det:
+            return det
+        if "jibeapply.com" in cand.lower():
+            det = detect_jibe(cand)
+            if det:
+                return det
+    return None
 
 
 def detect_jsonld(url):
