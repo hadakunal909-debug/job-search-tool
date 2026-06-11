@@ -22,6 +22,15 @@ Workday, or any company careers site.
   bot-wall), but *your* browser has already passed it — so the extension reads the full listing
   from inside the page and sends it to your **jobs feed**, run through the same entry-level /
   title / US filter as every scraped board. Let the careers page finish loading, then click it.
+- **Import from ANY careers page (v1.2):** the import button now works on most career
+  sites, not just Tesla. It first reads the page's schema.org job data (what Google for
+  Jobs reads); if there is none, it harvests the visible job links. Either way the server
+  applies the same strict title + US filter and URL dedupe, so a noisy page can't pollute
+  the feed. Disabled on LinkedIn/Indeed/Glassdoor (their terms ban collection and your
+  account could get flagged — use 📌 Save for single jobs there). RULE OF THUMB: if a site
+  has a real job board, paste its URL into **➕ Add board** first — the server then scrapes
+  it automatically every day, with full descriptions. Use the extension's import for sites
+  the server can't reach: bot-walled (Tesla), JavaScript-only, or feed-less pages.
 - **Tesla AUTO-import (v1.1):** no clicking needed anymore. The extension runs the Tesla
   import by itself **once a day** (background alarm, ~3 min after Chrome starts) and also
   whenever you browse **tesla.com/careers** (throttled to once a day). It then fetches each
