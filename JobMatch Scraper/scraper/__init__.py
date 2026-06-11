@@ -782,7 +782,12 @@ def scrape_adzuna(board_url):
         try:
             data = _get_json(
                 "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
-                params={"app_id": app_id, "app_key": app_key, "what": company,
+                params={"app_id": app_id, "app_key": app_key,
+                        # company= returns ONLY this employer (keyword `what` searches
+                        # mentions — for Google that found 0 of its 3.8k listings);
+                        # what_or biases the 250-result page budget toward our roles.
+                        "company": company,
+                        "what_or": "project program analyst coordinator operations implementation scrum",
                         "results_per_page": 50, "content-type": "application/json"})
         except Exception:
             break

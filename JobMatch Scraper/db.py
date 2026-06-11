@@ -40,6 +40,27 @@ def _make_http():
 
 _http = _make_http()
 
+
+def _load_env_file(path=".env"):
+    """Load KEY=VALUE pairs from a .env file into os.environ (set-if-absent), so every
+    module reads ONE config source: db's SUPABASE_*, web's GH_TOKEN, the scraper's
+    ADZUNA_APP_ID/ADZUNA_APP_KEY. No python-dotenv dependency; comments and blank
+    lines ignored; real environment variables always win; never raises."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if ln and not ln.startswith("#") and "=" in ln:
+                    k, v = ln.split("=", 1)
+                    k = k.strip()
+                    if k and k not in os.environ:
+                        os.environ[k] = v.strip().strip('"').strip("'")
+    except Exception:
+        pass
+
+
+_load_env_file()       # db is imported first by every entry point (web, scraper, scorer)
+
 JOBS_CSV = "jobs.csv"
 ACTIONS_FILE = "user_jobs.json"
 TABLE = "jobs"
