@@ -36,21 +36,47 @@ function jmLooksLikeJd(txt) {
 // and location CODES that resolve through a lookup table; when a code doesn't resolve
 // to readable text we send "" (unknown) — the server KEEPS unknown locations, so a
 // lookup miss can no longer wipe out the whole import (the added-0-of-2000 bug).
+// Build a {code -> readable name} map from Tesla's state JSON. Confirmed shape
+// (2026-06-11 DIAG): state keys = lookup/departments/geo/listings, listing keys =
+// id,t,dp,f,l,y,sp,pu with l = a string code like "401022". The resolver tries:
+//   1. a nested {locations:{...}} container (older app versions),
+//   2. `lookup` as a FLAT id->label map of strings,
+//   3. recursively harvesting {id,name}-shaped nodes anywhere in lookup/geo trees.
+function jmBuildTeslaLocMap(d) {
+  const map = {};
+  for (const c of [d.lookup, d.lookups, d.geo, d]) {
+    if (c && typeof c === "object") {
+      const m = c.locations || c.location || c.locs;
+      if (m && typeof m === "object" && !Array.isArray(m)) Object.assign(map, m);
+    }
+  }
+  if (d.lookup && typeof d.lookup === "object" && !Array.isArray(d.lookup)) {
+    const vals = Object.values(d.lookup);
+    const strs = vals.filter((v) => typeof v === "string");
+    if (strs.length && strs.length >= vals.length * 0.8) Object.assign(map, d.lookup);
+  }
+  const IDK = ["id", "key", "value", "code", "v", "k"];
+  const NAMEK = ["name", "label", "title", "text", "n"];
+  (function walk(o, depth) {
+    if (!o || depth > 7) return;
+    if (Array.isArray(o)) { for (const x of o) walk(x, depth + 1); return; }
+    if (typeof o !== "object") return;
+    let idv = null, namev = null;
+    for (const k of IDK) { const v = o[k]; if (v !== undefined && (typeof v === "string" || typeof v === "number")) { idv = v; break; } }
+    for (const k of NAMEK) { const v = o[k]; if (typeof v === "string" && /[a-z]/i.test(v)) { namev = v; break; } }
+    if (idv != null && namev && map[String(idv)] === undefined) map[String(idv)] = namev;
+    for (const k in o) walk(o[k], depth + 1);
+  })([d.lookup, d.geo], 0);
+  return map;
+}
+
 function jmParseTeslaState(d) {
   function pick(o, keys) { for (const k of keys) { const v = o[k]; if (v !== undefined && v !== null && v !== "") return v; } return null; }
   function longestString(o) { let best = ""; for (const k in o) { const v = o[k]; if (typeof v === "string" && v.length > best.length) best = v; } return best; }
   let listings = Array.isArray(d.listings) ? d.listings : (Array.isArray(d.jobs) ? d.jobs : null);
   if (!listings) { for (const k in d) { if (Array.isArray(d[k]) && d[k].length && typeof d[k][0] === "object") { listings = d[k]; break; } } }
   if (!listings) return null;
-  // location lookup table may live in several places depending on app version
-  const containers = [d.lookup, d.lookups, d.geo, d];
-  let locs = {};
-  for (const c of containers) {
-    if (c && typeof c === "object") {
-      const m = c.locations || c.location || c.locs;
-      if (m && typeof m === "object") { locs = m; break; }
-    }
-  }
+  const locs = jmBuildTeslaLocMap(d);
   const out = [];
   let unresolved = 0;
   for (const j of listings) {
@@ -59,9 +85,9 @@ function jmParseTeslaState(d) {
     const id = pick(j, ["id", "jobId", "reqId", "jobNum", "j"]);
     if (!title || id == null) continue;          // no per-job id -> can't build a unique URL
     let loc = pick(j, ["l", "loc", "location", "city", "locations"]);
-    if (Array.isArray(loc)) loc = loc.map((x) => (locs && locs[x]) || x).filter(Boolean).join("; ");
-    else if (loc != null && typeof loc !== "string" && locs && locs[loc] != null) loc = locs[loc];
-    loc = (typeof loc === "string") ? loc.trim() : String(loc == null ? "" : loc);
+    if (Array.isArray(loc)) loc = loc.map((x) => locs[String(x)] || x).filter(Boolean).join("; ");
+    else if (loc != null && !/[a-z]/i.test(String(loc)) && locs[String(loc)] != null) loc = locs[String(loc)];
+    loc = String(loc == null ? "" : loc).trim();
     if (!/[a-z]/i.test(loc)) { loc = ""; unresolved++; }   // code didn't resolve to text
     out.push({
       title: String(title).trim(),
@@ -74,11 +100,18 @@ function jmParseTeslaState(d) {
   // (it did once). Refuse, and report the data shape so the lookup can be fixed.
   if (out.length && unresolved / out.length > 0.4) {
     const sample = listings.find((x) => x && typeof x === "object") || {};
+    function nodeSample(o) {
+      try {
+        if (!o || typeof o !== "object") return JSON.stringify(o);
+        const k = Object.keys(o)[0];
+        return "first key=" + k + " -> " + JSON.stringify(o[k]).slice(0, 90);
+      } catch (e) { return "?"; }
+    }
     return { error: "Tesla location lookup failed for " + unresolved + "/" + out.length +
-                    " jobs — not importing to avoid non-US junk. DIAG state keys=[" +
-                    Object.keys(d).slice(0, 10).join(",") + "] listing keys=[" +
+                    " jobs — not importing to avoid non-US junk. DIAG listing keys=[" +
                     Object.keys(sample).slice(0, 12).join(",") + "] sample loc=" +
-                    JSON.stringify(pick(sample, ["l", "loc", "location", "city", "locations"])).slice(0, 80) };
+                    JSON.stringify(pick(sample, ["l", "loc", "location", "city", "locations"])).slice(0, 40) +
+                    " | lookup " + nodeSample(d.lookup) + " | geo " + nodeSample(d.geo) };
   }
   return { jobs: out };
 }

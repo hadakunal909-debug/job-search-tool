@@ -98,15 +98,36 @@ async function grabPageJobs() {
     if (!listings) { for (const k in d) { if (Array.isArray(d[k]) && d[k].length && typeof d[k][0] === "object") { listings = d[k]; break; } } }
     if (!listings) return { error: "Tesla data had no job list (the page layout may have changed)." };
 
-    // location lookup table may live in several places depending on app version
-    const containers = [d.lookup, d.lookups, d.geo, d];
-    let locs = {};
-    for (const c of containers) {
+    // {code -> name} map: nested {locations} container, lookup as a flat id->label
+    // map, or {id,name}-shaped nodes anywhere in the lookup/geo trees (current shape:
+    // listing.l = "401022", resolver lives in lookup/geo — confirmed by DIAG 2026-06-11).
+    const locs = {};
+    for (const c of [d.lookup, d.lookups, d.geo, d]) {
       if (c && typeof c === "object") {
         const m = c.locations || c.location || c.locs;
-        if (m && typeof m === "object") { locs = m; break; }
+        if (m && typeof m === "object" && !Array.isArray(m)) Object.assign(locs, m);
       }
     }
+    if (d.lookup && typeof d.lookup === "object" && !Array.isArray(d.lookup)) {
+      const vals = Object.values(d.lookup);
+      const strs = vals.filter(function (v) { return typeof v === "string"; });
+      if (strs.length && strs.length >= vals.length * 0.8) Object.assign(locs, d.lookup);
+    }
+    (function walk(o, depth) {
+      if (!o || depth > 7) return;
+      if (Array.isArray(o)) { for (const x of o) walk(x, depth + 1); return; }
+      if (typeof o !== "object") return;
+      let idv = null, namev = null;
+      for (const k of ["id", "key", "value", "code", "v", "k"]) {
+        const v = o[k]; if (v !== undefined && (typeof v === "string" || typeof v === "number")) { idv = v; break; }
+      }
+      for (const k of ["name", "label", "title", "text", "n"]) {
+        const v = o[k]; if (typeof v === "string" && /[a-z]/i.test(v)) { namev = v; break; }
+      }
+      if (idv != null && namev && locs[String(idv)] === undefined) locs[String(idv)] = namev;
+      for (const k in o) walk(o[k], depth + 1);
+    })([d.lookup, d.geo], 0);
+
     const out = [];
     let unresolved = 0;
     for (const j of listings) {
@@ -115,9 +136,9 @@ async function grabPageJobs() {
       const id = pick(j, ["id", "jobId", "reqId", "jobNum", "j"]);
       if (!title || id == null) continue;       // no per-job id -> can't build a unique URL
       let loc = pick(j, ["l", "loc", "location", "city", "locations"]);
-      if (Array.isArray(loc)) loc = loc.map(function (x) { return (locs && locs[x]) || x; }).filter(Boolean).join("; ");
-      else if (loc != null && typeof loc !== "string" && locs && locs[loc] != null) loc = locs[loc];
-      loc = (typeof loc === "string") ? loc.trim() : String(loc == null ? "" : loc);
+      if (Array.isArray(loc)) loc = loc.map(function (x) { return locs[String(x)] || x; }).filter(Boolean).join("; ");
+      else if (loc != null && !/[a-z]/i.test(String(loc)) && locs[String(loc)] != null) loc = locs[String(loc)];
+      loc = String(loc == null ? "" : loc).trim();
       if (!/[a-z]/i.test(loc)) { loc = ""; unresolved++; }   // code didn't resolve to text
       out.push({ title: String(title).trim(),
                  url: "https://www.tesla.com/careers/search/job/" + id,
@@ -127,11 +148,18 @@ async function grabPageJobs() {
     // flood the feed with location-less world jobs. Refuse + report the data shape.
     if (out.length && unresolved / out.length > 0.4) {
       const sm = listings.find(function (x) { return x && typeof x === "object"; }) || {};
+      function nodeSample(o) {
+        try {
+          if (!o || typeof o !== "object") return JSON.stringify(o);
+          const k = Object.keys(o)[0];
+          return "first key=" + k + " -> " + JSON.stringify(o[k]).slice(0, 90);
+        } catch (e) { return "?"; }
+      }
       return { error: "Tesla location lookup failed for " + unresolved + "/" + out.length +
-                      " jobs — not importing to avoid non-US junk. DIAG state keys=[" +
-                      Object.keys(d).slice(0, 10).join(",") + "] listing keys=[" +
+                      " jobs — not importing to avoid non-US junk. DIAG listing keys=[" +
                       Object.keys(sm).slice(0, 12).join(",") + "] sample loc=" +
-                      JSON.stringify(pick(sm, ["l", "loc", "location", "city", "locations"])).slice(0, 80) };
+                      JSON.stringify(pick(sm, ["l", "loc", "location", "city", "locations"])).slice(0, 40) +
+                      " | lookup " + nodeSample(d.lookup) + " | geo " + nodeSample(d.geo) };
     }
     return { jobs: out, sample: out[0] ? (out[0].title + " @ " + (out[0].location || "?")) : "" };
   }
