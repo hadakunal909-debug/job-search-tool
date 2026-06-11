@@ -85,6 +85,7 @@ async function grabPageJobs() {
   const host = location.hostname.replace(/^www\./, "");
   function pick(o, keys) { for (const k of keys) { const v = o[k]; if (v !== undefined && v !== null && v !== "") return v; } return null; }
   function longestString(o) { let best = ""; for (const k in o) { const v = o[k]; if (typeof v === "string" && v.length > best.length) best = v; } return best; }
+  if (window !== window.top && /(^|\.)tesla\.com$/.test(host)) return { jobs: [] };  // tesla: top frame only
 
   if (/(^|\.)tesla\.com$/.test(host)) {
     let d;
@@ -212,11 +213,22 @@ async function grabPageJobs() {
 
   // 2) Fallback: harvest the RENDERED job links. Noisy by design — the server's strict
   //    title + US filter keeps only on-target roles, and dedupes by URL.
+  function allAnchors() {
+    // pierce open shadow roots — web-component job boards hide their links there
+    const acc = [];
+    (function walk(root) {
+      try {
+        root.querySelectorAll("a[href]").forEach((a) => acc.push(a));
+        root.querySelectorAll("*").forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); });
+      } catch (e) {}
+    })(document);
+    return acc;
+  }
   function fromDomLinks() {
     const seen = new Set(), out = [];
-    const jobUrl = /\/(job|jobs|career|careers|position|positions|opening|openings|vacanc|requisition|posting)(s)?\/|[?&](job|jobid|gh_jid|reqid|requisitionid|positionid)=/i;
+    const jobUrl = /\/(job|jobs|career|careers|position|positions|opening|openings|vacanc|requisition|posting|jobdetail)(s)?\/|[?&](job|jobid|gh_jid|reqid|requisitionid|positionid|pid|posting)=|jobs\.lever\.co\/[^/]+\/[0-9a-f-]{8,}|greenhouse\.io\/[^/]+\/jobs\/|jobs\.ashbyhq\.com\/[^/]+\/[0-9a-f-]{8,}/i;
     const junk = /^(apply|apply now|learn more|view( all)?|see |read |share|save|sign in|log ?in|more|details|search|filter|next|previous|back)/i;
-    document.querySelectorAll("a[href]").forEach((a) => {
+    allAnchors().forEach((a) => {
       const href = a.href || "";
       if (!/^https?:/i.test(href) || !jobUrl.test(href) || seen.has(href)) return;
       let t = (a.getAttribute("aria-label") || a.textContent || "").replace(/\s+/g, " ").trim();
@@ -231,12 +243,37 @@ async function grabPageJobs() {
   let jobs = fromJsonLdJobs();
   let how = "structured data";
   if (jobs.length < 2) {                          // 0-1 from JSON-LD -> try the visible links
+    // lazy/infinite-scroll lists only render once you scroll: nudge the page until
+    // the link count stops growing (max ~5s), then harvest and scroll back.
+    let prev = -1;
+    for (let i = 0; i < 6; i++) {
+      const cnt = document.querySelectorAll("a[href]").length;
+      if (cnt === prev) break;
+      prev = cnt;
+      window.scrollTo(0, document.body.scrollHeight);
+      await new Promise((r) => setTimeout(r, 850));
+    }
+    window.scrollTo(0, 0);
     const dom = fromDomLinks();
     if (dom.length > jobs.length) { jobs = dom; how = "visible job links"; }
   }
-  if (!jobs.length) return { error: "No job listings found on this page. If this site has a real job board, paste its URL into ➕ Add board instead — the server can scrape 15 platforms automatically." };
+  if (!jobs.length) return { error: "No job listings found on this page. Try the 🔍 board check below — if this site fronts a real job board, the daily scraper can take it from here." };
   return { jobs: jobs.slice(0, 500), how: how,
            sample: jobs[0].title + " @ " + (jobs[0].location || "?") };
+}
+
+// Runs IN the page: ATS-ish URLs visible in the LIVE DOM (iframe srcs + links) — the
+// server checks these to see if the site fronts a board it can scrape daily.
+function collectAtsCandidates() {
+  const out = new Set();
+  const re = /(greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com|myworkdayjobs\.com|myworkdaysite\.com|jibeapply\.com|icims\.com|apply\.workable\.com|recruitee\.com|breezy\.hr|personio\.com|oraclecloud\.com)/i;
+  document.querySelectorAll("iframe[src]").forEach((f) => {
+    if (/^https?:/i.test(f.src)) out.add(f.src);
+  });
+  document.querySelectorAll("a[href]").forEach((a) => {
+    if (re.test(a.href || "")) out.add(a.href);
+  });
+  return Array.from(out).slice(0, 10);
 }
 
 async function init() {
@@ -315,6 +352,50 @@ async function refreshAutoStat() {
   $("autostat").textContent = autoStatLine(tesla_last);
 }
 
+// "Can this site be auto-scraped?" — first click checks (page URL + live-DOM ATS
+// candidates -> server detection chain); if a board is found, second click ADDS it
+// to the daily scraper. Strictly better than one-off imports when it works.
+let boardFound = null;
+$("boardcheck").onclick = async () => {
+  const tab = await activeTab();
+  $("boardmsg").style.color = "#0b7a52";
+  if (boardFound) {                                // second click = add it
+    $("boardmsg").textContent = "Adding to the daily scraper…";
+    try {
+      const r = await fetch(cfg.apibase + "/api/ext/detect_board", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: cfg.token, url: boardFound.pageUrl,
+                               candidates: boardFound.candidates, add: true }),
+      });
+      const j = await r.json();
+      if (j.ok && j.added) {
+        $("boardmsg").textContent = "✓ Added " + (j.name || "board") + " — it joins the next daily scrape (with full descriptions).";
+        $("boardcheck").style.display = "none";
+      } else { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Couldn't add: " + (j.error || "try the ➕ Add board page."); }
+    } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error."; }
+    return;
+  }
+  $("boardmsg").textContent = "Checking (page + embedded boards)…";
+  let candidates = [];
+  try {
+    const out = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: collectAtsCandidates });
+    candidates = (out && out[0] && out[0].result) || [];
+  } catch (e) {}
+  try {
+    const r = await fetch(cfg.apibase + "/api/ext/detect_board", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: cfg.token, url: tab.url, candidates: candidates }),
+    });
+    const j = await r.json();
+    if (!j.ok) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = j.error || "Check failed."; return; }
+    if (!j.found) { $("boardmsg").textContent = "No scrapeable board behind this site — use the import button above instead."; return; }
+    if (j.builtin) { $("boardmsg").textContent = "✓ Already scraped daily (" + (j.name || j.ats) + ")."; return; }
+    boardFound = { pageUrl: tab.url, candidates: candidates };
+    $("boardmsg").textContent = "✓ Found: " + (j.name || "?") + " — " + j.ats + " board, ~" + (j.count == null ? "?" : j.count) + " postings. Click again to add it to the daily scraper.";
+    $("boardcheck").textContent = "➕ Add " + (j.name || "this board") + " to the daily scraper";
+  } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error — check the App URL."; }
+};
+
 $("teslanow").onclick = () => {
   $("teslamsg").style.color = "#0b7a52";
   $("teslamsg").textContent = "Importing Tesla jobs… (~30s with descriptions)";
@@ -335,8 +416,22 @@ $("bulk").onclick = async () => {
   $("bulkmsg").style.color = "#0b7a52"; $("bulkmsg").textContent = "Reading jobs on the page…";
   let res;
   try {
-    const out = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: grabPageJobs });
-    res = out && out[0] && out[0].result;
+    // allFrames: pick up boards rendered inside iframes too (classic iCIMS, embeds);
+    // results come back one per frame — merge them, dedupe by url.
+    const out = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: grabPageJobs });
+    const frames = (out || []).map((o) => o && o.result).filter(Boolean);
+    const merged = [], seenU = new Set();
+    let how = "", sample = "", err = "";
+    for (const f of frames) {
+      if (f.error && !err) err = f.error;
+      for (const j of (f.jobs || [])) {
+        if (j.url && !seenU.has(j.url)) { seenU.add(j.url); merged.push(j); }
+      }
+      if (!how && f.how) how = f.how;
+      if (!sample && f.sample) sample = f.sample;
+    }
+    res = merged.length ? { jobs: merged, how: how, sample: sample } : { error: err || "No jobs found on this page." };
   } catch (e) {
     $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Couldn't read the page: " + e.message; return;
   }

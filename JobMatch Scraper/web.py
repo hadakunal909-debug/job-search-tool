@@ -991,6 +991,54 @@ def ext_bulk_jobs():
                           "added_urls": [k["url"] for k in kept][:500]}))
 
 
+@app.route("/api/ext/detect_board", methods=["POST", "OPTIONS"])
+def ext_detect_board():
+    """Extension -> 'can this site be scraped DAILY?' Runs the same detection chain as
+    ➕ Add board over the page URL plus candidates collected from the LIVE DOM (iframe
+    srcs + ATS-host links) — which catches JS-injected embeds that a server-side fetch
+    of the page would never see. Body: {token, url, candidates?, add?}. With add=true
+    the found board is saved to the boards table and joins the next scrape."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    page = (data.get("url") or "").strip()
+    det = None
+    if page:
+        det = (scraper.detect_board(page) or scraper.detect_jibe(page)
+               or scraper.detect_phenom(page) or scraper.detect_linked_ats(page))
+    if not det:
+        for c in (data.get("candidates") or [])[:10]:
+            if not isinstance(c, str):
+                continue
+            det = scraper.detect_board(c)          # candidates are ATS-looking URLs:
+            if not det and "jibeapply.com" in c:   # URL rules cover them; jibe needs a probe
+                det = scraper.detect_jibe(c)
+            if det:
+                break
+    if not det:
+        return _cors(jsonify({"ok": True, "found": False}))
+    burl, ats, name = det
+    if burl in {u for u, _, _ in scraper.SOURCES}:
+        return _cors(jsonify({"ok": True, "found": True, "ats": ats, "name": name,
+                              "builtin": True}))
+    try:
+        n = scraper.probe_board(burl, ats)
+    except Exception:
+        n = None
+    added = False
+    if data.get("add") and n:
+        try:
+            added = db.add_board(burl, ats, (data.get("name") or name), added_by=user)[0]
+        except Exception:
+            added = False
+    return _cors(jsonify({"ok": True, "found": True, "board_url": burl, "ats": ats,
+                          "name": name, "count": n, "added": added}))
+
+
 @app.route("/api/ext/jds", methods=["POST", "OPTIONS"])
 def ext_jds():
     """Extension -> attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled
