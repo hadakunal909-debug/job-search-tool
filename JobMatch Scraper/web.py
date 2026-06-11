@@ -966,7 +966,42 @@ def ext_bulk_jobs():
             db.add_jobs(kept)
         except Exception as e:
             return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
-    return _cors(jsonify({"ok": True, "added": len(kept), "scanned": scanned}))
+        get_jobs(force=True)                     # imported jobs show on the next feed load
+    # added_urls lets the extension follow up with JDs for just the new jobs
+    return _cors(jsonify({"ok": True, "added": len(kept), "scanned": scanned,
+                          "added_urls": [k["url"] for k in kept][:500]}))
+
+
+@app.route("/api/ext/jds", methods=["POST", "OPTIONS"])
+def ext_jds():
+    """Extension -> attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled
+    sites (Tesla) block our servers, so score_jobs can never fetch these JDs — but the
+    user's browser can, and without a stored JD the job scores 0% and hides below the
+    match slider. Token-auth; only urls already in the jobs table are accepted; text is
+    length-gated (too short = nav junk) and size-capped. Body: {token, jds: {url: text}}."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    if not _ext_user(data.get("token", "")):
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    jds = data.get("jds")
+    if not isinstance(jds, dict) or not jds:
+        return _cors(jsonify({"ok": False, "error": "No jds"})), 400
+    known = {j.get("url") for j in get_jobs()}
+    clean = {}
+    for u, txt in list(jds.items())[:200]:
+        if u in known and isinstance(txt, str) and len(txt.strip()) > 200:
+            clean[u] = txt.strip()[:12000]
+    if clean:
+        try:
+            db.update_jds(clean)
+        except Exception as e:
+            return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
+        get_jobs(force=True)                     # re-pull rows so the JDs are visible…
+        _score_cache.clear()                     # …and per-user scores recompute with them
+        _sponsor_cache.clear()
+    return _cors(jsonify({"ok": True, "stored": len(clean)}))
 
 
 if __name__ == "__main__":

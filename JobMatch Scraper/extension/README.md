@@ -22,6 +22,13 @@ Workday, or any company careers site.
   bot-wall), but *your* browser has already passed it — so the extension reads the full listing
   from inside the page and sends it to your **jobs feed**, run through the same entry-level /
   title / US filter as every scraped board. Let the careers page finish loading, then click it.
+- **Tesla AUTO-import (v1.1):** no clicking needed anymore. The extension runs the Tesla
+  import by itself **once a day** (background alarm, ~3 min after Chrome starts) and also
+  whenever you browse **tesla.com/careers** (throttled to once a day). It then fetches each
+  new job's **description**, so those jobs get a real match % instead of 0. The popup shows
+  the last run ("🤖 Tesla auto-import …") plus a **Run Tesla import now** button. If a
+  background run is blocked by the bot-wall, just open tesla.com/careers once — the visit
+  itself triggers the import.
 
 ## Notes
 - This logs jobs to your **tracker**; it does **not** fill out the company's application form.
