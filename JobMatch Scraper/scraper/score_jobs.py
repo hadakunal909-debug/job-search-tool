@@ -61,6 +61,31 @@ def jd_map_for(board_url, ats):
         d = scraper._get_json("https://api.ashbyhq.com/posting-api/job-board/%s" % slug)
         for j in d.get("jobs", []):
             out[j.get("jobUrl", "")] = j.get("descriptionPlain", "") or _text(j.get("descriptionHtml", ""))
+    elif ats == "adzuna":
+        # Adzuna's redirect pages often block our JD page-fetch, but its search API
+        # carries a (truncated) description per ad — far better than scoring against
+        # nothing. Reuses the same company query the scraper runs.
+        import os as _os
+        app_id, app_key = _os.environ.get("ADZUNA_APP_ID"), _os.environ.get("ADZUNA_APP_KEY")
+        company = board_url.split(":", 1)[1] if ":" in board_url else board_url
+        if app_id and app_key:
+            for page in range(1, 6):
+                try:
+                    data = scraper._get_json(
+                        "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
+                        params={"app_id": app_id, "app_key": app_key, "company": company,
+                                "what_or": "project program analyst coordinator operations implementation scrum consultant consulting",
+                                "results_per_page": 50, "content-type": "application/json"})
+                except Exception:
+                    break
+                results = data.get("results", [])
+                for j in results:
+                    u = j.get("redirect_url") or ""
+                    desc = _text(j.get("description") or "")
+                    if u and desc:
+                        out[u] = desc
+                if len(results) < 50 or page * 50 >= data.get("count", 0):
+                    break
     elif ats == "amazon":
         from urllib.parse import urlparse, parse_qs
         q = parse_qs(urlparse(board_url).query)
@@ -116,6 +141,8 @@ def _board_has_missing(board_url, ats, missing_urls):
     on the board slug / host), so we only bulk-fetch boards that can actually help."""
     if ats == "amazon":
         return any("amazon.jobs" in u for u in missing_urls)
+    if ats == "adzuna":
+        return any("adzuna.com" in u for u in missing_urls)
     slug = scraper._slug(board_url).lower()
     host = {"greenhouse": "greenhouse.io", "lever": "lever.co",
             "ashby": "ashbyhq.com"}.get(ats, "")
@@ -196,7 +223,7 @@ def main():
         #    covers the whole board, so try these first. Boards run concurrently.
         boards = scraper.SOURCES + scraper.custom_sources()
         bulk = [(b, a, c) for b, a, c in boards
-                if a in ("greenhouse", "lever", "ashby", "amazon")
+                if a in ("greenhouse", "lever", "ashby", "amazon", "adzuna")
                 and _board_has_missing(b, a, missing)]
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))
