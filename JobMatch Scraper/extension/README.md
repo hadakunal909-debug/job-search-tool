@@ -17,6 +17,11 @@ Workday, or any company careers site.
 - On any job posting, click the extension. It auto-detects the **job title** and **company**
   (you can tweak them), then **📌 Save to JobMatch** logs it to your **Applications** tab —
   status *applied*, today's date, and your **default résumé name** attached. Duplicates are ignored.
+- **Import all jobs on a page → feed:** on **tesla.com/careers/search**, the popup shows an
+  **Import all jobs on this page** button. Tesla's site blocks the server-side scraper (Akamai
+  bot-wall), but *your* browser has already passed it — so the extension reads the full listing
+  from inside the page and sends it to your **jobs feed**, run through the same entry-level /
+  title / US filter as every scraped board. Let the careers page finish loading, then click it.
 
 ## Notes
 - This logs jobs to your **tracker**; it does **not** fill out the company's application form.

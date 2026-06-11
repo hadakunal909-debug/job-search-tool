@@ -59,7 +59,7 @@
      data-sponsor="{{ j.sponsor_jd }}" data-capx="{{ '1' if j.cap_exempt else '' }}"
      data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
   <div class="cardtop">
-    <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img src="https://logo.clearbit.com/{{ j.company|logodomain }}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://www.google.com/s2/favicons?domain={{ j.company|logodomain }}&sz=64'"></div>
+    <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img class="logo-img" src="https://logo.clearbit.com/{{ j.company|logodomain }}" data-fallback="https://www.google.com/s2/favicons?domain={{ j.company|logodomain }}&sz=64" alt="" loading="lazy"></div>
     {% set ring_cls = 'ring-strong' if j.score>=55 else ('ring-good' if j.score>=42 else 'ring-low') %}
     {% set ring_off = (113.1 * (1 - j.score / 100))|round(1) %}
     <svg class="score-ring {{ ring_cls }}" width="46" height="46" viewBox="0 0 46 46" aria-label="{{ j.score }}% match">
@@ -74,7 +74,7 @@
     {% if j.cap_exempt %}<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">🎓 No lottery</span>{% endif %}
     {% if j.sponsor_jd=='blocked' %}<span class="nospon" title="{{ j.sponsor_reason }}">🚫 No sponsorship</span>{% elif j.sponsor_jd=='open' %}<span class="spon" title="{{ j.sponsor_reason }}">✅ Sponsors</span>{% endif %}</div>
   <div class="cardact">
-    <a class="btn primary sm" href="{{ j.url }}" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>
+    <a class="btn primary sm" href="{{ j.apply_url }}" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>
     <a class="btn sm" href="{{ url_for('tailor', url=j.url) }}">Tailor</a>
     <span class="spacer"></span>
     <form method="post" action="{{ url_for('action') }}" class="inline acts">

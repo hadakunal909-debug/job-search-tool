@@ -1,10 +1,17 @@
 name: Scrape jobs
 
 # Runs the scraper + scorer on a schedule and writes results to Supabase.
+# NOTE: the app lives in the "JobMatch Scraper/" subfolder (the repo root holds
+# sibling projects), so every run step works from that directory. This file must
+# stay at the repo root — GitHub only reads workflows from /.github/workflows/.
 on:
   schedule:
     - cron: "0 13 * * *"      # daily at 13:00 UTC (~8am ET). Times are UTC.
   workflow_dispatch: {}        # also run on demand from the Actions tab
+
+defaults:
+  run:
+    working-directory: JobMatch Scraper
 
 jobs:
   scrape:
@@ -24,8 +31,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          python scraper.py
-          python score_jobs.py
+          python -m scraper
+          python -m scraper.score_jobs
 
       - name: Email new-job alerts (dormant unless SMTP_* secrets are set)
         env:
@@ -37,4 +44,4 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
-        run: python notify.py
+        run: python -m scraper.notify

@@ -2,8 +2,10 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/bnrqpozr/Stemjobs
-    - /bin/cp -f web.py core.py db.py auth.py scraper.py passenger_wsgi.py requirements-cpanel.txt idf.json careers_us.md $DEPLOYPATH/
-    - /bin/cp -rf templates $DEPLOYPATH/
-    - /bin/cp -rf static $DEPLOYPATH/
+    - export SRC="JobMatch Scraper"
+    - /bin/cp -f "$SRC/web.py" "$SRC/core.py" "$SRC/db.py" "$SRC/auth.py" "$SRC/passenger_wsgi.py" "$SRC/requirements-cpanel.txt" "$SRC/idf.json" "$SRC/careers_us.md" $DEPLOYPATH/
+    - /bin/cp -rf "$SRC/scraper" $DEPLOYPATH/
+    - /bin/cp -rf "$SRC/templates" $DEPLOYPATH/
+    - /bin/cp -rf "$SRC/static" $DEPLOYPATH/
     - /bin/mkdir -p $DEPLOYPATH/tmp
     - /bin/touch $DEPLOYPATH/tmp/restart.txt

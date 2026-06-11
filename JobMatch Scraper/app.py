@@ -411,8 +411,8 @@ actions = st.session_state.actions
 
 if not jobs_all and nav not in ("🏢 Sponsor careers", "📄 My résumé", "➕ Add board"):
     where = "Supabase" if db.using_supabase() else "jobs.csv"
-    st.warning(f"No jobs found in {where}. Run `python scraper.py` and "
-               f"`python score_jobs.py`, then click **Reload**.")
+    st.warning(f"No jobs found in {where}. Run `python -m scraper` and "
+               f"`python -m scraper.score_jobs`, then click **Reload**.")
     st.stop()
 
 

@@ -46,6 +46,24 @@
     }
   }
 
+  // Company-logo fallback: Clearbit logo -> Google favicon if it fails to load. Done in JS
+  // (not an inline onerror= attribute) so the strict CSP can forbid inline handlers.
+  function wireLogoFallback(img) {
+    if (!img || img.getAttribute("data-fb-wired")) return;
+    img.setAttribute("data-fb-wired", "1");
+    function swap() {
+      img.removeEventListener("error", swap);                 // one-shot, no loop
+      var fb = img.getAttribute("data-fallback");
+      if (fb && img.getAttribute("src") !== fb) img.src = fb;
+    }
+    img.addEventListener("error", swap);
+    if (img.complete && img.naturalWidth === 0) swap();        // already failed before JS ran
+  }
+  function wireLogos(root) {
+    var imgs = (root || feed).querySelectorAll(".logo-img");
+    for (var i = 0; i < imgs.length; i++) wireLogoFallback(imgs[i]);
+  }
+
   function cards() { return feed.querySelectorAll(".card"); }
   function cardByUrl(u) { var l = cards(); for (var i = 0; i < l.length; i++) if (l[i].getAttribute("data-url") === u) return l[i]; return null; }
   function paint(card, status) {
@@ -151,13 +169,16 @@
     mUrl = card.getAttribute("data-url");
     var lg = card.querySelector(".logo");
     $("m-logo").innerHTML = lg ? lg.innerHTML : ""; $("m-logo").style.background = lg ? lg.style.background : "";
+    var mlImg = $("m-logo").querySelector(".logo-img");        // clone lost its handler; re-wire it
+    if (mlImg) { mlImg.removeAttribute("data-fb-wired"); wireLogoFallback(mlImg); }
     $("m-title").textContent = card.querySelector(".ctitle") ? card.querySelector(".ctitle").textContent : "";
     $("m-meta").textContent = card.querySelector(".cmeta") ? card.querySelector(".cmeta").textContent : "";
     $("m-chip").innerHTML = '<span class="skel skel-chip"></span>';
     $("m-skills").innerHTML = '<div class="skel-row"><span class="skel skel-tag"></span><span class="skel skel-tag"></span><span class="skel skel-tag" style="width:88px"></span></div>' +
       '<span class="skel skel-bar w75"></span><span class="skel skel-bar w55"></span>';
     $("m-jd").innerHTML = '<div class="loading-jd"><span class="spin"></span>Loading description…</div>';
-    $("m-apply").href = mUrl; $("m-tailor").href = "/tailor?url=" + encodeURIComponent(mUrl);
+    $("m-apply").href = /^https?:\/\//i.test(mUrl) ? mUrl : "#";   // never make a javascript: link clickable
+    $("m-tailor").href = "/tailor?url=" + encodeURIComponent(mUrl);
     syncModal(card.getAttribute("data-status") || "");
     modal.classList.add("open"); document.body.style.overflow = "hidden";
     fetch("/api/job?url=" + encodeURIComponent(mUrl)).then(function (r) { return r.json(); }).then(function (j) {
@@ -208,5 +229,6 @@
   }
 
   formatDates();
+  wireLogos();
   render(true);
 })();

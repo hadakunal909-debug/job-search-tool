@@ -14,7 +14,7 @@ App URL: **stemjobs.astrochakra.co** · Python app root: **`stemjobs`**
 `stemjobs` → Extract.
 
 The `stemjobs` folder must contain: `passenger_wsgi.py`, `web.py`, `core.py`, `db.py`,
-`auth.py`, `scraper.py`, `score_jobs.py`, `templates/`, `static/`, `requirements-cpanel.txt`,
+`auth.py`, `scraper/` (the whole package — includes `score_jobs.py`, `notify.py`), `templates/`, `static/`, `requirements-cpanel.txt`,
 `idf.json`, `careers_us.md`, `sponsors.txt`, `resume.txt`.
 
 ## 2. Create `.env` (credentials)
@@ -49,7 +49,7 @@ it's the `…/bin/activate` path with `activate` swapped for `python`, e.g.
 cPanel → **Cron Jobs** → add (e.g. daily 6:00 am):
 
 ```
-cd /home/USER/stemjobs && /home/USER/virtualenv/stemjobs/3.9/bin/python scraper.py >> scrape.log 2>&1 && /home/USER/virtualenv/stemjobs/3.9/bin/python score_jobs.py >> score.log 2>&1
+cd /home/USER/stemjobs && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper >> scrape.log 2>&1 && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper.score_jobs >> score.log 2>&1
 ```
 
 (`cd` first so `.env`, `idf.json`, etc. resolve. Replace `USER` and confirm the path.)

@@ -14,7 +14,7 @@ is optional — install it only if you add such a source.
 
 ## 2. Add your boards
 
-Open `scraper.py` and edit the `SOURCES` list near the top. Each entry is
+Open `scraper/__init__.py` and edit the `SOURCES` list near the top. Each entry is
 `(board_url, ats_type, company_name)`.
 
 Find a company's ATS from its careers-page URL:
@@ -33,7 +33,7 @@ working: a bad source never stops the run.
 ## 3. Run it by hand
 
 ```bash
-python scraper.py
+python -m scraper
 ```
 
 It prints what it found per source and the new matches, then appends them to
@@ -55,7 +55,7 @@ crontab -e
 ```
 Add one line (runs daily at 8am; use the full path to your folder and python):
 ```
-0 8 * * * cd /full/path/to/job-scraper && /usr/bin/python3 scraper.py >> log.txt 2>&1
+0 8 * * * cd /full/path/to/job-scraper && /usr/bin/python3 -m scraper >> log.txt 2>&1
 ```
 
 ### Windows — Task Scheduler
@@ -63,7 +63,7 @@ Add one line (runs daily at 8am; use the full path to your folder and python):
 2. Trigger: **Daily**, 8:00 AM.
 3. Action: **Start a program**.
    - Program/script: `python`
-   - Add arguments: `scraper.py`
+   - Add arguments: `-m scraper`
    - Start in: the full path to your job-scraper folder.
 4. Finish.
 
@@ -79,7 +79,7 @@ timer; commit `jobs.csv` back, or have it email you the new rows. A small VPS or
 PythonAnywhere works too.
 
 ## Files
-- `scraper.py` — the scraper (edit `SOURCES` here)
+- `scraper/` — the scraper package (edit `SOURCES` in `scraper/__init__.py`)
 - `requirements.txt` — dependencies
 - `jobs.csv` — created on first run; your growing master list
 - `sponsors.txt` — optional H1B sponsor names

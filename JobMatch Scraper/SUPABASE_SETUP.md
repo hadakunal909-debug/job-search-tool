@@ -63,8 +63,8 @@ This pushes your local `jobs.csv` + `user_jobs.json` into the `jobs` table. Re-r
 
 ## Daily use (unchanged commands, now cloud-backed)
 ```bash
-python scraper.py        # new jobs upserted into Supabase (deduped by url)
-python score_jobs.py     # match scores written to Supabase
+python -m scraper             # new jobs upserted into Supabase (deduped by url)
+python -m scraper.score_jobs  # match scores written to Supabase
 streamlit run app.py     # reads/writes Supabase; like/hide/applied persist in the cloud
 ```
 

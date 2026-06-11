@@ -1,5 +1,5 @@
 # H1B sponsor employer names (one per line). '#' lines are ignored.
-# SEED LIST — well-known frequent H1B sponsors + the companies in scraper.py SOURCES.
+# SEED LIST — well-known frequent H1B sponsors + the companies in scraper/__init__.py SOURCES.
 # This is just a starter so the sponsor flag works out of the box. For real coverage,
 # download DOL LCA data and run:  python build_sponsors.py <file.xlsx>
 # (That merges thousands of real sponsors into this file without losing these names.)
