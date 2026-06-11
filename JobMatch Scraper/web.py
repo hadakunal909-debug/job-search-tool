@@ -73,14 +73,16 @@ def _csp_nonce():
 
 
 # Resources the UI legitimately loads from off-site, kept here so the CSP stays readable:
-# Google Fonts (CSS from googleapis, font files from gstatic) + company logos (Clearbit,
-# with a Google-favicon fallback). Everything else is same-origin ('self').
+# Google Fonts (CSS from googleapis, font files from gstatic) + company logos (Google's
+# favicon service at www.google.com/s2/favicons, which 301-REDIRECTS to tN.gstatic.com —
+# CSP checks every hop of a redirect, so the gstatic wildcard must be allowed too).
+# Everything else is same-origin ('self').
 _CSP_TEMPLATE = (
     "default-src 'self'; "
     "script-src 'self' 'nonce-%s'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
-    "img-src 'self' data: https://logo.clearbit.com https://www.google.com; "
+    "img-src 'self' data: https://www.google.com https://*.gstatic.com; "
     "connect-src 'self'; "
     "form-action 'self'; "
     "object-src 'none'; "
@@ -115,6 +117,27 @@ _jobs_cache = {"rows": None, "at": 0}
 _score_cache = {}            # (username, resume_md5) -> {url: score}
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _SPONSOR_COUNTS = core.load_sponsor_counts()      # {} until sponsor_counts.json is built
+_resume_cache = {}           # username -> (resume_text, fetched_at)
+_RESUME_TTL = 60             # seconds; short so an edit in another worker shows up quickly
+
+
+def current_resume():
+    """The logged-in user's résumé text, from a short-lived in-process cache backed by
+    the DB. The résumé must NEVER ride in the session cookie: cookies cap at ~4 KB and
+    browsers silently DROP oversized ones — with a multi-KB résumé in the session, the
+    login cookie itself gets dropped and the user can't sign in at all."""
+    user = session.get("user")
+    if not user:
+        return ""
+    hit = _resume_cache.get(user)
+    if hit and time.time() - hit[1] < _RESUME_TTL:
+        return hit[0]
+    try:
+        txt = (db.get_user(user) or {}).get("resume", "") or ""
+    except Exception:
+        return hit[0] if hit else ""     # transient DB failure -> stale value over nothing
+    _resume_cache[user] = (txt, time.time())
+    return txt
 
 
 def sponsor_signal(job):
@@ -178,7 +201,8 @@ def _inject():
             "csp_nonce": getattr(g, "csp_nonce", "")}
 
 
-# --- company logo helpers (Clearbit logo by domain, with a letter-avatar fallback) ---
+# --- company logo helpers (Google favicon by domain, with a letter-avatar fallback;
+#     logo.clearbit.com is DEAD — Clearbit sunset the free logo API) ---
 _DOMAIN_MAP = {
     "affirm": "affirm.com", "airbnb": "airbnb.com", "alixpartners": "alixpartners.com",
     "amazon": "amazon.com", "anaplan": "anaplan.com", "aurora innovation": "aurora.tech",
@@ -276,8 +300,8 @@ def login():
         if rec and auth.verify_password(p, rec.get("password_hash", "")):
             _login_fails.pop(u, None)              # clear on success
             session.permanent = True
-            session["user"] = u
-            session["resume"] = rec.get("resume", "") or ""
+            session["user"] = u                    # résumé stays OUT of the cookie (size cap)
+            _resume_cache[u] = (rec.get("resume", "") or "", time.time())
             return redirect(_safe_next(request.args.get("next")) or url_for("feed"))
         if rec is not None:
             _login_fails.setdefault(u, []).append(time.time())
@@ -299,7 +323,7 @@ def feed():
     does tab/search/min-match filtering + actions with no page reloads. Falls back to
     plain server rendering when JS is off (all cards just show)."""
     user = session["user"]
-    resume = session.get("resume", "")
+    resume = current_resume()
     scores = user_scores(user, resume)
     try:
         statuses = db.get_user_statuses(user)
@@ -339,7 +363,7 @@ def api_job():
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
         return {"ok": False}, 404
-    resume = session.get("resume", "")
+    resume = current_resume()
     jd = job.get("jd", "") or ""
     if resume and jd:
         score, have, missing = core.skill_match(resume, jd, core.load_idf())
@@ -463,13 +487,13 @@ def resume():
         txt = request.form.get("resume", "")
         try:
             db.set_user_resume(session["user"], txt)
-            session["resume"] = txt
+            _resume_cache[session["user"]] = (txt, time.time())   # not the cookie (size cap)
             _score_cache.clear()
             flash("Saved ✓ Your match scores now reflect this résumé.")
         except Exception:
             flash("Couldn't save — try again.")
         return redirect(url_for("resume"))
-    return render_template("resume.html", resume=session.get("resume", ""))
+    return render_template("resume.html", resume=current_resume())
 
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
@@ -492,7 +516,7 @@ def tailor():
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
         return redirect(url_for("feed"))
-    resume = session.get("resume", "")
+    resume = current_resume()
     if resume and (job.get("jd") or ""):
         score, have, missing = core.skill_match(resume, job.get("jd", ""), core.load_idf())
     else:
@@ -517,7 +541,7 @@ def tailor_ai():
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
         return redirect(url_for("feed"))
-    resume = session.get("resume", "")
+    resume = current_resume()
     jd = job.get("jd", "") or ""
     if resume and jd:
         score, have, missing = core.skill_match(resume, jd, core.load_idf())
@@ -553,7 +577,7 @@ def api_tailor():
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
         return {"ok": False, "error": "Job not found."}, 404
-    resume = session.get("resume", "")
+    resume = current_resume()
     jd = job.get("jd", "") or ""
     if not resume:
         return {"ok": False, "error": "Add your résumé first (📄 My résumé), then tailor it here."}
