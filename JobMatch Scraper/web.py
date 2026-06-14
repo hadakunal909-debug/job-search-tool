@@ -27,7 +27,9 @@ from flask import (Flask, request, session, redirect, url_for,
 import core
 import db
 import auth
-import scraper
+# `scraper` is a heavy (~2000-line) module needed only by the add-board + extension routes,
+# so it's imported lazily inside those functions — keeping it off the hot feed path and out
+# of Passenger's cold-start import cost.
 
 app = Flask(__name__)
 
@@ -116,6 +118,8 @@ def _security_headers(resp):
 _jobs_cache = {"rows": None, "at": 0}
 _score_cache = {}            # (username, resume_md5) -> {url: score}
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
+_jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
+                              # jdmeta.json (built by the cron scorer) so cold renders skip recompute
 _SPONSOR_COUNTS = core.load_sponsor_counts()      # {} until sponsor_counts.json is built
 _EVERIFY_INDEX = core.load_everify()              # None until everify.txt is built
 _resume_cache = {}           # username -> (resume_text, fetched_at)
@@ -149,15 +153,37 @@ def sponsor_signal(job):
     return _sponsor_cache[u]
 
 
+_JOBS_TTL = 3600             # jobs change only on the daily scrape; force-refresh paths exist
+
+
 def get_jobs(force=False):
-    """All jobs from Supabase, cached ~5 min (or force-reloaded)."""
-    if force or _jobs_cache["rows"] is None or time.time() - _jobs_cache["at"] > 300:
+    """All jobs from Supabase, cached ~1 h (or force-reloaded). Jobs only change on the daily
+    cron scrape; /reload, add-board, and the extension endpoints force-refresh, so a long TTL
+    just avoids needless full-table re-fetches between scrapes."""
+    if force or _jobs_cache["rows"] is None or time.time() - _jobs_cache["at"] > _JOBS_TTL:
         try:
             _jobs_cache["rows"] = db.load_jobs() or []
         except Exception:
             _jobs_cache["rows"] = _jobs_cache["rows"] or []
         _jobs_cache["at"] = time.time()
     return _jobs_cache["rows"]
+
+
+def jd_meta(job, idf):
+    """JD-derived fields that are the SAME for every user (they depend only on the JD text):
+    the analyzed keyword/weight structure (to score against any résumé), the experience
+    floor + level, and the sponsorship signal. Computed once per URL and reused across all
+    users and renders — this is what stops the feed re-running regex/keyword work per row,
+    per request. Cleared on /reload and when JDs change via the extension."""
+    u = job.get("url") or ""
+    if u and u in _jdmeta:
+        return _jdmeta[u]
+    # Miss = a job added since the last cron score run; compute live with the SAME function
+    # the cron uses (core.job_meta) so persisted and live values agree, then cache it.
+    meta = core.job_meta(job.get("jd") or "", idf)
+    if u:                                  # don't cache a urlless / sample job under a "" key
+        _jdmeta[u] = meta
+    return meta
 
 
 def user_scores(username, resume):
@@ -167,6 +193,7 @@ def user_scores(username, resume):
     if key in _score_cache:
         return _score_cache[key]
     idf = core.load_idf()
+    resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
     scores = {}
     for j in get_jobs():
         u = j.get("url")
@@ -175,7 +202,7 @@ def user_scores(username, resume):
         jd = j.get("jd") or ""
         if resume and jd:
             try:
-                scores[u] = int(core.skill_match(resume, jd, idf)[0])
+                scores[u] = int(core.score_against(resume_low, jd_meta(j, idf)["analyzed"])[0])
             except Exception:
                 scores[u] = 0
         else:
@@ -333,14 +360,16 @@ def feed():
 
     rows = []
     counts = {"liked": 0, "applied": 0, "hidden": 0}
+    idf = core.load_idf()
     for j in get_jobs():
         u = j.get("url")
         st = statuses.get(u, "")
         if st in counts:
             counts[st] += 1
-        sv, sreason = sponsor_signal(j)
+        meta = jd_meta(j, idf)
+        sv, sreason = meta["sponsor_jd"]
         strength, scount = core.sponsor_strength(j.get("company", ""), _SPONSOR_COUNTS)
-        exp_y = core.experience_min_years(j.get("jd") or "")
+        exp_y = meta["exp_years"]
         rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
                      "location": j.get("location", ""), "url": u,
                      # safe value for the Apply href; the raw `url` stays the action key.
@@ -352,10 +381,20 @@ def feed():
                      "cap_exempt": core.is_cap_exempt(j.get("company", "")),
                      "everify": core.is_everify(j.get("company", ""), _EVERIFY_INDEX),
                      "exp_years": exp_y if exp_y is not None else "",
-                     "exp_level": core.experience_level(j.get("jd") or ""),
+                     "exp_level": meta["exp_level"],
                      "strength": strength, "strength_n": scount})
     rows.sort(key=lambda r: r["score"], reverse=True)
-    return render_template("feed.html", jobs=rows, has_resume=bool(resume),
+    # The page ships these rows as compact JSON and renders cards CLIENT-SIDE (only the
+    # visible slice), instead of emitting ~2,500 <article> nodes — far less HTML to transfer
+    # and far fewer DOM nodes to build. Add the few fields the Jinja card used via filters.
+    for r in rows:
+        c = r.get("company") or ""
+        r["date"] = (r.get("found_date") or "")[:10]
+        r["logo_domain"] = logodomain(c)
+        r["logo_color"] = logocolor(c)
+        r["initial"] = c[:1].upper() if c else "?"
+        r.pop("found_date", None)            # "date" replaces it; keep the JSON small
+    return render_template("feed.html", feed_rows=rows, has_resume=bool(resume),
                            total=len(rows), counts=counts, default_min=45 if resume else 0,
                            scraping=False)
 
@@ -370,16 +409,17 @@ def api_job():
         return {"ok": False}, 404
     resume = current_resume()
     jd = job.get("jd", "") or ""
+    meta = jd_meta(job, core.load_idf())
     if resume and jd:
-        score, have, missing = core.skill_match(resume, jd, core.load_idf())
+        score, have, missing = core.score_against(resume.lower(), meta["analyzed"])
     else:
         try:
             score = int(job.get("match_score") or 0)
         except Exception:
             score = 0
         have, missing = [], []
-    sv, sreason = core.sponsorship_from_jd(jd)
-    exp_y = core.experience_min_years(jd)
+    sv, sreason = meta["sponsor_jd"]
+    exp_y = meta["exp_years"]
     return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
             "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
             "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""), "score": int(score or 0),
@@ -414,6 +454,9 @@ def reload_jobs():
     get_jobs(force=True)
     _score_cache.clear()
     _sponsor_cache.clear()
+    _jdmeta.clear()
+    _jdmeta.update(core.load_jdmeta())       # re-pull the cron's latest precompute from disk
+    core._reset_idf_cache()
     flash("Reloaded jobs from the database.")
     return redirect(url_for("feed"))
 
@@ -525,8 +568,9 @@ def tailor():
     if not job:
         return redirect(url_for("feed"))
     resume = current_resume()
-    if resume and (job.get("jd") or ""):
-        score, have, missing = core.skill_match(resume, job.get("jd", ""), core.load_idf())
+    jd = job.get("jd") or ""
+    if resume and jd:
+        score, have, missing = core.score_against(resume.lower(), jd_meta(job, core.load_idf())["analyzed"])
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     return render_template("tailor.html", job=job, score=int(score or 0),
@@ -552,7 +596,7 @@ def tailor_ai():
     resume = current_resume()
     jd = job.get("jd", "") or ""
     if resume and jd:
-        score, have, missing = core.skill_match(resume, jd, core.load_idf())
+        score, have, missing = core.score_against(resume.lower(), jd_meta(job, core.load_idf())["analyzed"])
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     tailored, ai_err = "", ""
@@ -644,6 +688,7 @@ BOARDS_SQL = ("create table if not exists public.boards (\n"
 @app.route("/add", methods=["GET", "POST"])
 @login_required
 def add_board():
+    import scraper
     result = None
     if request.method == "POST":
         url = (request.form.get("url") or "").strip()
@@ -865,6 +910,7 @@ def profile():
 def ext_save():
     """Extension -> log a job to the tracker. Token-authenticated; CORS-open (the token
     is the secret). Deduped by URL."""
+    import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
         return _cors(app.make_response(("", 204)))
@@ -924,6 +970,7 @@ def ext_bulk_jobs():
     listings the page loaded, so the extension hands them to us. We apply the SAME
     title + US-location filter as the scraper, flag H1B sponsors, and de-dupe by URL —
     so a bulk import looks identical to a scraped board in the feed."""
+    import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
         return _cors(app.make_response(("", 204)))
@@ -1007,6 +1054,7 @@ def ext_detect_board():
     srcs + ATS-host links) — which catches JS-injected embeds that a server-side fetch
     of the page would never see. Body: {token, url, candidates?, add?}. With add=true
     the found board is saved to the boards table and joins the next scrape."""
+    import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
         return _cors(app.make_response(("", 204)))
@@ -1056,6 +1104,7 @@ def ext_jds():
     user's browser can, and without a stored JD the job scores 0% and hides below the
     match slider. Token-auth; only urls already in the jobs table are accepted; text is
     length-gated (too short = nav junk) and size-capped. Body: {token, jds: {url: text}}."""
+    import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
         return _cors(app.make_response(("", 204)))
@@ -1105,6 +1154,8 @@ def ext_jds():
         get_jobs(force=True)                     # re-pull rows so the new data is visible…
         _score_cache.clear()                     # …and per-user scores recompute with JDs
         _sponsor_cache.clear()
+        for _u in list(clean) + removed:         # only these JDs changed -> drop their stale meta
+            _jdmeta.pop(_u, None)
     return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches),
                           "removed_nonus": len(removed)}))
 
