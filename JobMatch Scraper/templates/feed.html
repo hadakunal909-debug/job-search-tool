@@ -36,6 +36,12 @@
       <option value="7">Past 7 days</option>
       <option value="30">Past 30 days</option>
     </select>
+    <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
+      <option value="any">Any experience</option>
+      <option value="2">Entry · ≤2 yrs</option>
+      <option value="5">≤5 yrs</option>
+      <option value="senior">Hide 6+ yrs</option>
+    </select>
     <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
       <input type="checkbox" id="hidenospon"> Hide no-sponsorship</label>
   </div>
@@ -57,6 +63,7 @@
 <article class="card" data-status="{{ j.status }}" data-score="{{ j.score }}" data-url="{{ j.url }}"
      data-date="{{ j.found_date[:10] if j.found_date else '' }}"
      data-sponsor="{{ j.sponsor_jd }}" data-capx="{{ '1' if j.cap_exempt else '' }}"
+     data-exp="{{ j.exp_years }}"
      data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
   <div class="cardtop">
     <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img class="logo-img" src="https://www.google.com/s2/favicons?domain={{ j.company|logodomain }}&sz=64" alt="" loading="lazy"></div>
@@ -72,6 +79,7 @@
   <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · <span class="posted" data-d="{{ j.found_date[:10] }}">{{ j.found_date[:10] }}</span>{% endif %}
     {% if j.sponsors_h1b=='yes' %}<span class="h1b" title="Company has sponsored H-1B before{% if j.strength %} · ~{{ j.strength_n }} filings{% endif %}">H1B{% if j.strength=='high' %} ⭐{% endif %}</span>{% endif %}
     {% if j.cap_exempt %}<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">🎓 No lottery</span>{% endif %}
+    {% if j.exp_years != '' %}<span class="exp {{ 'exp-hi' if j.exp_level=='senior' else ('exp-mid' if j.exp_level=='mid' else 'exp-lo') }}" title="The description asks for about {{ j.exp_years }}+ years of experience">{{ j.exp_years }}+ yrs</span>{% endif %}
     {% if j.sponsor_jd=='blocked' %}<span class="nospon" title="{{ j.sponsor_reason }}">🚫 No sponsorship</span>{% elif j.sponsor_jd=='open' %}<span class="spon" title="{{ j.sponsor_reason }}">✅ Sponsors</span>{% endif %}</div>
   <div class="cardact">
     <a class="btn primary sm" href="{{ j.apply_url }}" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>

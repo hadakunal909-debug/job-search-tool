@@ -339,6 +339,7 @@ def feed():
             counts[st] += 1
         sv, sreason = sponsor_signal(j)
         strength, scount = core.sponsor_strength(j.get("company", ""), _SPONSOR_COUNTS)
+        exp_y = core.experience_min_years(j.get("jd") or "")
         rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
                      "location": j.get("location", ""), "url": u,
                      # safe value for the Apply href; the raw `url` stays the action key.
@@ -348,6 +349,8 @@ def feed():
                      "score": scores.get(u, 0), "status": st,
                      "sponsor_jd": sv, "sponsor_reason": sreason,
                      "cap_exempt": core.is_cap_exempt(j.get("company", "")),
+                     "exp_years": exp_y if exp_y is not None else "",
+                     "exp_level": core.experience_level(j.get("jd") or ""),
                      "strength": strength, "strength_n": scount})
     rows.sort(key=lambda r: r["score"], reverse=True)
     return render_template("feed.html", jobs=rows, has_resume=bool(resume),
@@ -374,11 +377,13 @@ def api_job():
             score = 0
         have, missing = [], []
     sv, sreason = core.sponsorship_from_jd(jd)
+    exp_y = core.experience_min_years(jd)
     return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
             "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
             "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""), "score": int(score or 0),
             "sponsor_jd": sv, "sponsor_reason": sreason,
             "cap_exempt": core.is_cap_exempt(job.get("company", "")),
+            "exp_years": exp_y if exp_y is not None else "",
             "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}
 
 

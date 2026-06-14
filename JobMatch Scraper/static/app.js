@@ -8,6 +8,7 @@
       dateSel = document.getElementById("date"), countEl = document.getElementById("count"),
       emptyEl = document.getElementById("empty"), moreBtn = document.getElementById("loadmore"),
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
+      expSel = document.getElementById("exp"),
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 36, limit = PAGE;
 
@@ -89,6 +90,18 @@
     if (ok && searching) ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = c.getAttribute("data-date") || ""; if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && c.getAttribute("data-sponsor") === "blocked") ok = false;
+    // Experience filter: a job whose JD states no year count (data-exp="") is ALWAYS kept
+    // — lots of genuine entry roles never say "0-2 years", so we don't punish missing data.
+    if (ok && expSel && expSel.value !== "any") {
+      var ev = c.getAttribute("data-exp");
+      if (ev !== "" && ev != null) {
+        var yrs = parseInt(ev, 10);
+        if (!isNaN(yrs)) {
+          if (expSel.value === "senior") { if (yrs >= 6) ok = false; }
+          else if (yrs > (parseInt(expSel.value, 10) || 99)) ok = false;
+        }
+      }
+    }
     return ok;
   }
   function sortCards() {
@@ -131,6 +144,7 @@
   if (minR) minR.addEventListener("input", function () { if (minLab) minLab.textContent = minR.value; render(true); });
   if (sortSel) sortSel.addEventListener("change", function () { sortCards(); render(true); });
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
+  if (expSel) expSel.addEventListener("change", function () { render(true); });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
@@ -192,6 +206,11 @@
       if (j.missing && j.missing.length) sk += '<div class="sechdr">Add these to your résumé</div><div class="kw">' + j.missing.map(function (k) { return '<span class="tag miss">' + esc(k) + '</span>'; }).join("") + '</div>';
       if (j.have && j.have.length) sk += '<div class="sechdr">Skills you already match</div><div class="kw">' + j.have.map(function (k) { return '<span class="tag have">' + esc(k) + '</span>'; }).join("") + '</div>';
       var spn = "";
+      if (j.exp_years !== "" && j.exp_years != null) {
+        var ey = parseInt(j.exp_years, 10);
+        var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
+        spn += '<span class="exp ' + ec + '">' + ey + '+ yrs experience</span>';
+      }
       if (j.cap_exempt) spn += '<span class="cx">🎓 Likely cap-exempt — no H-1B lottery</span>';
       if (j.sponsor_jd === "blocked") spn += '<span class="nospon">🚫 ' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
       else if (j.sponsor_jd === "open") spn += '<span class="spon">✅ ' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
