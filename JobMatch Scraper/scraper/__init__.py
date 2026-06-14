@@ -141,6 +141,16 @@ EXTRA_BOARDS = [
     ("https://jobs.ashbyhq.com/deel",                           "ashby", "Deel"),
     # --- Added 2026-06-13 via detect_linked_ats on careers.point72.com ---
     ("https://job-boards.greenhouse.io/point72",                "greenhouse", "Point72"),
+    # --- Added 2026-06-13 (E-Verify major-employer sweep, find_everify_boards.py;
+    # each identity verified by sampling the board's real job titles). ---
+    ("https://jobs.smartrecruiters.com/CACI",                   "smartrecruiters", "CACI"),
+    ("https://jobs.smartrecruiters.com/AbbVie",                 "smartrecruiters", "AbbVie"),
+    ("https://jobs.smartrecruiters.com/Microchip",              "smartrecruiters", "Microchip"),
+    ("https://jobs.smartrecruiters.com/NorthwesternMutual",     "smartrecruiters", "Northwestern Mutual"),
+    ("https://job-boards.greenhouse.io/coinbase",               "greenhouse", "Coinbase"),
+    ("https://job-boards.greenhouse.io/roblox",                 "greenhouse", "Roblox"),
+    ("https://job-boards.greenhouse.io/cloudflare",             "greenhouse", "Cloudflare"),
+    ("https://job-boards.greenhouse.io/waymo",                  "greenhouse", "Waymo"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -207,6 +217,32 @@ WORKDAY_BOARDS = [
     ("https://iqvia.wd1.myworkdayjobs.com/IQVIA",                       "workday", "IQVIA"),
     ("https://westernunion.wd5.myworkdayjobs.com/WesternUnionJobs",     "workday", "Western Union"),
     ("https://nike.wd1.myworkdayjobs.com/nke",                          "workday", "Nike"),
+    # --- Added 2026-06-13 (E-Verify major-employer sweep): found via detect_linked_ats on
+    # the company's careers page, or a web-searched Workday tenant verified via probe_board
+    # (count shown). Big legit employers — no body-shops. ---
+    ("https://globalhr.wd5.myworkdayjobs.com/REC_RTX_Ext_Gateway",      "workday", "RTX"),                  # ~4215
+    ("https://geaerospace.wd5.myworkdayjobs.com/GE_ExternalSite",       "workday", "GE Aerospace"),         # ~569
+    ("https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS",           "workday", "Boeing"),               # ~1156
+    ("https://stryker.wd1.myworkdayjobs.com/StrykerCareers",            "workday", "Stryker"),              # ~1207
+    ("https://abbott.wd5.myworkdayjobs.com/abbottcareers",              "workday", "Abbott"),               # ~2000
+    ("https://zoetis.wd5.myworkdayjobs.com/zoetis",                     "workday", "Zoetis"),               # ~111
+    ("https://micron.wd1.myworkdayjobs.com/External",                   "workday", "Micron"),               # ~3061
+    ("https://kla.wd1.myworkdayjobs.com/Search",                        "workday", "KLA"),                  # ~798
+    ("https://usbank.wd1.myworkdayjobs.com/US_Bank_Careers",            "workday", "U.S. Bank"),            # ~1243
+    ("https://truist.wd1.myworkdayjobs.com/Careers",                    "workday", "Truist"),               # ~1082
+    ("https://td.wd3.myworkdayjobs.com/TD_Bank_Careers",                "workday", "TD Bank"),              # ~1524
+    ("https://target.wd5.myworkdayjobs.com/targetcareers",              "workday", "Target"),               # ~2000
+    ("https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers", "workday", "Palo Alto Networks"), # ~1447
+    ("https://jj.wd5.myworkdayjobs.com/JJ",                             "workday", "Johnson & Johnson"),    # ~1971
+    ("https://pfizer.wd1.myworkdayjobs.com/PfizerCareers",              "workday", "Pfizer"),               # ~683
+    ("https://medtronic.wd1.myworkdayjobs.com/medtroniccareers",        "workday", "Medtronic"),            # ~1077
+    ("https://ngc.wd1.myworkdayjobs.com/Northrop_Grumman_External_Site", "workday", "Northrop Grumman"),    # ~2884
+    ("https://intel.wd1.myworkdayjobs.com/External",                    "workday", "Intel"),                # ~670
+    ("https://bristolmyerssquibb.wd5.myworkdayjobs.com/BMS",            "workday", "Bristol Myers Squibb"), # ~823
+    ("https://amat.wd1.myworkdayjobs.com/External",                     "workday", "Applied Materials"),    # ~1920
+    ("https://capitalone.wd12.myworkdayjobs.com/Capital_One",           "workday", "Capital One"),          # ~1568
+    ("https://cat.wd5.myworkdayjobs.com/CaterpillarCareers",            "workday", "Caterpillar"),          # ~976
+    ("https://gilead.wd1.myworkdayjobs.com/gileadcareers",              "workday", "Gilead Sciences"),      # ~309
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -224,6 +260,10 @@ SF_BOARDS = [
     ("https://jobs.tenneco.com",          "successfactors", "Tenneco"),
     ("https://careers.westpharma.com",    "successfactors", "West Pharmaceutical"),
     ("https://careers.qorvo.com",         "successfactors", "Qorvo"),
+    # --- Added 2026-06-13 (E-Verify major-employer sweep) ---
+    ("https://jobs.bostonscientific.com",  "successfactors", "Boston Scientific"),   # ~638
+    ("https://jobs.paccar.com",            "successfactors", "Paccar"),              # ~86
+    ("https://jobs.netapp.com",            "successfactors", "NetApp"),              # ~271
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -264,6 +304,9 @@ ORACLE_BOARDS = [
      "oracle", "Cummins"),
     ("https://eofd.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001",
      "oracle", "Safeway"),
+    # --- Added 2026-06-13 (E-Verify major-employer sweep): Texas Instruments on Oracle (~467). ---
+    ("https://edbz.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX",
+     "oracle", "Texas Instruments"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -280,6 +323,10 @@ JIBE_BOARDS = [
     ("https://careers.docusign.com",       "jibe", "Docusign"),
     # Insight Global: one of the largest US IT-staffing H1B sponsors.
     ("https://careers.insightglobal.com",  "jibe", "Insight Global"),
+    # --- Added 2026-06-13 (E-Verify major-employer sweep): iCIMS/Jibe feeds w/ inline JDs. ---
+    ("https://careers.amd.com",          "jibe", "AMD"),            # ~1041
+    ("https://careers.pepsico.com",      "jibe", "PepsiCo"),        # ~2943
+    ("https://careers.generalmills.com", "jibe", "General Mills"),  # ~334
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
