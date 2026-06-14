@@ -301,20 +301,73 @@ def rippling_detail_jd(url):
         return ""
 
 
+import datetime
+
+
+def _parse_date_any(s):
+    """Best-effort 'whatever the page says' -> 'YYYY-MM-DD' ('' if unparseable).
+    Handles ISO, 'Jun 13, 2026', 'June 13, 2026', '06/13/2026', '13 Jun 2026', and
+    SuccessFactors' 'Sat Jun 13 02:00:00 UTC 2026'."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"\d{4}-\d{2}-\d{2}", s)
+    if m:
+        return m.group(0)
+    s2 = re.sub(r"\b(UTC|GMT|[A-Z]{3,4}T)\b", "", s).strip()   # drop tz token strptime chokes on
+    for fmt in ("%a %b %d %H:%M:%S %Y", "%b %d, %Y", "%B %d, %Y",
+                "%m/%d/%Y", "%d %b %Y", "%d %B %Y", "%b %d %Y"):
+        try:
+            return datetime.datetime.strptime(s2, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return ""
+
+
+def page_posted_date(soup):
+    """Pull a posting date from a job page's structured data: SuccessFactors'
+    [data-careersite-propertyid=date] / [itemprop=datePosted], or an embedded
+    schema.org JobPosting datePosted. Returns 'YYYY-MM-DD' or ''."""
+    el = soup.select_one("[data-careersite-propertyid=date]")
+    if el:
+        d = _parse_date_any(el.get_text(strip=True))
+        if d:
+            return d
+    el = soup.select_one("[itemprop=datePosted]")
+    if el:
+        d = _parse_date_any(el.get("content") or el.get_text(strip=True))
+        if d:
+            return d
+    for tag in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(tag.string or "")
+        except Exception:
+            continue
+        for it in (data if isinstance(data, list) else [data]):
+            if isinstance(it, dict) and it.get("@type") == "JobPosting":
+                d = _parse_date_any(str(it.get("datePosted") or ""))
+                if d:
+                    return d
+    return ""
+
+
 def microdata_jd(url):
     """Generic deep fallback: many career sites (incl. every SuccessFactors CSB job
     page) mark the JD up with schema.org microdata (itemprop=description) or embed a
-    JobPosting JSON-LD — both survive when nav noise would drown plain page text."""
+    JobPosting JSON-LD — both survive when nav noise would drown plain page text.
+    Returns (jd_text, posting_date) — the page often carries the date too, which the
+    list view (e.g. SAP) omits."""
     try:
         r = scraper._safe_get(url, timeout=20)
         if r.status_code != 200:
-            return ""
+            return "", ""
         soup = BeautifulSoup(r.text, "lxml")
+        date = page_posted_date(soup)
         el = soup.select_one("[itemprop=description]")
         if el:
             txt = el.get_text(" ", strip=True)
             if len(txt) > 200:
-                return re.sub(r"\s{2,}", " ", txt)
+                return re.sub(r"\s{2,}", " ", txt), date
         for tag in soup.find_all("script", type="application/ld+json"):
             try:
                 data = json.loads(tag.string or "")
@@ -325,15 +378,16 @@ def microdata_jd(url):
                 if isinstance(it, dict) and it.get("@type") == "JobPosting":
                     txt = _text(it.get("description") or "")
                     if len(txt) > 200:
-                        return txt
+                        return txt, date
+        return "", date
     except Exception:
-        return ""
-    return ""
+        return "", ""
 
 
 def detail_jd(url):
-    """JD for ONE job via its ATS detail endpoint, else scraping the posting page."""
-    jd = ""
+    """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
+    Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
+    jd, date = "", ""
     if "smartrecruiters.com" in url:
         jd = sr_detail_jd(url)
     if not jd and ("myworkdayjobs.com" in url or "myworkdaysite.com" in url):
@@ -351,10 +405,10 @@ def detail_jd(url):
     if not jd and _PHENOM_JOB_RE.match(url) and "/job/" in url:
         jd = phenom_detail_jd(url)
     if not jd:                                      # structured data beats page text
-        jd = microdata_jd(url)
+        jd, date = microdata_jd(url)
     if not jd:                                      # last resort: fetch the page
         jd = core.fetch_jd(url)
-    return url, jd
+    return url, jd, date
 
 
 def main():
@@ -367,12 +421,13 @@ def main():
     # 1) What do we already have? Stored JDs are reused (incremental); --full refetches.
     rows = db.load_jobs()
     row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
+    row_date = {r["url"]: (r.get("found_date") or "") for r in rows if r.get("url")}
     missing = {u for u, jd in row_jd.items() if not jd or full}
     print("%d jobs: %d JDs stored, %d to fetch%s."
           % (len(row_jd), len(row_jd) - len(missing), len(missing),
              " (--full refetch)" if full else ""))
 
-    fetched = {}
+    fetched, dates = {}, {}
     if missing:
         # 2) Bulk-fetch boards whose list API already includes the JD — one request
         #    covers the whole board, so try these first. Boards run concurrently.
@@ -407,9 +462,11 @@ def main():
         if missing:
             print("Detail-fetching %d remaining JD(s)..." % len(missing))
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                for u, jd in ex.map(detail_jd, sorted(missing)):
+                for u, jd, date in ex.map(detail_jd, sorted(missing)):
                     if jd:                  # a failed fetch must never blank a stored JD
                         fetched[u] = jd
+                    if date and not (row_date.get(u) or "").strip():
+                        dates[u] = date     # the page carried a posting date the list omitted
         row_jd.update(fetched)
 
     # 4) Build IDF over the whole JD corpus (so common terms count less), then score
@@ -424,11 +481,14 @@ def main():
     #    hundreds of unchanged multi-KB JDs is what used to reset the connection.
     db.update_scores(scores)
     db.update_jds(fetched)
+    if dates:                       # fill in real posting dates the list view omitted (e.g. SAP)
+        db.update_job_fields([{"url": u, "found_date": d} for u, d in dates.items()])
     if scores:
         vals = list(scores.values())
         where = "Supabase" if db.using_supabase() else "jobs.csv"
-        print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s) stored -> %s."
-              % (len(vals), sum(vals) // len(vals), max(vals), len(fetched), where))
+        print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s), %d date(s) -> %s."
+              % (len(vals), sum(vals) // len(vals), max(vals),
+                 len(fetched), len(dates), where))
 
 
 if __name__ == "__main__":

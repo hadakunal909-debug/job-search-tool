@@ -1396,9 +1396,12 @@ def scrape_pinpoint(board_url):
                           ((loc.get("city") or loc.get("name")), loc.get("province")) if x)
         if (j.get("workplace_type") or "") == "remote":
             loc_s = (loc_s + " (Remote)").strip()
-        rows.append({"title": (j.get("title") or "").strip(),
-                     "url": j.get("url") or "",
-                     "location": loc_s})
+        row = {"title": (j.get("title") or "").strip(),
+               "url": j.get("url") or "", "location": loc_s}
+        d = _posted(j.get("created_at"))             # only set when real (else main() stamps)
+        if d:
+            row["found_date"] = d
+        rows.append(row)
     return [r for r in rows if r["title"] and r["url"]]
 
 
