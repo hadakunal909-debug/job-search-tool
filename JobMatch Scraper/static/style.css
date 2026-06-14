@@ -91,6 +91,13 @@ textarea{resize:vertical}
 [data-theme="dark"] .chip.low{background:#262d29;color:#9aa39d}
 .chip.big{display:inline-block;font-size:18px;padding:10px 15px}
 .h1b{background:var(--blue-soft);color:var(--blue);font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;margin-left:6px;white-space:nowrap}
+.exp{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;margin-left:6px;white-space:nowrap}
+.exp-lo{background:#e7f3e7;color:#2f7d32}
+.exp-mid{background:#fdf3e0;color:#9a6a12}
+.exp-hi{background:#fdeaea;color:#b3382f}
+[data-theme="dark"] .exp-lo{background:#1f3320;color:#8fce92}
+[data-theme="dark"] .exp-mid{background:#34301c;color:#e0b75a}
+[data-theme="dark"] .exp-hi{background:#3a2222;color:#e88c84}
 .cardact{display:flex;align-items:center;gap:7px;margin-top:4px}
 .spacer{flex:1}
 .acts{display:inline-flex;gap:2px}

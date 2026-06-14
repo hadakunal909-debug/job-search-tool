@@ -439,16 +439,60 @@ def sponsor_strength(company, counts):
 # ------------------------------------------------------------
 # Experience requirement parsing (to keep only entry-level roles)
 # ------------------------------------------------------------
-_EXP_YEARS_RE = re.compile(r"(\d{1,2})\s*\+\s*years?", re.I)   # 'N+ years' (e.g. '5+ years')
+# A year mention: '5 years', '5+ years', '5-7 years', '5 to 7 years', '5 yrs'.
+# Group 1 = the FLOOR (the smaller number — what you actually need to qualify).
+_EXP_YEARS_RE = re.compile(
+    r"(\d{1,2})\s*(?:\+|(?:\s*(?:-|–|—|to)\s*\d{1,2})\s*\+?)?\s*(?:years?|yrs?)\b", re.I)
+# Words that mark a year-count as an EXPERIENCE requirement (vs. "5 years ago",
+# "5-year plan", a tenure/age figure, etc.). Checked just around the match.
+_EXP_CTX_RE = re.compile(
+    r"experien|\bexp\b|industry|professional|relevant|track record|"
+    r"working|in a .{0,25}\brole|of work|background|hands-on", re.I)
+_EXP_MIN_RE = re.compile(r"minimum|at\s+least|min\.?\b|no\s+less\s+than", re.I)
+
+
+def _experience_floors(text):
+    """Every experience-requirement floor (in years) stated in the text. A bare year
+    count only counts when an experience-ish word sits right next to it (so '10-key'
+    or '401k vesting after 3 years' don't masquerade as a requirement)."""
+    out = []
+    for m in _EXP_YEARS_RE.finditer(text or ""):
+        before = text[max(0, m.start() - 20):m.start()]
+        after = text[m.end():m.end() + 45]
+        if _EXP_CTX_RE.search(after) or _EXP_CTX_RE.search(before) or _EXP_MIN_RE.search(before):
+            n = int(m.group(1))
+            if n <= 20:                  # >20 is noise ('30 years combined', a tenure stat)
+                out.append(n)
+    return out
 
 
 def required_years(text):
-    """Best-effort: the highest 'N+ years ... experience' requirement mentioned in the
-    text (0 if none). Used to drop roles that demand more experience than you have."""
-    if not text:
-        return 0
-    yrs = [int(m.group(1)) for m in _EXP_YEARS_RE.finditer(text)]
-    return max(yrs) if yrs else 0
+    """The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to
+    hard-drop roles demanding more than MAX_YEARS where it has the JD (e.g. Amazon)."""
+    fl = _experience_floors(text)
+    return max(fl) if fl else 0
+
+
+def experience_min_years(text):
+    """The LOWEST experience requirement stated — i.e. the years you need to QUALIFY
+    ('3-5 years' -> 3, '5+ years' -> 5). None when the JD never states one (many genuine
+    entry-level posts don't). Powers the feed's experience filter / badge, so it leans
+    lenient: it answers 'what's the floor to be considered', not 'the most they'd want'."""
+    fl = _experience_floors(text)
+    return min(fl) if fl else None
+
+
+def experience_level(text):
+    """Coarse bucket for the feed filter: 'entry' (<=2 yrs or unstated-but-short),
+    'mid' (3-5), 'senior' (6+), or '' when the JD never states years."""
+    y = experience_min_years(text)
+    if y is None:
+        return ""
+    if y <= 2:
+        return "entry"
+    if y <= 5:
+        return "mid"
+    return "senior"
 
 
 # ------------------------------------------------------------
