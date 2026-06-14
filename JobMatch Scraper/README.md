@@ -9,26 +9,43 @@ H1B data, only sponsoring companies), and appends **new** jobs to `jobs.csv`.
 pip install -r requirements.txt
 ```
 
-That's all you need for Greenhouse/Lever boards. Playwright (for Workday/JS sites)
-is optional — install it only if you add such a source.
+That's all you need — every supported platform (including Workday) reads a public
+JSON/HTML feed via `requests`, so no headless browser is required.
 
 ## 2. Add your boards
 
 Open `scraper/__init__.py` and edit the `SOURCES` list near the top. Each entry is
 `(board_url, ats_type, company_name)`.
 
-Find a company's ATS from its careers-page URL:
+Find a company's ATS from its careers-page URL. The scraper reads a public JSON/HTML
+feed for **20 platform types** (no browser needed — Workday uses its CXS JSON API):
 
 | URL looks like | ats_type |
 |---|---|
 | `job-boards.greenhouse.io/SLUG` | `greenhouse` |
 | `jobs.lever.co/SLUG` | `lever` |
-| `...myworkdayjobs.com/...` | `workday` (needs Playwright) |
+| `jobs.ashbyhq.com/SLUG` | `ashby` |
+| `jobs.smartrecruiters.com/SLUG` | `smartrecruiters` |
+| `...myworkdayjobs.com/...` / `...myworkdaysite.com/...` | `workday` |
+| `...oraclecloud.com/.../sites/CX_...` | `oracle` |
+| `jobs.<co>.com/search/?q=` (SuccessFactors CSB) | `successfactors` |
+| `careers.<co>.com` (Phenom `/widgets`) | `phenom` |
+| `careers.<co>.com` (iCIMS/Jibe `/api/jobs`) | `jibe` |
+| `recruiting.ultipro.com/CO/JobBoard/GUID` | `ultipro` |
+| `<co>.bamboohr.com/careers` | `bamboohr` |
+| `<co>.pinpointhq.com` | `pinpoint` |
+| `ats.rippling.com/SLUG` | `rippling` |
+| `apply.workable.com/SLUG` | `workable` |
+| `<co>.recruitee.com` / `<co>.breezy.hr` / `<co>.jobs.personio.com` | `recruitee` / `breezy` / `personio` |
+| `adzuna:<Company>` (aggregator, for bot-walled sites) | `adzuna` |
 
-`SOURCES` ships with one verified live board (Boulevard) so your first run scrapes
-something real. Add your own boards and delete Boulevard when ready. A wrong or dead
-source just logs `FAIL` or `0` and the run keeps going — that's the error-isolation
-working: a bad source never stops the run.
+You usually don't pick the type by hand — paste any careers link into the **➕ Add
+board** view and the app's detect chain figures it out (and follows a marketing
+careers page's "view jobs" link to the real ATS behind it).
+
+`SOURCES` ships with ~175 verified live boards across the platform types above. A
+wrong or dead source just logs `FAIL` or `0` and the run keeps going — that's the
+error-isolation working: a bad source never stops the run.
 
 ## 3. Run it by hand
 

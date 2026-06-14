@@ -19,6 +19,7 @@ import os
 import csv
 import re
 import html
+import json
 import time
 import random
 import sys
@@ -86,6 +87,35 @@ def jd_map_for(board_url, ats):
                         out[u] = desc
                 if len(results) < 50 or page * 50 >= data.get("count", 0):
                     break
+    elif ats == "jibe":
+        # The /api/jobs feed carries each job's FULL description inline — one paged
+        # pass over the board covers every posting (no per-job detail calls).
+        from urllib.parse import urlparse
+        p = urlparse(board_url)
+        base = "%s://%s" % (p.scheme or "https", p.netloc)
+        for page in range(1, 21):
+            d = scraper._safe_get("%s/api/jobs?limit=100&page=%d" % (base, page),
+                                  timeout=25).json()
+            jobs = d.get("jobs") or []
+            for w in jobs:
+                j = w.get("data", w) or {}
+                u, desc = j.get("apply_url") or "", _text(j.get("description") or "")
+                if u and desc:
+                    out[u] = desc
+            total = d.get("totalCount") or d.get("count") or 0
+            if len(jobs) < 100 or page * 100 >= total:
+                break
+    elif ats == "pinpoint":
+        # postings.json carries description + responsibilities + skills inline.
+        d = scraper._get_json("https://%s.pinpointhq.com/postings.json"
+                              % scraper._sub(board_url))
+        for j in (d.get("data") or []):
+            u = j.get("url") or ""
+            jd = " ".join(_text(j.get(k) or "") for k in
+                          ("description", "key_responsibilities",
+                           "skills_knowledge_expertise", "benefits"))
+            if u and jd.strip():
+                out[u] = jd.strip()
     elif ats == "amazon":
         from urllib.parse import urlparse, parse_qs
         q = parse_qs(urlparse(board_url).query)
@@ -143,6 +173,14 @@ def _board_has_missing(board_url, ats, missing_urls):
         return any("amazon.jobs" in u for u in missing_urls)
     if ats == "adzuna":
         return any("adzuna.com" in u for u in missing_urls)
+    if ats == "jibe":
+        # Jibe rows store the APPLY url, whose host varies per tenant (icims.com,
+        # Oracle, ...) — there's no cheap URL test, and there are only a few jibe
+        # boards, so always re-read their feeds when anything at all is missing.
+        return True
+    if ats == "pinpoint":
+        host = scraper._sub(board_url).lower() + ".pinpointhq.com"
+        return any(host in u.lower() for u in missing_urls)
     slug = scraper._slug(board_url).lower()
     host = {"greenhouse": "greenhouse.io", "lever": "lever.co",
             "ashby": "ashbyhq.com"}.get(ats, "")
@@ -186,6 +224,113 @@ def workable_detail_jd(url):
         return ""
 
 
+_PHENOM_JOB_RE = re.compile(r"^(https?://[^/]+)/(?:[a-z]{2,6}/)?[a-z]{2}(?:_[a-z]{2})?/job/([^/?#]+)", re.I)
+
+
+def phenom_detail_jd(url):
+    """Phenom-native job pages ({origin}/us/en/job/{id}) — the jobDetail widget POST
+    returns the full description (the search feed only has a ~300-char teaser)."""
+    m = _PHENOM_JOB_RE.match(url)
+    if not m:
+        return ""
+    origin, jid = m.group(1), m.group(2)
+    try:
+        body = scraper._phenom_body(0, 1)
+        body.update({"ddoKey": "jobDetail", "jobId": jid,
+                     "pageName": "job-details", "pageId": "page-job-details"})
+        r = scraper._safe_post(origin + "/widgets", body, timeout=20)
+        if r.status_code != 200:
+            return ""
+        job = (((r.json() or {}).get("jobDetail") or {}).get("data") or {}).get("job") or {}
+        return _text(job.get("description") or "")
+    except Exception:
+        return ""
+
+
+def ultipro_detail_jd(url):
+    """UKG Pro: the OpportunityDetail page is a JS shell, but the full Description
+    rides inside its embedded JSON (so core.fetch_jd — which drops <script> — can't
+    see it; pull it out with a regex instead)."""
+    try:
+        r = scraper._safe_get(url, timeout=20)
+        if r.status_code != 200:
+            return ""
+        m = re.search(r'"Description"\s*:\s*"((?:[^"\\]|\\.)*)"', r.text)
+        return _text(json.loads('"%s"' % m.group(1))) if m else ""
+    except Exception:
+        return ""
+
+
+def bamboo_detail_jd(url):
+    """BambooHR: /careers/{id}/detail JSON carries the full description."""
+    try:
+        d = scraper._get_json(url.rstrip("/") + "/detail")
+        res = d.get("result") or {}
+        jo = res.get("jobOpening") if isinstance(res.get("jobOpening"), dict) else res
+        return _text((jo or {}).get("description") or "")
+    except Exception:
+        return ""
+
+
+def rippling_detail_jd(url):
+    """Rippling job pages are server-rendered Next.js; the posting (incl. description)
+    rides in __NEXT_DATA__. Shapes vary by tenant, so just take the longest
+    description-ish string anywhere in the blob."""
+    try:
+        r = scraper._safe_get(url, timeout=20)
+        if r.status_code != 200:
+            return ""
+        m = scraper._NEXT_DATA_RE.search(r.text)
+        if not m:
+            return ""
+        best = [""]
+
+        def walk(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if isinstance(v, str) and "description" in k.lower() and len(v) > len(best[0]):
+                        best[0] = v
+                    else:
+                        walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+        walk(json.loads(m.group(1)))
+        return _text(best[0])
+    except Exception:
+        return ""
+
+
+def microdata_jd(url):
+    """Generic deep fallback: many career sites (incl. every SuccessFactors CSB job
+    page) mark the JD up with schema.org microdata (itemprop=description) or embed a
+    JobPosting JSON-LD — both survive when nav noise would drown plain page text."""
+    try:
+        r = scraper._safe_get(url, timeout=20)
+        if r.status_code != 200:
+            return ""
+        soup = BeautifulSoup(r.text, "lxml")
+        el = soup.select_one("[itemprop=description]")
+        if el:
+            txt = el.get_text(" ", strip=True)
+            if len(txt) > 200:
+                return re.sub(r"\s{2,}", " ", txt)
+        for tag in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(tag.string or "")
+            except Exception:
+                continue
+            items = data if isinstance(data, list) else [data]
+            for it in items:
+                if isinstance(it, dict) and it.get("@type") == "JobPosting":
+                    txt = _text(it.get("description") or "")
+                    if len(txt) > 200:
+                        return txt
+    except Exception:
+        return ""
+    return ""
+
+
 def detail_jd(url):
     """JD for ONE job via its ATS detail endpoint, else scraping the posting page."""
     jd = ""
@@ -197,6 +342,16 @@ def detail_jd(url):
         jd = oracle_detail_jd(url)
     if not jd and "apply.workable.com" in url and "/j/" in url:
         jd = workable_detail_jd(url)
+    if not jd and "recruiting.ultipro.com" in url:
+        jd = ultipro_detail_jd(url)
+    if not jd and ".bamboohr.com/careers/" in url:
+        jd = bamboo_detail_jd(url)
+    if not jd and "ats.rippling.com" in url:
+        jd = rippling_detail_jd(url)
+    if not jd and _PHENOM_JOB_RE.match(url) and "/job/" in url:
+        jd = phenom_detail_jd(url)
+    if not jd:                                      # structured data beats page text
+        jd = microdata_jd(url)
     if not jd:                                      # last resort: fetch the page
         jd = core.fetch_jd(url)
     return url, jd
@@ -223,7 +378,8 @@ def main():
         #    covers the whole board, so try these first. Boards run concurrently.
         boards = scraper.SOURCES + scraper.custom_sources()
         bulk = [(b, a, c) for b, a, c in boards
-                if a in ("greenhouse", "lever", "ashby", "amazon", "adzuna")
+                if a in ("greenhouse", "lever", "ashby", "amazon", "adzuna",
+                         "jibe", "pinpoint")
                 and _board_has_missing(b, a, missing)]
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))
