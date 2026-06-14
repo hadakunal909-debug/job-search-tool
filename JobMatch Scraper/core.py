@@ -232,20 +232,41 @@ def build_idf(texts):
     return {term: round(math.log((n + 1) / (c + 1)) + 1.0, 4) for term, c in df.items()}
 
 
+# In-process memo for the default idf.json: it's large (tens of thousands of terms) and was
+# being re-read + re-parsed on every scoring pass and every detail/tailor open. Cache the
+# parsed dict once; _reset_idf_cache() lets a long-lived worker pick up a rebuilt file.
+_idf_cache = {"idf": None, "loaded": False}
+
+
+def _reset_idf_cache():
+    _idf_cache["idf"] = None
+    _idf_cache["loaded"] = False
+
+
 def save_idf(idf, path=_IDF_PATH):
     try:
         json.dump(idf, open(path, "w", encoding="utf-8"))
+        if path == _IDF_PATH:                 # keep the in-process cache in step with the file
+            _idf_cache["idf"] = idf
+            _idf_cache["loaded"] = True
     except Exception:
         pass
 
 
 def load_idf(path=_IDF_PATH):
+    # Only the default path is memoized; an explicit path always re-reads.
+    if path == _IDF_PATH and _idf_cache["loaded"]:
+        return _idf_cache["idf"]
+    idf = None
     if os.path.exists(path):
         try:
-            return json.load(open(path, encoding="utf-8"))
+            idf = json.load(open(path, encoding="utf-8"))
         except Exception:
-            return None
-    return None
+            idf = None
+    if path == _IDF_PATH:
+        _idf_cache["idf"] = idf
+        _idf_cache["loaded"] = True
+    return idf
 
 
 _REQ_HEADERS = ("minimum qualifications", "basic qualifications", "preferred qualifications",
@@ -286,11 +307,14 @@ ATS_KEYWORDS = {
 }
 
 
-def skill_match(resume_text, jd_text, idf=None):
-    """ATS-style match: score = weighted % of the JD's important keywords present in the
-    resume — hard skills / tools / certs and requirement-section terms weighted highest,
-    exactly how a keyword-screening ATS works. Returns (score, keywords_have, keywords_to_add)."""
-    resume_low = (resume_text or "").lower()
+def analyze_jd(jd_text, idf=None):
+    """The résumé-INDEPENDENT half of the ATS match: the JD's important keywords and each
+    one's weight. Depends only on the JD text, idf, the ATS keyword set, and the JD's
+    requirements section — NOT the résumé — so it can be computed once per job and reused
+    for every résumé and every page render.
+
+    Returns {"terms": [term, ...], "weight": {term: w}, "total": float}.
+    """
     jd_low = (jd_text or "").lower()
     req_low = _requirements_text(jd_text).lower()
 
@@ -298,7 +322,7 @@ def skill_match(resume_text, jd_text, idf=None):
     jd_terms = set(extract_keywords(jd_text, top_n=30))
     jd_terms |= {kw for kw in ATS_KEYWORDS if kw in jd_low}
     if not jd_terms:
-        return 0, [], []
+        return {"terms": [], "weight": {}, "total": 0.0}
 
     default_w = max(idf.values()) if idf else 1.0
 
@@ -310,10 +334,73 @@ def skill_match(resume_text, jd_text, idf=None):
             w *= 1.6
         return w
 
-    have = sorted((t for t in jd_terms if t in resume_low), key=lambda t: -wt(t))
-    missing = sorted((t for t in jd_terms if t not in resume_low), key=lambda t: -wt(t))
-    score = round(100.0 * sum(wt(t) for t in have) / (sum(wt(t) for t in jd_terms) or 1.0))
+    terms = list(jd_terms)           # freeze the set's iteration order ONCE (see score_against)
+    weight = {t: wt(t) for t in terms}
+    total = sum(weight[t] for t in terms)
+    return {"terms": terms, "weight": weight, "total": total}
+
+
+def score_against(resume_low, analyzed):
+    """The résumé-DEPENDENT half: which of the JD's weighted keywords appear in the résumé.
+    `resume_low` must already be lowercased. Returns (score, keywords_have, keywords_to_add).
+
+    Iterates the SAME `terms` list analyze_jd froze, so equal-weight sort ties keep their
+    order and the result is byte-identical to the original single-function skill_match."""
+    terms = analyzed["terms"]
+    if not terms:
+        return 0, [], []
+    weight = analyzed["weight"]
+    have = sorted((t for t in terms if t in resume_low), key=lambda t: -weight[t])
+    missing = sorted((t for t in terms if t not in resume_low), key=lambda t: -weight[t])
+    score = round(100.0 * sum(weight[t] for t in have) / (analyzed["total"] or 1.0))
     return score, have, missing
+
+
+def skill_match(resume_text, jd_text, idf=None):
+    """ATS-style match: score = weighted % of the JD's important keywords present in the
+    resume — hard skills / tools / certs and requirement-section terms weighted highest,
+    exactly how a keyword-screening ATS works. Returns (score, keywords_have, keywords_to_add).
+
+    Thin wrapper = score_against(resume, analyze_jd(jd)) so the hot paths can cache the
+    expensive JD-invariant half; numeric output is unchanged."""
+    return score_against((resume_text or "").lower(), analyze_jd(jd_text, idf))
+
+
+# ---- precomputed per-job metadata (jdmeta.json) -------------------------------------------
+# Everything about a job that's the SAME for every user (depends only on the JD text + idf):
+# the analyzed keyword/weight structure, the experience floor + level, and the sponsorship
+# signal. The cron scorer computes this once per job and writes jdmeta.json; the web app loads
+# it at boot, so a cold render (after a restart / reload) skips ALL the regex + keyword work —
+# including the expensive sponsorship scan — instead of recomputing it per request.
+JDMETA_PATH = "jdmeta.json"
+
+
+def job_meta(jd_text, idf=None):
+    """One job's résumé-INDEPENDENT, JSON-serializable metadata. Used BOTH by the cron scorer
+    (to build jdmeta.json) and by the web app on a cache miss — same function, so persisted
+    values and any live-computed ones always agree."""
+    return {"analyzed": analyze_jd(jd_text, idf),
+            "exp_years": experience_min_years(jd_text),
+            "exp_level": experience_level(jd_text),
+            "sponsor_jd": list(sponsorship_from_jd(jd_text))}
+
+
+def load_jdmeta(path=JDMETA_PATH):
+    """{url: job_meta} from disk, or {} if missing/unreadable (the web app then computes each
+    job's meta live — slower first render, but never broken)."""
+    if os.path.exists(path):
+        try:
+            return json.load(open(path, encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_jdmeta(meta, path=JDMETA_PATH):
+    try:
+        json.dump(meta, open(path, "w", encoding="utf-8"))
+    except Exception:
+        pass
 
 
 # ------------------------------------------------------------
@@ -322,8 +409,13 @@ def skill_match(resume_text, jd_text, idf=None):
 # for a visa candidate (no sponsorship, or it needs citizenship / a clearance / a
 # green card). We read that straight from the JD so those roles can be flagged/hidden.
 # ------------------------------------------------------------
+# Each entry carries the cheap substring "gate(s)" that MUST be present for its (expensive)
+# regex to have any chance of matching: every alternative in the pattern contains one of
+# these literals, so when none is present we can skip the regex entirely without changing
+# the verdict. This is the whole optimization — most JDs name none of these, so a single
+# .lower() + a few `in` checks replaces five full-text regex scans. (See sponsorship_from_jd.)
 _SPONSOR_BLOCK = [
-    ("no_sponsor", "JD says no visa sponsorship", re.compile(
+    ("no_sponsor", "JD says no visa sponsorship", ("sponsor",), re.compile(
         r"(?:will|are|is|can|do(?:es)?)?\s*(?:not|n't|unable|never)\b[^.]{0,40}\bsponsor"
         r"|\bno\b[^.]{0,15}\bsponsorship"
         r"|\bwithout[^.]{0,30}\bsponsorship"
@@ -331,16 +423,18 @@ _SPONSOR_BLOCK = [
         r"|\bnot[^.]{0,15}(?:offer|provide|consider)[^.]{0,15}sponsorship"
         r"|\bdo(?:es)? not (?:require|need)[^.]{0,20}sponsorship"
         r"|authoriz(?:ed|ation) to work[^.]{0,70}without[^.]{0,25}sponsor", re.I)),
-    ("citizen", "JD requires U.S. citizenship", re.compile(
+    ("citizen", "JD requires U.S. citizenship", ("citizen",), re.compile(
         r"\bmust be (?:a |an )?(?:u\.?s\.?\s*)?citizen"
         r"|\b(?:u\.?s\.?\s*)?citizenship\b[^.]{0,20}\b(?:is required|required|requirement|mandatory|only)"
         r"|\b(?:require[sd]?|requiring)\b.{0,25}?\bcitizenship", re.I)),
-    ("clearance", "JD requires a security clearance", re.compile(
+    ("clearance", "JD requires a security clearance",
+     ("clearance", "ts/sci", "top secret", "public trust"), re.compile(
         r"\b(?:security|government)\b[^.]{0,15}clearance"
         r"|\bactive[^.]{0,20}clearance"
         r"|\bts/sci\b|\btop secret\b|\bsecret clearance\b|\bpublic trust\b"
         r"|\bclearance (?:is )?(?:required|eligible|active)", re.I)),
-    ("greencard", "JD requires a green card / permanent residency", re.compile(
+    ("greencard", "JD requires a green card / permanent residency",
+     ("green card", "permanent residen"), re.compile(
         r"\b(?:green card|permanent residen(?:t|cy|ce))\b[^.]{0,25}(?:require|must|only|holder)"
         r"|must be (?:a )?(?:green card holder|permanent resident)", re.I)),
 ]
@@ -359,14 +453,20 @@ def sponsorship_from_jd(jd_text):
                   requires U.S. citizenship / a security clearance / a green card)
       'open'    = the JD explicitly offers visa sponsorship
       ''        = no clear signal (most postings)
-    Checks the 'blocked' phrasings first since those are the ones that waste your time."""
+    Checks the 'blocked' phrasings first since those are the ones that waste your time.
+
+    Each regex is gated behind a cheap substring test (a literal every one of its
+    alternatives must contain): ~70% of JDs mention none of these words, so they return
+    immediately instead of running five `[^.]{0,N}`-window regexes over the full text.
+    The regexes themselves are unchanged, so the verdict is identical to scanning always."""
     jd = jd_text or ""
     if not jd:
         return "", ""
-    for _cat, msg, rx in _SPONSOR_BLOCK:
-        if rx.search(jd):
+    low = jd.lower()
+    for _cat, msg, gates, rx in _SPONSOR_BLOCK:
+        if any(g in low for g in gates) and rx.search(jd):
             return "blocked", msg
-    if _SPONSOR_OPEN.search(jd):
+    if "sponsor" in low and _SPONSOR_OPEN.search(jd):
         return "open", "JD offers visa sponsorship"
     return "", ""
 

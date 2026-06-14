@@ -1,8 +1,16 @@
-// Feed: filter/sort/paginate + click-to-open job detail modal + toasts + no-reload actions.
+// Feed: data ships as compact JSON; we render only the visible slice of cards client-side
+// (instead of ~2,500 server-rendered <article> nodes), then filter/sort/paginate + open the
+// job-detail modal + no-reload actions. Far less HTML to transfer and far fewer DOM nodes.
 (function () {
   "use strict";
   var feed = document.getElementById("feed");
   if (!feed) return;
+  var DATA = [];
+  var dataEl = document.getElementById("feeddata");
+  try { DATA = JSON.parse(dataEl ? dataEl.textContent : "[]") || []; } catch (e) { DATA = []; }
+  var byUrl = {};
+  for (var di = 0; di < DATA.length; di++) byUrl[DATA[di].url] = DATA[di];
+
   var q = document.getElementById("q"), minR = document.getElementById("min"),
       minLab = document.getElementById("minlab"), sortSel = document.getElementById("sort"),
       dateSel = document.getElementById("date"), countEl = document.getElementById("count"),
@@ -10,9 +18,15 @@
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
       expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
       tabBtns = document.querySelectorAll(".tab");
-  var tab = "recommended", PAGE = 36, limit = PAGE;
+  var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
 
+  // textContent escape (safe in element text)
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+  // attribute-safe escape (also neutralizes quotes) — matches Jinja autoescaping
+  function H(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
   function scoreRing(s) {
     var cls = s >= 55 ? 'ring-strong' : s >= 42 ? 'ring-good' : 'ring-low';
     var off = (113.1 * (1 - s / 100)).toFixed(1);
@@ -47,54 +61,91 @@
     }
   }
 
-  // Company-logo fallback: if the favicon fails to load, try data-fallback once (when
-  // present), then hide the broken <img> so the colored letter-avatar behind it shows.
-  // Done in JS (not an inline onerror= attribute) so the strict CSP can forbid inline handlers.
+  // Company-logo fallback: if the favicon fails to load, hide the broken <img> so the
+  // colored letter-avatar behind it shows. In JS (not inline onerror=) so the CSP can
+  // forbid inline handlers.
   function wireLogoFallback(img) {
     if (!img || img.getAttribute("data-fb-wired")) return;
     img.setAttribute("data-fb-wired", "1");
     function fail() {
       var fb = img.getAttribute("data-fallback");
       if (fb && img.getAttribute("src") !== fb) { img.src = fb; return; }
-      img.style.display = "none";                              // let the letter avatar show
+      img.style.display = "none";
     }
     img.addEventListener("error", fail);
-    if (img.complete && img.naturalWidth === 0) fail();        // already failed before JS ran
+    if (img.complete && img.naturalWidth === 0) fail();
   }
   function wireLogos(root) {
     var imgs = (root || feed).querySelectorAll(".logo-img");
     for (var i = 0; i < imgs.length; i++) wireLogoFallback(imgs[i]);
   }
 
-  function cards() { return feed.querySelectorAll(".card"); }
-  function cardByUrl(u) { var l = cards(); for (var i = 0; i < l.length; i++) if (l[i].getAttribute("data-url") === u) return l[i]; return null; }
-  function paint(card, status) {
-    var like = card.querySelector('[data-act="liked"]'), app = card.querySelector('[data-act="applied"]');
-    if (like) like.textContent = (status === "liked") ? "Saved" : "Save";
-    if (app) app.textContent = (status === "applied") ? "Applied" : "Mark";
+  // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
+  function cardHTML(j) {
+    var st = j.status || "";
+    var badges = "";
+    if (j.sponsors_h1b === "yes")
+      badges += '<span class="h1b" title="Company has sponsored H-1B before' +
+        (j.strength ? ' &middot; ~' + (j.strength_n || 0) + ' filings' : '') + '">H1B' +
+        (j.strength === 'high' ? ' ⭐' : '') + '</span>';
+    if (j.cap_exempt)
+      badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">🎓 No lottery</span>';
+    if (j.everify)
+      badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov before relying on it.">✅ E-Verify</span>';
+    if (j.exp_years !== "" && j.exp_years != null) {
+      var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
+      badges += '<span class="exp ' + ec + '" title="The description asks for about ' + H(j.exp_years) +
+        '+ years of experience">' + H(j.exp_years) + '+ yrs</span>';
+    }
+    if (j.sponsor_jd === 'blocked')
+      badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">🚫 No sponsorship</span>';
+    else if (j.sponsor_jd === 'open')
+      badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">✅ Sponsors</span>';
+    var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '">' + H(j.date) + '</span>' : '';
+    var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
+    return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' +
+      '<div class="cardtop">' +
+        '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
+          '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
+          '&sz=64" alt="" loading="lazy"></div>' +
+        scoreRing(j.score || 0) +
+      '</div>' +
+      '<div class="ctitle">' + esc(j.title) + '</div>' +
+      '<div class="cmeta">' + esc(j.company) + ' · ' + esc(j.location || 'n/a') + posted + badges + '</div>' +
+      '<div class="cardact">' +
+        '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>' +
+        '<a class="btn sm" href="/tailor?url=' + encodeURIComponent(j.url) + '">Tailor</a>' +
+        '<span class="spacer"></span>' +
+        '<span class="acts">' +
+          '<button class="ico" data-act="liked" title="Save">' + (st === 'liked' ? 'Saved' : 'Save') + '</button>' +
+          '<button class="ico" data-act="applied" title="Mark applied">' + (st === 'applied' ? 'Applied' : 'Mark') + '</button>' +
+          '<button class="ico" data-act="hidden" title="Hide">' + (st === 'hidden' ? 'Hidden' : 'Hide') + '</button>' +
+        '</span>' +
+      '</div>' +
+    '</article>';
   }
 
   function dateCutoff() {
     if (!dateSel || dateSel.value === "any") return "";
     var d = new Date(); d.setDate(d.getDate() - parseInt(dateSel.value, 10)); return d.toISOString().slice(0, 10);
   }
-  function matches(c, cut) {
-    var st = c.getAttribute("data-status") || "", sc = parseInt(c.getAttribute("data-score"), 10) || 0, ok;
+  function matches(j, cut) {
+    var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
     if (tab === "liked") ok = st === "liked";
     else if (tab === "applied") ok = st === "applied";
     else if (tab === "hidden") ok = st === "hidden";
-    // An active SEARCH bypasses the min-match slider: if you typed "deloitte" you want
-    // to SEE Deloitte's jobs, not have them silently hidden because they score 40%.
+    // An active SEARCH bypasses the min-match slider: if you typed "deloitte" you want to
+    // SEE Deloitte's jobs, not have them hidden because they score 40%.
     else ok = (st !== "hidden") && (searching || sc >= (minR ? parseInt(minR.value, 10) || 0 : 0));
-    if (ok && searching) ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
-    if (ok && cut) { var dt = c.getAttribute("data-date") || ""; if (dt && dt < cut) ok = false; }
-    if (ok && hideNo && hideNo.checked && c.getAttribute("data-sponsor") === "blocked") ok = false;
-    if (ok && everifyOnly && everifyOnly.checked && c.getAttribute("data-everify") !== "1") ok = false;
-    // Experience filter: a job whose JD states no year count (data-exp="") is ALWAYS kept
-    // — lots of genuine entry roles never say "0-2 years", so we don't punish missing data.
+    if (ok && searching)
+      ok = ((j.title || "") + " " + (j.company || "")).toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
+    if (ok && cut) { var dt = j.date || ""; if (dt && dt < cut) ok = false; }
+    if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
+    if (ok && everifyOnly && everifyOnly.checked && !j.everify) ok = false;
+    // Experience filter: a job whose JD states no year count (exp_years "") is ALWAYS kept.
     if (ok && expSel && expSel.value !== "any") {
-      var ev = c.getAttribute("data-exp");
+      var ev = j.exp_years;
       if (ev !== "" && ev != null) {
         var yrs = parseInt(ev, 10);
         if (!isNaN(yrs)) {
@@ -105,32 +156,30 @@
     }
     return ok;
   }
-  function sortCards() {
-    var by = sortSel ? sortSel.value : "score", arr = Array.prototype.slice.call(cards());
-    arr.sort(function (a, b) {
-      if (by === "newest") return (b.getAttribute("data-date") || "").localeCompare(a.getAttribute("data-date") || "");
-      return (parseInt(b.getAttribute("data-score"), 10) || 0) - (parseInt(a.getAttribute("data-score"), 10) || 0);
-    });
-    var f = document.createDocumentFragment(); arr.forEach(function (c) { f.appendChild(c); }); feed.appendChild(f);
-  }
   function render(reset) {
     if (reset) limit = PAGE;
-    var cut = dateCutoff(), l = cards(), total = 0, shown = 0;
-    for (var i = 0; i < l.length; i++) {
-      if (matches(l[i], cut)) { total++; if (shown < limit) { l[i].style.display = ""; shown++; } else l[i].style.display = "none"; }
-      else l[i].style.display = "none";
+    var cut = dateCutoff(), matched = [];
+    for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
+    matched.sort(function (a, b) {
+      if (sortBy === "newest") return (b.date || "").localeCompare(a.date || "");
+      return (b.score || 0) - (a.score || 0);
+    });
+    var slice = matched.slice(0, limit), html = "";
+    for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
+    feed.innerHTML = html;
+    formatDates(); wireLogos();
+    if (countEl) countEl.textContent = matched.length;
+    if (emptyEl) emptyEl.style.display = matched.length ? "none" : "";
+    if (moreBtn) {
+      moreBtn.style.display = (matched.length > limit) ? "" : "none";
+      if (matched.length > limit) moreBtn.textContent = "Load more (" + (matched.length - limit) + " more)";
     }
-    if (countEl) countEl.textContent = total;
-    if (emptyEl) emptyEl.style.display = total ? "none" : "";
-    if (moreBtn) moreBtn.style.display = (total > limit) ? "" : "none";
-    if (moreBtn && total > limit) moreBtn.textContent = "Load more (" + (total - limit) + " more)";
   }
 
   function doAction(url, next) {
     return fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next }) })
       .then(function (r) { return r.json(); }).then(function (j) {
         if (!j || !j.ok) { toast("Couldn't save — try again."); return false; }
-        var c = cardByUrl(url); if (c) { c.setAttribute("data-status", next); paint(c, next); }
         return true;
       }).catch(function () { toast("Network error."); return false; });
   }
@@ -143,37 +192,34 @@
   });
   if (q) q.addEventListener("input", function () { render(true); });
   if (minR) minR.addEventListener("input", function () { if (minLab) minLab.textContent = minR.value; render(true); });
-  if (sortSel) sortSel.addEventListener("change", function () { sortCards(); render(true); });
+  if (sortSel) sortSel.addEventListener("change", function () { sortBy = sortSel.value; render(true); });
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
   if (expSel) expSel.addEventListener("change", function () { render(true); });
   if (everifyOnly) everifyOnly.addEventListener("change", function () { render(true); });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
-  // feed clicks: action buttons, or open modal
+  // feed clicks: action buttons, Apply auto-log, or open modal
   feed.addEventListener("click", function (e) {
     var btn = e.target.closest ? e.target.closest("button[data-act]") : null;
     if (btn) {
       e.preventDefault();
       var card = btn.closest(".card"); if (!card) return;
-      var act = btn.getAttribute("data-act"), cur = card.getAttribute("data-status") || "", next = (cur === act) ? "" : act;
+      var j = byUrl[card.getAttribute("data-url")]; if (!j) return;
+      var act = btn.getAttribute("data-act"), cur = j.status || "", next = (cur === act) ? "" : act;
       btn.disabled = true;
-      doAction(card.getAttribute("data-url"), next).then(function (ok) {
+      doAction(j.url, next).then(function (ok) {
         btn.disabled = false; if (!ok) return; toast(actLabel(next));
-        if (next === "hidden" && tab !== "hidden") { card.style.transition = "opacity .25s"; card.style.opacity = "0"; setTimeout(function () { card.style.opacity = ""; render(false); }, 250); }
-        else render(false);
+        j.status = next; render(false);
       });
       return;
     }
     var lnk = e.target.closest && e.target.closest("a");
     if (lnk) {                                                    // Apply/Tailor links open normally
       if (lnk.hasAttribute("data-apply")) {                      // clicking Apply auto-logs it
-        var ac = lnk.closest(".card");
-        if (ac && ac.getAttribute("data-status") !== "applied") {
-          doAction(ac.getAttribute("data-url"), "applied").then(function (ok) {
-            if (ok) { toast("Added to Applications"); render(false); }
-          });
-        }
+        var ac = lnk.closest(".card"), aj = ac && byUrl[ac.getAttribute("data-url")];
+        if (aj && aj.status !== "applied")
+          doAction(aj.url, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); aj.status = "applied"; render(false); } });
       }
       return;
     }
@@ -189,7 +235,7 @@
     mUrl = card.getAttribute("data-url");
     var lg = card.querySelector(".logo");
     $("m-logo").innerHTML = lg ? lg.innerHTML : ""; $("m-logo").style.background = lg ? lg.style.background : "";
-    var mlImg = $("m-logo").querySelector(".logo-img");        // clone lost its handler; re-wire it
+    var mlImg = $("m-logo").querySelector(".logo-img");
     if (mlImg) { mlImg.removeAttribute("data-fb-wired"); wireLogoFallback(mlImg); }
     $("m-title").textContent = card.querySelector(".ctitle") ? card.querySelector(".ctitle").textContent : "";
     $("m-meta").textContent = card.querySelector(".cmeta") ? card.querySelector(".cmeta").textContent : "";
@@ -197,9 +243,9 @@
     $("m-skills").innerHTML = '<div class="skel-row"><span class="skel skel-tag"></span><span class="skel skel-tag"></span><span class="skel skel-tag" style="width:88px"></span></div>' +
       '<span class="skel skel-bar w75"></span><span class="skel skel-bar w55"></span>';
     $("m-jd").innerHTML = '<div class="loading-jd"><span class="spin"></span>Loading description…</div>';
-    $("m-apply").href = /^https?:\/\//i.test(mUrl) ? mUrl : "#";   // never make a javascript: link clickable
+    $("m-apply").href = /^https?:\/\//i.test(mUrl) ? mUrl : "#";
     $("m-tailor").href = "/tailor?url=" + encodeURIComponent(mUrl);
-    syncModal(card.getAttribute("data-status") || "");
+    syncModal((byUrl[mUrl] && byUrl[mUrl].status) || "");
     modal.classList.add("open"); document.body.style.overflow = "hidden";
     fetch("/api/job?url=" + encodeURIComponent(mUrl)).then(function (r) { return r.json(); }).then(function (j) {
       if (!j || !j.ok) { $("m-jd").textContent = "Couldn't load details."; return; }
@@ -239,22 +285,19 @@
     modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
     $("m-like").addEventListener("click", function () {
-      var c = cardByUrl(mUrl), cur = c ? c.getAttribute("data-status") : "", next = cur === "liked" ? "" : "liked";
-      doAction(mUrl, next).then(function (ok) { if (ok) { toast(actLabel(next)); syncModal(next); render(false); } });
+      var j = byUrl[mUrl]; if (!j) return; var next = j.status === "liked" ? "" : "liked";
+      doAction(mUrl, next).then(function (ok) { if (ok) { toast(actLabel(next)); j.status = next; syncModal(next); render(false); } });
     });
     $("m-hide").addEventListener("click", function () {
-      var c = cardByUrl(mUrl), cur = c ? c.getAttribute("data-status") : "", next = cur === "hidden" ? "" : "hidden";
-      doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); closeModal(); render(false); } });
+      var j = byUrl[mUrl]; if (!j) return; var next = j.status === "hidden" ? "" : "hidden";
+      doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); j.status = next; closeModal(); render(false); } });
     });
-    $("m-apply").addEventListener("click", function () {          // Apply in the modal also auto-logs
-      var c = cardByUrl(mUrl);
-      if (c && c.getAttribute("data-status") !== "applied") {
-        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); syncModal("applied"); render(false); } });
-      }
+    $("m-apply").addEventListener("click", function () {
+      var j = byUrl[mUrl];
+      if (j && j.status !== "applied")
+        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); j.status = "applied"; syncModal("applied"); render(false); } });
     });
   }
 
-  formatDates();
-  wireLogos();
   render(true);
 })();

@@ -475,7 +475,16 @@ def main():
     core.save_idf(idf)
     print("Scoring %d jobs with IDF weighting (%d terms in corpus)..."
           % (len(row_jd), len(idf)))
-    scores = {u: core.skill_match(resume, jd, idf)[0] for u, jd in row_jd.items()}
+    # Compute each job's résumé-INDEPENDENT analysis ONCE, reuse it for the score, AND persist
+    # it to jdmeta.json so the web app never recomputes it at request time (kills cold-load
+    # regex/keyword work). score_against(resume, analyzed) == the old skill_match(resume, jd).
+    resume_low = resume.lower()
+    jdmeta, scores = {}, {}
+    for u, jd in row_jd.items():
+        m = core.job_meta(jd, idf)
+        jdmeta[u] = m
+        scores[u] = core.score_against(resume_low, m["analyzed"])[0]
+    core.save_jdmeta(jdmeta)
 
     # 5) Persist all scores, but upload only the JDs fetched THIS run — re-pushing
     #    hundreds of unchanged multi-KB JDs is what used to reset the connection.

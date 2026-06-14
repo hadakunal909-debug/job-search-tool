@@ -60,44 +60,9 @@
 </div>
 <div class="count"><span id="count">{{ total }}</span> of {{ total }} jobs</div>
 
-<div id="feed" class="feedgrid">
-{% for j in jobs %}
-<article class="card" data-status="{{ j.status }}" data-score="{{ j.score }}" data-url="{{ j.url }}"
-     data-date="{{ j.found_date[:10] if j.found_date else '' }}"
-     data-sponsor="{{ j.sponsor_jd }}" data-capx="{{ '1' if j.cap_exempt else '' }}"
-     data-exp="{{ j.exp_years }}" data-everify="{{ '1' if j.everify else '' }}"
-     data-text="{{ (j.title ~ ' ' ~ j.company)|lower }}">
-  <div class="cardtop">
-    <div class="logo" style="background:{{ j.company|logocolor }}">{{ (j.company[:1]|upper) if j.company else '?' }}<img class="logo-img" src="https://www.google.com/s2/favicons?domain={{ j.company|logodomain }}&sz=64" alt="" loading="lazy"></div>
-    {% set ring_cls = 'ring-strong' if j.score>=55 else ('ring-good' if j.score>=42 else 'ring-low') %}
-    {% set ring_off = (113.1 * (1 - j.score / 100))|round(1) %}
-    <svg class="score-ring {{ ring_cls }}" width="46" height="46" viewBox="0 0 46 46" aria-label="{{ j.score }}% match">
-      <circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-track)" stroke-width="4.5"/>
-      <circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-color)" stroke-width="4.5" stroke-dasharray="113.1" stroke-dashoffset="{{ ring_off }}" stroke-linecap="round" transform="rotate(-90 23 23)"/>
-      <text x="23" y="27" text-anchor="middle" font-size="10" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">{{ j.score }}%</text>
-    </svg>
-  </div>
-  <div class="ctitle">{{ j.title }}</div>
-  <div class="cmeta">{{ j.company }} · {{ j.location or 'n/a' }}{% if j.found_date %} · <span class="posted" data-d="{{ j.found_date[:10] }}">{{ j.found_date[:10] }}</span>{% endif %}
-    {% if j.sponsors_h1b=='yes' %}<span class="h1b" title="Company has sponsored H-1B before{% if j.strength %} · ~{{ j.strength_n }} filings{% endif %}">H1B{% if j.strength=='high' %} ⭐{% endif %}</span>{% endif %}
-    {% if j.cap_exempt %}<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">🎓 No lottery</span>{% endif %}
-    {% if j.everify %}<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov before relying on it.">✅ E-Verify</span>{% endif %}
-    {% if j.exp_years != '' %}<span class="exp {{ 'exp-hi' if j.exp_level=='senior' else ('exp-mid' if j.exp_level=='mid' else 'exp-lo') }}" title="The description asks for about {{ j.exp_years }}+ years of experience">{{ j.exp_years }}+ yrs</span>{% endif %}
-    {% if j.sponsor_jd=='blocked' %}<span class="nospon" title="{{ j.sponsor_reason }}">🚫 No sponsorship</span>{% elif j.sponsor_jd=='open' %}<span class="spon" title="{{ j.sponsor_reason }}">✅ Sponsors</span>{% endif %}</div>
-  <div class="cardact">
-    <a class="btn primary sm" href="{{ j.apply_url }}" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>
-    <a class="btn sm" href="{{ url_for('tailor', url=j.url) }}">Tailor</a>
-    <span class="spacer"></span>
-    <form method="post" action="{{ url_for('action') }}" class="inline acts">
-      <input type="hidden" name="url" value="{{ j.url }}">
-      <button class="ico" data-act="liked"   name="status" value="{{ '' if j.status=='liked'   else 'liked'   }}" title="Save">{{ 'Saved' if j.status=='liked' else 'Save' }}</button>
-      <button class="ico" data-act="applied" name="status" value="{{ '' if j.status=='applied' else 'applied' }}" title="Mark applied">{{ 'Applied' if j.status=='applied' else 'Mark' }}</button>
-      <button class="ico" data-act="hidden"  name="status" value="{{ '' if j.status=='hidden'  else 'hidden'  }}" title="Hide">{{ 'Hidden' if j.status=='hidden' else 'Hide' }}</button>
-    </form>
-  </div>
-</article>
-{% endfor %}
-</div>
+<div id="feed" class="feedgrid"></div>
+<script id="feeddata" type="application/json">{{ feed_rows|tojson }}</script>
+<noscript><p style="padding:16px">This jobs feed needs JavaScript enabled to display.</p></noscript>
 <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Min match</b>, clear search, or switch tabs.</div>
 <div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
 
