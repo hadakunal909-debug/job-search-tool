@@ -642,11 +642,12 @@ def add_board():
         name = (request.form.get("name") or "").strip()
         if url:
             det = (scraper.detect_board(url) or scraper.detect_jibe(url)
-                   or scraper.detect_phenom(url) or scraper.detect_linked_ats(url)
-                   or scraper.detect_jsonld(url))
+                   or scraper.detect_phenom(url) or scraper.detect_successfactors(url)
+                   or scraper.detect_linked_ats(url) or scraper.detect_jsonld(url))
             if not det:
                 result = ("err", "That isn't a readable job board (Greenhouse, Lever, Ashby, "
                           "SmartRecruiters, Workday, Oracle Cloud, Workable, Phenom, iCIMS/Jibe, "
+                          "SuccessFactors, UltiPro/UKG, BambooHR, Pinpoint, Rippling, "
                           "Recruitee, Breezy, Personio, or a page with embedded job data). "
                           "Add the company to sponsors.txt instead.")
             elif det[0] in {u for u, _, _ in scraper.SOURCES}:
@@ -1009,7 +1010,8 @@ def ext_detect_board():
     det = None
     if page:
         det = (scraper.detect_board(page) or scraper.detect_jibe(page)
-               or scraper.detect_phenom(page) or scraper.detect_linked_ats(page))
+               or scraper.detect_phenom(page) or scraper.detect_successfactors(page)
+               or scraper.detect_linked_ats(page))
     if not det:
         for c in (data.get("candidates") or [])[:10]:
             if not isinstance(c, str):

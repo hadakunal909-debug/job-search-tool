@@ -662,3 +662,6 @@ Cyient INC
 Kaar Technologies INC
 Smac Apps LLC
 V Soft Consulting Group INC
+Qorvo US INC
+West Pharmaceutical Services INC
+Fortinet INC

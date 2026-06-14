@@ -143,6 +143,8 @@ EXTRA_BOARDS = [
     # --- Added 2026-06-10: probe of the user's H1B LCA list (board names verified) ---
     ("https://job-boards.greenhouse.io/byd",                    "greenhouse", "BYD America"),
     ("https://jobs.ashbyhq.com/deel",                           "ashby", "Deel"),
+    # --- Added 2026-06-13 via detect_linked_ats on careers.point72.com ---
+    ("https://job-boards.greenhouse.io/point72",                "greenhouse", "Point72"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -185,6 +187,47 @@ WORKDAY_BOARDS = [
     # Accenture (2026-06-11): one of the largest H1B sponsors, period. Found behind
     # accenture.com/careers via the detect chain (~2k+ postings).
     ("https://accenture.wd103.myworkdayjobs.com/AccentureCareers",   "workday", "Accenture"),
+    # CVS Health (2026-06-12): jobs.cvshealth.com is a Phenom front-end whose apply
+    # links go to Workday — detect_phenom resolved it (~16k postings, incl. Aetna).
+    ("https://cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers",   "workday", "CVS Health"),
+    # --- Added 2026-06-13: major sponsors found by detect_linked_ats over their public
+    # careers pages (each followed a real "view jobs" link to its Workday board). ---
+    ("https://adobe.wd5.myworkdayjobs.com/external_experienced",        "workday", "Adobe"),
+    ("https://comcast.wd5.myworkdayjobs.com/Comcast_Careers",           "workday", "Comcast"),
+    ("https://expedia.wd108.myworkdayjobs.com/search",                  "workday", "Expedia Group"),
+    ("https://citi.wd5.myworkdayjobs.com/2",                            "workday", "Citigroup"),
+    ("https://ghr.wd1.myworkdayjobs.com/lateral-us",                    "workday", "Bank of America"),
+    ("https://amgen.wd1.myworkdayjobs.com/Careers",                     "workday", "Amgen"),
+    ("https://rsm.wd1.myworkdayjobs.com/RSMCareers",                    "workday", "RSM US"),
+    ("https://asurion.wd5.myworkdayjobs.com/AsurionCareers_US",         "workday", "Asurion"),
+    ("https://lendingclub.wd1.myworkdayjobs.com/External",              "workday", "LendingClub"),
+    ("https://directv.wd1.myworkdayjobs.com/Careers",                   "workday", "DirecTV"),
+    ("https://santander.wd3.myworkdayjobs.com/SantanderCareers",        "workday", "Santander"),
+    ("https://sabre.wd1.myworkdayjobs.com/SabreJobs",                   "workday", "Sabre"),
+    ("https://cigna.wd5.myworkdayjobs.com/cignacareers",                "workday", "Cigna"),
+    ("https://humana.wd5.myworkdayjobs.com/CenterWell_External_Career_Site", "workday", "Humana"),
+    ("https://elevancehealth.wd1.myworkdayjobs.com/ANT",               "workday", "Elevance Health"),
+    ("https://tmobile.wd1.myworkdayjobs.com/External",                  "workday", "T-Mobile"),
+    ("https://iqvia.wd1.myworkdayjobs.com/IQVIA",                       "workday", "IQVIA"),
+    ("https://westernunion.wd5.myworkdayjobs.com/WesternUnionJobs",     "workday", "Western Union"),
+    ("https://nike.wd1.myworkdayjobs.com/nke",                          "workday", "Nike"),
+]
+
+# SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
+# /search/?q= + /job/<slug>/<id>/ URLs). Server-rendered HTML — scrape_successfactors
+# parses the results table; detect_successfactors() network-probes pasted links.
+SF_BOARDS = [
+    # SAP America: top-30 H1B sponsor; global board, the US filter keeps US roles.
+    ("https://jobs.sap.com",              "successfactors", "SAP"),
+    # NTT DATA North America: major H1B sponsor (careers-inc = the US entity site).
+    ("https://careers-inc.nttdata.com",   "successfactors", "NTT DATA"),
+    # --- Added 2026-06-13: sponsors found on SuccessFactors CSB (probe of sponsors.txt) ---
+    ("https://jobs.deere.com",            "successfactors", "John Deere"),
+    ("https://jobs.bunge.com",            "successfactors", "Bunge"),
+    ("https://jobs.mcdonalds.com",        "successfactors", "McDonald's"),
+    ("https://jobs.tenneco.com",          "successfactors", "Tenneco"),
+    ("https://careers.westpharma.com",    "successfactors", "West Pharmaceutical"),
+    ("https://careers.qorvo.com",         "successfactors", "Qorvo"),
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -195,6 +238,8 @@ PHENOM_BOARDS = [
     ("https://careers.actalentservices.com", "phenom", "Actalent"),
     # BCG: top-tier consulting sponsor; careers.bcg.com is Phenom-native (~900 postings).
     ("https://careers.bcg.com", "phenom", "Boston Consulting Group"),
+    # Merck: top pharma H1B sponsor; jobs.merck.com is Phenom-native (~280 US postings).
+    ("https://jobs.merck.com", "phenom", "Merck"),
 ]
 
 # Oracle Cloud Recruiting (ORC) career sites — public recruitingCEJobRequisitions API.
@@ -210,6 +255,19 @@ ORACLE_BOARDS = [
     # Providence: large nonprofit health system (~1.9k postings; cap-exempt employer).
     ("https://evac.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
      "oracle", "Providence"),
+    # --- Added 2026-06-13 via detect_linked_ats on each company's careers page
+    # (identity verified by sampling JDs: e.g. edel/CX_2001 serves Fortinet, which
+    # acquired Lacework). JPMorgan + Safeway are top-volume H1B sponsors. ---
+    ("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001",
+     "oracle", "JPMorgan Chase"),                              # ~7,000 postings
+    ("https://ebcs.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Arcadis"),
+    ("https://edel.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001",
+     "oracle", "Fortinet"),
+    ("https://fa-espx-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Cummins"),
+    ("https://eofd.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001",
+     "oracle", "Safeway"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -220,6 +278,12 @@ JIBE_BOARDS = [
     # Mount Sinai (Icahn School of Medicine + hospital system): cap-exempt sponsor,
     # ~1.8k postings; apply links go to its Oracle site but the Jibe feed is cleaner.
     ("https://careers.mountsinai.org", "jibe", "Mount Sinai"),
+    # --- Added 2026-06-13 via detect_jibe over careers pages (the /api/jobs feed
+    # carries full inline JDs, so score_jobs gets descriptions for free). ---
+    ("https://careers.viasat.com",         "jibe", "Viasat"),
+    ("https://careers.docusign.com",       "jibe", "Docusign"),
+    # Insight Global: one of the largest US IT-staffing H1B sponsors.
+    ("https://careers.insightglobal.com",  "jibe", "Insight Global"),
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
@@ -274,10 +338,11 @@ ADZUNA_BOARDS = [
     ("adzuna:Capgemini",            "adzuna", "Capgemini"),
 ]
 
-# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Adzuna.
+# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
+# SuccessFactors + Adzuna.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
-           + ORACLE_BOARDS + PHENOM_BOARDS + ADZUNA_BOARDS)
+           + ORACLE_BOARDS + PHENOM_BOARDS + SF_BOARDS + ADZUNA_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -314,10 +379,17 @@ EXCLUDE = (
     "engineer", "developer", "designer", "scientist", "counsel", "attorney",
     "physician", "nurse", "account executive", "sales development", "sdr",
     # Trades / retail / hospitality — these sneak in via the early-career markers
-    # ("apprentice"/"trainee"): e.g. Tesla's "Apprentice Collision Technician".
+    # ("apprentice"/"trainee"/"entry level"): e.g. Tesla's "Apprentice Collision
+    # Technician" or Safeway's "Front End Entry Level".
     "technician", "technicien", "mechanic", "machinist", "welder", "electrician",
     "plumber", "detailer", "collision", "culinary", "chef", "barista", "advisor",
     "cashier", "janitor", "custodian",
+    # Grocery / retail floor roles (a single big grocery board — Safeway/Albertsons —
+    # otherwise floods the feed: 462 "Front End Entry Level" clerks in one run).
+    "front end", "courtesy clerk", "grocery", "deli", "bakery", "cake decorator",
+    "produce", "meat", "seafood", "stocker", "bagger", "checker", "store associate",
+    "retail associate", "sales associate", "sales representative", "merchandiser",
+    "stock clerk", "pharmacy graduate", "pharmacy intern", "warehouse associate",
 )
 
 # If sponsors.txt is loaded: True = DROP companies not on the list; False = keep
@@ -1140,6 +1212,258 @@ def scrape_workable(board_url):
     return rows
 
 
+# ---- UKG Pro Recruiting (UltiPro) — recruiting.ultipro.com/{CO}/JobBoard/{guid} ----
+def _ultipro_base(board_url):
+    """Normalize to https://recruiting.ultipro.com/{COMPANY}/JobBoard/{guid} (the two
+    path segments every UKG board URL starts with; anything after the guid is UI state)."""
+    m = re.search(r"(https://recruiting\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/"
+                  r"[0-9a-fA-F-]{36})", (board_url or ""), re.I)
+    return m.group(1) if m else ""
+
+
+ULTIPRO_PAGE = 50
+ULTIPRO_MAX_JOBS = 2000
+
+
+def _ultipro_body(top, skip):
+    """The LoadSearchResults POST body the board's own search sends (newest first)."""
+    return {"opportunitySearch": {"Top": top, "Skip": skip, "QueryString": "",
+                                  "OrderBy": [{"Value": "postedDateUtc",
+                                               "PropertyName": "PostedDate",
+                                               "Ascending": False}],
+                                  "Filters": []},
+            "matchCriteria": {"PreferredJobs": [], "Educations": [],
+                              "LicenseAndCertifications": [], "Skills": [],
+                              "hasNoLicenses": False, "SkippedSkills": []}}
+
+
+def scrape_ultipro(board_url):
+    """UKG Pro Recruiting (UltiPro) job boards via the public LoadSearchResults JSON
+    POST. Lots of mid-size US employers. The list rows carry a BriefDescription;
+    the full JD lives in the OpportunityDetail page (score_jobs handles that)."""
+    base = _ultipro_base(board_url)
+    if not base:
+        return []
+    rows, seen, skip = [], set(), 0
+    while skip < ULTIPRO_MAX_JOBS:
+        try:
+            r = _safe_post(base + "/JobBoardView/LoadSearchResults",
+                           _ultipro_body(ULTIPRO_PAGE, skip), timeout=25)
+        except ValueError:
+            break                                     # non-public host -> refuse (SSRF guard)
+        if r.status_code != 200 or "json" not in r.headers.get("content-type", "").lower():
+            break
+        d = r.json() or {}
+        opps = d.get("opportunities") or []
+        if not opps:
+            break
+        for o in opps:
+            oid = str(o.get("Id") or "")
+            if not oid or oid in seen:
+                continue
+            seen.add(oid)
+
+            def _code(v):                             # State/Country come as dicts OR strings
+                return (v.get("Code") or v.get("Name") or "") if isinstance(v, dict) else (v or "")
+            locs = []
+            for L in (o.get("Locations") or []):
+                ad = L.get("Address") or {}
+                loc = ", ".join(str(x) for x in
+                                (ad.get("City"), _code(ad.get("State")),
+                                 _code(ad.get("Country"))) if x)
+                if loc:
+                    locs.append(loc)
+            rows.append({"title": (o.get("Title") or "").strip(),
+                         "url": "%s/OpportunityDetail?opportunityId=%s" % (base, oid),
+                         "location": "; ".join(locs),
+                         "found_date": (str(o.get("PostedDate") or ""))[:10]})
+        skip += len(opps)
+        total = d.get("totalCount") or 0
+        if total and skip >= total:
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
+# ---- SAP SuccessFactors Career Site Builder (jobs.<co>.com style sites) ----
+CSB_MAX_ROWS = 2000
+
+
+def _csb_date(s):
+    """CSB job dates look like 'Jun 11, 2026' -> '2026-06-11' (best-effort)."""
+    try:
+        return datetime.datetime.strptime((s or "").strip(), "%b %d, %Y").strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def _csb_is_us(loc):
+    """CSB locations always carry an ISO country code: 'Lincoln, NE, US' /
+    'Walldorf, DE, 69190' / 'Bangalore, KA, IN, 562149'. A literal US token = US;
+    any other alpha-2 code = foreign. Decided HERE because the generic US filter
+    would read a German 'DE' or Indian 'IN' as Delaware/Indiana. One exception:
+    a 'City, ST' shape (state abbr as the LAST token, no zip after) stays US."""
+    toks = [t.strip().upper() for t in (loc or "").split(",") if t.strip()]
+    if "US" in toks or "USA" in toks:
+        return True
+    if toks and toks[-1] in US_STATE_ABBR and len(toks[-1]) == 2:
+        return True
+    return not any(len(t) == 2 and t.isalpha() for t in toks)   # no code at all -> unknown, keep
+
+
+def scrape_successfactors(board_url):
+    """SAP SuccessFactors 'Career Site Builder' career sites — the classic
+    jobs.<company>.com sites with /search/?q= and /job/<City>-<Title>-<id>/ URLs.
+    Server-rendered HTML results table (tr.data-row), 25 rows per page, paged with
+    &startrow=N. Unlocks employers (SAP, NTT DATA, many industrials/pharma) whose
+    SuccessFactors backend has no public JSON API."""
+    p = urlparse(board_url)
+    base = "%s://%s" % (p.scheme or "https", p.netloc)
+    rows, seen, startrow, total = [], set(), 0, None
+    while startrow < CSB_MAX_ROWS:
+        try:
+            r = _safe_get("%s/search/?q=&sortColumn=referencedate&sortDirection=desc"
+                          "&startrow=%d" % (base, startrow), timeout=25)
+        except ValueError:
+            break                                     # non-public host -> refuse (SSRF guard)
+        if r.status_code != 200:
+            break
+        soup = BeautifulSoup(r.text, "lxml")
+        trs = soup.select("tr.data-row")
+        if not trs:
+            break
+        if total is None:
+            m = re.search(r"Results\s+\d+\s*\S{0,3}\s*\d+\s+of\s+([\d,]+)", r.text)
+            total = int(m.group(1).replace(",", "")) if m else 0
+        added = 0
+        for tr in trs:
+            a = tr.select_one("a.jobTitle-link")
+            href = a.get("href") if a else None
+            if not a or not href:
+                continue
+            url = urljoin(base, href)
+            if url in seen:
+                continue
+            seen.add(url)
+            added += 1
+            locel = tr.select_one(".jobLocation")
+            dateel = tr.select_one(".jobDate")
+            loc = locel.get_text(strip=True) if locel else ""
+            if US_ONLY and not _csb_is_us(loc):
+                continue
+            rows.append({"title": a.get_text(strip=True), "url": url,
+                         "location": loc,
+                         "found_date": _csb_date(dateel.get_text(strip=True) if dateel else "")})
+        if not added:                                 # a page of pure repeats = the end
+            break
+        startrow += len(trs)
+        if total and startrow >= total:
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
+def scrape_bamboohr(board_url):
+    """BambooHR hosted careers: https://{slug}.bamboohr.com/careers/list (public JSON).
+    Needs the browser UA — the default python one gets a 403. Small-company ATS;
+    full JD per job at /careers/{id}/detail (score_jobs fetches it)."""
+    slug = _sub(board_url)
+    d = _get_json("https://%s.bamboohr.com/careers/list" % slug)
+    rows = []
+    for j in (d.get("result") or []):
+        jid = str(j.get("id") or "")
+        if not jid:
+            continue
+        loc = j.get("location") or {}
+        loc_s = (", ".join(str(x) for x in (loc.get("city"), loc.get("state")) if x)
+                 if isinstance(loc, dict) else str(loc))
+        if j.get("isRemote"):
+            loc_s = (loc_s + " (Remote)").strip()
+        rows.append({"title": (j.get("jobOpeningName") or "").strip(),
+                     "url": "https://%s.bamboohr.com/careers/%s" % (slug, jid),
+                     "location": loc_s})
+    return [r for r in rows if r["title"]]
+
+
+def scrape_pinpoint(board_url):
+    """Pinpoint: https://{slug}.pinpointhq.com/postings.json — the feed carries the
+    FULL description/responsibilities/skills inline (score_jobs reuses them as JDs)."""
+    d = _get_json("https://%s.pinpointhq.com/postings.json" % _sub(board_url))
+    rows = []
+    for j in (d.get("data") or []):
+        loc = j.get("location") or {}
+        loc_s = ", ".join(str(x) for x in
+                          ((loc.get("city") or loc.get("name")), loc.get("province")) if x)
+        if (j.get("workplace_type") or "") == "remote":
+            loc_s = (loc_s + " (Remote)").strip()
+        rows.append({"title": (j.get("title") or "").strip(),
+                     "url": j.get("url") or "",
+                     "location": loc_s})
+    return [r for r in rows if r["title"] and r["url"]]
+
+
+# ---- Rippling ATS — ats.rippling.com/{slug}/jobs (server-rendered Next.js) ----
+_NEXT_DATA_RE = re.compile(
+    r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>', re.S)
+
+
+def _rippling_jobposts(page_html):
+    """(items, totalPages) from the react-query cache embedded in a board page."""
+    m = _NEXT_DATA_RE.search(page_html or "")
+    if not m:
+        return [], 0
+    try:
+        d = json.loads(m.group(1))
+    except Exception:
+        return [], 0
+    for q in ((d.get("props", {}).get("pageProps", {}).get("dehydratedState") or {})
+              .get("queries") or []):
+        if "job-posts" in json.dumps(q.get("queryKey") or []):
+            data = (q.get("state") or {}).get("data") or {}
+            return (data.get("items") or []), (data.get("totalPages") or 0)
+    return [], 0
+
+
+def scrape_rippling(board_url):
+    """Rippling ATS boards. No public JSON API, but the board page is server-rendered
+    Next.js — each page's job list (20/page) rides in its __NEXT_DATA__ blob."""
+    m = re.search(r"ats\.rippling\.com/([^/?#]+)", board_url or "")
+    if not m:
+        return []
+    slug = m.group(1)
+    rows, seen = [], set()
+    for page in range(25):                            # 20/page -> up to 500 postings
+        try:
+            r = _safe_get("https://ats.rippling.com/%s/jobs?page=%d" % (slug, page),
+                          timeout=20)
+        except ValueError:
+            break
+        if r.status_code != 200:
+            break
+        items, total_pages = _rippling_jobposts(r.text)
+        if not items:
+            break
+        for it in items:
+            url = it.get("url") or ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            locs = []
+            for L in (it.get("locations") or []):
+                loc = ", ".join(str(x) for x in
+                                (L.get("city"), L.get("state"), L.get("country")) if x)
+                if (L.get("workplaceType") or "") == "REMOTE":
+                    loc = (loc + " (Remote)").strip().strip(",").strip()
+                if loc:
+                    locs.append(loc)
+            rows.append({"title": (it.get("name") or "").strip(), "url": url,
+                         "location": "; ".join(locs)})
+        if page + 1 >= (total_pages or 1):
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "lever": scrape_lever,
@@ -1156,6 +1480,11 @@ SCRAPERS = {
     "phenom": scrape_phenom,
     "oracle": scrape_oracle,
     "workable": scrape_workable,
+    "ultipro": scrape_ultipro,
+    "successfactors": scrape_successfactors,
+    "bamboohr": scrape_bamboohr,
+    "pinpoint": scrape_pinpoint,
+    "rippling": scrape_rippling,
 }
 
 
@@ -1236,6 +1565,22 @@ def detect_board(url):
         if slug:
             return ("https://apply.workable.com/%s" % slug, "workable", _name_from(slug))
 
+    if host == "recruiting.ultipro.com":
+        base = _ultipro_base(url)
+        if base:
+            return (base, "ultipro", _name_from(urlparse(base).path.split("/")[1]))
+
+    if host.endswith(".bamboohr.com"):
+        sub = host.split(".")[0]
+        return ("https://%s.bamboohr.com" % sub, "bamboohr", _name_from(sub))
+
+    if host.endswith(".pinpointhq.com"):
+        sub = host.split(".")[0]
+        return ("https://%s.pinpointhq.com" % sub, "pinpoint", _name_from(sub))
+
+    if host == "ats.rippling.com" and segs:
+        return ("https://ats.rippling.com/%s/jobs" % segs[0], "rippling", _name_from(segs[0]))
+
     return None
 
 
@@ -1306,6 +1651,32 @@ def detect_phenom(url):
         return None
 
 
+def detect_successfactors(url):
+    """Network probe for SAP SuccessFactors 'Career Site Builder' sites — custom
+    domains (jobs.<co>.com), so only the /search/ results-table markup gives them
+    away. Returns (origin, 'successfactors', name) when the table is present."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    p = urlparse(url)
+    base = "%s://%s" % (p.scheme, p.netloc)
+    try:
+        r = _safe_get(base + "/search/?q=&startrow=0", timeout=12)
+        if r.status_code != 200:
+            return None
+        soup = BeautifulSoup(r.text, "lxml")
+        if not soup.select_one("tr.data-row a.jobTitle-link"):
+            return None
+        host = p.netloc.split(":")[0]
+        parts = [x for x in host.split(".")
+                 if x not in ("www", "careers", "jobs", "career", "us")]
+        return (base, "successfactors", _name_from(parts[0]) if parts else host)
+    except Exception:
+        return None
+
+
 # URLs of scrapeable ATS platforms as they appear inside a company careers PAGE.
 # detect_linked_ats() fetches the page and follows the first of these it finds.
 _ATS_LINK_RE = re.compile(
@@ -1323,6 +1694,10 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.breezy\.hr
       | [a-z0-9-]+\.jobs\.personio\.com
       | [a-z0-9.-]+\.oraclecloud\.com/hcmUI/CandidateExperience[A-Za-z0-9_/.-]*/sites/[A-Za-z0-9_]+
+      | recruiting\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/[0-9a-fA-F-]{36}
+      | [a-z0-9-]+\.bamboohr\.com/careers
+      | [a-z0-9-]+\.pinpointhq\.com
+      | ats\.rippling\.com/[A-Za-z0-9_-]+
     )""", re.X | re.I)
 
 
@@ -1428,6 +1803,48 @@ def probe_board(board_url, ats_type):
                                   "finder": "findReqs;siteNumber=%s,limit=1,offset=0" % site})
             items = d.get("items") or []
             return items[0].get("TotalJobsCount") if items else None
+        if ats_type == "ultipro":
+            base = _ultipro_base(board_url)
+            if not base:
+                return None
+            r = _safe_post(base + "/JobBoardView/LoadSearchResults",
+                           _ultipro_body(1, 0), timeout=12)
+            return (r.json() or {}).get("totalCount") if r.status_code == 200 else None
+        if ats_type == "successfactors":
+            p = urlparse(board_url)
+            r = _safe_get("%s://%s/search/?q=&startrow=0" % (p.scheme or "https", p.netloc),
+                          timeout=12)
+            if r.status_code != 200:
+                return None
+            m = re.search(r"Results\s+\d+\s*\S{0,3}\s*\d+\s+of\s+([\d,]+)", r.text)
+            if m:
+                return int(m.group(1).replace(",", ""))
+            soup = BeautifulSoup(r.text, "lxml")
+            return len(soup.select("tr.data-row a.jobTitle-link")) or None
+        if ats_type == "bamboohr":
+            d = _get_json("https://%s.bamboohr.com/careers/list" % _sub(board_url))
+            return (d.get("meta") or {}).get("totalCount", len(d.get("result") or []))
+        if ats_type == "pinpoint":
+            return len(scrape_pinpoint(board_url))
+        if ats_type == "rippling":
+            m = re.search(r"ats\.rippling\.com/([^/?#]+)", board_url or "")
+            if not m:
+                return None
+            r = _safe_get("https://ats.rippling.com/%s/jobs" % m.group(1), timeout=15)
+            if r.status_code != 200:
+                return None
+            mm = _NEXT_DATA_RE.search(r.text)
+            if not mm:
+                return None
+            try:
+                d = json.loads(mm.group(1))
+                for q in ((d.get("props", {}).get("pageProps", {})
+                           .get("dehydratedState") or {}).get("queries") or []):
+                    if "job-posts" in json.dumps(q.get("queryKey") or []):
+                        return ((q.get("state") or {}).get("data") or {}).get("totalItems")
+            except Exception:
+                return None
+            return None
         if ats_type == "workable":
             return len(scrape_workable(board_url))
         if ats_type == "recruitee":
@@ -1546,7 +1963,8 @@ US_STATE_NAMES = {"alabama", "alaska", "arizona", "arkansas", "california", "col
     "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont", "virginia",
     "washington", "west virginia", "wisconsin", "wyoming"}
 # Common non-US signals (countries, regions, and big non-US tech hubs).
-NON_US = {"india", "united kingdom", " uk", "canada", "ireland", "germany", "france",
+# Matched as WHOLE WORDS via _NON_US_RE below (never substrings).
+NON_US = {"india", "united kingdom", "uk", "canada", "ireland", "germany", "france",
     "spain", "portugal", "netherlands", "poland", "romania", "ukraine", "singapore",
     "australia", "new zealand", "japan", "china", "hong kong", "taiwan", "korea",
     "philippines", "vietnam", "indonesia", "malaysia", "thailand", "brazil", "mexico",
@@ -1563,6 +1981,13 @@ NON_US = {"india", "united kingdom", " uk", "canada", "ireland", "germany", "fra
 
 _STATE_ABBR_RE = re.compile(r",\s*([A-Za-z]{2})\b")
 
+# Whole-word matcher for the NON_US list. Substring matching burned us: 'india' is
+# inside 'Indianapolis', so every Indianapolis job was silently dropped (found
+# 2026-06-12). Word boundaries also let bare 'UK' match at the start of a string.
+_NON_US_RE = re.compile(
+    r"\b(?:%s)\b" % "|".join(sorted((re.escape(t.strip()) for t in NON_US),
+                                    key=len, reverse=True)))
+
 
 def is_us_location(loc):
     """Heuristic: True if the location looks US-based. Unknown/blank -> kept."""
@@ -1571,7 +1996,7 @@ def is_us_location(loc):
     low = loc.lower()
     if re.search(r"\b\d+\s+locations?\b|multiple locations?", low):
         return True                                 # bare 'N Locations' count -> unknown, keep
-    if any(tok in low for tok in NON_US):           # explicit non-US signal -> drop
+    if _NON_US_RE.search(low):                      # explicit non-US signal -> drop
         return False
     if "united states" in low or "usa" in low or "u.s." in low:
         return True
