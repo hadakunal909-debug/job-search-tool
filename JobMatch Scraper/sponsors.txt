@@ -142,7 +142,6 @@ University of Colorado Denver
 Regeneron Pharmaceuticals
 University of South Carolina
 Arcadis
-Iris Software
 Linea Labs
 Infogain
 Visionet Systems
@@ -240,7 +239,6 @@ Quanta Technology
 California State University Fullerton
 VRN Technologies
 Montclair State University
-Global IT Investors
 Sam Houston State University
 Q2
 Ivy Enterprises
@@ -275,7 +273,6 @@ DataSync
 Berkley Insurance
 Sunrise Futures
 University of Tulsa
-Vsquare Infotech
 Karma Automotive
 YipitData
 Plymouth Rock
@@ -291,7 +288,6 @@ College of Charleston
 Sana Biotechnology
 Lacework
 Dassault Systemes
-Infobahn Softworld
 Sungrow
 MetaHorizon
 Seohan-NTN Driveshaft
@@ -425,7 +421,6 @@ Pure Storage
 Ameriprise Financial
 United Services Automobile Association
 Joby Aero
-Skilltune Technologies
 Mcdonalds
 Zurich American Insurance
 Wayfair
@@ -434,7 +429,6 @@ The Depository Trust & Clearing
 
 # --- Level-I DOL H1B sponsors (entry-level wage tier; added 2026-06-06) ---
 Grandison Management
-People Tech Group
 Ut Southwestern Medical Center
 Harvard University
 University of Wisconsin System
@@ -472,7 +466,6 @@ The University of Alabama at Birmingham
 Virtual Reality Technologies
 Nysarc INC Essex County Chapter
 The University of Texas at Austin
-Edu Infotech International Resources
 Board of Regents of the University of Nebraska
 Virginia Polytechnic Institute & State University
 Nyu Grossman School of Medicine
@@ -496,7 +489,6 @@ University of California Los Angeles
 St Jude Childrens Research Hospital
 Texas Tech University
 Artifint Technologies
-Robotics Staffing
 University of Maryland Baltimore
 Trustees of Boston University
 District of Columbia Public Schools
@@ -520,7 +512,6 @@ University of Texas Health Science Center at San Antonio
 Georgetown University
 University of Notre Dame Du Lac
 Little Scholars of Arkansas
-Federal Soft Systems
 University of Texas Medical Branch
 The University of Texas at Dallas
 The University of Tennessee
@@ -542,8 +533,6 @@ The Broad Institute
 Virginia Commonwealth University
 University of New Mexico
 University of North Texas
-Sri Tech Solutions
-Tech Tammina
 Virtusa
 University of Georgia
 Dallas Independent School District
@@ -594,18 +583,15 @@ Saransh INC
 Persistent Systems Limited
 Birlasoft INC
 Drim Commerce LLC
-Schrill Technologies INC
 American Technology Consulting LLC
 Eight Eleven Group LLC
 Cloudeqs LLC
 Elemica INC
 Populus Group LLC
 Advanced Analytics LLC
-1six Technologies INC
 Congensys CORP
 Hexaware Technologies INC
 Nagarro INC
-Pyramid Technology Solutions INC
 Lgc Global INC
 Mobicloud LLC
 Havas Pr North America INC
@@ -633,7 +619,6 @@ Cast Software INC
 Hendrickson USA LLC
 Intelligent Automation Technology INC
 Ideagen INC
-Rk Infotech LLC
 Actalent Services LLC
 Deel Us LLC
 Providence Medical Foundation
@@ -641,22 +626,13 @@ Tigo Energy Mergeco INC Fka Tigo Energy INC
 Abebe Westside LLC
 Amr Management Consultants LLC
 Icahn School of Medicine at Mount Sinai
-Ls Solutions INC
 Flowserve Us Company
-Kani Solutions INC
 Blue Spire INC
-Donegal Office Solutions INC
 Fortanix INC
 Informa Markets Medica LLC
-Digitalbytes INC
 Enterprise Solution Partners LLC
-Synovasoft INC
-Vistaltech INC
 Holtec International
-Kelith Group INC
 Byd America LLC
-Datasys Consulting & Software INC
-Meritore Technologies LLC
 Victoriam & CO Americas CORP
 Cyient INC
 Kaar Technologies INC

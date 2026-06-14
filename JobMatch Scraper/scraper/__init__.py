@@ -124,22 +124,18 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/samsungresearchamerica", "greenhouse", "Samsung Research America"),
     ("https://jobs.lever.co/saviynt",                       "lever", "Saviynt"),
     ("https://jobs.lever.co/weride",                        "lever", "WeRide"),
-    ("https://jobs.smartrecruiters.com/IrisSoftware",       "smartrecruiters", "Iris Software"),
     ("https://jobs.smartrecruiters.com/LegendBiotech",      "smartrecruiters", "Legend Biotech"),
     ("https://jobs.smartrecruiters.com/TurnerConstruction", "smartrecruiters", "Turner Construction"),
     ("https://jobs.smartrecruiters.com/UniversityofSouthFlorida", "smartrecruiters", "University of South Florida"),
     # --- Added 2026-06-02: recovered via corrected slugs (find_boards' name-guess missed these) ---
     ("https://job-boards.greenhouse.io/digitalocean98",     "greenhouse", "DigitalOcean"),
     ("https://jobs.smartrecruiters.com/clarivateanalytics", "smartrecruiters", "Clarivate"),
-    # --- Added 2026-06-06: probe of the Level-I DOL list (8 confirmed; slugs verified) ---
+    # --- Added 2026-06-06: probe of the Level-I DOL list. The legit big employers
+    # are kept; the generic IT-staffing/body-shop entries (People Tech, Softworld,
+    # Sri Tech, Tech Tammina, Federal Soft Systems, Skilltune, Iris Software) were
+    # REMOVED 2026-06-13 — OPT/H-1B body-shops we don't want to surface or endorse. ---
     ("https://job-boards.greenhouse.io/purestorage",            "greenhouse", "Pure Storage"),
-    ("https://job-boards.greenhouse.io/peopletech",             "greenhouse", "People Tech Group"),
-    ("https://jobs.lever.co/softworld",                         "lever", "Softworld Technologies"),
     ("https://jobs.smartrecruiters.com/HarvardUniversity",      "smartrecruiters", "Harvard University"),
-    ("https://jobs.smartrecruiters.com/SriTechSolutionsINC",    "smartrecruiters", "Sri Tech Solutions"),
-    ("https://jobs.smartrecruiters.com/TechTammina",            "smartrecruiters", "Tech Tammina"),
-    ("https://jobs.smartrecruiters.com/FederalSoftSystemsINC",  "smartrecruiters", "Federal Soft Systems"),
-    ("https://jobs.smartrecruiters.com/SkilltuneTechnologiesINC", "smartrecruiters", "Skilltune Technologies"),
     # --- Added 2026-06-10: probe of the user's H1B LCA list (board names verified) ---
     ("https://job-boards.greenhouse.io/byd",                    "greenhouse", "BYD America"),
     ("https://jobs.ashbyhq.com/deel",                           "ashby", "Deel"),

@@ -117,6 +117,7 @@ _jobs_cache = {"rows": None, "at": 0}
 _score_cache = {}            # (username, resume_md5) -> {url: score}
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _SPONSOR_COUNTS = core.load_sponsor_counts()      # {} until sponsor_counts.json is built
+_EVERIFY_INDEX = core.load_everify()              # None until everify.txt is built
 _resume_cache = {}           # username -> (resume_text, fetched_at)
 _RESUME_TTL = 60             # seconds; short so an edit in another worker shows up quickly
 
@@ -349,6 +350,7 @@ def feed():
                      "score": scores.get(u, 0), "status": st,
                      "sponsor_jd": sv, "sponsor_reason": sreason,
                      "cap_exempt": core.is_cap_exempt(j.get("company", "")),
+                     "everify": core.is_everify(j.get("company", ""), _EVERIFY_INDEX),
                      "exp_years": exp_y if exp_y is not None else "",
                      "exp_level": core.experience_level(j.get("jd") or ""),
                      "strength": strength, "strength_n": scount})
@@ -383,6 +385,7 @@ def api_job():
             "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""), "score": int(score or 0),
             "sponsor_jd": sv, "sponsor_reason": sreason,
             "cap_exempt": core.is_cap_exempt(job.get("company", "")),
+            "everify": core.is_everify(job.get("company", ""), _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "",
             "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}
 
