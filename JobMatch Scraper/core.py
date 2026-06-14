@@ -437,6 +437,61 @@ def sponsor_strength(company, counts):
 
 
 # ------------------------------------------------------------
+# E-VERIFY — flag employers enrolled in E-Verify. This is the signal an F-1 student
+# needs for the STEM-OPT 24-month extension (which REQUIRES an E-Verify employer) —
+# separate from H-1B sponsorship. Mirrors the sponsor flag: a curated everify.txt
+# (built by scraper/build_everify.py from a real E-Verify snapshot, already scoped to
+# legitimate employers) -> normalized name match. Degrades to nothing without the file.
+# ------------------------------------------------------------
+def load_everify(path="everify.txt"):
+    """Build a normalized index of E-Verify-enrolled company names from everify.txt
+    (one name per line, '#' ignored). Returns {"raw":[...], "norm":{...}} or None when
+    the file is absent/empty — so the badge simply doesn't render until it's built."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            names = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    except Exception:
+        return None
+    if not names:
+        return None
+    try:
+        import scraper                  # lazy: scraper imports core (avoid circular at load)
+        norm = {scraper._norm_name(n) for n in names}
+    except Exception:
+        norm = {re.sub(r"[^a-z0-9 ]+", " ", n.lower()).strip() for n in names}
+    return {"raw": names, "norm": norm}
+
+
+_everify_cache = {}
+
+def is_everify(company, index):
+    """True if `company` is in the E-Verify enrolled-employer index. Normalized exact
+    match first; fuzzy fallback for a small curated list (so 'Amazon' still matches
+    'Amazon.com Services'). Cached per company. ('' index / no match -> False.)"""
+    if not index or not company:
+        return False
+    if company in _everify_cache:
+        return _everify_cache[company]
+    try:
+        import scraper
+        norm = scraper._norm_name(company)
+    except Exception:
+        norm = re.sub(r"[^a-z0-9 ]+", " ", company.lower()).strip()
+    hit = bool(norm) and norm in index["norm"]
+    if not hit and norm and len(index["raw"]) <= 5000:
+        try:
+            from rapidfuzz import fuzz
+            hit = any(fuzz.token_set_ratio(norm, n) >= 90 for n in index["norm"])
+        except ImportError:
+            hit = any(norm == n or norm + " " in n + " " or n + " " in norm + " "
+                      for n in index["norm"])
+    _everify_cache[company] = hit
+    return hit
+
+
+# ------------------------------------------------------------
 # Experience requirement parsing (to keep only entry-level roles)
 # ------------------------------------------------------------
 # A year mention: '5 years', '5+ years', '5-7 years', '5 to 7 years', '5 yrs'.

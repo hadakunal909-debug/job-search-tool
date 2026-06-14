@@ -8,7 +8,7 @@
       dateSel = document.getElementById("date"), countEl = document.getElementById("count"),
       emptyEl = document.getElementById("empty"), moreBtn = document.getElementById("loadmore"),
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
-      expSel = document.getElementById("exp"),
+      expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 36, limit = PAGE;
 
@@ -90,6 +90,7 @@
     if (ok && searching) ok = (c.getAttribute("data-text") || "").indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = c.getAttribute("data-date") || ""; if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && c.getAttribute("data-sponsor") === "blocked") ok = false;
+    if (ok && everifyOnly && everifyOnly.checked && c.getAttribute("data-everify") !== "1") ok = false;
     // Experience filter: a job whose JD states no year count (data-exp="") is ALWAYS kept
     // — lots of genuine entry roles never say "0-2 years", so we don't punish missing data.
     if (ok && expSel && expSel.value !== "any") {
@@ -145,6 +146,7 @@
   if (sortSel) sortSel.addEventListener("change", function () { sortCards(); render(true); });
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
   if (expSel) expSel.addEventListener("change", function () { render(true); });
+  if (everifyOnly) everifyOnly.addEventListener("change", function () { render(true); });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
@@ -211,6 +213,7 @@
         var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
         spn += '<span class="exp ' + ec + '">' + ey + '+ yrs experience</span>';
       }
+      if (j.everify) spn += '<span class="ev" title="Confirm current status at e-verify.gov">✅ E-Verify · STEM-OPT OK</span>';
       if (j.cap_exempt) spn += '<span class="cx">🎓 Likely cap-exempt — no H-1B lottery</span>';
       if (j.sponsor_jd === "blocked") spn += '<span class="nospon">🚫 ' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
       else if (j.sponsor_jd === "open") spn += '<span class="spon">✅ ' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
