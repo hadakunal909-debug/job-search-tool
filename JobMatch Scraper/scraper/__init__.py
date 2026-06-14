@@ -243,6 +243,17 @@ WORKDAY_BOARDS = [
     ("https://capitalone.wd12.myworkdayjobs.com/Capital_One",           "workday", "Capital One"),          # ~1568
     ("https://cat.wd5.myworkdayjobs.com/CaterpillarCareers",            "workday", "Caterpillar"),          # ~976
     ("https://gilead.wd1.myworkdayjobs.com/gileadcareers",              "workday", "Gilead Sciences"),      # ~309
+    # --- Added 2026-06-14 (E-Verify sweep, round 2 — web-searched tenants verified via
+    # probe_board; Thermo Fisher resolved Phenom->Workday like CVS/Cisco). ---
+    ("https://ms.wd5.myworkdayjobs.com/External",                       "workday", "Morgan Stanley"),       # ~1368
+    ("https://wf.wd1.myworkdayjobs.com/WellsFargoJobs",                 "workday", "Wells Fargo"),          # ~1836
+    ("https://fmr.wd1.myworkdayjobs.com/FidelityCareers",               "workday", "Fidelity Investments"), # ~597
+    ("https://disney.wd5.myworkdayjobs.com/disneycareer",               "workday", "Disney"),               # ~636
+    ("https://blackrock.wd1.myworkdayjobs.com/BlackRock_Professional",  "workday", "BlackRock"),            # ~392
+    ("https://broadcom.wd1.myworkdayjobs.com/External_Career",          "workday", "Broadcom"),             # ~326
+    ("https://autodesk.wd1.myworkdayjobs.com/Ext",                      "workday", "Autodesk"),             # ~663
+    ("https://paypal.wd1.myworkdayjobs.com/jobs",                       "workday", "PayPal"),               # ~213
+    ("https://thermofisher.wd5.myworkdayjobs.com/ThermoFisherCareers",  "workday", "Thermo Fisher Scientific"), # ~2967
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -307,6 +318,9 @@ ORACLE_BOARDS = [
     # --- Added 2026-06-13 (E-Verify major-employer sweep): Texas Instruments on Oracle (~467). ---
     ("https://edbz.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX",
      "oracle", "Texas Instruments"),
+    # --- Added 2026-06-14 (round 2): Dell's Oracle site has jobs (its Workday board was empty). ---
+    ("https://iawmqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/careers",
+     "oracle", "Dell Technologies"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
