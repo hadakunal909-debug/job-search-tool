@@ -1,16 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-.cx,.nospon,.spon{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:7px;margin-left:4px;white-space:nowrap;vertical-align:middle;line-height:1.7}
-.cx{background:#e7f0ff;color:#1d4ed8}
-.spon{background:#e6f7ee;color:#0b7a52}
-.nospon{background:#fdeaea;color:#c0392b}
-[data-theme=dark] .cx{background:#1e2a44;color:#9cc0ff}
-[data-theme=dark] .spon{background:#12331f;color:#69d69e}
-[data-theme=dark] .nospon{background:#3a1d1d;color:#ff9b9b}
-.ck{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap}
-.ck input{accent-color:#0e8a5f}
-</style>
 <div class="feedhead">
   <div class="feedrow">
     <h1>Jobs feed</h1>
@@ -23,9 +12,11 @@
   </div>
   <div class="filters">
     <input id="q" placeholder="Search title or company" autocomplete="off">
-    <label class="rng">Min match <b id="minlab">{{ default_min }}</b>%
-      <input id="min" type="range" min="0" max="100" value="{{ default_min }}">
-    </label>
+    <div class="matchfilter">
+      <span class="filt-label">Match</span>
+      <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
+      <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
+    </div>
     <select id="sort" class="sel" title="Sort by">
       <option value="score">Sort: Best match</option>
       <option value="newest">Sort: Newest</option>
