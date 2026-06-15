@@ -19,6 +19,7 @@
       expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
+  var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
 
   // textContent escape (safe in element text)
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
@@ -118,7 +119,7 @@
         '<span class="spacer"></span>' +
         '<span class="acts">' +
           '<button class="ico" data-act="liked" title="Save">' + (st === 'liked' ? 'Saved' : 'Save') + '</button>' +
-          '<button class="ico" data-act="applied" title="Mark applied">' + (st === 'applied' ? 'Applied' : 'Mark') + '</button>' +
+          '<button class="ico" data-act="applied" title="Mark applied">' + (st === 'applied' ? 'Applied' : 'Mark applied') + '</button>' +
           '<button class="ico" data-act="hidden" title="Hide">' + (st === 'hidden' ? 'Hidden' : 'Hide') + '</button>' +
         '</span>' +
       '</div>' +
@@ -129,15 +130,15 @@
     if (!dateSel || dateSel.value === "any") return "";
     var d = new Date(); d.setDate(d.getDate() - parseInt(dateSel.value, 10)); return d.toISOString().slice(0, 10);
   }
-  function matches(j, cut) {
+  function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
     if (tab === "liked") ok = st === "liked";
     else if (tab === "applied") ok = st === "applied";
     else if (tab === "hidden") ok = st === "hidden";
-    // An active SEARCH bypasses the min-match slider: if you typed "deloitte" you want to
+    // An active SEARCH bypasses the match filter: if you typed "deloitte" you want to
     // SEE Deloitte's jobs, not have them hidden because they score 40%.
-    else ok = (st !== "hidden") && (searching || sc >= (minR ? parseInt(minR.value, 10) || 0 : 0));
+    else ok = (st !== "hidden") && (searching || ignoreMin || sc >= minVal);
     if (ok && searching)
       ok = ((j.title || "") + " " + (j.company || "")).toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = j.date || ""; if (dt && dt < cut) ok = false; }
@@ -191,7 +192,21 @@
     this.classList.add("on"); tab = this.getAttribute("data-tab"); render(true); window.scrollTo({ top: 0, behavior: "smooth" });
   });
   if (q) q.addEventListener("input", function () { render(true); });
-  if (minR) minR.addEventListener("input", function () { if (minLab) minLab.textContent = minR.value; render(true); });
+  function setFill() {
+    if (!minR) return;
+    var mn = parseInt(minR.min, 10) || 0, mx = parseInt(minR.max, 10) || 100, v = parseInt(minR.value, 10) || 0;
+    minR.style.setProperty("--p", (mx > mn ? (v - mn) / (mx - mn) * 100 : 0) + "%");
+    if (minLab) minLab.textContent = v === 0 ? "Any" : v + "%+";
+  }
+  if (minR) {
+    setFill();
+    var _raf;
+    minR.addEventListener("input", function () {
+      minVal = parseInt(minR.value, 10) || 0; setFill();
+      if (_raf) cancelAnimationFrame(_raf);
+      _raf = requestAnimationFrame(function () { render(true); });
+    });
+  }
   if (sortSel) sortSel.addEventListener("change", function () { sortBy = sortSel.value; render(true); });
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
   if (expSel) expSel.addEventListener("change", function () { render(true); });

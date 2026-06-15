@@ -2,14 +2,22 @@
 {% block content %}
 <div class="rb">
 
+<div class="cta-banner">
+  <div class="cta-text">
+    <h2>Resume Brain</h2>
+    <p>Reads the job, researches the company, and matches both against your whole profile — then
+      tells you exactly how to tailor and learns from your feedback. The more you add in Teach,
+      the smarter it gets.</p>
+  </div>
+  <a class="btn primary lg" href="{{ url_for('brain_teach') }}">Teach your brain</a>
+</div>
+
 <form method="post" action="{{ url_for('brain_tailor') }}" id="tailorForm" class="card">
-  <h1>Resume Brain</h1>
-  <p class="muted small">Reads the job, researches the company, and matches them against your whole
-    profile — every résumé &amp; story in <a href="{{ url_for('brain_teach') }}">Teach</a> —
-    then tells you exactly how to tailor, and learns from your feedback.</p>
+  <h2>Tailor to a job</h2>
+  <p class="muted small" style="margin-top:4px">Paste a job description or pick one from your feed below.</p>
 
   {% if not have_resumes %}
-    <div class="note warn">No résumés yet — add one in <a href="{{ url_for('brain_teach') }}">Teach</a> so the brain has material to match.</div>
+    <div class="note warn">No résumés yet — <a href="{{ url_for('brain_teach') }}">add one in Teach</a> so the brain has material to match.</div>
   {% endif %}
 
   <label>Find a job from the feed <span class="muted">(search title or company)</span>
@@ -32,7 +40,7 @@
     <textarea name="jd" rows="9" placeholder="Paste the full job description here.">{{ inputs.jd }}</textarea>
   </label>
   <div class="row">
-    <button type="submit" class="btn primary" id="tailorBtn">Tailor</button>
+    <button type="submit" class="btn primary lg" id="tailorBtn">Tailor</button>
     <label class="storypick"><input type="checkbox" name="refresh" value="1"> Re-research company</label>
   </div>
 </form>
