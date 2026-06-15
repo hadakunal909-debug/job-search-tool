@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Tailor — Resume Brain{% endblock %}
+{% block content %}
+
+<form method="post" action="{{ url_for('tailor') }}" id="tailorForm" class="card form">
+  <h1>Tailor to a job</h1>
+  <p class="muted">The brain reads the job, researches the company, and matches them against your
+    résumés &amp; stories — then tells you exactly how to tailor. It learns from your feedback.
+    Build your library in <a href="{{ url_for('teach') }}">Teach</a> first.</p>
+
+  {% if not have_resumes %}
+    <div class="note warn">No résumés yet — add one in <a href="{{ url_for('teach') }}">Teach</a> so the brain has something to match.</div>
+  {% endif %}
+
+  <div class="grid2">
+    <label>Company <span class="req">*</span>
+      <input type="text" name="company" value="{{ inputs.company }}" placeholder="e.g. Stripe" required>
+    </label>
+    <label>Company website <span class="muted">(optional)</span>
+      <input type="text" name="company_url" value="{{ inputs.company_url }}" placeholder="stripe.com">
+    </label>
+  </div>
+  <label>Job link <span class="muted">(optional — used only if the JD box is empty)</span>
+    <input type="text" name="job_url" value="{{ inputs.job_url }}" placeholder="https://…/jobs/123">
+  </label>
+  <label>Job description
+    <textarea name="jd" rows="9" placeholder="Paste the full job description here.">{{ inputs.jd }}</textarea>
+  </label>
+  <div class="row">
+    <button type="submit" class="primary" id="tailorBtn">🧠 Tailor</button>
+    <label class="check"><input type="checkbox" name="refresh" value="1"> Re-research company</label>
+  </div>
+  <div id="thinking" class="thinking" hidden>🧠 Reading the job, researching the company, matching your library…</div>
+</form>
+
+{% if data %}
+  {% if data.notes %}
+    <div class="card notes">{% for n in data.notes %}<div class="note">• {{ n }}</div>{% endfor %}</div>
+  {% endif %}
+
+  {% set r = data.result %}
+  {% if r %}
+  {# ---------- best résumé + coverage ---------- #}
+  <div class="card">
+    <h2>Best-matching résumé</h2>
+    {% if r.best_resume %}
+      <p><strong>{{ r.best_resume.resume.name }}</strong></p>
+      <div class="cov">
+        <div class="cov-num"><span class="big">{{ r.before }}%</span><span class="muted">this résumé</span></div>
+        <div class="cov-arrow">→</div>
+        <div class="cov-num"><span class="big up">{{ r.after }}%</span><span class="muted">if you weave in the stories below</span></div>
+      </div>
+    {% else %}
+      <p class="muted">No résumés in your library yet.</p>
+    {% endif %}
+    {% if r.missing %}
+      <p class="muted small">Keywords to add (only if true):</p>
+      <div class="chips">{% for k in r.missing %}<span class="chip miss">{{ k }}</span>{% endfor %}</div>
+    {% endif %}
+    {% if r.mirror_terms %}
+      <p class="muted small">Mirror this job's phrasing:</p>
+      <div class="chips">{% for k in r.mirror_terms %}<span class="chip have">{{ k }}</span>{% endfor %}</div>
+    {% endif %}
+    {% if r.ranked_resumes|length > 1 %}
+      <p class="muted small">Other résumés: {% for rr in r.ranked_resumes[1:] %}{{ rr.resume.name }} ({{ rr.score }}%){% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+  </div>
+
+  {# ---------- stories to feature  +  feedback that sticks ---------- #}
+  <div class="card">
+    <h2>Stories to feature</h2>
+    <p class="muted small">Check the ones you'll use (or that fit best) and the brain will weight
+      them for jobs like this from now on. Add a note to teach it something specific.</p>
+    <form method="post" action="{{ url_for('feedback') }}">
+      <input type="hidden" name="jd_terms" value="{{ r.jd_terms | join(',') }}">
+      <input type="hidden" name="company" value="{{ data.company_name }}">
+      {% if r.stories %}
+        <ul class="coach">
+          {% for s in r.stories %}
+            <li>
+              <label class="storypick">
+                <input type="checkbox" name="story_ids" value="{{ s.story.id }}">
+                <span class="tip">{{ s.story.title }} <span class="badge">{{ s.score }}</span></span>
+              </label>
+              <div class="muted small">{{ s.reason }}</div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No stories yet — add some in <a href="{{ url_for('teach') }}">Teach</a>.</p>
+      {% endif %}
+      <label>Teach the brain <span class="muted">(optional — becomes a lasting lesson)</span>
+        <input type="text" name="feedback" placeholder="e.g. For fintech roles, lead with the automation project.">
+      </label>
+      <div class="row"><button type="submit" class="primary">📌 Save what I taught</button></div>
+    </form>
+  </div>
+
+  {# ---------- optional AI rewrite ---------- #}
+  <div class="card ai">
+    <h2>✍️ Write it for me <span class="muted small">(optional AI)</span></h2>
+    <p class="muted small">Turn the plan above into a finished, tailored résumé <em>and</em> cover
+      letter — grounded in your real material only. Uses your Gemini key; the self-training core
+      stays AI-free.</p>
+    <form method="post" action="{{ url_for('rewrite') }}" id="rewriteForm">
+      <input type="hidden" name="company" value="{{ inputs.company }}">
+      <input type="hidden" name="company_url" value="{{ inputs.company_url }}">
+      <input type="hidden" name="job_url" value="{{ inputs.job_url }}">
+      <input type="hidden" name="jd" value="{{ inputs.jd }}">
+      {% if r.stories %}
+        <p class="muted small">Stories to weave in:</p>
+        <div class="chips">
+          {% for s in r.stories %}
+            <label class="storypick"><input type="checkbox" name="story_ids" value="{{ s.story.id }}" {% if loop.index <= 3 %}checked{% endif %}> <span class="tip">{{ s.story.title }}</span></label>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if not have_key %}
+        <label>Gemini API key <span class="muted">(stored in your session only, never on disk)</span>
+          <input type="password" name="gkey" placeholder="AIza…" autocomplete="off">
+        </label>
+      {% endif %}
+      <div class="row"><button type="submit" class="primary" id="rewriteBtn">✍️ Write résumé + cover letter</button></div>
+    </form>
+  </div>
+
+  {# ---------- symphony (the JD's voice) ---------- #}
+  <div class="card">
+    <h2>The job's voice (“symphony”)</h2>
+    {% if r.symphony.tones %}<div class="chips">{% for t in r.symphony.tones %}<span class="chip tone">{{ t }}</span>{% endfor %}</div>{% endif %}
+    <p class="muted small">{{ r.symphony.focus }} · {{ r.symphony.formality }} tone · ~{{ r.symphony.avg_sentence_len }} words/sentence.
+      {% if r.symphony.top_verbs %}Echo their verbs: {{ r.symphony.top_verbs | join(', ') }}.{% endif %}</p>
+  </div>
+
+  {# ---------- what they're looking for ---------- #}
+  {% if r.looking_for %}
+  <div class="card">
+    <h2>What they're looking for</h2>
+    <ul class="muted small">{% for s in r.looking_for %}<li>{{ s }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  {# ---------- culture fit ---------- #}
+  {% if data.company %}
+  <div class="card">
+    <h2>Culture fit</h2>
+    {% if r.culture_fit.shared %}<p class="small">You already speak their language: <strong>{{ r.culture_fit.shared | join(', ') }}</strong></p>{% endif %}
+    {% if r.culture_fit.gaps %}<p class="small muted">Values to show more of: {{ r.culture_fit.gaps | join(', ') }}</p>{% endif %}
+  </div>
+  {% endif %}
+
+  {# ---------- applied lessons ---------- #}
+  {% if r.applied_lessons %}
+  <div class="card">
+    <h2>Lessons applied</h2>
+    <ul class="muted small">{% for l in r.applied_lessons %}<li>{{ l.text }}{% if l.source %} <span class="badge">{{ l.source }}</span>{% endif %}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  {# ---------- company research ---------- #}
+  {% if data.company %}
+  <details class="card">
+    <summary><strong>Company research</strong> <span class="muted">— {{ data.domain }}</span></summary>
+    {% if data.company.what_they_do %}<p><strong>What they do:</strong> {{ data.company.what_they_do }}</p>{% endif %}
+    {% if data.company.mission %}<p><strong>Mission:</strong> {{ data.company.mission }}</p>{% endif %}
+    {% if data.company.about %}<p>{{ data.company.about }}</p>{% endif %}
+    {% if data.company['values'] %}<p><strong>Core values:</strong> {{ data.company['values'] | join(', ') }}</p>{% endif %}
+    {% if data.company.tech_stack %}<p><strong>Tech they use:</strong> {{ data.company.tech_stack | join(', ') }}</p>{% endif %}
+    {% if data.company.initiatives %}
+      <p class="muted small">Current initiatives / projects:</p>
+      <ul class="muted small">{% for s in data.company.initiatives %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if data.company.perks %}
+      <p class="muted small">Perks &amp; benefits:</p>
+      <ul class="muted small">{% for s in data.company.perks %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if data.company.looking_for %}
+      <p class="muted small">What they emphasize:</p>
+      <ul class="muted small">{% for s in data.company.looking_for %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% endif %}
+    <p class="muted small">Crawled {{ data.company.pages | length }} page(s): {{ data.company.pages | join(' · ') }}</p>
+  </details>
+  {% endif %}
+  {% endif %}
+{% endif %}
+
+{% endblock %}

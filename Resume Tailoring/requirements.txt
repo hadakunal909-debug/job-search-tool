@@ -1,0 +1,7 @@
+flask
+requests
+beautifulsoup4
+lxml
+python-docx
+# Core is AI-free (deterministic, self-training). python-docx powers .docx export.
+# Optional AI-rewrite layer (gemini.py) uses `requests` only — no SDK, BYO Gemini key.

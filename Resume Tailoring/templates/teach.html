@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Teach — Resume Brain{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h1>Teach the brain</h1>
+  <p class="muted">This is the brain's memory. The more résumés, stories, and lessons you add,
+    the smarter the tailoring. Everything here is yours, stored locally — never sent anywhere.</p>
+  <form method="post" action="{{ url_for('profile_save') }}">
+    <div class="grid2">
+      <label>Name <input type="text" name="name" value="{{ profile.get('name','') }}"></label>
+      <label>Email <input type="text" name="email" value="{{ profile.get('email','') }}"></label>
+    </div>
+    <div class="row"><button class="ghost" type="submit">Save details</button></div>
+  </form>
+</div>
+
+{# ---------------- résumés ---------------- #}
+<div class="card">
+  <h2>Résumés <span class="muted small">({{ resumes|length }})</span></h2>
+  {% for r in resumes %}
+    <details class="kb-item">
+      <summary><strong>{{ r.name }}</strong> {% if r.tags %}<span class="muted small">· {{ r.tags | join(', ') }}</span>{% endif %}</summary>
+      <form method="post" action="{{ url_for('resume_save') }}">
+        <input type="hidden" name="id" value="{{ r.id }}">
+        <label>Name <input type="text" name="name" value="{{ r.name }}"></label>
+        <label>Tags <span class="muted">(comma-separated)</span><input type="text" name="tags" value="{{ r.tags | join(', ') }}"></label>
+        <label>Content<textarea name="content" rows="14" class="mono">{{ r.content }}</textarea></label>
+        <div class="row"><button class="primary" type="submit">Save</button></div>
+      </form>
+      <form method="post" action="{{ url_for('resume_delete') }}" class="inline" data-confirm="Delete this résumé?">
+        <input type="hidden" name="id" value="{{ r.id }}"><button class="danger" type="submit">Delete</button>
+      </form>
+    </details>
+  {% endfor %}
+  <details class="kb-item"><summary class="addnew">➕ Add a résumé</summary>
+    <form method="post" action="{{ url_for('resume_save') }}">
+      <label>Name <input type="text" name="name" placeholder="e.g. PM-focused résumé"></label>
+      <label>Tags <span class="muted">(comma-separated)</span><input type="text" name="tags" placeholder="project management, analyst"></label>
+      <label>Content<textarea name="content" rows="14" class="mono" placeholder="Paste this résumé version (plain text)."></textarea></label>
+      <div class="row"><button class="primary" type="submit">Add résumé</button></div>
+    </form>
+  </details>
+</div>
+
+{# ---------------- stories ---------------- #}
+<div class="card">
+  <h2>Stories <span class="muted small">({{ stories|length }})</span></h2>
+  <p class="muted small">One experience each — situation, what you did, the result, with numbers.
+    The brain picks the most relevant ones per job.</p>
+  {% for s in stories %}
+    <details class="kb-item">
+      <summary><strong>{{ s.title }}</strong> {% if s.uses %}<span class="muted small">· used {{ s.uses }}×</span>{% endif %}</summary>
+      <form method="post" action="{{ url_for('story_save') }}">
+        <input type="hidden" name="id" value="{{ s.id }}">
+        <label>Title <input type="text" name="title" value="{{ s.title }}"></label>
+        <label>Tags <input type="text" name="tags" value="{{ s.tags | join(', ') }}"></label>
+        <label>Skills <input type="text" name="skills" value="{{ s.skills | join(', ') }}"></label>
+        <label>Story<textarea name="text" rows="7">{{ s.text }}</textarea></label>
+        <div class="row"><button class="primary" type="submit">Save</button></div>
+      </form>
+      <form method="post" action="{{ url_for('story_delete') }}" class="inline" data-confirm="Delete this story?">
+        <input type="hidden" name="id" value="{{ s.id }}"><button class="danger" type="submit">Delete</button>
+      </form>
+    </details>
+  {% endfor %}
+  <details class="kb-item"><summary class="addnew">➕ Add a story</summary>
+    <form method="post" action="{{ url_for('story_save') }}">
+      <label>Title <input type="text" name="title" placeholder="e.g. Government automation project"></label>
+      <label>Tags <input type="text" name="tags" placeholder="agile, stakeholders, fintech"></label>
+      <label>Skills <input type="text" name="skills" placeholder="Jira, risk management, Power BI"></label>
+      <label>Story<textarea name="text" rows="7" placeholder="Situation, what you did, measurable result."></textarea></label>
+      <div class="row"><button class="primary" type="submit">Add story</button></div>
+    </form>
+  </details>
+</div>
+
+{# ---------------- lessons ---------------- #}
+<div class="card">
+  <h2>Lessons <span class="muted small">({{ lessons|length }})</span></h2>
+  <p class="muted small">What the brain has learned — mostly from your feedback on the Tailor page.
+    You can add or remove rules here.</p>
+  {% for l in lessons %}
+    <div class="lesson">
+      <div>{{ l.text }} {% if l.source %}<span class="badge">{{ l.source }}</span>{% endif %}
+        {% if l.triggers %}<span class="muted small">· when job mentions: {{ l.triggers | join(', ') }}</span>{% endif %}</div>
+      <form method="post" action="{{ url_for('lesson_delete') }}" class="inline" data-confirm="Delete this lesson?">
+        <input type="hidden" name="id" value="{{ l.id }}"><button class="danger small" type="submit">✕</button>
+      </form>
+    </div>
+  {% endfor %}
+  <details class="kb-item"><summary class="addnew">➕ Add a lesson</summary>
+    <form method="post" action="{{ url_for('lesson_save') }}">
+      <label>Rule <input type="text" name="text" placeholder="e.g. Always quantify results with %/$ ."></label>
+      <label>Apply when job mentions <span class="muted">(comma-separated; blank = always)</span><input type="text" name="triggers" placeholder="fintech, payments"></label>
+      <div class="row"><button class="primary" type="submit">Add lesson</button></div>
+    </form>
+  </details>
+</div>
+
+{% endblock %}

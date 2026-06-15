@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Companies — Resume Brain{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Companies the brain has researched</h1>
+  <p class="muted">Built automatically when you tailor. Re-research a company with the
+    “Re-research company” box on the Tailor page.</p>
+</div>
+
+{% if not companies %}
+  <div class="card muted">Nothing yet — tailor for a company and its research lands here.</div>
+{% endif %}
+
+{% for c in companies %}
+<details class="card">
+  <summary><strong>{{ c.name or c.domain }}</strong> <span class="muted small">— {{ c.domain }} · {{ c.fetched_at }}</span></summary>
+  {% if c.what_they_do %}<p><strong>What they do:</strong> {{ c.what_they_do }}</p>{% endif %}
+  {% if c.mission %}<p><strong>Mission:</strong> {{ c.mission }}</p>{% endif %}
+  {% if c.about %}<p>{{ c.about }}</p>{% endif %}
+  {% if c['values'] %}<p><strong>Core values:</strong> {{ c['values'] | join(', ') }}</p>{% endif %}
+  {% if c.tech_stack %}<p><strong>Tech they use:</strong> {{ c.tech_stack | join(', ') }}</p>{% endif %}
+  {% if c.initiatives %}
+    <p class="muted small">Current initiatives / projects:</p>
+    <ul class="muted small">{% for s in c.initiatives %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if c.perks %}
+    <p class="muted small">Perks &amp; benefits:</p>
+    <ul class="muted small">{% for s in c.perks %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if c.looking_for %}
+    <p class="muted small">What they emphasize:</p>
+    <ul class="muted small">{% for s in c.looking_for %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if c.keywords %}<div class="chips">{% for k in c.keywords[:18] %}<span class="chip have">{{ k }}</span>{% endfor %}</div>{% endif %}
+  {% if c.pages %}<p class="muted small">Pages crawled: {{ c.pages | join(' · ') }}</p>{% endif %}
+</details>
+{% endfor %}
+{% endblock %}
