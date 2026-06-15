@@ -22,11 +22,12 @@ import functools
 import requests
 
 from flask import (Flask, request, session, redirect, url_for,
-                   render_template, flash, g)
+                   render_template, flash, g, Response)
 
 import core
 import db
 import auth
+from resume_brain import brain as rb, ai as rb_ai, export as rb_export
 # `scraper` is a heavy (~2000-line) module needed only by the add-board + extension routes,
 # so it's imported lazily inside those functions — keeping it off the hot feed path and out
 # of Passenger's cold-start import cost.
@@ -143,6 +144,50 @@ def current_resume():
         return hit[0] if hit else ""     # transient DB failure -> stale value over nothing
     _resume_cache[user] = (txt, time.time())
     return txt
+
+
+_profile_cache = {}          # username -> (profile_text, fetched_at)
+
+
+def _ensure_resume_migrated(user):
+    """One-time: fold the legacy single user.resume into the résumé library so it counts toward
+    the complete profile. Safe to call repeatedly (no-op once the library has any résumé)."""
+    try:
+        if db.list_resumes(user):
+            return
+        legacy = (db.get_user(user) or {}).get("resume", "") or ""
+        if legacy.strip():
+            db.save_resume(user, {"name": "My résumé", "content": legacy})
+    except Exception:
+        pass
+
+
+def current_profile():
+    """The COMPLETE matching profile — every résumé + every story in the user's Resume Brain,
+    combined. This is what the feed scores jobs against (the 'match my whole profile' design),
+    from a short-lived cache backed by the DB."""
+    user = session.get("user")
+    if not user:
+        return ""
+    hit = _profile_cache.get(user)
+    if hit and time.time() - hit[1] < _RESUME_TTL:
+        return hit[0]
+    _ensure_resume_migrated(user)
+    try:
+        txt = db.profile_text(user)
+    except Exception:
+        return hit[0] if hit else ""
+    _profile_cache[user] = (txt, time.time())
+    return txt
+
+
+def _bust_profile(user=None):
+    """Drop cached profile + scores after a résumé/story/lesson edit so the feed updates."""
+    if user:
+        _profile_cache.pop(user, None)
+    else:
+        _profile_cache.clear()
+    _score_cache.clear()
 
 
 def sponsor_signal(job):
@@ -351,7 +396,7 @@ def feed():
     does tab/search/min-match filtering + actions with no page reloads. Falls back to
     plain server rendering when JS is off (all cards just show)."""
     user = session["user"]
-    resume = current_resume()
+    resume = current_profile()           # match against the WHOLE profile (résumés + stories)
     scores = user_scores(user, resume)
     try:
         statuses = db.get_user_statuses(user)
@@ -407,7 +452,7 @@ def api_job():
     job = next((j for j in get_jobs() if j.get("url") == url), None)
     if not job:
         return {"ok": False}, 404
-    resume = current_resume()
+    resume = current_profile()           # whole-profile match, consistent with the feed
     jd = job.get("jd", "") or ""
     meta = jd_meta(job, core.load_idf())
     if resume and jd:
@@ -453,6 +498,8 @@ def api_action():
 def reload_jobs():
     get_jobs(force=True)
     _score_cache.clear()
+    _profile_cache.clear()
+    _resume_cache.clear()
     _sponsor_cache.clear()
     _jdmeta.clear()
     _jdmeta.update(core.load_jdmeta())       # re-pull the cron's latest precompute from disk
@@ -510,7 +557,7 @@ def scrape_now():
         flash("To enable this button, add GH_TOKEN to .env (a GitHub token with Actions "
               "read+write). You can also run the scrape from the repo's Actions tab, or via cron.")
     elif gh[0]:
-        flash("🛰️ Scrape started on GitHub Actions (~3–5 min). Watch the Actions tab, then hit 🔄 Reload.")
+        flash("Scrape started on GitHub Actions (~3-5 min). Watch the Actions tab, then hit Reload.")
     else:
         flash("Couldn't start the GitHub Action — " + gh[1])
     return redirect(url_for("feed"))
@@ -540,7 +587,7 @@ def resume():
             db.set_user_resume(session["user"], txt)
             _resume_cache[session["user"]] = (txt, time.time())   # not the cookie (size cap)
             _score_cache.clear()
-            flash("Saved ✓ Your match scores now reflect this résumé.")
+            flash("Saved. Your match scores now reflect this résumé.")
         except Exception:
             flash("Couldn't save — try again.")
         return redirect(url_for("resume"))
@@ -601,7 +648,7 @@ def tailor_ai():
         score, have, missing = job.get("match_score") or 0, [], []
     tailored, ai_err = "", ""
     if not resume:
-        ai_err = "Add your résumé first (📄 My résumé), then tailor it here."
+        ai_err = "Add your résumé first in Resume Brain, then tailor it here."
     elif not jd:
         ai_err = "No job description stored for this role yet — open Apply to read it on the company site."
     elif not key:
@@ -632,7 +679,7 @@ def api_tailor():
     resume = current_resume()
     jd = job.get("jd", "") or ""
     if not resume:
-        return {"ok": False, "error": "Add your résumé first (📄 My résumé), then tailor it here."}
+        return {"ok": False, "error": "Add your résumé first in Resume Brain, then tailor it here."}
     if not jd:
         return {"ok": False, "error": "No job description is stored for this role yet — open Apply to read it on the company site."}
     if not key:
@@ -641,6 +688,225 @@ def api_tailor():
         return {"ok": True, "tailored": core.tailor_with_gemini(resume, jd, api_key=key)}
     except Exception as e:
         return {"ok": False, "error": "Tailoring failed: %s" % str(e)[:250]}
+
+
+# ----------------------------- Resume Brain (the tailoring brain) -----------------------------
+def _job_for(url):
+    return next((j for j in get_jobs() if j.get("url") == url), None)
+
+
+def _csvf(s):
+    return [x.strip() for x in (s or "").replace("\n", ",").split(",") if x.strip()]
+
+
+def _render_brain(user, inputs, data):
+    return render_template("brain_tailor.html", inputs=inputs, data=data,
+                           have_resumes=bool(rb.list_resumes(user)),
+                           have_key=bool(_ai_key_for(user)))
+
+
+@app.route("/brain")
+@login_required
+def brain_home():
+    """Resume Brain home — tailor a job; prefilled + auto-run when ?job=<url> from the feed."""
+    user = session["user"]
+    _ensure_resume_migrated(user)        # fold any legacy single résumé into the library
+    inputs = {"company": "", "company_url": "", "job_url": "", "jd": ""}
+    data = None
+    job_url = request.args.get("job", "")
+    if job_url:
+        j = _job_for(job_url)
+        if j:
+            inputs["company"] = j.get("company", "")
+            inputs["jd"] = j.get("jd", "") or ""
+            inputs["job_url"] = j.get("url", "") if (j.get("url") or "").startswith("http") else ""
+            if inputs["jd"]:
+                data = rb.run_tailor(user, jd_text=inputs["jd"], company_name=inputs["company"])
+    return _render_brain(user, inputs, data)
+
+
+@app.route("/brain/tailor", methods=["POST"])
+@login_required
+def brain_tailor():
+    user = session["user"]
+    inputs = {"company": (request.form.get("company") or "").strip(),
+              "company_url": (request.form.get("company_url") or "").strip(),
+              "job_url": (request.form.get("job_url") or "").strip(),
+              "jd": (request.form.get("jd") or "").strip()}
+    data = rb.run_tailor(user, jd_text=inputs["jd"], job_url=inputs["job_url"],
+                         company_name=inputs["company"], company_url=inputs["company_url"],
+                         force_research=(request.form.get("refresh") == "1"))
+    return _render_brain(user, inputs, data)
+
+
+@app.route("/brain/feedback", methods=["POST"])
+@login_required
+def brain_feedback():
+    user = session["user"]
+    jd_terms = _csvf(request.form.get("jd_terms"))
+    story_ids = request.form.getlist("story_ids")
+    rb.apply_feedback(user, jd_terms, story_ids, request.form.get("feedback", ""),
+                      request.form.get("company", ""))
+    _bust_profile(user)
+    flash("Learned. The brain will weight these for similar jobs from now on.")
+    return redirect(url_for("brain_home"))
+
+
+@app.route("/brain/rewrite", methods=["POST"])
+@login_required
+def brain_rewrite():
+    """OPTIONAL AI layer: re-derive the plan, then have Gemini write the finished résumé +
+    cover letter. Reuses the app's existing Gemini key (session or GEMINI_API_KEY)."""
+    user = session["user"]
+    key_in = (request.form.get("api_key") or "").strip()
+    if key_in:
+        _save_ai_key(key_in)
+    key = _ai_key_for(user)
+    inputs = {"company": (request.form.get("company") or "").strip(),
+              "company_url": (request.form.get("company_url") or "").strip(),
+              "job_url": (request.form.get("job_url") or "").strip(),
+              "jd": (request.form.get("jd") or "").strip()}
+    if not key:
+        flash("Add a Google Gemini API key to use AI rewrite (the field on the tailor page).")
+        return redirect(url_for("brain_home"))
+    data = rb.run_tailor(user, jd_text=inputs["jd"], job_url=inputs["job_url"],
+                         company_name=inputs["company"], company_url=inputs["company_url"],
+                         record=False)
+    ctx = rb.build_rewrite_context(user, data, request.form.getlist("story_ids"))
+    if not ctx:
+        flash("Add a job description and a résumé first.")
+        return redirect(url_for("brain_home"))
+    out, err = None, ""
+    try:
+        out = rb_ai.rewrite(ctx, key)
+    except Exception as e:
+        err = str(e)[:250]
+    return render_template("brain_rewrite.html", out=out, error=err, ctx=ctx, inputs=inputs)
+
+
+def _docx_response(text, title, filename):
+    try:
+        body = rb_export.build_docx(text, title)
+        return Response(body, mimetype=rb_export.DOCX_MIME,
+                        headers={"Content-Disposition": 'attachment; filename="%s.docx"' % filename})
+    except ImportError:
+        return Response(text or "", mimetype="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="%s.txt"' % filename})
+
+
+@app.route("/brain/export/resume.docx", methods=["POST"])
+@login_required
+def brain_export_resume():
+    return _docx_response(request.form.get("content", ""),
+                          request.form.get("title", "Tailored Résumé"), "Tailored_Resume")
+
+
+@app.route("/brain/export/cover.docx", methods=["POST"])
+@login_required
+def brain_export_cover():
+    return _docx_response(request.form.get("content", ""), "", "Cover_Letter")
+
+
+# ---- Teach: the knowledge base (per user) ----
+@app.route("/brain/teach")
+@login_required
+def brain_teach():
+    user = session["user"]
+    _ensure_resume_migrated(user)
+    return render_template("brain_teach.html", resumes=rb.list_resumes(user),
+                           stories=rb.list_stories(user), lessons=rb.list_lessons(user))
+
+
+@app.route("/brain/resume/save", methods=["POST"])
+@login_required
+def brain_resume_save():
+    user = session["user"]
+    rb.save_resume(user, {"id": request.form.get("id", ""),
+                          "name": (request.form.get("name") or "Untitled résumé").strip(),
+                          "content": request.form.get("content", "")})
+    _bust_profile(user)
+    flash("Résumé saved — your feed match scores now include it.")
+    return redirect(url_for("brain_teach"))
+
+
+@app.route("/brain/resume/delete", methods=["POST"])
+@login_required
+def brain_resume_delete():
+    user = session["user"]
+    rb.delete_resume(user, request.form.get("id", ""))
+    _bust_profile(user)
+    flash("Résumé deleted")
+    return redirect(url_for("brain_teach"))
+
+
+@app.route("/brain/story/save", methods=["POST"])
+@login_required
+def brain_story_save():
+    user = session["user"]
+    rb.save_story(user, {"id": request.form.get("id", ""),
+                         "title": (request.form.get("title") or "Untitled story").strip(),
+                         "tags": _csvf(request.form.get("tags")),
+                         "skills": _csvf(request.form.get("skills")),
+                         "text": request.form.get("text", "")})
+    _bust_profile(user)
+    flash("Story saved — it now counts toward your feed match scores.")
+    return redirect(url_for("brain_teach"))
+
+
+@app.route("/brain/story/delete", methods=["POST"])
+@login_required
+def brain_story_delete():
+    user = session["user"]
+    rb.delete_story(user, request.form.get("id", ""))
+    _bust_profile(user)
+    flash("Story deleted")
+    return redirect(url_for("brain_teach"))
+
+
+@app.route("/brain/lesson/save", methods=["POST"])
+@login_required
+def brain_lesson_save():
+    user = session["user"]
+    rb.save_lesson(user, {"text": (request.form.get("text") or "").strip(),
+                          "triggers": _csvf(request.form.get("triggers")),
+                          "boost_story_ids": [], "boost_terms": _csvf(request.form.get("boost_terms")),
+                          "weight": 1.0, "source": "manual"})
+    flash("Lesson saved.")
+    return redirect(url_for("brain_teach"))
+
+
+@app.route("/brain/lesson/delete", methods=["POST"])
+@login_required
+def brain_lesson_delete():
+    user = session["user"]
+    rb.delete_lesson(user, request.form.get("id", ""))
+    flash("Lesson deleted")
+    return redirect(url_for("brain_teach"))
+
+
+@app.route("/brain/companies")
+@login_required
+def brain_companies():
+    c = db.list_brain_companies()
+    items = sorted(c.values(), key=lambda x: x.get("fetched_at", ""), reverse=True)
+    return render_template("brain_companies.html", companies=items)
+
+
+@app.route("/brain/jobs.json")
+@login_required
+def brain_jobs_json():
+    """Job search for the in-Brain picker — up to 20 matches (with a stored JD) by title/company."""
+    q = (request.args.get("q") or "").strip().lower()
+    out = []
+    if q:
+        for j in get_jobs():
+            hay = (j.get("title", "") + " " + j.get("company", "")).lower()
+            if q in hay and (j.get("jd") or ""):
+                out.append({"url": j.get("url", ""), "title": j.get("title", ""),
+                            "company": j.get("company", "")})
+                if len(out) >= 20:
+                    break
+    return {"jobs": out}
 
 
 # ----------------------------- sponsor careers -----------------------------
@@ -807,7 +1073,7 @@ def application_save():
     if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
         flash("One-time setup needed — run the SQL at the bottom of this page in Supabase, then try again.")
     elif ok:
-        flash("Saved ✓")
+        flash("Saved.")
     else:
         flash("Couldn't save — " + msg[:120])
     return redirect(url_for("applications"))
@@ -897,7 +1163,7 @@ def profile():
         ok, msg = db.save_profile(user, {k: f.get(k, "").strip() for k in
             ("name", "email", "phone", "location", "linkedin",
              "work_authorized", "needs_sponsorship", "default_resume", "notes")})
-        flash("Saved ✓" if ok else ("Couldn't save — " + msg[:120]))
+        flash("Saved." if ok else ("Couldn't save — " + msg[:120]))
         return redirect(url_for("profile"))
     try:
         prof = db.get_profile(user) or {}
@@ -1050,7 +1316,7 @@ def ext_bulk_jobs():
 @app.route("/api/ext/detect_board", methods=["POST", "OPTIONS"])
 def ext_detect_board():
     """Extension -> 'can this site be scraped DAILY?' Runs the same detection chain as
-    ➕ Add board over the page URL plus candidates collected from the LIVE DOM (iframe
+    "Add board" over the page URL plus candidates collected from the LIVE DOM (iframe
     srcs + ATS-host links) — which catches JS-injected embeds that a server-side fetch
     of the page would never see. Body: {token, url, candidates?, add?}. With add=true
     the found board is saved to the boards table and joins the next scrape."""

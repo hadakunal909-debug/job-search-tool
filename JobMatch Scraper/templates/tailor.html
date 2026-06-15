@@ -55,7 +55,7 @@
   </div>
   <form method="post" action="{{ url_for('tailor_ai') }}" id="aiform">
     <input type="hidden" name="url" value="{{ job.url }}">
-    <div id="keysaved" class="muted" {% if not ai_ready %}style="display:none"{% endif %}>🔑 Gemini key saved on this browser · <a href="#" id="changekey">change</a></div>
+    <div id="keysaved" class="muted" {% if not ai_ready %}style="display:none"{% endif %}>Gemini key saved on this browser · <a href="#" id="changekey">change</a></div>
     <input class="keyin" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off"{% if ai_ready %} style="display:none"{% endif %}>
     <button class="btn primary" type="submit" id="aibtn">{{ 'Re-tailor' if tailored else 'AI-tailor my résumé' }}</button>
   </form>
@@ -76,7 +76,7 @@
     var c = document.getElementById("aicopy");
     if (c) c.onclick = function () {
       var t = document.getElementById("aitext");
-      if (t) { navigator.clipboard.writeText(t.value); c.textContent = "Copied ✓"; }
+      if (t) { navigator.clipboard.writeText(t.value); c.textContent = "Copied "; }
     };
   }
   wireCopy();

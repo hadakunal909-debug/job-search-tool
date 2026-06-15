@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="rb">
+<div class="card">
+  <h1>Your tailored draft</h1>
+  <p class="muted small">AI-written from your real material + the brain's plan. Edit anything, then copy
+    or download as .docx. <a href="{{ url_for('brain_home') }}">← back to Tailor</a></p>
+</div>
+
+{% if error %}<div class="card"><div class="note warn">Couldn't generate: {{ error }}</div></div>{% endif %}
+
+{% if out %}
+  {% if out.parse_warning %}<div class="card"><div class="note">The model didn't return clean JSON — showing its raw output; edit as needed.</div></div>{% endif %}
+  {% if out.notes %}<div class="card"><h2>Notes</h2><ul class="muted small">{% for n in out.notes %}<li>{{ n }}</li>{% endfor %}</ul></div>{% endif %}
+
+  <div class="card">
+    <div class="row between"><h2>Tailored résumé</h2><button class="btn" type="button" data-copy="#resumeText">Copy</button></div>
+    <form method="post" action="{{ url_for('brain_export_resume') }}">
+      <textarea id="resumeText" name="content" rows="22" class="mono">{{ out.tailored_resume }}</textarea>
+      <input type="hidden" name="title" value="{{ ctx.name or 'Tailored Résumé' }}">
+      <div class="row"><button class="btn primary" type="submit">Download .docx</button></div>
+    </form>
+  </div>
+
+  {% if out.cover_letter %}
+  <div class="card">
+    <div class="row between"><h2>Cover letter</h2><button class="btn" type="button" data-copy="#coverText">Copy</button></div>
+    <form method="post" action="{{ url_for('brain_export_cover') }}">
+      <textarea id="coverText" name="content" rows="16">{{ out.cover_letter }}</textarea>
+      <div class="row"><button class="btn primary" type="submit">Download .docx</button></div>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('click',function(e){
+  var b=e.target.closest('[data-copy]');if(!b)return;
+  var el=document.querySelector(b.getAttribute('data-copy'));if(!el)return;
+  el.select();try{document.execCommand('copy');}catch(e2){}
+  if(navigator.clipboard)navigator.clipboard.writeText(el.value).catch(function(){});
+  var o=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=o;},1500);
+});
+</script>
+{% endblock %}
