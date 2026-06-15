@@ -1,0 +1,189 @@
+"""
+gemini.py — OPTIONAL AI rewrite layer (Google Gemini / AI Studio via REST; no SDK).
+
+The brain's core stays AI-free and self-training. This module is only used when the user
+chooses "Write it for me" and supplies a key. It takes the DETERMINISTIC brain's plan as
+grounding — the chosen résumé, the stories to feature, the keywords/phrasing to mirror, the
+JD's voice ("symphony"), and the company research — and renders a finished, truthful tailored
+résumé + cover letter. It never decides what's relevant (the brain already did); it only writes.
+
+Calls hit a FIXED Google host (not a user URL), so a plain requests.post is fine here.
+"""
+import os
+import re
+import json
+
+import requests
+
+GEMINI_DEFAULT_MODEL = "gemini-3.5-flash"
+_BASE = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent"
+_LIST = "https://generativelanguage.googleapis.com/v1beta/models"
+_HDR = {"Content-Type": "application/json"}
+
+
+# ----------------------------- model discovery (404 fallback) -----------------------------
+def _list_models(api_key):
+    r = requests.get(_LIST, params={"key": api_key}, timeout=20)
+    r.raise_for_status()
+    return [(m.get("name") or "").split("/")[-1] for m in r.json().get("models", [])
+            if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+
+
+def _discover(api_key):
+    try:
+        def ok(m):
+            bad = ("vision", "tts", "image", "audio", "embedding", "exp",
+                   "preview", "learnlm", "aqa", "gemma")
+            return bool(m) and not any(b in m for b in bad)
+        models = _list_models(api_key)
+        flash = sorted([m for m in models if "flash" in m and ok(m)], reverse=True)
+        pro = sorted([m for m in models if "pro" in m and ok(m)], reverse=True)
+        return (flash or pro or [m for m in models if ok(m)] or [GEMINI_DEFAULT_MODEL])[0]
+    except Exception:
+        return GEMINI_DEFAULT_MODEL
+
+
+# ----------------------------- core generate -----------------------------
+def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
+              think=True, json_mode=True, model=None):
+    """One generateContent call. Returns the model's text. Raises RuntimeError on failure."""
+    if not api_key:
+        raise RuntimeError("No Gemini API key provided.")
+    mdl = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
+
+    def _call(m, with_think):
+        gen = {"maxOutputTokens": max_tokens, "temperature": temperature}
+        if json_mode:
+            gen["responseMimeType"] = "application/json"
+        if with_think:
+            gen["thinkingConfig"] = {"thinkingBudget": -1}
+        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
+        return requests.post(_BASE % m, params={"key": api_key}, headers=_HDR,
+                             json=body, timeout=120)
+
+    r = _call(mdl, think)
+    if r.status_code == 404:                              # preferred model not on this key
+        alt = _discover(api_key)
+        if alt and alt != mdl:
+            mdl = alt
+            r = _call(mdl, think)
+    if r.status_code == 400 and "think" in (r.text or "").lower():
+        r = _call(mdl, False)                            # model rejects thinkingConfig
+    if r.status_code >= 400:
+        raise RuntimeError("Gemini API %s: %s" % (r.status_code, (r.text or "")[:200]))
+    data = r.json()
+    cands = data.get("candidates") or []
+    if not cands:
+        raise RuntimeError("Gemini returned no text (possibly blocked): %s"
+                           % str(data.get("promptFeedback") or "")[:150])
+    parts = ((cands[0].get("content") or {}).get("parts")) or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    if not text:
+        raise RuntimeError("Gemini returned an empty response (try again).")
+    return text
+
+
+# ----------------------------- robust JSON parse -----------------------------
+def parse_json(text):
+    """Best-effort JSON object from a model reply. Ladder:
+       raw -> strip ```json fences -> regex outer {...}. Returns dict or None."""
+    if not text:
+        return None
+    candidates = [text]
+    fenced = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(),
+                    flags=re.IGNORECASE | re.MULTILINE)
+    if fenced != text:
+        candidates.append(fenced)
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        candidates.append(m.group(0))
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            continue
+    return None
+
+
+# ----------------------------- prompt -----------------------------
+_TRUTH_RULES = (
+    "Hard rules (must follow):\n"
+    "- Use ONLY the candidate's real material below (their résumé + the selected stories). "
+    "NEVER invent or exaggerate employers, titles, dates, degrees, metrics, or skills.\n"
+    "- You MAY reword, reorder, and merge the candidate's real bullets, and weave the selected "
+    "stories in as résumé bullets where they genuinely fit. Keep real quantified results.\n"
+    "- Company research describes the COMPANY only. Use it to choose emphasis, mirror wording, "
+    "and write the cover letter's 'why this company' — NEVER to imply the candidate did anything "
+    "for that company.\n"
+    "- Only include keywords from the 'mirror'/'missing' lists if the candidate's material "
+    "actually supports them.\n"
+    "- Honor the candidate's saved preferences (lessons) listed below.\n"
+)
+
+
+def _ctx_block(ctx):
+    comp = ctx.get("company") or {}
+    stories = "\n".join("• %s: %s" % (s.get("title", ""), s.get("text", ""))
+                        for s in (ctx.get("stories") or [])) or "(none selected)"
+    symph = ctx.get("symphony") or {}
+    lessons = "\n".join("- " + l for l in (ctx.get("lessons") or []) if l) or "(none)"
+    return (
+        "=== TARGET JOB DESCRIPTION ===\n%s\n\n"
+        "=== COMPANY (research; about the company only) ===\n"
+        "Name: %s\nWhat they do: %s\nMission: %s\nAbout: %s\nCore values: %s\n"
+        "Tech they use: %s\nCurrent initiatives/projects: %s\nWhat they emphasize: %s\n\n"
+        "=== CANDIDATE ===\nName: %s\nEmail: %s\n\n"
+        "=== CANDIDATE'S BASE RÉSUMÉ (real) ===\n%s\n\n"
+        "=== STORIES TO FEATURE (real; weave these in) ===\n%s\n\n"
+        "=== JOB'S VOICE (mirror where genuine) ===\n"
+        "Tones: %s | Focus: %s | Formality: %s | Signature verbs: %s\n"
+        "Phrasing to mirror: %s\nKeywords to add only-if-true: %s\n\n"
+        "=== CANDIDATE PREFERENCES (lessons — honor these) ===\n%s\n"
+        % (ctx.get("jd_text", ""), ctx.get("company_name", ""),
+           comp.get("what_they_do", ""), comp.get("mission", ""), comp.get("about", ""),
+           ", ".join(comp.get("values", []) or []),
+           ", ".join(comp.get("tech_stack", []) or []),
+           "; ".join((comp.get("initiatives", []) or [])[:4]),
+           "; ".join((comp.get("looking_for", []) or [])[:5]),
+           ctx.get("name", ""), ctx.get("email", ""),
+           ctx.get("base_resume", ""), stories,
+           ", ".join(symph.get("tones", []) or []), symph.get("focus", ""),
+           symph.get("formality", ""), ", ".join(symph.get("top_verbs", []) or []),
+           ", ".join((ctx.get("mirror_terms", []) or [])[:12]),
+           ", ".join((ctx.get("missing", []) or [])[:12]), lessons)
+    )
+
+
+def _rewrite_prompt(ctx):
+    return (
+        "You are an expert résumé writer and career coach. Using the grounding below, produce a "
+        "finished, ATS-friendly TAILORED RÉSUMÉ (plain text, standard sections, strong action "
+        "verbs, real quantified results, lead with the most relevant experience) and a concise "
+        "COVER LETTER (3 short paragraphs: a specific hook tied to the company, 1-2 proof points "
+        "from the candidate's real stories, and a close). Mirror the job's voice where the "
+        "candidate genuinely fits.\n\n"
+        + _TRUTH_RULES +
+        "\nOutput ONLY JSON of this exact shape (no markdown, no prose outside JSON):\n"
+        '{"tailored_resume": "full plain-text résumé",\n'
+        ' "cover_letter": "full plain-text cover letter",\n'
+        ' "notes": ["short note on what you emphasized or any honest gap"]}\n\n'
+        + _ctx_block(ctx) + "\n=== JSON ==="
+    )
+
+
+# ----------------------------- public call -----------------------------
+def rewrite(ctx, api_key):
+    """Turn the brain's plan into finished prose. Returns
+    {tailored_resume, cover_letter, notes[], parse_warning}. Raises RuntimeError on API failure."""
+    text = _generate(_rewrite_prompt(ctx), api_key, temperature=0.45, max_tokens=8192,
+                     think=True, json_mode=True)
+    obj = parse_json(text)
+    if not obj or not obj.get("tailored_resume"):
+        return {"tailored_resume": (obj or {}).get("tailored_resume") or text,
+                "cover_letter": (obj or {}).get("cover_letter", "") or "",
+                "notes": [], "parse_warning": True}
+    return {"tailored_resume": obj.get("tailored_resume", ""),
+            "cover_letter": obj.get("cover_letter", "") or "",
+            "notes": obj.get("notes", []) or [], "parse_warning": False}

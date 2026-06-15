@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Tailored draft — Resume Brain{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h1>Your tailored draft</h1>
+  <p class="muted">AI-written from your real material + the brain's plan. Edit anything, then copy
+    or download as .docx. <a href="{{ url_for('tailor') }}">← back to Tailor</a></p>
+</div>
+
+{% if error %}
+  <div class="card"><div class="note warn">Couldn't generate: {{ error }}</div></div>
+{% endif %}
+
+{% if out %}
+  {% if out.parse_warning %}<div class="card"><div class="note">The model didn't return clean JSON — showing its raw output below; edit as needed.</div></div>{% endif %}
+  {% if out.notes %}
+    <div class="card"><h2>Notes</h2><ul class="muted small">{% for n in out.notes %}<li>{{ n }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  {# ---------- tailored résumé ---------- #}
+  <div class="card">
+    <div class="row between">
+      <h2>Tailored résumé</h2>
+      <button class="ghost" type="button" data-copy="#resumeText">Copy</button>
+    </div>
+    <form method="post" action="{{ url_for('export_resume') }}">
+      <textarea id="resumeText" name="content" rows="22" class="mono">{{ out.tailored_resume }}</textarea>
+      <input type="hidden" name="title" value="{{ ctx.name or 'Tailored Résumé' }}">
+      <div class="row"><button class="primary" type="submit">⬇ Download .docx</button></div>
+    </form>
+  </div>
+
+  {# ---------- cover letter ---------- #}
+  {% if out.cover_letter %}
+  <div class="card">
+    <div class="row between">
+      <h2>Cover letter</h2>
+      <button class="ghost" type="button" data-copy="#coverText">Copy</button>
+    </div>
+    <form method="post" action="{{ url_for('export_cover') }}">
+      <textarea id="coverText" name="content" rows="16">{{ out.cover_letter }}</textarea>
+      <div class="row"><button class="primary" type="submit">⬇ Download .docx</button></div>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Resume Brain{% endblock %}</title>
+<script nonce="{{ csp_nonce }}">
+  // Set theme before paint to avoid a flash.
+  try { var t = localStorage.getItem("rb_theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='none' stroke='%230e8a5f' stroke-width='10'/><circle cx='50' cy='50' r='14' fill='%230e8a5f'/></svg>">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('tailor') }}">
+    <span class="brand-dot"></span> Resume<strong>Brain</strong>
+  </a>
+  <nav class="nav">
+    <a href="{{ url_for('tailor') }}" class="{% if request.endpoint == 'tailor' %}active{% endif %}">Tailor</a>
+    <a href="{{ url_for('teach') }}" class="{% if request.endpoint == 'teach' %}active{% endif %}">Teach</a>
+    <a href="{{ url_for('companies') }}" class="{% if request.endpoint == 'companies' %}active{% endif %}">Companies</a>
+    <button id="themeToggle" class="ghost" type="button" title="Toggle dark mode" aria-label="Toggle dark mode">🌙</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  {% with msgs = get_flashed_messages() %}
+    {% if msgs %}<div class="flash">{% for m in msgs %}<div>{{ m }}</div>{% endfor %}</div>{% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
