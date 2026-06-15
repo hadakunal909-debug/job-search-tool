@@ -22,7 +22,7 @@
     </div>
   </div>
   <div class="filters">
-    <input id="q" placeholder="🔎 Search title or company" autocomplete="off">
+    <input id="q" placeholder="Search title or company" autocomplete="off">
     <label class="rng">Min match <b id="minlab">{{ default_min }}</b>%
       <input id="min" type="range" min="0" max="100" value="{{ default_min }}">
     </label>
@@ -53,9 +53,9 @@
     <button class="tab" data-tab="applied">Applied <span class="tabn">{{ counts.applied }}</span></button>
     <button class="tab" data-tab="hidden">Hidden <span class="tabn">{{ counts.hidden }}</span></button>
   </div>
-  {% if scraping %}<div class="banner">⏳ A scrape is running — hit 🔄 Reload in a few minutes for new jobs.</div>{% endif %}
+  {% if scraping %}<div class="banner">A scrape is running — hit Reload in a few minutes for new jobs.</div>{% endif %}
   {% if not has_resume %}
-  <div class="banner">Showing baseline scores. <a href="{{ url_for('resume') }}">➕ Add your résumé</a> for personalized matches.</div>
+  <div class="banner">Showing baseline scores. <a href="{{ url_for('brain_home') }}">Build your profile in Resume Brain</a> for personalized matches.</div>
   {% endif %}
 </div>
 <div class="count"><span id="count">{{ total }}</span> of {{ total }} jobs</div>

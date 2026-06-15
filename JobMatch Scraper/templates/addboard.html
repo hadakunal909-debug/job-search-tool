@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>➕ Add a job board</h1>
+<h1>Add a job board</h1>
 <p class="sub">Paste a company's careers link. Works for Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle Cloud, Phenom, iCIMS/Jibe, SuccessFactors, UKG/UltiPro, BambooHR, Pinpoint, Rippling, Workable, Recruitee, Breezy, Personio — plus many pages with embedded job data. It joins the next scrape.</p>
 {% if result %}
   <div class="result {{ result[0] }}">
@@ -13,7 +13,7 @@
 <form method="post" class="addform">
   <input name="url" placeholder="https://job-boards.greenhouse.io/figma" required>
   <input name="name" placeholder="Company name (optional)">
-  <button class="btn primary" type="submit">🔎 Check &amp; add</button>
+  <button class="btn primary" type="submit">Check &amp; add</button>
 </form>
 {% if boards %}
 <h3>Boards you've added</h3>

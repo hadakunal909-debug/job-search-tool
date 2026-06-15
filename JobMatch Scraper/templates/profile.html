@@ -12,11 +12,11 @@
 [data-theme=dark] .pgrid input,[data-theme=dark] .pgrid select,[data-theme=dark] .pgrid textarea{background:#0d1117;border-color:#2a3340;color:#e6edf3}
 [data-theme=dark] .tokbox{background:#13181f;border-color:#2a3340}
 </style>
-<h1>👤 Profile</h1>
+<h1>Profile</h1>
 <p class="sub">Your default résumé feeds the application tracker automatically; the rest is optional contact info. Private to your account.</p>
 <form method="post">
   <div class="pgrid">
-    <label class="full">⭐ Default résumé file name <span class="dim">— auto-filled into your tracker each time you apply (the file you keep on your desktop)</span>
+    <label class="full">Default résumé file name <span class="dim">— auto-filled into your tracker each time you apply (the file you keep on your desktop)</span>
       <input name="default_resume" value="{{ prof.default_resume or '' }}" placeholder="e.g. Kunal_PM_Resume.pdf"></label>
     <label>Full name<input name="name" value="{{ prof.name or '' }}"></label>
     <label>Email<input name="email" type="email" value="{{ prof.email or '' }}"></label>
@@ -39,11 +39,11 @@
     </label>
     <label class="full">Notes<textarea name="notes" rows="2">{{ prof.notes or '' }}</textarea></label>
   </div>
-  <button class="btn primary" type="submit" style="margin-top:12px">💾 Save profile</button>
+  <button class="btn primary" type="submit" style="margin-top:12px">Save profile</button>
 </form>
 
 <div class="tokbox">
-  <b>🧩 Browser extension</b>
+  <b>Browser extension</b>
   <p class="dim">Install the JobMatch Helper extension to save any job to your tracker with one click — on LinkedIn, Workday, or any company site. Paste this token into the extension; it links the extension to your account, so keep it private:</p>
   <div class="tok">{{ token }}</div>
   <p class="dim">Install: get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code> → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in <code>extension/README.md</code>.</p>

@@ -16,6 +16,9 @@ user_jobs_local.json
 jds.json
 boards.json
 jdmeta.json
+brain_kb_local.json
+brain_companies_local.json
+resumes_local.json
 
 last_new_jobs.json
 scrape.log

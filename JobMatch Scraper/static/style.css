@@ -177,3 +177,50 @@ pre{background:#0e261d;color:#cfe9dd;padding:12px;border-radius:10px;overflow:au
   .feedgrid{grid-template-columns:1fr}
   .topbar{gap:10px}.topbar nav{order:3;width:100%}
 }
+
+/* ============ Resume Brain (scoped under .rb) ============ */
+.rb{max-width:900px;margin:0 auto}
+.rb h1{font-size:22px;margin:0 0 4px}
+.rb h2{font-size:16px;margin:0 0 10px}
+.rb .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 16px}
+.rb .card.ai{border-left:3px solid var(--brand)}
+.rb .muted{color:var(--muted)}
+.rb .small{font-size:13px}
+.rb label{display:block;margin:10px 0;font-weight:600;font-size:14px}
+.rb label .muted{font-weight:400}
+.rb .req{color:#d33}
+.rb .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rb .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.rb .row.between{justify-content:space-between}
+.rb .row.between h2{margin:0}
+.rb textarea,.rb input[type=text],.rb input[type=password]{width:100%;box-sizing:border-box}
+.rb textarea.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5}
+.rb .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.rb .chip{display:inline-block;padding:4px 10px;border-radius:20px;font-size:12.5px;background:var(--brand-soft);color:var(--brand-d)}
+.rb .chip.miss{background:#fde8e8;color:#b42318}
+.rb .chip.tone{background:#efe7fb;color:#6d28d9}
+[data-theme=dark] .rb .chip.miss{background:#3a1f1f;color:#fca5a5}
+[data-theme=dark] .rb .chip.tone{background:#2a2140;color:#c4b5fd}
+.rb .cov{display:flex;align-items:center;gap:18px;margin:10px 0}
+.rb .cov-num{display:flex;flex-direction:column}
+.rb .cov .big{font-size:30px;font-weight:800;line-height:1}
+.rb .cov .big.up{color:var(--brand)}
+.rb .cov-arrow{font-size:24px;color:var(--muted)}
+.rb .coach{list-style:none;padding:0;margin:0}
+.rb .coach li{padding:8px 0;border-bottom:1px solid var(--line)}
+.rb .coach li:last-child{border-bottom:0}
+.rb .storypick{display:flex;align-items:center;gap:8px;margin:0;font-weight:600}
+.rb .storypick input{width:auto;margin:0}
+.rb .badge{display:inline-block;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:11px;color:var(--muted);font-weight:600}
+.rb .note{background:var(--brand-soft);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin:6px 0;font-size:13px}
+.rb .note.warn{background:#fff4e5;color:#92400e}
+[data-theme=dark] .rb .note.warn{background:#3a2c12;color:#fcd9a5}
+.rb .kb-item{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0;background:var(--bg)}
+.rb .kb-item summary{cursor:pointer;font-weight:600}
+.rb summary.addnew{color:var(--brand);font-weight:700}
+.rb .lesson{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.rb .lesson:last-child{border-bottom:0}
+.rb .inline{display:inline}
+.rb .jobpick{margin:6px 0}
+.rb .jobpick a{display:block;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin:4px 0;background:var(--bg)}
+.rb .jobpick a:hover{border-color:var(--brand)}

@@ -87,20 +87,20 @@
     if (j.sponsors_h1b === "yes")
       badges += '<span class="h1b" title="Company has sponsored H-1B before' +
         (j.strength ? ' &middot; ~' + (j.strength_n || 0) + ' filings' : '') + '">H1B' +
-        (j.strength === 'high' ? ' ⭐' : '') + '</span>';
+        (j.strength === 'high' ? ' (top sponsor)' : '') + '</span>';
     if (j.cap_exempt)
-      badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">🎓 No lottery</span>';
+      badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">No lottery</span>';
     if (j.everify)
-      badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov before relying on it.">✅ E-Verify</span>';
+      badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov before relying on it.">E-Verify</span>';
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
       badges += '<span class="exp ' + ec + '" title="The description asks for about ' + H(j.exp_years) +
         '+ years of experience">' + H(j.exp_years) + '+ yrs</span>';
     }
     if (j.sponsor_jd === 'blocked')
-      badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">🚫 No sponsorship</span>';
+      badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
     else if (j.sponsor_jd === 'open')
-      badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">✅ Sponsors</span>';
+      badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
     var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '">' + H(j.date) + '</span>' : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' +
@@ -114,7 +114,7 @@
       '<div class="cmeta">' + esc(j.company) + ' · ' + esc(j.location || 'n/a') + posted + badges + '</div>' +
       '<div class="cardact">' +
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>' +
-        '<a class="btn sm" href="/tailor?url=' + encodeURIComponent(j.url) + '">Tailor</a>' +
+        '<a class="btn sm" href="/brain?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
         '<span class="spacer"></span>' +
         '<span class="acts">' +
           '<button class="ico" data-act="liked" title="Save">' + (st === 'liked' ? 'Saved' : 'Save') + '</button>' +
@@ -244,7 +244,7 @@
       '<span class="skel skel-bar w75"></span><span class="skel skel-bar w55"></span>';
     $("m-jd").innerHTML = '<div class="loading-jd"><span class="spin"></span>Loading description…</div>';
     $("m-apply").href = /^https?:\/\//i.test(mUrl) ? mUrl : "#";
-    $("m-tailor").href = "/tailor?url=" + encodeURIComponent(mUrl);
+    $("m-tailor").href = "/brain?job=" + encodeURIComponent(mUrl);
     syncModal((byUrl[mUrl] && byUrl[mUrl].status) || "");
     modal.classList.add("open"); document.body.style.overflow = "hidden";
     fetch("/api/job?url=" + encodeURIComponent(mUrl)).then(function (r) { return r.json(); }).then(function (j) {
@@ -259,10 +259,10 @@
         var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
         spn += '<span class="exp ' + ec + '">' + ey + '+ yrs experience</span>';
       }
-      if (j.everify) spn += '<span class="ev" title="Confirm current status at e-verify.gov">✅ E-Verify · STEM-OPT OK</span>';
-      if (j.cap_exempt) spn += '<span class="cx">🎓 Likely cap-exempt — no H-1B lottery</span>';
-      if (j.sponsor_jd === "blocked") spn += '<span class="nospon">🚫 ' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
-      else if (j.sponsor_jd === "open") spn += '<span class="spon">✅ ' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
+      if (j.everify) spn += '<span class="ev" title="Confirm current status at e-verify.gov">E-Verify · STEM-OPT OK</span>';
+      if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt — no H-1B lottery</span>';
+      if (j.sponsor_jd === "blocked") spn += '<span class="nospon">' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
+      else if (j.sponsor_jd === "open") spn += '<span class="spon">' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
       if (spn) sk = '<div class="kw" style="margin-bottom:10px">' + spn + '</div>' + sk;
       var skEl = $("m-skills"), jdEl = $("m-jd");
       skEl.style.opacity = "0"; jdEl.style.opacity = "0";

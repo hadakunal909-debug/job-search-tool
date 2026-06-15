@@ -697,6 +697,152 @@ def delete_resume(username, rid):
         _dump_json(RESUMES_FILE, data)
 
 
+# ---- Resume Brain knowledge base ----
+# Per-user stories + lessons + self-training model live in a `brain_kb` JSON column on the
+# users row (one ALTER). Company research is SHARED across users (public facts) in its own
+# `brain_companies` table. Both fall back to local JSON so the app runs with zero DB setup;
+# if the Supabase column/table doesn't exist yet, reads/writes degrade to the local files.
+BRAIN_KB_FILE = "brain_kb_local.json"            # {username: {stories, lessons, model}}
+BRAIN_COMPANIES_TABLE = "brain_companies"
+BRAIN_COMPANIES_FILE = "brain_companies_local.json"   # {domain: {...research...}}
+
+
+def _brain_kb_default():
+    return {"stories": [], "lessons": [], "model": {"assoc": {}, "df": {}, "n": 0}}
+
+
+def get_brain_kb(username):
+    """Per-user Resume Brain data: {stories:[], lessons:[], model:{}}. Reads users.brain_kb
+    (Supabase) and falls back to a local file when the column is absent. Never raises."""
+    kb = None
+    if username:
+        try:
+            if using_supabase():
+                kb = (get_user(username) or {}).get("brain_kb")
+                if kb is None:                              # column missing/empty -> local backup
+                    kb = _load_json(BRAIN_KB_FILE).get(username)
+            else:
+                kb = _load_json(BRAIN_KB_FILE).get(username)
+        except Exception:
+            try:
+                kb = _load_json(BRAIN_KB_FILE).get(username)
+            except Exception:
+                kb = None
+    if isinstance(kb, str):
+        try:
+            kb = json.loads(kb)
+        except Exception:
+            kb = None
+    if not isinstance(kb, dict):
+        kb = _brain_kb_default()
+    kb.setdefault("stories", [])
+    kb.setdefault("lessons", [])
+    kb.setdefault("model", {})
+    kb["model"].setdefault("assoc", {})
+    kb["model"].setdefault("df", {})
+    kb["model"].setdefault("n", 0)
+    return kb
+
+
+def _save_brain_kb_local(username, kb):
+    data = _load_json(BRAIN_KB_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    data[username] = kb
+    _dump_json(BRAIN_KB_FILE, data)
+
+
+def save_brain_kb(username, kb):
+    """Persist a user's KB. Tries Supabase (users.brain_kb jsonb); on any failure (e.g. the
+    column hasn't been added yet) falls back to a local file so data is never lost."""
+    if not username:
+        return
+    if using_supabase():
+        try:
+            _patch_user(username, {"brain_kb": kb})
+            return
+        except Exception:
+            pass
+    _save_brain_kb_local(username, kb)
+
+
+def get_brain_company(domain):
+    """Shared company-research record by domain (any user's crawl benefits everyone)."""
+    if not domain:
+        return None
+    try:
+        if using_supabase():
+            r = _http.get(_rest(BRAIN_COMPANIES_TABLE), headers=_headers(),
+                          params={"domain": "eq.%s" % domain, "select": "*", "limit": 1}, timeout=20)
+            r.raise_for_status()
+            rows = r.json()
+            if rows:
+                d = rows[0].get("data")
+                return json.loads(d) if isinstance(d, str) else d
+            return _load_json(BRAIN_COMPANIES_FILE).get(domain)   # local backup
+    except Exception:
+        pass
+    data = _load_json(BRAIN_COMPANIES_FILE)
+    return data.get(domain) if isinstance(data, dict) else None
+
+
+def put_brain_company(domain, rec):
+    """Upsert shared company research (keyed on domain). Local fallback on DB failure."""
+    if not domain:
+        return
+    rec = dict(rec)
+    rec["domain"] = domain
+    rec["fetched_at"] = _now()
+    if using_supabase():
+        try:
+            payload = {"domain": domain, "data": rec, "fetched_at": rec["fetched_at"]}
+            resp = _http.post(
+                _rest(BRAIN_COMPANIES_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "domain"}, data=json.dumps(payload), timeout=30)
+            if resp.status_code < 400:
+                return
+        except Exception:
+            pass
+    data = _load_json(BRAIN_COMPANIES_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    data[domain] = rec
+    _dump_json(BRAIN_COMPANIES_FILE, data)
+
+
+def list_brain_companies():
+    """{domain: record} for all researched companies (shared)."""
+    try:
+        if using_supabase():
+            out = {}
+            for row in _fetch_all(BRAIN_COMPANIES_TABLE, {"select": "*"}):
+                d = row.get("data")
+                if isinstance(d, str):
+                    try:
+                        d = json.loads(d)
+                    except Exception:
+                        d = None
+                if isinstance(d, dict):
+                    out[row.get("domain")] = d
+            if out:
+                return out
+    except Exception:
+        pass
+    data = _load_json(BRAIN_COMPANIES_FILE)
+    return data if isinstance(data, dict) else {}
+
+
+def profile_text(username):
+    """The COMPLETE matching profile: every résumé + every story combined. This is what the
+    feed scores jobs against (per the 'match against the whole Resume Brain' design)."""
+    parts = [r.get("content", "") or "" for r in list_resumes(username)]
+    for s in get_brain_kb(username).get("stories", []):
+        parts.append((s.get("title", "") or "") + " " + (s.get("text", "") or "")
+                     + " " + " ".join(s.get("skills", []) or []))
+    return "\n".join(p for p in parts if p.strip())
+
+
 # ---- user profile (name/email/phone/work-auth) — for the Chrome extension autofill ----
 PROFILES_TABLE = "profiles"
 PROFILES_FILE = "profiles_local.json"

@@ -40,20 +40,20 @@
 [data-theme=dark] .appco{color:#e6edf3}
 </style>
 
-<h1>📋 Applications</h1>
+<h1>Applications</h1>
 <p class="sub">Every job you've applied to — from here or any other site. Private to your account. Marking a job “Applied” in the feed logs it here automatically (with the résumé you have on file).</p>
 
 <div class="appstats">
   <span><b>{{ total }}</b> total</span>
   <span>· <b>{{ week }}</b> active this week</span>
   {% for s in statuses %}{% if counts.get(s) %}<span class="pill st-{{ s }}">{{ counts[s] }} {{ s }}</span>{% endif %}{% endfor %}
-  {% if apps %}<a class="btn sm" href="{{ url_for('applications_csv') }}">⬇ Export CSV</a>{% endif %}
+  {% if apps %}<a class="btn sm" href="{{ url_for('applications_csv') }}">Export CSV</a>{% endif %}
 </div>
 
 <datalist id="rnames">{% for n in resume_names %}<option value="{{ n }}">{% endfor %}</datalist>
 
 <details class="addapp">
-  <summary>➕ Add an application (from LinkedIn, a company site, anywhere)</summary>
+  <summary>Add an application (from LinkedIn, a company site, anywhere)</summary>
   <form method="post" action="{{ url_for('application_save') }}" class="appform">
     <input type="hidden" name="id" value="">
     <div class="grid2">
@@ -84,7 +84,7 @@
       <div>
         <div class="appco">{{ a.company or '—' }}</div>
         <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View posting' }} ↗</a>{% else %}{{ a.title or '' }}{% endif %}</div>
-        <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}—{% endif %}{% if a.resume_name %} · 📄 {{ a.resume_name }}{% endif %}</div>
+        <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}—{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
     </div>
@@ -110,7 +110,7 @@
 </div>
 
 <details class="setup">
-  <summary>⚙️ First time? One-time database setup</summary>
+  <summary>First time? One-time database setup</summary>
   <p>If saving doesn't stick, the <code>applications</code> table doesn't exist yet. Run this once in Supabase → SQL Editor:</p>
   <pre>{{ sql }}</pre>
 </details>
