@@ -384,11 +384,66 @@ def microdata_jd(url):
         return "", ""
 
 
+# Meta's job pages have no public API, but each detail page server-EMBEDS the JD as
+# structured JSON (responsibilities + minimum/preferred qualifications). We pull those
+# fields straight from the HTML — far cheaper than re-driving a browser per job. Needs
+# the same full browser headers the page demands (a bare request gets a 400).
+_META_BROWSER_HEADERS = {
+    "User-Agent": scraper.HEADERS["User-Agent"],
+    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9", "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
+def _meta_json_str(txt, key):
+    """Pull a JSON string value ("key":"...") out of the embedded page JSON."""
+    m = re.search(r'"%s":"((?:[^"\\]|\\.)*)"' % key, txt)
+    if not m:
+        return ""
+    try:
+        return json.loads('"' + m.group(1) + '"')
+    except Exception:
+        return ""
+
+
+def _meta_json_items(txt, key):
+    """Pull a JSON list-of-{item} ("key":[{"item":".."},..]) and join the items."""
+    m = re.search(r'"%s":(\[(?:[^\[\]]|\[[^\]]*\])*\])' % key, txt)
+    if not m:
+        return ""
+    try:
+        return " ".join(d.get("item", "") for d in json.loads(m.group(1))
+                        if isinstance(d, dict))
+    except Exception:
+        return ""
+
+
+def metacareers_detail_jd(url):
+    """Meta job description from the detail page's embedded JSON (responsibilities +
+    minimum/preferred qualifications). No browser needed — the JD is server-rendered
+    into the page as JSON, just not as visible HTML (so core.fetch_jd misses it)."""
+    try:
+        r = scraper.SESSION.get(url, headers=_META_BROWSER_HEADERS, timeout=20)
+        if r.status_code != 200:
+            return ""
+        t = r.text
+        parts = [_meta_json_str(t, "responsibilities"),
+                 _meta_json_items(t, "minimum_qualifications"),
+                 _meta_json_items(t, "preferred_qualifications")]
+        return _text(" ".join(p for p in parts if p))
+    except Exception:
+        return ""
+
+
 def detail_jd(url):
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""
-    if "smartrecruiters.com" in url:
+    if "metacareers.com" in url:
+        jd = metacareers_detail_jd(url)
+    if not jd and "smartrecruiters.com" in url:
         jd = sr_detail_jd(url)
     if not jd and ("myworkdayjobs.com" in url or "myworkdaysite.com" in url):
         jd = wd_detail_jd(url)
