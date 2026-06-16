@@ -459,6 +459,13 @@ INCLUDE = (
     # Early-career / new-grad markers (program-style roles; low noise).
     "entry level", "entry-level", "graduate", "new grad", "early career",
     "rotation program", "rotational program", "trainee", "apprentice",
+    # Internships & co-ops — OPT/STEM-OPT lets the user do these. The matcher is
+    # whole-word, so plurals/variants are listed explicitly. The EXCLUDE block still
+    # drops eng/clinical/retail/trades interns (incl. the eng/research-intern phrases
+    # added to EXCLUDE below, which the word-boundary "engineer"/"scientist" miss).
+    "intern", "interns", "internship", "internships",
+    "co-op", "co-ops", "coop", "coops", "co op",
+    "summer analyst", "summer associate",
 )
 # ...but drop it if the title ALSO matches any of these.
 EXCLUDE = (
@@ -490,6 +497,14 @@ EXCLUDE = (
     "mobile associate", "retail sales", "wireless", "security specialist",
     "assets protection", "loss prevention", "patient", "postdoctoral", "postdoc",
     "teller", "phlebotom", "caregiver", "client service associate",
+    # Off-domain intern/co-op variants the word-boundary excludes above miss
+    # ("engineer" doesn't match "Engineering", "scientist" doesn't match "Science").
+    # Target the intern/co-op phrasing so PM titles like "Engineering Program
+    # Manager" are still kept.
+    "engineering intern", "engineering co-op", "engineering coop",
+    "software intern", "hardware intern", "research intern",
+    "science intern", "design intern", "laboratory intern", "lab intern",
+    "nursing intern", "clinical intern", "medical intern", "pharmacy intern",
 )
 
 # If sponsors.txt is loaded: True = DROP companies not on the list; False = keep
@@ -786,6 +801,8 @@ WORKDAY_QUERIES = (
     # wider net — surface the new role types in Workday's ranked search too
     "product manager", "supply chain analyst", "financial analyst",
     "implementation manager", "operations specialist", "marketing analyst", "consultant",
+    # internships / co-ops (OPT-eligible)
+    "intern", "internship", "co-op", "summer analyst",
 )
 
 
@@ -895,6 +912,8 @@ AMAZON_QUERIES = (
     # wider net — Amazon's search is query-driven, so new terms = new pages fetched
     "product manager", "supply chain analyst", "financial analyst",
     "operations specialist", "marketing analyst", "logistics coordinator",
+    # internships / co-ops (OPT-eligible)
+    "intern", "internship", "co-op",
 )
 
 
