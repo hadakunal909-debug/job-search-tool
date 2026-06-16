@@ -15,6 +15,7 @@ See SUPABASE_SETUP.md for the one-time table + keys setup.
 import os
 import csv
 import json
+import datetime
 
 
 def _make_http():
@@ -359,6 +360,41 @@ def delete_all():
         _write_csv([])
 
 
+def all_flagged_urls():
+    """Every job URL any user has liked / applied / hidden — so a prune never deletes a job
+    someone is tracking. Empty set on error / local with no file."""
+    if using_supabase():
+        try:
+            return {r["url"] for r in _fetch_all(USERJOBS_TABLE, {"select": "url"}) if r.get("url")}
+        except Exception:
+            return set()
+    out = set()
+    for per_user in _load_json(USER_JOBS_FILE).values():
+        out.update(u for u, st in (per_user or {}).items() if st)
+    return out
+
+
+def prune_old_jobs(days=60):
+    """Delete jobs first seen more than `days` ago, EXCEPT any a user has flagged — keeps the
+    corpus fresh and the DB bounded as the wider net grows it. Returns how many were removed.
+    Defensive: never raises (a failed prune must not abort the scrape)."""
+    try:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
+        if using_supabase():
+            old = {r["url"] for r in _fetch_all(TABLE, {"select": "url", "found_date": "lt.%s" % cutoff})
+                   if r.get("url")}
+        else:
+            old = {r["url"] for r in _read_csv()
+                   if r.get("url") and (r.get("found_date") or "")[:10] and (r["found_date"][:10] < cutoff)}
+        to_delete = list(old - all_flagged_urls())     # protect liked/applied/hidden
+        if to_delete:
+            delete_urls(to_delete)
+        return len(to_delete)
+    except Exception as e:
+        print("prune_old_jobs skipped:", str(e)[:200])
+        return 0
+
+
 def import_from_files():
     """One-time migration: push local jobs.csv + user_jobs.json into Supabase."""
     if not using_supabase():
@@ -523,7 +559,7 @@ def update_jds(jds):
     """{url: jd_text} -> persist each job's description (used for per-user scoring).
     JD text is large, so cap each one and write in small CHUNKS — a single bulk POST
     of all of them is multiple MB and gets the connection reset."""
-    rows = [{"url": u, "jd": (jd or "")[:12000]} for u, jd in jds.items() if u]
+    rows = [{"url": u, "jd": (jd or "")[:8000]} for u, jd in jds.items() if u]   # cap: bound DB size
     if not rows:
         return
     if using_supabase():

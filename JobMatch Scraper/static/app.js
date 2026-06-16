@@ -20,6 +20,11 @@
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
+  // Large corpus: the server inlines only the top-N matches and we fetch the rest (search/filter/
+  // paging) from /api/feed, so the payload stays small at any scale. Small corpus: data-paged is
+  // empty and everything stays client-side (instant) exactly as before.
+  var PAGED = feed.getAttribute("data-paged") === "1";
+  var shown = 0, _seq = 0, _deb;
 
   // textContent escape (safe in element text)
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
@@ -157,7 +162,7 @@
     }
     return ok;
   }
-  function render(reset) {
+  function renderLocal(reset) {
     if (reset) limit = PAGE;
     var cut = dateCutoff(), matched = [];
     for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
@@ -177,6 +182,47 @@
     }
   }
 
+  // Dispatcher: small corpus renders locally from the inline DATA (instant); large corpus
+  // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.
+  function render(reset) { if (PAGED) renderServer(reset); else renderLocal(reset); }
+
+  function buildParams(offset) {
+    var ps = ["tab=" + encodeURIComponent(tab), "min=" + (minVal || 0),
+              "sort=" + encodeURIComponent(sortBy), "offset=" + offset, "limit=" + PAGE];
+    if (q && q.value.trim()) ps.push("q=" + encodeURIComponent(q.value.trim()));
+    if (dateSel && dateSel.value !== "any") ps.push("date=" + encodeURIComponent(dateSel.value));
+    if (expSel && expSel.value !== "any") ps.push("exp=" + encodeURIComponent(expSel.value));
+    if (everifyOnly && everifyOnly.checked) ps.push("everify=1");
+    if (hideNo && hideNo.checked) ps.push("hidenospon=1");
+    return ps.join("&");
+  }
+  function renderServer(reset) {
+    if (reset) { shown = 0; feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
+    var mySeq = ++_seq;                                   // ignore out-of-order responses
+    fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) { return r.json(); }).then(function (d) {
+      if (mySeq !== _seq) return;
+      var rows = (d && d.rows) || [], htmlc = "";
+      for (var i = 0; i < rows.length; i++) byUrl[rows[i].url] = rows[i];
+      for (var k = 0; k < rows.length; k++) htmlc += cardHTML(rows[k]);
+      if (reset) feed.innerHTML = htmlc; else feed.insertAdjacentHTML("beforeend", htmlc);
+      shown += rows.length;
+      formatDates(); wireLogos();
+      if (countEl) countEl.textContent = (d && d.total) || 0;
+      if (emptyEl) emptyEl.style.display = (d && d.total) ? "none" : "";
+      if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + ((d.total - shown)) + " more)"; }
+    }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">Couldn\'t load jobs — try again.</div>'; });
+  }
+  function debouncedRender() { if (_deb) clearTimeout(_deb); _deb = setTimeout(function () { render(true); }, 250); }
+  function cardEl(url) { var cs = feed.querySelectorAll(".card"); for (var i = 0; i < cs.length; i++) if (cs[i].getAttribute("data-url") === url) return cs[i]; return null; }
+  // After an action: small corpus re-renders locally; paged updates just the touched card in place
+  // (or drops it if it no longer matches the current tab/filters) — no full refetch.
+  function afterAction(j) {
+    if (!PAGED) { render(false); return; }
+    var el = cardEl(j.url);
+    if (matches(j, dateCutoff())) { if (el) el.outerHTML = cardHTML(j); }
+    else if (el) { if (el.parentNode) el.parentNode.removeChild(el); if (countEl) { var n = parseInt(countEl.textContent, 10); if (!isNaN(n) && n > 0) countEl.textContent = n - 1; } }
+  }
+
   function doAction(url, next) {
     return fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next }) })
       .then(function (r) { return r.json(); }).then(function (j) {
@@ -191,7 +237,7 @@
     for (var k = 0; k < tabBtns.length; k++) tabBtns[k].classList.remove("on");
     this.classList.add("on"); tab = this.getAttribute("data-tab"); render(true); window.scrollTo({ top: 0, behavior: "smooth" });
   });
-  if (q) q.addEventListener("input", function () { render(true); });
+  if (q) q.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
   function setFill() {
     if (!minR) return;
     var mn = parseInt(minR.min, 10) || 0, mx = parseInt(minR.max, 10) || 100, v = parseInt(minR.value, 10) || 0;
@@ -203,6 +249,7 @@
     var _raf;
     minR.addEventListener("input", function () {
       minVal = parseInt(minR.value, 10) || 0; setFill();
+      if (PAGED) { debouncedRender(); return; }
       if (_raf) cancelAnimationFrame(_raf);
       _raf = requestAnimationFrame(function () { render(true); });
     });
@@ -225,7 +272,7 @@
       btn.disabled = true;
       doAction(j.url, next).then(function (ok) {
         btn.disabled = false; if (!ok) return; toast(actLabel(next));
-        j.status = next; render(false);
+        j.status = next; afterAction(j);
       });
       return;
     }
@@ -234,7 +281,7 @@
       if (lnk.hasAttribute("data-apply")) {                      // clicking Apply auto-logs it
         var ac = lnk.closest(".card"), aj = ac && byUrl[ac.getAttribute("data-url")];
         if (aj && aj.status !== "applied")
-          doAction(aj.url, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); aj.status = "applied"; render(false); } });
+          doAction(aj.url, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); aj.status = "applied"; afterAction(aj); } });
       }
       return;
     }
@@ -301,16 +348,16 @@
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
     $("m-like").addEventListener("click", function () {
       var j = byUrl[mUrl]; if (!j) return; var next = j.status === "liked" ? "" : "liked";
-      doAction(mUrl, next).then(function (ok) { if (ok) { toast(actLabel(next)); j.status = next; syncModal(next); render(false); } });
+      doAction(mUrl, next).then(function (ok) { if (ok) { toast(actLabel(next)); j.status = next; syncModal(next); afterAction(j); } });
     });
     $("m-hide").addEventListener("click", function () {
       var j = byUrl[mUrl]; if (!j) return; var next = j.status === "hidden" ? "" : "hidden";
-      doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); j.status = next; closeModal(); render(false); } });
+      doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); j.status = next; closeModal(); afterAction(j); } });
     });
     $("m-apply").addEventListener("click", function () {
       var j = byUrl[mUrl];
       if (j && j.status !== "applied")
-        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); j.status = "applied"; syncModal("applied"); render(false); } });
+        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); j.status = "applied"; syncModal("applied"); afterAction(j); } });
     });
   }
 
