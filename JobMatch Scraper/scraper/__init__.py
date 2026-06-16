@@ -408,6 +408,16 @@ ADZUNA_SEARCH_BOARDS = [
     ("adzuna-search:operations analyst",  "adzuna-search", "Adzuna"),
     ("adzuna-search:implementation manager", "adzuna-search", "Adzuna"),
     ("adzuna-search:supply chain analyst", "adzuna-search", "Adzuna"),
+    # Internship / co-op pulls — the LEGITIMATE stand-in for Handshake/university portals
+    # (those are login-gated, student-only, no public feed). Adzuna indexes thousands of the
+    # same employers; these intern-specific phrases surface the intern roles that the full-time
+    # role searches above bury. The title filter trims each pull to PM/controls/product/ops interns.
+    ("adzuna-search:project management intern", "adzuna-search", "Adzuna"),
+    ("adzuna-search:manager intern",       "adzuna-search", "Adzuna"),
+    ("adzuna-search:coordinator intern",   "adzuna-search", "Adzuna"),
+    ("adzuna-search:analyst intern",       "adzuna-search", "Adzuna"),
+    ("adzuna-search:operations intern",    "adzuna-search", "Adzuna"),
+    ("adzuna-search:management co-op",     "adzuna-search", "Adzuna"),
 ]
 
 # Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
