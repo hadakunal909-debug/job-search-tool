@@ -5,8 +5,8 @@
     <h1>Jobs feed</h1>
     <div class="feedtools">
       <a class="btn" href="{{ url_for('reload_jobs') }}">Reload</a>
-      <form method="post" action="{{ url_for('scrape_now') }}" class="inline">
-        <button class="btn" type="submit" {{ 'disabled' if scraping else '' }}>Update jobs</button>
+      <form id="scrapeform" method="post" action="{{ url_for('scrape_now') }}" class="inline">
+        <button id="updatejobs" class="btn" type="submit" {{ 'disabled' if scraping else '' }}>Update jobs</button>
       </form>
     </div>
   </div>
@@ -55,6 +55,11 @@
   {% endif %}
 </div>
 <div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs</div>
+
+<div id="scrapebar" class="scrapebar" style="display:none" role="status" aria-live="polite">
+  <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
+  <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
+</div>
 
 <div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}">
   {% for _ in range(8) %}

@@ -473,6 +473,14 @@ def main():
         print("No resume.txt found — scores would all be 0. Aborting.")
         return
 
+    # Progress bar: mark the SCORING phase (the scraper already set 'scraping'/'saving').
+    import datetime as _dtm
+    _prev = db.get_scrape_status() or {}
+    _started = _prev.get("started_at") or _dtm.datetime.now(_dtm.timezone.utc).isoformat()
+    db.set_scrape_status({"phase": "scoring", "done": 0, "total": 0,
+                          "found": _prev.get("found", 0), "new": _prev.get("new", 0),
+                          "started_at": _started, "run": _prev.get("run", "")})
+
     # 1) What do we already have? Stored JDs are reused (incremental); --full refetches.
     rows = db.load_jobs()
     row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
@@ -553,6 +561,13 @@ def main():
         print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s), %d date(s) -> %s."
               % (len(vals), sum(vals) // len(vals), max(vals),
                  len(fetched), len(dates), where))
+
+    # Progress bar: everything finished — the feed page polls this and shows "Done".
+    db.set_scrape_status({"phase": "done", "scored": len(scores),
+                          "new": _prev.get("new", 0), "found": _prev.get("found", 0),
+                          "started_at": _started,
+                          "finished_at": _dtm.datetime.now(_dtm.timezone.utc).isoformat(),
+                          "run": _prev.get("run", "")})
 
 
 if __name__ == "__main__":

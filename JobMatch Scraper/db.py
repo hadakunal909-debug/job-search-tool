@@ -972,6 +972,64 @@ def save_profile(username, fields):
     return True, ""
 
 
+# ---- live scrape progress (for the in-page "Update jobs" progress bar) ----
+# One shared row the scraper updates as it runs; the feed page polls it. Supabase table:
+#   create table scrape_status (id text primary key, data jsonb, updated_at timestamptz);
+# Works without the table (local-file fallback); never raises (a status write must never
+# break a scrape).
+SCRAPE_STATUS_TABLE = "scrape_status"
+SCRAPE_STATUS_FILE = "scrape_status_local.json"
+_SCRAPE_STATUS_KEY = "current"
+
+
+def set_scrape_status(d):
+    """Persist the current scrape progress dict (phase/done/total/found/started_at/...).
+    Best-effort: returns silently on any failure so it can't abort a scrape."""
+    try:
+        rec = dict(d or {})
+        # UTC with 'Z' so the browser parses it correctly (the scrape may run on GitHub's
+        # UTC runners while the viewer is in any timezone — naive local times would skew elapsed).
+        rec["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        if using_supabase():
+            try:
+                payload = {"id": _SCRAPE_STATUS_KEY, "data": rec, "updated_at": rec["updated_at"]}
+                resp = _http.post(
+                    _rest(SCRAPE_STATUS_TABLE),
+                    headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                    params={"on_conflict": "id"}, data=json.dumps(payload), timeout=15)
+                if resp.status_code < 400:
+                    return
+            except Exception:
+                pass
+        _dump_json(SCRAPE_STATUS_FILE, rec)
+    except Exception:
+        pass
+
+
+def get_scrape_status():
+    """The latest scrape progress dict, or {} if none. Never raises."""
+    try:
+        if using_supabase():
+            try:
+                r = _http.get(_rest(SCRAPE_STATUS_TABLE), headers=_headers(),
+                              params={"id": "eq.%s" % _SCRAPE_STATUS_KEY, "select": "data", "limit": 1},
+                              timeout=15)
+                if r.status_code < 400:
+                    rows = r.json()
+                    if rows:
+                        d = rows[0].get("data")
+                        if isinstance(d, str):
+                            d = json.loads(d)
+                        if isinstance(d, dict):
+                            return d
+            except Exception:
+                pass
+        d = _load_json(SCRAPE_STATUS_FILE)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
 if __name__ == "__main__":
     import sys
     if not using_supabase():

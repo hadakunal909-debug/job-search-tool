@@ -19,6 +19,9 @@ jdmeta.json
 brain_kb_local.json
 brain_companies_local.json
 resumes_local.json
+scrape_status_local.json
+profiles_local.json
+applications_local.json
 
 last_new_jobs.json
 scrape.log
