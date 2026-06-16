@@ -159,6 +159,15 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .cx,.nospon,.spon,.ev,.intl{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap;vertical-align:middle}
 .cx{background:var(--blue-soft);color:var(--blue)}
 .intl{background:var(--brand-soft);color:var(--brand-ink)}
+/* Update-jobs live progress bar */
+.scrapebar{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;box-shadow:var(--e1)}
+.sb-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px;font-size:13.5px}
+.sb-row #sb-label{font-weight:600;color:var(--ink)}
+.sb-meta{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums;text-align:right}
+.sb-track{height:8px;border-radius:6px;background:var(--surface2);overflow:hidden}
+.sb-fill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,var(--brand),var(--brand-d));transition:width .5s ease}
+.sb-fill.indet{width:35%!important;background:linear-gradient(90deg,transparent,var(--brand),transparent);animation:sbslide 1.15s linear infinite}
+@keyframes sbslide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .spon,.ev{background:var(--ok-soft);color:var(--ok)}
 .nospon{background:var(--danger-soft);color:var(--danger)}
 .exp{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap}

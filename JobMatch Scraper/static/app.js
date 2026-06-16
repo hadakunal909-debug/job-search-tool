@@ -368,5 +368,70 @@
     });
   }
 
+  // ---- Update-jobs: trigger the scrape + live progress bar (polls /api/scrape_status) ----
+  var sBar = document.getElementById("scrapebar"), sLabel = document.getElementById("sb-label"),
+      sMeta = document.getElementById("sb-meta"), sFill = document.getElementById("sb-fill"),
+      sForm = document.getElementById("scrapeform"), sBtn = document.getElementById("updatejobs");
+  var sPoll = null, sPollStart = 0;
+  function fmtClock(sec) { sec = Math.max(0, Math.round(sec || 0)); var m = Math.floor(sec / 60); return m + ":" + ("0" + (sec % 60)).slice(-2); }
+  function indet(on) { if (sFill) { if (on) sFill.classList.add("indet"); else sFill.classList.remove("indet"); } }
+  function elapsedOf(st) {
+    var startMs = st && st.started_at ? Date.parse(st.started_at) : NaN;
+    if (isNaN(startMs)) return null;
+    var s = (Date.now() - startMs) / 1000;
+    return (s < 0 || s > 86400) ? null : s;          // ignore clock-skew / bad timestamps
+  }
+  function renderScrape(st) {
+    if (!sBar || !st || !st.phase) return false;
+    sBar.style.display = "";
+    var ph = st.phase, done = st.done || 0, total = st.total || 0, found = st.found || 0;
+    var pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : null;
+    var elapsed = elapsedOf(st), el = elapsed != null ? fmtClock(elapsed) + " elapsed" : "";
+    if (ph === "queued") { indet(true); sLabel.textContent = "Starting the scrape on GitHub…"; sMeta.textContent = el; }
+    else if (ph === "scraping") {
+      indet(false); sFill.style.width = (pct != null ? pct : 5) + "%";
+      sLabel.textContent = "Scraping job boards" + (pct != null ? " — " + pct + "%" : "…");
+      var eta = (pct && elapsed && done > 0) ? " · ~" + fmtClock(elapsed * (total - done) / done) + " left" : "";
+      sMeta.textContent = (total ? done + "/" + total + " boards · " : "") + found + " jobs" + (el ? " · " + el : "") + eta;
+    }
+    else if (ph === "saving") { indet(true); sLabel.textContent = "Saving " + found + " postings…"; sMeta.textContent = el; }
+    else if (ph === "scoring") { indet(true); sLabel.textContent = "Scoring jobs to your profile…"; sMeta.textContent = (st.new ? st.new + " new · " : "") + el; }
+    else if (ph === "done") { indet(false); sFill.style.width = "100%"; sLabel.textContent = "Done — " + (st.new || 0) + " new job" + ((st.new || 0) === 1 ? "" : "s") + " added."; sMeta.textContent = "Refreshing…"; return "done"; }
+    return true;
+  }
+  function refreshFeedAfterScrape() {
+    fetch("/reload", { cache: "no-store" }).then(function () {
+      if (PAGED) { shown = 0; render(true); } else { location.reload(); }
+    }).catch(function () { location.reload(); });
+  }
+  function pollScrape() {
+    fetch("/api/scrape_status", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (st) {
+      var state = renderScrape(st);
+      var updMs = st && st.updated_at ? Date.parse(st.updated_at) : NaN;
+      var stale = !isNaN(updMs) && (Date.now() - updMs > 180000);
+      if (state === "done" || stale || (Date.now() - sPollStart > 45 * 60 * 1000)) {
+        if (sPoll) { clearInterval(sPoll); sPoll = null; }
+        if (sBtn) sBtn.disabled = false;
+        if (state === "done") { setTimeout(function () { refreshFeedAfterScrape(); setTimeout(function () { if (sBar) sBar.style.display = "none"; }, 4000); }, 1000); }
+        else if (stale && sBar) { if (sLabel) sLabel.textContent = "Scrape finished (or stopped)."; if (sMeta) sMeta.textContent = "Hit Reload if new jobs don't appear."; setTimeout(function () { sBar.style.display = "none"; }, 6000); }
+      }
+    }).catch(function () {});
+  }
+  function startScrapePolling() { if (sPoll) return; sPollStart = Date.now(); pollScrape(); sPoll = setInterval(pollScrape, 4000); }
+  if (sForm) sForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (sBtn) sBtn.disabled = true;
+    if (sBar) { sBar.style.display = ""; indet(true); if (sLabel) sLabel.textContent = "Starting…"; if (sMeta) sMeta.textContent = ""; }
+    fetch("/scrape", { method: "POST", headers: { "X-Requested-With": "fetch" } }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j || !j.ok) { toast((j && j.msg) || "Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; if (sBar) sBar.style.display = "none"; return; }
+      toast("Scrape started on GitHub Actions."); startScrapePolling();
+    }).catch(function () { toast("Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; if (sBar) sBar.style.display = "none"; });
+  });
+  // If a scrape is already running (daily cron, or started in another tab), show the bar on load.
+  if (sBar) fetch("/api/scrape_status", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (st) {
+    var updMs = st && st.updated_at ? Date.parse(st.updated_at) : NaN;
+    if (st && st.phase && st.phase !== "done" && !isNaN(updMs) && (Date.now() - updMs < 180000)) { renderScrape(st); startScrapePolling(); }
+  }).catch(function () {});
+
   render(true);
 })();

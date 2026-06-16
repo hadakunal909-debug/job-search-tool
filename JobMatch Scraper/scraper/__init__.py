@@ -2358,9 +2358,10 @@ def append_jobs(rows, path=OUTPUT_CSV):
 # ORCHESTRATOR  — the scraper itself
 # ============================================================
 
-def scrape_all(sources, workers=8):
+def scrape_all(sources, workers=8, progress=None):
     """Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes
-    a few minutes, not ~30. One bad source never stops the run."""
+    a few minutes, not ~30. One bad source never stops the run. `progress(done, total,
+    found)` is called after each board finishes (used to drive the in-page progress bar)."""
     def _one(entry):
         url, ats_type, company = entry
         fn = SCRAPERS.get(ats_type)
@@ -2377,8 +2378,11 @@ def scrape_all(sources, workers=8):
             return company, None, str(e)
 
     all_jobs = []
+    total = len(sources) if hasattr(sources, "__len__") else 0
+    done = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         for company, rows, err in ex.map(_one, sources):     # results come back in source order
+            done += 1
             if err is not None:
                 print(f"  FAIL {company:<26} {err}")
             elif rows is None:
@@ -2386,6 +2390,11 @@ def scrape_all(sources, workers=8):
             else:
                 all_jobs.extend(rows)
                 print(f"  OK   {company:<26} {len(rows):>3} postings")
+            if progress:
+                try:
+                    progress(done, total, len(all_jobs))
+                except Exception:
+                    pass
     return all_jobs
 
 
@@ -2416,7 +2425,19 @@ def main():
     sources = SOURCES + custom_sources()
     if len(sources) > len(SOURCES):
         print("+ %d board(s) added via the app." % (len(sources) - len(SOURCES)))
-    scraped = scrape_all(sources)
+
+    # --- live progress for the in-page "Update jobs" bar (best-effort; never blocks a scrape) ---
+    started = datetime.datetime.now(datetime.timezone.utc).isoformat()   # UTC so the browser's elapsed math is right
+    _last_write = [0.0]
+    def _progress(done, total, found, phase="scraping", force=False):
+        now = time.time()
+        if force or now - _last_write[0] >= 2.5 or (total and done >= total):
+            _last_write[0] = now
+            db.set_scrape_status({"phase": phase, "done": done, "total": total,
+                                  "found": found, "started_at": started, "run": stamp})
+    _progress(0, len(sources), 0, force=True)
+    scraped = scrape_all(sources, progress=_progress)
+    _progress(len(sources), len(sources), len(scraped), phase="saving", force=True)
 
     kept = []
     tally = {"already known": 0, "senior/off-target title": 0,
@@ -2474,6 +2495,10 @@ def main():
         print(f"\nSaved to {where}. Run `python -m scraper.score_jobs` next to score them.")
     else:
         print("Nothing new this run.")
+
+    # Scrape phase finished; scoring (score_jobs) runs next and will flip this to 'done'.
+    db.set_scrape_status({"phase": "scoring", "done": 0, "total": 0, "found": len(scraped),
+                          "new": len(kept), "started_at": started, "run": stamp})
 
 
 if __name__ == "__main__":

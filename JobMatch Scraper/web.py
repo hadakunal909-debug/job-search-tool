@@ -779,16 +779,31 @@ def _trigger_github_action():
 @login_required
 def scrape_now():
     """Trigger the scrape on GitHub Actions (workflow_dispatch) — runs on GitHub's servers.
-    Needs GH_TOKEN in .env (a fine-grained PAT with Actions: read+write)."""
+    Needs GH_TOKEN in .env (a fine-grained PAT with Actions: read+write). Returns JSON so the
+    feed page can start polling /api/scrape_status and draw the live progress bar."""
     gh = _trigger_github_action()
     if gh is None:
-        flash("To enable this button, add GH_TOKEN to .env (a GitHub token with Actions "
-              "read+write). You can also run the scrape from the repo's Actions tab, or via cron.")
-    elif gh[0]:
-        flash("Scrape started on GitHub Actions (~3-5 min). Watch the Actions tab, then hit Reload.")
-    else:
-        flash("Couldn't start the GitHub Action — " + gh[1])
-    return redirect(url_for("feed"))
+        return {"ok": False, "msg": "To enable this, add GH_TOKEN to .env (a GitHub token with "
+                "Actions read+write). You can also run the scrape from the repo's Actions tab."}
+    if not gh[0]:
+        return {"ok": False, "msg": "Couldn't start the scrape — " + gh[1]}
+    # Optimistic 'queued' status so the bar appears the instant you click — the scraper overwrites
+    # it with real progress once the Action spins up on GitHub's servers.
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        db.set_scrape_status({"phase": "queued", "done": 0, "total": 0, "found": 0,
+                              "started_at": now, "run": now})
+    except Exception:
+        pass
+    return {"ok": True, "msg": "Scrape started on GitHub Actions."}
+
+
+@app.route("/api/scrape_status")
+@login_required
+def api_scrape_status():
+    """Latest scrape progress (phase/done/total/found/started_at/updated_at/finished_at) for the
+    in-page progress bar. The scraper + score_jobs write this row as they run."""
+    return db.get_scrape_status() or {}
 
 
 @app.route("/action", methods=["POST"])
