@@ -54,6 +54,24 @@ cd /home/USER/stemjobs && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scrap
 
 (`cd` first so `.env`, `idf.json`, etc. resolve. Replace `USER` and confirm the path.)
 
+## 7. Keep it warm (no cold-start lag)
+Passenger spins the app down after a few idle minutes; the next visitor then waits while it
+re-imports and refills its caches. A tiny **liveness ping** keeps the process — and its warm
+job/score/status caches — alive, so the app feels instant.
+
+The app exposes a public, no-DB endpoint for exactly this: **`/healthz`** (returns `ok`).
+
+Pick one:
+- **Free uptime pinger (easiest):** at [cron-job.org](https://cron-job.org) or
+  [UptimeRobot](https://uptimerobot.com), add a monitor for
+  **`https://stemjobs.astrochakra.co/healthz`** every **5 minutes**.
+- **cPanel cron:** add a cron (every 5 min):
+  ```
+  curl -fsS https://stemjobs.astrochakra.co/healthz > /dev/null 2>&1
+  ```
+
+Don't point the pinger at `/` (that needs login and does real work) — use `/healthz`.
+
 ---
 
 ## Notes

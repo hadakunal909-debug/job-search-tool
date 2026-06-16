@@ -19,7 +19,7 @@ import hashlib
 import secrets
 import functools
 
-import requests
+import gzip as _gzip
 
 from flask import (Flask, request, session, redirect, url_for,
                    render_template, flash, g, Response)
@@ -27,10 +27,32 @@ from flask import (Flask, request, session, redirect, url_for,
 import core
 import db
 import auth
-from resume_brain import brain as rb, ai as rb_ai, export as rb_export
 # `scraper` is a heavy (~2000-line) module needed only by the add-board + extension routes,
-# so it's imported lazily inside those functions — keeping it off the hot feed path and out
-# of Passenger's cold-start import cost.
+# and Resume Brain is needed only on /brain* routes — both are imported lazily (scraper inside
+# its functions, Resume Brain via the _LazyMod proxies below) so a cold Passenger start doesn't
+# pay their import cost (Resume Brain transitively pulls requests/bs4). `requests` itself is now
+# only imported by db on the first DB call and inside _trigger_github_action.
+
+
+class _LazyMod:
+    """A stand-in for a module that imports it on first attribute access. Lets /brain* routes
+    keep writing `rb.run_tailor(...)` etc. while the import stays off the cold-start path."""
+    def __init__(self, name):
+        self.__dict__["_name"] = name
+        self.__dict__["_mod"] = None
+
+    def __getattr__(self, attr):
+        m = self.__dict__.get("_mod")
+        if m is None:
+            import importlib
+            m = importlib.import_module(self.__dict__["_name"])
+            self.__dict__["_mod"] = m
+        return getattr(m, attr)
+
+
+rb = _LazyMod("resume_brain.brain")
+rb_ai = _LazyMod("resume_brain.ai")
+rb_export = _LazyMod("resume_brain.export")
 
 app = Flask(__name__)
 
@@ -112,18 +134,64 @@ def _security_headers(resp):
                             "camera=(), microphone=(), geolocation=()")
     if request.is_secure or request.headers.get("X-Forwarded-Proto", "").lower() == "https":
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    # Static assets (style.css / app.js) are fingerprinted with a ?v= query (see base.html), so
+    # they can be cached hard — the browser stops re-requesting them on every page load.
+    if request.path.startswith("/static/"):
+        resp.headers.setdefault("Cache-Control", "public, max-age=604800, immutable")
+    return resp
+
+
+# Content types worth gzipping. Static files (served via send_file) are skipped because Flask
+# marks them direct_passthrough; they're small and already cache hard via the header above.
+_COMPRESSIBLE = ("text/html", "application/json", "text/css", "application/javascript",
+                 "text/javascript", "application/xml", "text/plain", "image/svg+xml")
+
+
+@app.after_request
+def _compress(resp):
+    """gzip text responses (the ~500 KB inline feed JSON drops to ~80-120 KB). Honors
+    Accept-Encoding, skips tiny / already-encoded / streamed bodies. Safe behind cPanel's
+    mod_deflate — Apache won't re-compress a response that already carries Content-Encoding."""
+    try:
+        if resp.direct_passthrough or resp.headers.get("Content-Encoding"):
+            return resp
+        if "gzip" not in request.headers.get("Accept-Encoding", "").lower():
+            return resp
+        ctype = (resp.content_type or "").split(";")[0].strip().lower()
+        if ctype not in _COMPRESSIBLE:
+            return resp
+        data = resp.get_data()
+        if len(data) < 1024:
+            return resp
+        resp.set_data(_gzip.compress(data, 6))
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Content-Length"] = str(len(resp.get_data()))
+        vary = resp.headers.get("Vary")
+        if not vary:
+            resp.headers["Vary"] = "Accept-Encoding"
+        elif "accept-encoding" not in vary.lower():
+            resp.headers["Vary"] = vary + ", Accept-Encoding"
+    except Exception:
+        return resp
     return resp
 
 
 # ----------------------------- caches -----------------------------
 _jobs_cache = {"rows": None, "at": 0}
 _score_cache = {}            # (username, resume_md5) -> {url: score}
+_SCORE_CACHE_MAX = 64        # cap so a long-lived process doesn't grow unbounded across profiles
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
                               # jdmeta.json (built by the cron scorer) so cold renders skip recompute
+# Shape for a job with no precomputed JD analysis (a job added since the last cron score run).
+# The feed list no longer carries JD text, so such a job simply shows no JD-derived badges and
+# its baseline match_score until the next cron run refreshes jdmeta.json.
+_EMPTY_META = {"analyzed": {}, "exp_years": None, "exp_level": "", "sponsor_jd": ("", "")}
 _SPONSOR_COUNTS = core.load_sponsor_counts()      # {} until sponsor_counts.json is built
 _EVERIFY_INDEX = core.load_everify()              # None until everify.txt is built
 _resume_cache = {}           # username -> (resume_text, fetched_at)
+_status_cache = {}           # username -> ({url: status}, fetched_at); busted on every action
+_STATUS_TTL = 30             # seconds; mutations bust immediately, this just bounds cross-worker drift
 _RESUME_TTL = 60             # seconds; short so an edit in another worker shows up quickly
 
 
@@ -207,11 +275,27 @@ def get_jobs(force=False):
     just avoids needless full-table re-fetches between scrapes."""
     if force or _jobs_cache["rows"] is None or time.time() - _jobs_cache["at"] > _JOBS_TTL:
         try:
-            _jobs_cache["rows"] = db.load_jobs() or []
+            # include_jd=False: the feed never shows the JD; the detail panel fetches one JD on
+            # demand (db.get_job_jd), so we skip pulling ~20 MB of description text into memory.
+            _jobs_cache["rows"] = db.load_jobs(include_jd=False) or []
         except Exception:
             _jobs_cache["rows"] = _jobs_cache["rows"] or []
         _jobs_cache["at"] = time.time()
     return _jobs_cache["rows"]
+
+
+def user_statuses(user):
+    """{url: status} for this user's liked/hidden/applied jobs, from a short-lived cache so a
+    warm feed render needs no DB round-trip. Busted immediately on every like/hide/apply."""
+    hit = _status_cache.get(user)
+    if hit and time.time() - hit[1] < _STATUS_TTL:
+        return hit[0]
+    try:
+        st = db.get_user_statuses(user)
+    except Exception:
+        return hit[0] if hit else {}
+    _status_cache[user] = (st, time.time())
+    return st
 
 
 def jd_meta(job, idf):
@@ -224,9 +308,12 @@ def jd_meta(job, idf):
     if u and u in _jdmeta:
         return _jdmeta[u]
     # Miss = a job added since the last cron score run; compute live with the SAME function
-    # the cron uses (core.job_meta) so persisted and live values agree, then cache it.
-    meta = core.job_meta(job.get("jd") or "", idf)
-    if u:                                  # don't cache a urlless / sample job under a "" key
+    # the cron uses (core.job_meta) so persisted and live values agree. Only cache it when we
+    # actually had JD text — otherwise (the feed passes JD-less rows) we'd poison the cache with
+    # an empty entry that survives until /reload re-pulls jdmeta.json.
+    jd = job.get("jd") or ""
+    meta = core.job_meta(jd, idf)
+    if u and jd:
         _jdmeta[u] = meta
     return meta
 
@@ -237,17 +324,19 @@ def user_scores(username, resume):
     key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest())
     if key in _score_cache:
         return _score_cache[key]
-    idf = core.load_idf()
     resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
     scores = {}
     for j in get_jobs():
         u = j.get("url")
         if not u:
             continue
-        jd = j.get("jd") or ""
-        if resume and jd:
+        # Score live against the precomputed JD analysis (jdmeta.json) when present — the feed
+        # rows no longer carry JD text, and the analysis is JD-only so it needs no text here.
+        # Jobs not yet in jdmeta (added since the last cron run) fall back to the baseline.
+        meta = _jdmeta.get(u)
+        if resume and meta:
             try:
-                scores[u] = int(core.score_against(resume_low, jd_meta(j, idf)["analyzed"])[0])
+                scores[u] = int(core.score_against(resume_low, meta["analyzed"])[0])
             except Exception:
                 scores[u] = 0
         else:
@@ -255,6 +344,8 @@ def user_scores(username, resume):
                 scores[u] = int(j.get("match_score") or 0)
             except Exception:
                 scores[u] = 0
+    if len(_score_cache) >= _SCORE_CACHE_MAX:
+        _score_cache.pop(next(iter(_score_cache)), None)   # drop oldest; bounds memory growth
     _score_cache[key] = scores
     return scores
 
@@ -321,6 +412,19 @@ def logodomain(name):
 @app.template_filter("logocolor")
 def logocolor(name):
     return _PALETTE[sum(ord(c) for c in (name or "x")) % len(_PALETTE)]
+
+
+@app.template_global()
+def static_v(filename):
+    """Static URL with a ?v=<mtime> cache-buster: paired with the long immutable Cache-Control
+    on /static/, a deploy (which changes the file mtime) invalidates the asset while unchanged
+    files keep serving from the browser cache."""
+    url = url_for("static", filename=filename)
+    try:
+        mt = int(os.path.getmtime(os.path.join(app.static_folder, filename)))
+        return "%s?v=%s" % (url, mt)
+    except Exception:
+        return url
 
 
 # ----------------------------- auth -----------------------------
@@ -398,23 +502,19 @@ def feed():
     user = session["user"]
     resume = current_profile()           # match against the WHOLE profile (résumés + stories)
     scores = user_scores(user, resume)
-    try:
-        statuses = db.get_user_statuses(user)
-    except Exception:
-        statuses = {}
+    statuses = user_statuses(user)
 
     rows = []
     counts = {"liked": 0, "applied": 0, "hidden": 0}
-    idf = core.load_idf()
     for j in get_jobs():
         u = j.get("url")
         st = statuses.get(u, "")
         if st in counts:
             counts[st] += 1
-        meta = jd_meta(j, idf)
-        sv, sreason = meta["sponsor_jd"]
+        meta = _jdmeta.get(u) or _EMPTY_META     # JD-derived badges from the cron precompute
+        sv, sreason = meta.get("sponsor_jd") or ("", "")
         strength, scount = core.sponsor_strength(j.get("company", ""), _SPONSOR_COUNTS)
-        exp_y = meta["exp_years"]
+        exp_y = meta.get("exp_years")
         rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
                      "location": j.get("location", ""), "url": u,
                      # safe value for the Apply href; the raw `url` stays the action key.
@@ -426,7 +526,7 @@ def feed():
                      "cap_exempt": core.is_cap_exempt(j.get("company", "")),
                      "everify": core.is_everify(j.get("company", ""), _EVERIFY_INDEX),
                      "exp_years": exp_y if exp_y is not None else "",
-                     "exp_level": meta["exp_level"],
+                     "exp_level": meta.get("exp_level") or "",
                      "strength": strength, "strength_n": scount})
     rows.sort(key=lambda r: r["score"], reverse=True)
     # The page ships these rows as compact JSON and renders cards CLIENT-SIDE (only the
@@ -453,8 +553,8 @@ def api_job():
     if not job:
         return {"ok": False}, 404
     resume = current_profile()           # whole-profile match, consistent with the feed
-    jd = job.get("jd", "") or ""
-    meta = jd_meta(job, core.load_idf())
+    jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
+    meta = jd_meta({"url": url, "jd": jd}, core.load_idf())
     if resume and jd:
         score, have, missing = core.score_against(resume.lower(), meta["analyzed"])
     else:
@@ -486,6 +586,7 @@ def api_action():
         return {"ok": False, "error": "no url"}, 400
     try:
         db.set_user_status(session["user"], url, status)
+        _status_cache.pop(session["user"], None)     # reflect the change on the next feed render
         if status == "applied":
             _autolog_application(session["user"], url)
         return {"ok": True, "status": status}
@@ -500,6 +601,7 @@ def reload_jobs():
     _score_cache.clear()
     _profile_cache.clear()
     _resume_cache.clear()
+    _status_cache.clear()
     _sponsor_cache.clear()
     _jdmeta.clear()
     _jdmeta.update(core.load_jdmeta())       # re-pull the cron's latest precompute from disk
@@ -533,6 +635,7 @@ def _trigger_github_action():
     tok = _gh_token()
     if not tok:
         return None
+    import requests
     try:
         r = requests.post(
             "https://api.github.com/repos/%s/actions/workflows/%s/dispatches" % (GH_REPO, GH_WORKFLOW),
@@ -570,6 +673,7 @@ def action():
     status = request.form.get("status", "")          # liked|hidden|applied|'' (clear)
     try:
         db.set_user_status(session["user"], url, status)
+        _status_cache.pop(session["user"], None)     # reflect the change on the next feed render
         if status == "applied":
             _autolog_application(session["user"], url)
     except Exception:
@@ -615,9 +719,9 @@ def tailor():
     if not job:
         return redirect(url_for("feed"))
     resume = current_resume()
-    jd = job.get("jd") or ""
+    jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
     if resume and jd:
-        score, have, missing = core.score_against(resume.lower(), jd_meta(job, core.load_idf())["analyzed"])
+        score, have, missing = core.score_against(resume.lower(), jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"])
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     return render_template("tailor.html", job=job, score=int(score or 0),
@@ -641,9 +745,9 @@ def tailor_ai():
     if not job:
         return redirect(url_for("feed"))
     resume = current_resume()
-    jd = job.get("jd", "") or ""
+    jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
     if resume and jd:
-        score, have, missing = core.score_against(resume.lower(), jd_meta(job, core.load_idf())["analyzed"])
+        score, have, missing = core.score_against(resume.lower(), jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"])
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     tailored, ai_err = "", ""
@@ -718,7 +822,7 @@ def brain_home():
         j = _job_for(job_url)
         if j:
             inputs["company"] = j.get("company", "")
-            inputs["jd"] = j.get("jd", "") or ""
+            inputs["jd"] = db.get_job_jd(job_url) or ""     # feed rows omit JD; fetch on demand
             inputs["job_url"] = j.get("url", "") if (j.get("url") or "").startswith("http") else ""
             if inputs["jd"]:
                 data = rb.run_tailor(user, jd_text=inputs["jd"], company_name=inputs["company"])
@@ -899,9 +1003,10 @@ def brain_jobs_json():
     q = (request.args.get("q") or "").strip().lower()
     out = []
     if q:
+        have_jd = db.urls_with_jd()      # which jobs have a stored description (feed rows omit it)
         for j in get_jobs():
             hay = (j.get("title", "") + " " + j.get("company", "")).lower()
-            if q in hay and (j.get("jd") or ""):
+            if q in hay and j.get("url") in have_jd:
                 out.append({"url": j.get("url", ""), "title": j.get("title", ""),
                             "company": j.get("company", "")})
                 if len(out) >= 20:
@@ -1263,7 +1368,8 @@ def ext_bulk_jobs():
     # Already-imported jobs that still have NO stored description: re-running an import
     # returns them as needs_jd so the extension can backfill their JDs (a first import
     # may have failed mid-fetch, or predates JD support).
-    no_jd = {j.get("url") for j in get_jobs() if not (j.get("jd") or "")}
+    have_jd = db.urls_with_jd()          # feed rows omit JD text; ask the DB which have one
+    no_jd = {u for u in (j.get("url") for j in get_jobs()) if u and u not in have_jd}
     needs_jd = []
     for j in jobs[:2000]:
         if not isinstance(j, dict):
@@ -1424,6 +1530,14 @@ def ext_jds():
             _jdmeta.pop(_u, None)
     return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches),
                           "removed_nonus": len(removed)}))
+
+
+@app.route("/healthz")
+def healthz():
+    """Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few
+    minutes to keep the Passenger process (and its warm job/score/status caches) alive, so
+    visitors don't pay the cold-start re-import + cache refill. See CPANEL_DEPLOY.md."""
+    return Response("ok", mimetype="text/plain")
 
 
 if __name__ == "__main__":

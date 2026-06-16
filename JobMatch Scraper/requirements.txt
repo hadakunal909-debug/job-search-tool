@@ -1,10 +1,11 @@
-# --- scraper + web app ---
+# --- scraper + Flask web app ---
+# The app is Flask (see web.py / passenger_wsgi.py); the old Streamlit app is retired.
+# cPanel installs requirements-cpanel.txt; this mirrors it for local/dev + the scraper.
+flask
 requests
 beautifulsoup4
 lxml
 rapidfuzz
-streamlit
-extra-streamlit-components
 python-docx
 # Cloud storage (Supabase) needs no extra package — db.py uses the REST API via `requests`.
 

@@ -16,8 +16,6 @@ import os
 import csv
 import json
 
-import requests
-
 
 def _make_http():
     """Session for all Supabase REST calls: keep-alive pooling + automatic retry with
@@ -25,6 +23,7 @@ def _make_http():
     'connection forcibly closed' during chunked JD upserts) used to abort a whole
     score run; now each request retries itself. Retrying writes is safe here because
     every write is idempotent — upserts keyed on url, patches/deletes on eq filters."""
+    import requests
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
     retry = Retry(total=3, connect=3, read=2, backoff_factor=0.5,
@@ -38,7 +37,21 @@ def _make_http():
     return s
 
 
-_http = _make_http()
+_http_session = None
+
+
+class _LazyHTTP:
+    """Defers building the requests.Session (and the ~1 s `import requests`) until the
+    first actual DB call, so importing db.py stays cheap on a cold Passenger start. All
+    `_http.get/post/...` call sites keep working unchanged."""
+    def __getattr__(self, name):
+        global _http_session
+        if _http_session is None:
+            _http_session = _make_http()
+        return getattr(_http_session, name)
+
+
+_http = _LazyHTTP()
 
 
 def _load_env_file(path=".env"):
@@ -194,14 +207,51 @@ def _save_actions(a):
 
 
 # ---------------- public API (scraper / score_jobs / app use these) ----------------
-def load_jobs():
+_FEED_COLS = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
+
+
+def load_jobs(include_jd=True):
+    """All jobs. The web FEED passes include_jd=False to skip the large `jd` text column
+    (~12 KB × ~2,600 rows) — the feed never shows it; the detail panel fetches one JD on
+    demand via get_job_jd(). That drops the feed fetch from ~20 MB to ~1 MB. The scraper,
+    scorer, and notifier keep the default (jd included) since they need the description."""
     if using_supabase():
-        return _fetch_all(TABLE, {"select": "*"})
+        sel = "*" if include_jd else _FEED_COLS
+        return _fetch_all(TABLE, {"select": sel})
     rows = _read_csv()
     actions = _load_actions()
     for r in rows:                       # fold like/hide/applied in for the app
         r["status"] = actions.get(r["url"], r.get("status", ""))
     return rows
+
+
+def get_job_jd(url):
+    """The stored job-description text for ONE job, fetched on demand (the feed list omits
+    it). Tiny single-row lookup on the url primary key. Returns '' if absent / on error."""
+    if not url:
+        return ""
+    if using_supabase():
+        try:
+            rows = _fetch_all(TABLE, {"url": "eq.%s" % url, "select": "jd"})
+            return (rows[0].get("jd") or "") if rows else ""
+        except Exception:
+            return ""
+    for r in _read_csv():
+        if r.get("url") == url:
+            return r.get("jd", "") or ""
+    return ""
+
+
+def urls_with_jd():
+    """Set of job URLs that have a stored JD — for 'has a description?' checks without
+    pulling the JD text. Cheap (urls only). Empty set on error."""
+    if using_supabase():
+        try:
+            return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "not.is.null"})
+                    if r.get("url")}
+        except Exception:
+            return set()
+    return {r["url"] for r in _read_csv() if (r.get("jd") or "").strip()}
 
 
 def existing_urls():
