@@ -21,6 +21,9 @@
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
+  // today's date (local) as YYYY-MM-DD, for the "New" flag on jobs pulled today.
+  function pad2(n) { return ("0" + n).slice(-2); }
+  var _td = new Date(), TODAY_STR = _td.getFullYear() + "-" + pad2(_td.getMonth() + 1) + "-" + pad2(_td.getDate());
   // Large corpus: the server inlines only the top-N matches and we fetch the rest (search/filter/
   // paging) from /api/feed, so the payload stays small at any scale. Small corpus: data-paged is
   // empty and everything stays client-side (instant) exactly as before.
@@ -90,6 +93,7 @@
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
   function cardHTML(j) {
     var st = j.status || "";
+    var newFlag = (j.date && j.date === TODAY_STR) ? '<span class="newflag">New</span>' : '';
     var badges = "";
     if (j.intern)
       badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
@@ -112,7 +116,7 @@
       badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
     var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '">' + H(j.date) + '</span>' : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
-    return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' +
+    return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
           '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
@@ -187,9 +191,20 @@
     }
   }
 
+  // Highlight any control set to a non-default value (so active filters are obvious at a glance).
+  function setFlag(el, on) { if (el) el.classList.toggle("fset", !!on); }
+  function markFilters() {
+    setFlag(sortSel, sortSel && sortSel.value !== "score");
+    setFlag(dateSel, dateSel && dateSel.value !== "any");
+    setFlag(expSel, expSel && expSel.value !== "any");
+    setFlag(internSel, internSel && internSel.value !== "any");
+    setFlag(everifyOnly && everifyOnly.closest(".ck"), everifyOnly && everifyOnly.checked);
+    setFlag(hideNo && hideNo.closest(".ck"), hideNo && hideNo.checked);
+  }
+
   // Dispatcher: small corpus renders locally from the inline DATA (instant); large corpus
   // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.
-  function render(reset) { if (PAGED) renderServer(reset); else renderLocal(reset); }
+  function render(reset) { markFilters(); if (PAGED) renderServer(reset); else renderLocal(reset); }
 
   function buildParams(offset) {
     var ps = ["tab=" + encodeURIComponent(tab), "min=" + (minVal || 0),

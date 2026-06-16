@@ -109,6 +109,10 @@ textarea{resize:vertical}
 .matchfilter{display:inline-flex;align-items:center;gap:10px}
 .filt-label{font-size:13px;color:var(--muted);font-weight:500}
 .rngval{font-size:13px;font-weight:700;color:var(--brand-ink);background:var(--brand-soft);border-radius:7px;padding:3px 9px;min-width:46px;text-align:center}
+/* active-filter highlight: a control set to a non-default value stands out (app.js toggles .fset) */
+.sel.fset{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink);font-weight:600}
+.sel.fset:hover{border-color:var(--brand-d)}
+.ck.fset{color:var(--brand-ink);font-weight:600}
 /* smooth custom range slider */
 input[type=range].ranged{-webkit-appearance:none;appearance:none;background:transparent;width:170px;height:22px;padding:0;margin:0;cursor:pointer}
 .ranged::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(to right,var(--brand) 0 var(--p,60%),var(--line-strong) var(--p,60%) 100%)}
@@ -132,7 +136,10 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 
 /* card grid */
 .feedgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 17px;display:flex;flex-direction:column;gap:9px;cursor:pointer;transition:border-color .18s,box-shadow .18s}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 17px;display:flex;flex-direction:column;gap:9px;cursor:pointer;transition:border-color .18s,box-shadow .18s}
+/* "New" flag — today's freshly-pulled jobs (app.js adds it by comparing the date to today, so it
+   disappears on its own the next day). Sits in the top-right corner, above the score ring. */
+.newflag{position:absolute;top:-7px;right:12px;z-index:3;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--ok);padding:3px 8px;border-radius:999px;box-shadow:var(--e1)}
 .card:hover{border-color:var(--line-strong);box-shadow:var(--e2)}
 /* Loading skeleton — rendered server-side inside #feed so the user sees card-shaped
    placeholders the instant the page paints; app.js replaces them once it renders the feed. */
@@ -298,4 +305,12 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   .modal{border-radius:var(--r-lg) var(--r-lg) 0 0}
   .modal-foot{flex-wrap:wrap}
   h1,.rb h1{font-size:22px}
+  /* filter bar: full-width search, 2-up dropdowns, bigger tap targets */
+  .filters{gap:9px;padding:11px 11px}
+  .filters #q{flex:1 0 100%;min-width:0}
+  .matchfilter{width:100%;justify-content:space-between}
+  .ranged{flex:1}
+  .sel{flex:1 1 calc(50% - 5px);min-width:0;padding:11px 12px;font-size:14px}
+  .ck{flex:1 1 calc(50% - 5px);padding:8px 0;font-size:13.5px}
+  .tab{padding:8px 13px}
 }
