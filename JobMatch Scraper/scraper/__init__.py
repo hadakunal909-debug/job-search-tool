@@ -395,11 +395,35 @@ ADZUNA_BOARDS = [
     ("adzuna:Capgemini",            "adzuna", "Capgemini"),
 ]
 
+# Generic Adzuna role searches across ALL employers (not company-scoped) — the widest single
+# lever: pulls postings from the thousands of firms Adzuna indexes, including custom-portal
+# companies we can't scrape directly. Each phrase = up to 4 API pages; keep the list modest so
+# the daily run stays within Adzuna's free ~250 calls/day budget. DORMANT without a key.
+ADZUNA_SEARCH_BOARDS = [
+    ("adzuna-search:project manager",     "adzuna-search", "Adzuna"),
+    ("adzuna-search:program manager",     "adzuna-search", "Adzuna"),
+    ("adzuna-search:project coordinator", "adzuna-search", "Adzuna"),
+    ("adzuna-search:business analyst",    "adzuna-search", "Adzuna"),
+    ("adzuna-search:product manager",     "adzuna-search", "Adzuna"),
+    ("adzuna-search:operations analyst",  "adzuna-search", "Adzuna"),
+    ("adzuna-search:implementation manager", "adzuna-search", "Adzuna"),
+    ("adzuna-search:supply chain analyst", "adzuna-search", "Adzuna"),
+]
+
+# Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
+# we trust for it — Meta's careers site is a Facebook Relay/GraphQL app, so it's scraped
+# by driving a headless browser (Playwright). Kept in its own list because, unlike every
+# other source, this one needs `playwright install chromium` to be present to work.
+METACAREERS_BOARDS = [
+    ("https://www.metacareers.com/jobs/", "metacareers", "Meta"),
+]
+
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
-# SuccessFactors + Adzuna.
+# SuccessFactors + Adzuna + Meta.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
-           + ORACLE_BOARDS + PHENOM_BOARDS + SF_BOARDS + ADZUNA_BOARDS)
+           + ORACLE_BOARDS + PHENOM_BOARDS + SF_BOARDS + ADZUNA_BOARDS
+           + ADZUNA_SEARCH_BOARDS + METACAREERS_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -410,15 +434,24 @@ RESUME_FILE   = "resume.txt"      # résumé-driven scraping reads this to tune 
 # substring). Specific phrases keep precision: "program manager" matches, but
 # "Experiential Programs Manager" (plural 'programs') does NOT — exactly what we want.
 INCLUDE = (
-    # Targeted role titles (specific phrases, no broad single words).
+    # Core PM / coordination / analyst / ops titles (specific phrases).
     "project manager", "program manager", "project coordinator",
     "program coordinator", "operations coordinator", "operations manager",
     "project analyst", "business analyst", "operations analyst", "data analyst",
     "project specialist", "program specialist", "project associate",
     "operations associate", "scrum master", "project management",
     "program management", "pmo", "implementation",
-    # Entry-level consulting shapes (kept SPECIFIC — a bare "consultant" would flood
-    # the feed with staffing-agency SAP/Java consultant reqs).
+    # Adjacent PM / product / supply-chain / delivery roles (specific manager phrases —
+    # we intentionally do NOT add a bare "manager", which would pull store/restaurant mgrs).
+    "product manager", "associate product manager", "product owner",
+    "technical program manager", "implementation manager", "implementation specialist",
+    "delivery manager", "engagement manager", "supply chain manager", "logistics manager",
+    "marketing manager", "operations specialist", "business operations", "consultant",
+    # WIDE NET — broad single words. These pull general business roles across functions
+    # (finance/marketing/supply-chain/HR/etc.); the EXCLUDE list below + the per-profile
+    # match score keep it relevant. Comment these four out to return to the precise net.
+    "analyst", "coordinator", "specialist", "associate",
+    # Entry-level consulting shapes.
     "consulting analyst", "associate consultant", "management consultant",
     "strategy consultant", "business consultant", "consulting development analyst",
     # Early-career / new-grad markers (program-style roles; low noise).
@@ -427,9 +460,10 @@ INCLUDE = (
 )
 # ...but drop it if the title ALSO matches any of these.
 EXCLUDE = (
-    # Seniority markers
-    "senior", "sr", "lead", "principal", "staff", "head", "director",
-    "vp", "vice president", "chief", "ii", "iii", "iv", "expert", "architect",
+    # Seniority markers — only CLEARLY senior ones now. The wider net intentionally KEEPS
+    # mid-level roles, so "senior", "sr", "lead", "staff", "ii", "iii" were dropped from here
+    # (a "Senior Analyst" / "Analyst II" now passes). Add them back to re-tighten to junior-only.
+    "principal", "head", "director", "vp", "vice president", "chief", "iv", "expert", "architect",
     # Clearly off-target functions for a PM/analyst/ops search. Word boundaries
     # mean "engineer" drops "Software Engineer" but NOT "Engineering Program
     # Manager". Comment any of these back in if you DO want that function.
@@ -463,8 +497,8 @@ US_ONLY = True
 VERBOSE = False
 
 # Drop a job if its description requires MORE than this many years of experience.
-# Only enforced where the scraper actually has the JD text (e.g. Amazon). 3 = keep 1-3 yr.
-MAX_YEARS = 3
+# Only enforced where the scraper actually has the JD text (e.g. Amazon). 5 = keep mid-level too.
+MAX_YEARS = 5
 
 # Be polite: random pause between sources, and a normal browser User-Agent.
 MIN_DELAY, MAX_DELAY = 2, 5
@@ -740,6 +774,9 @@ def scrape_smartrecruiters(board_url):
 WORKDAY_QUERIES = (
     "program manager", "project manager", "project coordinator",
     "program coordinator", "business analyst", "operations analyst",
+    # wider net — surface the new role types in Workday's ranked search too
+    "product manager", "supply chain analyst", "financial analyst",
+    "implementation manager", "operations specialist", "marketing analyst", "consultant",
 )
 
 
@@ -846,6 +883,9 @@ AMAZON_QUERIES = (
     "program manager", "project manager", "project coordinator",
     "program coordinator", "business analyst", "operations manager",
     "data analyst", "implementation",
+    # wider net — Amazon's search is query-driven, so new terms = new pages fetched
+    "product manager", "supply chain analyst", "financial analyst",
+    "operations specialist", "marketing analyst", "logistics coordinator",
 )
 
 
@@ -991,6 +1031,130 @@ def scrape_adzuna(board_url):
         if len(results) < 50 or page * 50 >= data.get("count", 0):
             break
         time.sleep(random.uniform(0.3, 0.7))
+    return rows
+
+
+def scrape_adzuna_search(board_url):
+    """Generic Adzuna search across ALL employers for a role phrase — the single WIDEST source:
+    it pulls jobs from the thousands of companies Adzuna indexes, including custom-portal employers
+    we can't scrape directly. board_url is 'adzuna-search:<phrase>' (e.g. 'adzuna-search:project
+    manager'). Each row carries its OWN employer (set here; scrape_all won't clobber it). main()'s
+    title + US filter still trims it.
+
+    DORMANT without an Adzuna key. Free-tier friendly: capped at 4 pages (200 results) per phrase
+    and recent postings only, so a handful of phrases stay within the ~250 calls/day budget."""
+    app_id  = os.environ.get("ADZUNA_APP_ID")
+    app_key = os.environ.get("ADZUNA_APP_KEY")
+    if not (app_id and app_key):
+        return []
+    query = board_url.split(":", 1)[1].strip() if ":" in board_url else board_url
+    rows, seen = [], set()
+    for page in range(1, 5):                          # up to 4 pages x 50 = 200 results per phrase
+        try:
+            data = _get_json(
+                "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
+                params={"app_id": app_id, "app_key": app_key,
+                        "what_phrase": query,         # exact phrase keeps results on-role
+                        "results_per_page": 50, "max_days_old": 30,
+                        "content-type": "application/json"})
+        except Exception:
+            break
+        results = data.get("results", [])
+        if not results:
+            break
+        for j in results:
+            url = j.get("redirect_url") or ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            rows.append({
+                "title": (j.get("title") or "").strip(),
+                "url": url,
+                "company": ((j.get("company") or {}).get("display_name") or "").strip(),
+                "location": ((j.get("location") or {}).get("display_name") or ""),
+                "found_date": (j.get("created") or "")[:10],
+            })
+        if len(results) < 50 or page * 50 >= data.get("count", 0):
+            break
+        time.sleep(random.uniform(0.3, 0.7))
+    return rows
+
+
+# ---- Meta (metacareers.com): no public feed, so drive a headless browser ----
+# Meta's careers site is a Facebook Relay/GraphQL app: a plain HTTP request gets a 400,
+# the jobs aren't in the page HTML, and the job-search query needs a CSRF token + a
+# doc_id that rotates on every Meta deploy. Rather than reverse-engineer (and constantly
+# re-fix) that, we load the page in a headless browser and CAPTURE the GraphQL response
+# it fires on load — which returns the whole default board (~500 postings, US + intl) in
+# ONE payload. main()'s title + US filter then trims it down. Needs Playwright — the same
+# optional dep the Workday boards used to need:
+#     pip install playwright && playwright install chromium
+METACAREERS_JOBS_URL = "https://www.metacareers.com/jobs/"
+
+
+def scrape_metacareers(board_url):
+    """Meta's own careers site via headless-browser GraphQL capture (Meta has no public
+    job API). board_url is the metacareers jobs page; returns [{title,url,location}, ...].
+    NOTE: this grabs Meta's DEFAULT job payload (~500 roles), not its full multi-thousand
+    catalogue — that's plenty for the entry-level PM/analyst/ops titles the filter keeps."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise RuntimeError(
+            "Meta needs a browser. Install it once:\n"
+            "    pip install playwright && playwright install chromium")
+    target = board_url if "metacareers.com" in (board_url or "") else METACAREERS_JOBS_URL
+    payloads = []
+
+    def _grab(resp):
+        # Read the body of every careers GraphQL POST; keep the one carrying the job list.
+        try:
+            if "/graphql" in resp.url and resp.request.method == "POST":
+                body = resp.text()
+                if "all_jobs" in body or "job_search_with_featured_jobs" in body:
+                    payloads.append(body)
+        except Exception:
+            pass
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent=HEADERS["User-Agent"])
+            page.on("response", _grab)
+            page.goto(target, wait_until="domcontentloaded", timeout=45000)
+            for _ in range(60):                 # poll up to ~30s for the jobs payload
+                if payloads:
+                    break
+                page.wait_for_timeout(500)
+        finally:
+            browser.close()
+
+    rows, seen = [], set()
+    for body in payloads:
+        for line in body.splitlines():          # Meta can stream >1 JSON object (@defer)
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            block = (d.get("data") or {}).get("job_search_with_featured_jobs") or {}
+            jobs = (block.get("all_jobs") or []) + (block.get("featured_jobs") or [])
+            for j in jobs:
+                jid = str(j.get("id") or "")
+                if not jid or jid in seen:
+                    continue
+                seen.add(jid)
+                locs = [str(x).strip() for x in (j.get("locations") or []) if x]
+                # Many Meta roles are multi-city; surface a US location when there is one
+                # so the US filter keeps the role, else show them all and let it drop.
+                loc = next((l for l in locs if is_us_location(l)), "; ".join(locs))
+                rows.append({
+                    "title": (j.get("title") or "").strip(),
+                    "url": "https://www.metacareers.com/jobs/%s/" % jid,
+                    "location": loc,
+                })
     return rows
 
 
@@ -1537,6 +1701,7 @@ SCRAPERS = {
     "personio": scrape_personio,
     "jsonld": scrape_jsonld,
     "adzuna": scrape_adzuna,
+    "adzuna-search": scrape_adzuna_search,
     "phenom": scrape_phenom,
     "oracle": scrape_oracle,
     "workable": scrape_workable,
@@ -1545,6 +1710,7 @@ SCRAPERS = {
     "bamboohr": scrape_bamboohr,
     "pinpoint": scrape_pinpoint,
     "rippling": scrape_rippling,
+    "metacareers": scrape_metacareers,
 }
 
 
@@ -2156,7 +2322,8 @@ def scrape_all(sources, workers=8):
             time.sleep(random.uniform(0, 1.0))          # small stagger so we don't burst one API
             rows = fn(url)
             for r in rows:
-                r["company"] = company
+                r.setdefault("company", company)        # keep a per-row company if the scraper set
+                                                         # one (aggregator search spans many firms)
             return company, rows, None
         except Exception as e:
             return company, None, str(e)
@@ -2237,6 +2404,14 @@ def main():
         json.dump(kept, open("last_new_jobs.json", "w", encoding="utf-8"))
     except Exception:
         pass
+
+    # Keep the corpus fresh + the DB bounded as the wider net grows it: drop jobs first seen
+    # > PRUNE_DAYS ago, except any a user has liked/applied/hidden. Set PRUNE_DAYS=0 to disable.
+    prune_days = int(os.environ.get("PRUNE_DAYS", "60"))
+    if prune_days > 0:
+        pruned = db.prune_old_jobs(prune_days)
+        if pruned:
+            print(f"Pruned {pruned} stale job(s) older than {prune_days} days (kept flagged ones).")
 
     dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
     print(f"\nScanned {len(scraped)} postings ({dropped or 'nothing dropped'}).")

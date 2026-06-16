@@ -49,9 +49,9 @@
   <div class="banner">Showing baseline scores. <a href="{{ url_for('brain_home') }}">Build your profile in Resume Brain</a> for personalized matches.</div>
   {% endif %}
 </div>
-<div class="count"><span id="count">{{ total }}</span> of {{ total }} jobs</div>
+<div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs</div>
 
-<div id="feed" class="feedgrid">
+<div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}">
   {% for _ in range(8) %}
   <div class="skel" aria-hidden="true">
     <div class="skel-logo"></div>

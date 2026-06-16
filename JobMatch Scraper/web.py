@@ -17,6 +17,7 @@ import html
 import hmac
 import hashlib
 import secrets
+import datetime
 import functools
 
 import gzip as _gzip
@@ -179,7 +180,13 @@ def _compress(resp):
 # ----------------------------- caches -----------------------------
 _jobs_cache = {"rows": None, "at": 0}
 _score_cache = {}            # (username, resume_md5) -> {url: score}
+_rows_cache = {}             # (username, resume_md5) -> [row dict w/o status], sorted by score desc
 _SCORE_CACHE_MAX = 64        # cap so a long-lived process doesn't grow unbounded across profiles
+# Above this many jobs, the feed stops shipping EVERY job inline and switches to top-N inline +
+# server-side search/paging (/api/feed), so the payload + browser parse stay small at any corpus
+# size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
+_FEED_INLINE_MAX = int(os.environ.get("FEED_INLINE_MAX", "4000"))
+_FEED_TOPN = int(os.environ.get("FEED_TOPN", "400"))      # how many top-match jobs to inline when paged
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
                               # jdmeta.json (built by the cron scorer) so cold renders skip recompute
@@ -256,6 +263,7 @@ def _bust_profile(user=None):
     else:
         _profile_cache.clear()
     _score_cache.clear()
+    _rows_cache.clear()
 
 
 def sponsor_signal(job):
@@ -348,6 +356,106 @@ def user_scores(username, resume):
         _score_cache.pop(next(iter(_score_cache)), None)   # drop oldest; bounds memory growth
     _score_cache[key] = scores
     return scores
+
+
+def _build_row(j, score):
+    """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
+    time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
+    the same shape app.js renders. Built once per (profile) and cached in _rows_cache."""
+    c = j.get("company") or ""
+    u = j.get("url")
+    meta = _jdmeta.get(u) or _EMPTY_META
+    sv, sreason = meta.get("sponsor_jd") or ("", "")
+    strength, scount = core.sponsor_strength(c, _SPONSOR_COUNTS)
+    exp_y = meta.get("exp_years")
+    return {"title": j.get("title", ""), "company": c, "location": j.get("location", ""),
+            "url": u, "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
+            "sponsors_h1b": j.get("sponsors_h1b", ""), "date": (j.get("found_date") or "")[:10],
+            "score": score, "sponsor_jd": sv, "sponsor_reason": sreason,
+            "cap_exempt": core.is_cap_exempt(c), "everify": core.is_everify(c, _EVERIFY_INDEX),
+            "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",
+            "strength": strength, "strength_n": scount,
+            "logo_domain": logodomain(c), "logo_color": logocolor(c),
+            "initial": c[:1].upper() if c else "?"}
+
+
+def ranked_rows(username, resume):
+    """The FULL corpus as card rows, sorted by this user's match score (desc), cached per
+    (user, profile). Reuses user_scores; the master ordering for both the inline top-N and the
+    server-paged /api/feed. Status is NOT baked in (overlaid per request) so the cache is shared
+    and immutable. Cheap to filter in Python even at tens of thousands of rows."""
+    key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest())
+    if key in _rows_cache:
+        return _rows_cache[key]
+    scores = user_scores(username, resume)
+    rows = [_build_row(j, scores.get(j.get("url"), 0)) for j in get_jobs() if j.get("url")]
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    if len(_rows_cache) >= _SCORE_CACHE_MAX:
+        _rows_cache.pop(next(iter(_rows_cache)), None)
+    _rows_cache[key] = rows
+    return rows
+
+
+def _date_cutoff(date_param):
+    """ISO date N days ago for the 'Posted within' filter, or '' for 'any'."""
+    if not date_param or date_param == "any":
+        return ""
+    try:
+        return (datetime.date.today() - datetime.timedelta(days=int(date_param))).isoformat()
+    except Exception:
+        return ""
+
+
+def _filter_rows(rows, statuses, p):
+    """Server-side mirror of app.js matches() + sort: filter the ranked rows by the feed
+    controls and return a list of (row, status) in display order. `p` is the query args."""
+    q = (p.get("q") or "").strip().lower()
+    searching = bool(q)
+    tab = p.get("tab") or "recommended"
+    try:
+        minv = int(p.get("min") or 0)
+    except Exception:
+        minv = 0
+    cut = _date_cutoff(p.get("date"))
+    everify_only = (p.get("everify") or "") in ("1", "true", "yes", "on")
+    hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
+    exp = p.get("exp") or "any"
+    out = []
+    for r in rows:
+        st = statuses.get(r["url"], "")
+        if tab in ("liked", "applied", "hidden"):
+            if st != tab:
+                continue
+        else:
+            if st == "hidden":
+                continue
+            if not (searching or r["score"] >= minv):   # search bypasses the match floor
+                continue
+        if searching and q not in (r["title"] + " " + r["company"]).lower():
+            continue
+        if cut and r["date"] and r["date"] < cut:
+            continue
+        if hide_no and r["sponsor_jd"] == "blocked":
+            continue
+        if everify_only and not r["everify"]:
+            continue
+        if exp != "any":
+            ev = r["exp_years"]
+            if ev != "" and ev is not None:
+                try:
+                    yrs = int(ev)
+                except Exception:
+                    yrs = None
+                if yrs is not None:
+                    if exp == "senior":
+                        if yrs >= 6:
+                            continue
+                    elif yrs > (int(exp) if str(exp).isdigit() else 99):
+                        continue
+        out.append((r, st))
+    if (p.get("sort") or "score") == "newest":
+        out.sort(key=lambda rs: rs[0]["date"] or "", reverse=True)
+    return out                                  # else already in score order (rows pre-sorted)
 
 
 def login_required(f):
@@ -496,52 +604,55 @@ def logout():
 @app.route("/")
 @login_required
 def feed():
-    """Render EVERY job once with data-* attributes; the client-side JS (static/app.js)
-    does tab/search/min-match filtering + actions with no page reloads. Falls back to
-    plain server rendering when JS is off (all cards just show)."""
+    """The jobs feed. Small corpus: ship EVERY job inline; app.js filters/sorts client-side
+    (instant). Large corpus (> _FEED_INLINE_MAX): ship only the top-N by match score inline and
+    let app.js fetch /api/feed for search/filter/paging over the full set — so the payload stays
+    small at any scale. The switch is automatic + env-tunable; behaviour is unchanged below it."""
     user = session["user"]
     resume = current_profile()           # match against the WHOLE profile (résumés + stories)
-    scores = user_scores(user, resume)
+    rows = ranked_rows(user, resume)     # full corpus, score-sorted, status-free, cached
     statuses = user_statuses(user)
-
-    rows = []
     counts = {"liked": 0, "applied": 0, "hidden": 0}
-    for j in get_jobs():
-        u = j.get("url")
-        st = statuses.get(u, "")
-        if st in counts:
-            counts[st] += 1
-        meta = _jdmeta.get(u) or _EMPTY_META     # JD-derived badges from the cron precompute
-        sv, sreason = meta.get("sponsor_jd") or ("", "")
-        strength, scount = core.sponsor_strength(j.get("company", ""), _SPONSOR_COUNTS)
-        exp_y = meta.get("exp_years")
-        rows.append({"title": j.get("title", ""), "company": j.get("company", ""),
-                     "location": j.get("location", ""), "url": u,
-                     # safe value for the Apply href; the raw `url` stays the action key.
-                     "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
-                     "sponsors_h1b": j.get("sponsors_h1b", ""),
-                     "found_date": j.get("found_date", ""),
-                     "score": scores.get(u, 0), "status": st,
-                     "sponsor_jd": sv, "sponsor_reason": sreason,
-                     "cap_exempt": core.is_cap_exempt(j.get("company", "")),
-                     "everify": core.is_everify(j.get("company", ""), _EVERIFY_INDEX),
-                     "exp_years": exp_y if exp_y is not None else "",
-                     "exp_level": meta.get("exp_level") or "",
-                     "strength": strength, "strength_n": scount})
-    rows.sort(key=lambda r: r["score"], reverse=True)
-    # The page ships these rows as compact JSON and renders cards CLIENT-SIDE (only the
-    # visible slice), instead of emitting ~2,500 <article> nodes — far less HTML to transfer
-    # and far fewer DOM nodes to build. Add the few fields the Jinja card used via filters.
-    for r in rows:
-        c = r.get("company") or ""
-        r["date"] = (r.get("found_date") or "")[:10]
-        r["logo_domain"] = logodomain(c)
-        r["logo_color"] = logocolor(c)
-        r["initial"] = c[:1].upper() if c else "?"
-        r.pop("found_date", None)            # "date" replaces it; keep the JSON small
-    return render_template("feed.html", feed_rows=rows, has_resume=bool(resume),
-                           total=len(rows), counts=counts, default_min=45 if resume else 0,
-                           scraping=False)
+    for stv in statuses.values():
+        if stv in counts:
+            counts[stv] += 1
+    total = len(rows)
+    default_min = 45 if resume else 0
+    paged = total > _FEED_INLINE_MAX
+    inline = rows[:_FEED_TOPN] if paged else rows
+    # default ("Recommended") count so the header + Load-more are right without a first fetch
+    if paged:
+        default_total = sum(1 for r in rows
+                            if statuses.get(r["url"], "") != "hidden" and r["score"] >= default_min)
+    else:
+        default_total = total
+    feed_rows = [dict(r, status=statuses.get(r["url"], "")) for r in inline]   # overlay status (copy)
+    return render_template("feed.html", feed_rows=feed_rows, has_resume=bool(resume),
+                           total=total, default_total=default_total, counts=counts,
+                           default_min=default_min, paged=paged, scraping=False)
+
+
+@app.route("/api/feed")
+@login_required
+def api_feed():
+    """Server-side search/filter/sort/paging over the FULL corpus, for the large-dataset feed.
+    Mirrors app.js's client filters; returns a compact page of card rows in the same shape."""
+    user = session["user"]
+    resume = current_profile()
+    rows = ranked_rows(user, resume)
+    statuses = user_statuses(user)
+    matched = _filter_rows(rows, statuses, request.args)
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except Exception:
+        offset = 0
+    try:
+        limit = min(120, max(1, int(request.args.get("limit") or 60)))
+    except Exception:
+        limit = 60
+    page = matched[offset:offset + limit]
+    out_rows = [dict(r, status=st) for (r, st) in page]      # overlay status on a copy
+    return {"rows": out_rows, "total": len(matched), "has_more": offset + limit < len(matched)}
 
 
 @app.route("/api/job")
@@ -599,6 +710,7 @@ def api_action():
 def reload_jobs():
     get_jobs(force=True)
     _score_cache.clear()
+    _rows_cache.clear()
     _profile_cache.clear()
     _resume_cache.clear()
     _status_cache.clear()
