@@ -358,6 +358,13 @@ def user_scores(username, resume):
     return scores
 
 
+# Internship / co-op detection from the title (for the "Internship" badge + the Intern/Co-op
+# filter). Whole-word so it won't fire on "international"/"internal". Matches intern(s|ship|ships),
+# co-op / coop / co op (+ plurals), and the finance-internship "summer analyst/associate".
+_INTERN_RE = re.compile(
+    r"\b(?:intern(?:s|ship|ships)?|co[-\s]?ops?|summer analyst|summer associate)\b", re.I)
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -375,6 +382,7 @@ def _build_row(j, score):
             "cap_exempt": core.is_cap_exempt(c), "everify": core.is_everify(c, _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",
             "strength": strength, "strength_n": scount,
+            "intern": bool(_INTERN_RE.search(j.get("title") or "")),
             "logo_domain": logodomain(c), "logo_color": logocolor(c),
             "initial": c[:1].upper() if c else "?"}
 
@@ -420,6 +428,7 @@ def _filter_rows(rows, statuses, p):
     everify_only = (p.get("everify") or "") in ("1", "true", "yes", "on")
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     exp = p.get("exp") or "any"
+    intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
     out = []
     for r in rows:
         st = statuses.get(r["url"], "")
@@ -438,6 +447,10 @@ def _filter_rows(rows, statuses, p):
         if hide_no and r["sponsor_jd"] == "blocked":
             continue
         if everify_only and not r["everify"]:
+            continue
+        if intern == "only" and not r.get("intern"):
+            continue
+        if intern == "no" and r.get("intern"):
             continue
         if exp != "any":
             ev = r["exp_years"]
