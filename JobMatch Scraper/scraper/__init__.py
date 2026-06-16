@@ -446,11 +446,13 @@ INCLUDE = (
     "product manager", "associate product manager", "product owner",
     "technical program manager", "implementation manager", "implementation specialist",
     "delivery manager", "engagement manager", "supply chain manager", "logistics manager",
-    "marketing manager", "operations specialist", "business operations", "consultant",
-    # WIDE NET — broad single words. These pull general business roles across functions
-    # (finance/marketing/supply-chain/HR/etc.); the EXCLUDE list below + the per-profile
-    # match score keep it relevant. Comment these four out to return to the precise net.
-    "analyst", "coordinator", "specialist", "associate",
+    "marketing manager", "operations specialist", "business operations",
+    "supply chain analyst", "logistics analyst", "financial analyst",
+    # NOTE: the bare single words ("analyst", "coordinator", "specialist", "associate",
+    # "consultant") were REMOVED — under the wide net they pulled in retail/hourly/clinical
+    # roles with no tie to a PM/analyst/STEM track (T-Mobile "Mobile Associate", Target
+    # "Security Specialist", hospital "Patient Care Coordinator"). The specific multi-word
+    # phrases above keep the genuine domain roles. Re-add the bare words to go broad again.
     # Entry-level consulting shapes.
     "consulting analyst", "associate consultant", "management consultant",
     "strategy consultant", "business consultant", "consulting development analyst",
@@ -481,6 +483,13 @@ EXCLUDE = (
     "produce", "meat", "seafood", "stocker", "bagger", "checker", "store associate",
     "retail associate", "sales associate", "sales representative", "merchandiser",
     "stock clerk", "pharmacy graduate", "pharmacy intern", "warehouse associate",
+    # Retail-floor / wireless / loss-prevention / clinical-bedside / academic-lab roles —
+    # NOT a PM/analyst/ops/STEM track. These flooded in under the wide net (T-Mobile
+    # "Mobile Associate - Retail Sales", Target "Security Specialist"/"Assets Protection",
+    # hospital "Patient Care Coordinator", "Postdoctoral Research Associate").
+    "mobile associate", "retail sales", "wireless", "security specialist",
+    "assets protection", "loss prevention", "patient", "postdoctoral", "postdoc",
+    "teller", "phlebotom", "caregiver", "client service associate",
 )
 
 # If sponsors.txt is loaded: True = DROP companies not on the list; False = keep
