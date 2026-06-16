@@ -17,6 +17,7 @@
       emptyEl = document.getElementById("empty"), moreBtn = document.getElementById("loadmore"),
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
       expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
+      internSel = document.getElementById("intern"),
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
@@ -90,6 +91,8 @@
   function cardHTML(j) {
     var st = j.status || "";
     var badges = "";
+    if (j.intern)
+      badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
     if (j.sponsors_h1b === "yes")
       badges += '<span class="h1b" title="Company has sponsored H-1B before' +
         (j.strength ? ' &middot; ~' + (j.strength_n || 0) + ' filings' : '') + '">H1B' +
@@ -149,6 +152,8 @@
     if (ok && cut) { var dt = j.date || ""; if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
     if (ok && everifyOnly && everifyOnly.checked && !j.everify) ok = false;
+    if (ok && internSel && internSel.value === "only" && !j.intern) ok = false;
+    if (ok && internSel && internSel.value === "no" && j.intern) ok = false;
     // Experience filter: a job whose JD states no year count (exp_years "") is ALWAYS kept.
     if (ok && expSel && expSel.value !== "any") {
       var ev = j.exp_years;
@@ -194,6 +199,7 @@
     if (expSel && expSel.value !== "any") ps.push("exp=" + encodeURIComponent(expSel.value));
     if (everifyOnly && everifyOnly.checked) ps.push("everify=1");
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
+    if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
     return ps.join("&");
   }
   function renderServer(reset) {
@@ -257,6 +263,7 @@
   if (sortSel) sortSel.addEventListener("change", function () { sortBy = sortSel.value; render(true); });
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
   if (expSel) expSel.addEventListener("change", function () { render(true); });
+  if (internSel) internSel.addEventListener("change", function () { render(true); });
   if (everifyOnly) everifyOnly.addEventListener("change", function () { render(true); });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
