@@ -434,29 +434,33 @@ RESUME_FILE   = "resume.txt"      # résumé-driven scraping reads this to tune 
 # substring). Specific phrases keep precision: "program manager" matches, but
 # "Experiential Programs Manager" (plural 'programs') does NOT — exactly what we want.
 INCLUDE = (
-    # Core PM / coordination / analyst / ops titles (specific phrases).
-    "project manager", "program manager", "project coordinator",
-    "program coordinator", "operations coordinator", "operations manager",
-    "project analyst", "business analyst", "operations analyst", "data analyst",
-    "project specialist", "program specialist", "project associate",
-    "operations associate", "scrum master", "project management",
-    "program management", "pmo", "implementation",
-    # Adjacent PM / product / supply-chain / delivery roles (specific manager phrases —
-    # we intentionally do NOT add a bare "manager", which would pull store/restaurant mgrs).
+    # --- Core project / program management ---
+    "project manager", "program manager", "project management", "program management",
+    "project coordinator", "program coordinator", "project administrator", "program administrator",
+    "project specialist", "program specialist", "project analyst", "project associate",
+    "project lead", "program lead", "pmo", "scrum master", "agile coach",
+    "technical program manager", "technical project manager",
+    "portfolio manager", "project portfolio",
+    # --- Project controls / scheduling / planning (PM core; previously missing) ---
+    "project controls", "project control", "project control analyst", "controls analyst",
+    "cost controls", "cost control", "cost analyst",
+    "scheduler", "project scheduler", "master scheduler", "planner scheduler",
+    "project planner", "planning analyst",
+    # --- Product ---
     "product manager", "associate product manager", "product owner",
-    "technical program manager", "implementation manager", "implementation specialist",
-    "delivery manager", "engagement manager", "supply chain manager", "logistics manager",
-    "marketing manager", "operations specialist", "business operations",
-    "supply chain analyst", "logistics analyst", "financial analyst",
-    # NOTE: the bare single words ("analyst", "coordinator", "specialist", "associate",
-    # "consultant") were REMOVED — under the wide net they pulled in retail/hourly/clinical
-    # roles with no tie to a PM/analyst/STEM track (T-Mobile "Mobile Associate", Target
-    # "Security Specialist", hospital "Patient Care Coordinator"). The specific multi-word
-    # phrases above keep the genuine domain roles. Re-add the bare words to go broad again.
-    # Entry-level consulting shapes.
-    "consulting analyst", "associate consultant", "management consultant",
-    "strategy consultant", "business consultant", "consulting development analyst",
-    # Early-career / new-grad markers (program-style roles; low noise).
+    "product analyst", "product coordinator", "product operations",
+    # --- Coordination / operations / analyst (related domain) ---
+    "operations coordinator", "operations manager", "operations analyst",
+    "operations specialist", "operations associate", "business operations",
+    "business analyst", "data analyst",
+    "implementation", "implementation manager", "implementation specialist",
+    "delivery manager", "engagement manager",
+    "supply chain analyst", "logistics analyst", "supply chain manager", "logistics manager",
+    # NOTE: bare single words (analyst/coordinator/specialist/associate/consultant) stay OUT —
+    # they pulled retail/hourly/clinical noise. Trimmed for focus (2026-06-16): "financial analyst",
+    # "marketing manager", and the generic consulting block (consulting/management/strategy/business
+    # consultant) — off-PM scatter the user flagged. Re-add any of these to widen the net again.
+    # --- Early-career / new-grad markers (program-style roles; low noise) ---
     "entry level", "entry-level", "graduate", "new grad", "early career",
     "rotation program", "rotational program", "trainee", "apprentice",
     # Internships & co-ops — OPT/STEM-OPT lets the user do these. The matcher is
@@ -497,6 +501,7 @@ EXCLUDE = (
     "mobile associate", "retail sales", "wireless", "security specialist",
     "assets protection", "loss prevention", "patient", "postdoctoral", "postdoc",
     "teller", "phlebotom", "caregiver", "client service associate",
+    "surgery", "surgical",          # clinical schedulers/coordinators (bare "scheduler" else slips)
     # Off-domain intern/co-op variants the word-boundary excludes above miss
     # ("engineer" doesn't match "Engineering", "scientist" doesn't match "Science").
     # Target the intern/co-op phrasing so PM titles like "Engineering Program
@@ -799,8 +804,11 @@ WORKDAY_QUERIES = (
     "program manager", "project manager", "project coordinator",
     "program coordinator", "business analyst", "operations analyst",
     # wider net — surface the new role types in Workday's ranked search too
-    "product manager", "supply chain analyst", "financial analyst",
-    "implementation manager", "operations specialist", "marketing analyst", "consultant",
+    "product manager", "supply chain analyst", "operations specialist",
+    "implementation manager", "product owner",
+    # project controls / scheduling / PMO family
+    "project controls", "scheduler", "project scheduler", "pmo", "portfolio manager",
+    "project planner", "cost analyst",
     # internships / co-ops (OPT-eligible)
     "intern", "internship", "co-op", "summer analyst",
 )
@@ -910,8 +918,10 @@ AMAZON_QUERIES = (
     "program coordinator", "business analyst", "operations manager",
     "data analyst", "implementation",
     # wider net — Amazon's search is query-driven, so new terms = new pages fetched
-    "product manager", "supply chain analyst", "financial analyst",
-    "operations specialist", "marketing analyst", "logistics coordinator",
+    "product manager", "supply chain analyst", "operations specialist",
+    "product owner", "project planner",
+    # project controls / scheduling / PMO family
+    "project controls", "project scheduler", "pmo", "portfolio manager",
     # internships / co-ops (OPT-eligible)
     "intern", "internship", "co-op",
 )
