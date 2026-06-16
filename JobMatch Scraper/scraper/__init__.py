@@ -2405,9 +2405,10 @@ def main():
     except Exception:
         pass
 
-    # Keep the corpus fresh + the DB bounded as the wider net grows it: drop jobs first seen
-    # > PRUNE_DAYS ago, except any a user has liked/applied/hidden. Set PRUNE_DAYS=0 to disable.
-    prune_days = int(os.environ.get("PRUNE_DAYS", "60"))
+    # OPTIONAL corpus pruning — OFF by default (purely additive scrape; never deletes unless asked).
+    # Set PRUNE_DAYS=60 (e.g. in the cron env) to drop jobs first seen > that many days ago,
+    # except any a user has liked/applied/hidden — to keep the DB bounded as the wider net grows it.
+    prune_days = int(os.environ.get("PRUNE_DAYS", "0"))
     if prune_days > 0:
         pruned = db.prune_old_jobs(prune_days)
         if pruned:
