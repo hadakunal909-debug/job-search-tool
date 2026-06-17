@@ -22,7 +22,7 @@ import ipaddress
 import concurrent.futures
 import re
 import datetime
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, unquote
 
 # Windows terminals default to cp1252 and crash when printing characters that some job
 # titles contain (em dashes, non-breaking hyphens, accents). Force UTF-8 stdout so a
@@ -167,6 +167,10 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/slideinsurance",         "greenhouse", "Slide Insurance"),    # ~20
     ("https://job-boards.greenhouse.io/rocketems",              "greenhouse", "Rocket EMS"),         # ~27
     ("https://job-boards.greenhouse.io/metroveincenters",       "greenhouse", "Metro Vein Centers"), # ~52
+    # --- Added 2026-06-17 (user request): LG Electronics. lge-careers.com is a WordPress
+    # front-end whose Apply links go to Greenhouse (slug `lgelectronics`) — so we read the
+    # board directly (LG North America, ~103 postings). ---
+    ("https://job-boards.greenhouse.io/lgelectronics",          "greenhouse", "LG Electronics"),     # ~103
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -297,6 +301,10 @@ SF_BOARDS = [
     ("https://jobs.bostonscientific.com",  "successfactors", "Boston Scientific"),   # ~638
     ("https://jobs.paccar.com",            "successfactors", "Paccar"),              # ~86
     ("https://jobs.netapp.com",            "successfactors", "NetApp"),              # ~271
+    # --- Added 2026-06-17 (user request): ENGIE. www.engie-na.com/careers points here;
+    # this jobs2web/RMK SF site renders results client-side, so scrape_successfactors
+    # falls back to the sitemap path and keeps only US (North America) postings. ---
+    ("https://jobs.engie.com",             "successfactors", "Engie"),              # ~82 US
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -433,6 +441,9 @@ ADZUNA_SEARCH_BOARDS = [
     ("adzuna-search:operations analyst",  "adzuna-search", "Adzuna"),
     ("adzuna-search:implementation manager", "adzuna-search", "Adzuna"),
     ("adzuna-search:supply chain analyst", "adzuna-search", "Adzuna"),
+    # "project manager" already surfaces "assistant project manager"; add project controls
+    # explicitly so the aggregator pulls that family from employers we don't scrape directly.
+    ("adzuna-search:project controls",    "adzuna-search", "Adzuna"),
     # Internship / co-op pulls — the LEGITIMATE stand-in for Handshake/university portals
     # (those are login-gated, student-only, no public feed). Adzuna indexes thousands of the
     # same employers; these intern-specific phrases surface the intern roles that the full-time
@@ -1605,12 +1616,82 @@ def _csb_is_us(loc):
     return not any(len(t) == 2 and t.isalpha() for t in toks)   # no code at all -> unknown, keep
 
 
+# Newer SuccessFactors / jobs2web (RMK) career sites render their results CLIENT-SIDE
+# (no server tr.data-row), so the table path below comes back empty. They still publish a
+# full sitemap.xml of /job/<City-Title-CODE-zip>/<id>/ URLs, and each posting page is plain
+# server HTML. _csb_sitemap_rows() is the fallback: enumerate the sitemap and parse each page.
+# US slugs carry a 2-letter US-state code + ZIP near the end (e.g. ...-TX-77056); other
+# countries don't (France uses an -FH-/-HF- gender marker, etc.), so when US_ONLY we pre-filter
+# on that pattern to avoid fetching the whole GLOBAL board just to drop most of it.
+_CSB_US_SLUG = re.compile(r"-([A-Z]{2})-\d{4,6}\b")
+
+
+def _csb_sitemap_rows(base):
+    try:
+        r = _safe_get(base + "/sitemap.xml", timeout=30)
+    except Exception:
+        return []                                     # non-public host (SSRF guard) or unreachable
+    if r.status_code != 200:
+        return []
+    locs = [u for u in re.findall(r"<loc>([^<]+)</loc>", r.text) if "/job/" in u]
+    if US_ONLY:
+        cands = [u for u in locs
+                 if (lambda m: m and m.group(1).upper() in US_STATE_ABBR)(_CSB_US_SLUG.search(unquote(u)))]
+    else:
+        cands = locs
+    rows = []
+    for u in cands[:CSB_MAX_ROWS]:
+        try:
+            jr = _safe_get(u, timeout=20)
+        except Exception:
+            continue
+        if jr.status_code != 200:
+            continue
+        soup = BeautifulSoup(jr.text, "lxml")
+        raw = soup.title.get_text(strip=True) if soup.title else ""
+        # The English "… Job Details |" header confirms a US/English posting (foreign-language
+        # pages title it differently, e.g. French "… Détails du poste |") — a cheap second guard.
+        if "Job Details" not in raw:
+            continue
+        title = re.split(r"\s+Job Details", raw)[0].strip()
+        if not title:
+            continue
+        block = soup.select_one("[class*=job]")
+        text = block.get_text(" ", strip=True) if block else ""
+        loc = ""
+        if block:                                     # the page prints "City, United States, ZIP"
+            for line in block.get_text("\n", strip=True).split("\n"):
+                m = re.match(r"(.+?),\s*United States\b", line)
+                if m and len(line) < 80:
+                    loc = "%s, United States" % m.group(1).strip().title()
+                    break
+        if not loc:                                   # fall back to the slug's city + state code
+            seg = unquote(u).split("/job/")[1].split("/")[0]
+            st = _CSB_US_SLUG.search(seg)
+            loc = ("%s, %s, US" % (seg.split("-")[0].title(), st.group(1)) if st
+                   else seg.split("-")[0].title() + ", US")
+        row = {"title": title, "url": u, "location": loc}
+        md = re.search(r"Posting Start Date:\s*(\d{1,2})/(\d{1,2})/(\d{2,4})", text)
+        if md:
+            mo, da, yr = md.groups()
+            yr = int(yr) + (2000 if int(yr) < 100 else 0)
+            try:
+                row["found_date"] = datetime.date(yr, int(mo), int(da)).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        rows.append(row)
+        time.sleep(random.uniform(0.1, 0.3))
+    return rows
+
+
 def scrape_successfactors(board_url):
     """SAP SuccessFactors 'Career Site Builder' career sites — the classic
     jobs.<company>.com sites with /search/?q= and /job/<City>-<Title>-<id>/ URLs.
     Server-rendered HTML results table (tr.data-row), 25 rows per page, paged with
     &startrow=N. Unlocks employers (SAP, NTT DATA, many industrials/pharma) whose
-    SuccessFactors backend has no public JSON API."""
+    SuccessFactors backend has no public JSON API. Newer jobs2web/RMK sites render
+    results client-side (no tr.data-row) — when the table path comes up empty we fall
+    back to _csb_sitemap_rows() (sitemap.xml + per-posting parse; e.g. ENGIE)."""
     p = urlparse(board_url)
     base = "%s://%s" % (p.scheme or "https", p.netloc)
     rows, seen, startrow, total = [], set(), 0, None
@@ -1654,6 +1735,8 @@ def scrape_successfactors(board_url):
         if total and startrow >= total:
             break
         time.sleep(random.uniform(0.2, 0.5))
+    if not rows:                                       # client-rendered SF -> sitemap fallback
+        rows = _csb_sitemap_rows(base)
     return rows
 
 
@@ -1952,8 +2035,11 @@ def detect_phenom(url):
 
 def detect_successfactors(url):
     """Network probe for SAP SuccessFactors 'Career Site Builder' sites — custom
-    domains (jobs.<co>.com), so only the /search/ results-table markup gives them
-    away. Returns (origin, 'successfactors', name) when the table is present."""
+    domains (jobs.<co>.com). Classic sites give themselves away with a server-rendered
+    /search/ results table (tr.data-row). Newer jobs2web/RMK sites render results
+    client-side (no table) but still ship the tell-tale SuccessFactors assets and a
+    /job/ sitemap — scrape_successfactors handles both. Returns
+    (origin, 'successfactors', name) when either fingerprint is present."""
     url = (url or "").strip()
     if not url:
         return None
@@ -1966,8 +2052,18 @@ def detect_successfactors(url):
         if r.status_code != 200:
             return None
         soup = BeautifulSoup(r.text, "lxml")
-        if not soup.select_one("tr.data-row a.jobTitle-link"):
-            return None
+        classic = bool(soup.select_one("tr.data-row a.jobTitle-link"))
+        if not classic:
+            low = r.text.lower()
+            # client-rendered SF: SuccessFactors RMK markers + a job sitemap to enumerate
+            if not (("successfactors" in low or "rmkcdn" in low) and "j2w" in low):
+                return None
+            try:
+                sm = _safe_get(base + "/sitemap.xml", timeout=12)
+                if sm.status_code != 200 or "/job/" not in sm.text:
+                    return None
+            except Exception:
+                return None
         host = p.netloc.split(":")[0]
         parts = [x for x in host.split(".")
                  if x not in ("www", "careers", "jobs", "career", "us")]
