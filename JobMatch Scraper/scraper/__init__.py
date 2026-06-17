@@ -153,6 +153,20 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/waymo",                  "greenhouse", "Waymo"),
     # --- Added 2026-06-16 (user request): Greenhouse, confirmed via probe_board (~20). ---
     ("https://job-boards.greenhouse.io/calendly",               "greenhouse", "Calendly"),
+    # --- Added 2026-06-17 (E-Verify+ list mine, probe_everify_xlsx.py): real companies with a
+    # readable board; counts at add time. Consultancies + hourly-retail floods deliberately excluded. ---
+    ("https://job-boards.greenhouse.io/scoutmotors",            "greenhouse", "Scout Motors"),       # ~207
+    ("https://job-boards.greenhouse.io/okx",                    "greenhouse", "OKX"),                # ~262
+    ("https://job-boards.greenhouse.io/zetaglobal",             "greenhouse", "Zeta Global"),        # ~152
+    ("https://jobs.ashbyhq.com/benchling",                      "ashby", "Benchling"),               # ~48
+    ("https://job-boards.greenhouse.io/zuora",                  "greenhouse", "Zuora"),              # ~38
+    ("https://job-boards.greenhouse.io/buildops",               "greenhouse", "BuildOps"),           # ~28
+    ("https://job-boards.greenhouse.io/twistbioscience",        "greenhouse", "Twist Bioscience"),   # ~25
+    ("https://jobs.smartrecruiters.com/CDKGlobal",              "smartrecruiters", "CDK Global"),    # ~10
+    ("https://jobs.smartrecruiters.com/Kenvue",                 "smartrecruiters", "Kenvue"),        # ~7
+    ("https://job-boards.greenhouse.io/slideinsurance",         "greenhouse", "Slide Insurance"),    # ~20
+    ("https://job-boards.greenhouse.io/rocketems",              "greenhouse", "Rocket EMS"),         # ~27
+    ("https://job-boards.greenhouse.io/metroveincenters",       "greenhouse", "Metro Vein Centers"), # ~52
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -260,6 +274,8 @@ WORKDAY_BOARDS = [
     # wd504 data center (wd5 returns nothing); CDW ~200, Walmart ~2000+. ---
     ("https://cdw.wd5.myworkdayjobs.com/Careers",                       "workday", "CDW"),                  # ~200
     ("https://walmart.wd504.myworkdayjobs.com/WalmartExternal",         "workday", "Walmart"),              # ~2000+
+    # --- Added 2026-06-17 (E-Verify+ list): Magna, found via www.magna.com/careers -> Workday. ---
+    ("https://wd3.myworkdaysite.com/recruiting/magna/Magna",            "workday", "Magna"),                # ~1252
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -327,6 +343,9 @@ ORACLE_BOARDS = [
     # --- Added 2026-06-14 (round 2): Dell's Oracle site has jobs (its Workday board was empty). ---
     ("https://iawmqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/careers",
      "oracle", "Dell Technologies"),
+    # --- Added 2026-06-17 (E-Verify+ list): Warby Parker, found via www.warbyparker.com/careers (~870). ---
+    ("https://fa-evdi-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/WarbyParkerCareers",
+     "oracle", "Warby Parker"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
