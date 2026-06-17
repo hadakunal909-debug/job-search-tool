@@ -151,6 +151,8 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/roblox",                 "greenhouse", "Roblox"),
     ("https://job-boards.greenhouse.io/cloudflare",             "greenhouse", "Cloudflare"),
     ("https://job-boards.greenhouse.io/waymo",                  "greenhouse", "Waymo"),
+    # --- Added 2026-06-16 (user request): Greenhouse, confirmed via probe_board (~20). ---
+    ("https://job-boards.greenhouse.io/calendly",               "greenhouse", "Calendly"),
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -254,6 +256,10 @@ WORKDAY_BOARDS = [
     ("https://autodesk.wd1.myworkdayjobs.com/Ext",                      "workday", "Autodesk"),             # ~663
     ("https://paypal.wd1.myworkdayjobs.com/jobs",                       "workday", "PayPal"),               # ~213
     ("https://thermofisher.wd5.myworkdayjobs.com/ThermoFisherCareers",  "workday", "Thermo Fisher Scientific"), # ~2967
+    # --- Added 2026-06-16 (user request): confirmed via probe_board. Walmart is on the
+    # wd504 data center (wd5 returns nothing); CDW ~200, Walmart ~2000+. ---
+    ("https://cdw.wd5.myworkdayjobs.com/Careers",                       "workday", "CDW"),                  # ~200
+    ("https://walmart.wd504.myworkdayjobs.com/WalmartExternal",         "workday", "Walmart"),              # ~2000+
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
