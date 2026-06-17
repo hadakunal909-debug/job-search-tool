@@ -26,6 +26,7 @@ applications_local.json
 last_new_jobs.json
 *.log
 scrape.lock
+everify_probe_report.csv
 stemjobs_cpanel.zip
 stemjobs_update.zip
 
