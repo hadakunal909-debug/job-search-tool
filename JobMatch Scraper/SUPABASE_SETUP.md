@@ -14,19 +14,27 @@ Left sidebar → **SQL Editor** → **New query** → paste this and click **Run
 
 ```sql
 create table if not exists jobs (
-  url           text primary key,   -- dedup happens on this
-  found_date    text,
-  title         text,
-  company       text,
-  location      text,
-  sponsors_h1b  text,
-  match_score   int,
-  status        text                -- liked / hidden / applied / null
+  url               text primary key,   -- dedup happens on this
+  found_date        text,
+  title             text,
+  company           text,
+  location          text,
+  sponsors_h1b      text,
+  match_score       int,
+  status            text,               -- liked / hidden / applied / null
+  posted_verified   text,               -- real posting date (scraper.verify_dates), YYYY-MM-DD
+  posted_confidence text                -- 'high' / 'medium' / 'low' from the verifier
 );
 
 -- single-user private project: turn off row-level security so your key has full access
 alter table jobs disable row level security;
 ```
+
+> **Already have a `jobs` table from before?** Add the two verified-date columns once:
+> ```sql
+> alter table jobs add column if not exists posted_verified   text;
+> alter table jobs add column if not exists posted_confidence text;
+> ```
 
 ## 3. Get your keys
 Left sidebar → **Settings → API**. Copy two things:
@@ -65,6 +73,7 @@ This pushes your local `jobs.csv` + `user_jobs.json` into the `jobs` table. Re-r
 ```bash
 python -m scraper             # new jobs upserted into Supabase (deduped by url)
 python -m scraper.score_jobs  # match scores written to Supabase
+python -m scraper.verify_dates  # real posting dates (Workday/Oracle/no-date boards) -> posted_verified
 streamlit run app.py     # reads/writes Supabase; like/hide/applied persist in the cloud
 ```
 

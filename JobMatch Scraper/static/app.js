@@ -21,9 +21,6 @@
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
-  // today's date (local) as YYYY-MM-DD, for the "New" flag on jobs pulled today.
-  function pad2(n) { return ("0" + n).slice(-2); }
-  var _td = new Date(), TODAY_STR = _td.getFullYear() + "-" + pad2(_td.getMonth() + 1) + "-" + pad2(_td.getDate());
   // Large corpus: the server inlines only the top-N matches and we fetch the rest (search/filter/
   // paging) from /api/feed, so the payload stays small at any scale. Small corpus: data-paged is
   // empty and everything stays client-side (instant) exactly as before.
@@ -67,7 +64,10 @@
     var ps = feed.querySelectorAll(".posted");
     for (var i = 0; i < ps.length; i++) {
       var s = ps[i].getAttribute("data-d");
-      if (s) { ps[i].textContent = relTime(s); ps[i].title = "Posted " + s; }
+      if (s) {
+        ps[i].textContent = relTime(s);
+        ps[i].title = (ps[i].getAttribute("data-verified") ? "Verified posting date · " : "Posted ") + s;
+      }
     }
   }
 
@@ -93,7 +93,9 @@
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
   function cardHTML(j) {
     var st = j.status || "";
-    var newFlag = (j.date && j.date === TODAY_STR) ? '<span class="newflag">New</span>' : '';
+    // "New" = pulled recently. Computed SERVER-SIDE (is_new) so it's timezone-robust — the old
+    // browser-local "date === today" compare missed every job scraped after UTC midnight.
+    var newFlag = j.is_new ? '<span class="newflag">New</span>' : '';
     var badges = "";
     if (j.intern)
       badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
@@ -114,7 +116,8 @@
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
     else if (j.sponsor_jd === 'open')
       badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
-    var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '">' + H(j.date) + '</span>' : '';
+    var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '"' +
+      (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>' : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +

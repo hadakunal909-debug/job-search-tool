@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "whenthisjobwasposted": {
+      "type": "http",
+      "url": "https://mcp.whenthisjobwasposted.com/mcp"
+    }
+  }
+}

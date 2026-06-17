@@ -49,7 +49,7 @@ it's the `…/bin/activate` path with `activate` swapped for `python`, e.g.
 cPanel → **Cron Jobs** → add (e.g. daily 6:00 am):
 
 ```
-cd /home/USER/stemjobs && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper >> scrape.log 2>&1 && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper.score_jobs >> score.log 2>&1
+cd /home/USER/stemjobs && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper >> scrape.log 2>&1 && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper.score_jobs >> score.log 2>&1 && /home/USER/virtualenv/stemjobs/3.9/bin/python -m scraper.verify_dates >> verify.log 2>&1
 ```
 
 (`cd` first so `.env`, `idf.json`, etc. resolve. Replace `USER` and confirm the path.)

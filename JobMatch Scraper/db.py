@@ -79,7 +79,8 @@ JOBS_CSV = "jobs.csv"
 ACTIONS_FILE = "user_jobs.json"
 TABLE = "jobs"
 FIELDS = ["found_date", "title", "company", "location", "url",
-          "sponsors_h1b", "match_score", "status"]
+          "sponsors_h1b", "match_score", "status",
+          "posted_verified", "posted_confidence"]
 
 _creds_cache = None
 
@@ -208,7 +209,9 @@ def _save_actions(a):
 
 
 # ---------------- public API (scraper / score_jobs / app use these) ----------------
-_FEED_COLS = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
+# posted_verified = real posting date recovered by scraper.verify_dates (preferred on the
+# card over found_date). Listed explicitly so the feed select pulls it without the JD.
+_FEED_COLS = "url,found_date,posted_verified,title,company,location,sponsors_h1b,match_score,status"
 
 
 def load_jobs(include_jd=True):
@@ -218,7 +221,15 @@ def load_jobs(include_jd=True):
     scorer, and notifier keep the default (jd included) since they need the description."""
     if using_supabase():
         sel = "*" if include_jd else _FEED_COLS
-        return _fetch_all(TABLE, {"select": sel})
+        try:
+            return _fetch_all(TABLE, {"select": sel})
+        except Exception:
+            # posted_verified not migrated yet -> retry without it so the feed keeps working
+            # until `alter table jobs add column posted_verified` is run. (include_jd=True uses
+            # "*", which never names the column, so only the explicit-column path needs this.)
+            if not include_jd and "posted_verified" in _FEED_COLS:
+                return _fetch_all(TABLE, {"select": _FEED_COLS.replace(",posted_verified", "")})
+            raise
     rows = _read_csv()
     actions = _load_actions()
     for r in rows:                       # fold like/hide/applied in for the app

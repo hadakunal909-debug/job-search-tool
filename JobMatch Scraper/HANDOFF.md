@@ -16,6 +16,7 @@ operations**. Can run/edit Python but isn't a pro dev — keep it practical.
 Personal job-search tool (no paid jobs API). Files:
 - `scraper/` — the scraper package; its main module `scraper/__init__.py` scrapes ATS feeds → Supabase (or jobs.csv). Run with `python -m scraper`.
 - `scraper/score_jobs.py` — computes the ATS-style match score per job; builds `idf.json`. Run with `python -m scraper.score_jobs`.
+- `scraper/verify_dates.py` — recovers the REAL posting date for derived/fallback-dated jobs (Workday/Oracle "X days ago", no-date boards) via the free WhenThisJobWasPosted API → `posted_verified` column. Run with `python -m scraper.verify_dates`.
 - `core.py` — matching / JD-fetch / resume logic (no Streamlit).
 - `db.py` — storage: Supabase via PostgREST+`requests`, else local files.
 - `app.py` — Streamlit card-feed UI (match rings, H1B badges, filters, Tailor view).
@@ -42,8 +43,8 @@ Personal job-search tool (no paid jobs API). Files:
   switch on when `ANTHROPIC_API_KEY` is set (currently key-free by choice).
 
 ## Run / refresh
-1. `python -m scraper`  →  2. `python -m scraper.score_jobs`  →  3. `python -m streamlit run app.py` (localhost:8501)
-Daily auto-scrape: `.github/workflows/scrape.yml` (needs GH repo secrets once deployed).
+1. `python -m scraper`  →  2. `python -m scraper.score_jobs`  →  3. `python -m scraper.verify_dates`  →  4. `python -m streamlit run app.py` (localhost:8501)
+Daily auto-scrape: `.github/workflows/scrape.yml` (needs GH repo secrets once deployed) — add the `verify_dates` step after `score_jobs` there too.
 
 ## Config knobs
 - `scraper/__init__.py`: `SOURCES = AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS`; `MAX_YEARS`;
