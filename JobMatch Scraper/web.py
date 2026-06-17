@@ -365,6 +365,26 @@ _INTERN_RE = re.compile(
     r"\b(?:intern(?:s|ship|ships)?|co[-\s]?ops?|summer analyst|summer associate)\b", re.I)
 
 
+_NEW_WINDOW_H = 30      # a job is "New" if pulled within this many hours (≈ today + grace)
+
+
+def _is_recent(found_date):
+    """True if the job was PULLED within the last ~30h. Drives the green "New" badge.
+    Compared SERVER-SIDE against the same clock that wrote found_date, so it's timezone-robust
+    — the old `found_date[:10] === browser_today` test missed every job scraped after UTC
+    midnight (its date string is already "tomorrow" relative to the viewer's local date).
+    A found_date slightly in the future (clock skew between the scraper and this server) yields
+    a negative age, which is still inside the window — correct, those are the freshest."""
+    s = (found_date or "").strip()
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+        return (datetime.datetime.now() - dt) <= datetime.timedelta(hours=_NEW_WINDOW_H)
+    return False
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -377,7 +397,13 @@ def _build_row(j, score):
     exp_y = meta.get("exp_years")
     return {"title": j.get("title", ""), "company": c, "location": j.get("location", ""),
             "url": u, "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
-            "sponsors_h1b": j.get("sponsors_h1b", ""), "date": (j.get("found_date") or "")[:10],
+            "sponsors_h1b": j.get("sponsors_h1b", ""),
+            # date = the real posting date (verify_dates) when we have it, else found_date.
+            # is_new = pulled within ~30h (server-side, tz-robust) -> drives the "New" badge,
+            # independent of the displayed posting date.
+            "date": ((j.get("posted_verified") or j.get("found_date")) or "")[:10],
+            "is_new": _is_recent(j.get("found_date")),
+            "date_verified": bool(j.get("posted_verified")),
             "score": score, "sponsor_jd": sv, "sponsor_reason": sreason,
             "cap_exempt": core.is_cap_exempt(c), "everify": core.is_everify(c, _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",

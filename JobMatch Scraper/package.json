@@ -7,6 +7,7 @@
     "dev": "python -m streamlit run app.py",
     "scrape": "python -m scraper",
     "score": "python -m scraper.score_jobs",
-    "refresh": "python -m scraper && python -m scraper.score_jobs"
+    "verify-dates": "python -m scraper.verify_dates",
+    "refresh": "python -m scraper && python -m scraper.score_jobs && python -m scraper.verify_dates"
   }
 }

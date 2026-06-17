@@ -24,7 +24,7 @@ profiles_local.json
 applications_local.json
 
 last_new_jobs.json
-scrape.log
+*.log
 scrape.lock
 stemjobs_cpanel.zip
 stemjobs_update.zip
