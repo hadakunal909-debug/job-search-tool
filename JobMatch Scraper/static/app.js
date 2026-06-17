@@ -93,9 +93,10 @@
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
   function cardHTML(j) {
     var st = j.status || "";
-    // "New" = pulled recently. Computed SERVER-SIDE (is_new) so it's timezone-robust — the old
-    // browser-local "date === today" compare missed every job scraped after UTC midnight.
-    var newFlag = j.is_new ? '<span class="newflag">New</span>' : '';
+    // "New" mirrors the card's own date label: show it iff the displayed date renders as "Today".
+    // relTime() is the same fn that renders .posted, so the badge and the date can never disagree,
+    // and it's timezone-correct in the viewer's locale (handles UTC-stamped dates that read today).
+    var newFlag = (relTime(j.date) === "Today") ? '<span class="newflag">New</span>' : '';
     var badges = "";
     if (j.intern)
       badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
