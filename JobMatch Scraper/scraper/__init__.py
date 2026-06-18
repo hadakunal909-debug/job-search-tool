@@ -280,6 +280,10 @@ WORKDAY_BOARDS = [
     ("https://walmart.wd504.myworkdayjobs.com/WalmartExternal",         "workday", "Walmart"),              # ~2000+
     # --- Added 2026-06-17 (E-Verify+ list): Magna, found via www.magna.com/careers -> Workday. ---
     ("https://wd3.myworkdaysite.com/recruiting/magna/Magna",            "workday", "Magna"),                # ~1252
+    # --- Added 2026-06-17 (H1B data-hub majors not yet tracked): Marvell + GM, both Workday
+    # (their careers SPAs hid the link; tenants found via web search, confirmed via probe_board). ---
+    ("https://marvell.wd1.myworkdayjobs.com/MarvellCareers",            "workday", "Marvell"),              # ~719
+    ("https://generalmotors.wd5.myworkdayjobs.com/Careers_GM",          "workday", "General Motors"),       # ~880
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -317,6 +321,10 @@ PHENOM_BOARDS = [
     ("https://careers.bcg.com", "phenom", "Boston Consulting Group"),
     # Merck: top pharma H1B sponsor; jobs.merck.com is Phenom-native (~280 US postings).
     ("https://jobs.merck.com", "phenom", "Merck"),
+    # --- Added 2026-06-17 (H1B data-hub majors): eBay. jobs.ebayinc.com is Phenom (its apply
+    # links point at Workday, but the ebay.wd5 site name isn't exposed, so scrape the Phenom
+    # front-end directly — ~591 US postings with titles/locations/dates). ---
+    ("https://jobs.ebayinc.com", "phenom", "eBay"),
 ]
 
 # Oracle Cloud Recruiting (ORC) career sites — public recruitingCEJobRequisitions API.
