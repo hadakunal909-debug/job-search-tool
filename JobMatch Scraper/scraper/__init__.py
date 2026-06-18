@@ -495,6 +495,9 @@ INCLUDE = (
     # --- Product ---
     "product manager", "associate product manager", "product owner",
     "product analyst", "product coordinator", "product operations",
+    # product strategy family (PM-adjacent; product-scoped so it avoids the
+    # marketing "brand/content/media strategist" noise that bare "strategist" pulls).
+    "product strategist", "product strategy",
     # --- Coordination / operations / analyst (related domain) ---
     "operations coordinator", "operations manager", "operations analyst",
     "operations specialist", "operations associate", "business operations",
