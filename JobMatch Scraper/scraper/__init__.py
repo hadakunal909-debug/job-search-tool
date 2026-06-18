@@ -354,6 +354,11 @@ ORACLE_BOARDS = [
     # --- Added 2026-06-17 (E-Verify+ list): Warby Parker, found via www.warbyparker.com/careers (~870). ---
     ("https://fa-evdi-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/WarbyParkerCareers",
      "oracle", "Warby Parker"),
+    # --- Added 2026-06-17 (user request): American Express. careers.americanexpress.com is a custom
+    # domain fronting Oracle ORC; the real origin (egug.fa.us2) is in the page HTML. ~350 postings,
+    # top-volume H1B sponsor. (The custom domain does NOT proxy /hcmRestApi, so we point at the origin.) ---
+    ("https://egug.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "American Express"),
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
