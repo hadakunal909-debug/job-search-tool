@@ -1,42 +1,75 @@
 {% extends "base.html" %}
+{% macro sel(name, value, options) %}
+  <select name="{{ name }}">
+    <option value=""></option>
+    {% for o in options %}<option value="{{ o }}"{{ ' selected' if value == o else '' }}>{{ o }}</option>{% endfor %}
+  </select>
+{% endmacro %}
+{% macro yn(name, value) %}{{ sel(name, value, ['Yes', 'No']) }}{% endmacro %}
 {% block content %}
 <style>
 .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px;max-width:760px}
 .pgrid label{display:flex;flex-direction:column;font-size:12px;gap:4px;color:#555}
 .pgrid input,.pgrid select,.pgrid textarea{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;background:#fff;color:#111;font-family:inherit}
 .full{grid-column:1 / -1}
+.psec{grid-column:1 / -1;margin:14px 0 0;font-size:13px;font-weight:700;color:#334;border-bottom:1px solid #e3e8ef;padding-bottom:4px}
+.psec .dim{font-weight:400}
 .tokbox{margin-top:26px;padding:15px 17px;border:1px solid #e3e8ef;border-radius:12px;background:#fafbfc;max-width:760px}
 .tok{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;background:#0d1117;color:#7ee2b8;padding:9px 11px;border-radius:8px;word-break:break-all;margin:8px 0}
 .dim{color:#778;font-size:13px}
 [data-theme=dark] .pgrid label{color:#9aa7b4}
+[data-theme=dark] .psec{color:#c7d2dd;border-color:#2a3340}
 [data-theme=dark] .pgrid input,[data-theme=dark] .pgrid select,[data-theme=dark] .pgrid textarea{background:#0d1117;border-color:#2a3340;color:#e6edf3}
 [data-theme=dark] .tokbox{background:#13181f;border-color:#2a3340}
 </style>
 <h1>Profile</h1>
-<p class="sub">Your default résumé feeds the application tracker automatically; the rest is optional contact info. Private to your account.</p>
+<p class="sub">Powers one-click <b>Tailor &amp; fill</b> from the browser extension: these answers auto-fill application forms, and your default résumé feeds the tracker. Private to your account. EEO fields are always optional — leave blank or pick “Decline”.</p>
 <form method="post">
   <div class="pgrid">
-    <label class="full">Default résumé file name <span class="dim">— auto-filled into your tracker each time you apply (the file you keep on your desktop)</span>
+    <label class="full">Default résumé file name <span class="dim">— auto-filled into your tracker each time you apply</span>
       <input name="default_resume" value="{{ prof.default_resume or '' }}" placeholder="e.g. Kunal_PM_Resume.pdf"></label>
-    <label>Full name<input name="name" value="{{ prof.name or '' }}"></label>
+
+    <div class="psec">Identity &amp; contact</div>
+    <label>First name<input name="first_name" value="{{ prof.first_name or '' }}"></label>
+    <label>Last name<input name="last_name" value="{{ prof.last_name or '' }}"></label>
+    <label>Full name <span class="dim">(fallback if first/last empty)</span><input name="name" value="{{ prof.name or '' }}"></label>
+    <label>Pronouns<input name="pronouns" value="{{ prof.pronouns or '' }}" placeholder="optional"></label>
     <label>Email<input name="email" type="email" value="{{ prof.email or '' }}"></label>
     <label>Phone<input name="phone" value="{{ prof.phone or '' }}"></label>
-    <label>Location (city, state)<input name="location" value="{{ prof.location or '' }}"></label>
     <label>LinkedIn URL<input name="linkedin" value="{{ prof.linkedin or '' }}"></label>
-    <label>Authorized to work in the US?
-      <select name="work_authorized">
-        <option value=""></option>
-        <option value="Yes"{{ ' selected' if prof.work_authorized == 'Yes' else '' }}>Yes</option>
-        <option value="No"{{ ' selected' if prof.work_authorized == 'No' else '' }}>No</option>
-      </select>
-    </label>
-    <label>Will you require sponsorship?
-      <select name="needs_sponsorship">
-        <option value=""></option>
-        <option value="Yes"{{ ' selected' if prof.needs_sponsorship == 'Yes' else '' }}>Yes</option>
-        <option value="No"{{ ' selected' if prof.needs_sponsorship == 'No' else '' }}>No</option>
-      </select>
-    </label>
+    <label>GitHub URL<input name="github" value="{{ prof.github or '' }}"></label>
+    <label>Portfolio URL<input name="portfolio" value="{{ prof.portfolio or '' }}"></label>
+    <label>Personal website<input name="website" value="{{ prof.website or '' }}"></label>
+
+    <div class="psec">Address</div>
+    <label class="full">Address line 1<input name="address_line1" value="{{ prof.address_line1 or '' }}"></label>
+    <label class="full">Address line 2<input name="address_line2" value="{{ prof.address_line2 or '' }}"></label>
+    <label>City<input name="city" value="{{ prof.city or '' }}"></label>
+    <label>State / Province<input name="state" value="{{ prof.state or '' }}"></label>
+    <label>ZIP / Postal code<input name="postal_code" value="{{ prof.postal_code or '' }}"></label>
+    <label>Country<input name="country" value="{{ prof.country or '' }}"></label>
+    <label class="full">Location (city, state) <span class="dim">— legacy, used by the feed</span><input name="location" value="{{ prof.location or '' }}"></label>
+
+    <div class="psec">Work authorization</div>
+    <label>Authorized to work in the US?{{ yn('work_authorized', prof.work_authorized) }}</label>
+    <label>Work status{{ sel('work_auth_status', prof.work_auth_status, ['US Citizen', 'Green Card / Permanent Resident', 'H-1B', 'OPT / CPT (F-1)', 'TN', 'Other', 'Prefer not to say']) }}</label>
+    <label>Require sponsorship now?{{ yn('needs_sponsorship', prof.needs_sponsorship) }}</label>
+    <label>Require sponsorship in the future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
+
+    <div class="psec">Voluntary self-identification (EEO) <span class="dim">— optional; many forms ask these</span></div>
+    <label>Gender{{ sel('gender', prof.gender, ['Male', 'Female', 'Non-binary', 'Decline to self-identify']) }}</label>
+    <label>Hispanic or Latino?{{ sel('hispanic_latino', prof.hispanic_latino, ['Yes', 'No', 'Decline to self-identify']) }}</label>
+    <label>Race / ethnicity{{ sel('race_ethnicity', prof.race_ethnicity, ['American Indian or Alaska Native', 'Asian', 'Black or African American', 'Native Hawaiian or Other Pacific Islander', 'White', 'Two or more races', 'Decline to self-identify']) }}</label>
+    <label>Veteran status{{ sel('veteran_status', prof.veteran_status, ['I am not a protected veteran', 'I identify as one or more of the classifications of a protected veteran', 'Decline to self-identify']) }}</label>
+    <label>Disability status{{ sel('disability_status', prof.disability_status, ['No, I do not have a disability', 'Yes, I have a disability (or previously had one)', 'Decline to answer']) }}</label>
+
+    <div class="psec">Compensation &amp; logistics</div>
+    <label>Desired salary<input name="desired_salary" value="{{ prof.desired_salary or '' }}" placeholder="e.g. 95000 or 90k-110k"></label>
+    <label>Currency<input name="salary_currency" value="{{ prof.salary_currency or 'USD' }}"></label>
+    <label>Available start date<input name="available_start_date" value="{{ prof.available_start_date or '' }}" placeholder="e.g. Immediately or 2026-08-01"></label>
+    <label>Willing to relocate?{{ yn('willing_to_relocate', prof.willing_to_relocate) }}</label>
+    <label class="full">How did you hear about us? <span class="dim">(default answer for that common question)</span><input name="how_did_you_hear" value="{{ prof.how_did_you_hear or '' }}" placeholder="e.g. Company website"></label>
+
     <label class="full">Notes<textarea name="notes" rows="2">{{ prof.notes or '' }}</textarea></label>
   </div>
   <button class="btn primary" type="submit" style="margin-top:12px">Save profile</button>
@@ -44,7 +77,7 @@
 
 <div class="tokbox">
   <b>Browser extension</b>
-  <p class="dim">Install the JobMatch Helper extension to save any job to your tracker with one click — on LinkedIn, Workday, or any company site. Paste this token into the extension; it links the extension to your account, so keep it private:</p>
+  <p class="dim">Install the JobMatch Helper extension to <b>tailor your résumé and auto-fill applications</b> with one click — on Greenhouse, Lever, Ashby, and more. Paste this token into the extension; it links the extension to your account, so keep it private:</p>
   <div class="tok">{{ token }}</div>
   <p class="dim">Install: get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code> → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in <code>extension/README.md</code>.</p>
 </div>

@@ -294,6 +294,7 @@ async function init() {
     const blbl = bulkSiteLabel(tab && tab.url);    // show "import all jobs" only on supported sites
     if (blbl) { $("bulklbl").textContent = blbl; $("bulkwrap").style.display = "block"; }
     else { $("bulkwrap").style.display = "none"; }
+    $("tailorwrap").style.display = applyAts(tab && tab.url) ? "block" : "none";  // fill only on supported ATS
     try {                                          // prefill résumé name + autocomplete list
       const pr = await (await fetch(cfg.apibase + "/api/ext/profile?token=" + encodeURIComponent(cfg.token))).json();
       if (pr && pr.ok) {
@@ -336,6 +337,52 @@ $("save").onclick = async () => {
     else { $("msg").style.color = "#c0392b"; $("msg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
     $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error — check the App URL.";
+  }
+};
+
+// Which apply-form ATS can we fill? (M1: Greenhouse. Add hostnames here as adapters land.)
+function applyAts(url) {
+  let h = "";
+  try { h = new URL(url).hostname; } catch (e) { return ""; }
+  if (h.indexOf("greenhouse.io") >= 0 || h.indexOf("greenhouse") >= 0) return "greenhouse";
+  return "";
+}
+
+// Tailor the résumé to this JD (Resume Brain → LaTeX→PDF), auto-fill the form, show the review panel.
+$("tailorfill").onclick = async () => {
+  const tab = await activeTab();
+  const tm = $("tailormsg");
+  tm.style.color = "#0b7a52"; tm.textContent = "Tailoring résumé… ~10s (keep this open).";
+  try {
+    const r = await fetch(cfg.apibase + "/api/ext/tailor", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: cfg.token, job_url: tab.url,
+                             company: $("company").value.trim(), format: "pdf" })
+    });
+    const j = await r.json();
+    if (!j.ok) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't tailor: " + (j.error || "failed"); return; }
+    tm.textContent = "Filling the form…";
+    const payload = { fields: j.fields, file: j.file, defaults: j.defaults };
+    const out = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true }, world: "MAIN",
+      func: jmFillApplication, args: [payload] });
+    const res = (out || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
+    if (!res.found) {
+      tm.style.color = "#c0392b";
+      tm.textContent = "No supported application form found here (this version fills Greenhouse).";
+      return;
+    }
+    await set({ jm_review: {
+      result: res, token: cfg.token, apibase: cfg.apibase,
+      title: $("title").value.trim(), company: $("company").value.trim(), url: tab.url,
+      fileName: $("resume").value.trim() || j.default_resume || j.file.name,
+      fileLabel: j.file.name, ai_used: j.ai_used, compiled: j.compiled, cached: j.cached } });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["overlay.js"] });
+    tm.textContent = "Filled " + res.filled + "/" + res.total + " — review the panel on the page" +
+      (j.cached ? " (cached)" : "") + ".";
+    setTimeout(() => window.close(), 900);          // let the user review + submit on the page
+  } catch (e) {
+    tm.style.color = "#c0392b"; tm.textContent = "Error: " + e.message;
   }
 };
 
