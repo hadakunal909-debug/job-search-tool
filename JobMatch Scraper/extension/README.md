@@ -57,8 +57,9 @@ before you submit.
   itself triggers the import.
 
 ## Batch auto-apply (🚀, NEW)
-Open the popup → **🚀 Batch auto-apply** → **Fetch my liked Greenhouse jobs** (or paste job URLs,
-one per line) → pick options → **Start**. The runner then, for each job, opens it in a background
+Open the popup → **🚀 Batch auto-apply**. It **auto-loads your top matched jobs** (highest match
+score, liked ones first) on supported ATS — no pasting URLs (you can still edit/paste to override).
+Pick options → **Start**. The runner then, for each job, opens it in a background
 tab, tailors your résumé, fills the form, and:
 - **Dry run** (default ON): fills + checks and reports "would submit" — **never submits**. Use this first.
 - **Auto-submit the clean ones**: when a form is fully filled (résumé attached, no required gaps) and
@@ -70,7 +71,9 @@ tab, tailors your résumé, fills the form, and:
 - On Start you'll be asked to **grant access to those job sites** (so the background can fill them), and —
   if auto-submit is on — to **confirm** before any real submission.
 
-Currently sources/handles **Greenhouse** jobs only.
+Handles **Greenhouse, Lever, Ashby, SmartRecruiters**, plus a **generic mode** for any standard
+application form (résumé upload + email + submit). **Workday, iCIMS, Oracle, Taleo** are login/
+account-walled and can't be auto-filled — they're parked as "⏸️ needs you," same as a CAPTCHA.
 
 ## Tailor & fill — requirements and limits
 - **Server setup (one time):** résumé PDFs are compiled with **Tectonic** (a single self-contained
@@ -80,8 +83,8 @@ Currently sources/handles **Greenhouse** jobs only.
   backend lives (e.g. some shared hosts), the endpoint automatically falls back to a `.docx`.
   **Tip:** for the most reliable apply flow, point the extension's **App URL** at your **local**
   backend (`http://127.0.0.1:5000`) where Tectonic is installed.
-- **Coverage:** v1 fills **Greenhouse** only. Workday/iCIMS/Oracle multi-step, login-walled SPAs
-  are out of scope. On an unsupported page the button reports that no form was found.
+- **Coverage:** Greenhouse, Lever, Ashby, SmartRecruiters + a generic fallback for standard forms.
+  Workday/iCIMS/Oracle/Taleo are login/account-walled (out of scope) and get parked, not forced.
 - **CAPTCHAs / logins:** never bypassed. If a verification is detected, the panel says so — solve
   it yourself, then submit. Nothing is auto-submitted.
 - **Permissions:** filling runs under `activeTab` (granted when you click the extension), so no

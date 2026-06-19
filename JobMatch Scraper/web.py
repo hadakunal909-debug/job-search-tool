@@ -1686,14 +1686,16 @@ def ext_tailor():
     return _cors(jsonify({"ok": True, **payload}))
 
 
-# Hosts the extension's form-filler can currently auto-fill (keep in sync with filler.js).
-_FILLABLE_HOSTS = ("greenhouse.io",)
+# Hosts the extension's form-filler can auto-fill (keep in sync with filler.js adapters).
+# Workday/iCIMS/Oracle/Taleo are intentionally excluded — they're login/account-walled.
+_FILLABLE_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com")
 
 
 @app.route("/api/ext/apply_queue", methods=["GET", "OPTIONS"])
 def ext_apply_queue():
-    """Extension batch runner -> the user's auto-apply queue: liked jobs on a supported ATS
-    (Greenhouse) that aren't already applied. Lets the runner source jobs without pasting URLs."""
+    """Extension batch runner -> the user's auto-apply queue: top unapplied jobs on a supported
+    ATS (Greenhouse/Lever/Ashby/SmartRecruiters), ranked by match score with liked jobs boosted to
+    the top. Auto-sourced so the runner needs no manual URLs. ?limit= caps the count (default 50)."""
     from flask import jsonify
     from urllib.parse import urlparse
     if request.method == "OPTIONS":
@@ -1705,15 +1707,8 @@ def ext_apply_queue():
         st = db.get_user_statuses(user) or {}
     except Exception:
         st = {}
-    liked = [u for u, s in st.items() if s == "liked"]
     applied = {u for u, s in st.items() if s == "applied"}
-    info = {}
-    try:
-        for j in get_jobs():
-            if j.get("url"):
-                info[j["url"]] = j
-    except Exception:
-        pass
+    liked = {u for u, s in st.items() if s == "liked"}
 
     def supported(u):
         try:
@@ -1722,13 +1717,28 @@ def ext_apply_queue():
             return False
         return any(host in h for host in _FILLABLE_HOSTS)
 
-    jobs = []
-    for u in liked:
-        if u in applied or not supported(u):
-            continue
-        j = info.get(u, {})
-        jobs.append({"url": u, "title": j.get("title", ""), "company": j.get("company", "")})
-    return _cors(jsonify({"ok": True, "jobs": jobs[:100], "count": len(jobs)}))
+    def score(j):
+        try:
+            return int(j.get("match_score") or 0)
+        except Exception:
+            return 0
+
+    rows = []
+    try:
+        for j in get_jobs():
+            u = j.get("url")
+            if u and u not in applied and supported(u):
+                rows.append(j)
+    except Exception:
+        pass
+    rows.sort(key=lambda j: (1 if j.get("url") in liked else 0, score(j)), reverse=True)  # liked first, then score
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 200))
+    except Exception:
+        limit = 50
+    jobs = [{"url": j.get("url"), "title": j.get("title", ""), "company": j.get("company", ""),
+             "score": score(j), "liked": j.get("url") in liked} for j in rows[:limit]]
+    return _cors(jsonify({"ok": True, "jobs": jobs, "count": len(jobs)}))
 
 
 @app.route("/api/ext/bulk_jobs", methods=["POST", "OPTIONS"])

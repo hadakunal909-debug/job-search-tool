@@ -1,14 +1,16 @@
 // filler.js — application form auto-fill, injected into the apply page in the MAIN world
-// (so React's controlled inputs accept programmatic values). One self-contained function,
-// jmFillApplication(payload), passed to chrome.scripting.executeScript({func: jmFillApplication}).
-// It must reference NO outer scope (it's serialized via toString and run in the page).
+// (so React's controlled inputs accept programmatic values). Self-contained functions passed to
+// chrome.scripting.executeScript({func}) — they must reference NO outer scope (serialized via
+// toString and run in the page). Also importScripts()'d by the background batch runner.
 //
-// payload = { fields: <normalized profile map from /api/ext/profile_fields>,
-//             file: {name, mime, b64} | null, defaults: {questionHash: answer} }
-// returns  = { found, ats, filled, total, unfilled:[{label,reason}], fileAttached, submitSelector }
+// jmFillApplication(payload): payload = { fields:<profile map>, file:{name,mime,b64}|null, defaults }
+//   returns { found, ats, filled, total, unfilled:[{label,reason}], fileAttached, submitSelector,
+//             captcha, login }
 //
-// Milestone 1 ships the Greenhouse adapter; the engine + fuzzy label matcher are ATS-agnostic so
-// Lever/Ashby/SmartRecruiters are added by extending ADAPTERS only.
+// Adapters cover Greenhouse / Lever / Ashby / SmartRecruiters precisely; a GENERIC adapter then
+// fills ANY standard application form (file upload + email + submit) via autocomplete/type/label
+// heuristics, so it works far beyond the named ATS. Login/CAPTCHA-walled flows (Workday, iCIMS,
+// Oracle, Taleo) are detected and reported as walls — they can't be auto-filled.
 function jmFillApplication(payload) {
   payload = payload || {};
   var F = payload.fields || {};
@@ -18,7 +20,7 @@ function jmFillApplication(payload) {
   function vis(el) {
     if (!el) return false;
     if (el.disabled || el.readOnly) return false;
-    if (el.type === "hidden") return el.closest("[data-react-class],form") != null; // hidden file inputs ok
+    if (el.type === "hidden") return el.closest("form,[data-react-class],[class*=application],[class*=apply]") != null;
     var r = el.getBoundingClientRect();
     var s = getComputedStyle(el);
     return s.display !== "none" && s.visibility !== "hidden" && (r.width > 1 || r.height > 1 || el.type === "file");
@@ -27,20 +29,17 @@ function jmFillApplication(payload) {
     var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     var setter = Object.getOwnPropertyDescriptor(proto, "value");
     if (setter && setter.set) setter.set.call(el, value); else el.value = value;
-    ["input", "change", "blur"].forEach(function (t) {
-      el.dispatchEvent(new Event(t, { bubbles: true }));
-    });
+    ["input", "change", "blur"].forEach(function (t) { el.dispatchEvent(new Event(t, { bubbles: true })); });
   }
   function setText(el, value) {
     if (!el || value == null || value === "") return false;
-    if (String(el.value || "").trim()) return true; // don't clobber what the user already typed
+    if (String(el.value || "").trim()) return true;   // don't clobber what's already there
     setNativeValue(el, String(value));
     return true;
   }
-  function firstSel(selectors, root) {
-    root = root || document;
-    for (var i = 0; i < selectors.length; i++) {
-      var nodes = root.querySelectorAll(selectors[i]);
+  function firstSel(selectors) {
+    for (var i = 0; i < (selectors || []).length; i++) {
+      var nodes = document.querySelectorAll(selectors[i]);
       for (var j = 0; j < nodes.length; j++) if (vis(nodes[j])) return nodes[j];
     }
     return null;
@@ -56,26 +55,20 @@ function jmFillApplication(payload) {
     if (el.getAttribute("aria-label")) parts.push(el.getAttribute("aria-label"));
     if (el.getAttribute("placeholder")) parts.push(el.getAttribute("placeholder"));
     if (el.name) parts.push(el.name);
-    // climb a couple of containers for grouped/legend labels
     var c = el.closest("fieldset, .field, [class*=field], [class*=question]");
-    if (c) {
-      var lg = c.querySelector("legend, label, .label, [class*=label]");
-      if (lg) parts.push(lg.textContent);
-    }
+    if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) parts.push(lg.textContent); }
     return parts.join(" ").replace(/\s+/g, " ").trim().toLowerCase();
   }
   function isRequired(el) {
     if (el.required || el.getAttribute("aria-required") === "true") return true;
-    var t = labelText(el);
-    return /\*|\(required\)|required/.test(t);
+    return /\*|\(required\)|required/.test(labelText(el));
   }
   function attachFile(input, f) {
     try {
       var bin = atob(f.b64), arr = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-      var file = new File([arr], f.name || "resume.pdf", { type: f.mime || "application/pdf" });
-      var dt = new DataTransfer();
-      dt.items.add(file);
+      var fl = new File([arr], f.name || "resume.pdf", { type: f.mime || "application/pdf" });
+      var dt = new DataTransfer(); dt.items.add(fl);
       input.files = dt.files;
       ["input", "change"].forEach(function (t) { input.dispatchEvent(new Event(t, { bubbles: true })); });
       return true;
@@ -83,13 +76,11 @@ function jmFillApplication(payload) {
   }
   function setSelectByText(sel, value) {
     if (!value) return false;
-    var want = String(value).toLowerCase();
-    var opts = sel.options, exact = -1, partial = -1;
+    var want = String(value).toLowerCase(), opts = sel.options, exact = -1, partial = -1;
     for (var i = 0; i < opts.length; i++) {
-      var t = (opts[i].textContent || "").trim().toLowerCase();
-      var v = (opts[i].value || "").toLowerCase();
+      var t = (opts[i].textContent || "").trim().toLowerCase(), v = (opts[i].value || "").toLowerCase();
       if (t === want || v === want) { exact = i; break; }
-      if (partial < 0 && t && (t.indexOf(want) >= 0 || want.indexOf(t) >= 0) && t !== "") partial = i;
+      if (partial < 0 && t && (t.indexOf(want) >= 0 || want.indexOf(t) >= 0)) partial = i;
     }
     var idx = exact >= 0 ? exact : partial;
     if (idx < 0) return false;
@@ -99,63 +90,95 @@ function jmFillApplication(payload) {
   }
   function clickRadioByText(groupEl, value) {
     if (!value) return false;
-    var want = String(value).toLowerCase();
-    var radios = groupEl.querySelectorAll('input[type=radio], input[type=checkbox]');
+    var want = String(value).toLowerCase(), radios = groupEl.querySelectorAll('input[type=radio], input[type=checkbox]');
     for (var i = 0; i < radios.length; i++) {
       var t = labelText(radios[i]);
       if (t.indexOf(want) >= 0 || (want === "yes" && /\byes\b/.test(t)) || (want === "no" && /\bno\b/.test(t))) {
-        radios[i].click();
-        return true;
+        radios[i].click(); return true;
       }
     }
     return false;
   }
 
   // ----------------------------- ATS adapters -----------------------------
+  // name: {first:[], last:[], full:[]}  — fill first+last, else the single full-name field.
+  var GENERIC = {
+    name: {
+      first: ['input[autocomplete="given-name"]', 'input[name*="first" i]', '#first_name', '#firstName'],
+      last: ['input[autocomplete="family-name"]', 'input[name*="last" i]', '#last_name', '#lastName'],
+      full: ['input[autocomplete="name"]', 'input[name="name"]', 'input[name="fullName"]', 'input[name*="full" i]', '#name']
+    },
+    email: ['input[type=email]', 'input[autocomplete=email]', 'input[name*="email" i]', '#email'],
+    phone: ['input[type=tel]', 'input[autocomplete=tel]', 'input[name*="phone" i]', '#phone'],
+    resumeFile: ['input[type=file][name*="resume" i]', 'input[type=file][id*="resume" i]', 'input[type=file][accept*="pdf"]', 'input[type=file]'],
+    submit: 'button[type=submit], input[type=submit], button[aria-label*="submit" i]'
+  };
   var ADAPTERS = {
     greenhouse: {
-      test: function () {
-        return /greenhouse/.test(location.hostname) ||
-          document.querySelector('#first_name, #s3_upload_for_resume, form[action*="greenhouse"], #application_form');
-      },
-      core: [
-        { key: "first_name", label: "First name", sel: ['#first_name', 'input[name="job_application[first_name]"]', 'input[autocomplete="given-name"]'] },
-        { key: "last_name", label: "Last name", sel: ['#last_name', 'input[name="job_application[last_name]"]', 'input[autocomplete="family-name"]'] },
-        { key: "email", label: "Email", sel: ['#email', 'input[type=email]', 'input[autocomplete=email]'] },
-        { key: "phone", label: "Phone", sel: ['#phone', 'input[type=tel]', 'input[autocomplete=tel]'] }
-      ],
-      resumeFile: ['input[type=file][id*="resume" i]', 'input[type=file][name*="resume" i]', '#s3_upload_for_resume', 'input[type=file]'],
-      submit: '#submit_app, button[type=submit], input[type=submit], button[aria-label*="Submit" i]'
+      test: function () { return /greenhouse/.test(location.hostname) || document.querySelector('#first_name, #s3_upload_for_resume, form[action*="greenhouse"], #application_form'); },
+      name: { first: ['#first_name', 'input[name="job_application[first_name]"]'], last: ['#last_name', 'input[name="job_application[last_name]"]'], full: [] },
+      email: ['#email', 'input[type=email]'], phone: ['#phone', 'input[type=tel]'],
+      resumeFile: ['input[type=file][id*="resume" i]', '#s3_upload_for_resume', 'input[type=file]'],
+      submit: '#submit_app, button[type=submit], input[type=submit]'
+    },
+    lever: {
+      test: function () { return /lever\.co/.test(location.hostname) || document.querySelector('form[action*="lever"], .application-form'); },
+      name: { first: [], last: [], full: ['input[name="name"]', '#name'] },   // Lever uses one Name field
+      email: ['input[name="email"]', 'input[type=email]'], phone: ['input[name="phone"]', 'input[type=tel]'],
+      resumeFile: ['input[name="resume"]', 'input[type=file]'],
+      submit: '#btn-submit, button[type=submit], .postings-btn[type=submit], button[data-qa="btn-submit"]'
+    },
+    ashby: {
+      test: function () { return /ashbyhq\.com/.test(location.hostname) || document.querySelector('[class*="ashby" i], form[class*="application" i] [data-highlight]'); },
+      name: { first: ['input[name*="first" i]'], last: ['input[name*="last" i]'], full: ['input[name="_systemfield_name"]', 'input[name*="name" i]', 'input[aria-label*="name" i]'] },
+      email: ['input[name="_systemfield_email"]', 'input[type=email]', 'input[aria-label*="email" i]'],
+      phone: ['input[name="_systemfield_phone"]', 'input[type=tel]', 'input[aria-label*="phone" i]'],
+      resumeFile: ['input[type=file]'],
+      submit: 'button[type=submit], button[aria-label*="submit" i]'
+    },
+    smartrecruiters: {
+      test: function () { return /smartrecruiters\.com/.test(location.hostname) || document.querySelector('[data-test*="application"], form[action*="smartrecruiters"]'); },
+      name: { first: ['#firstName', 'input[name="firstName"]', '[data-test="field-firstName"] input'], last: ['#lastName', 'input[name="lastName"]', '[data-test="field-lastName"] input'], full: [] },
+      email: ['#email', 'input[name="email"]', 'input[type=email]'], phone: ['#phoneNumber', 'input[name="phoneNumber"]', 'input[type=tel]'],
+      resumeFile: ['input[type=file]'],
+      submit: 'button[type=submit], button[data-test*="submit"], button[aria-label*="submit" i]'
     }
   };
 
-  // ----------------------------- pick adapter -----------------------------
-  var ats = null, A = null;
-  for (var name in ADAPTERS) {
-    try { if (ADAPTERS[name].test()) { ats = name; A = ADAPTERS[name]; break; } } catch (e) {}
+  // pick the most specific adapter; else GENERIC if the page looks like an application form
+  function looksLikeForm() {
+    return !!(firstSel(GENERIC.resumeFile) && firstSel(GENERIC.email));
   }
-  if (!A) return { found: false, ats: null };
+  var ats = null, A = null;
+  for (var nm in ADAPTERS) { try { if (ADAPTERS[nm].test()) { ats = nm; A = ADAPTERS[nm]; break; } } catch (e) {} }
+  if (!A) {
+    if (!looksLikeForm()) return { found: false, ats: null };
+    ats = "generic"; A = GENERIC;
+  }
 
   var filled = 0, total = 0, unfilled = [], fileAttached = false;
-  function track(ok, label, required) {
+  function track(ok, label, required, found) {
+    if (found === false) return;                       // field not on this form -> don't count
     total++;
-    if (ok) filled++;
-    else if (required) unfilled.push({ label: label, reason: "empty" });
+    if (ok) filled++; else if (required) unfilled.push({ label: label, reason: "empty" });
   }
 
-  // 1) core identity/contact fields
-  A.core.forEach(function (m) {
-    var el = firstSel(m.sel);
-    track(el ? setText(el, F[m.key]) : false, m.label, true);
-  });
+  // 1) name (first+last, else single full-name), email, phone
+  var fe = firstSel(A.name.first), le = firstSel(A.name.last);
+  if (fe || le) {
+    track(fe ? setText(fe, F.first_name) : false, "First name", true, !!fe);
+    track(le ? setText(le, F.last_name) : false, "Last name", true, !!le);
+  } else {
+    var ne = firstSel(A.name.full);
+    track(ne ? setText(ne, F.full_name) : false, "Name", true, !!ne);
+  }
+  var ee = firstSel(A.email); track(ee ? setText(ee, F.email) : false, "Email", true, !!ee);
+  var pe = firstSel(A.phone); track(pe ? setText(pe, F.phone) : false, "Phone", true, !!pe);
 
   // 2) résumé file
-  if (file && file.b64) {
-    var fi = firstSel(A.resumeFile);
-    if (fi) fileAttached = attachFile(fi, file);
-  }
+  if (file && file.b64) { var fi = firstSel(A.resumeFile); if (fi) fileAttached = attachFile(fi, file); }
 
-  // 3) fuzzy label matching for links + common custom questions + EEO
+  // 3) fuzzy label matching: links + common custom questions + EEO
   var links = F.links || {}, work = F.work_auth || {}, eeo = F.eeo || {}, comp = F.comp || {}, addr = F.address || {};
   var RULES = [
     { re: /linkedin/, val: links.linkedin },
@@ -167,58 +190,43 @@ function jmFillApplication(payload) {
     { re: /willing to relocate|open to relocat|relocat/, val: F.relocate ? "Yes" : "No", onlyIf: F.relocate !== "" && F.relocate != null },
     { re: /authoriz|legally (eligible|able) to work|work authorization/, val: work.status_label || (work.authorized ? "Yes" : "No") },
     { re: /require.*(sponsor|visa)|sponsorship/, val: work.requires_sponsorship ? "Yes" : "No" },
-    { re: /gender/, val: eeo.gender },
-    { re: /hispanic|latino/, val: eeo.hispanic_latino },
-    { re: /race|ethnic/, val: eeo.race },
-    { re: /veteran/, val: eeo.veteran },
-    { re: /disab/, val: eeo.disability },
-    { re: /city/, val: addr.city },
-    { re: /\bstate\b|province/, val: addr.state },
-    { re: /zip|postal/, val: addr.postal },
-    { re: /country/, val: addr.country },
-    { re: /address/, val: addr.line1 }
+    { re: /gender/, val: eeo.gender }, { re: /hispanic|latino/, val: eeo.hispanic_latino },
+    { re: /race|ethnic/, val: eeo.race }, { re: /veteran/, val: eeo.veteran }, { re: /disab/, val: eeo.disability },
+    { re: /city/, val: addr.city }, { re: /\bstate\b|province/, val: addr.state },
+    { re: /zip|postal/, val: addr.postal }, { re: /country/, val: addr.country }, { re: /address/, val: addr.line1 }
   ];
   function applyRule(el, t) {
     for (var i = 0; i < RULES.length; i++) {
       var r = RULES[i];
-      if (r.onlyIf === false) continue;
-      if (!r.val) continue;
-      if (!r.re.test(t)) continue;
-      if (el.tagName === "SELECT") return setSelectByText(el, r.val) ? r : null;
-      if (el.tagName === "INPUT" && (el.type === "text" || el.type === "url" || el.type === "" || el.type === "number" || el.type === "tel")) return setText(el, r.val) ? r : null;
-      if (el.tagName === "TEXTAREA") return setText(el, r.val) ? r : null;
-      return null;
+      if (r.onlyIf === false || !r.val || !r.re.test(t)) continue;
+      if (el.tagName === "SELECT") return setSelectByText(el, r.val);
+      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|url|tel|number|search|)$/.test(el.type))) return setText(el, r.val);
+      return false;
     }
-    return null;
+    return false;
   }
-  var seen = new Set();
   document.querySelectorAll("input, select, textarea").forEach(function (el) {
-    if (!vis(el) || el.type === "hidden" || el.type === "file" || el.type === "submit" || el.type === "button") return;
-    if (el.type === "radio" || el.type === "checkbox") return; // handled as groups below
-    if (A.core.some(function (m) { return m.sel.some(function (s) { try { return el.matches(s); } catch (e) { return false; } }); })) return;
-    var t = labelText(el);
-    if (!t) return;
-    if (applyRule(el, t)) seen.add(el);
+    if (!vis(el) || /hidden|file|submit|button|password/.test(el.type) || el.type === "radio" || el.type === "checkbox") return;
+    if ([A.name.first, A.name.last, A.name.full, A.email, A.phone].some(function (ss) {
+      return (ss || []).some(function (s) { try { return el.matches(s); } catch (e) { return false; } }); })) return;
+    var t = labelText(el); if (t) applyRule(el, t);
   });
-
-  // radio/checkbox groups (work auth, sponsorship, EEO, relocate) by container label
+  // radio/checkbox groups (work auth, sponsorship, EEO, relocate)
   document.querySelectorAll("fieldset, [role=radiogroup], .field, [class*=question]").forEach(function (g) {
     var t = (g.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
     if (!t || !g.querySelector("input[type=radio], input[type=checkbox]")) return;
     var val = null;
-    if (/authoriz|legally.*work/.test(t)) val = work.authorized ? "Yes" : (work.status_label ? "Yes" : "");
+    if (/authoriz|legally.*work/.test(t)) val = (work.authorized || work.status_label) ? "Yes" : "";
     else if (/sponsor|visa/.test(t)) val = work.requires_sponsorship ? "Yes" : "No";
     else if (/relocat/.test(t) && F.relocate != null && F.relocate !== "") val = F.relocate ? "Yes" : "No";
-    else if (/veteran/.test(t)) val = eeo.veteran;
-    else if (/disab/.test(t)) val = eeo.disability;
-    else if (/gender/.test(t)) val = eeo.gender;
-    else if (/hispanic|latino/.test(t)) val = eeo.hispanic_latino;
+    else if (/veteran/.test(t)) val = eeo.veteran; else if (/disab/.test(t)) val = eeo.disability;
+    else if (/gender/.test(t)) val = eeo.gender; else if (/hispanic|latino/.test(t)) val = eeo.hispanic_latino;
     if (val) clickRadioByText(g, val);
   });
 
-  // 4) scan remaining required-but-empty fields for the review panel
+  // 4) remaining required-but-empty fields (for the report / submit gate)
   document.querySelectorAll("input, select, textarea").forEach(function (el) {
-    if (!vis(el) || el.type === "hidden" || el.type === "submit" || el.type === "button" || el.type === "search") return;
+    if (!vis(el) || /hidden|submit|button|search/.test(el.type)) return;
     if (el.type === "file") {
       if (isRequired(el) && (!el.files || !el.files.length) && !fileAttached) unfilled.push({ label: labelText(el) || "Résumé", reason: "no file" });
       return;
@@ -230,16 +238,14 @@ function jmFillApplication(payload) {
     }
   });
 
-  // walls that require a human — the batch runner parks the job on any of these
-  var captcha = !!document.querySelector(
-    'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="turnstile"],.g-recaptcha,[data-sitekey],[class*="captcha" i]');
+  // walls a human must clear (the runner parks the job on any of these)
+  var captcha = !!document.querySelector('iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="turnstile"],.g-recaptcha,[data-sitekey],[class*="captcha" i]');
   var login = !!document.querySelector("input[type=password]") ||
     /\/(login|sign[_-]?in|signin|auth|account\/new|users\/sign)/i.test(location.href);
 
   return {
-    found: true, ats: ats, filled: filled, total: total,
-    unfilled: unfilled.slice(0, 25), fileAttached: fileAttached, submitSelector: A.submit,
-    captcha: captcha, login: login
+    found: true, ats: ats, filled: filled, total: total, unfilled: unfilled.slice(0, 25),
+    fileAttached: fileAttached, submitSelector: A.submit, captcha: captcha, login: login
   };
 }
 
@@ -248,10 +254,7 @@ function jmClickSubmit(selector) {
   var btn = selector ? document.querySelector(selector) : null;
   if (!btn) {
     var all = Array.prototype.slice.call(document.querySelectorAll("button, input[type=submit]"));
-    btn = all.filter(function (b) {
-      var t = (b.textContent || b.value || "").trim();
-      return /^(submit|submit application|apply)/i.test(t);
-    })[0];
+    btn = all.filter(function (b) { return /^(submit|submit application|apply)/i.test((b.textContent || b.value || "").trim()); })[0];
   }
   if (!btn) return { clicked: false, href: location.href };
   btn.scrollIntoView({ block: "center" });
