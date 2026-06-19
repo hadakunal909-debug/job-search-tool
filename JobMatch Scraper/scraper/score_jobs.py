@@ -135,6 +135,18 @@ def jd_map_for(board_url, ats):
                     out[url] = " ".join(_text(x) for x in (j.get("description"),
                         j.get("basic_qualifications"), j.get("preferred_qualifications")) if x)
                 offset += len(hits)
+    elif ats == "jobdiva":
+        # The JobDiva list rows carry the full jobDescription inline — one paged pass
+        # over the portal covers every posting (no per-job detail calls).
+        token = scraper._jobdiva_token(board_url)
+        jh = scraper._jobdiva_session(token) if token else None
+        if jh:
+            for data in scraper._jobdiva_pages(token, jh):
+                for j in data:
+                    u = "https://www1.jobdiva.com/portal/?a=%s#/jobs/%s" % (token, j.get("id"))
+                    jd = _text(j.get("jobDescription") or "")
+                    if jd:
+                        out[u] = jd
     return out
 
 
@@ -173,6 +185,8 @@ def _board_has_missing(board_url, ats, missing_urls):
         return any("amazon.jobs" in u for u in missing_urls)
     if ats == "adzuna":
         return any("adzuna.com" in u for u in missing_urls)
+    if ats == "jobdiva":
+        return any("jobdiva.com" in u for u in missing_urls)
     if ats == "jibe":
         # Jibe rows store the APPLY url, whose host varies per tenant (icims.com,
         # Oracle, ...) — there's no cheap URL test, and there are only a few jibe
@@ -451,7 +465,7 @@ def detail_jd(url):
         jd = oracle_detail_jd(url)
     if not jd and "apply.workable.com" in url and "/j/" in url:
         jd = workable_detail_jd(url)
-    if not jd and "recruiting.ultipro.com" in url:
+    if not jd and re.search(r"recruiting\d*\.ultipro\.com", url):   # recruiting / recruiting2 / …
         jd = ultipro_detail_jd(url)
     if not jd and ".bamboohr.com/careers/" in url:
         jd = bamboo_detail_jd(url)
@@ -497,7 +511,7 @@ def main():
         boards = scraper.SOURCES + scraper.custom_sources()
         bulk = [(b, a, c) for b, a, c in boards
                 if a in ("greenhouse", "lever", "ashby", "amazon", "adzuna",
-                         "jibe", "pinpoint")
+                         "jibe", "pinpoint", "jobdiva")
                 and _board_has_missing(b, a, missing)]
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))

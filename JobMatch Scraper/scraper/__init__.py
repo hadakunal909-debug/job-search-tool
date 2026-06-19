@@ -327,6 +327,40 @@ PHENOM_BOARDS = [
     ("https://jobs.ebayinc.com", "phenom", "eBay"),
 ]
 
+# Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Server-rendered HTML,
+# walked 10/page with an empty search; no public API and no posting dates, so found_date
+# falls back to the scrape stamp and the title/US filter trims the board. These tenants are
+# often dominated by one job family — the corporate PM/ops/product roles are the keepers.
+AVATURE_BOARDS = [
+    # --- Added 2026-06-18 (user request): NVA (National Veterinary Associates). ~2,300
+    # postings, overwhelmingly clinical (DVM / vet tech / veterinarian) which the title
+    # filter drops; the keepers are its corporate project / operations / product roles. ---
+    ("https://nva.avature.net/jobs/SearchJobs", "avature", "National Veterinary Associates"),
+]
+
+# UKG Pro Recruiting (UltiPro) boards — recruiting[N].ultipro.com/{CO}/JobBoard/{guid}.
+# Public LoadSearchResults JSON POST; the list carries a BriefDescription, full JD via the
+# OpportunityDetail page (score_jobs.ultipro_detail_jd handles it).
+ULTIPRO_BOARDS = [
+    # --- Added 2026-06-18 (user request): Starkey (Starkey Hearing, Eden Prairie MN — the
+    # "Start Hearing" brand). On the recruiting2 host; ~82 postings, the title filter keeps
+    # its corporate project/ops/analyst roles (e.g. Project Manager II - Engineering). ---
+    ("https://recruiting2.ultipro.com/STA1003STARK/JobBoard/aa9d7813-93e5-4731-9f45-8ccb56bea5fd",
+     "ultipro", "Starkey"),
+]
+
+# JobDiva candidate portals — www1.jobdiva.com/portal/?a=<token>. Public ws.jobdiva.com REST
+# API (auth/a -> session token -> job/listall + job/getmore); the list carries the FULL JD
+# inline (score_jobs bulk path). board_url is the portal link incl. its ?a=<token>.
+JOBDIVA_BOARDS = [
+    # --- Added 2026-06-18 (user request): eTeam Inc., an IT/healthcare STAFFING AGENCY
+    # (the kind normally excluded as a body-shop — kept here at the user's explicit ask).
+    # ~2,088 postings -> ~203 on-target (PM/BA/Data Analyst/Scrum Master); ~72% list the
+    # client as "Confidential" (those show company "eTeam"), the rest name the end-client. ---
+    ("https://www1.jobdiva.com/portal/?a=svjdnwzkulao5hqo7t0ifgvj8s71sf01d7dtgdstyhdixakxt6ty85zljsdyhgz2",
+     "jobdiva", "eTeam"),
+]
+
 # Oracle Cloud Recruiting (ORC) career sites — public recruitingCEJobRequisitions API.
 # The careers URL embeds the site number: .../CandidateExperience/en/sites/{CX_...}.
 ORACLE_BOARDS = [
@@ -478,11 +512,11 @@ METACAREERS_BOARDS = [
 ]
 
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
-# SuccessFactors + Adzuna + Meta.
+# Avature + SuccessFactors + Adzuna + Meta.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
-           + ORACLE_BOARDS + PHENOM_BOARDS + SF_BOARDS + ADZUNA_BOARDS
-           + ADZUNA_SEARCH_BOARDS + METACAREERS_BOARDS)
+           + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
+           + SF_BOARDS + ADZUNA_BOARDS + ADZUNA_SEARCH_BOARDS + METACAREERS_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -1533,11 +1567,13 @@ def scrape_workable(board_url):
     return rows
 
 
-# ---- UKG Pro Recruiting (UltiPro) — recruiting.ultipro.com/{CO}/JobBoard/{guid} ----
+# ---- UKG Pro Recruiting (UltiPro) — recruiting[N].ultipro.com/{CO}/JobBoard/{guid} ----
 def _ultipro_base(board_url):
-    """Normalize to https://recruiting.ultipro.com/{COMPANY}/JobBoard/{guid} (the two
-    path segments every UKG board URL starts with; anything after the guid is UI state)."""
-    m = re.search(r"(https://recruiting\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/"
+    """Normalize to https://recruiting{N}.ultipro.com/{COMPANY}/JobBoard/{guid} (the two
+    path segments every UKG board URL starts with; anything after the guid is UI state).
+    UKG spreads tenants across numbered hosts (recruiting, recruiting2, …), so keep the
+    host's digits — Starkey lives on recruiting2, and pinning to bare 'recruiting' 404s."""
+    m = re.search(r"(https://recruiting\d*\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/"
                   r"[0-9a-fA-F-]{36})", (board_url or ""), re.I)
     return m.group(1) if m else ""
 
@@ -1860,6 +1896,188 @@ def scrape_rippling(board_url):
     return rows
 
 
+# ---- JobDiva candidate portals — www1.jobdiva.com/portal/?a=<token> ----
+# Public REST API at ws.jobdiva.com/candPortal/rest/, the exact flow the portal's own JS uses:
+#   GET auth/a   (Basic axelon:axelon + the ?a=<token> as an 'a' header) -> {portalID, token}
+#   GET job/listall?portaltype=1&count=N   (N<=200)                      -> {total, data:[...]}
+#   GET job/getmore?from=&to=&count=                                     -> the next slice
+# Each job row carries the FULL jobDescription inline (so score_jobs scores it with no detail
+# calls — see jd_map_for). These portals are usually STAFFING AGENCIES, so the per-job company
+# is the END CLIENT (often "Confidential"); we surface a real client name when one is given.
+JOBDIVA_API = "https://ws.jobdiva.com/candPortal/rest/"
+JOBDIVA_BASIC = "Basic YXhlbG9uOmF4ZWxvbg=="      # axelon:axelon — a constant baked into the portal
+JOBDIVA_PAGE = 200                                # the API rejects count > 200
+JOBDIVA_MAX_JOBS = 4000
+
+
+def _jobdiva_token(board_url):
+    """The portal token from ?a=<token> (it scopes the feed to one agency's jobs)."""
+    return (parse_qs(urlparse(board_url).query).get("a") or [""])[0]
+
+
+def _jobdiva_session(token):
+    """Exchange a portal token for the {portalID, token, a} headers the job calls need,
+    or None if the handshake fails."""
+    ah = dict(HEADERS)
+    ah.update({"Authorization": JOBDIVA_BASIC, "portalID": "1", "a": token, "compid": "-1"})
+    try:
+        aj = SESSION.get(JOBDIVA_API + "auth/a", headers=ah, timeout=25).json()
+    except Exception:
+        return None
+    if not aj.get("token") or not aj.get("portalID"):
+        return None
+    jh = dict(HEADERS)
+    jh.update({"portalID": str(aj["portalID"]), "token": aj["token"], "a": aj.get("a") or token})
+    return jh
+
+
+def _jobdiva_pages(token, jh):
+    """Yield each page's job-record list, walking job/listall then job/getmore until the
+    reported total is covered. Shared by the scraper and score_jobs' JD bulk-fetch."""
+    frm, total = 0, None
+    while frm < JOBDIVA_MAX_JOBS:
+        url = (JOBDIVA_API + "job/listall?portaltype=1&count=%d" % JOBDIVA_PAGE if frm == 0
+               else JOBDIVA_API + "job/getmore?from=%d&to=%d&count=%d"
+                    % (frm, frm + JOBDIVA_PAGE, JOBDIVA_PAGE))
+        try:
+            r = SESSION.get(url, headers=jh, timeout=30)
+            if r.status_code != 200:
+                break
+            d = r.json()
+        except Exception:
+            break
+        data = d.get("data") if isinstance(d, dict) else d
+        if not data:
+            break
+        if total is None and isinstance(d, dict):
+            total = d.get("total") or 0
+        yield data
+        frm += JOBDIVA_PAGE
+        if total and frm >= total:
+            break
+        time.sleep(random.uniform(0.15, 0.35))
+
+
+def scrape_jobdiva(board_url):
+    """JobDiva candidate portal via its public REST API. board_url is the portal link
+    (…/portal/?a=<token>). Per-job company is the end client (often 'Confidential' on an
+    agency portal) — we surface a named client when given, else scrape_all's company applies."""
+    token = _jobdiva_token(board_url)
+    if not token:
+        return []
+    jh = _jobdiva_session(token)
+    if not jh:
+        return []
+    rows, seen = [], set()
+    for data in _jobdiva_pages(token, jh):
+        for j in data:
+            jid = j.get("id")
+            if jid is None or jid in seen:
+                continue
+            seen.add(jid)
+            row = {"title": (j.get("title") or "").strip(),
+                   "url": "https://www1.jobdiva.com/portal/?a=%s#/jobs/%s" % (token, jid),
+                   "location": (j.get("location") or j.get("mainLocation") or "").strip()}
+            client = (j.get("company") or "").strip()
+            if client and client.lower() != "confidential":
+                row["company"] = client                   # surface the real end-client when named
+            pd = j.get("postDate")
+            if pd:
+                try:                                       # postDate is epoch milliseconds
+                    row["found_date"] = datetime.datetime.fromtimestamp(
+                        int(pd) / 1000).strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+            rows.append(row)
+    return rows
+
+
+def _jobdiva_agency(token):
+    """Best-effort agency name for a portal token, decoded from auth/a's basic-auth blob
+    ('eTeamUS:…' -> 'eTeam'). Only used to SUGGEST a name on '➕ Add board'. '' on failure."""
+    import base64
+    ah = dict(HEADERS)
+    ah.update({"Authorization": JOBDIVA_BASIC, "portalID": "1", "a": token, "compid": "-1"})
+    try:
+        blob = SESSION.get(JOBDIVA_API + "auth/a", headers=ah, timeout=12).json().get("auth") or ""
+        raw = base64.b64decode(blob + "=" * (-len(blob) % 4)).decode("utf-8", "replace")
+        user = re.sub(r"(US|USA|UK)$", "", raw.split(":")[0])
+        return _name_from(user) if user else ""
+    except Exception:
+        return ""
+
+
+# ---- Avature — <tenant>.avature.net/<portal>/SearchJobs ----
+# Server-rendered HTML portal (no public JSON API, no posting date in the markup, page
+# size fixed at 10). We walk the WHOLE board with an empty search via ?jobOffset=N and
+# let main()'s title/US filter trim it — the keyword search is a fuzzy relevance match
+# (a missing phrase silently falls back to a placeholder), so walking is what guarantees
+# coverage. found_date falls back to the scrape stamp. MAX_JOBS just caps a giant tenant.
+AVATURE_PAGE = 10
+AVATURE_MAX_JOBS = 3000
+
+
+def _avature_base(board_url):
+    """Normalize any Avature URL to '<scheme>://<tenant>.avature.net/<portal>/SearchJobs'
+    (drop a trailing slash, query, keyword segment, or /JobDetail/... path)."""
+    p = urlparse(board_url)
+    segs = [s for s in p.path.split("/") if s]
+    if "SearchJobs" in segs:
+        segs = segs[:segs.index("SearchJobs") + 1]          # keep up through SearchJobs
+    elif segs:
+        segs = [segs[0], "SearchJobs"]                      # <portal>/JobDetail/... -> <portal>/SearchJobs
+    else:
+        segs = ["jobs", "SearchJobs"]
+    return "%s://%s/%s" % (p.scheme, p.netloc, "/".join(segs))
+
+
+def scrape_avature(board_url):
+    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). The results list
+    is server-rendered HTML paged 10 at a time via ?jobOffset=N; each li.listSingleColumnItem
+    carries the title (its /JobDetail/ link), the facility name, and City/State spans. The
+    country lives in the JobDetail slug (…-United-States-… / …-Canada-…), so we fold it into
+    the location string for the US filter. Walks the whole board (the title filter trims it)."""
+    base = _avature_base(board_url)
+    rows, seen, offset = [], set(), 0
+    while offset < AVATURE_MAX_JOBS:
+        try:
+            r = SESSION.get("%s/?jobOffset=%d" % (base, offset), headers=HEADERS, timeout=25)
+        except Exception:
+            break
+        if r.status_code != 200:
+            break
+        cards = BeautifulSoup(r.text, "lxml").select("li.listSingleColumnItem")
+        new = 0
+        for c in cards:
+            a = c.select_one("a[href*='/JobDetail/']")
+            if not a or not a.get("href"):
+                continue                                    # 'no results' placeholder card
+            href = urljoin(base + "/", a["href"]).split("?")[0]
+            if href in seen:
+                continue
+            seen.add(href)
+            new += 1
+            city = state = ""
+            for sp in c.select(".listSingleColumnItemMiscDataItem"):
+                label, sep, val = sp.get_text(" ", strip=True).partition(":")
+                if not sep:                                 # facility name (no 'City:'/'State:' label)
+                    continue
+                label, val = label.strip().lower(), val.strip().rstrip(".").strip()
+                if label.startswith("city"):
+                    city = val
+                elif label.startswith("state"):
+                    state = val
+            country = ("Canada" if "-Canada-" in href
+                       else "United States" if "United-States" in href else "")
+            rows.append({"title": a.get_text(" ", strip=True).strip(), "url": href,
+                         "location": ", ".join(x for x in (city, state, country) if x)})
+        offset += AVATURE_PAGE
+        if not cards or new == 0:                           # reached the end of the board
+            break
+        time.sleep(random.uniform(0.2, 0.4))
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "lever": scrape_lever,
@@ -1882,6 +2100,8 @@ SCRAPERS = {
     "bamboohr": scrape_bamboohr,
     "pinpoint": scrape_pinpoint,
     "rippling": scrape_rippling,
+    "avature": scrape_avature,
+    "jobdiva": scrape_jobdiva,
     "metacareers": scrape_metacareers,
 }
 
@@ -1963,7 +2183,7 @@ def detect_board(url):
         if slug:
             return ("https://apply.workable.com/%s" % slug, "workable", _name_from(slug))
 
-    if host == "recruiting.ultipro.com":
+    if re.match(r"recruiting\d*\.ultipro\.com$", host):          # recruiting / recruiting2 / …
         base = _ultipro_base(url)
         if base:
             return (base, "ultipro", _name_from(urlparse(base).path.split("/")[1]))
@@ -1978,6 +2198,17 @@ def detect_board(url):
 
     if host == "ats.rippling.com" and segs:
         return ("https://ats.rippling.com/%s/jobs" % segs[0], "rippling", _name_from(segs[0]))
+
+    if host.endswith(".avature.net"):
+        portal = segs[0] if segs else "jobs"                # <tenant>.avature.net/<portal>/SearchJobs
+        return ("https://%s/%s/SearchJobs" % (host, portal), "avature",
+                _name_from(host.split(".")[0]))
+
+    if host.endswith("jobdiva.com"):                        # www1.jobdiva.com/portal/?a=<token>
+        token = (parse_qs(p.query).get("a") or [""])[0]
+        if token:
+            return ("https://www1.jobdiva.com/portal/?a=%s" % token, "jobdiva",
+                    _jobdiva_agency(token) or "JobDiva portal")
 
     return None
 
@@ -2232,6 +2463,23 @@ def probe_board(board_url, ats_type):
                 return int(m.group(1).replace(",", ""))
             soup = BeautifulSoup(r.text, "lxml")
             return len(soup.select("tr.data-row a.jobTitle-link")) or None
+        if ats_type == "jobdiva":
+            token = _jobdiva_token(board_url)
+            jh = _jobdiva_session(token) if token else None
+            if not jh:
+                return None
+            r = SESSION.get(JOBDIVA_API + "job/listall?portaltype=1&count=1",
+                            headers=jh, timeout=12)
+            return r.json().get("total") if r.status_code == 200 else None
+        if ats_type == "avature":
+            base = _avature_base(board_url)
+            r = SESSION.get("%s/?jobOffset=0" % base, headers=HEADERS, timeout=12)
+            if r.status_code != 200:
+                return None
+            m = re.search(r"of\s+([\d,]+)", r.text)         # 'Displaying 10 of 999+' (count is capped)
+            if m:
+                return int(m.group(1).replace(",", ""))
+            return len(BeautifulSoup(r.text, "lxml").select("li.listSingleColumnItem")) or None
         if ats_type == "bamboohr":
             d = _get_json("https://%s.bamboohr.com/careers/list" % _sub(board_url))
             return (d.get("meta") or {}).get("totalCount", len(d.get("result") or []))
