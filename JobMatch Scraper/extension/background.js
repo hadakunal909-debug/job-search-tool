@@ -46,7 +46,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // written to chrome.storage.local("jm_queue") so the popup can render it. Keep the inter-job delay
 // under ~25s so the MV3 service worker isn't evicted between jobs (activity keeps it alive).
 const JM_Q = { stop: false, running: false };
-const jmSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// jmSleep is already defined in tesla_shared.js (imported above) — reuse it (don't redeclare,
+// or the shared worker scope throws "jmSleep already declared" → SW registration fails, code 15).
 const jmSaveQueue = (state) => new Promise((r) => chrome.storage.local.set({ jm_queue: state }, r));
 
 function jmWaitForLoad(tabId, timeout) {
