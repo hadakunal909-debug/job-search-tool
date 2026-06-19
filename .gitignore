@@ -7,3 +7,6 @@ __pycache__/
 *.pyc
 .claude/
 .DS_Store
+
+# Large reproducible data deliverables (not source) — e.g. the USCIS H-1B data hub export.
+USCIS H-1B Data Hub/
