@@ -338,6 +338,9 @@ WORKDAY_BOARDS = [
     ("https://cox.wd1.myworkdayjobs.com/Cox_External_Career_Site_1",    "workday", "Cox Automotive"),       # ~722
     ("https://equifax.wd5.myworkdayjobs.com/External",                  "workday", "Equifax"),              # ~209
     ("https://georgetown.wd1.myworkdayjobs.com/Georgetown_Admin_Careers", "workday", "Georgetown University"), # ~111 (cap-exempt)
+    # --- Added 2026-06-18: Snap — careers.snap.com is a SPA but its apply links go to Workday
+    # (the public external site is 'snap'). Found while assessing Eightfold (Snap isn't Eightfold). ---
+    ("https://snapchat.wd1.myworkdayjobs.com/snap",                     "workday", "Snap"),                 # ~138
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -554,6 +557,13 @@ ADZUNA_BOARDS = [
     ("adzuna:PwC",                  "adzuna", "PwC"),
     ("adzuna:KPMG",                 "adzuna", "KPMG"),
     ("adzuna:Capgemini",            "adzuna", "Capgemini"),
+    # --- Added 2026-06-18: top FY2026-Q2 H1B sponsors whose own sites can't be scraped
+    # server-side — Eightfold/custom career portals behind bot-walls (403) or session-coupled
+    # Taleo. The aggregator is the sanctioned route for these (same as Tesla/Google). ---
+    ("adzuna:Verizon",              "adzuna", "Verizon"),            # Eightfold (Happydance), bot-walled
+    ("adzuna:Goldman Sachs",        "adzuna", "Goldman Sachs"),      # custom higher.gs.com
+    ("adzuna:Nutanix",              "adzuna", "Nutanix"),            # custom/Eightfold SPA
+    ("adzuna:Zoom",                 "adzuna", "Zoom Video Communications"),  # Greenhouse+Clinch behind AWS WAF
 ]
 
 # Generic Adzuna role searches across ALL employers (not company-scoped) — the widest single
