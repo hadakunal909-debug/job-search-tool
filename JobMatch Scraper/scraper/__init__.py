@@ -171,6 +171,16 @@ EXTRA_BOARDS = [
     # front-end whose Apply links go to Greenhouse (slug `lgelectronics`) — so we read the
     # board directly (LG North America, ~103 postings). ---
     ("https://job-boards.greenhouse.io/lgelectronics",          "greenhouse", "LG Electronics"),     # ~103
+    # --- Added 2026-06-18 (DOL LCA FY2026-Q2 top H1B sponsors via find_everify_boards;
+    # each slug verified by sampling real job titles/locations). Counts at add time. ---
+    ("https://job-boards.greenhouse.io/zscaler",                "greenhouse", "Zscaler"),            # ~335
+    ("https://job-boards.greenhouse.io/coreweave",              "greenhouse", "CoreWeave"),          # ~272
+    ("https://job-boards.greenhouse.io/reddit",                 "greenhouse", "Reddit"),             # ~147
+    ("https://job-boards.greenhouse.io/rubrik",                 "greenhouse", "Rubrik"),             # ~113
+    ("https://job-boards.greenhouse.io/duolingo",               "greenhouse", "Duolingo"),           # ~60
+    ("https://job-boards.greenhouse.io/applovin",               "greenhouse", "AppLovin"),           # ~28
+    ("https://jobs.lever.co/zoox",                              "lever", "Zoox"),                    # ~203
+    ("https://jobs.smartrecruiters.com/AristaNetworks",         "smartrecruiters", "Arista Networks"), # ~247
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -284,6 +294,13 @@ WORKDAY_BOARDS = [
     # (their careers SPAs hid the link; tenants found via web search, confirmed via probe_board). ---
     ("https://marvell.wd1.myworkdayjobs.com/MarvellCareers",            "workday", "Marvell"),              # ~719
     ("https://generalmotors.wd5.myworkdayjobs.com/Careers_GM",          "workday", "General Motors"),       # ~880
+    # --- Added 2026-06-18 (DOL LCA FY2026-Q2 sponsors via find_everify_boards careers-chain;
+    # tenants resolved from each company's own careers page + validated via probe_board). ---
+    ("https://nordstrom.wd501.myworkdayjobs.com/nordstrom_careers",     "workday", "Nordstrom"),            # ~1,102
+    ("https://ingrammicro.wd5.myworkdayjobs.com/IngramMicro",           "workday", "Ingram Micro"),         # ~552
+    ("https://redhat.wd5.myworkdayjobs.com/jobs",                       "workday", "Red Hat"),              # ~291
+    ("https://biibhr.wd3.myworkdayjobs.com/external",                   "workday", "Biogen"),               # ~231
+    ("https://wd5.myworkdaysite.com/recruiting/chewy/External",         "workday", "Chewy"),                # ~224
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -401,6 +418,14 @@ ORACLE_BOARDS = [
     # top-volume H1B sponsor. (The custom domain does NOT proxy /hcmRestApi, so we point at the origin.) ---
     ("https://egug.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
      "oracle", "American Express"),
+    # --- Added 2026-06-18 (DOL LCA FY2026-Q2 sponsors via find_everify_boards careers-chain;
+    # validated via probe_board). Big hospitality/retail boards — US filter trims the global set. ---
+    ("https://ejwl.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX",
+     "oracle", "Marriott"),                                   # ~11,713 (global; US-filtered)
+    ("https://efet.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Hilton"),                                     # ~2,856
+    ("https://fa-exhh-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/StaplesInc",
+     "oracle", "Staples"),                                    # ~943
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -421,6 +446,9 @@ JIBE_BOARDS = [
     ("https://careers.amd.com",          "jibe", "AMD"),            # ~1041
     ("https://careers.pepsico.com",      "jibe", "PepsiCo"),        # ~2943
     ("https://careers.generalmills.com", "jibe", "General Mills"),  # ~334
+    # --- Added 2026-06-18 (DOL LCA FY2026-Q2 sponsors via find_everify_boards careers-chain) ---
+    ("https://careers.keysight.com",     "jibe", "Keysight Technologies"),  # ~548
+    ("https://fedexfreight.jibeapply.com", "jibe", "FedEx Freight"),        # ~697
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
