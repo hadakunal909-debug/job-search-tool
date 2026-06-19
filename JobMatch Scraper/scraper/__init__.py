@@ -301,6 +301,17 @@ WORKDAY_BOARDS = [
     ("https://redhat.wd5.myworkdayjobs.com/jobs",                       "workday", "Red Hat"),              # ~291
     ("https://biibhr.wd3.myworkdayjobs.com/external",                   "workday", "Biogen"),               # ~231
     ("https://wd5.myworkdaysite.com/recruiting/chewy/External",         "workday", "Chewy"),                # ~224
+    # --- Added 2026-06-18 (LCA FY2026-Q2 deeper probe: tenants found via each company's
+    # www careers page + detect chain, validated via probe_board + sampled job content).
+    # MSK + Mass General Brigham are cap-exempt (no H1B lottery). ---
+    ("https://lilly.wd115.myworkdayjobs.com/LLY",                       "workday", "Eli Lilly"),            # ~776
+    ("https://motorolasolutions.wd5.myworkdayjobs.com/Careers",         "workday", "Motorola Solutions"),   # ~924
+    ("https://fiserv.wd5.myworkdayjobs.com/EXT",                        "workday", "Fiserv"),               # ~438
+    ("https://ffive.wd5.myworkdayjobs.com/f5jobs",                      "workday", "F5"),                   # ~297
+    ("https://usaa.wd1.myworkdayjobs.com/USAAJOBSWD",                   "workday", "USAA"),                 # ~183
+    ("https://modernatx.wd1.myworkdayjobs.com/M_tx",                    "workday", "Moderna"),              # ~157
+    ("https://massgeneralbrigham.wd1.myworkdayjobs.com/MGBExternal",    "workday", "Mass General Brigham"), # ~2000 (cap-exempt)
+    ("https://msk.wd108.myworkdayjobs.com/MSKCC_Careers_Primary",       "workday", "Memorial Sloan Kettering"), # ~98 (cap-exempt)
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -426,6 +437,14 @@ ORACLE_BOARDS = [
      "oracle", "Hilton"),                                     # ~2,856
     ("https://fa-exhh-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/StaplesInc",
      "oracle", "Staples"),                                    # ~943
+    # --- Added 2026-06-18 (LCA FY2026-Q2 deeper probe; identity verified by sampling JDs).
+    # Mayo + Northwell are cap-exempt health systems (no H1B lottery). ---
+    ("https://efds.fa.em5.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Ford Motor"),                                 # ~848
+    ("https://fa-euwp-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Mayo Clinic"),                                # ~1,317 (cap-exempt)
+    ("https://eppr.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2",
+     "oracle", "Northwell Health"),                           # ~1,505 (cap-exempt)
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -449,6 +468,7 @@ JIBE_BOARDS = [
     # --- Added 2026-06-18 (DOL LCA FY2026-Q2 sponsors via find_everify_boards careers-chain) ---
     ("https://careers.keysight.com",     "jibe", "Keysight Technologies"),  # ~548
     ("https://fedexfreight.jibeapply.com", "jibe", "FedEx Freight"),        # ~697
+    ("https://careers.rivian.com",       "jibe", "Rivian"),                 # ~562 (deeper probe)
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
