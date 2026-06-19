@@ -3,67 +3,75 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: Inter, system-ui, Arial, sans-serif; width: 300px; margin: 0; padding: 14px; color: #111; }
-    h3 { margin: 0 0 10px; font-size: 15px; }
+    body { font-family: Inter, system-ui, Arial, sans-serif; width: 308px; margin: 0; padding: 14px; color: #111; }
+    h3 { margin: 0 0 2px; font-size: 15px; }
+    .tag { font-size: 11px; color: #888; margin: 0 0 10px; }
     input { width: 100%; box-sizing: border-box; padding: 7px 9px; margin: 3px 0; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 13px; }
     button { width: 100%; padding: 9px; margin: 5px 0; border: 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .primary { background: #0e8a5f; color: #fff; }
     .ghost { background: #eef2f7; color: #222; }
     .msg { font-size: 12px; margin: 6px 0 0; min-height: 15px; color: #0b7a52; }
     .lbl { font-size: 11px; color: #666; margin-top: 8px; }
-    details { margin-top: 12px; }
-    summary { font-size: 12px; cursor: pointer; color: #888; }
+    .panel { margin-top: 4px; padding: 9px; background: #f6f8fb; border: 1px solid #e7ecf3; border-radius: 9px; }
+    details { margin-top: 10px; }
+    summary { font-size: 12px; cursor: pointer; color: #5b6675; padding: 3px 0; }
     a { color: #0e8a5f; }
   </style>
 </head>
 <body>
   <h3>🎯 JobMatch Helper</h3>
+  <div class="tag">Tailor &amp; apply with your résumé brain</div>
 
   <div id="main" style="display:none">
-    <div class="lbl">Job title</div><input id="title">
-    <div class="lbl">Company</div><input id="company">
-    <div class="lbl">Résumé used</div><input id="resume" list="rnames" placeholder="e.g. Kunal_PM_Resume.pdf">
-    <datalist id="rnames"></datalist>
+
+    <!-- PRIMARY: apply on the current page -->
     <div id="tailorwrap" style="display:none">
       <button class="primary" id="tailorfill">✨ Tailor résumé &amp; fill this application</button>
       <div class="msg" id="tailormsg"></div>
     </div>
-    <button class="ghost" id="save">📌 Just save to tracker</button>
-    <div class="msg" id="msg"></div>
-    <div id="bulkwrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #e5e9f0">
-      <div class="lbl" id="bulklbl" style="margin-top:0"></div>
-      <button class="ghost" id="bulk">Import all jobs on this page → feed</button>
-      <div class="msg" id="bulkmsg"></div>
+
+    <!-- PRIMARY: batch auto-apply -->
+    <button class="primary" id="batchtoggle">🚀 Auto-apply to my matches…</button>
+    <div id="batchwrap" class="panel" style="display:none">
+      <button class="ghost" id="qfetch" style="margin-top:0">↻ Refresh my matched jobs</button>
+      <div class="lbl">Auto-loaded from your top matches (edit/paste URLs to override)</div>
+      <textarea id="qurls" rows="4" style="width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid #cbd5e1; border-radius:7px; font-size:11px; font-family:ui-monospace,Consolas,monospace"></textarea>
+      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qdry" checked style="width:auto; margin:0"> Dry run (fill &amp; check, don't submit)</label>
+      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qauto" style="width:auto; margin:0"> Auto-submit the clean ones</label>
+      <div class="lbl">Delay between jobs (sec) <input id="qdelay" type="number" value="8" min="3" max="20" style="width:56px; margin-left:4px"></div>
+      <div style="display:flex; gap:6px">
+        <button class="primary" id="qstart" style="flex:1">Start</button>
+        <button class="ghost" id="qstop" style="flex:1">Stop</button>
+      </div>
+      <div class="msg" id="qmsg"></div>
+      <div id="qresults" style="font-size:11px; max-height:170px; overflow:auto; margin-top:6px"></div>
     </div>
-    <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e5e9f0">
-      <button class="ghost" id="boardcheck">🔍 Can this site be auto-scraped daily?</button>
+
+    <!-- SECONDARY: save this one job -->
+    <details>
+      <summary>📌 Save this job to my tracker</summary>
+      <div class="lbl">Job title</div><input id="title">
+      <div class="lbl">Company</div><input id="company">
+      <div class="lbl">Résumé used</div><input id="resume" list="rnames" placeholder="e.g. Kunal_PM_Resume.pdf">
+      <datalist id="rnames"></datalist>
+      <button class="ghost" id="save">Save to tracker</button>
+      <div class="msg" id="msg"></div>
+    </details>
+
+    <!-- ADVANCED: legacy import / scrape tools -->
+    <details>
+      <summary>More tools</summary>
+      <div id="bulkwrap" style="display:none; margin-top:8px">
+        <div class="lbl" id="bulklbl" style="margin-top:0"></div>
+        <button class="ghost" id="bulk">Import all jobs on this page → feed</button>
+        <div class="msg" id="bulkmsg"></div>
+      </div>
+      <button class="ghost" id="boardcheck" style="margin-top:8px">🔍 Can this site be auto-scraped daily?</button>
       <div class="msg" id="boardmsg"></div>
-    </div>
-    <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e5e9f0">
-      <div class="lbl" id="autostat" style="margin-top:0">🤖 Tesla auto-import: not run yet</div>
+      <div class="lbl" id="autostat" style="margin-top:8px">🤖 Tesla auto-import: not run yet</div>
       <button class="ghost" id="teslanow">Run Tesla import now</button>
       <div class="msg" id="teslamsg"></div>
-    </div>
-    <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e5e9f0">
-      <button class="ghost" id="batchtoggle">🚀 Batch auto-apply…</button>
-      <div id="batchwrap" style="display:none; margin-top:8px">
-        <button class="ghost" id="qfetch">↻ Refresh my matched jobs</button>
-        <div class="lbl">Auto-loaded from your top matches (edit/paste URLs to override)</div>
-        <textarea id="qurls" rows="4" style="width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid #cbd5e1; border-radius:7px; font-size:11px; font-family:ui-monospace,Consolas,monospace"></textarea>
-        <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qdry" checked style="width:auto; margin:0"> Dry run (fill &amp; check, don't submit)</label>
-        <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qauto" style="width:auto; margin:0"> Auto-submit the clean ones</label>
-        <div class="lbl">Delay between jobs (sec) <input id="qdelay" type="number" value="8" min="3" max="20" style="width:56px; margin-left:4px"></div>
-        <div style="display:flex; gap:6px">
-          <button class="primary" id="qstart" style="flex:1">Start</button>
-          <button class="ghost" id="qstop" style="flex:1">Stop</button>
-        </div>
-        <div class="msg" id="qmsg"></div>
-        <div id="qresults" style="font-size:11px; max-height:170px; overflow:auto; margin-top:6px"></div>
-      </div>
-    </div>
-    <details>
-      <summary>settings</summary>
-      <button class="ghost" id="reset" style="margin-top:6px">Change token / app URL</button>
+      <button class="ghost" id="reset" style="margin-top:8px">Change token / app URL</button>
     </details>
   </div>
 
