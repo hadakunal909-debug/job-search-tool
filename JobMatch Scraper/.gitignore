@@ -30,6 +30,15 @@ everify_probe_report.csv
 stemjobs_cpanel.zip
 stemjobs_update.zip
 
+# résumé tailoring → PDF (LaTeX via Tectonic)
+bin/tectonic
+bin/tectonic.exe
+.tectonic-cache/
+tailored_cache_local.json
+_m0_*.tex
+_m0_*.pdf
+_m0_*.log
+
 # os / misc
 .DS_Store
 job-hunt-app.zip

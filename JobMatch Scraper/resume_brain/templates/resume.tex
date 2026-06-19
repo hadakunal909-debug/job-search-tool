@@ -1,0 +1,43 @@
+% resume.tex -- ATS-safe single-column resume template, filled by resume_brain/latex.py.
+% Token substitution only (NOT Jinja): NAME, CONTACT, BODY each wrapped in double angle brackets.
+% Do NOT write the literal token syntax anywhere else in this file. ASCII-only by design.
+% Style mirrors the user's Calibri resume: 16pt centered name, 11pt contact line, 10pt bold
+% ALL-CAPS section headers each underlined by a full-width rule, hanging bullets, tight spacing.
+\documentclass[10pt]{article}
+\usepackage[letterpaper,top=0.25in,bottom=0.25in,left=0.45in,right=0.45in]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{parskip}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[sfdefault]{carlito}        % Calibri-metric clone for pdfLaTeX
+  \usepackage[T1]{fontenc}
+\else
+  \usepackage{fontspec}                  % Tectonic / XeLaTeX
+  % Exact Calibri if installed (local Windows), else Carlito clone, else the default font.
+  \IfFontExistsTF{Calibri}{\setmainfont{Calibri}}{%
+    \IfFontExistsTF{Carlito}{\setmainfont{Carlito}}{}}
+\fi
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\linespread{1.0}
+\pagestyle{empty}
+\setcounter{secnumdepth}{0}
+
+\titleformat{\section}{\normalsize\bfseries}{}{0em}{}[{\vspace{1pt}\titlerule[1pt]}]
+\titlespacing*{\section}{0pt}{6pt}{3pt}
+\setlist[itemize]{leftmargin=1.3em, itemsep=1pt, topsep=1.5pt, parsep=0pt, label=\textbullet}
+
+\begin{document}
+
+\begin{center}
+  {\fontsize{16}{18}\selectfont\bfseries <<NAME>>}\\[2pt]
+  {\fontsize{11}{13}\selectfont <<CONTACT>>}
+\end{center}
+\vspace{1pt}
+
+<<BODY>>
+
+\end{document}

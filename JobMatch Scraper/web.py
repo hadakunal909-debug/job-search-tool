@@ -54,6 +54,7 @@ class _LazyMod:
 rb = _LazyMod("resume_brain.brain")
 rb_ai = _LazyMod("resume_brain.ai")
 rb_export = _LazyMod("resume_brain.export")
+rb_latex = _LazyMod("resume_brain.latex")
 
 app = Flask(__name__)
 
@@ -1409,9 +1410,23 @@ def profile():
     user = session["user"]
     if request.method == "POST":
         f = request.form
-        ok, msg = db.save_profile(user, {k: f.get(k, "").strip() for k in
-            ("name", "email", "phone", "location", "linkedin",
-             "work_authorized", "needs_sponsorship", "default_resume", "notes")})
+        text_keys = (
+            "name", "email", "phone", "location", "linkedin",
+            "work_authorized", "needs_sponsorship", "default_resume", "notes",
+            "first_name", "last_name", "pronouns",
+            "address_line1", "address_line2", "city", "state", "postal_code", "country",
+            "github", "portfolio", "website",
+            "work_auth_status", "requires_sponsorship_now", "requires_sponsorship_future",
+            "gender", "race_ethnicity", "hispanic_latino", "veteran_status", "disability_status",
+            "desired_salary", "salary_currency", "available_start_date",
+            "willing_to_relocate", "how_did_you_hear",
+        )
+        payload = {k: f.get(k, "").strip() for k in text_keys}
+        for jk in ("extra", "application_defaults"):    # optional advanced JSON blobs
+            raw = (f.get(jk) or "").strip()
+            if raw:
+                payload[jk] = raw                       # save_profile validates/parses
+        ok, msg = db.save_profile(user, payload)
         flash("Saved." if ok else ("Couldn't save — " + msg[:120]))
         return redirect(url_for("profile"))
     try:
@@ -1475,6 +1490,178 @@ def ext_profile():
     keys = ("name", "email", "phone", "location", "linkedin", "work_authorized", "needs_sponsorship")
     return _cors(jsonify({"ok": True, "profile": {k: (p.get(k) or "") for k in keys},
                           "default_resume": default_resume, "resume_names": names}))
+
+
+def _ext_profile_fields(user, p=None):
+    """Normalized profile map the form-filler consumes (stable nested shape, NOT raw columns).
+    Pass `p` to reuse an already-loaded profile dict and avoid a second DB read."""
+    if p is None:
+        try:
+            p = db.get_profile(user) or {}
+        except Exception:
+            p = {}
+
+    def g(k):
+        v = p.get(k)
+        return ("" if v is None else str(v)).strip()
+
+    def truthy(k):
+        return g(k).lower() in ("yes", "true", "1", "y")
+
+    first, last = g("first_name"), g("last_name")
+    full = (first + " " + last).strip() or g("name")
+    fields = {
+        "first_name": first, "last_name": last, "full_name": full,
+        "email": g("email"), "phone": g("phone"), "pronouns": g("pronouns"),
+        "address": {"line1": g("address_line1"), "line2": g("address_line2"),
+                    "city": g("city"), "state": g("state"), "postal": g("postal_code"),
+                    "country": g("country"), "location": g("location")},
+        "links": {"linkedin": g("linkedin"), "github": g("github"),
+                  "portfolio": g("portfolio"), "website": g("website")},
+        "work_auth": {"authorized": truthy("work_authorized"),
+                      "requires_sponsorship": truthy("requires_sponsorship_now") or truthy("needs_sponsorship"),
+                      "requires_sponsorship_future": truthy("requires_sponsorship_future"),
+                      "status_label": g("work_auth_status")},
+        "eeo": {"gender": g("gender"), "race": g("race_ethnicity"),
+                "hispanic_latino": g("hispanic_latino"), "veteran": g("veteran_status"),
+                "disability": g("disability_status")},
+        "comp": {"desired_salary": g("desired_salary"), "currency": g("salary_currency")},
+        "start_date": g("available_start_date"), "relocate": truthy("willing_to_relocate"),
+        "how_did_you_hear": g("how_did_you_hear"),
+    }
+    defaults = p.get("application_defaults")
+    return {"fields": fields, "defaults": defaults if isinstance(defaults, dict) else {},
+            "default_resume": g("default_resume")}
+
+
+@app.route("/api/ext/profile_fields", methods=["GET", "OPTIONS"])
+def ext_profile_fields():
+    """Extension -> normalized profile field map for the application form-filler."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _ext_user(request.args.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    return _cors(jsonify({"ok": True, **_ext_profile_fields(user)}))
+
+
+@app.route("/api/ext/tailor", methods=["POST", "OPTIONS"])
+def ext_tailor():
+    """Extension -> tailor the résumé to a JD (Resume Brain + optional Gemini), compile it to a
+    PDF via LaTeX/Tectonic, and return the file (base64) + the profile field map for autofill.
+    Cached per (user, job, format, résumé-corpus) so retriggers are instant. Token-authenticated."""
+    from flask import jsonify
+    import base64, hashlib, re
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+
+    job_url = (data.get("job_url") or "").strip()
+    company = (data.get("company") or "").strip()
+    company_url = (data.get("company_url") or "").strip()
+    fmt = (data.get("format") or "pdf").strip().lower()
+    if fmt not in ("pdf", "docx", "text"):
+        fmt = "pdf"
+    force = bool(data.get("force"))
+    jd = (data.get("jd_text") or "").strip() or (db.get_job_jd(job_url) or "")
+
+    raw = {}
+    try:
+        raw = db.get_profile(user) or {}
+    except Exception:
+        raw = {}
+    prof = _ext_profile_fields(user, raw)
+
+    # Cache key: busts when the user's résumé corpus changes; `force` bypasses it.
+    try:
+        corpus = db.profile_text(user) or ""
+    except Exception:
+        corpus = ""
+    jd_part = job_url or hashlib.sha256(jd.encode("utf-8", "ignore")).hexdigest()[:16]
+    corpus_h = hashlib.sha256(corpus.encode("utf-8", "ignore")).hexdigest()[:16]
+    cache_key = hashlib.sha256("|".join([user, jd_part, fmt, corpus_h]).encode()).hexdigest()
+    if not force:
+        cached = db.get_tailored(cache_key)
+        if cached:
+            cached = dict(cached); cached["cached"] = True
+            return _cors(jsonify({"ok": True, **cached}))
+
+    # Deterministic plan (cheap); Gemini rewrite (expensive) only if a key exists.
+    try:
+        plan = rb.run_tailor(user, jd_text=jd, job_url=job_url, company_name=company,
+                             company_url=company_url, record=False)
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": "tailor failed: %s" % str(e)[:160]})), 500
+    result = (plan or {}).get("result") or {}
+    best = result.get("best_resume")
+    base_resume_text = ((best or {}).get("resume") or {}).get("content", "") if best else ""
+
+    out_resume, out_cover, notes, ai_used = "", "", [], False
+    key = _ai_key_for(user)
+    if key:
+        try:
+            ctx = rb.build_rewrite_context(user, plan, None)
+            if ctx:
+                rw = rb_ai.rewrite(ctx, key)
+                out_resume = (rw.get("tailored_resume") or "").strip()
+                out_cover = (rw.get("cover_letter") or "").strip()
+                notes = rw.get("notes") or []
+                ai_used = bool(out_resume)
+        except Exception as e:
+            notes = ["AI rewrite failed, using base résumé: %s" % str(e)[:120]]
+    if not out_resume:
+        out_resume = base_resume_text
+    if not out_resume.strip():
+        return _cors(jsonify({"ok": False,
+                              "error": "No résumé found — add one in Resume Brain first."})), 400
+
+    # Build the file: pdf (LaTeX/Tectonic) -> docx -> text, degrading gracefully.
+    full_name = prof["fields"]["full_name"] or user
+    last = (raw.get("last_name") or "").strip() or (full_name.split()[-1] if full_name else "Resume")
+    safe = lambda s: re.sub(r"[^A-Za-z0-9]+", "", s or "") or "Application"
+    ext = {"pdf": "pdf", "docx": "docx", "text": "txt"}[fmt]
+    compiled = False
+    try:
+        if fmt == "pdf":
+            body = rb_latex.build_pdf(out_resume, raw)
+            mime = rb_latex.PDF_MIME
+            compiled = True
+        elif fmt == "docx":
+            body = rb_export.build_docx(out_resume, full_name)
+            mime = rb_export.DOCX_MIME
+        else:
+            body = out_resume.encode("utf-8")
+            mime = "text/plain"
+    except Exception as e:
+        try:
+            body = rb_export.build_docx(out_resume, full_name)
+            mime = rb_export.DOCX_MIME
+            ext = "docx"
+            notes = list(notes) + ["PDF compile unavailable, used .docx: %s" % str(e)[:100]]
+        except Exception as e2:
+            body = out_resume.encode("utf-8")
+            mime = "text/plain"
+            ext = "txt"
+            notes = list(notes) + ["PDF/.docx unavailable, used .txt: %s" % str(e2)[:80]]
+
+    file_name = "%s_%s_Resume.%s" % (safe(last), safe(company)[:24], ext)
+    payload = {
+        "tailored_resume": out_resume, "cover_letter": out_cover, "notes": notes,
+        "file": {"name": file_name, "mime": mime,
+                 "b64": base64.b64encode(body).decode("ascii")},
+        "fields": prof["fields"], "defaults": prof["defaults"],
+        "default_resume": prof["default_resume"],
+        "ai_used": ai_used, "compiled": compiled, "cached": False,
+    }
+    try:
+        db.put_tailored(cache_key, payload, username=user)
+    except Exception:
+        pass
+    return _cors(jsonify({"ok": True, **payload}))
 
 
 @app.route("/api/ext/bulk_jobs", methods=["POST", "OPTIONS"])

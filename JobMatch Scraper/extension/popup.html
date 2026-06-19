@@ -24,7 +24,11 @@
     <div class="lbl">Company</div><input id="company">
     <div class="lbl">Résumé used</div><input id="resume" list="rnames" placeholder="e.g. Kunal_PM_Resume.pdf">
     <datalist id="rnames"></datalist>
-    <button class="primary" id="save">📌 Save to JobMatch</button>
+    <div id="tailorwrap" style="display:none">
+      <button class="primary" id="tailorfill">✨ Tailor résumé &amp; fill this application</button>
+      <div class="msg" id="tailormsg"></div>
+    </div>
+    <button class="ghost" id="save">📌 Just save to tracker</button>
     <div class="msg" id="msg"></div>
     <div id="bulkwrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #e5e9f0">
       <div class="lbl" id="bulklbl" style="margin-top:0"></div>
@@ -56,6 +60,7 @@
   </div>
 
   <script src="tesla_shared.js"></script>
+  <script src="filler.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

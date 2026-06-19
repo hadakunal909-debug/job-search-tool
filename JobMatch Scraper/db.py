@@ -654,7 +654,39 @@ APPLICATIONS_SQL = (
     "  name text, email text, phone text, location text, linkedin text,\n"
     "  work_authorized text, needs_sponsorship text, default_resume text, notes text,\n"
     "  updated_at timestamptz default now());\n"
-    "alter table public.profiles add column if not exists default_resume text;")
+    "alter table public.profiles add column if not exists default_resume text;\n"
+    # --- application-autofill profile columns ---
+    "alter table public.profiles add column if not exists first_name text;\n"
+    "alter table public.profiles add column if not exists last_name text;\n"
+    "alter table public.profiles add column if not exists pronouns text;\n"
+    "alter table public.profiles add column if not exists address_line1 text;\n"
+    "alter table public.profiles add column if not exists address_line2 text;\n"
+    "alter table public.profiles add column if not exists city text;\n"
+    "alter table public.profiles add column if not exists state text;\n"
+    "alter table public.profiles add column if not exists postal_code text;\n"
+    "alter table public.profiles add column if not exists country text;\n"
+    "alter table public.profiles add column if not exists github text;\n"
+    "alter table public.profiles add column if not exists portfolio text;\n"
+    "alter table public.profiles add column if not exists website text;\n"
+    "alter table public.profiles add column if not exists work_auth_status text;\n"
+    "alter table public.profiles add column if not exists requires_sponsorship_now text;\n"
+    "alter table public.profiles add column if not exists requires_sponsorship_future text;\n"
+    "alter table public.profiles add column if not exists gender text;\n"
+    "alter table public.profiles add column if not exists race_ethnicity text;\n"
+    "alter table public.profiles add column if not exists hispanic_latino text;\n"
+    "alter table public.profiles add column if not exists veteran_status text;\n"
+    "alter table public.profiles add column if not exists disability_status text;\n"
+    "alter table public.profiles add column if not exists desired_salary text;\n"
+    "alter table public.profiles add column if not exists salary_currency text;\n"
+    "alter table public.profiles add column if not exists available_start_date text;\n"
+    "alter table public.profiles add column if not exists willing_to_relocate text;\n"
+    "alter table public.profiles add column if not exists how_did_you_hear text;\n"
+    "alter table public.profiles add column if not exists extra jsonb default '{}'::jsonb;\n"
+    "alter table public.profiles add column if not exists application_defaults jsonb default '{}'::jsonb;\n\n"
+    # --- tailored-résumé cache ---
+    "create table if not exists public.tailored_cache (\n"
+    "  id text primary key, username text, data jsonb, created_at timestamptz default now());\n"
+    "create index if not exists tailored_cache_user_idx on public.tailored_cache (username);")
 
 
 def list_applications(username):
@@ -943,8 +975,45 @@ def profile_text(username):
 # ---- user profile (name/email/phone/work-auth) — for the Chrome extension autofill ----
 PROFILES_TABLE = "profiles"
 PROFILES_FILE = "profiles_local.json"
-PROFILE_FIELDS = ("username", "name", "email", "phone", "location", "linkedin",
-                  "work_authorized", "needs_sponsorship", "default_resume", "notes", "updated_at")
+# NOTE: extra columns added below are also added to public.profiles via APPLICATIONS_SQL.
+# get_profile selects *, so adding a column here + the ALTER is all that's needed.
+PROFILE_FIELDS = (
+    "username", "name", "email", "phone", "location", "linkedin",
+    "work_authorized", "needs_sponsorship", "default_resume", "notes",
+    # identity
+    "first_name", "last_name", "pronouns",
+    # address
+    "address_line1", "address_line2", "city", "state", "postal_code", "country",
+    # links
+    "github", "portfolio", "website",
+    # work authorization
+    "work_auth_status", "requires_sponsorship_now", "requires_sponsorship_future",
+    # EEO / voluntary self-identification
+    "gender", "race_ethnicity", "hispanic_latino", "veteran_status", "disability_status",
+    # compensation & logistics
+    "desired_salary", "salary_currency", "available_start_date",
+    "willing_to_relocate", "how_did_you_hear",
+    # free-form JSON: misc answers + recurring custom-question answers (keyed by question hash)
+    "extra", "application_defaults",
+    "updated_at",
+)
+_PROFILE_JSON_FIELDS = ("extra", "application_defaults")
+
+
+def _decode_profile(rec):
+    """Coerce the jsonb columns to dicts (Supabase may hand them back as strings)."""
+    if not isinstance(rec, dict):
+        return {}
+    for k in _PROFILE_JSON_FIELDS:
+        v = rec.get(k)
+        if isinstance(v, str):
+            try:
+                rec[k] = json.loads(v or "{}")
+            except Exception:
+                rec[k] = {}
+        elif v is None:
+            rec[k] = {}
+    return rec
 
 
 def get_profile(username):
@@ -955,16 +1024,22 @@ def get_profile(username):
                              params={"username": "eq.%s" % username, "select": "*", "limit": 1}, timeout=30)
             r.raise_for_status()
             rows = r.json()
-            return rows[0] if rows else {}
+            return _decode_profile(rows[0]) if rows else {}
         except Exception:
             return {}
     data = _load_json(PROFILES_FILE)
-    return (data.get(username) or {}) if isinstance(data, dict) else {}
+    return _decode_profile(data.get(username) or {}) if isinstance(data, dict) else {}
 
 
 def save_profile(username, fields):
     """Upsert the user's profile (PK=username). Returns (ok, message)."""
     rec = {k: fields.get(k) for k in PROFILE_FIELDS if k in fields}
+    for k in _PROFILE_JSON_FIELDS:                       # accept dicts or JSON strings
+        if isinstance(rec.get(k), str):
+            try:
+                rec[k] = json.loads(rec[k] or "{}")
+            except Exception:
+                rec[k] = {}
     rec["username"] = username
     rec["updated_at"] = _now()
     if using_supabase():
@@ -981,6 +1056,55 @@ def save_profile(username, fields):
     data[username] = {**(data.get(username) or {}), **rec}
     _dump_json(PROFILES_FILE, data)
     return True, ""
+
+
+# ---- tailored-résumé cache (avoid re-paying Gemini + LaTeX compile on retriggers) ----
+# Keyed by a caller-built hash of (résumé, job, format). Same local-or-Supabase + graceful
+# degrade pattern as brain_companies; never raises (a cache miss must never break tailoring).
+TAILORED_CACHE_TABLE = "tailored_cache"
+TAILORED_CACHE_FILE = "tailored_cache_local.json"        # {cache_key: payload}
+
+
+def get_tailored(cache_key):
+    """Return a cached tailor payload for cache_key, or None."""
+    if not cache_key:
+        return None
+    try:
+        if using_supabase():
+            r = _http.get(_rest(TAILORED_CACHE_TABLE), headers=_headers(),
+                          params={"id": "eq.%s" % cache_key, "select": "data", "limit": 1}, timeout=20)
+            r.raise_for_status()
+            rows = r.json()
+            if rows:
+                d = rows[0].get("data")
+                return json.loads(d) if isinstance(d, str) else d
+            # fall through to local backup
+    except Exception:
+        pass
+    data = _load_json(TAILORED_CACHE_FILE)
+    return data.get(cache_key) if isinstance(data, dict) else None
+
+
+def put_tailored(cache_key, payload, username=""):
+    """Upsert a tailor payload (keyed on cache_key). Local fallback on DB failure."""
+    if not cache_key:
+        return
+    if using_supabase():
+        try:
+            body = {"id": cache_key, "username": username, "data": payload, "created_at": _now()}
+            resp = _http.post(
+                _rest(TAILORED_CACHE_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "id"}, data=json.dumps(body), timeout=30)
+            if resp.status_code < 400:
+                return
+        except Exception:
+            pass
+    data = _load_json(TAILORED_CACHE_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    data[cache_key] = payload
+    _dump_json(TAILORED_CACHE_FILE, data)
 
 
 # ---- live scrape progress (for the in-page "Update jobs" progress bar) ----
