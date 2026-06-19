@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "JobMatch Helper",
-  "version": "1.6.0",
-  "description": "Save any job to your JobMatch tracker, autofill applications, and auto-import Tesla's bot-walled job feed daily.",
+  "version": "1.7.0",
+  "description": "Save jobs to your JobMatch tracker, tailor+autofill applications, batch auto-apply, and auto-import Tesla's bot-walled feed.",
   "permissions": [
     "activeTab",
     "scripting",

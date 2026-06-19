@@ -538,4 +538,77 @@ $("bulk").onclick = async () => {
   }
 };
 
+// ---------------- Batch auto-apply runner ----------------
+let qJobs = {};   // url -> {title, company} from the last fetch (so the tracker logs nice names)
+
+$("batchtoggle").onclick = () => {
+  const w = $("batchwrap");
+  w.style.display = w.style.display === "none" ? "block" : "none";
+  if (w.style.display === "block") pollQueue();
+};
+
+$("qfetch").onclick = async () => {
+  $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Fetching your liked Greenhouse jobs…";
+  try {
+    const j = await (await fetch(cfg.apibase + "/api/ext/apply_queue?token=" + encodeURIComponent(cfg.token))).json();
+    if (!j.ok) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Error: " + (j.error || "failed"); return; }
+    qJobs = {};
+    (j.jobs || []).forEach((job) => { qJobs[job.url] = { title: job.title, company: job.company }; });
+    $("qurls").value = (j.jobs || []).map((job) => job.url).join("\n");
+    $("qmsg").textContent = "Found " + (j.count || 0) + " liked Greenhouse job(s). Review, then Start.";
+  } catch (e) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Network error."; }
+};
+
+function parseQueueItems() {
+  return $("qurls").value.split("\n").map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s))
+    .map((u) => ({ url: u, title: (qJobs[u] || {}).title || "", company: (qJobs[u] || {}).company || "" }));
+}
+
+$("qstart").onclick = async () => {
+  const items = parseQueueItems();
+  if (!items.length) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
+  const dryRun = $("qdry").checked, autosubmit = $("qauto").checked;
+  const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 8)) * 1000;
+  if (!dryRun && autosubmit &&
+      !confirm("This will SUBMIT real applications to " + items.length + " job(s) with no review. Continue?")) return;
+  // grant host access for those job origins so the background can fill them (user-gesture required)
+  const origins = Array.from(new Set(items.map((it) => {
+    try { return new URL(it.url).origin + "/*"; } catch (e) { return null; } }).filter(Boolean)));
+  const granted = await new Promise((res) => chrome.permissions.request({ origins }, res));
+  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site permission denied — can't run."; return; }
+  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs });
+  $("qmsg").style.color = "#0b7a52";
+  $("qmsg").textContent = "Started: " + items.length + " jobs (" + (dryRun ? "dry run" : (autosubmit ? "AUTO-SUBMIT" : "fill only")) + ").";
+  pollQueue();
+};
+
+$("qstop").onclick = () => {
+  chrome.runtime.sendMessage({ type: "jm_queue_stop" });
+  $("qmsg").textContent = "Stopping after the current job…";
+};
+
+let qPollTimer = null;
+function pollQueue() {
+  if (qPollTimer) clearInterval(qPollTimer);
+  const icon = { submitted: "✅", ready: "🟢", needs_you: "⏸️", skipped: "⏭️", error: "⚠️", running: "⏳", queued: "·", stopped: "⏹️" };
+  const tick = () => chrome.storage.local.get(["jm_queue"], (st) => {
+    const q = st && st.jm_queue;
+    if (!q) return;
+    const c = {};
+    (q.items || []).forEach((it) => { c[it.status] = (c[it.status] || 0) + 1; });
+    const done = (q.items || []).filter((it) => it.status !== "queued" && it.status !== "running").length;
+    $("qmsg").style.color = "#0b7a52";
+    $("qmsg").textContent = (q.running ? "Running " : "Done ") + done + "/" + q.total +
+      " — ✅" + (c.submitted || 0) + " 🟢" + (c.ready || 0) + " ⏸️" + (c.needs_you || 0) + " ⚠️" + (c.error || 0) +
+      (q.dryRun ? " (dry run)" : "");
+    $("qresults").innerHTML = (q.items || []).map((it) =>
+      "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'>" + (icon[it.status] || "·") + " <b>" +
+      (it.company || "").replace(/</g, "&lt;") + "</b> " + (it.title || "").replace(/</g, "&lt;") +
+      (it.reason ? "<br><span style='color:#888'>" + it.reason.replace(/</g, "&lt;") + "</span>" : "") + "</div>").join("");
+    if (!q.running && qPollTimer) { clearInterval(qPollTimer); qPollTimer = null; }
+  });
+  tick();
+  qPollTimer = setInterval(tick, 1500);
+}
+
 init();

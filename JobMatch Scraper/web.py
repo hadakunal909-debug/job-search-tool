@@ -1686,6 +1686,51 @@ def ext_tailor():
     return _cors(jsonify({"ok": True, **payload}))
 
 
+# Hosts the extension's form-filler can currently auto-fill (keep in sync with filler.js).
+_FILLABLE_HOSTS = ("greenhouse.io",)
+
+
+@app.route("/api/ext/apply_queue", methods=["GET", "OPTIONS"])
+def ext_apply_queue():
+    """Extension batch runner -> the user's auto-apply queue: liked jobs on a supported ATS
+    (Greenhouse) that aren't already applied. Lets the runner source jobs without pasting URLs."""
+    from flask import jsonify
+    from urllib.parse import urlparse
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _ext_user(request.args.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    try:
+        st = db.get_user_statuses(user) or {}
+    except Exception:
+        st = {}
+    liked = [u for u, s in st.items() if s == "liked"]
+    applied = {u for u, s in st.items() if s == "applied"}
+    info = {}
+    try:
+        for j in get_jobs():
+            if j.get("url"):
+                info[j["url"]] = j
+    except Exception:
+        pass
+
+    def supported(u):
+        try:
+            h = (urlparse(u).hostname or "").lower()
+        except Exception:
+            return False
+        return any(host in h for host in _FILLABLE_HOSTS)
+
+    jobs = []
+    for u in liked:
+        if u in applied or not supported(u):
+            continue
+        j = info.get(u, {})
+        jobs.append({"url": u, "title": j.get("title", ""), "company": j.get("company", "")})
+    return _cors(jsonify({"ok": True, "jobs": jobs[:100], "count": len(jobs)}))
+
+
 @app.route("/api/ext/bulk_jobs", methods=["POST", "OPTIONS"])
 def ext_bulk_jobs():
     """Extension -> bulk-add postings READ FROM A PAGE in the user's own browser into the

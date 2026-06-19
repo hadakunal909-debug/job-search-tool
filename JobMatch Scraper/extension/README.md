@@ -56,6 +56,22 @@ before you submit.
   background run is blocked by the bot-wall, just open tesla.com/careers once — the visit
   itself triggers the import.
 
+## Batch auto-apply (🚀, NEW)
+Open the popup → **🚀 Batch auto-apply** → **Fetch my liked Greenhouse jobs** (or paste job URLs,
+one per line) → pick options → **Start**. The runner then, for each job, opens it in a background
+tab, tailors your résumé, fills the form, and:
+- **Dry run** (default ON): fills + checks and reports "would submit" — **never submits**. Use this first.
+- **Auto-submit the clean ones**: when a form is fully filled (résumé attached, no required gaps) and
+  there's **no CAPTCHA/login wall**, it submits and logs it to your tracker. Anything with a wall or a
+  missing answer is **parked** ("⏸️ needs you") with the reason — it never forces those through.
+- Live results show in the popup (✅ submitted · 🟢 ready · ⏸️ needs you · ⚠️ error). It runs in the
+  background, but for long queues keep Chrome open; very long runs can pause (browser may idle-evict the
+  worker) — just press Start again to resume the rest.
+- On Start you'll be asked to **grant access to those job sites** (so the background can fill them), and —
+  if auto-submit is on — to **confirm** before any real submission.
+
+Currently sources/handles **Greenhouse** jobs only.
+
 ## Tailor & fill — requirements and limits
 - **Server setup (one time):** résumé PDFs are compiled with **Tectonic** (a single self-contained
   LaTeX binary). Install it into the repo's `bin/` once with `scripts/get_tectonic.ps1` (Windows)
