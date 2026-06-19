@@ -373,6 +373,12 @@ AVATURE_BOARDS = [
     # postings, overwhelmingly clinical (DVM / vet tech / veterinarian) which the title
     # filter drops; the keepers are its corporate project / operations / product roles. ---
     ("https://nva.avature.net/jobs/SearchJobs", "avature", "National Veterinary Associates"),
+    # --- Added 2026-06-18 (LCA FY2026-Q2 sponsors on Avature's 'article--result' template,
+    # unlocked by generalizing scrape_avature). Bloomberg shows location (US-filtered cleanly);
+    # Synopsys omits location on its listing (blank -> kept, so a few non-US roles slip the US
+    # filter — acceptable: the title filter still trims, and most Synopsys roles are engineer). ---
+    ("https://bloomberg.avature.net/careers/SearchJobs", "avature", "Bloomberg"),    # ~438
+    ("https://synopsys.avature.net/careers/SearchJobs", "avature", "Synopsys"),      # ~714
 ]
 
 # UKG Pro Recruiting (UltiPro) boards — recruiting[N].ultipro.com/{CO}/JobBoard/{guid}.
@@ -2066,12 +2072,17 @@ def _jobdiva_agency(token):
 
 
 # ---- Avature — <tenant>.avature.net/<portal>/SearchJobs ----
-# Server-rendered HTML portal (no public JSON API, no posting date in the markup, page
-# size fixed at 10). We walk the WHOLE board with an empty search via ?jobOffset=N and
-# let main()'s title/US filter trim it — the keyword search is a fuzzy relevance match
-# (a missing phrase silently falls back to a placeholder), so walking is what guarantees
-# coverage. found_date falls back to the scrape stamp. MAX_JOBS just caps a giant tenant.
-AVATURE_PAGE = 10
+# Server-rendered HTML portal (no public JSON API). We walk the WHOLE board with an empty
+# search via ?jobOffset=N and let main()'s title/US filter trim it — the keyword search is a
+# fuzzy relevance match (a missing phrase silently falls back to a placeholder), so walking
+# is what guarantees coverage. Two card TEMPLATES exist across tenants and we handle both:
+#   - 'listSingleColumnItem' (e.g. NVA): City:/State: spans, country in the JobDetail slug,
+#     no posting date (found_date falls back to the scrape stamp), ~10/page.
+#   - 'article--result' (e.g. Synopsys, Bloomberg): an optional .list-item-location and an
+#     optional .list-item-posted ('Posted DD-Mon-YYYY'); fields vary per tenant (Bloomberg
+#     has location/no date, Synopsys has date/no location), ~6-12/page.
+# Page size varies, so we advance the offset by the actual cards-per-page. MAX caps a giant tenant.
+AVATURE_PAGE = 10                                 # fallback only; we advance by len(cards)
 AVATURE_MAX_JOBS = 3000
 
 
@@ -2089,12 +2100,48 @@ def _avature_base(board_url):
     return "%s://%s/%s" % (p.scheme, p.netloc, "/".join(segs))
 
 
+def _avature_location(card, href):
+    """A card's location, handling both templates. The 'article--result' template (Bloomberg
+    etc.) prints a single .list-item-location; the 'listSingleColumnItem' template (NVA) uses
+    City:/State: spans + the country embedded in the JobDetail slug (…-United-States-… /
+    …-Canada-…). '' when the tenant omits location entirely (e.g. Synopsys)."""
+    el = card.select_one(".list-item-location")
+    if el:
+        return el.get_text(" ", strip=True).rstrip(".").strip()
+    city = state = ""
+    for sp in card.select(".listSingleColumnItemMiscDataItem"):
+        label, sep, val = sp.get_text(" ", strip=True).partition(":")
+        if not sep:                                         # facility name (no 'City:'/'State:' label)
+            continue
+        label, val = label.strip().lower(), val.strip().rstrip(".").strip()
+        if label.startswith("city"):
+            city = val
+        elif label.startswith("state"):
+            state = val
+    country = ("Canada" if "-Canada-" in href
+               else "United States" if "United-States" in href else "")
+    return ", ".join(x for x in (city, state, country) if x)
+
+
+def _avature_date(card):
+    """Posting date from the 'article--result' template's .list-item-posted ('Posted
+    DD-Mon-YYYY' -> 'YYYY-MM-DD'). '' for the NVA template (no date -> scrape-stamp fallback)."""
+    el = card.select_one(".list-item-posted")
+    if el:
+        m = re.search(r"\d{1,2}-[A-Za-z]{3}-\d{4}", el.get_text(" ", strip=True))
+        if m:
+            try:
+                return datetime.datetime.strptime(m.group(0), "%d-%b-%Y").strftime("%Y-%m-%d")
+            except Exception:
+                pass
+    return ""
+
+
 def scrape_avature(board_url):
-    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). The results list
-    is server-rendered HTML paged 10 at a time via ?jobOffset=N; each li.listSingleColumnItem
-    carries the title (its /JobDetail/ link), the facility name, and City/State spans. The
-    country lives in the JobDetail slug (…-United-States-… / …-Canada-…), so we fold it into
-    the location string for the US filter. Walks the whole board (the title filter trims it)."""
+    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Walks the whole
+    board via ?jobOffset=N, handling both card templates (listSingleColumnItem / article--result)
+    via _avature_location + _avature_date. The title (its /JobDetail/ link) is in both; the
+    title + US filter in main() trims the result."""
     base = _avature_base(board_url)
     rows, seen, offset = [], set(), 0
     while offset < AVATURE_MAX_JOBS:
@@ -2104,7 +2151,7 @@ def scrape_avature(board_url):
             break
         if r.status_code != 200:
             break
-        cards = BeautifulSoup(r.text, "lxml").select("li.listSingleColumnItem")
+        cards = BeautifulSoup(r.text, "lxml").select("li.listSingleColumnItem, article.article--result")
         new = 0
         for c in cards:
             a = c.select_one("a[href*='/JobDetail/']")
@@ -2115,21 +2162,13 @@ def scrape_avature(board_url):
                 continue
             seen.add(href)
             new += 1
-            city = state = ""
-            for sp in c.select(".listSingleColumnItemMiscDataItem"):
-                label, sep, val = sp.get_text(" ", strip=True).partition(":")
-                if not sep:                                 # facility name (no 'City:'/'State:' label)
-                    continue
-                label, val = label.strip().lower(), val.strip().rstrip(".").strip()
-                if label.startswith("city"):
-                    city = val
-                elif label.startswith("state"):
-                    state = val
-            country = ("Canada" if "-Canada-" in href
-                       else "United States" if "United-States" in href else "")
-            rows.append({"title": a.get_text(" ", strip=True).strip(), "url": href,
-                         "location": ", ".join(x for x in (city, state, country) if x)})
-        offset += AVATURE_PAGE
+            row = {"title": a.get_text(" ", strip=True).strip(), "url": href,
+                   "location": _avature_location(c, href)}
+            d = _avature_date(c)
+            if d:
+                row["found_date"] = d
+            rows.append(row)
+        offset += len(cards) or AVATURE_PAGE                # advance by the real page size
         if not cards or new == 0:                           # reached the end of the board
             break
         time.sleep(random.uniform(0.2, 0.4))
