@@ -181,6 +181,9 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/applovin",               "greenhouse", "AppLovin"),           # ~28
     ("https://jobs.lever.co/zoox",                              "lever", "Zoox"),                    # ~203
     ("https://jobs.smartrecruiters.com/AristaNetworks",         "smartrecruiters", "Arista Networks"), # ~247
+    # --- Added 2026-06-18 (LCA FY2026-Q2 web-search wave 2) ---
+    ("https://jobs.lever.co/spotify",                           "lever", "Spotify"),                 # ~136
+    ("https://job-boards.greenhouse.io/hubspotjobs",            "greenhouse", "HubSpot"),            # ~164
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -321,6 +324,14 @@ WORKDAY_BOARDS = [
     ("https://mckesson.wd3.myworkdayjobs.com/External_Careers",         "workday", "McKesson"),             # ~387
     ("https://vrtx.wd501.myworkdayjobs.com/Vertex_Careers",             "workday", "Vertex Pharmaceuticals"), # ~279
     ("https://illumina.wd1.myworkdayjobs.com/illumina-careers",         "workday", "Illumina"),             # ~140
+    # --- Added 2026-06-18 (LCA FY2026-Q2 web-search wave 2; Carnegie Mellon + VUMC cap-exempt) ---
+    ("https://takeda.wd3.myworkdayjobs.com/External",                   "workday", "Takeda"),               # ~1,623
+    ("https://cardinalhealth.wd1.myworkdayjobs.com/EXT",                "workday", "Cardinal Health"),      # ~757
+    ("https://cadence.wd1.myworkdayjobs.com/External_Careers",          "workday", "Cadence Design Systems"), # ~640
+    ("https://regeneron.wd1.myworkdayjobs.com/Careers",                 "workday", "Regeneron"),            # ~585
+    ("https://transunion.wd5.myworkdayjobs.com/TransUnion",             "workday", "TransUnion"),           # ~244
+    ("https://vumc.wd1.myworkdayjobs.com/vumccareers",                  "workday", "Vanderbilt University Medical Center"), # ~683 (cap-exempt)
+    ("https://cmu.wd5.myworkdayjobs.com/CMU",                           "workday", "Carnegie Mellon University"), # ~167 (cap-exempt)
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
