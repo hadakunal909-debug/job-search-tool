@@ -1056,6 +1056,28 @@ def brain_export_cover():
     return _docx_response(request.form.get("content", ""), "", "Cover_Letter")
 
 
+def _pdf_response(text, user, filename):
+    """Tailored résumé as a LaTeX-compiled PDF (Calibri template via Tectonic). Header comes from
+    the user's profile, or — if there's no profile yet — the name/contact lines the résumé text
+    starts with. Degrades to .docx (then .txt) if compilation isn't available."""
+    try:
+        try:
+            prof = db.get_profile(user) or {}
+        except Exception:
+            prof = {}
+        body = rb_latex.build_pdf(text or "", prof)
+        return Response(body, mimetype=rb_latex.PDF_MIME,
+                        headers={"Content-Disposition": 'attachment; filename="%s.pdf"' % filename})
+    except Exception:
+        return _docx_response(text, "", filename)
+
+
+@app.route("/brain/export/resume.pdf", methods=["POST"])
+@login_required
+def brain_export_resume_pdf():
+    return _pdf_response(request.form.get("content", ""), session["user"], "Tailored_Resume")
+
+
 # ---- Teach: the knowledge base (per user) ----
 @app.route("/brain/teach")
 @login_required

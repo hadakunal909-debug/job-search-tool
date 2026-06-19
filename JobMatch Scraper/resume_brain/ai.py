@@ -97,9 +97,29 @@ def parse_json(text):
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         candidates.append(m.group(0))
+    # First *balanced* {...} object from the first '{' — tolerates trailing junk like a stray
+    # extra '}' or prose after the JSON (a common cause of "didn't return clean JSON").
+    start = text.find("{")
+    if start != -1:
+        depth, instr, esc = 0, False, False
+        for i in range(start, len(text)):
+            c = text[i]
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                instr = not instr
+            elif not instr and c == "{":
+                depth += 1
+            elif not instr and c == "}":
+                depth -= 1
+                if depth == 0:
+                    candidates.append(text[start:i + 1])
+                    break
     for c in candidates:
         try:
-            obj = json.loads(c)
+            obj = json.loads(c, strict=False)   # strict=False tolerates raw control chars in strings
             if isinstance(obj, dict):
                 return obj
         except Exception:
