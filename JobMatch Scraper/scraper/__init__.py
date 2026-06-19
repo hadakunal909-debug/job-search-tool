@@ -332,6 +332,12 @@ WORKDAY_BOARDS = [
     ("https://transunion.wd5.myworkdayjobs.com/TransUnion",             "workday", "TransUnion"),           # ~244
     ("https://vumc.wd1.myworkdayjobs.com/vumccareers",                  "workday", "Vanderbilt University Medical Center"), # ~683 (cap-exempt)
     ("https://cmu.wd5.myworkdayjobs.com/CMU",                           "workday", "Carnegie Mellon University"), # ~167 (cap-exempt)
+    # --- Added 2026-06-18 (LCA FY2026-Q2 web-search wave 3; OSU/PSU/Georgetown cap-exempt) ---
+    ("https://psu.wd1.myworkdayjobs.com/PSU_Staff",                     "workday", "Penn State University"), # ~1,412 (cap-exempt)
+    ("https://osu.wd1.myworkdayjobs.com/OSUCareers",                    "workday", "Ohio State University"), # ~1,067 (cap-exempt)
+    ("https://cox.wd1.myworkdayjobs.com/Cox_External_Career_Site_1",    "workday", "Cox Automotive"),       # ~722
+    ("https://equifax.wd5.myworkdayjobs.com/External",                  "workday", "Equifax"),              # ~209
+    ("https://georgetown.wd1.myworkdayjobs.com/Georgetown_Admin_Careers", "workday", "Georgetown University"), # ~111 (cap-exempt)
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
