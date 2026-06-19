@@ -99,6 +99,26 @@ function jmFillApplication(payload) {
     }
     return false;
   }
+  // File inputs are usually display:none (a styled "Attach" button fronts them), so DON'T require
+  // visibility here — just find an enabled <input type=file>.
+  function findFileInput(selectors) {
+    for (var i = 0; i < (selectors || []).length; i++) {
+      var nodes = document.querySelectorAll(selectors[i]);
+      for (var j = 0; j < nodes.length; j++) if (nodes[j].type === "file" && !nodes[j].disabled) return nodes[j];
+    }
+    return null;
+  }
+  // Only a VISIBLE challenge is a real wall. An invisible reCAPTCHA (present in the DOM on most
+  // Greenhouse/Lever pages, v3 or v2-invisible) passes silently and must NOT park the job.
+  function visibleChallenge() {
+    var sels = ['iframe[src*="recaptcha/api2/anchor"]', 'iframe[src*="hcaptcha.com"]',
+      'iframe[src*="challenges.cloudflare.com"]', 'iframe[title*="captcha" i]', '.h-captcha', '.cf-turnstile'];
+    for (var i = 0; i < sels.length; i++) {
+      var n = document.querySelectorAll(sels[i]);
+      for (var j = 0; j < n.length; j++) { var r = n[j].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
+    }
+    return false;
+  }
 
   // ----------------------------- ATS adapters -----------------------------
   // name: {first:[], last:[], full:[]}  — fill first+last, else the single full-name field.
@@ -175,8 +195,8 @@ function jmFillApplication(payload) {
   var ee = firstSel(A.email); track(ee ? setText(ee, F.email) : false, "Email", true, !!ee);
   var pe = firstSel(A.phone); track(pe ? setText(pe, F.phone) : false, "Phone", true, !!pe);
 
-  // 2) résumé file
-  if (file && file.b64) { var fi = firstSel(A.resumeFile); if (fi) fileAttached = attachFile(fi, file); }
+  // 2) résumé file (find even when the real input is hidden behind a styled button)
+  if (file && file.b64) { var fi = findFileInput(A.resumeFile); if (fi) fileAttached = attachFile(fi, file); }
 
   // 3) fuzzy label matching: links + common custom questions + EEO
   var links = F.links || {}, work = F.work_auth || {}, eeo = F.eeo || {}, comp = F.comp || {}, addr = F.address || {};
@@ -239,7 +259,7 @@ function jmFillApplication(payload) {
   });
 
   // walls a human must clear (the runner parks the job on any of these)
-  var captcha = !!document.querySelector('iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="turnstile"],.g-recaptcha,[data-sitekey],[class*="captcha" i]');
+  var captcha = visibleChallenge();                 // only a VISIBLE challenge, not invisible reCAPTCHA
   var login = !!document.querySelector("input[type=password]") ||
     /\/(login|sign[_-]?in|signin|auth|account\/new|users\/sign)/i.test(location.href);
 
@@ -265,10 +285,19 @@ function jmClickSubmit(selector) {
 // Best-effort post-submit check: URL change or a confirmation message. Self-contained.
 function jmApplyState(prevHref) {
   var body = document.body ? (document.body.innerText || "").slice(0, 5000) : "";
+  function visChallenge() {
+    var sels = ['iframe[src*="recaptcha/api2/bframe"]', 'iframe[src*="recaptcha/api2/anchor"]',
+      'iframe[src*="hcaptcha.com"]', 'iframe[src*="challenges.cloudflare.com"]', '.h-captcha', '.cf-turnstile'];
+    for (var i = 0; i < sels.length; i++) {
+      var n = document.querySelectorAll(sels[i]);
+      for (var j = 0; j < n.length; j++) { var r = n[j].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
+    }
+    return false;
+  }
   return {
     href: location.href,
     changed: location.href !== prevHref,
     confirmed: /thank you|application (received|submitted|complete)|we('| ?ha)ve received|submitted successfully|confirmation/i.test(body),
-    captcha: !!document.querySelector('iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="turnstile"],.g-recaptcha,[data-sitekey]')
+    captcha: visChallenge()                          // a challenge that POPPED on submit (v2 bframe)
   };
 }

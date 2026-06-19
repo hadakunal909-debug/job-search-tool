@@ -576,11 +576,11 @@ $("qstart").onclick = async () => {
   const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 8)) * 1000;
   if (!dryRun && autosubmit &&
       !confirm("This will SUBMIT real applications to " + items.length + " job(s) with no review. Continue?")) return;
-  // grant host access for those job origins so the background can fill them (user-gesture required)
-  const origins = Array.from(new Set(items.map((it) => {
-    try { return new URL(it.url).origin + "/*"; } catch (e) { return null; } }).filter(Boolean)));
-  const granted = await new Promise((res) => chrome.permissions.request({ origins }, res));
-  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site permission denied — can't run."; return; }
+  // grant broad site access once (user-gesture required). Per-origin breaks when an apply page
+  // redirects to another host (e.g. a company's own careers domain) — that caused the
+  // "must request permission to access the respective host" errors.
+  const granted = await new Promise((res) => chrome.permissions.request({ origins: ["https://*/*"] }, res));
+  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied — needed to fill the pages."; return; }
   chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs });
   $("qmsg").style.color = "#0b7a52";
   $("qmsg").textContent = "Started: " + items.length + " jobs (" + (dryRun ? "dry run" : (autosubmit ? "AUTO-SUBMIT" : "fill only")) + ").";

@@ -61,14 +61,18 @@ function jmWaitForLoad(tabId, timeout) {
 }
 
 async function jmProcessOne(item, cfg) {
-  let t;
-  try {
-    t = await fetch(cfg.apibase + "/api/ext/tailor", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: cfg.token, job_url: item.url, company: item.company, format: "pdf" })
-    }).then((r) => r.json());
-  } catch (e) { return { status: "error", reason: "tailor network error" }; }
-  if (!t || !t.ok) return { status: "error", reason: "tailor: " + ((t && t.error) || "failed") };
+  let t = null;
+  for (let attempt = 0; attempt < 2; attempt++) {     // one retry on a transient network blip
+    try {
+      t = await fetch(cfg.apibase + "/api/ext/tailor", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: cfg.token, job_url: item.url, company: item.company, format: "pdf" })
+      }).then((r) => r.json());
+      break;
+    } catch (e) { await jmSleep(1000); }
+  }
+  if (!t) return { status: "error", reason: "tailor network error" };
+  if (!t.ok) return { status: "error", reason: "tailor: " + (t.error || "failed") };
 
   const tab = await chrome.tabs.create({ url: item.url, active: false });
   try {
