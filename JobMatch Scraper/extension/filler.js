@@ -230,8 +230,42 @@ function jmFillApplication(payload) {
     }
   });
 
+  // walls that require a human — the batch runner parks the job on any of these
+  var captcha = !!document.querySelector(
+    'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="turnstile"],.g-recaptcha,[data-sitekey],[class*="captcha" i]');
+  var login = !!document.querySelector("input[type=password]") ||
+    /\/(login|sign[_-]?in|signin|auth|account\/new|users\/sign)/i.test(location.href);
+
   return {
     found: true, ats: ats, filled: filled, total: total,
-    unfilled: unfilled.slice(0, 25), fileAttached: fileAttached, submitSelector: A.submit
+    unfilled: unfilled.slice(0, 25), fileAttached: fileAttached, submitSelector: A.submit,
+    captcha: captcha, login: login
+  };
+}
+
+// Click the real submit button (injected by the batch runner / overlay). Self-contained.
+function jmClickSubmit(selector) {
+  var btn = selector ? document.querySelector(selector) : null;
+  if (!btn) {
+    var all = Array.prototype.slice.call(document.querySelectorAll("button, input[type=submit]"));
+    btn = all.filter(function (b) {
+      var t = (b.textContent || b.value || "").trim();
+      return /^(submit|submit application|apply)/i.test(t);
+    })[0];
+  }
+  if (!btn) return { clicked: false, href: location.href };
+  btn.scrollIntoView({ block: "center" });
+  btn.click();
+  return { clicked: true, href: location.href };
+}
+
+// Best-effort post-submit check: URL change or a confirmation message. Self-contained.
+function jmApplyState(prevHref) {
+  var body = document.body ? (document.body.innerText || "").slice(0, 5000) : "";
+  return {
+    href: location.href,
+    changed: location.href !== prevHref,
+    confirmed: /thank you|application (received|submitted|complete)|we('| ?ha)ve received|submitted successfully|confirmation/i.test(body),
+    captcha: !!document.querySelector('iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="turnstile"],.g-recaptcha,[data-sitekey]')
   };
 }
