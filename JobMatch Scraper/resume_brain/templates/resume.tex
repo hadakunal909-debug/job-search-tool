@@ -4,7 +4,7 @@
 % Style mirrors the user's Calibri resume: 16pt centered name, 11pt contact line, 10pt bold
 % ALL-CAPS section headers each underlined by a full-width rule, hanging bullets, tight spacing.
 \documentclass[10pt]{article}
-\usepackage[letterpaper,top=0.25in,bottom=0.25in,left=0.45in,right=0.45in]{geometry}
+\usepackage[letterpaper,top=0.2in,bottom=0.2in,left=0.18in,right=0.18in]{geometry}
 \usepackage{enumitem}
 \usepackage{titlesec}
 \usepackage[hidelinks]{hyperref}
@@ -21,14 +21,14 @@
 \fi
 
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{2pt}
-\linespread{1.0}
+\setlength{\parskip}{1pt}
+\linespread{0.97}
 \pagestyle{empty}
 \setcounter{secnumdepth}{0}
 
 \titleformat{\section}{\normalsize\bfseries}{}{0em}{}[{\vspace{1pt}\titlerule[1pt]}]
-\titlespacing*{\section}{0pt}{6pt}{3pt}
-\setlist[itemize]{leftmargin=1.3em, itemsep=1pt, topsep=1.5pt, parsep=0pt, label=\textbullet}
+\titlespacing*{\section}{0pt}{3pt}{2pt}
+\setlist[itemize]{leftmargin=1.25em, itemsep=0pt, topsep=0.5pt, parsep=0pt, label=\textbullet}
 
 \begin{document}
 
@@ -36,7 +36,6 @@
   {\fontsize{16}{18}\selectfont\bfseries <<NAME>>}\\[2pt]
   {\fontsize{11}{13}\selectfont <<CONTACT>>}
 \end{center}
-\vspace{1pt}
 
 <<BODY>>
 

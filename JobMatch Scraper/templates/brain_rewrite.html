@@ -18,7 +18,10 @@
     <form method="post" action="{{ url_for('brain_export_resume') }}">
       <textarea id="resumeText" name="content" rows="22" class="mono">{{ out.tailored_resume }}</textarea>
       <input type="hidden" name="title" value="{{ ctx.name or 'Tailored Résumé' }}">
-      <div class="row"><button class="btn primary" type="submit">Download .docx</button></div>
+      <div class="row">
+        <button class="btn primary" type="submit" formaction="{{ url_for('brain_export_resume_pdf') }}">Download PDF (LaTeX)</button>
+        <button class="btn" type="submit">Download .docx</button>
+      </div>
     </form>
   </div>
 

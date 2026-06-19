@@ -3,20 +3,16 @@ latex.py — render a tailored résumé to LaTeX and compile it to a PDF with Te
 
 Why this exists: ATS submissions want a PDF, and the user authors résumés in LaTeX. The brain
 (and its optional Gemini rewrite) produce a clean PLAIN-TEXT résumé; rather than force the model
-into a brittle JSON schema, we parse that text into sections (reusing export.py's heading/bullet
-heuristics) and inject it into resume.tex. The contact header is built from the user's profile so
-it's always correct, regardless of what the model put at the top.
+into a brittle JSON schema, we parse that text into a header + sections (reusing export.py's
+heading/bullet heuristics) and inject it into resume.tex. The contact header prefers the user's
+profile (always correct); if there's no profile it falls back to the name/contact lines the
+résumé text itself starts with — so a freshly-rewritten résumé still gets a proper header.
 
 Dependency-isolated like export.py: if Tectonic is missing or a compile fails, build_pdf raises
 RuntimeError and the caller falls back to .docx — the apply flow never hard-crashes.
-
-Tectonic binary resolution order: explicit arg -> $TECTONIC_BIN -> vendored bin/tectonic[.exe] ->
-"tectonic" on PATH. First compile downloads the support bundle into a project-local cache
-(.tectonic-cache), so it stays self-contained and avoids host HOME/permission surprises.
 """
 import os
 import re
-import sys
 import shutil
 import tempfile
 import subprocess
@@ -30,9 +26,17 @@ _REPO_ROOT = os.path.dirname(_HERE)
 _TEMPLATE = os.path.join(_HERE, "templates", "resume.tex")
 _CACHE_DIR = os.path.join(_REPO_ROOT, ".tectonic-cache")
 
-# Contact-ish leading lines we drop from the body (the header is rebuilt from the profile).
+# Contact-ish lines (the header block) we drop from the body / use to detect the contact line.
 _CONTACT_RE = re.compile(r"@|https?://|linkedin\.com|github\.com|\d{3}[)\s.\-]\s*\d{3}[\s.\-]\d{4}",
                          re.IGNORECASE)
+
+# Words that mark a real résumé section heading (vs. the name, which may also be ALL CAPS).
+_SECTION_KW = (
+    "summary", "objective", "profile", "education", "experience", "employment", "work history",
+    "professional", "skills", "projects", "project", "certification", "certifications", "ventures",
+    "leadership", "awards", "publications", "activities", "technical", "interests", "volunteer",
+    "achievements", "training", "languages", "courses", "coursework",
+)
 
 
 # ----------------------------- escaping -----------------------------
@@ -51,42 +55,65 @@ def _tex_escape(s):
 
 
 # ----------------------------- parsing -----------------------------
-def parse_resume_text(text):
-    """Plain-text résumé -> (preamble_items, sections).
+def _is_section_heading(line):
+    s = line.strip()
+    if not _is_heading(line):
+        return False
+    low = s.lower().rstrip(":")
+    return any(kw in low for kw in _SECTION_KW)
 
-    sections = [{"title": str, "items": [{"text": str, "bullet": bool}]}].
-    Lines before the first heading become preamble items (e.g. a summary); obvious name/contact
-    lines are dropped because the header is built from the profile.
+
+def parse_resume_text(text):
+    """Plain-text résumé -> (header, sections).
+
+    header  = {"name": str, "contact": str}   (from the block before the first real section)
+    sections = [{"title": str, "items": [{"text": str, "bullet": bool}]}]
     """
-    preamble, sections, cur = [], [], None
-    for raw in (text or "").splitlines():
+    lines = (text or "").splitlines()
+    header = {"name": "", "contact": ""}
+
+    start = next((i for i, raw in enumerate(lines) if _is_section_heading(raw)), None)
+    if start is not None:
+        head = [l.strip() for l in lines[:start] if l.strip()]
+        if head:
+            header["name"] = head[0]
+        header["contact"] = next((h for h in head[1:] if _CONTACT_RE.search(h) or "|" in h),
+                                 head[1] if len(head) > 1 else "")
+        rest = lines[start:]
+    else:
+        nonempty = [l.strip() for l in lines if l.strip()]
+        header["name"] = nonempty[0] if nonempty else ""
+        rest = lines
+
+    sections, cur = [], None
+    for raw in rest:
         line = raw.rstrip()
         s = line.strip()
         if not s:
+            continue
+        # In the fallback path, drop the leading name/contact lines (no profile header then).
+        if start is None and cur is None and (s == header["name"] or _CONTACT_RE.search(s)):
             continue
         if _is_heading(line):
             cur = {"title": s.rstrip(":").strip(), "items": []}
             sections.append(cur)
             continue
-        m = _BULLET.match(line)
-        item = {"text": (m.group(1) if m else s).strip(), "bullet": bool(m)}
+        item = {"text": (_BULLET.match(line).group(1) if _BULLET.match(line) else s).strip(),
+                "bullet": bool(_BULLET.match(line))}
         if cur is None:
-            preamble.append(item)
-        else:
-            cur["items"].append(item)
-
-    # Drop a leading name line + any contact-looking lines from the preamble.
-    cleaned = []
-    for i, it in enumerate(preamble):
-        if i == 0 and " " in it["text"] and len(it["text"]) <= 50 and not _CONTACT_RE.search(it["text"]):
-            continue                                   # first line is almost always the name
-        if _CONTACT_RE.search(it["text"]):
-            continue
-        cleaned.append(it)
-    return cleaned, sections
+            cur = {"title": "", "items": []}
+            sections.append(cur)
+        cur["items"].append(item)
+    return header, sections
 
 
 # ----------------------------- rendering -----------------------------
+def _name(profile):
+    p = profile or {}
+    nm = " ".join(x for x in (p.get("first_name"), p.get("last_name")) if x).strip()
+    return nm or (p.get("name") or "")
+
+
 def _contact_line(profile):
     p = profile or {}
     parts = [
@@ -98,15 +125,15 @@ def _contact_line(profile):
     return r" \textbar{} ".join(esc)
 
 
-def _name(profile):
-    p = profile or {}
-    nm = " ".join(x for x in (p.get("first_name"), p.get("last_name")) if x).strip()
-    return nm or p.get("name") or "Your Name"
+def _contact_from_string(s):
+    """Build a LaTeX contact line from a raw '... | ... | ...' string (header fallback)."""
+    parts = [_tex_escape(p.strip()) for p in str(s).split("|") if p.strip()]
+    return r" \textbar{} ".join(parts)
 
 
 def _render_items(items):
-    """Emit LaTeX for a list of {text,bullet} items: bullets grouped into itemize, short
-    non-bullet lines bolded (entry headers), long ones as normal paragraphs."""
+    """Bullets grouped into itemize; short non-bullet lines bolded (entry headers); long ones
+    as normal paragraphs (e.g. a summary)."""
     out, bullets = [], []
 
     def flush():
@@ -123,29 +150,31 @@ def _render_items(items):
         flush()
         txt = _tex_escape(it["text"])
         if len(it["text"]) <= 90:
-            out.append(r"\textbf{%s}\\" % txt)         # entry header / sub-heading
+            out.append(r"\textbf{%s}\\" % txt)
         else:
-            out.append(txt + r"\par")                  # prose paragraph (e.g. summary)
+            out.append(txt + r"\par")
     flush()
     return "\n".join(out)
 
 
 def render(resume_text, profile):
-    """Return a full .tex document string for `resume_text` using the profile for the header."""
+    """Return a full .tex document string for `resume_text`, header from profile (or the text)."""
     with open(_TEMPLATE, "r", encoding="utf-8") as fh:
         tpl = fh.read()
-    preamble, sections = parse_resume_text(resume_text)
+    header, sections = parse_resume_text(resume_text)
+
+    name = _name(profile) or header["name"] or "Your Name"
+    contact = _contact_line(profile) or _contact_from_string(header["contact"])
 
     body = []
-    if preamble:
-        body.append(_render_items(preamble))
     for sec in sections:
-        body.append(r"\section{%s}" % _tex_escape(sec["title"]))
+        if sec["title"]:
+            body.append(r"\section{%s}" % _tex_escape(sec["title"]))
         body.append(_render_items(sec["items"]))
 
     return (tpl
-            .replace("<<NAME>>", _tex_escape(_name(profile)))
-            .replace("<<CONTACT>>", _contact_line(profile))
+            .replace("<<NAME>>", _tex_escape(name))
+            .replace("<<CONTACT>>", contact)
             .replace("<<BODY>>", "\n\n".join(body)))
 
 
