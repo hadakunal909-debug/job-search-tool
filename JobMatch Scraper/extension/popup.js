@@ -340,11 +340,14 @@ $("save").onclick = async () => {
   }
 };
 
-// Which apply-form ATS can we fill? (M1: Greenhouse. Add hostnames here as adapters land.)
+// Which apply-form ATS can we fill? (keep in sync with filler.js + the backend _FILLABLE_HOSTS)
 function applyAts(url) {
   let h = "";
   try { h = new URL(url).hostname; } catch (e) { return ""; }
-  if (h.indexOf("greenhouse.io") >= 0 || h.indexOf("greenhouse") >= 0) return "greenhouse";
+  if (/greenhouse/.test(h)) return "greenhouse";
+  if (/lever\.co/.test(h)) return "lever";
+  if (/ashbyhq\.com/.test(h)) return "ashby";
+  if (/smartrecruiters\.com/.test(h)) return "smartrecruiters";
   return "";
 }
 
@@ -543,21 +546,23 @@ let qJobs = {};   // url -> {title, company} from the last fetch (so the tracker
 
 $("batchtoggle").onclick = () => {
   const w = $("batchwrap");
-  w.style.display = w.style.display === "none" ? "block" : "none";
-  if (w.style.display === "block") pollQueue();
+  const opening = w.style.display === "none";
+  w.style.display = opening ? "block" : "none";
+  if (opening) { pollQueue(); if (!$("qurls").value.trim()) fetchQueue(); }   // auto-source on open
 };
 
-$("qfetch").onclick = async () => {
-  $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Fetching your liked Greenhouse jobs…";
+async function fetchQueue() {
+  $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Finding your best matched jobs…";
   try {
     const j = await (await fetch(cfg.apibase + "/api/ext/apply_queue?token=" + encodeURIComponent(cfg.token))).json();
     if (!j.ok) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Error: " + (j.error || "failed"); return; }
     qJobs = {};
     (j.jobs || []).forEach((job) => { qJobs[job.url] = { title: job.title, company: job.company }; });
     $("qurls").value = (j.jobs || []).map((job) => job.url).join("\n");
-    $("qmsg").textContent = "Found " + (j.count || 0) + " liked Greenhouse job(s). Review, then Start.";
+    $("qmsg").textContent = "Auto-loaded " + (j.count || 0) + " matched job(s) on supported ATS. Press Start.";
   } catch (e) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Network error."; }
-};
+}
+$("qfetch").onclick = fetchQueue;
 
 function parseQueueItems() {
   return $("qurls").value.split("\n").map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s))
