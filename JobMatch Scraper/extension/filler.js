@@ -108,14 +108,19 @@ function jmFillApplication(payload) {
     }
     return null;
   }
-  // Only a VISIBLE challenge is a real wall. An invisible reCAPTCHA (present in the DOM on most
-  // Greenhouse/Lever pages, v3 or v2-invisible) passes silently and must NOT park the job.
+  // Only a REAL, visible challenge is a wall. The invisible reCAPTCHA v3 BADGE (the floating logo,
+  // .grecaptcha-badge) is on most Greenhouse/Lever pages and passes silently — it must NOT park the
+  // job. A hard challenge = hCaptcha/Turnstile widget, a reCAPTCHA image popup (api2/bframe), or a
+  // v2 "I'm not a robot" checkbox that is NOT the badge.
   function visibleChallenge() {
-    var sels = ['iframe[src*="recaptcha/api2/anchor"]', 'iframe[src*="hcaptcha.com"]',
-      'iframe[src*="challenges.cloudflare.com"]', 'iframe[title*="captcha" i]', '.h-captcha', '.cf-turnstile'];
-    for (var i = 0; i < sels.length; i++) {
-      var n = document.querySelectorAll(sels[i]);
-      for (var j = 0; j < n.length; j++) { var r = n[j].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
+    var hard = document.querySelectorAll(
+      'iframe[src*="recaptcha/api2/bframe"], iframe[src*="hcaptcha.com"], iframe[src*="challenges.cloudflare.com"], .h-captcha, .cf-turnstile');
+    for (var i = 0; i < hard.length; i++) { var r = hard[i].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
+    var anchors = document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"]');
+    for (var j = 0; j < anchors.length; j++) {
+      if (anchors[j].closest(".grecaptcha-badge")) continue;     // floating v3 badge — ignore
+      var rr = anchors[j].getBoundingClientRect();
+      if (rr.width > 10 && rr.height > 10) return true;          // a real v2 checkbox
     }
     return false;
   }
@@ -280,6 +285,24 @@ function jmClickSubmit(selector) {
   btn.scrollIntoView({ block: "center" });
   btn.click();
   return { clicked: true, href: location.href };
+}
+
+// Has the application form rendered? (SPAs like Ashby / SmartRecruiters / EU Greenhouse render it
+// with JS after load.) Self-contained — the runner polls this before filling.
+function jmFormReady() {
+  return !!document.querySelector(
+    'input[type=file], input[type=email], input[autocomplete="email"], #first_name, input[name*="email" i]');
+}
+
+// Click an "Apply"/"Apply for this job" button to reveal a collapsed form. Self-contained.
+function jmClickApply() {
+  var els = Array.prototype.slice.call(document.querySelectorAll('a, button, [role=button], input[type=submit]'));
+  var b = els.filter(function (x) {
+    var t = (x.textContent || x.value || "").trim();
+    return /^apply(\s|$)|apply for this job|apply now/i.test(t) && x.offsetParent !== null && !/sign|login/i.test(t);
+  })[0];
+  if (b) { b.click(); return true; }
+  return false;
 }
 
 // Best-effort post-submit check: URL change or a confirmation message. Self-contained.

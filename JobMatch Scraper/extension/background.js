@@ -77,7 +77,19 @@ async function jmProcessOne(item, cfg) {
   const tab = await chrome.tabs.create({ url: item.url, active: false });
   try {
     await jmWaitForLoad(tab.id, 25000);
-    await jmSleep(1800);                                   // let JS-rendered forms settle
+    // Wait for the form to actually render (SPAs: Ashby / SmartRecruiters / EU Greenhouse), and
+    // click "Apply" once if the fields haven't appeared after ~3s.
+    let ready = false;
+    for (let k = 0; k < 9 && !ready; k++) {
+      await jmSleep(1000);
+      try {
+        const rr = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmFormReady });
+        ready = (rr || []).some((o) => o && o.result);
+      } catch (e) {}
+      if (!ready && k === 2) {
+        try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
+      }
+    }
     const out = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true }, world: "MAIN",
       func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
