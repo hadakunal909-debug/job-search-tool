@@ -312,6 +312,15 @@ WORKDAY_BOARDS = [
     ("https://modernatx.wd1.myworkdayjobs.com/M_tx",                    "workday", "Moderna"),              # ~157
     ("https://massgeneralbrigham.wd1.myworkdayjobs.com/MGBExternal",    "workday", "Mass General Brigham"), # ~2000 (cap-exempt)
     ("https://msk.wd108.myworkdayjobs.com/MSKCC_Careers_Primary",       "workday", "Memorial Sloan Kettering"), # ~98 (cap-exempt)
+    # --- Added 2026-06-18 (LCA FY2026-Q2 web-search tenant lookup; verified via probe_board /
+    # sampled content). Cleveland Clinic / Yale / Cornell are cap-exempt (no H1B lottery). ---
+    ("https://ccf.wd1.myworkdayjobs.com/ClevelandClinicCareers",        "workday", "Cleveland Clinic"),    # ~1,984 (cap-exempt)
+    ("https://yale.wd1.myworkdayjobs.com/external_career_site",         "workday", "Yale University"),      # ~292 (cap-exempt)
+    ("https://cornell.wd1.myworkdayjobs.com/CornellCareerPage",         "workday", "Cornell University"),   # ~143 (cap-exempt)
+    ("https://nxp.wd3.myworkdayjobs.com/careers",                       "workday", "NXP Semiconductors"),   # ~664
+    ("https://mckesson.wd3.myworkdayjobs.com/External_Careers",         "workday", "McKesson"),             # ~387
+    ("https://vrtx.wd501.myworkdayjobs.com/Vertex_Careers",             "workday", "Vertex Pharmaceuticals"), # ~279
+    ("https://illumina.wd1.myworkdayjobs.com/illumina-careers",         "workday", "Illumina"),             # ~140
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -469,6 +478,7 @@ JIBE_BOARDS = [
     ("https://careers.keysight.com",     "jibe", "Keysight Technologies"),  # ~548
     ("https://fedexfreight.jibeapply.com", "jibe", "FedEx Freight"),        # ~697
     ("https://careers.rivian.com",       "jibe", "Rivian"),                 # ~562 (deeper probe)
+    ("https://careers.emory.edu",        "jibe", "Emory University"),       # ~1,840 (cap-exempt; iCIMS/Jibe)
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
