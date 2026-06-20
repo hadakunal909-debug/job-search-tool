@@ -1549,7 +1549,11 @@ def _ext_profile_fields(user, p=None):
         "links": {"linkedin": g("linkedin"), "github": g("github"),
                   "portfolio": g("portfolio"), "website": g("website")},
         "work_auth": {"authorized": truthy("work_authorized"),
-                      "requires_sponsorship": truthy("requires_sponsorship_now") or truthy("needs_sponsorship"),
+                      # "Will you NOW OR IN THE FUTURE require sponsorship?" — true if either now or
+                      # future (an OPT/F-1 candidate who'll need H-1B later must answer Yes).
+                      "requires_sponsorship": (truthy("requires_sponsorship_now")
+                                               or truthy("requires_sponsorship_future")
+                                               or truthy("needs_sponsorship")),
                       "requires_sponsorship_future": truthy("requires_sponsorship_future"),
                       "status_label": g("work_auth_status")},
         "eeo": {"gender": g("gender"), "race": g("race_ethnicity"),
