@@ -44,12 +44,24 @@ def _discover(api_key):
 
 
 # ----------------------------- core generate -----------------------------
+_REQ_TIMEOUT = 30          # per-model timeout (s); on timeout we SHIFT to the next model
+# Fallback chain tried (in order) after the configured/default model if it times out / errors / 404s.
+_FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash",
+                    "gemini-1.5-flash", "gemini-2.5-pro"]
+
+
 def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
-              think=True, json_mode=True, model=None):
-    """One generateContent call. Returns the model's text. Raises RuntimeError on failure."""
+              think=True, json_mode=True, model=None, timeout=_REQ_TIMEOUT):
+    """generateContent with automatic model fallback: try the configured model first; if it times
+    out (default 30s), 404s, errors, or returns empty, SHIFT to the next model. Returns the text;
+    raises RuntimeError only if every candidate fails."""
     if not api_key:
         raise RuntimeError("No Gemini API key provided.")
-    mdl = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
+    primary = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
+    candidates = []
+    for m in [primary] + _FALLBACK_MODELS:
+        if m and m not in candidates:
+            candidates.append(m)
 
     def _call(m, with_think):
         gen = {"maxOutputTokens": max_tokens, "temperature": temperature}
@@ -59,28 +71,36 @@ def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
             gen["thinkingConfig"] = {"thinkingBudget": -1}
         body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
         return requests.post(_BASE % m, params={"key": api_key}, headers=_HDR,
-                             json=body, timeout=120)
+                             json=body, timeout=timeout)
 
-    r = _call(mdl, think)
-    if r.status_code == 404:                              # preferred model not on this key
-        alt = _discover(api_key)
-        if alt and alt != mdl:
-            mdl = alt
-            r = _call(mdl, think)
-    if r.status_code == 400 and "think" in (r.text or "").lower():
-        r = _call(mdl, False)                            # model rejects thinkingConfig
-    if r.status_code >= 400:
-        raise RuntimeError("Gemini API %s: %s" % (r.status_code, (r.text or "")[:200]))
-    data = r.json()
-    cands = data.get("candidates") or []
-    if not cands:
-        raise RuntimeError("Gemini returned no text (possibly blocked): %s"
-                           % str(data.get("promptFeedback") or "")[:150])
-    parts = ((cands[0].get("content") or {}).get("parts")) or []
-    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
-    if not text:
-        raise RuntimeError("Gemini returned an empty response (try again).")
-    return text
+    last = ""
+    for m in candidates:
+        try:
+            r = _call(m, think)
+            if r.status_code == 400 and "think" in (r.text or "").lower():
+                r = _call(m, False)                       # model rejects thinkingConfig
+            if r.status_code == 404:
+                last = "model %s not found" % m
+                continue                                   # shift to next model
+            if r.status_code >= 400:
+                last = "%s %s" % (r.status_code, (r.text or "")[:100])
+                continue
+            cands = (r.json().get("candidates") or [])
+            if not cands:
+                last = "no output (blocked?)"
+                continue
+            parts = ((cands[0].get("content") or {}).get("parts")) or []
+            text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+            if text:
+                return text
+            last = "empty response"
+        except requests.exceptions.Timeout:
+            last = "timeout >%ss on %s" % (timeout, m)
+            continue                                       # SHIFT to next model on slow response
+        except Exception as e:
+            last = str(e)[:100]
+            continue
+    raise RuntimeError("Gemini failed on all models [%s]. Last: %s" % (", ".join(candidates), last))
 
 
 # ----------------------------- robust JSON parse -----------------------------
@@ -198,7 +218,7 @@ def rewrite(ctx, api_key):
     """Turn the brain's plan into finished prose. Returns
     {tailored_resume, cover_letter, notes[], parse_warning}. Raises RuntimeError on API failure."""
     text = _generate(_rewrite_prompt(ctx), api_key, temperature=0.45, max_tokens=8192,
-                     think=True, json_mode=True)
+                     think=True, json_mode=True, timeout=90)   # résumé writing is heavier than form-fill
     obj = parse_json(text)
     if not obj or not obj.get("tailored_resume"):
         return {"tailored_resume": (obj or {}).get("tailored_resume") or text,
