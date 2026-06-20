@@ -61,6 +61,8 @@ async function jmFillApplication(payload) {
     var wrap = el.closest("label");
     if (wrap) parts.push(wrap.textContent);
     if (el.getAttribute("aria-label")) parts.push(el.getAttribute("aria-label"));
+    var alby = el.getAttribute("aria-labelledby");   // new Greenhouse labels comboboxes this way
+    if (alby) alby.split(/\s+/).forEach(function (id) { var n = document.getElementById(id); if (n) parts.push(n.textContent); });
     if (el.getAttribute("placeholder")) parts.push(el.getAttribute("placeholder"));
     if (el.name) parts.push(el.name);
     var c = el.closest("fieldset, .field, [class*=field], [class*=question]");
@@ -259,27 +261,57 @@ async function jmFillApplication(payload) {
     return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" ||
       !!el.closest(".select__container, [class*=select__]");
   }
-  // react-select / Greenhouse combobox: open the menu, type to filter, click the matching option.
+  // A react-select shows its chosen value in .select__single-value (NOT in the input's .value, which
+  // it clears after picking). Returns the selected label lowercased, or "" if nothing is selected.
+  function comboSelected(el) {
+    var control = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']");
+    if (!control) return "";
+    var sv = control.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value'], .select__multi-value, [class*='multiValue']");
+    return sv ? (sv.textContent || "").replace(/\s+/g, " ").trim().toLowerCase() : "";
+  }
+  // react-select / Greenhouse combobox. Open the menu, type to filter, click the matching option,
+  // then VERIFY the choice landed. Past bugs this avoids: (1) the generic setNativeValue fires a
+  // "blur" that CLOSES the menu before options can be read — so we type input-only here; (2) fixed
+  // short waits miss late-rendered options in throttled background tabs — so we poll. We only report
+  // ok when .select__single-value matches, so a missed Yes/No is left honestly empty, never wrong.
+  function comboType(node, text) {
+    var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    if (setter && setter.set) setter.set.call(node, text); else node.value = text;
+    node.dispatchEvent(new Event("input", { bubbles: true }));      // input only — no change/blur
+  }
   async function fillCombobox(el, vals) {
-    var control = el.closest(".select__control") || el.closest(".select__container") || el.parentElement || el;
-    control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    try { el.focus(); } catch (e) {}
-    await sleep(150);
+    var control = el.closest(".select__control") || el.closest(".select__container") ||
+      el.closest("[class*='select']") || el.parentElement || el;
     for (var c = 0; c < vals.length; c++) {
       var want = String(vals[c] || "").toLowerCase().trim();
       if (!want) continue;
-      try { setNativeValue(el, vals[c]); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
-      await sleep(180);
-      var opts = document.querySelectorAll('.select__option, [id*="-option-"], [role="option"]');
-      var exact = null, partial = null;
-      for (var k = 0; k < opts.length; k++) {
-        var ot = (opts[k].textContent || "").toLowerCase().trim();
-        if (!ot) continue;
-        if (ot === want) { exact = opts[k]; break; }
-        if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k];
+      try { el.focus(); } catch (e) {}
+      control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      await sleep(120);
+      try { comboType(el, vals[c]); } catch (e) {}
+      var pick = null;
+      for (var t = 0; t < 12 && !pick; t++) {                       // poll ~2.4s (background-tab safe)
+        await sleep(200);
+        var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+        var exact = null, starts = null, partial = null;
+        for (var k = 0; k < opts.length; k++) {
+          var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue;
+          if (ot === want) { exact = opts[k]; break; }
+          if (!starts && ot.indexOf(want) === 0) starts = opts[k];
+          if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k];
+        }
+        pick = exact || starts || partial;
       }
-      var pick = exact || partial;
-      if (pick) { pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); pick.click(); await sleep(80); return true; }
+      if (pick) {
+        try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {}
+        pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+        pick.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+        pick.click();
+        await sleep(150);
+        var got = comboSelected(el);
+        if (got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0)) return true;
+      }
     }
     try { el.blur(); } catch (e) {}
     return false;
@@ -315,7 +347,8 @@ async function jmFillApplication(payload) {
       if (isRequired(el) && (!el.files || !el.files.length) && !fileAttached) unfilled.push({ label: labelText(el) || "Résumé", reason: "no file" });
       return;
     }
-    var empty = el.tagName === "SELECT" ? (el.selectedIndex <= 0 || el.value === "") : !String(el.value || "").trim();
+    var empty = el.tagName === "SELECT" ? (el.selectedIndex <= 0 || el.value === "")
+      : (isCombobox(el) ? !comboSelected(el) : !String(el.value || "").trim());
     if (empty && isRequired(el)) {
       var lab = labelText(el) || el.name || "field";
       if (!unfilled.some(function (u) { return u.label === lab; })) unfilled.push({ label: lab, reason: "required" });
@@ -408,6 +441,8 @@ function jmSnapshotForm() {
     if (el.id) { var l = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
     var w = el.closest("label"); if (w) p.push(w.textContent);
     if (el.getAttribute("aria-label")) p.push(el.getAttribute("aria-label"));
+    var alby = el.getAttribute("aria-labelledby");
+    if (alby) alby.split(/\s+/).forEach(function (id) { var n = document.getElementById(id); if (n) p.push(n.textContent); });
     if (el.getAttribute("placeholder")) p.push(el.getAttribute("placeholder"));
     var c = el.closest("fieldset, .field, [class*=field], [class*=question], .select__container, .select");
     if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) p.push(lg.textContent); }
@@ -416,10 +451,17 @@ function jmSnapshotForm() {
   function isCombo(el) {
     return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || !!el.closest(".select__container, [class*=select__]");
   }
+  // react-select keeps its chosen value in .select__single-value, not the input's .value — so check
+  // that, otherwise an already-answered dropdown gets re-sent to the AI every pass.
+  function comboSel(el) {
+    var c = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']");
+    return c ? !!c.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value'], .select__multi-value, [class*='multiValue']") : false;
+  }
   var out = [], i = 0;
   document.querySelectorAll("input, select, textarea").forEach(function (el) {
     if (!vis(el) || /hidden|file|submit|button|password/.test(el.type) || el.type === "radio" || el.type === "checkbox") return;
-    var filled = el.tagName === "SELECT" ? (el.selectedIndex > 0 && el.value) : String(el.value || "").trim();
+    var filled = el.tagName === "SELECT" ? (el.selectedIndex > 0 && el.value)
+      : (isCombo(el) ? comboSel(el) : String(el.value || "").trim());
     if (filled) return;
     var t = lbl(el); if (!t) return;
     var key = "jmk" + (i++); el.setAttribute("data-jmk", key);
@@ -461,22 +503,46 @@ async function jmApplyAnswers(answers) {
     for (var j = 0; j < sel.options.length; j++) { var ot = (sel.options[j].textContent || "").trim().toLowerCase(); if (ot && (ot.indexOf(w) >= 0 || w.indexOf(ot) >= 0)) { sel.selectedIndex = j; sel.dispatchEvent(new Event("change", { bubbles: true })); return true; } }
     return false;
   }
+  // react-select. Type input-only (a blur would close the menu), poll for options (background tabs
+  // throttle timers), pick by text, then VERIFY via .select__single-value so a missed pick is
+  // reported false (honestly left empty) rather than a silent wrong answer.
+  function comboSelected(el) {
+    var control = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']");
+    if (!control) return "";
+    var sv = control.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value'], .select__multi-value, [class*='multiValue']");
+    return sv ? (sv.textContent || "").replace(/\s+/g, " ").trim().toLowerCase() : "";
+  }
+  function comboType(node, text) {
+    var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    if (setter && setter.set) setter.set.call(node, text); else node.value = text;
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   async function fillCombo(el, v) {
     var want = String(v).toLowerCase().trim(); if (!want) return false;
-    var control = el.closest(".select__control") || el.closest(".select__container") || el.parentElement || el;
-    control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    var control = el.closest(".select__control") || el.closest(".select__container") ||
+      el.closest("[class*='select']") || el.parentElement || el;
     try { el.focus(); } catch (e) {}
-    await sleep(150);
-    setNativeValue(el, v); el.dispatchEvent(new Event("input", { bubbles: true }));
-    await sleep(220);
-    var opts = document.querySelectorAll('.select__option, [id*="-option-"], [role="option"]');
-    var exact = null, partial = null;
-    for (var k = 0; k < opts.length; k++) { var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue; if (ot === want) { exact = opts[k]; break; } if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k]; }
-    var pick = exact || partial;
-    if (pick) { pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); pick.click(); await sleep(70); return true; }
-    el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown", keyCode: 40 })); await sleep(50);
-    el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 })); await sleep(70);
-    return true;
+    control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    await sleep(120);
+    try { comboType(el, v); } catch (e) {}
+    var pick = null;
+    for (var t = 0; t < 12 && !pick; t++) {
+      await sleep(200);
+      var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+      var exact = null, starts = null, partial = null;
+      for (var k = 0; k < opts.length; k++) { var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue; if (ot === want) { exact = opts[k]; break; } if (!starts && ot.indexOf(want) === 0) starts = opts[k]; if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k]; }
+      pick = exact || starts || partial;
+    }
+    if (pick) {
+      try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {}
+      pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      pick.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      pick.click();
+      await sleep(150);
+    }
+    var got = comboSelected(el);
+    return !!(got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0));
   }
   function clickRadio(g, v) {
     var w = String(v).toLowerCase(), radios = g.querySelectorAll("input[type=radio], input[type=checkbox]");
