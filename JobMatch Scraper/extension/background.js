@@ -111,32 +111,39 @@ async function jmProcessOne(item, cfg) {
     // AI pass: for whatever the deterministic fill left empty, have the backend AI map the user's
     // profile + résumé onto those fields, apply the answers, then recompute the fill result.
     if ((res.unfilled && res.unfilled.length) || !res.fileAttached) {
+      let aiF = 0, aiN = 0, aiM = 0;                    // fields snapshotted, AI answers, applied
       try {
         const snap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmSnapshotForm });
         let fields = [];
         (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
+        aiF = fields.length;
         if (fields.length) {
           const a = await fetch(cfg.apibase + "/api/ext/answer", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token: cfg.token, company: item.company, fields: fields.slice(0, 30) })
           }).then((r) => r.json()).catch(() => null);
-          if (a && a.ok && a.answers && Object.keys(a.answers).length) {
-            await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmApplyAnswers, args: [a.answers] });
-            const out2 = await chrome.scripting.executeScript({
-              target: { tabId: tab.id, allFrames: true }, world: "MAIN",
-              func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
-            });
-            res = (out2 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || res;
+          if (a && a.ok && a.answers) {
+            aiN = Object.keys(a.answers).length;
+            if (aiN) {
+              const ap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmApplyAnswers, args: [a.answers] });
+              aiM = (ap || []).reduce((s, o) => s + ((o && o.result && o.result.applied) || 0), 0);
+              const out2 = await chrome.scripting.executeScript({
+                target: { tabId: tab.id, allFrames: true }, world: "MAIN",
+                func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
+              });
+              res = (out2 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || res;
+            }
           } else if (a && a.error === "no_ai_key") {
             res._aiNoKey = true;
           }
         }
       } catch (e) {}
+      res._ai = "AI f" + aiF + " a" + aiN + " ok" + aiM;   // diagnostic: snapshot / answered / applied
     }
 
-    if (!res.fileAttached) return { status: "needs_you", reason: "résumé didn't attach" };
+    if (!res.fileAttached) return { status: "needs_you", reason: ("resume not attached | " + (res._ai || "")).slice(0, 120) };
     if (res.unfilled && res.unfilled.length)
-      return { status: "needs_you", reason: ((res._aiNoKey ? "(set GEMINI_API_KEY) " : "") + res.unfilled.length + " required: " + res.unfilled.slice(0, 3).map((u) => u.label).join("; ")).slice(0, 120) };
+      return { status: "needs_you", reason: ((res._aiNoKey ? "(set GEMINI_API_KEY) " : "") + res.unfilled.length + " req: " + res.unfilled.slice(0, 2).map((u) => u.label).join("; ") + " | " + (res._ai || "")).slice(0, 150) };
 
     if (cfg.dryRun) return { status: "ready", reason: "dry run — would submit (" + res.filled + "/" + res.total + " filled)" };
     if (!cfg.autosubmit) return { status: "ready", reason: "filled (auto-submit off)" };
