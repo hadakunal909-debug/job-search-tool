@@ -99,83 +99,87 @@ async function jmProcessOne(item, cfg) {
       }
     }
     if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
-    const out = await chrome.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true }, world: "MAIN",
-      func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
-    });
-    let res = (out || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
+    // Fill the CURRENT page: deterministic pass, then AI pass for whatever it left empty.
+    async function fillPass() {
+      const o1 = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true }, world: "MAIN",
+        func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
+      });
+      let r = (o1 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
+      if (r.found && ((r.unfilled && r.unfilled.length) || !r.fileAttached)) {
+        let aiF = 0, aiN = 0, aiM = 0;
+        try {
+          const snap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmSnapshotForm });
+          let fields = [];
+          (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
+          aiF = fields.length;
+          if (fields.length) {
+            const a = await fetch(cfg.apibase + "/api/ext/answer", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: cfg.token, company: item.company, fields: fields.slice(0, 30) })
+            }).then((rr) => rr.json()).catch(() => null);
+            if (a && a.ok && a.answers) {
+              aiN = Object.keys(a.answers).length;
+              if (aiN) {
+                const ap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmApplyAnswers, args: [a.answers] });
+                aiM = (ap || []).reduce((s2, o) => s2 + ((o && o.result && o.result.applied) || 0), 0);
+                const o2 = await chrome.scripting.executeScript({
+                  target: { tabId: tab.id, allFrames: true }, world: "MAIN",
+                  func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
+                });
+                r = (o2 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || r;
+              }
+            } else if (a && a.error === "no_ai_key") { r._aiNoKey = true; }
+          }
+        } catch (e) {}
+        r._ai = "AI f" + aiF + " a" + aiN + " ok" + aiM;   // diagnostic: snapshot / answered / applied
+      }
+      return r;
+    }
+
+    let res = await fillPass();
     if (!res.found) return { status: "skipped", reason: "no supported form on page" };
     if (res.captcha) return { status: "needs_you", reason: "CAPTCHA on page" };
     if (res.login) return { status: "needs_you", reason: "login / account wall" };
-
-    // AI pass: for whatever the deterministic fill left empty, have the backend AI map the user's
-    // profile + résumé onto those fields, apply the answers, then recompute the fill result.
-    if ((res.unfilled && res.unfilled.length) || !res.fileAttached) {
-      let aiF = 0, aiN = 0, aiM = 0;                    // fields snapshotted, AI answers, applied
-      try {
-        const snap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmSnapshotForm });
-        let fields = [];
-        (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
-        aiF = fields.length;
-        if (fields.length) {
-          const a = await fetch(cfg.apibase + "/api/ext/answer", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: cfg.token, company: item.company, fields: fields.slice(0, 30) })
-          }).then((r) => r.json()).catch(() => null);
-          if (a && a.ok && a.answers) {
-            aiN = Object.keys(a.answers).length;
-            if (aiN) {
-              const ap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmApplyAnswers, args: [a.answers] });
-              aiM = (ap || []).reduce((s, o) => s + ((o && o.result && o.result.applied) || 0), 0);
-              const out2 = await chrome.scripting.executeScript({
-                target: { tabId: tab.id, allFrames: true }, world: "MAIN",
-                func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
-              });
-              res = (out2 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || res;
-            }
-          } else if (a && a.error === "no_ai_key") {
-            res._aiNoKey = true;
-          }
-        }
-      } catch (e) {}
-      res._ai = "AI f" + aiF + " a" + aiN + " ok" + aiM;   // diagnostic: snapshot / answered / applied
-    }
-
     if (!res.fileAttached) return { status: "needs_you", reason: ("resume not attached | " + (res._ai || "")).slice(0, 120) };
     if (res.unfilled && res.unfilled.length)
       return { status: "needs_you", reason: ((res._aiNoKey ? "(set GEMINI_API_KEY) " : "") + res.unfilled.length + " req: " + res.unfilled.slice(0, 2).map((u) => u.label).join("; ") + " | " + (res._ai || "")).slice(0, 150) };
 
     if (cfg.dryRun) return { status: "ready", reason: "dry run — would submit (" + res.filled + "/" + res.total + " filled)" };
     if (!cfg.autosubmit) return { status: "ready", reason: "filled (auto-submit off)" };
-    if (JM_Q.stop) return { status: "stopped", reason: "stopped" };   // never submit after a hard-stop
 
-    const sub = await chrome.scripting.executeScript({
-      target: { tabId: tab.id }, world: "MAIN", func: jmClickSubmit, args: [res.submitSelector]
-    });
-    if (!(sub && sub[0] && sub[0].result && sub[0].result.clicked))
-      return { status: "needs_you", reason: "submit button not found" };
-    await jmStoppableSleep(4000);
-    const stt = await chrome.scripting.executeScript({
-      target: { tabId: tab.id }, world: "MAIN", func: jmApplyState, args: [item.url]
-    });
-    const s = (stt && stt[0] && stt[0].result) || {};
-    if (s.captcha) {                                   // genuine challenge popped on submit — let the user solve it
-      keepTab = true;
-      try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
-      return { status: "needs_you", reason: "CAPTCHA on submit — tab left open; solve it & click submit" };
-    }
-    // Log to the tracker either way (submit was clicked) so there's a record to verify.
-    fetch(cfg.apibase + "/api/ext/save", {
+    // Submit, advancing through MULTI-STEP forms (click submit/next → re-fill the new step) until a
+    // real confirmation page, or until we hit a wall / can't progress.
+    const logApp = () => fetch(cfg.apibase + "/api/ext/save", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: cfg.token, title: item.title, company: item.company, url: item.url })
     }).catch(() => {});
-    // Only claim success on a REAL confirmation ("thank you / application received"). A mere URL
-    // change ("page advanced") often just means a multi-step form moved on — don't call that done.
-    if (s.confirmed) return { status: "submitted", reason: "confirmation page detected" };
-    keepTab = true;                                    // leave open so the user can verify / finish
-    return { status: "check", reason: s.changed
-      ? "submit clicked, page advanced — VERIFY (no confirmation; may be a multi-step form)"
-      : "submit clicked — VERIFY (no confirmation seen)" };
+    let prevHref = item.url;
+    for (let step = 0; step < 6; step++) {
+      if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
+      const sub = await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, world: "MAIN", func: jmClickSubmit, args: [res.submitSelector]
+      });
+      if (!(sub && sub[0] && sub[0].result && sub[0].result.clicked)) {
+        keepTab = true; logApp();
+        return { status: "check", reason: "submit/next button not found — VERIFY" };
+      }
+      await jmStoppableSleep(4000);
+      const st = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmApplyState, args: [prevHref] });
+      const s = (st && st[0] && st[0].result) || {};
+      if (s.confirmed) { logApp(); return { status: "submitted", reason: "confirmation page detected" + (step ? " (step " + (step + 1) + ")" : "") }; }
+      if (s.captcha) { keepTab = true; try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {} return { status: "needs_you", reason: "CAPTCHA on submit — tab open; solve it & submit" }; }
+      if (!s.changed) { keepTab = true; logApp(); return { status: "check", reason: "submit clicked, no change — VERIFY" }; }
+      // Page advanced to a new step — re-fill it and loop to submit again.
+      prevHref = s.href;
+      await jmStoppableSleep(1200);
+      res = await fillPass();
+      if (res.login) { keepTab = true; return { status: "needs_you", reason: "login wall at step " + (step + 2) }; }
+      if (res.captcha) { keepTab = true; try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {} return { status: "needs_you", reason: "CAPTCHA at step " + (step + 2) + " — tab open; solve it" }; }
+      if (res.unfilled && res.unfilled.length) { keepTab = true; logApp(); return { status: "check", reason: ("step " + (step + 2) + ": " + res.unfilled.length + " req: " + res.unfilled.slice(0, 2).map((u) => u.label).join("; ") + " | " + (res._ai || "")).slice(0, 150) }; }
+    }
+    keepTab = true; logApp();
+    return { status: "check", reason: "advanced through 6 steps, no confirmation — VERIFY" };
   } catch (e) {
     if (JM_Q.stop) return { status: "stopped", reason: "stopped" };   // tab was killed by hard-stop
     return { status: "error", reason: String((e && e.message) || e).slice(0, 140) };
