@@ -45,7 +45,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // required gaps) and there's no CAPTCHA/login wall. dryRun skips the real submit. Live progress is
 // written to chrome.storage.local("jm_queue") so the popup can render it. Keep the inter-job delay
 // under ~25s so the MV3 service worker isn't evicted between jobs (activity keeps it alive).
-const JM_Q = { stop: false, running: false, currentTabId: null };
+const JM_Q = { stop: false, running: false, currentTabId: null, lastFields: [] };
 // jmSleep is already defined in tesla_shared.js (imported above) — reuse it (don't redeclare,
 // or the shared worker scope throws "jmSleep already declared" → SW registration fails, code 15).
 const jmSaveQueue = (state) => new Promise((r) => chrome.storage.local.set({ jm_queue: state }, r));
@@ -113,6 +113,7 @@ async function jmProcessOne(item, cfg) {
           let fields = [];
           (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
           aiF = fields.length;
+          JM_Q.lastFields = fields;                       // captured for auto-diagnostics on failure
           if (fields.length) {
             const a = await fetch(cfg.apibase + "/api/ext/answer", {
               method: "POST", headers: { "Content-Type": "application/json" },
@@ -213,6 +214,13 @@ async function jmRunQueue(cfg) {
     const r = await jmProcessOne(state.items[i], cfg);
     state.items[i].status = r.status; state.items[i].reason = r.reason;
     await jmSaveQueue(state);
+    // Auto-report failing forms (structure only) so they can be fixed without manual error-relay.
+    if (["check", "needs_you", "error", "skipped"].indexOf(r.status) >= 0) {
+      fetch(cfg.apibase + "/api/ext/debug", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: cfg.token, url: state.items[i].url, company: state.items[i].company, status: r.status, reason: r.reason, fields: (JM_Q.lastFields || []).slice(0, 40) })
+      }).catch(() => {});
+    }
     if (i < state.items.length - 1 && !JM_Q.stop) await jmStoppableSleep(Math.min(cfg.delayMs || 8000, 20000));
   }
   if (JM_Q.stop) state.items.forEach((it) => { if (it.status === "queued" || it.status === "running") it.status = "stopped"; });

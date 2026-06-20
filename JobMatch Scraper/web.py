@@ -1783,6 +1783,30 @@ def ext_answer():
     return _cors(jsonify({"ok": True, "answers": answers}))
 
 
+@app.route("/api/ext/debug", methods=["POST", "OPTIONS"])
+def ext_debug():
+    """Extension -> capture a failing form's STRUCTURE (labels/types/options only — not the user's
+    answers) so the filler can be improved without the user relaying errors. Appended to a local
+    JSONL log. Token-authenticated."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False})), 401
+    rec = {"ts": db._now(), "user": user, "url": (data.get("url") or "")[:400],
+           "company": (data.get("company") or "")[:120], "status": data.get("status", ""),
+           "reason": (data.get("reason") or "")[:300], "ai": (data.get("ai") or "")[:80],
+           "fields": (data.get("fields") or [])[:40]}
+    try:
+        with open("ext_debug_log.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec)[:9000] + "\n")
+    except Exception:
+        pass
+    return _cors(jsonify({"ok": True}))
+
+
 @app.route("/api/ext/bulk_jobs", methods=["POST", "OPTIONS"])
 def ext_bulk_jobs():
     """Extension -> bulk-add postings READ FROM A PAGE in the user's own browser into the
