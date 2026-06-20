@@ -597,7 +597,7 @@ $("qstop").onclick = () => {
 let qPollTimer = null;
 function pollQueue() {
   if (qPollTimer) clearInterval(qPollTimer);
-  const icon = { submitted: "✅", ready: "🟢", needs_you: "⏸️", skipped: "⏭️", error: "⚠️", running: "⏳", queued: "·", stopped: "⏹️" };
+  const icon = { submitted: "✅", check: "🔍", ready: "🟢", needs_you: "⏸️", skipped: "⏭️", error: "⚠️", running: "⏳", queued: "·", stopped: "⏹️" };
   const tick = () => chrome.storage.local.get(["jm_queue"], (st) => {
     const q = st && st.jm_queue;
     if (!q) return;
@@ -606,8 +606,8 @@ function pollQueue() {
     const done = (q.items || []).filter((it) => it.status !== "queued" && it.status !== "running").length;
     $("qmsg").style.color = "#0b7a52";
     $("qmsg").textContent = (q.running ? "Running " : "Done ") + done + "/" + q.total +
-      " — ✅" + (c.submitted || 0) + " 🟢" + (c.ready || 0) + " ⏸️" + (c.needs_you || 0) + " ⚠️" + (c.error || 0) +
-      (q.dryRun ? " (dry run)" : "");
+      " — ✅" + (c.submitted || 0) + " 🔍" + (c.check || 0) + " 🟢" + (c.ready || 0) +
+      " ⏸️" + (c.needs_you || 0) + " ⚠️" + (c.error || 0) + (q.dryRun ? " (dry run)" : "");
     $("qresults").innerHTML = (q.items || []).map((it) =>
       "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'>" + (icon[it.status] || "·") + " <b>" +
       (it.company || "").replace(/</g, "&lt;") + "</b> " + (it.title || "").replace(/</g, "&lt;") +
