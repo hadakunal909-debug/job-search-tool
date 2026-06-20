@@ -35,6 +35,7 @@ bin/tectonic
 bin/tectonic.exe
 .tectonic-cache/
 tailored_cache_local.json
+learned_answers_local.json
 ext_debug_log.jsonl
 _m0_*.tex
 _m0_*.pdf

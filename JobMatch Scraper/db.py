@@ -15,6 +15,7 @@ See SUPABASE_SETUP.md for the one-time table + keys setup.
 import os
 import csv
 import json
+import re
 import datetime
 
 
@@ -686,7 +687,14 @@ APPLICATIONS_SQL = (
     # --- tailored-résumé cache ---
     "create table if not exists public.tailored_cache (\n"
     "  id text primary key, username text, data jsonb, created_at timestamptz default now());\n"
-    "create index if not exists tailored_cache_user_idx on public.tailored_cache (username);")
+    "create index if not exists tailored_cache_user_idx on public.tailored_cache (username);\n\n"
+    # --- learned answers (the extension's 'training' bank: how the user answers each question) ---
+    "create table if not exists public.learned_answers (\n"
+    "  username text not null, key text not null,\n"
+    "  label text, value text, type text, options jsonb, company text,\n"
+    "  count int default 1, updated_at timestamptz default now(),\n"
+    "  primary key (username, key));\n"
+    "create index if not exists learned_answers_user_idx on public.learned_answers (username);")
 
 
 def list_applications(username):
@@ -1105,6 +1113,91 @@ def put_tailored(cache_key, payload, username=""):
         data = {}
     data[cache_key] = payload
     _dump_json(TAILORED_CACHE_FILE, data)
+
+
+# ---- learned answers ("training" the auto-apply: how this user answers each question) ----
+# The extension captures {label, value, type, options} from forms the user fills (or auto-fills and
+# the user keeps), normalizes the label to a key, and upserts here. The fill flow then prefers the
+# user's OWN past answer over an AI guess. Same local-or-Supabase + graceful-degrade pattern.
+LEARNED_TABLE = "learned_answers"
+LEARNED_FILE = "learned_answers_local.json"              # {username: {key: {value,type,options,company,count,label}}}
+
+
+def normalize_label(label):
+    """Stable key for matching the same question across forms/ATS: lowercased, asterisks/parens
+    stripped, non-alphanumerics collapsed to spaces. 'Are you authorized to work in the US?*' and
+    'Are you authorized to work in the US' map to the same key."""
+    s = (label or "").lower()
+    s = re.sub(r"\((?:[^()]*\b(required|optional)\b[^()]*)\)", " ", s)
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:200]
+
+
+def get_learned(username):
+    """Map of {key: {value,type,options,company,count,label}} for the user. {} if none/unavailable."""
+    if not username:
+        return {}
+    if using_supabase():
+        try:
+            r = _http.get(_rest(LEARNED_TABLE), headers=_headers(),
+                          params={"username": "eq.%s" % username,
+                                  "select": "key,label,value,type,options,company,count", "limit": 5000}, timeout=20)
+            if r.status_code < 400:
+                out = {}
+                for row in r.json():
+                    out[row.get("key")] = {"value": row.get("value", ""), "type": row.get("type"),
+                                           "options": row.get("options"), "company": row.get("company"),
+                                           "count": row.get("count", 0), "label": row.get("label")}
+                return out                                # authoritative even when empty
+        except Exception:
+            pass
+    data = _load_json(LEARNED_FILE)
+    return (data.get(username) or {}) if isinstance(data, dict) else {}
+
+
+def save_learned(username, items):
+    """Upsert captured answers. items: [{label,type,value,options?,company?}]. Latest value wins;
+    count increments. Returns the number of answers stored. Best-effort (never raises)."""
+    if not username or not items:
+        return 0
+    existing = get_learned(username)
+    rows, seen = [], set()
+    for it in items:
+        label = (it.get("label") or "").strip()
+        value = it.get("value")
+        if not label or value in (None, ""):
+            continue
+        key = normalize_label(label)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        prev = existing.get(key) or {}
+        rows.append({"username": username, "key": key, "label": label[:300],
+                     "value": str(value)[:600], "type": (it.get("type") or "text")[:30],
+                     "options": it.get("options") or None, "company": (it.get("company") or "")[:120],
+                     "count": int(prev.get("count", 0) or 0) + 1, "updated_at": _now()})
+    if not rows:
+        return 0
+    if using_supabase():
+        try:
+            resp = _http.post(_rest(LEARNED_TABLE),
+                              headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                              params={"on_conflict": "username,key"}, data=json.dumps(rows), timeout=30)
+            if resp.status_code < 400:
+                return len(rows)
+        except Exception:
+            pass
+    data = _load_json(LEARNED_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    u = data.get(username) or {}
+    for r in rows:
+        u[r["key"]] = {"value": r["value"], "type": r["type"], "options": r["options"],
+                       "company": r["company"], "count": r["count"], "label": r["label"]}
+    data[username] = u
+    _dump_json(LEARNED_FILE, data)
+    return len(rows)
 
 
 # ---- live scrape progress (for the in-page "Update jobs" progress bar) ----
