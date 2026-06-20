@@ -1769,22 +1769,72 @@ def ext_answer():
     fields = data.get("fields") or []
     if not fields:
         return _cors(jsonify({"ok": True, "answers": {}}))
-    key = _ai_key_for(user)
-    if not key:
-        return _cors(jsonify({"ok": False, "error": "no_ai_key", "answers": {}}))
     try:
         prof = db.get_profile(user) or {}
     except Exception:
         prof = {}
+
+    # 1) LEARNED ANSWERS FIRST: the user's own past answers beat an AI guess. For option fields we
+    #    only reuse a learned value that still matches one of the offered options. This also lets the
+    #    bank work with NO AI key (only the genuinely-new questions need Gemini).
     try:
-        resume = db.profile_text(user) or ""
+        learned = db.get_learned(user)
     except Exception:
-        resume = ""
+        learned = {}
+    answers, unknown, used_learned = {}, [], 0
+    for f in fields:
+        fk = f.get("key")
+        lk = db.normalize_label(f.get("label") or "")
+        rec = learned.get(lk) if lk else None
+        val = (rec or {}).get("value") if rec else None
+        if val:
+            opts = f.get("options") or []
+            if opts:
+                vl = str(val).lower().strip()
+                if any(vl == str(o).lower().strip() or vl in str(o).lower() or str(o).lower().strip() in vl
+                       for o in opts):
+                    answers[fk] = val; used_learned += 1; continue
+            else:
+                answers[fk] = val; used_learned += 1; continue
+        unknown.append(f)
+
+    # 2) AI only for what the bank didn't cover.
+    key = _ai_key_for(user)
+    no_key = False
+    if unknown and key:
+        try:
+            resume = db.profile_text(user) or ""
+            answers.update(rb_ai.answer_fields(prof, resume, unknown, key, company=(data.get("company") or "")))
+        except Exception as e:
+            return _cors(jsonify({"ok": False, "error": str(e)[:160], "answers": answers, "learned": used_learned}))
+    elif unknown and not key:
+        no_key = True                                    # return learned answers anyway; AI just unavailable
+    return _cors(jsonify({"ok": True, "answers": answers, "learned": used_learned, "no_ai_key": no_key}))
+
+
+@app.route("/api/ext/learn", methods=["POST", "OPTIONS"])
+def ext_learn():
+    """'Train' the auto-apply: save how the USER answered a form's fields (captured from a page they
+    filled) so future fills prefer their real answer over an AI guess. Body:
+    {token, company, fields:[{label,type,value,options}]}. Returns {ok, saved:int}."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    items = data.get("fields") or []
+    company = (data.get("company") or "").strip()[:120]
+    if company:
+        for it in items:
+            if isinstance(it, dict):
+                it.setdefault("company", company)
     try:
-        answers = rb_ai.answer_fields(prof, resume, fields, key, company=(data.get("company") or ""))
+        saved = db.save_learned(user, items)
     except Exception as e:
-        return _cors(jsonify({"ok": False, "error": str(e)[:160], "answers": {}}))
-    return _cors(jsonify({"ok": True, "answers": answers}))
+        return _cors(jsonify({"ok": False, "error": str(e)[:160], "saved": 0}))
+    return _cors(jsonify({"ok": True, "saved": saved}))
 
 
 @app.route("/api/ext/vision", methods=["POST", "OPTIONS"])

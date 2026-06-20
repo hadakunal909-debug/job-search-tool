@@ -685,3 +685,61 @@ async function jmApplyVision(plan) {
   var submitSelector = (plan && plan.submit_index != null) ? ('[data-jmv="' + plan.submit_index + '"]') : null;
   return { applied: applied, submitSelector: submitSelector };
 }
+
+// ===================== TRAINING CAPTURE: read how the user filled this form =====================
+// jmCaptureFilled: return [{label,type,value,options?}] for every FILLED field on the page, so the
+// backend can learn how this user answers each question. Sensitive fields are skipped. Self-contained.
+function jmCaptureFilled() {
+  function vis(el) {
+    if (!el || el.disabled) return false;
+    if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;
+    var r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden" && r.width > 1 && r.height > 1;
+  }
+  function lbl(el) {
+    var p = [];
+    if (el.id) { var l = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
+    var w = el.closest("label"); if (w) p.push(w.textContent);
+    if (el.getAttribute("aria-label")) p.push(el.getAttribute("aria-label"));
+    var alby = el.getAttribute("aria-labelledby");
+    if (alby) alby.split(/\s+/).forEach(function (id) { var n = document.getElementById(id); if (n) p.push(n.textContent); });
+    if (el.getAttribute("placeholder")) p.push(el.getAttribute("placeholder"));
+    var c = el.closest("fieldset, .field, [class*=field], [class*=question], .select__container, .select");
+    if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) p.push(lg.textContent); }
+    return p.join(" ").replace(/\s+/g, " ").trim().slice(0, 200);
+  }
+  function isCombo(el) {
+    return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || !!el.closest(".select__container, [class*=select__]");
+  }
+  function comboVal(el) {
+    var c = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']");
+    var sv = c && c.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value']");
+    return sv ? (sv.textContent || "").replace(/\s+/g, " ").trim() : "";
+  }
+  var SENSITIVE = /password|social security|\bssn\b|card number|cvv|cvc|routing|account number|date of birth|\bdob\b/i;
+  var out = [], seen = {};
+  document.querySelectorAll("input, select, textarea").forEach(function (el) {
+    if (/hidden|submit|button|password|file/.test(el.type)) return;
+    if (el.type === "radio" || el.type === "checkbox") return;
+    if (!vis(el)) return;
+    var label = lbl(el); if (!label || SENSITIVE.test(label)) return;
+    var value = "", type = "text", options = null;
+    if (el.tagName === "SELECT") { type = "select"; if (el.selectedIndex > 0) value = (el.options[el.selectedIndex].textContent || "").trim(); options = Array.prototype.map.call(el.options, function (o) { return (o.textContent || "").trim(); }).filter(Boolean).slice(0, 40); }
+    else if (isCombo(el)) { type = "combobox"; value = comboVal(el); }
+    else { value = String(el.value || "").trim(); }
+    if (!value) return;                                  // only learn from FILLED fields
+    if (seen[label]) return; seen[label] = 1;
+    out.push({ label: label, type: type, value: value, options: options });
+  });
+  document.querySelectorAll("fieldset, [role=radiogroup]").forEach(function (g) {
+    var checked = g.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked"); if (!checked.length) return;
+    var lg = g.querySelector("legend, label, .label");
+    var label = ((lg ? lg.textContent : "") || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!label || SENSITIVE.test(label) || seen[label]) return;
+    var vals = [];
+    checked.forEach(function (rb) { var rl = rb.closest("label") || (rb.id && document.querySelector('label[for="' + rb.id + '"]')); vals.push(((rl ? rl.textContent : rb.value) || "").replace(/\s+/g, " ").trim()); });
+    var v = vals.filter(Boolean).join(", "); if (!v) return;
+    seen[label] = 1; out.push({ label: label, type: "radio", value: v, options: null });
+  });
+  return out.slice(0, 50);
+}

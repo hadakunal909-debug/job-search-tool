@@ -389,6 +389,29 @@ $("tailorfill").onclick = async () => {
   }
 };
 
+// TRAIN: capture how the user filled THIS page and save it to their answer bank, so future
+// auto-fills prefer their real answers over an AI guess.
+$("learnpage").onclick = async () => {
+  const tab = await activeTab();
+  const tm = $("tailormsg");
+  tm.style.color = "#0b7a52"; tm.textContent = "Reading your answers on this page…";
+  try {
+    const out = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmCaptureFilled });
+    let fields = [];
+    (out || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
+    if (!fields.length) { tm.style.color = "#c0392b"; tm.textContent = "No filled fields found here — fill the form first, then save."; return; }
+    const r = await fetch(cfg.apibase + "/api/ext/learn", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: cfg.token, company: $("company").value.trim(), fields })
+    });
+    const j = await r.json();
+    if (!j.ok) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't save: " + (j.error || "failed"); return; }
+    tm.style.color = "#0b7a52";
+    tm.textContent = "✅ Learned " + (j.saved || 0) + " answer(s). Future fills will use them.";
+  } catch (e) { tm.style.color = "#c0392b"; tm.textContent = "Error: " + e.message; }
+};
+
 function autoStatLine(last) {
   if (!last || !last.at) return "🤖 Tesla auto-import: not run yet (runs daily in the background)";
   const when = new Date(last.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
