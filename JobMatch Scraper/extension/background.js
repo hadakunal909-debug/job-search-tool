@@ -79,6 +79,7 @@ async function jmProcessOne(item, cfg) {
   if (!t) return { status: "error", reason: "tailor network error" };
   if (!t.ok) return { status: "error", reason: "tailor: " + (t.error || "failed") };
 
+  let keepTab = false;                                 // leave the tab open if a human must finish it
   const tab = await chrome.tabs.create({ url: item.url, active: false });
   JM_Q.currentTabId = tab.id;
   try {
@@ -151,7 +152,11 @@ async function jmProcessOne(item, cfg) {
       target: { tabId: tab.id }, world: "MAIN", func: jmApplyState, args: [item.url]
     });
     const s = (stt && stt[0] && stt[0].result) || {};
-    if (s.captcha) return { status: "needs_you", reason: "CAPTCHA after submit" };
+    if (s.captcha) {                                   // genuine challenge popped on submit — let the user solve it
+      keepTab = true;
+      try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
+      return { status: "needs_you", reason: "CAPTCHA on submit — tab left open; solve it & click submit" };
+    }
     fetch(cfg.apibase + "/api/ext/save", {                 // log to tracker (best-effort)
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: cfg.token, title: item.title, company: item.company, url: item.url })
@@ -162,7 +167,7 @@ async function jmProcessOne(item, cfg) {
     return { status: "error", reason: String((e && e.message) || e).slice(0, 140) };
   } finally {
     JM_Q.currentTabId = null;
-    try { await chrome.tabs.remove(tab.id); } catch (e) {}
+    if (!keepTab) { try { await chrome.tabs.remove(tab.id); } catch (e) {} }
   }
 }
 

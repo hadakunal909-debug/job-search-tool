@@ -368,11 +368,15 @@ function jmClickApply() {
 function jmApplyState(prevHref) {
   var body = document.body ? (document.body.innerText || "").slice(0, 5000) : "";
   function visChallenge() {
-    var sels = ['iframe[src*="recaptcha/api2/bframe"]', 'iframe[src*="recaptcha/api2/anchor"]',
-      'iframe[src*="hcaptcha.com"]', 'iframe[src*="challenges.cloudflare.com"]', '.h-captcha', '.cf-turnstile'];
-    for (var i = 0; i < sels.length; i++) {
-      var n = document.querySelectorAll(sels[i]);
-      for (var j = 0; j < n.length; j++) { var r = n[j].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
+    // real challenge = image popup (bframe) / hCaptcha / Turnstile, or a v2 checkbox that is NOT
+    // the invisible v3 badge. Ignore the badge (it's on the page even when nothing is required).
+    var hard = document.querySelectorAll('iframe[src*="recaptcha/api2/bframe"], iframe[src*="hcaptcha.com"], iframe[src*="challenges.cloudflare.com"], .h-captcha, .cf-turnstile');
+    for (var i = 0; i < hard.length; i++) { var r = hard[i].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
+    var anchors = document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"]');
+    for (var j = 0; j < anchors.length; j++) {
+      if (anchors[j].closest(".grecaptcha-badge")) continue;     // invisible v3 badge — not a wall
+      var rr = anchors[j].getBoundingClientRect();
+      if (rr.width > 10 && rr.height > 10) return true;
     }
     return false;
   }
