@@ -581,14 +581,15 @@ $("qstart").onclick = async () => {
   // "must request permission to access the respective host" errors.
   const granted = await new Promise((res) => chrome.permissions.request({ origins: ["https://*/*"] }, res));
   if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied — needed to fill the pages."; return; }
-  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs });
+  // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
+  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#0b7a52";
   $("qmsg").textContent = "Started: " + items.length + " jobs (" + (dryRun ? "dry run" : (autosubmit ? "AUTO-SUBMIT" : "fill only")) + ").";
   pollQueue();
 };
 
 $("qstop").onclick = () => {
-  chrome.runtime.sendMessage({ type: "jm_queue_stop" });
+  chrome.runtime.sendMessage({ type: "jm_queue_stop" }, function () { void chrome.runtime.lastError; });
   $("qmsg").textContent = "Stopping after the current job…";
 };
 
