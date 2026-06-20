@@ -180,11 +180,16 @@ async function jmRunQueue(cfg) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === "jm_queue_start") {
+    // Fire-and-forget: a run can take many minutes. Acknowledge immediately so the popup's message
+    // channel closes cleanly (progress is read from chrome.storage). Previously we returned true and
+    // awaited the whole queue, which logged "message channel closed before a response" once the popup
+    // closed — harmless, but noisy.
     jmRunQueue({
       items: msg.items || [], apibase: msg.apibase, token: msg.token,
       dryRun: msg.dryRun !== false, autosubmit: !!msg.autosubmit, delayMs: msg.delayMs || 8000
-    }).then(sendResponse);
-    return true;
+    });
+    sendResponse({ ok: true, started: true });
+    return;                                            // synchronous reply — don't hold the channel
   }
   if (msg.type === "jm_queue_stop") { JM_Q.stop = true; sendResponse({ ok: true }); return; }
 });
