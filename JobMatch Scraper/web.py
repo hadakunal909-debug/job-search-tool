@@ -1787,6 +1787,43 @@ def ext_answer():
     return _cors(jsonify({"ok": True, "answers": answers}))
 
 
+@app.route("/api/ext/vision", methods=["POST", "OPTIONS"])
+def ext_vision():
+    """VISION FALLBACK form-filler -> the model sees a SCREENSHOT of the page plus enumerated
+    interactive elements and returns a fill plan. Used only when the normal deterministic+answer
+    pass parks. Body: {token, elements:[{index,label,type,options,value}], screenshot:<base64 png>,
+    company}. Returns {ok, plan:{sets:[{index,value}], submit_index}}. Needs a Gemini key."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    elements = data.get("elements") or []
+    shot = (data.get("screenshot") or "").strip()
+    if shot.startswith("data:"):                         # strip a data:image/png;base64, prefix
+        shot = shot.split(",", 1)[-1]
+    if not elements:
+        return _cors(jsonify({"ok": True, "plan": {"sets": [], "submit_index": None}}))
+    key = _ai_key_for(user)
+    if not key:
+        return _cors(jsonify({"ok": False, "error": "no_ai_key", "plan": {"sets": [], "submit_index": None}}))
+    try:
+        prof = db.get_profile(user) or {}
+    except Exception:
+        prof = {}
+    try:
+        resume = db.profile_text(user) or ""
+    except Exception:
+        resume = ""
+    try:
+        plan = rb_ai.vision_fill_plan(prof, resume, elements, shot, key, company=(data.get("company") or ""))
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": str(e)[:160], "plan": {"sets": [], "submit_index": None}}))
+    return _cors(jsonify({"ok": True, "plan": plan}))
+
+
 @app.route("/api/ext/debug", methods=["POST", "OPTIONS"])
 def ext_debug():
     """Extension -> capture a failing form's STRUCTURE (labels/types/options only — not the user's

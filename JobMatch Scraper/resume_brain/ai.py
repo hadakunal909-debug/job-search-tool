@@ -51,10 +51,11 @@ _FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash
 
 
 def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
-              think=True, json_mode=True, model=None, timeout=_REQ_TIMEOUT):
+              think=True, json_mode=True, model=None, timeout=_REQ_TIMEOUT, image_b64=None):
     """generateContent with automatic model fallback: try the configured model first; if it times
     out (default 30s), 404s, errors, or returns empty, SHIFT to the next model. Returns the text;
-    raises RuntimeError only if every candidate fails."""
+    raises RuntimeError only if every candidate fails. Pass image_b64 (base64 PNG, no data: prefix)
+    to send a screenshot alongside the prompt (multimodal — used by the vision form-fill fallback)."""
     if not api_key:
         raise RuntimeError("No Gemini API key provided.")
     primary = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
@@ -69,7 +70,10 @@ def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
             gen["responseMimeType"] = "application/json"
         if with_think:
             gen["thinkingConfig"] = {"thinkingBudget": -1}
-        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
+        parts = [{"text": prompt}]
+        if image_b64:
+            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+        body = {"contents": [{"parts": parts}], "generationConfig": gen}
         return requests.post(_BASE % m, params={"key": api_key}, headers=_HDR,
                              json=body, timeout=timeout)
 
@@ -269,3 +273,63 @@ def answer_fields(profile, resume, fields, api_key, company=""):
         return {}
     obj = parse_json(text) or {}
     return {str(k): ("" if v is None else str(v)) for k, v in obj.items() if isinstance(k, str)}
+
+
+def vision_fill_plan(profile, resume, elements, screenshot_b64, api_key, company=""):
+    """VISION FALLBACK (used only when the normal deterministic+answer pass parks). Given a SCREENSHOT
+    of the application page plus an enumerated list of its interactive elements (each: index, type,
+    label, options, current value), the model decides a value for every element that still needs one
+    and identifies the button that advances the form. The screenshot lets it solve forms whose labels
+    the DOM heuristics couldn't read. Returns {"sets":[{"index":int,"value":str}], "submit_index":int|None}.
+    Acts on enumerated elements (not raw pixel clicks), so the deterministic filler still does the work."""
+    if not elements:
+        return {"sets": [], "submit_index": None}
+    prof = profile or {}
+    prof_txt = "\n".join("%s: %s" % (k, v) for k, v in prof.items()
+                         if v and k not in ("username", "updated_at", "extra", "application_defaults"))
+    lines = []
+    for e in elements[:60]:
+        opts = e.get("options") or []
+        optstr = ("\n    OPTIONS: " + " | ".join(str(o)[:60] for o in opts[:40])) if opts else ""
+        cur = (" | current=%r" % e.get("value")) if e.get("value") else ""
+        lines.append("- index=%s | type=%s | label=%s%s%s"
+                     % (e.get("index"), e.get("type", "text"), (e.get("label") or "")[:160], cur, optstr))
+    prompt = (
+        "You are completing a job application form. You are shown a SCREENSHOT of the page and a list "
+        "of its interactive elements (indexed). Use ONLY the candidate's real data below. Rules:\n"
+        "- Decide a value for each element that still needs one to submit. Skip elements already "
+        "correctly filled (current shown).\n"
+        "- If an element lists OPTIONS, the value MUST be EXACTLY one of those option strings (verbatim), "
+        "or \"\" if none truly fit.\n"
+        "- NEVER invent employers, titles, dates, degrees, numbers, salaries, or any fact not in the "
+        "data. When unsure, omit the element.\n"
+        "- Do NOT fill voluntary demographic fields unless the candidate profile gives the value.\n"
+        "- Work authorization: authorized=%s; needs visa sponsorship=%s.\n"
+        "- Identify submit_index = the index of the button that ADVANCES/SUBMITS the form (Submit/"
+        "Continue/Next/Review), NOT Back/Cancel/Save-draft. Use null if none is visible.\n\n"
+        "=== CANDIDATE PROFILE ===\n%s\n\n=== RÉSUMÉ ===\n%s\n\n=== TARGET COMPANY ===\n%s\n\n"
+        "=== ELEMENTS ===\n%s\n\n"
+        "Return ONLY JSON: {\"sets\":[{\"index\":<int>,\"value\":\"<string>\"}],\"submit_index\":<int or null>}\n"
+        "=== JSON ==="
+        % (prof.get("work_authorized", ""), prof.get("needs_sponsorship", ""),
+           prof_txt or "(none)", (resume or "")[:4000], company or "(unknown)", "\n".join(lines))
+    )
+    try:
+        text = _generate(prompt, api_key, temperature=0.2, max_tokens=4096, think=False,
+                         json_mode=True, image_b64=screenshot_b64)
+    except Exception:
+        return {"sets": [], "submit_index": None}
+    obj = parse_json(text) or {}
+    sets = []
+    for s in (obj.get("sets") or []):
+        if isinstance(s, dict) and s.get("index") is not None and s.get("value") not in (None, ""):
+            try:
+                sets.append({"index": int(s["index"]), "value": str(s["value"])})
+            except (TypeError, ValueError):
+                pass
+    si = obj.get("submit_index")
+    try:
+        si = int(si) if si is not None else None
+    except (TypeError, ValueError):
+        si = None
+    return {"sets": sets, "submit_index": si}

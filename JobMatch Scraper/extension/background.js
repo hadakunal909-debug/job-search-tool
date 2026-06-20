@@ -138,10 +138,38 @@ async function jmProcessOne(item, cfg) {
       return r;
     }
 
+    // VISION FALLBACK (opt-in): if the deterministic + AI-answer pass still left required fields
+    // empty and there's no wall, let a vision model take a pass — it sees a screenshot of the page
+    // plus every interactive element and decides values the label heuristics missed. Needs a VISIBLE
+    // tab (captureVisibleTab), so we briefly foreground it; that's why it's a last resort, not default.
+    async function visionPass() {
+      try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
+      await jmStoppableSleep(500);
+      let shot = "";
+      try { shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }); } catch (e) {}
+      if (!shot) return;
+      let elements = [];
+      try {
+        const sn = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmVisionSnapshot });
+        elements = (sn && sn[0] && sn[0].result) || [];
+      } catch (e) {}
+      if (!elements.length) return;
+      const v = await fetch(cfg.apibase + "/api/ext/vision", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: cfg.token, company: item.company, elements: elements.slice(0, 50), screenshot: shot })
+      }).then((r) => r.json()).catch(() => null);
+      if (!v || !v.ok || !v.plan) return;
+      try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: jmApplyVision, args: [v.plan] }); } catch (e) {}
+    }
+
     let res = await fillPass();
     if (!res.found) return { status: "skipped", reason: "no supported form on page" };
     if (res.captcha) return { status: "needs_you", reason: "CAPTCHA on page" };
     if (res.login) return { status: "needs_you", reason: "login / account wall" };
+    if (cfg.vision && res.fileAttached && res.unfilled && res.unfilled.length && !JM_Q.stop) {
+      try { await visionPass(); } catch (e) {}
+      res = await fillPass();                            // re-check what the vision pass landed
+    }
     if (!res.fileAttached) return { status: "needs_you", reason: ("resume not attached | " + (res._ai || "")).slice(0, 120) };
     if (res.unfilled && res.unfilled.length)
       return { status: "needs_you", reason: ((res._aiNoKey ? "(set GEMINI_API_KEY) " : "") + res.unfilled.length + " req: " + res.unfilled.slice(0, 2).map((u) => u.label).join("; ") + " | " + (res._ai || "")).slice(0, 150) };
@@ -238,7 +266,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // closed — harmless, but noisy.
     jmRunQueue({
       items: msg.items || [], apibase: msg.apibase, token: msg.token,
-      dryRun: msg.dryRun !== false, autosubmit: !!msg.autosubmit, delayMs: msg.delayMs || 8000
+      dryRun: msg.dryRun !== false, autosubmit: !!msg.autosubmit, delayMs: msg.delayMs || 8000,
+      vision: !!msg.vision
     });
     sendResponse({ ok: true, started: true });
     return;                                            // synchronous reply — don't hold the channel
