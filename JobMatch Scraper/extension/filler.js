@@ -336,9 +336,16 @@ async function jmFillApplication(payload) {
 // Click the real submit button (injected by the batch runner / overlay). Self-contained.
 function jmClickSubmit(selector) {
   var btn = selector ? document.querySelector(selector) : null;
+  if (btn && btn.offsetParent === null) btn = null;        // selector matched a hidden element
   if (!btn) {
-    var all = Array.prototype.slice.call(document.querySelectorAll("button, input[type=submit]"));
-    btn = all.filter(function (b) { return /^(submit|submit application|apply)/i.test((b.textContent || b.value || "").trim()); })[0];
+    var all = Array.prototype.slice.call(document.querySelectorAll("button, input[type=submit], [role=button]"));
+    var cand = all.filter(function (b) {
+      var t = (b.textContent || b.value || "").trim();
+      if (!t || b.offsetParent === null || b.disabled) return false;
+      if (/back|cancel|previous|save draft|save for later|sign ?in|log ?in/i.test(t)) return false;
+      return /submit|continue|next|review|finish|^apply/i.test(t);     // intermediate or final step button
+    });
+    btn = cand.filter(function (b) { return /submit|finish/i.test(b.textContent || b.value || ""); })[0] || cand[0];
   }
   if (!btn) return { clicked: false, href: location.href };
   btn.scrollIntoView({ block: "center" });
