@@ -11,10 +11,11 @@
 // fills ANY standard application form (file upload + email + submit) via autocomplete/type/label
 // heuristics, so it works far beyond the named ATS. Login/CAPTCHA-walled flows (Workday, iCIMS,
 // Oracle, Taleo) are detected and reported as walls — they can't be auto-filled.
-function jmFillApplication(payload) {
+async function jmFillApplication(payload) {
   payload = payload || {};
   var F = payload.fields || {};
   var file = payload.file || null;
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   // ----------------------------- low-level DOM helpers -----------------------------
   function vis(el) {
@@ -35,7 +36,14 @@ function jmFillApplication(payload) {
     if (!el || value == null || value === "") return false;
     if (String(el.value || "").trim()) return true;   // don't clobber what's already there
     setNativeValue(el, String(value));
-    return true;
+    if (!String(el.value || "").trim()) {              // controlled widget rejected it — TYPE it
+      try {
+        el.focus(); if (el.select) el.select();
+        if (document.execCommand) document.execCommand("insertText", false, String(value));
+        el.dispatchEvent(new Event("change", { bubbles: true })); el.blur();
+      } catch (e) {}
+    }
+    return !!String(el.value || "").trim();
   }
   function firstSel(selectors) {
     for (var i = 0; i < (selectors || []).length; i++) {
@@ -233,24 +241,60 @@ function jmFillApplication(payload) {
     { re: /city/, val: addr.city }, { re: /\bstate\b|province/, val: addr.state },
     { re: /zip|postal/, val: addr.postal }, { re: /country/, val: addr.country }, { re: /address/, val: addr.line1 }
   ];
-  function applyRule(el, t) {
+  function coreMatch(el) {
+    return [A.name.first, A.name.last, A.name.full, A.email, A.phone].some(function (ss) {
+      return (ss || []).some(function (s) { try { return el.matches(s); } catch (e) { return false; } });
+    });
+  }
+  function ruleValues(t) {
     for (var i = 0; i < RULES.length; i++) {
       var r = RULES[i];
       if (r.onlyIf === false || !r.re.test(t)) continue;
-      var vals = (Array.isArray(r.val) ? r.val : [r.val]).filter(Boolean);  // try candidates in order
-      if (!vals.length) continue;
-      if (el.tagName === "SELECT") { for (var v = 0; v < vals.length; v++) if (setSelectByText(el, vals[v])) return true; return false; }
-      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|url|tel|number|search|)$/.test(el.type))) return setText(el, vals[0]);
-      return false;
+      var vals = (Array.isArray(r.val) ? r.val : [r.val]).filter(Boolean);
+      if (vals.length) return vals;
     }
+    return null;
+  }
+  function isCombobox(el) {
+    return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" ||
+      !!el.closest(".select__container, [class*=select__]");
+  }
+  // react-select / Greenhouse combobox: open the menu, type to filter, click the matching option.
+  async function fillCombobox(el, vals) {
+    var control = el.closest(".select__control") || el.closest(".select__container") || el.parentElement || el;
+    control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    try { el.focus(); } catch (e) {}
+    await sleep(150);
+    for (var c = 0; c < vals.length; c++) {
+      var want = String(vals[c] || "").toLowerCase().trim();
+      if (!want) continue;
+      try { setNativeValue(el, vals[c]); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
+      await sleep(180);
+      var opts = document.querySelectorAll('.select__option, [id*="-option-"], [role="option"]');
+      var exact = null, partial = null;
+      for (var k = 0; k < opts.length; k++) {
+        var ot = (opts[k].textContent || "").toLowerCase().trim();
+        if (!ot) continue;
+        if (ot === want) { exact = opts[k]; break; }
+        if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k];
+      }
+      var pick = exact || partial;
+      if (pick) { pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); pick.click(); await sleep(80); return true; }
+    }
+    try { el.blur(); } catch (e) {}
     return false;
   }
-  document.querySelectorAll("input, select, textarea").forEach(function (el) {
-    if (!vis(el) || /hidden|file|submit|button|password/.test(el.type) || el.type === "radio" || el.type === "checkbox") return;
-    if ([A.name.first, A.name.last, A.name.full, A.email, A.phone].some(function (ss) {
-      return (ss || []).some(function (s) { try { return el.matches(s); } catch (e) { return false; } }); })) return;
-    var t = labelText(el); if (t) applyRule(el, t);
-  });
+  var allFields = Array.prototype.slice.call(document.querySelectorAll("input, select, textarea"));
+  for (var afi = 0; afi < allFields.length; afi++) {
+    var fel = allFields[afi];
+    if (!vis(fel) || /hidden|file|submit|button|password/.test(fel.type) || fel.type === "radio" || fel.type === "checkbox") continue;
+    if (coreMatch(fel)) continue;
+    var flbl = labelText(fel); if (!flbl) continue;
+    var fvals = ruleValues(flbl); if (!fvals) continue;
+    if (isCombobox(fel)) { await fillCombobox(fel, fvals); }
+    else if (fel.tagName === "SELECT") { for (var sv = 0; sv < fvals.length; sv++) if (setSelectByText(fel, fvals[sv])) break; }
+    else if (fel.tagName === "TEXTAREA" || (fel.tagName === "INPUT" && /^(text|url|tel|number|search|)$/.test(fel.type))) setText(fel, fvals[0]);
+  }
   // radio/checkbox groups (work auth, sponsorship, EEO, relocate)
   document.querySelectorAll("fieldset, [role=radiogroup], .field, [class*=question]").forEach(function (g) {
     var t = (g.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
