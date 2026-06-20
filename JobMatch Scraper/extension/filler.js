@@ -142,7 +142,8 @@ function jmFillApplication(payload) {
     greenhouse: {
       test: function () { return /greenhouse/.test(location.hostname) || document.querySelector('#first_name, #s3_upload_for_resume, form[action*="greenhouse"], #application_form'); },
       name: { first: ['#first_name', 'input[name="job_application[first_name]"]'], last: ['#last_name', 'input[name="job_application[last_name]"]'], full: [] },
-      email: ['#email', 'input[type=email]'], phone: ['#phone', 'input[type=tel]'],
+      email: ['#email', 'input[type=email]'],
+      phone: ['#phone', 'input[type=tel]', 'input[autocomplete="tel"]', 'input[name*="phone" i]'],
       resumeFile: ['input[type=file][id*="resume" i]', '#s3_upload_for_resume', 'input[type=file]'],
       submit: '#submit_app, button[type=submit], input[type=submit]'
     },
@@ -206,6 +207,8 @@ function jmFillApplication(payload) {
   // 3) fuzzy label matching: links + common custom questions + EEO
   var links = F.links || {}, work = F.work_auth || {}, eeo = F.eeo || {}, comp = F.comp || {}, addr = F.address || {};
   var RULES = [
+    { re: /\bphone\b|mobile number|cell( phone)?/, val: F.phone },
+    { re: /preferred (first )?name/, val: F.first_name }, { re: /preferred last name/, val: F.last_name },
     { re: /linkedin/, val: links.linkedin },
     { re: /github/, val: links.github },
     { re: /portfolio|personal (web)?site|website/, val: links.portfolio || links.website },
@@ -213,8 +216,9 @@ function jmFillApplication(payload) {
     { re: /desired (salary|compensation|pay)|salary expectation/, val: comp.desired_salary },
     { re: /start date|available|availability/, val: F.start_date },
     { re: /willing to relocate|open to relocat|relocat/, val: F.relocate ? "Yes" : "No", onlyIf: F.relocate !== "" && F.relocate != null },
-    { re: /authoriz|legally (eligible|able) to work|work authorization/, val: work.status_label || (work.authorized ? "Yes" : "No") },
-    { re: /require.*(sponsor|visa)|sponsorship/, val: work.requires_sponsorship ? "Yes" : "No" },
+    // Yes/No dropdowns: feed "Yes"/"No", NOT the status label (which never matches Yes/No options).
+    { re: /authoriz|legally (eligible|able) to work|work authorization|eligible to work/, val: work.authorized ? "Yes" : "No" },
+    { re: /sponsor|work permit|need.*visa|require.*visa|visa.*(need|require|sponsor)/, val: work.requires_sponsorship ? "Yes" : "No" },
     { re: /gender/, val: eeo.gender }, { re: /hispanic|latino/, val: eeo.hispanic_latino },
     { re: /race|ethnic/, val: eeo.race }, { re: /veteran/, val: eeo.veteran }, { re: /disab/, val: eeo.disability },
     { re: /city/, val: addr.city }, { re: /\bstate\b|province/, val: addr.state },
