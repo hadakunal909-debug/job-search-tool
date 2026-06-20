@@ -22,6 +22,14 @@ import functools
 
 import gzip as _gzip
 
+# Load a local .env (GEMINI_API_KEY, SUPABASE_*, etc.) when running `python web.py`. No-op if
+# python-dotenv isn't installed or there's no .env — production sets real env vars.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 from flask import (Flask, request, session, redirect, url_for,
                    render_template, flash, g, Response)
 
@@ -1739,6 +1747,39 @@ def ext_apply_queue():
     jobs = [{"url": j.get("url"), "title": j.get("title", ""), "company": j.get("company", ""),
              "score": score(j), "liked": j.get("url") in liked} for j in rows[:limit]]
     return _cors(jsonify({"ok": True, "jobs": jobs, "count": len(jobs)}))
+
+
+@app.route("/api/ext/answer", methods=["POST", "OPTIONS"])
+def ext_answer():
+    """Extension form-filler -> AI maps the user's profile + résumé onto a batch of still-empty
+    form fields. Body: {token, fields:[{key,label,type,options}], company}. Returns
+    {ok, answers:{key:value}}. Needs a Gemini key (session or server GEMINI_API_KEY)."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    fields = data.get("fields") or []
+    if not fields:
+        return _cors(jsonify({"ok": True, "answers": {}}))
+    key = _ai_key_for(user)
+    if not key:
+        return _cors(jsonify({"ok": False, "error": "no_ai_key", "answers": {}}))
+    try:
+        prof = db.get_profile(user) or {}
+    except Exception:
+        prof = {}
+    try:
+        resume = db.profile_text(user) or ""
+    except Exception:
+        resume = ""
+    try:
+        answers = rb_ai.answer_fields(prof, resume, fields, key, company=(data.get("company") or ""))
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": str(e)[:160], "answers": {}}))
+    return _cors(jsonify({"ok": True, "answers": answers}))
 
 
 @app.route("/api/ext/bulk_jobs", methods=["POST", "OPTIONS"])
