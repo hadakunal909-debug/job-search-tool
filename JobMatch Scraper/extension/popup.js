@@ -574,13 +574,16 @@ $("qstart").onclick = async () => {
   if (!items.length) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
   const dryRun = $("qdry").checked, autosubmit = $("qauto").checked;
   const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 8)) * 1000;
+  // Grant broad site access FIRST, before any confirm()/alert() below. A JS dialog consumes the
+  // click's transient user activation, after which chrome.permissions.request throws
+  // "This function must be called during a user gesture". Reading lastError also silences the
+  // "Unchecked runtime.lastError" console warning. Per-origin breaks when an apply page redirects
+  // to another host (a company's own careers domain), so we ask for https://*/* (idempotent once granted).
+  const granted = await new Promise((res) =>
+    chrome.permissions.request({ origins: ["https://*/*"] }, (r) => { void chrome.runtime.lastError; res(r); }));
+  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied — needed to fill the pages."; return; }
   if (!dryRun && autosubmit &&
       !confirm("This will SUBMIT real applications to " + items.length + " job(s) with no review. Continue?")) return;
-  // grant broad site access once (user-gesture required). Per-origin breaks when an apply page
-  // redirects to another host (e.g. a company's own careers domain) — that caused the
-  // "must request permission to access the respective host" errors.
-  const granted = await new Promise((res) => chrome.permissions.request({ origins: ["https://*/*"] }, res));
-  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied — needed to fill the pages."; return; }
   // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
   chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#0b7a52";
