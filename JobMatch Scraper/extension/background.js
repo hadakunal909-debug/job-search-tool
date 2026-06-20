@@ -45,10 +45,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // required gaps) and there's no CAPTCHA/login wall. dryRun skips the real submit. Live progress is
 // written to chrome.storage.local("jm_queue") so the popup can render it. Keep the inter-job delay
 // under ~25s so the MV3 service worker isn't evicted between jobs (activity keeps it alive).
-const JM_Q = { stop: false, running: false };
+const JM_Q = { stop: false, running: false, currentTabId: null };
 // jmSleep is already defined in tesla_shared.js (imported above) — reuse it (don't redeclare,
 // or the shared worker scope throws "jmSleep already declared" → SW registration fails, code 15).
 const jmSaveQueue = (state) => new Promise((r) => chrome.storage.local.set({ jm_queue: state }, r));
+// Interruptible sleep — bails the instant a hard-stop is requested.
+async function jmStoppableSleep(ms) {
+  const step = 250;
+  for (let t = 0; t < ms && !JM_Q.stop; t += step) await jmSleep(Math.min(step, ms - t));
+}
 
 function jmWaitForLoad(tabId, timeout) {
   return new Promise((resolve) => {
@@ -75,13 +80,15 @@ async function jmProcessOne(item, cfg) {
   if (!t.ok) return { status: "error", reason: "tailor: " + (t.error || "failed") };
 
   const tab = await chrome.tabs.create({ url: item.url, active: false });
+  JM_Q.currentTabId = tab.id;
   try {
     await jmWaitForLoad(tab.id, 25000);
+    if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
     // Wait for the form to actually render (SPAs: Ashby / SmartRecruiters / EU Greenhouse), and
     // click "Apply" once if the fields haven't appeared after ~3s.
     let ready = false;
-    for (let k = 0; k < 9 && !ready; k++) {
-      await jmSleep(1000);
+    for (let k = 0; k < 9 && !ready && !JM_Q.stop; k++) {
+      await jmStoppableSleep(1000);
       try {
         const rr = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmFormReady });
         ready = (rr || []).some((o) => o && o.result);
@@ -90,6 +97,7 @@ async function jmProcessOne(item, cfg) {
         try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
       }
     }
+    if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
     const out = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true }, world: "MAIN",
       func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }]
@@ -131,13 +139,14 @@ async function jmProcessOne(item, cfg) {
 
     if (cfg.dryRun) return { status: "ready", reason: "dry run — would submit (" + res.filled + "/" + res.total + " filled)" };
     if (!cfg.autosubmit) return { status: "ready", reason: "filled (auto-submit off)" };
+    if (JM_Q.stop) return { status: "stopped", reason: "stopped" };   // never submit after a hard-stop
 
     const sub = await chrome.scripting.executeScript({
       target: { tabId: tab.id }, world: "MAIN", func: jmClickSubmit, args: [res.submitSelector]
     });
     if (!(sub && sub[0] && sub[0].result && sub[0].result.clicked))
       return { status: "needs_you", reason: "submit button not found" };
-    await jmSleep(4000);
+    await jmStoppableSleep(4000);
     const stt = await chrome.scripting.executeScript({
       target: { tabId: tab.id }, world: "MAIN", func: jmApplyState, args: [item.url]
     });
@@ -149,8 +158,10 @@ async function jmProcessOne(item, cfg) {
     }).catch(() => {});
     return { status: "submitted", reason: s.confirmed ? "confirmation detected" : (s.changed ? "submitted (page advanced)" : "submit clicked (unverified)") };
   } catch (e) {
+    if (JM_Q.stop) return { status: "stopped", reason: "stopped" };   // tab was killed by hard-stop
     return { status: "error", reason: String((e && e.message) || e).slice(0, 140) };
   } finally {
+    JM_Q.currentTabId = null;
     try { await chrome.tabs.remove(tab.id); } catch (e) {}
   }
 }
@@ -170,9 +181,10 @@ async function jmRunQueue(cfg) {
     const r = await jmProcessOne(state.items[i], cfg);
     state.items[i].status = r.status; state.items[i].reason = r.reason;
     await jmSaveQueue(state);
-    if (i < state.items.length - 1 && !JM_Q.stop) await jmSleep(Math.min(cfg.delayMs || 8000, 20000));
+    if (i < state.items.length - 1 && !JM_Q.stop) await jmStoppableSleep(Math.min(cfg.delayMs || 8000, 20000));
   }
-  state.running = false; JM_Q.running = false;
+  if (JM_Q.stop) state.items.forEach((it) => { if (it.status === "queued" || it.status === "running") it.status = "stopped"; });
+  state.running = false; JM_Q.running = false; JM_Q.currentTabId = null;
   await jmSaveQueue(state);
   return { ok: true };
 }
@@ -191,5 +203,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, started: true });
     return;                                            // synchronous reply — don't hold the channel
   }
-  if (msg.type === "jm_queue_stop") { JM_Q.stop = true; sendResponse({ ok: true }); return; }
+  if (msg.type === "jm_queue_stop") {
+    // Hard stop: flag it AND kill the in-flight tab so the current job's executeScript/waits abort
+    // immediately instead of finishing first.
+    JM_Q.stop = true;
+    if (JM_Q.currentTabId) { try { chrome.tabs.remove(JM_Q.currentTabId); } catch (e) {} JM_Q.currentTabId = null; }
+    sendResponse({ ok: true });
+    return;
+  }
 });
