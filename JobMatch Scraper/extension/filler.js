@@ -390,7 +390,7 @@ function jmApplyState(prevHref) {
   return {
     href: location.href,
     changed: location.href !== prevHref,
-    confirmed: /thank you|application (received|submitted|complete)|we('| ?ha)ve received|submitted successfully|confirmation/i.test(body),
+    confirmed: /thank you|thanks for applying|application (received|submitted|complete|sent)|received your application|submission received|successfully (applied|submitted)|your application has been|you have (applied|successfully)|we have received/i.test(body),
     captcha: visChallenge()                          // a challenge that POPPED on submit (v2 bframe)
   };
 }

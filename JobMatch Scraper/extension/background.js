@@ -169,7 +169,16 @@ async function jmProcessOne(item, cfg) {
       const s = (st && st[0] && st[0].result) || {};
       if (s.confirmed) { logApp(); return { status: "submitted", reason: "confirmation page detected" + (step ? " (step " + (step + 1) + ")" : "") }; }
       if (s.captcha) { keepTab = true; try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {} return { status: "needs_you", reason: "CAPTCHA on submit — tab open; solve it & submit" }; }
-      if (!s.changed) { keepTab = true; logApp(); return { status: "check", reason: "submit clicked, no change — VERIFY" }; }
+      if (!s.changed) {
+        // Clicked but no navigation and no recognized confirmation. Re-check the form: if a required
+        // field is now flagged, validation blocked the submit; otherwise it may have AJAX-submitted.
+        const chk = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmFillApplication, args: [{ fields: t.fields, file: t.file, defaults: t.defaults }] });
+        const cr = (chk || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || {};
+        keepTab = true; logApp();
+        if (cr.unfilled && cr.unfilled.length)
+          return { status: "check", reason: ("submit blocked — " + cr.unfilled.length + " field(s): " + cr.unfilled.slice(0, 2).map((u) => u.label).join("; ")).slice(0, 150) };
+        return { status: "check", reason: "submit clicked — verify in the open tab (no confirmation detected)" };
+      }
       // Page advanced to a new step — re-fill it and loop to submit again.
       prevHref = s.href;
       await jmStoppableSleep(1200);
