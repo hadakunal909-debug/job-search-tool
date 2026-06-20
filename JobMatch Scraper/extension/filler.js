@@ -383,3 +383,106 @@ function jmApplyState(prevHref) {
     captcha: visChallenge()                          // a challenge that POPPED on submit (v2 bframe)
   };
 }
+
+// Snapshot the still-EMPTY fields (label, type, options) and tag each with data-jmk so the AI's
+// answers can be applied back by key. Self-contained. Returns [{key,label,type,options?}].
+function jmSnapshotForm() {
+  function vis(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    var r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden" && (r.width > 1 || r.height > 1);
+  }
+  function lbl(el) {
+    var p = [];
+    if (el.id) { var l = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
+    var w = el.closest("label"); if (w) p.push(w.textContent);
+    if (el.getAttribute("aria-label")) p.push(el.getAttribute("aria-label"));
+    if (el.getAttribute("placeholder")) p.push(el.getAttribute("placeholder"));
+    var c = el.closest("fieldset, .field, [class*=field], [class*=question], .select__container, .select");
+    if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) p.push(lg.textContent); }
+    return p.join(" ").replace(/\s+/g, " ").trim();
+  }
+  function isCombo(el) {
+    return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || !!el.closest(".select__container, [class*=select__]");
+  }
+  var out = [], i = 0;
+  document.querySelectorAll("input, select, textarea").forEach(function (el) {
+    if (!vis(el) || /hidden|file|submit|button|password/.test(el.type) || el.type === "radio" || el.type === "checkbox") return;
+    var filled = el.tagName === "SELECT" ? (el.selectedIndex > 0 && el.value) : String(el.value || "").trim();
+    if (filled) return;
+    var t = lbl(el); if (!t) return;
+    var key = "jmk" + (i++); el.setAttribute("data-jmk", key);
+    var type = el.tagName === "SELECT" ? "select" : (isCombo(el) ? "combobox" : "text");
+    var rec = { key: key, label: t.slice(0, 200), type: type };
+    if (type === "select") rec.options = Array.prototype.map.call(el.options, function (o) { return (o.textContent || "").trim(); }).filter(Boolean).slice(0, 40);
+    out.push(rec);
+  });
+  document.querySelectorAll("fieldset, [role=radiogroup]").forEach(function (g) {
+    var radios = g.querySelectorAll("input[type=radio], input[type=checkbox]"); if (!radios.length) return;
+    for (var r = 0; r < radios.length; r++) if (radios[r].checked) return;
+    var lg = g.querySelector("legend, label, .label");
+    var t = ((lg ? lg.textContent : g.textContent) || "").replace(/\s+/g, " ").trim(); if (!t) return;
+    var key = "jmg" + (i++); g.setAttribute("data-jmk", key);
+    var opts = [];
+    for (var k = 0; k < radios.length; k++) { var rl = radios[k].closest("label") || (radios[k].id && document.querySelector('label[for="' + radios[k].id + '"]')); opts.push(((rl ? rl.textContent : radios[k].value) || "").replace(/\s+/g, " ").trim()); }
+    out.push({ key: key, label: t.slice(0, 200), type: "radio", options: opts.filter(Boolean).slice(0, 20) });
+  });
+  return out.slice(0, 30);
+}
+
+// Apply AI answers (keyed by data-jmk) to the form. Self-contained, async (combobox needs waits).
+async function jmApplyAnswers(answers) {
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function setNativeValue(el, value) {
+    var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    var s = Object.getOwnPropertyDescriptor(proto, "value"); if (s && s.set) s.set.call(el, value); else el.value = value;
+    ["input", "change", "blur"].forEach(function (t) { el.dispatchEvent(new Event(t, { bubbles: true })); });
+  }
+  function setText(el, v) {
+    if (String(el.value || "").trim()) return true;
+    setNativeValue(el, v);
+    if (!String(el.value || "").trim()) { try { el.focus(); if (el.select) el.select(); if (document.execCommand) document.execCommand("insertText", false, v); el.dispatchEvent(new Event("change", { bubbles: true })); el.blur(); } catch (e) {} }
+    return !!String(el.value || "").trim();
+  }
+  function setSelect(sel, v) {
+    var w = String(v).toLowerCase();
+    for (var i = 0; i < sel.options.length; i++) { var o = sel.options[i]; if ((o.textContent || "").trim().toLowerCase() === w || (o.value || "").toLowerCase() === w) { sel.selectedIndex = i; sel.dispatchEvent(new Event("change", { bubbles: true })); return true; } }
+    for (var j = 0; j < sel.options.length; j++) { var ot = (sel.options[j].textContent || "").trim().toLowerCase(); if (ot && (ot.indexOf(w) >= 0 || w.indexOf(ot) >= 0)) { sel.selectedIndex = j; sel.dispatchEvent(new Event("change", { bubbles: true })); return true; } }
+    return false;
+  }
+  async function fillCombo(el, v) {
+    var want = String(v).toLowerCase().trim(); if (!want) return false;
+    var control = el.closest(".select__control") || el.closest(".select__container") || el.parentElement || el;
+    control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    try { el.focus(); } catch (e) {}
+    await sleep(150);
+    setNativeValue(el, v); el.dispatchEvent(new Event("input", { bubbles: true }));
+    await sleep(220);
+    var opts = document.querySelectorAll('.select__option, [id*="-option-"], [role="option"]');
+    var exact = null, partial = null;
+    for (var k = 0; k < opts.length; k++) { var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue; if (ot === want) { exact = opts[k]; break; } if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k]; }
+    var pick = exact || partial;
+    if (pick) { pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); pick.click(); await sleep(70); return true; }
+    el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown", keyCode: 40 })); await sleep(50);
+    el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 })); await sleep(70);
+    return true;
+  }
+  function clickRadio(g, v) {
+    var w = String(v).toLowerCase(), radios = g.querySelectorAll("input[type=radio], input[type=checkbox]");
+    for (var i = 0; i < radios.length; i++) { var rl = radios[i].closest("label") || (radios[i].id && document.querySelector('label[for="' + radios[i].id + '"]')); var t = ((rl ? rl.textContent : radios[i].value) || "").toLowerCase(); if (t.indexOf(w) >= 0 || (w === "yes" && /\byes\b/.test(t)) || (w === "no" && /\bno\b/.test(t))) { radios[i].click(); return true; } }
+    return false;
+  }
+  var applied = 0, keys = Object.keys(answers || {});
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i], v = answers[k];
+    if (v == null || String(v).trim() === "") continue;
+    var el = document.querySelector('[data-jmk="' + k + '"]'); if (!el) continue;
+    var ok = false;
+    if (el.tagName === "SELECT") ok = setSelect(el, v);
+    else if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || (el.closest && el.closest(".select__container, [class*=select__]"))) ok = await fillCombo(el, v);
+    else if (el.querySelector && el.querySelector("input[type=radio], input[type=checkbox]")) ok = clickRadio(el, v);
+    else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") ok = setText(el, v);
+    if (ok) applied++;
+  }
+  return { applied: applied };
+}

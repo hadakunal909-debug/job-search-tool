@@ -207,3 +207,45 @@ def rewrite(ctx, api_key):
     return {"tailored_resume": obj.get("tailored_resume", ""),
             "cover_letter": obj.get("cover_letter", "") or "",
             "notes": obj.get("notes", []) or [], "parse_warning": False}
+
+
+def answer_fields(profile, resume, fields, api_key, company=""):
+    """Map the candidate's real data to application form fields. `fields` is a list of
+    {key,label,type,options?}. Returns {key: answer_string} (answer is "" when the data
+    doesn't support it). For fields with OPTIONS the answer is exactly one option. Never invents."""
+    if not fields:
+        return {}
+    prof = profile or {}
+    lines = []
+    for f in (fields or [])[:35]:
+        opts = f.get("options") or []
+        opt = ("\n    OPTIONS: " + " | ".join(str(o) for o in opts[:40])) if opts else ""
+        lines.append("- key=%s | type=%s | label=%s%s"
+                     % (f.get("key"), f.get("type", "text"), (f.get("label") or "")[:200], opt))
+    prof_txt = "\n".join("%s: %s" % (k, v) for k, v in prof.items()
+                         if v and k not in ("username", "updated_at", "extra", "application_defaults"))
+    prompt = (
+        "You fill out job application form fields for a candidate. Use ONLY the candidate's real "
+        "data below. Rules:\n"
+        "- If a field lists OPTIONS, answer with EXACTLY one of those option strings (verbatim), or "
+        "\"\" if none truly fit.\n"
+        "- For free-text fields, give the value, or \"\" if the data doesn't contain it.\n"
+        "- NEVER invent employers, titles, dates, degrees, numbers, salaries, clearances, or any "
+        "fact not present in the data. When unsure, return \"\".\n"
+        "- Work authorization: candidate authorized to work = %s; needs visa sponsorship = %s. "
+        "Answer Yes/No (or the matching option) accordingly.\n"
+        "- You MAY infer obvious values from the résumé (e.g. years of experience, most recent "
+        "employer, city/state) when clearly supported.\n\n"
+        "=== CANDIDATE PROFILE ===\n%s\n\n=== RÉSUMÉ ===\n%s\n\n=== TARGET COMPANY ===\n%s\n\n"
+        "=== FIELDS TO ANSWER ===\n%s\n\n"
+        "Return ONLY a JSON object mapping each key to its answer string. No prose, no markdown.\n"
+        "=== JSON ==="
+        % (prof.get("work_authorized", ""), prof.get("needs_sponsorship", ""),
+           prof_txt or "(none)", (resume or "")[:6000], company or "(unknown)", "\n".join(lines))
+    )
+    try:
+        text = _generate(prompt, api_key, temperature=0.2, max_tokens=4096, think=False, json_mode=True)
+    except Exception:
+        return {}
+    obj = parse_json(text) or {}
+    return {str(k): ("" if v is None else str(v)) for k, v in obj.items() if isinstance(k, str)}

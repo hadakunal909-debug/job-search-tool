@@ -19,3 +19,4 @@ python-docx
 #
 # Optional — build sponsors.txt from DOL Excel data (build_sponsors.py):
 #     pip install openpyxl
+python-dotenv
