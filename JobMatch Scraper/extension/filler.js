@@ -106,6 +106,15 @@ function jmFillApplication(payload) {
       var nodes = document.querySelectorAll(selectors[i]);
       for (var j = 0; j < nodes.length; j++) if (nodes[j].type === "file" && !nodes[j].disabled) return nodes[j];
     }
+    // fallback: pierce shadow DOM (SmartRecruiters / Ashby wrap the input in web components)
+    var stack = [document];
+    while (stack.length) {
+      var root = stack.pop();
+      var files = root.querySelectorAll ? root.querySelectorAll("input[type=file]") : [];
+      for (var k = 0; k < files.length; k++) if (!files[k].disabled) return files[k];
+      var all = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      for (var m = 0; m < all.length; m++) if (all[m].shadowRoot) stack.push(all[m].shadowRoot);
+    }
     return null;
   }
   // Only a REAL, visible challenge is a wall. The invisible reCAPTCHA v3 BADGE (the floating logo,
@@ -212,7 +221,7 @@ function jmFillApplication(payload) {
     { re: /linkedin/, val: links.linkedin },
     { re: /github/, val: links.github },
     { re: /portfolio|personal (web)?site|website/, val: links.portfolio || links.website },
-    { re: /how did you (hear|find)/, val: F.how_did_you_hear },
+    { re: /how did you (hear|find)/, val: [F.how_did_you_hear, "LinkedIn", "Job board", "Company website", "Other"] },
     { re: /desired (salary|compensation|pay)|salary expectation/, val: comp.desired_salary },
     { re: /start date|available|availability/, val: F.start_date },
     { re: /willing to relocate|open to relocat|relocat/, val: F.relocate ? "Yes" : "No", onlyIf: F.relocate !== "" && F.relocate != null },
@@ -227,9 +236,11 @@ function jmFillApplication(payload) {
   function applyRule(el, t) {
     for (var i = 0; i < RULES.length; i++) {
       var r = RULES[i];
-      if (r.onlyIf === false || !r.val || !r.re.test(t)) continue;
-      if (el.tagName === "SELECT") return setSelectByText(el, r.val);
-      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|url|tel|number|search|)$/.test(el.type))) return setText(el, r.val);
+      if (r.onlyIf === false || !r.re.test(t)) continue;
+      var vals = (Array.isArray(r.val) ? r.val : [r.val]).filter(Boolean);  // try candidates in order
+      if (!vals.length) continue;
+      if (el.tagName === "SELECT") { for (var v = 0; v < vals.length; v++) if (setSelectByText(el, vals[v])) return true; return false; }
+      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|url|tel|number|search|)$/.test(el.type))) return setText(el, vals[0]);
       return false;
     }
     return false;
