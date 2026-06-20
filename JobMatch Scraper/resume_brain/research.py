@@ -10,6 +10,7 @@ salient keywords. The result is stored and ACCUMULATES per company over time.
 All outbound fetches of user-controlled URLs go through safefetch._safe_get.
 """
 import re
+import time
 from urllib.parse import urlparse, urljoin
 from urllib.robotparser import RobotFileParser
 
@@ -41,7 +42,10 @@ _PAGE_HINTS = ("about-us", "about", "company", "mission", "values", "who-we-are"
 _COMMON_PATHS = ("/about", "/about-us", "/company", "/who-we-are", "/our-story", "/mission",
                  "/values", "/culture", "/what-we-do", "/products", "/solutions", "/our-work",
                  "/news", "/newsroom", "/blog", "/press", "/careers", "/en-us/company.html")
-_MAX_PAGES = 10
+_MAX_PAGES = 6                 # was 10 — a handful of high-signal pages is plenty for tailoring
+_PAGE_TIMEOUT = 6              # per-page fetch timeout (s); was 12 — don't block on one slow page
+_CRAWL_BUDGET = 12            # hard wall-clock cap (s) for the whole crawl (robots + all pages), so
+                              # one slow company site can't stall the batch (the result is cached after).
 _PAGE_CHARS = 6000
 _HINT_RE = re.compile("|".join(re.escape(h) for h in _PAGE_HINTS), re.I)
 # Cookie/consent/JS-shell boilerplate — a page that's mostly this carries no real signal.
@@ -165,16 +169,18 @@ def resolve_domain(company_name, company_url=""):
     return (base + ".com") if base else ""
 
 
-def _robots_allowed(base, path="/"):
+def _robots_checker(base, timeout=4):
+    """Fetch + parse robots.txt ONCE and return a can_fetch(path)->bool. Previously robots.txt was
+    re-fetched (8s timeout) for every candidate page, which dominated crawl time. On any error, allow."""
     try:
-        r = safefetch._safe_get(urljoin(base, "/robots.txt"), timeout=8)
+        r = safefetch._safe_get(urljoin(base, "/robots.txt"), timeout=timeout)
         if r.status_code >= 400:
-            return True
+            return lambda path="/": True
         rp = RobotFileParser()
         rp.parse(r.text.splitlines())
-        return rp.can_fetch("*", urljoin(base, path))
+        return lambda path="/": rp.can_fetch("*", urljoin(base, path))
     except Exception:
-        return True
+        return lambda path="/": True
 
 
 def clean_html(html_text, limit=_PAGE_CHARS):
@@ -222,12 +228,16 @@ def crawl_company(domain):
     if not domain:
         return []
     base = "https://" + domain
-    if not _robots_allowed(base, "/"):
+    start = time.monotonic()
+    def remaining():                               # seconds left in the crawl budget (>= 0)
+        return max(0.0, _CRAWL_BUDGET - (time.monotonic() - start))
+    allowed = _robots_checker(base, timeout=min(4, _PAGE_TIMEOUT))   # fetched once, reused below
+    if not allowed("/"):
         return []
     pages = []
     home_html = ""
     try:
-        home = safefetch._safe_get(base, timeout=12)
+        home = safefetch._safe_get(base, timeout=max(2, min(_PAGE_TIMEOUT, remaining())))
         if home.status_code < 400:
             home_html = home.text
             title, text = clean_html(home_html)
@@ -248,10 +258,12 @@ def crawl_company(domain):
     for u in candidates:
         if len(pages) >= _MAX_PAGES:
             break
-        if not _robots_allowed(base, urlparse(u).path):
+        if remaining() <= 0.5:                         # out of time — stop crawling, use what we have
+            break
+        if not allowed(urlparse(u).path):
             continue
         try:
-            r = safefetch._safe_get(u, timeout=12)
+            r = safefetch._safe_get(u, timeout=max(2, min(_PAGE_TIMEOUT, remaining())))
             if r.status_code >= 400:
                 continue
             title, text = clean_html(r.text)
