@@ -1613,7 +1613,8 @@ def ext_tailor():
         corpus = ""
     jd_part = job_url or hashlib.sha256(jd.encode("utf-8", "ignore")).hexdigest()[:16]
     corpus_h = hashlib.sha256(corpus.encode("utf-8", "ignore")).hexdigest()[:16]
-    cache_key = hashlib.sha256("|".join([user, jd_part, fmt, corpus_h]).encode()).hexdigest()
+    prof_h = hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode("utf-8", "ignore")).hexdigest()[:16]
+    cache_key = hashlib.sha256("|".join([user, jd_part, fmt, corpus_h, prof_h]).encode()).hexdigest()
     if not force:
         cached = db.get_tailored(cache_key)
         if cached:
