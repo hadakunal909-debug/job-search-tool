@@ -21,6 +21,9 @@ async function jmFillApplication(payload) {
   function vis(el) {
     if (!el) return false;
     if (el.disabled || el.readOnly) return false;
+    // react-select renders a hidden value-mirror <input required aria-hidden=true tabindex=-1> for
+    // native validation — never a user-fillable field, so don't find/fill/flag it.
+    if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;
     if (el.type === "hidden") return el.closest("form,[data-react-class],[class*=application],[class*=apply]") != null;
     var r = el.getBoundingClientRect();
     var s = getComputedStyle(el);
@@ -285,15 +288,18 @@ async function jmFillApplication(payload) {
     for (var c = 0; c < vals.length; c++) {
       var want = String(vals[c] || "").toLowerCase().trim();
       if (!want) continue;
+      var cur = comboSelected(el);                                  // already set (e.g. 2nd pass)? skip
+      if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
       try { el.focus(); } catch (e) {}
       control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
       control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
-      await sleep(120);
+      await sleep(100);
       try { comboType(el, vals[c]); } catch (e) {}
-      var pick = null;
-      for (var t = 0; t < 12 && !pick; t++) {                       // poll ~2.4s (background-tab safe)
-        await sleep(200);
+      var pick = null, sawOpts = false;
+      for (var t = 0; t < 9 && !pick; t++) {                        // poll ~1.5s, but bail fast if no menu
+        await sleep(160);
         var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+        if (opts.length) sawOpts = true;
         var exact = null, starts = null, partial = null;
         for (var k = 0; k < opts.length; k++) {
           var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue;
@@ -302,6 +308,7 @@ async function jmFillApplication(payload) {
           if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k];
         }
         pick = exact || starts || partial;
+        if (!pick && !sawOpts && t >= 2) break;                     // menu never opened — don't burn the full budget
       }
       if (pick) {
         try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {}
@@ -433,6 +440,7 @@ function jmApplyState(prevHref) {
 function jmSnapshotForm() {
   function vis(el) {
     if (!el || el.disabled || el.readOnly) return false;
+    if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;   // react-select value-mirror
     var r = el.getBoundingClientRect(), s = getComputedStyle(el);
     return s.display !== "none" && s.visibility !== "hidden" && (r.width > 1 || r.height > 1);
   }
@@ -519,20 +527,24 @@ async function jmApplyAnswers(answers) {
   }
   async function fillCombo(el, v) {
     var want = String(v).toLowerCase().trim(); if (!want) return false;
+    var cur = comboSelected(el);                                  // already correct? skip the work
+    if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
     var control = el.closest(".select__control") || el.closest(".select__container") ||
       el.closest("[class*='select']") || el.parentElement || el;
     try { el.focus(); } catch (e) {}
     control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
     control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
-    await sleep(120);
+    await sleep(100);
     try { comboType(el, v); } catch (e) {}
-    var pick = null;
-    for (var t = 0; t < 12 && !pick; t++) {
-      await sleep(200);
+    var pick = null, sawOpts = false;
+    for (var t = 0; t < 9 && !pick; t++) {
+      await sleep(160);
       var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+      if (opts.length) sawOpts = true;
       var exact = null, starts = null, partial = null;
       for (var k = 0; k < opts.length; k++) { var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue; if (ot === want) { exact = opts[k]; break; } if (!starts && ot.indexOf(want) === 0) starts = opts[k]; if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k]; }
       pick = exact || starts || partial;
+      if (!pick && !sawOpts && t >= 2) break;                     // menu never opened — bail fast
     }
     if (pick) {
       try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {}
