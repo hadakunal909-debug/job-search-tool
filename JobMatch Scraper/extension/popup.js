@@ -590,7 +590,8 @@ $("qstart").onclick = async () => {
 
 $("qstop").onclick = () => {
   chrome.runtime.sendMessage({ type: "jm_queue_stop" }, function () { void chrome.runtime.lastError; });
-  $("qmsg").textContent = "Stopping after the current job…";
+  $("qmsg").style.color = "#c0392b";
+  $("qmsg").textContent = "⏹ Stopped — halting the current job now.";
 };
 
 let qPollTimer = null;
