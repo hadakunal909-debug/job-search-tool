@@ -575,3 +575,113 @@ async function jmApplyAnswers(answers) {
   }
   return { applied: applied };
 }
+
+// ===================== VISION FALLBACK (used only when the normal pass parks) =====================
+// jmVisionSnapshot: enumerate EVERY visible interactive element (index + label + type + options +
+// current value + on-screen rect) and tag each with data-jmv. Paired with a screenshot, this lets a
+// vision model decide values even when label-detection failed. Self-contained.
+function jmVisionSnapshot() {
+  function vis(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;
+    var r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden" && r.width > 1 && r.height > 1;
+  }
+  function lbl(el) {
+    var p = [];
+    if (el.id) { var l = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
+    var w = el.closest("label"); if (w) p.push(w.textContent);
+    if (el.getAttribute("aria-label")) p.push(el.getAttribute("aria-label"));
+    var alby = el.getAttribute("aria-labelledby");
+    if (alby) alby.split(/\s+/).forEach(function (id) { var n = document.getElementById(id); if (n) p.push(n.textContent); });
+    if (el.getAttribute("placeholder")) p.push(el.getAttribute("placeholder"));
+    var c = el.closest("fieldset, .field, [class*=field], [class*=question], .select__container, .select");
+    if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) p.push(lg.textContent); }
+    return p.join(" ").replace(/\s+/g, " ").trim().slice(0, 180);
+  }
+  function isCombo(el) {
+    return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || !!el.closest(".select__container, [class*=select__]");
+  }
+  function comboVal(el) {
+    var c = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']");
+    var sv = c && c.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value']");
+    return sv ? (sv.textContent || "").replace(/\s+/g, " ").trim() : "";
+  }
+  function rect(el) { var r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; }
+  var out = [], i = 0;
+  document.querySelectorAll("input, select, textarea").forEach(function (el) {
+    if (/hidden|submit|button|password/.test(el.type)) return;
+    if (el.type === "radio" || el.type === "checkbox") return;       // handled as groups below
+    if (!vis(el)) return;
+    var rec = { index: i, type: "text", value: "" };
+    if (el.tagName === "SELECT") { rec.type = "select"; rec.options = Array.prototype.map.call(el.options, function (o) { return (o.textContent || "").trim(); }).filter(Boolean).slice(0, 40); rec.value = el.selectedIndex > 0 ? el.value : ""; }
+    else if (el.type === "file") { rec.type = "file"; rec.value = (el.files && el.files.length) ? el.files[0].name : ""; }
+    else if (isCombo(el)) { rec.type = "combobox"; rec.value = comboVal(el); }
+    else { rec.value = String(el.value || ""); }
+    rec.label = lbl(el);
+    if (!rec.label && !(rec.options && rec.options.length)) return;
+    el.setAttribute("data-jmv", i); rec.rect = rect(el); out.push(rec); i++;
+  });
+  document.querySelectorAll("fieldset, [role=radiogroup]").forEach(function (g) {
+    var radios = g.querySelectorAll("input[type=radio], input[type=checkbox]"); if (!radios.length || !vis(radios[0])) return;
+    var lg = g.querySelector("legend, label, .label");
+    var label = ((lg ? lg.textContent : g.textContent) || "").replace(/\s+/g, " ").trim().slice(0, 180); if (!label) return;
+    var opts = [], checked = "";
+    for (var k = 0; k < radios.length; k++) { var rl = radios[k].closest("label") || (radios[k].id && document.querySelector('label[for="' + radios[k].id + '"]')); var t = ((rl ? rl.textContent : radios[k].value) || "").replace(/\s+/g, " ").trim(); opts.push(t); if (radios[k].checked) checked = t; }
+    g.setAttribute("data-jmv", i);
+    out.push({ index: i, type: "radio", label: label, options: opts.filter(Boolean).slice(0, 20), value: checked, rect: rect(g) }); i++;
+  });
+  document.querySelectorAll("button, input[type=submit], [role=button]").forEach(function (b) {
+    if (!vis(b)) return;
+    var t = (b.textContent || b.value || b.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim(); if (!t) return;
+    b.setAttribute("data-jmv", i);
+    out.push({ index: i, type: "button", label: t.slice(0, 60), rect: rect(b) }); i++;
+  });
+  return out.slice(0, 60);
+}
+
+// jmApplyVision: apply a vision plan {sets:[{index,value}], submit_index} by data-jmv index, reusing
+// the same robust setters. Returns {applied, submitSelector} — the caller decides whether to click
+// submit (so the dry-run / required-gate logic stays in the runner). Self-contained, async.
+async function jmApplyVision(plan) {
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function setNativeValue(el, value) { var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; var s = Object.getOwnPropertyDescriptor(proto, "value"); if (s && s.set) s.set.call(el, value); else el.value = value;["input", "change", "blur"].forEach(function (t) { el.dispatchEvent(new Event(t, { bubbles: true })); }); }
+  function setText(el, v) { if (String(el.value || "").trim()) return true; setNativeValue(el, v); if (!String(el.value || "").trim()) { try { el.focus(); if (el.select) el.select(); if (document.execCommand) document.execCommand("insertText", false, v); el.dispatchEvent(new Event("change", { bubbles: true })); el.blur(); } catch (e) {} } return !!String(el.value || "").trim(); }
+  function setSelect(sel, v) { var w = String(v).toLowerCase(); for (var i = 0; i < sel.options.length; i++) { var o = sel.options[i]; if ((o.textContent || "").trim().toLowerCase() === w || (o.value || "").toLowerCase() === w) { sel.selectedIndex = i; sel.dispatchEvent(new Event("change", { bubbles: true })); return true; } } for (var j = 0; j < sel.options.length; j++) { var ot = (sel.options[j].textContent || "").trim().toLowerCase(); if (ot && (ot.indexOf(w) >= 0 || w.indexOf(ot) >= 0)) { sel.selectedIndex = j; sel.dispatchEvent(new Event("change", { bubbles: true })); return true; } } return false; }
+  function comboSelected(el) { var c = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']"); if (!c) return ""; var sv = c.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value'], .select__multi-value, [class*='multiValue']"); return sv ? (sv.textContent || "").replace(/\s+/g, " ").trim().toLowerCase() : ""; }
+  function comboType(node, text) { var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"); if (setter && setter.set) setter.set.call(node, text); else node.value = text; node.dispatchEvent(new Event("input", { bubbles: true })); }
+  async function fillCombo(el, v) {
+    var want = String(v).toLowerCase().trim(); if (!want) return false;
+    var cur = comboSelected(el); if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
+    var control = el.closest(".select__control") || el.closest(".select__container") || el.closest("[class*='select']") || el.parentElement || el;
+    try { el.focus(); } catch (e) {}
+    control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    control.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    await sleep(100); try { comboType(el, v); } catch (e) {}
+    var pick = null, saw = false;
+    for (var t = 0; t < 9 && !pick; t++) {
+      await sleep(160);
+      var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+      if (opts.length) saw = true;
+      var ex = null, st = null, pa = null;
+      for (var k = 0; k < opts.length; k++) { var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue; if (ot === want) { ex = opts[k]; break; } if (!st && ot.indexOf(want) === 0) st = opts[k]; if (!pa && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) pa = opts[k]; }
+      pick = ex || st || pa; if (!pick && !saw && t >= 2) break;
+    }
+    if (pick) { try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {} pick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })); pick.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 })); pick.click(); await sleep(150); }
+    var got = comboSelected(el); return !!(got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0));
+  }
+  function clickRadio(g, v) { var w = String(v).toLowerCase(), radios = g.querySelectorAll("input[type=radio], input[type=checkbox]"); for (var i = 0; i < radios.length; i++) { var rl = radios[i].closest("label") || (radios[i].id && document.querySelector('label[for="' + radios[i].id + '"]')); var t = ((rl ? rl.textContent : radios[i].value) || "").toLowerCase(); if (t.indexOf(w) >= 0 || (w === "yes" && /\byes\b/.test(t)) || (w === "no" && /\bno\b/.test(t))) { radios[i].click(); return true; } } return false; }
+  var applied = 0, sets = (plan && plan.sets) || [];
+  for (var i = 0; i < sets.length; i++) {
+    var s = sets[i]; if (s.value == null || String(s.value).trim() === "") continue;
+    var el = document.querySelector('[data-jmv="' + s.index + '"]'); if (!el) continue;
+    var ok = false;
+    if (el.tagName === "SELECT") ok = setSelect(el, s.value);
+    else if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || (el.closest && el.closest(".select__container, [class*=select__]"))) ok = await fillCombo(el, s.value);
+    else if (el.matches("fieldset, [role=radiogroup]") || (el.querySelector && el.querySelector("input[type=radio], input[type=checkbox]"))) ok = clickRadio(el, s.value);
+    else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") ok = setText(el, s.value);
+    if (ok) applied++;
+  }
+  var submitSelector = (plan && plan.submit_index != null) ? ('[data-jmv="' + plan.submit_index + '"]') : null;
+  return { applied: applied, submitSelector: submitSelector };
+}
