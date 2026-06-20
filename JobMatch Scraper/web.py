@@ -26,7 +26,7 @@ import gzip as _gzip
 # python-dotenv isn't installed or there's no .env — production sets real env vars.
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 except Exception:
     pass
 
