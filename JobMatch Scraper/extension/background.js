@@ -164,11 +164,18 @@ async function jmProcessOne(item, cfg) {
       try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
       return { status: "needs_you", reason: "CAPTCHA on submit — tab left open; solve it & click submit" };
     }
-    fetch(cfg.apibase + "/api/ext/save", {                 // log to tracker (best-effort)
+    // Log to the tracker either way (submit was clicked) so there's a record to verify.
+    fetch(cfg.apibase + "/api/ext/save", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: cfg.token, title: item.title, company: item.company, url: item.url })
     }).catch(() => {});
-    return { status: "submitted", reason: s.confirmed ? "confirmation detected" : (s.changed ? "submitted (page advanced)" : "submit clicked (unverified)") };
+    // Only claim success on a REAL confirmation ("thank you / application received"). A mere URL
+    // change ("page advanced") often just means a multi-step form moved on — don't call that done.
+    if (s.confirmed) return { status: "submitted", reason: "confirmation page detected" };
+    keepTab = true;                                    // leave open so the user can verify / finish
+    return { status: "check", reason: s.changed
+      ? "submit clicked, page advanced — VERIFY (no confirmation; may be a multi-step form)"
+      : "submit clicked — VERIFY (no confirmation seen)" };
   } catch (e) {
     if (JM_Q.stop) return { status: "stopped", reason: "stopped" };   // tab was killed by hard-stop
     return { status: "error", reason: String((e && e.message) || e).slice(0, 140) };
