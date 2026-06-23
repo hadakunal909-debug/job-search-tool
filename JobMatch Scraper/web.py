@@ -917,7 +917,7 @@ def tailor_ai():
         ai_err = "Paste a Google Gemini API key below (or set GEMINI_API_KEY on the server) to enable AI tailoring."
     else:
         try:
-            tailored = core.tailor_with_gemini(resume, jd, api_key=key)
+            tailored = core.tailor(resume, jd, key)        # Claude for sk-ant keys, else Gemini
         except Exception as e:
             ai_err = "AI tailoring failed: %s" % str(e)[:200]
     return render_template("tailor.html", job=job, score=int(score or 0), have=have,
@@ -947,7 +947,7 @@ def api_tailor():
     if not key:
         return {"ok": False, "error": "Add a Google Gemini API key (the field below, or GEMINI_API_KEY on the server)."}
     try:
-        return {"ok": True, "tailored": core.tailor_with_gemini(resume, jd, api_key=key)}
+        return {"ok": True, "tailored": core.tailor(resume, jd, key)}   # Claude for sk-ant keys, else Gemini
     except Exception as e:
         return {"ok": False, "error": "Tailoring failed: %s" % str(e)[:250]}
 
