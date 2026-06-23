@@ -1091,6 +1091,45 @@ def brain_export_resume_pdf():
     return _pdf_response(request.form.get("content", ""), session["user"], "Tailored_Resume")
 
 
+@app.route("/brain/pdf_diag")
+@login_required
+def brain_pdf_diag():
+    """Why does PDF export fall back to .txt? Reports (1) whether the auto-Tectonic code is deployed,
+    (2) python-docx availability, (3) Tectonic resolution + version, (4) a tiny live compile with the
+    real error. Open it logged-in and paste the JSON. _pdf_response swallows the error, this doesn't."""
+    from flask import jsonify
+    import platform, subprocess
+    info = {"os": platform.system(),
+            "code_has_autobootstrap": hasattr(rb_latex, "_bootstrap_tectonic"),
+            "repo_root": getattr(rb_latex, "_REPO_ROOT", "?")}
+    try:
+        import docx  # noqa: F401
+        info["python_docx"] = True
+    except Exception:
+        info["python_docx"] = False
+    try:
+        binp = rb_latex._tectonic_bin()               # triggers the auto-download on a fresh host
+        info["tectonic_bin"] = binp
+        try:
+            v = subprocess.run([binp, "--version"], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, timeout=30)
+            info["tectonic_runs"] = (v.returncode == 0)
+            info["tectonic_version"] = (v.stdout or b"").decode("utf-8", "replace").strip()[:200]
+        except Exception as e:
+            info["tectonic_runs"] = False
+            info["tectonic_run_error"] = str(e)[:300]
+        try:
+            pdf = rb_latex.build_pdf("Diag Test\n\nEXPERIENCE\n- compiled a tiny test resume", {})
+            info["compile_ok"] = True
+            info["pdf_bytes"] = len(pdf)
+        except Exception as e:
+            info["compile_ok"] = False
+            info["compile_error"] = str(e)[:1200]
+    except Exception as e:
+        info["tectonic_resolve_error"] = str(e)[:500]
+    return jsonify(info)
+
+
 # ---- Teach: the knowledge base (per user) ----
 @app.route("/brain/teach")
 @login_required
