@@ -9,9 +9,9 @@ rapidfuzz
 python-docx
 # Cloud storage (Supabase) needs no extra package — db.py uses the REST API via `requests`.
 
-# Optional — AI resume tailoring (the "Tailor to this JD" button):
-#     pip install anthropic
-#     then set ANTHROPIC_API_KEY in your environment and restart the app
+# AI résumé tailoring + form-answering. Uses Claude (Anthropic) when ANTHROPIC_API_KEY is set
+# (preferred — set it + restart), else Google Gemini via REST (the `requests` dep above; no Gemini pkg).
+anthropic
 #
 # Optional — JavaScript-rendered job sources for the scraper (e.g. Workday):
 #     pip install playwright

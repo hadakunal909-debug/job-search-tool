@@ -6,5 +6,8 @@ beautifulsoup4
 lxml
 rapidfuzz
 python-docx
-# AI résumé tailoring uses Google Gemini via REST (the `requests` dep above) — no extra package needed.
+# AI résumé tailoring + form-answering: Claude when ANTHROPIC_API_KEY is set (preferred), else Gemini via REST.
+anthropic
 # python-docx powers Resume Brain's .docx export (degrades to .txt if absent).
+# NOTE: PDF résumé export needs Tectonic on the server (scripts/get_tectonic.sh). Without it, PDF
+# falls back to .docx (or .txt if python-docx is also missing).
