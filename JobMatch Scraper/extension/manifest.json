@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobMatch Helper",
-  "version": "1.26.0",
+  "version": "1.28.0",
   "description": "Save jobs to your JobMatch tracker, tailor+autofill applications, batch auto-apply, and auto-import Tesla's bot-walled feed.",
   "permissions": [
     "activeTab",
@@ -13,7 +13,8 @@
     "https://stemjobs.astrochakra.co/*",
     "http://localhost:5000/*",
     "http://127.0.0.1:5000/*",
-    "https://www.tesla.com/*"
+    "https://www.tesla.com/*",
+    "https://api.anthropic.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*"
@@ -37,6 +38,16 @@
         "tesla_auto.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "autocapture.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "action": {
