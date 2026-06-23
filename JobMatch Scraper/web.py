@@ -853,10 +853,15 @@ def resume():
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
 def _ai_key_for(_user=None):
-    """The Gemini key to use: the one saved in THIS user's session (a signed, HttpOnly
-    cookie that lasts ~30 days, so it survives app restarts), else GEMINI_API_KEY from
-    the server env. Enter it once — no need to retype it every time."""
-    return session.get("gemini_key") or os.environ.get("GEMINI_API_KEY")
+    """The AI key to use. Precedence: server ANTHROPIC_API_KEY (Claude — preferred when configured,
+    since it's the deliberate server config and Gemini quotas run out), then a per-user Gemini key
+    saved in this session (signed HttpOnly cookie, ~30 days), then GEMINI_API_KEY from the env. The
+    key's prefix (sk-ant-… vs AIza…) selects the provider downstream in resume_brain/ai.py."""
+    try:
+        sess_key = session.get("gemini_key")
+    except Exception:
+        sess_key = None                                # called outside a request context (e.g. a test/script)
+    return os.environ.get("ANTHROPIC_API_KEY") or sess_key or os.environ.get("GEMINI_API_KEY")
 
 
 def _save_ai_key(key):
@@ -1570,14 +1575,24 @@ def _ext_profile_fields(user, p=None):
 
 @app.route("/api/ext/profile_fields", methods=["GET", "OPTIONS"])
 def ext_profile_fields():
-    """Extension -> normalized profile field map for the application form-filler."""
+    """Extension -> normalized profile field map + résumé text + learned-answer bank, so the
+    extension can build prompts and match the user's own past answers CLIENT-SIDE (hybrid mode:
+    the extension calls Claude directly). Token-authenticated."""
     from flask import jsonify
     if request.method == "OPTIONS":
         return _cors(app.make_response(("", 204)))
     user = _ext_user(request.args.get("token", ""))
     if not user:
         return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
-    return _cors(jsonify({"ok": True, **_ext_profile_fields(user)}))
+    try:
+        resume = (db.profile_text(user) or "")[:6000]
+    except Exception:
+        resume = ""
+    try:
+        learned = db.get_learned(user)
+    except Exception:
+        learned = {}
+    return _cors(jsonify({"ok": True, "resume": resume, "learned": learned, **_ext_profile_fields(user)}))
 
 
 @app.route("/api/ext/tailor", methods=["POST", "OPTIONS"])
@@ -1835,6 +1850,44 @@ def ext_learn():
     except Exception as e:
         return _cors(jsonify({"ok": False, "error": str(e)[:160], "saved": 0}))
     return _cors(jsonify({"ok": True, "saved": saved}))
+
+
+@app.route("/api/ext/learned", methods=["GET", "OPTIONS"])
+def ext_learned_list():
+    """Extension -> list the user's learned-answer bank for the 'manage learned answers' UI.
+    Returns {ok, items:[{key,label,value,company,count}]} sorted by most-used."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _ext_user(request.args.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    try:
+        bank = db.get_learned(user)
+    except Exception:
+        bank = {}
+    items = [{"key": k, "label": (v.get("label") or k), "value": v.get("value", ""),
+              "company": v.get("company", ""), "count": v.get("count", 0)} for k, v in bank.items()]
+    items.sort(key=lambda x: (-int(x.get("count") or 0), x["label"].lower()))
+    return _cors(jsonify({"ok": True, "items": items}))
+
+
+@app.route("/api/ext/learn_delete", methods=["POST", "OPTIONS"])
+def ext_learn_delete():
+    """Extension -> delete one learned answer (by normalized key) from the user's bank."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    ok = False
+    try:
+        ok = db.delete_learned(user, (data.get("key") or "").strip())
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": str(e)[:160]}))
+    return _cors(jsonify({"ok": bool(ok)}))
 
 
 @app.route("/api/ext/vision", methods=["POST", "OPTIONS"])

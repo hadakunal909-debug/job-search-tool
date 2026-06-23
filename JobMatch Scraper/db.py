@@ -1200,6 +1200,27 @@ def save_learned(username, items):
     return len(rows)
 
 
+def delete_learned(username, key):
+    """Remove one learned answer (by normalized key) from the user's bank. Best-effort; returns True
+    on success. Used by the 'manage learned answers' UI in the extension."""
+    if not username or not key:
+        return False
+    if using_supabase():
+        try:
+            resp = _http.delete(_rest(LEARNED_TABLE), headers=_headers(),
+                                params={"username": "eq.%s" % username, "key": "eq.%s" % key}, timeout=20)
+            if resp.status_code < 400:
+                return True
+        except Exception:
+            pass
+    data = _load_json(LEARNED_FILE)
+    if isinstance(data, dict) and isinstance(data.get(username), dict) and key in data[username]:
+        del data[username][key]
+        _dump_json(LEARNED_FILE, data)
+        return True
+    return False
+
+
 # ---- live scrape progress (for the in-page "Update jobs" progress bar) ----
 # One shared row the scraper updates as it runs; the feed page polls it. Supabase table:
 #   create table scrape_status (id text primary key, data jsonb, updated_at timestamptz);
