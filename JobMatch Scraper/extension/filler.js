@@ -731,15 +731,46 @@ function jmCaptureFilled() {
     if (seen[label]) return; seen[label] = 1;
     out.push({ label: label, type: type, value: value, options: options });
   });
-  document.querySelectorAll("fieldset, [role=radiogroup]").forEach(function (g) {
-    var checked = g.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked"); if (!checked.length) return;
-    var lg = g.querySelector("legend, label, .label");
-    var label = ((lg ? lg.textContent : "") || "").replace(/\s+/g, " ").trim().slice(0, 200);
-    if (!label || SENSITIVE.test(label) || seen[label]) return;
-    var vals = [];
-    checked.forEach(function (rb) { var rl = rb.closest("label") || (rb.id && document.querySelector('label[for="' + rb.id + '"]')); vals.push(((rl ? rl.textContent : rb.value) || "").replace(/\s+/g, " ").trim()); });
-    var v = vals.filter(Boolean).join(", "); if (!v) return;
-    seen[label] = 1; out.push({ label: label, type: "radio", value: v, options: null });
-  });
+  // radio / checkbox / ARIA-choice QUESTIONS. Robust to forms with NO <fieldset>/<legend> (e.g.
+  // Tesla renders each question as a plain <div>: a question line followed by styled Yes/No radios).
+  // Group options by the radio `name` (or nearest group container / ARIA radiogroup), then recover
+  // the QUESTION text as the nearest ancestor of the options whose text — minus the option words —
+  // reads as a real sentence. Also tolerates custom-styled radios whose real <input> is size-0 but
+  // whose label is visible. Without this, only <fieldset>/<legend> forms were ever learned.
+  (function () {
+    var groups = {}, gid = 0, cmap = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
+    function ckey(c) { if (!c) return "c0"; if (cmap) { if (!cmap.has(c)) cmap.set(c, "c" + (++gid)); return cmap.get(c); } if (!c.__jmg) c.__jmg = "c" + (++gid); return c.__jmg; }
+    function optEl(inp) { return inp.closest("label") || (inp.id && document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
+    function txt(el) { return ((el && el.getAttribute && el.getAttribute("aria-label")) || (el && el.textContent) || "").replace(/\s+/g, " ").trim(); }
+    function add(key, el, t, on) { var g = groups[key] || (groups[key] = { els: [], texts: [], on: [] }); if (el) g.els.push(el); if (t) g.texts.push(t); if (on && t) g.on.push(t); }
+    Array.prototype.forEach.call(document.querySelectorAll("input[type=radio], input[type=checkbox]"), function (inp) {
+      var le = optEl(inp); if (!vis(inp) && !vis(le)) return;           // accept hidden input if its label shows
+      var key = inp.name ? ("n:" + inp.name) : ckey(inp.closest("fieldset, [role=radiogroup], [role=group]") || inp.parentElement);
+      add(key, le, txt(le) || String(inp.value || "").trim(), inp.checked);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[role=radio], [role=checkbox], [role=switch]'), function (el) {
+      if (!vis(el)) return;
+      add(ckey(el.closest("[role=radiogroup], [role=group]") || el.parentElement), el, txt(el),
+          el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true");
+    });
+    function lca(els) { var a = els[0]; for (var i = 1; i < els.length && a; i++) { while (a && !a.contains(els[i])) a = a.parentElement; } return a; }
+    function question(g) {
+      var node = g.els.length ? lca(g.els) : null;
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var t = node.textContent || "";
+        g.texts.forEach(function (o) { if (o) t = t.split(o).join(" "); });
+        t = t.replace(/\s+/g, " ").trim();
+        if (t.length >= 8 && /[a-z]/i.test(t)) return t.slice(0, 200);
+      }
+      return "";
+    }
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k]; if (!g.on.length) return;
+      var label = question(g);
+      if (!label || SENSITIVE.test(label) || seen[label]) return;
+      seen[label] = 1;
+      out.push({ label: label, type: "radio", value: g.on.join(", "), options: g.texts.filter(Boolean).slice(0, 20) });
+    });
+  })();
   return out.slice(0, 50);
 }
