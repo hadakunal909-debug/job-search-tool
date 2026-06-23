@@ -179,6 +179,44 @@ def render(resume_text, profile):
 
 
 # ----------------------------- compilation -----------------------------
+def _bootstrap_tectonic():
+    """Download the Tectonic binary into bin/ on first use (Linux/macOS hosts) so deploying by a
+    plain `git pull` + restart needs NO manual step — the ~50 MB binary is gitignored and can't be
+    pulled, and shared-host pip/Terminal access is flaky. Best-effort: returns the binary path, or
+    None if it can't fetch it (then build_pdf falls back to .docx/.txt, same as before). Windows is
+    not auto-fetched — dev vendors bin/tectonic.exe via scripts/get_tectonic.ps1. Mirrors the URL
+    scheme in scripts/get_tectonic.sh."""
+    import platform, tarfile, io
+    if os.name == "nt":
+        return None
+    target = {"Linux": "x86_64-unknown-linux-gnu", "Darwin": "x86_64-apple-darwin"}.get(platform.system())
+    if not target:
+        return None
+    ver = os.environ.get("TECTONIC_VERSION", "0.16.9")
+    url = ("https://github.com/tectonic-typesetting/tectonic/releases/download/"
+           "tectonic@{v}/tectonic-{v}-{t}.tar.gz").format(v=ver, t=target).replace("@", "%40")
+    bindir = os.path.join(_REPO_ROOT, "bin")
+    dest = os.path.join(bindir, "tectonic")
+    tmp = dest + ".tmp.%d" % os.getpid()                 # pid-unique so concurrent workers don't clash
+    try:
+        import requests
+        os.makedirs(bindir, exist_ok=True)
+        r = requests.get(url, timeout=180)
+        r.raise_for_status()
+        with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
+            with open(tmp, "wb") as fh:
+                shutil.copyfileobj(tf.extractfile("tectonic"), fh)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, dest)                            # atomic; last writer wins, all fine
+        return dest
+    except Exception:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return None
+
+
 def _tectonic_bin(explicit=None):
     cand = explicit or os.environ.get("TECTONIC_BIN")
     if cand and os.path.exists(cand):
@@ -190,6 +228,9 @@ def _tectonic_bin(explicit=None):
     found = shutil.which("tectonic")
     if found:
         return found
+    auto = _bootstrap_tectonic()                         # fresh host: fetch it once, then cached in bin/
+    if auto and os.path.exists(auto):
+        return auto
     raise RuntimeError("Tectonic not found (set TECTONIC_BIN or vendor bin/%s)." % name)
 
 
