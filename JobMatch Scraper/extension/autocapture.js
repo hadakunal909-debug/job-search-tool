@@ -95,6 +95,46 @@
         out.push({ label: label, type: "radio", value: g.on.join(", "), options: g.texts.filter(Boolean).slice(0, 20) });
       });
     })();
+    // custom TOGGLE / segmented-button answers (button/role toggles, no <input> — Ashby/Vanta etc.).
+    (function () {
+      if (typeof Map === "undefined") return;
+      var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
+      var cand = [];
+      document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+        if (!vis(el) || el.querySelector("input")) return;
+        var t = (el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+        if (!t || t.length > 30 || NAV.test(t.toLowerCase())) return;
+        var on = el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-pressed") === "true" ||
+                 el.getAttribute("aria-selected") === "true" || /(selected|active|checked|isselected|--on)/i.test(el.getAttribute("class") || "");
+        cand.push({ el: el, t: t, on: on });
+      });
+      if (cand.length < 2) return;
+      function group(el) {
+        var node = el.parentElement;
+        for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+          var n = 0; for (var c = 0; c < cand.length; c++) if (node.contains(cand[c].el)) n++;
+          if (n >= 2 && n <= 5) return node;
+          if (n > 5) return null;
+        }
+        return null;
+      }
+      var groups = new Map();
+      cand.forEach(function (o) { var g = group(o.el); if (!g) return; var rec = groups.get(g) || { texts: [], sel: "" }; rec.texts.push(o.t); if (o.on) rec.sel = o.t; groups.set(g, rec); });
+      groups.forEach(function (rec, p) {
+        if (rec.texts.length < 2 || rec.texts.length > 5 || !rec.sel) return;
+        if (p.querySelector("input[type=radio], input[type=checkbox], select")) return;
+        var node = p, label = "";
+        for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+          var tx = node.textContent || "";
+          rec.texts.forEach(function (o) { if (o) tx = tx.split(o).join(" "); });
+          tx = tx.replace(/\s+/g, " ").trim();
+          if (tx.length >= 8 && /[a-z]/i.test(tx)) { label = tx; break; }
+        }
+        if (!label || SENSITIVE.test(label) || seen[label]) return;
+        seen[label] = 1;
+        out.push({ label: label, type: "radio", value: rec.sel, options: rec.texts.slice(0, 20) });
+      });
+    })();
     return out.slice(0, 50);
   }
 

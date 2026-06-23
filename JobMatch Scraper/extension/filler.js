@@ -513,6 +513,49 @@ function jmSnapshotForm() {
       out.push({ key: key2, label: label.slice(0, 200), type: "radio", options: g.texts.filter(Boolean).slice(0, 20) });
     });
   })();
+  // custom TOGGLE / segmented-button choice questions: Ashby, Vanta and many design systems render
+  // Yes/No (etc.) as <button> or role= toggles with NO <input> at all. Group the option controls by
+  // their shared parent, skip already-chosen ones, tag the container so clickRadio clicks within it,
+  // and recover the question via ancestor-walk. Generic — not tied to any one ATS.
+  (function () {
+    if (typeof Map === "undefined") return;
+    var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
+    var cand = [];
+    document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+      if (!vis(el) || el.querySelector("input")) return;
+      var t = (el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 30 || NAV.test(t.toLowerCase())) return;
+      cand.push({ el: el, t: t });
+    });
+    if (cand.length < 2) return;
+    function group(el) {                                             // smallest ancestor holding 2-5 options
+      var node = el.parentElement;
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var n = 0; for (var c = 0; c < cand.length; c++) if (node.contains(cand[c].el)) n++;
+        if (n >= 2 && n <= 5) return node;
+        if (n > 5) return null;
+      }
+      return null;
+    }
+    var groups = new Map();
+    cand.forEach(function (o) { var g = group(o.el); if (!g) return; var arr = groups.get(g) || []; arr.push(o.t); groups.set(g, arr); });
+    groups.forEach(function (texts, p) {
+      if (texts.length < 2 || texts.length > 5) return;              // a Yes/No or small choice set
+      if (p.querySelector("input[type=radio], input[type=checkbox], select")) return;
+      if (p.closest("[data-jmk]")) return;                           // already handled above
+      if (p.querySelector('[aria-checked="true"], [aria-pressed="true"], [aria-selected="true"], [class*="selected" i], [class*="active" i], [class*="checked" i]')) return; // already chosen
+      var node = p, label = "";
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var tx = node.textContent || "";
+        texts.forEach(function (o) { if (o) tx = tx.split(o).join(" "); });
+        tx = tx.replace(/\s+/g, " ").trim();
+        if (tx.length >= 8 && /[a-z]/i.test(tx)) { label = tx; break; }
+      }
+      if (!label) return;
+      var key = "jmg" + (i++); p.setAttribute("data-jmk", key);
+      out.push({ key: key, label: label.slice(0, 200), type: "radio", options: texts.slice(0, 20) });
+    });
+  })();
   return out.slice(0, 30);
 }
 
@@ -582,8 +625,11 @@ async function jmApplyAnswers(answers) {
     return !!(got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0));
   }
   function clickRadio(g, v) {
-    var w = String(v).toLowerCase(), radios = g.querySelectorAll("input[type=radio], input[type=checkbox]");
+    var w = String(v).toLowerCase().trim(), radios = g.querySelectorAll("input[type=radio], input[type=checkbox]");
     for (var i = 0; i < radios.length; i++) { var rl = radios[i].closest("label") || (radios[i].id && document.querySelector('label[for="' + radios[i].id + '"]')); var t = ((rl ? rl.textContent : radios[i].value) || "").toLowerCase(); if (t.indexOf(w) >= 0 || (w === "yes" && /\byes\b/.test(t)) || (w === "no" && /\bno\b/.test(t))) { radios[i].click(); return true; } }
+    // custom toggle/segmented buttons (no <input>): click the option whose text matches the value.
+    var opts = g.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]');
+    for (var j = 0; j < opts.length; j++) { if (opts[j].querySelector("input")) continue; var ot = (opts[j].textContent || opts[j].getAttribute("aria-label") || "").toLowerCase().replace(/\s+/g, " ").trim(); if (!ot) continue; if (ot === w || (w && ot.indexOf(w) >= 0) || (w === "yes" && /\byes\b/.test(ot)) || (w === "no" && /\bno\b/.test(ot))) { opts[j].click(); return true; } }
     return false;
   }
   var applied = 0, keys = Object.keys(answers || {});
@@ -594,7 +640,7 @@ async function jmApplyAnswers(answers) {
     var ok = false;
     if (el.tagName === "SELECT") ok = setSelect(el, v);
     else if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || (el.closest && el.closest(".select__container, [class*=select__]"))) ok = await fillCombo(el, v);
-    else if (el.querySelector && el.querySelector("input[type=radio], input[type=checkbox]")) ok = clickRadio(el, v);
+    else if (el.querySelector && el.querySelector('input[type=radio], input[type=checkbox], button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]')) ok = clickRadio(el, v);
     else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") ok = setText(el, v);
     if (ok) applied++;
   }
@@ -819,6 +865,47 @@ function jmCaptureFilled() {
       if (!label || SENSITIVE.test(label) || seen[label]) return;
       seen[label] = 1;
       out.push({ label: label, type: "radio", value: g.on.join(", "), options: g.texts.filter(Boolean).slice(0, 20) });
+    });
+  })();
+  // custom TOGGLE / segmented-button answers (button/role toggles with no <input> — Ashby/Vanta etc.):
+  // learn the option the user chose, marked via aria-checked/pressed/selected or a selected-ish class.
+  (function () {
+    if (typeof Map === "undefined") return;
+    var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
+    var cand = [];
+    document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+      if (!vis(el) || el.querySelector("input")) return;
+      var t = (el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 30 || NAV.test(t.toLowerCase())) return;
+      var on = el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-pressed") === "true" ||
+               el.getAttribute("aria-selected") === "true" || /(selected|active|checked|isselected|--on)/i.test(el.getAttribute("class") || "");
+      cand.push({ el: el, t: t, on: on });
+    });
+    if (cand.length < 2) return;
+    function group(el) {
+      var node = el.parentElement;
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var n = 0; for (var c = 0; c < cand.length; c++) if (node.contains(cand[c].el)) n++;
+        if (n >= 2 && n <= 5) return node;
+        if (n > 5) return null;
+      }
+      return null;
+    }
+    var groups = new Map();
+    cand.forEach(function (o) { var g = group(o.el); if (!g) return; var rec = groups.get(g) || { texts: [], sel: "" }; rec.texts.push(o.t); if (o.on) rec.sel = o.t; groups.set(g, rec); });
+    groups.forEach(function (rec, p) {
+      if (rec.texts.length < 2 || rec.texts.length > 5 || !rec.sel) return;       // need a chosen value
+      if (p.querySelector("input[type=radio], input[type=checkbox], select")) return;
+      var node = p, label = "";
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var tx = node.textContent || "";
+        rec.texts.forEach(function (o) { if (o) tx = tx.split(o).join(" "); });
+        tx = tx.replace(/\s+/g, " ").trim();
+        if (tx.length >= 8 && /[a-z]/i.test(tx)) { label = tx; break; }
+      }
+      if (!label || SENSITIVE.test(label) || seen[label]) return;
+      seen[label] = 1;
+      out.push({ label: label, type: "radio", value: rec.sel, options: rec.texts.slice(0, 20) });
     });
   })();
   return out.slice(0, 50);
