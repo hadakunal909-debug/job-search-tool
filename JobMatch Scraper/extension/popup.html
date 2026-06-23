@@ -40,6 +40,7 @@
       <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qdry" checked style="width:auto; margin:0"> Dry run (fill &amp; check, don't submit)</label>
       <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qauto" style="width:auto; margin:0"> Auto-submit the clean ones</label>
       <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qvision" style="width:auto; margin:0"> Vision fallback (slower; rescues a parked form — briefly brings the tab to front)</label>
+      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qagentic" style="width:auto; margin:0"> Agentic mode (Claude drives a parked form step-by-step — experimental, foreground, costs tokens)</label>
       <div class="lbl">Delay between jobs (sec) <input id="qdelay" type="number" value="8" min="3" max="20" style="width:56px; margin-left:4px"></div>
       <div style="display:flex; gap:6px">
         <button class="primary" id="qstart" style="flex:1">Start</button>
@@ -48,6 +49,30 @@
       <div class="msg" id="qmsg"></div>
       <div id="qresults" style="font-size:11px; max-height:170px; overflow:auto; margin-top:6px"></div>
     </div>
+
+    <!-- AI provider / Claude key -->
+    <details>
+      <summary>⚙️ AI provider &amp; Claude key</summary>
+      <div class="lbl" style="margin-top:6px">AI provider</div>
+      <select id="aiprovider" style="width:100%; box-sizing:border-box; padding:7px 9px; margin:3px 0; border:1px solid #cbd5e1; border-radius:7px; font-size:13px">
+        <option value="claude">Claude (in extension — needs key below)</option>
+        <option value="backend">Backend (your server's Gemini)</option>
+      </select>
+      <div class="lbl">Anthropic API key (stored only in this browser; never shared)</div>
+      <input id="claudekey" type="password" placeholder="sk-ant-...">
+      <div class="lbl">Claude model</div>
+      <input id="claudemodel" placeholder="claude-sonnet-4-6">
+      <button class="ghost" id="saveai">Save AI settings</button>
+      <div class="msg" id="aimsg"></div>
+    </details>
+
+    <!-- Learned answers (training) -->
+    <details id="learnedwrap">
+      <summary>🧠 Learned answers (training)</summary>
+      <button class="ghost" id="learnedload" style="margin-top:6px">Load my saved answers</button>
+      <div class="msg" id="learnedmsg"></div>
+      <div id="learnedlist" style="font-size:11px; max-height:200px; overflow:auto; margin-top:4px"></div>
+    </details>
 
     <!-- SECONDARY: save this one job -->
     <details>

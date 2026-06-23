@@ -277,8 +277,11 @@ function collectAtsCandidates() {
 }
 
 async function init() {
-  cfg = Object.assign(cfg, await get(["token", "apibase"]));
+  cfg = Object.assign(cfg, await get(["token", "apibase", "claudeKey", "claudeModel", "provider"]));
   if (cfg.apibase) $("apibase").value = cfg.apibase;
+  if ($("claudekey")) $("claudekey").value = cfg.claudeKey || "";
+  if ($("claudemodel")) $("claudemodel").value = cfg.claudeModel || "claude-sonnet-4-6";
+  if ($("aiprovider")) $("aiprovider").value = cfg.provider || (cfg.claudeKey ? "claude" : "backend");
   if (cfg.token) {
     $("setup").style.display = "none";
     $("main").style.display = "block";
@@ -321,6 +324,48 @@ $("savetok").onclick = async () => {
 };
 
 $("reset").onclick = async () => { await set({ token: "" }); cfg.token = ""; init(); };
+
+// AI provider / Claude key settings (stored only in this browser).
+$("saveai").onclick = async () => {
+  const claudeKey = $("claudekey").value.trim();
+  const claudeModel = $("claudemodel").value.trim() || "claude-sonnet-4-6";
+  const provider = $("aiprovider").value;
+  await set({ claudeKey, claudeModel, provider });
+  cfg.claudeKey = claudeKey; cfg.claudeModel = claudeModel; cfg.provider = provider;
+  $("aimsg").style.color = "#0b7a52";
+  $("aimsg").textContent = provider === "claude"
+    ? (claudeKey ? "Saved — Claude runs in the extension." : "Saved, but no key set — using the backend fallback.")
+    : "Saved — using your backend's AI.";
+};
+
+// Manage learned answers: list + delete. (Edit = delete here, then re-capture the corrected value
+// with "Save my answers from this page".)
+$("learnedload").onclick = async () => {
+  $("learnedmsg").style.color = "#0b7a52"; $("learnedmsg").textContent = "Loading…";
+  try {
+    const j = await (await fetch(cfg.apibase + "/api/ext/learned?token=" + encodeURIComponent(cfg.token))).json();
+    if (!j.ok) { $("learnedmsg").style.color = "#c0392b"; $("learnedmsg").textContent = "Error: " + (j.error || "failed"); return; }
+    const items = j.items || [];
+    $("learnedmsg").textContent = items.length + " saved answer(s).";
+    $("learnedlist").innerHTML = items.map((it) => {
+      const k = (it.key || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      return "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'><b>" +
+        (it.label || it.key || "").replace(/</g, "&lt;") + "</b>: " + String(it.value || "").replace(/</g, "&lt;") +
+        " <a href='#' data-jmdel='" + k + "' style='color:#c0392b'>✕</a></div>";
+    }).join("") || "<div style='color:#888'>No saved answers yet — use “Save my answers from this page”.</div>";
+  } catch (e) { $("learnedmsg").style.color = "#c0392b"; $("learnedmsg").textContent = "Network error."; }
+};
+$("learnedlist").addEventListener("click", async (e) => {
+  const a = e.target.closest("[data-jmdel]"); if (!a) return;
+  e.preventDefault();
+  const key = a.getAttribute("data-jmdel"); if (!key) return;
+  try {
+    const r = await (await fetch(cfg.apibase + "/api/ext/learn_delete", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: cfg.token, key })
+    })).json();
+    if (r.ok) $("learnedload").click();                // reload the list
+  } catch (e2) {}
+});
 
 $("save").onclick = async () => {
   const tab = await activeTab();
@@ -595,7 +640,7 @@ function parseQueueItems() {
 $("qstart").onclick = async () => {
   const items = parseQueueItems();
   if (!items.length) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
-  const dryRun = $("qdry").checked, autosubmit = $("qauto").checked, vision = $("qvision").checked;
+  const dryRun = $("qdry").checked, autosubmit = $("qauto").checked, vision = $("qvision").checked, agentic = $("qagentic").checked;
   const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 8)) * 1000;
   // Grant broad site access FIRST, before any confirm()/alert() below. A JS dialog consumes the
   // click's transient user activation, after which chrome.permissions.request throws
@@ -608,7 +653,8 @@ $("qstart").onclick = async () => {
   if (!dryRun && autosubmit &&
       !confirm("This will SUBMIT real applications to " + items.length + " job(s) with no review. Continue?")) return;
   // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
-  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs, vision }, function () { void chrome.runtime.lastError; });
+  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs, vision, agentic,
+    claudeKey: cfg.claudeKey || "", claudeModel: cfg.claudeModel || "", provider: cfg.provider || "" }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#0b7a52";
   $("qmsg").textContent = "Started: " + items.length + " jobs (" + (dryRun ? "dry run" : (autosubmit ? "AUTO-SUBMIT" : "fill only")) + ").";
   pollQueue();
@@ -624,6 +670,19 @@ let qPollTimer = null;
 function pollQueue() {
   if (qPollTimer) clearInterval(qPollTimer);
   const icon = { submitted: "✅", check: "🔍", ready: "🟢", needs_you: "⏸️", skipped: "⏭️", error: "⚠️", running: "⏳", queued: "·", stopped: "⏹️" };
+  if (!pollQueue._bound) {                              // one-time: delegated Retry handler on the results list
+    pollQueue._bound = true;
+    $("qresults").addEventListener("click", (e) => {
+      const a = e.target.closest("[data-jmretry]"); if (!a) return;
+      e.preventDefault();
+      const url = a.getAttribute("data-jmretry"); if (!url) return;
+      const it = { url, title: (qJobs[url] || {}).title || "", company: (qJobs[url] || {}).company || "" };
+      chrome.runtime.sendMessage({ type: "jm_queue_start", items: [it], apibase: cfg.apibase, token: cfg.token,
+        dryRun: $("qdry").checked, autosubmit: $("qauto").checked, delayMs: 4000, vision: $("qvision").checked, agentic: $("qagentic").checked,
+        claudeKey: cfg.claudeKey || "", claudeModel: cfg.claudeModel || "", provider: cfg.provider || "" }, function () { void chrome.runtime.lastError; });
+      $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Retrying 1 job…"; pollQueue();
+    });
+  }
   const tick = () => chrome.storage.local.get(["jm_queue"], (st) => {
     const q = st && st.jm_queue;
     if (!q) return;
@@ -633,11 +692,15 @@ function pollQueue() {
     $("qmsg").style.color = "#0b7a52";
     $("qmsg").textContent = (q.running ? "Running " : "Done ") + done + "/" + q.total +
       " — ✅" + (c.submitted || 0) + " 🔍" + (c.check || 0) + " 🟢" + (c.ready || 0) +
-      " ⏸️" + (c.needs_you || 0) + " ⚠️" + (c.error || 0) + (q.dryRun ? " (dry run)" : "");
-    $("qresults").innerHTML = (q.items || []).map((it) =>
-      "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'>" + (icon[it.status] || "·") + " <b>" +
-      (it.company || "").replace(/</g, "&lt;") + "</b> " + (it.title || "").replace(/</g, "&lt;") +
-      (it.reason ? "<br><span style='color:#888'>" + it.reason.replace(/</g, "&lt;") + "</span>" : "") + "</div>").join("");
+      " ⏸️" + (c.needs_you || 0) + " ⚠️" + (c.error || 0) + (q.dryRun ? " (dry run)" : "") +
+      (q.useClaude ? " · Claude" : "") + (q.costUsd ? " · ~$" + Number(q.costUsd).toFixed(3) : "");
+    $("qresults").innerHTML = (q.items || []).map((it) => {
+      const u = (it.url || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      const head = (icon[it.status] || "·") + " <b>" + (it.company || "").replace(/</g, "&lt;") + "</b> " + (it.title || "").replace(/</g, "&lt;");
+      const reason = it.reason ? "<br><span style='color:#888'>" + it.reason.replace(/</g, "&lt;") + "</span>" : "";
+      const acts = it.url ? "<br><a href='" + u + "' target='_blank'>open</a> · <a href='#' data-jmretry='" + u + "'>retry</a>" : "";
+      return "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'>" + head + reason + acts + "</div>";
+    }).join("");
     if (!q.running && qPollTimer) { clearInterval(qPollTimer); qPollTimer = null; }
   });
   tick();
