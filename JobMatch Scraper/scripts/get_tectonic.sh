@@ -10,7 +10,7 @@ BIN="$ROOT/bin"
 mkdir -p "$BIN"
 
 case "$(uname -s)" in
-  Linux)  TARGET="x86_64-unknown-linux-gnu" ;;
+  Linux)  TARGET="x86_64-unknown-linux-musl" ;;   # static build: runs on old hosts w/o libssl.so.3
   Darwin) TARGET="x86_64-apple-darwin" ;;
   *) echo "Unsupported OS: $(uname -s)" >&2; exit 1 ;;
 esac

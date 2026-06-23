@@ -189,7 +189,9 @@ def _bootstrap_tectonic():
     import platform, tarfile, io
     if os.name == "nt":
         return None
-    target = {"Linux": "x86_64-unknown-linux-gnu", "Darwin": "x86_64-apple-darwin"}.get(platform.system())
+    # Linux: the STATIC musl build (no libssl/glibc deps) so it runs on old shared hosts too — the
+    # glibc build needs libssl.so.3, which CentOS/CloudLinux 7-era cPanel boxes don't have.
+    target = {"Linux": "x86_64-unknown-linux-musl", "Darwin": "x86_64-apple-darwin"}.get(platform.system())
     if not target:
         return None
     ver = os.environ.get("TECTONIC_VERSION", "0.16.9")
@@ -217,21 +219,38 @@ def _bootstrap_tectonic():
         return None
 
 
+_VERIFIED_BIN = None
+
+
+def _runs(binpath):
+    """True if the binary actually executes on THIS host. Catches an ABI / shared-library mismatch —
+    e.g. a glibc build failing with `libssl.so.3: cannot open shared object file` on an old box — so
+    a broken binary is treated as missing and re-fetched (static musl) instead of used."""
+    try:
+        p = subprocess.run([binpath, "--version"], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=20)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
 def _tectonic_bin(explicit=None):
-    cand = explicit or os.environ.get("TECTONIC_BIN")
-    if cand and os.path.exists(cand):
-        return cand
+    global _VERIFIED_BIN
+    if _VERIFIED_BIN and os.path.exists(_VERIFIED_BIN):
+        return _VERIFIED_BIN                              # already proven to run in this process
     name = "tectonic.exe" if os.name == "nt" else "tectonic"
-    vendored = os.path.join(_REPO_ROOT, "bin", name)
-    if os.path.exists(vendored):
-        return vendored
-    found = shutil.which("tectonic")
-    if found:
-        return found
-    auto = _bootstrap_tectonic()                         # fresh host: fetch it once, then cached in bin/
-    if auto and os.path.exists(auto):
+    for cand in (explicit, os.environ.get("TECTONIC_BIN"),
+                 os.path.join(_REPO_ROOT, "bin", name), shutil.which("tectonic")):
+        if cand and os.path.exists(cand) and _runs(cand):
+            _VERIFIED_BIN = cand
+            return cand
+    # Nothing usable — missing, OR present but won't run (wrong-ABI binary, like the glibc build on a
+    # libssl-1.x host). Fetch the static musl build, overwriting the broken one, and use that.
+    auto = _bootstrap_tectonic()
+    if auto and os.path.exists(auto) and _runs(auto):
+        _VERIFIED_BIN = auto
         return auto
-    raise RuntimeError("Tectonic not found (set TECTONIC_BIN or vendor bin/%s)." % name)
+    raise RuntimeError("Tectonic not found or not runnable here (set TECTONIC_BIN or vendor bin/%s)." % name)
 
 
 def build_pdf(resume_text, profile, tectonic_bin=None, timeout=180):
