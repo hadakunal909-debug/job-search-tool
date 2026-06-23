@@ -478,16 +478,41 @@ function jmSnapshotForm() {
     if (type === "select") rec.options = Array.prototype.map.call(el.options, function (o) { return (o.textContent || "").trim(); }).filter(Boolean).slice(0, 40);
     out.push(rec);
   });
-  document.querySelectorAll("fieldset, [role=radiogroup]").forEach(function (g) {
-    var radios = g.querySelectorAll("input[type=radio], input[type=checkbox]"); if (!radios.length) return;
-    for (var r = 0; r < radios.length; r++) if (radios[r].checked) return;
-    var lg = g.querySelector("legend, label, .label");
-    var t = ((lg ? lg.textContent : g.textContent) || "").replace(/\s+/g, " ").trim(); if (!t) return;
-    var key = "jmg" + (i++); g.setAttribute("data-jmk", key);
-    var opts = [];
-    for (var k = 0; k < radios.length; k++) { var rl = radios[k].closest("label") || (radios[k].id && document.querySelector('label[for="' + radios[k].id + '"]')); opts.push(((rl ? rl.textContent : radios[k].value) || "").replace(/\s+/g, " ").trim()); }
-    out.push({ key: key, label: t.slice(0, 200), type: "radio", options: opts.filter(Boolean).slice(0, 20) });
-  });
+  // radio/checkbox QUESTIONS — robust to forms with NO <fieldset>/<legend> (e.g. Tesla: a question
+  // line + styled Yes/No radios). Group options by `name`/nearest container, SKIP already-answered
+  // groups, tag the options' common ancestor (so the apply step's clickRadio can click within it),
+  // and recover the question text by walking up from that anchor. Mirrors jmCaptureFilled so the
+  // learned-answer + AI pass can actually FILL these, not just learn them.
+  (function () {
+    function optEl(inp) { return inp.closest("label") || (inp.id && document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
+    function otxt(el) { return ((el && el.getAttribute && el.getAttribute("aria-label")) || (el && el.textContent) || "").replace(/\s+/g, " ").trim(); }
+    var groups = {}, gc = 0, cmap = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
+    function ckey(c) { if (!c) return "c0"; if (cmap) { if (!cmap.has(c)) cmap.set(c, "c" + (++gc)); return cmap.get(c); } if (!c.__jmd) c.__jmd = "c" + (++gc); return c.__jmd; }
+    Array.prototype.forEach.call(document.querySelectorAll("input[type=radio], input[type=checkbox]"), function (inp) {
+      var le = optEl(inp); if (!vis(inp) && !vis(le)) return;
+      var key = inp.name ? ("n:" + inp.name) : ckey(inp.closest("fieldset, [role=radiogroup], [role=group]") || inp.parentElement);
+      var g = groups[key] || (groups[key] = { inputs: [], texts: [], checked: false });
+      g.inputs.push(inp); g.texts.push(otxt(le) || String(inp.value || "").trim());
+      if (inp.checked) g.checked = true;
+    });
+    function lca(els) { var a = els[0]; for (var j = 1; j < els.length && a; j++) { while (a && !a.contains(els[j])) a = a.parentElement; } return a; }
+    function question(node, texts) {
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var t = node.textContent || "";
+        texts.forEach(function (o) { if (o) t = t.split(o).join(" "); });
+        t = t.replace(/\s+/g, " ").trim();
+        if (t.length >= 8 && /[a-z]/i.test(t)) return t;
+      }
+      return "";
+    }
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k]; if (g.checked || !g.inputs.length) return;     // already answered -> don't re-ask
+      var anchor = lca(g.inputs); if (!anchor) return;
+      var label = question(anchor, g.texts); if (!label) return;
+      var key2 = "jmg" + (i++); anchor.setAttribute("data-jmk", key2);
+      out.push({ key: key2, label: label.slice(0, 200), type: "radio", options: g.texts.filter(Boolean).slice(0, 20) });
+    });
+  })();
   return out.slice(0, 30);
 }
 
@@ -622,15 +647,39 @@ function jmVisionSnapshot() {
     if (!rec.label && !(rec.options && rec.options.length)) return;
     el.setAttribute("data-jmv", i); rec.rect = rect(el); out.push(rec); i++;
   });
-  document.querySelectorAll("fieldset, [role=radiogroup]").forEach(function (g) {
-    var radios = g.querySelectorAll("input[type=radio], input[type=checkbox]"); if (!radios.length || !vis(radios[0])) return;
-    var lg = g.querySelector("legend, label, .label");
-    var label = ((lg ? lg.textContent : g.textContent) || "").replace(/\s+/g, " ").trim().slice(0, 180); if (!label) return;
-    var opts = [], checked = "";
-    for (var k = 0; k < radios.length; k++) { var rl = radios[k].closest("label") || (radios[k].id && document.querySelector('label[for="' + radios[k].id + '"]')); var t = ((rl ? rl.textContent : radios[k].value) || "").replace(/\s+/g, " ").trim(); opts.push(t); if (radios[k].checked) checked = t; }
-    g.setAttribute("data-jmv", i);
-    out.push({ index: i, type: "radio", label: label, options: opts.filter(Boolean).slice(0, 20), value: checked, rect: rect(g) }); i++;
-  });
+  // radio/checkbox QUESTIONS — same fieldset-less grouping as jmDetectFields (group by name/nearest
+  // container, anchor on the options' common ancestor, recover the question via ancestor-walk) so the
+  // vision fallback also sees Tesla-style questions. Records current checked value + rect.
+  (function () {
+    function optEl(inp) { return inp.closest("label") || (inp.id && document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
+    function otxt(el) { return ((el && el.getAttribute && el.getAttribute("aria-label")) || (el && el.textContent) || "").replace(/\s+/g, " ").trim(); }
+    var groups = {}, gc = 0, cmap = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
+    function ckey(c) { if (!c) return "c0"; if (cmap) { if (!cmap.has(c)) cmap.set(c, "c" + (++gc)); return cmap.get(c); } if (!c.__jmv) c.__jmv = "c" + (++gc); return c.__jmv; }
+    Array.prototype.forEach.call(document.querySelectorAll("input[type=radio], input[type=checkbox]"), function (inp) {
+      var le = optEl(inp); if (!vis(inp) && !vis(le)) return;
+      var key = inp.name ? ("n:" + inp.name) : ckey(inp.closest("fieldset, [role=radiogroup], [role=group]") || inp.parentElement);
+      var g = groups[key] || (groups[key] = { inputs: [], texts: [], checked: "" });
+      g.inputs.push(inp); var tt = otxt(le) || String(inp.value || "").trim(); g.texts.push(tt);
+      if (inp.checked) g.checked = tt;
+    });
+    function lca(els) { var a = els[0]; for (var j = 1; j < els.length && a; j++) { while (a && !a.contains(els[j])) a = a.parentElement; } return a; }
+    function question(node, texts) {
+      for (var hop = 0; node && hop < 6; hop++, node = node.parentElement) {
+        var t = node.textContent || "";
+        texts.forEach(function (o) { if (o) t = t.split(o).join(" "); });
+        t = t.replace(/\s+/g, " ").trim();
+        if (t.length >= 8 && /[a-z]/i.test(t)) return t;
+      }
+      return "";
+    }
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k]; if (!g.inputs.length) return;
+      var anchor = lca(g.inputs); if (!anchor) return;
+      var label = question(anchor, g.texts); if (!label) return;
+      anchor.setAttribute("data-jmv", i);
+      out.push({ index: i, type: "radio", label: label.slice(0, 180), options: g.texts.filter(Boolean).slice(0, 20), value: g.checked, rect: rect(anchor) }); i++;
+    });
+  })();
   document.querySelectorAll("button, input[type=submit], [role=button]").forEach(function (b) {
     if (!vis(b)) return;
     var t = (b.textContent || b.value || b.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim(); if (!t) return;
