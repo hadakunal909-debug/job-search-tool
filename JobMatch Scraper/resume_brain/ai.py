@@ -50,6 +50,28 @@ _FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash
                     "gemini-1.5-flash", "gemini-2.5-pro"]
 
 
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _generate_claude(prompt, api_key, max_tokens=8192, image_b64=None):
+    """Anthropic Claude variant of _generate — used when the configured key is an `sk-ant-…` key (or
+    AI_PROVIDER=claude). Same contract: returns the model's text. Vision via a base64 image block.
+    Lazy-imports the SDK so Gemini-only installs don't need `anthropic`. Override the model with
+    ANTHROPIC_MODEL (default claude-sonnet-4-6)."""
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key)
+    content = []
+    if image_b64:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}})
+    content.append({"type": "text", "text": prompt})
+    msg = client.messages.create(
+        model=os.environ.get("ANTHROPIC_MODEL") or ANTHROPIC_DEFAULT_MODEL,
+        max_tokens=min(int(max_tokens or 4096), 8192),
+        messages=[{"role": "user", "content": content}],
+    )
+    return "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text").strip()
+
+
 def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
               think=True, json_mode=True, model=None, timeout=_REQ_TIMEOUT, image_b64=None):
     """generateContent with automatic model fallback: try the configured model first; if it times
@@ -57,7 +79,9 @@ def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,
     raises RuntimeError only if every candidate fails. Pass image_b64 (base64 PNG, no data: prefix)
     to send a screenshot alongside the prompt (multimodal — used by the vision form-fill fallback)."""
     if not api_key:
-        raise RuntimeError("No Gemini API key provided.")
+        raise RuntimeError("No AI API key provided.")
+    if str(api_key).startswith("sk-ant-") or os.environ.get("AI_PROVIDER") == "claude":
+        return _generate_claude(prompt, api_key, max_tokens=max_tokens, image_b64=image_b64)
     primary = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
     candidates = []
     for m in [primary] + _FALLBACK_MODELS:
@@ -209,28 +233,40 @@ def _rewrite_prompt(ctx):
         "from the candidate's real stories, and a close). Mirror the job's voice where the "
         "candidate genuinely fits.\n\n"
         + _TRUTH_RULES +
-        "\nOutput ONLY JSON of this exact shape (no markdown, no prose outside JSON):\n"
-        '{"tailored_resume": "full plain-text résumé",\n'
-        ' "cover_letter": "full plain-text cover letter",\n'
-        ' "notes": ["short note on what you emphasized or any honest gap"]}\n\n'
-        + _ctx_block(ctx) + "\n=== JSON ==="
+        "\nReturn the result in EXACTLY this delimited format — no JSON, no markdown, no prose outside "
+        "the sections, and include all three markers. Put the full résumé FIRST so it is never truncated:\n"
+        "###RESUME###\n<full plain-text résumé>\n"
+        "###COVER###\n<full plain-text cover letter>\n"
+        "###NOTES###\n<one short note per line on what you emphasized or any honest gap>\n\n"
+        + _ctx_block(ctx) + "\n\nNow output the three marked sections:"
     )
 
 
 # ----------------------------- public call -----------------------------
+def _parse_rewrite(text):
+    """Parse the delimited rewrite output (###RESUME### / ###COVER### / ###NOTES###). Robust to
+    truncation — a cut-off response just loses trailing sections, and the résumé comes first."""
+    t = text or ""
+    def section(name, stops):
+        stop = "|".join(["###\\s*" + s + "\\s*###" for s in stops]) or r"\Z"
+        m = re.search(r"###\s*" + name + r"\s*###(.*?)(?=" + stop + r"|\Z)", t, re.S | re.I)
+        return m.group(1).strip() if m else ""
+    resume = section("RESUME", ["COVER", "NOTES"])
+    cover = section("COVER", ["NOTES"])
+    notes = [ln.strip(" -•\t") for ln in section("NOTES", []).splitlines() if ln.strip()]
+    if not resume and not cover:                       # no markers at all — treat the whole text as the résumé
+        return {"tailored_resume": t.strip(), "cover_letter": "", "notes": [], "parse_warning": not bool(t.strip())}
+    return {"tailored_resume": resume or t.strip(), "cover_letter": cover, "notes": notes, "parse_warning": False}
+
+
 def rewrite(ctx, api_key):
-    """Turn the brain's plan into finished prose. Returns
-    {tailored_resume, cover_letter, notes[], parse_warning}. Raises RuntimeError on API failure."""
+    """Turn the brain's plan into finished prose. Returns {tailored_resume, cover_letter, notes[],
+    parse_warning}. Uses a DELIMITED (not JSON) output so large résumés never fail to parse — the old
+    JSON envelope truncated/garbled under load (esp. a near-quota Gemini response). Raises RuntimeError
+    only on API failure."""
     text = _generate(_rewrite_prompt(ctx), api_key, temperature=0.45, max_tokens=8192,
-                     think=True, json_mode=True, timeout=90)   # résumé writing is heavier than form-fill
-    obj = parse_json(text)
-    if not obj or not obj.get("tailored_resume"):
-        return {"tailored_resume": (obj or {}).get("tailored_resume") or text,
-                "cover_letter": (obj or {}).get("cover_letter", "") or "",
-                "notes": [], "parse_warning": True}
-    return {"tailored_resume": obj.get("tailored_resume", ""),
-            "cover_letter": obj.get("cover_letter", "") or "",
-            "notes": obj.get("notes", []) or [], "parse_warning": False}
+                     think=False, json_mode=False, timeout=90)
+    return _parse_rewrite(text)
 
 
 def answer_fields(profile, resume, fields, api_key, company=""):
