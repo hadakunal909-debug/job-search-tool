@@ -53,23 +53,34 @@ _FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
 def _generate_claude(prompt, api_key, max_tokens=8192, image_b64=None):
     """Anthropic Claude variant of _generate — used when the configured key is an `sk-ant-…` key (or
     AI_PROVIDER=claude). Same contract: returns the model's text. Vision via a base64 image block.
-    Lazy-imports the SDK so Gemini-only installs don't need `anthropic`. Override the model with
-    ANTHROPIC_MODEL (default claude-sonnet-4-6)."""
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key)
+    Calls the Messages REST API directly with `requests` — NO `anthropic` SDK needed, so cPanel needs
+    no extra package (same pattern as the Gemini path). Override the model via ANTHROPIC_MODEL
+    (default claude-sonnet-4-6)."""
     content = []
     if image_b64:
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}})
     content.append({"type": "text", "text": prompt})
-    msg = client.messages.create(
-        model=os.environ.get("ANTHROPIC_MODEL") or ANTHROPIC_DEFAULT_MODEL,
-        max_tokens=min(int(max_tokens or 4096), 8192),
-        messages=[{"role": "user", "content": content}],
-    )
-    return "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text").strip()
+    body = {
+        "model": os.environ.get("ANTHROPIC_MODEL") or ANTHROPIC_DEFAULT_MODEL,
+        "max_tokens": min(int(max_tokens or 4096), 8192),
+        "messages": [{"role": "user", "content": content}],
+    }
+    headers = {"content-type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    r = requests.post(_ANTHROPIC_URL, headers=headers, json=body, timeout=120)
+    if r.status_code >= 400:
+        try:
+            detail = (r.json().get("error") or {}).get("message") or r.text
+        except Exception:
+            detail = r.text
+        raise RuntimeError("Claude API %s: %s" % (r.status_code, (detail or "")[:200]))
+    blocks = r.json().get("content") or []
+    return "".join(b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
 def _generate(prompt, api_key, temperature=0.4, max_tokens=8192,

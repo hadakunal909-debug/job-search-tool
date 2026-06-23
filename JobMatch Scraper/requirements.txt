@@ -10,8 +10,8 @@ python-docx
 # Cloud storage (Supabase) needs no extra package — db.py uses the REST API via `requests`.
 
 # AI résumé tailoring + form-answering. Uses Claude (Anthropic) when ANTHROPIC_API_KEY is set
-# (preferred — set it + restart), else Google Gemini via REST (the `requests` dep above; no Gemini pkg).
-anthropic
+# (preferred — set it + restart), else Google Gemini. BOTH go over REST via the `requests` dep above —
+# no SDK / extra package needed (resume_brain/ai.py calls api.anthropic.com directly).
 #
 # Optional — JavaScript-rendered job sources for the scraper (e.g. Workday):
 #     pip install playwright

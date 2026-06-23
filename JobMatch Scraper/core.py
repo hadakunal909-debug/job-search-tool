@@ -798,12 +798,37 @@ def tailor_with_gemini(resume_text, jd_text, api_key, model=None):
 
 
 def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
-    """Anthropic/Claude variant — used only if you switch to an Anthropic key."""
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key) if api_key else Anthropic()  # else reads the env var
-    msg = client.messages.create(
-        model=model,
-        max_tokens=4096,                       # headroom for a full résumé rewrite
-        messages=[{"role": "user", "content": _tailor_prompt(resume_text, jd_text)}],
-    )
-    return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+    """Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests`
+    (no `anthropic` SDK needed — same pattern as the Gemini path). Model: ANTHROPIC_MODEL env, else
+    the passed model (default AI_MODEL)."""
+    api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("No Anthropic API key provided.")
+    body = {
+        "model": os.environ.get("ANTHROPIC_MODEL") or model or AI_MODEL,
+        "max_tokens": 8192,                    # headroom for a full résumé rewrite
+        "messages": [{"role": "user", "content": _tailor_prompt(resume_text, jd_text)}],
+    }
+    headers = {"content-type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=body, timeout=120)
+    if r.status_code >= 400:
+        try:
+            detail = (r.json().get("error") or {}).get("message") or r.text
+        except Exception:
+            detail = r.text
+        raise RuntimeError("Claude API %s: %s" % (r.status_code, (detail or "")[:200]))
+    blocks = r.json().get("content") or []
+    text = "".join(b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text").strip()
+    if not text:
+        raise RuntimeError("Claude returned an empty response (try again).")
+    return text
+
+
+def tailor(resume_text, jd_text, api_key):
+    """Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or
+    AI_PROVIDER=claude), else Gemini. Both go over REST — no SDK / extra package."""
+    if not api_key:
+        raise RuntimeError("No AI API key provided.")
+    if str(api_key).startswith("sk-ant-") or os.environ.get("AI_PROVIDER") == "claude":
+        return tailor_with_ai(resume_text, jd_text, api_key=api_key)
+    return tailor_with_gemini(resume_text, jd_text, api_key)
