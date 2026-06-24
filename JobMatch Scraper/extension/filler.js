@@ -400,12 +400,18 @@ function jmFormReady() {
     'input[type=file], input[type=email], input[autocomplete="email"], #first_name, input[name*="email" i]');
 }
 
-// Click an "Apply"/"Apply for this job" button to reveal a collapsed form. Self-contained.
+// Click a gate that reveals the real form: "Apply" / "Apply now" / "Apply for this role" /
+// "I'm interested" / "Start application". Self-contained. Skips sign-in/filter/share look-alikes.
 function jmClickApply() {
   var els = Array.prototype.slice.call(document.querySelectorAll('a, button, [role=button], input[type=submit]'));
   var b = els.filter(function (x) {
-    var t = (x.textContent || x.value || "").trim();
-    return /^apply(\s|$)|apply for this job|apply now/i.test(t) && x.offsetParent !== null && !/sign|login/i.test(t);
+    var t = (x.textContent || x.value || "").replace(/\s+/g, " ").trim();
+    if (!t || t.length > 40 || x.offsetParent === null) return false;
+    var tl = t.toLowerCase();
+    if (/sign|log ?in|filter|search|sort|saved|already applied|share|refer/.test(tl)) return false;
+    return /^apply\b/.test(tl) ||                         // Apply / Apply now / Apply for this role
+           /^(i'?m |i am )?interested\b/.test(tl) ||       // I'm interested / Interested
+           /^(start|begin)\b.*\bapplication\b/.test(tl);   // Start (your) application / Begin application
   })[0];
   if (b) { b.click(); return true; }
   return false;

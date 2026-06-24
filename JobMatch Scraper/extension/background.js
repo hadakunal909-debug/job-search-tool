@@ -126,7 +126,7 @@ async function jmProcessOne(item, cfg) {
         const rr = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmFormReady });
         ready = (rr || []).some((o) => o && o.result);
       } catch (e) {}
-      if (!ready && k === 2) {
+      if (!ready && (k === 2 || k === 5)) {   // click "Apply" / "I'm interested" to reveal the form (retry once)
         try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
       }
     }

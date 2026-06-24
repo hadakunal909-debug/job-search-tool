@@ -397,8 +397,24 @@ $("tailorfill").onclick = async () => {
     }
     let res = await fill();
     if (!res.found) {
+      // The form may be behind an "Apply" / "I'm interested" gate — click it, wait for the form, retry.
+      tm.textContent = "Opening the application…";
+      try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
+      for (let k = 0; k < 8; k++) {
+        await new Promise((r) => setTimeout(r, 700));
+        let ready = false;
+        try {
+          const rr = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmFormReady });
+          ready = (rr || []).some((o) => o && o.result);
+        } catch (e) {}
+        if (ready) break;
+      }
+      tm.textContent = "Filling the form…";
+      res = await fill();
+    }
+    if (!res.found) {
       tm.style.color = "#c0392b";
-      tm.textContent = "No supported application form found on this page.";
+      tm.textContent = "No application form found — click Apply / I'm interested on the page, then try again.";
       return;
     }
     // Learned-answer pass for whatever's still empty (client-side, NO AI).
