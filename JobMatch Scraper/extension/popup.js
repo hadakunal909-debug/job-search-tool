@@ -640,7 +640,7 @@ function parseQueueItems() {
 $("qstart").onclick = async () => {
   const items = parseQueueItems();
   if (!items.length) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
-  const dryRun = $("qdry").checked, autosubmit = $("qauto").checked, vision = $("qvision").checked, agentic = $("qagentic").checked;
+  const dryRun = $("qdry").checked, autosubmit = $("qauto").checked, vision = $("qvision").checked, agentic = $("qagentic").checked, computerUse = $("qcompuse").checked;
   const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 8)) * 1000;
   // Grant broad site access FIRST, before any confirm()/alert() below. A JS dialog consumes the
   // click's transient user activation, after which chrome.permissions.request throws
@@ -653,7 +653,7 @@ $("qstart").onclick = async () => {
   if (!dryRun && autosubmit &&
       !confirm("This will SUBMIT real applications to " + items.length + " job(s) with no review. Continue?")) return;
   // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
-  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs, vision, agentic,
+  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs, vision, agentic, computerUse,
     claudeKey: cfg.claudeKey || "", claudeModel: cfg.claudeModel || "", provider: cfg.provider || "" }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#0b7a52";
   $("qmsg").textContent = "Started: " + items.length + " jobs (" + (dryRun ? "dry run" : (autosubmit ? "AUTO-SUBMIT" : "fill only")) + ").";
@@ -678,7 +678,7 @@ function pollQueue() {
       const url = a.getAttribute("data-jmretry"); if (!url) return;
       const it = { url, title: (qJobs[url] || {}).title || "", company: (qJobs[url] || {}).company || "" };
       chrome.runtime.sendMessage({ type: "jm_queue_start", items: [it], apibase: cfg.apibase, token: cfg.token,
-        dryRun: $("qdry").checked, autosubmit: $("qauto").checked, delayMs: 4000, vision: $("qvision").checked, agentic: $("qagentic").checked,
+        dryRun: $("qdry").checked, autosubmit: $("qauto").checked, delayMs: 4000, vision: $("qvision").checked, agentic: $("qagentic").checked, computerUse: $("qcompuse").checked,
         claudeKey: cfg.claudeKey || "", claudeModel: cfg.claudeModel || "", provider: cfg.provider || "" }, function () { void chrome.runtime.lastError; });
       $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Retrying 1 job…"; pollQueue();
     });

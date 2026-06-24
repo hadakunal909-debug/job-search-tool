@@ -3,7 +3,7 @@
 // gets Tesla jobs without anyone clicking anything. The fetch rides the browser's own
 // tesla.com cookies; if Akamai still challenges a cold session, the run records a note
 // and the tesla_auto.js content script covers it the next time a Tesla page is open.
-importScripts("tesla_shared.js", "filler.js", "claude.js");  // filler.js: jmFillApplication etc; claude.js: jmClaude / jmParseJson
+importScripts("tesla_shared.js", "filler.js", "claude.js", "cdp.js");  // filler.js: jmFillApplication etc; claude.js: jmClaude / jmParseJson / jmClaudeTools; cdp.js: computer-use input
 
 function schedule() {
   chrome.alarms.create("tesla-auto", { delayInMinutes: 3, periodInMinutes: 24 * 60 });
@@ -15,7 +15,13 @@ chrome.alarms.onAlarm.addListener((a) => {
   // canUseTabs: when Akamai 403s the worker's own fetch, the run transparently
   // retries through a real tesla.com tab (existing or throwaway-inactive).
   if (a.name === "tesla-auto") jmRunTeslaImport({ trigger: "alarm", canUseTabs: true });
+  // Keepalive: a no-op storage touch resets the MV3 service-worker idle timer so a long computer-use
+  // run isn't evicted between steps. Created while a queue is running, cleared when it ends.
+  else if (a.name === "jm-keepalive") { try { chrome.storage.local.get("jm_queue", () => { void chrome.runtime.lastError; }); } catch (e) {} }
 });
+function jmKeepAlive(on) {
+  try { if (on) chrome.alarms.create("jm-keepalive", { periodInMinutes: 0.4 }); else chrome.alarms.clear("jm-keepalive"); } catch (e) {}
+}
 
 // The popup's "Run Tesla import now" button (works from any page).
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -263,6 +269,155 @@ function prefetchTailor(item, cfg) {
   return p;
 }
 
+// ===================== Computer-use agent (Claude controls the mouse via CDP) =====================
+// The honest "full vision agent". Claude sees a screenshot and drives the page with TRUSTED coordinate
+// input (cdp.js) — clicking a dropdown open and picking the visible option the way a human does, which is
+// exactly what the index→DOM path (jmAgentStep/jmApplyVision) can't do. Reuses the same profile/résumé/
+// learned context (cfg.ctx) the other AI passes use. Needs a FOCUSED tab: CDP Input.* only reaches the
+// active tab of a focused window, so we move the job tab into its own window for the duration.
+
+function jmCuLearnedLines(ctx) {
+  const l = (ctx && ctx.learned) || {};
+  const rows = Object.keys(l).map((k) => {
+    const v = l[k] && l[k].value; return v ? ("- " + k + " -> " + String(v).slice(0, 120)) : "";
+  }).filter(Boolean).slice(0, 40);
+  return rows.length ? rows.join("\n") : "(none yet)";
+}
+
+function jmCuSystem(cfg, item, fileAttached) {
+  const ctx = cfg.ctx || {};
+  let gate;
+  if (cfg.dryRun) gate = "This is a DRY RUN: fill EVERYTHING but DO NOT click the final Submit/Apply button. When the form is fully filled and only submission remains, stop and reply with exactly: READY: filled";
+  else if (!cfg.autosubmit) gate = "Fill EVERYTHING but DO NOT click the final Submit/Apply button. When the form is fully filled, stop and reply with exactly: READY: filled";
+  else gate = "Fill the whole form, then click the final Submit/Apply button. Once you see a confirmation / 'thank you' / 'application received' page, stop and reply with exactly: DONE: submitted";
+  return "You are operating a web browser to complete a job application for ONE candidate. You see a " +
+    "SCREENSHOT of the current page and control a mouse and keyboard. Move and click, type, open dropdowns " +
+    "(click to open, then click the correct option — for searchable dropdowns type to filter, then click or " +
+    "press Enter), check boxes/radios, scroll to reach fields below the fold, and advance multi-step forms.\n\n" +
+    "RULES:\n" +
+    "- Use ONLY the candidate's real data below. NEVER invent employers, titles, dates, degrees, numbers, " +
+    "salaries, clearances, or demographics. If the data doesn't cover a field, leave it blank.\n" +
+    "- For voluntary EEO/demographic questions, answer only if the profile provides the value; otherwise pick " +
+    "'Decline to self-identify' if offered, else leave blank.\n" +
+    "- Prefer the candidate's LEARNED ANSWERS verbatim when a question matches one.\n" +
+    "- The résumé file is " + (fileAttached ? "ALREADY ATTACHED — do not click any Browse/Attach/Upload control." :
+      "NOT attached, and you CANNOT operate the native file-picker dialog. If the form requires a résumé upload " +
+      "you cannot complete, stop and reply: HANDOFF: résumé upload required.") + "\n" +
+    "- Do NOT solve CAPTCHAs, create an account, or log in. On any CAPTCHA / login / account wall, stop and " +
+    "reply: HANDOFF: <reason>.\n" +
+    "- After each action, take a screenshot and verify the result before the next action.\n" +
+    "- " + gate + "\n" +
+    "- If you get stuck or cannot make progress, reply: HANDOFF: <reason>.\n\n" +
+    "=== CANDIDATE PROFILE ===\n" + (jmProfileSummary(ctx) || "(none)") +
+    "\n\n=== RÉSUMÉ ===\n" + String(ctx.resume || "").slice(0, 3500) +
+    "\n\n=== LEARNED ANSWERS (prefer verbatim) ===\n" + jmCuLearnedLines(ctx) +
+    "\n\n=== TARGET JOB ===\n" + (item.title || "(unknown role)") + " at " + (item.company || "(unknown company)");
+}
+
+// Pull plain text out of a Claude content array and look for our control sentinels.
+function jmCuSentinel(content) {
+  const txt = (content || []).filter((b) => b && b.type === "text").map((b) => b.text || "").join("\n");
+  const m = txt.match(/\b(HANDOFF|READY|DONE)\b\s*[:\-]?\s*([^\n]*)/i);
+  return m ? { kind: m[1].toUpperCase(), detail: (m[2] || "").trim().slice(0, 120) } : null;
+}
+
+// Drive ONE application end-to-end with the computer-use agent. fillPass (preRes) has already attached the
+// résumé + trivial fields; here Claude handles the rest by sight. Returns {status, reason, keepTab}.
+async function computerUsePass(tab, cfg, item, t, preRes) {
+  const maxSteps = cfg.cuMaxSteps || 18;
+  const capJob = cfg.cuMaxUsdJob || 0.5, capRun = cfg.cuMaxUsdRun || 5.0;
+  const fileAttached = !!(preRes && preRes.fileAttached);
+  const job0 = { in: JM_Q.cost.in, out: JM_Q.cost.out };
+  let verIdx = 0, triedLegacy = false;
+
+  // Move the job tab into its own FOCUSED window so CDP Input.* lands. Closing the tab later
+  // (jmProcessOne's finally) closes this window with it.
+  try { await chrome.windows.create({ tabId: tab.id, focused: true, width: 1320, height: 940 }); }
+  catch (e) { try { await chrome.tabs.update(tab.id, { active: true }); } catch (e2) {} }
+  await jmStoppableSleep(400);
+
+  let dbg = null, detached = false;
+  const onDetach = (src) => { if (src && src.tabId === tab.id) detached = true; };
+  try {
+    chrome.debugger.onDetach.addListener(onDetach);
+    dbg = await jmDbgAttach(tab.id);
+    await jmCuSetup(dbg);
+  } catch (e) {
+    chrome.debugger.onDetach.removeListener(onDetach);
+    return { status: "check", reason: ("computer-use attach failed: " + String((e && e.message) || e)).slice(0, 140), keepTab: true };
+  }
+
+  try {
+    const system = jmCuSystem(cfg, item, fileAttached);
+    let shot = await jmCuShot(dbg);
+    if (!shot) return { status: "check", reason: "computer-use: no screenshot", keepTab: true };
+    const messages = [{ role: "user", content: [
+      { type: "text", text: "Here is the application page. Complete it per your instructions." },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: shot } }
+    ] }];
+
+    for (let step = 0; step < maxSteps; step++) {
+      if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
+      if (detached) return { status: "check", reason: "computer-use: debugger detached (tab closed / DevTools opened)", keepTab: true };
+
+      const ver = JM_CU_VERSIONS[verIdx];
+      const res = await jmClaudeTools(cfg, {
+        system, messages, tools: jmCuToolDef(ver), beta: ver.beta,
+        max_tokens: 3000, thinking: { type: "enabled", budget_tokens: 1024 }, cacheSystem: true
+      });
+      if (!res.ok) {
+        // First-call fallback: an older model may not know the newest tool/beta — retry once on the legacy pair.
+        if (!triedLegacy && verIdx === 0 && /beta|computer_20|unsupported|not.*support|tool/i.test(res.error || "")) {
+          triedLegacy = true; verIdx = 1; step--; continue;
+        }
+        return { status: "check", reason: ("computer-use API: " + (res.error || "failed")).slice(0, 140), keepTab: true };
+      }
+      jmAddCost(res.usage);
+      const runUsd = (JM_Q.cost.in * JM_CLAUDE_PRICE.input) + (JM_Q.cost.out * JM_CLAUDE_PRICE.output);
+      const jobUsd = ((JM_Q.cost.in - job0.in) * JM_CLAUDE_PRICE.input) + ((JM_Q.cost.out - job0.out) * JM_CLAUDE_PRICE.output);
+      if (jobUsd > capJob) return { status: "check", reason: "computer-use: per-job cost cap (~$" + jobUsd.toFixed(2) + ") — verify", keepTab: true };
+      if (runUsd > capRun) { JM_Q.stop = true; return { status: "check", reason: "computer-use: run cost cap (~$" + runUsd.toFixed(2) + ") — stopped", keepTab: true }; }
+
+      messages.push({ role: "assistant", content: res.content });
+
+      // A control sentinel ends the run regardless of stop_reason.
+      const sent = jmCuSentinel(res.content);
+      if (sent) {
+        if (sent.kind === "DONE") {
+          fetch(cfg.apibase + "/api/ext/save", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: cfg.token, title: item.title, company: item.company, url: item.url }) }).catch(() => {});
+          return { status: "submitted", reason: "computer-use: " + (sent.detail || "submitted"), keepTab: false };
+        }
+        if (sent.kind === "READY") return { status: "ready", reason: "computer-use: filled (" + (sent.detail || "not submitted") + ")", keepTab: true };
+        return { status: "needs_you", reason: ("computer-use: " + (sent.detail || "handoff")).slice(0, 140), keepTab: true };
+      }
+
+      const toolUses = (res.content || []).filter((b) => b && b.type === "tool_use");
+      if (!toolUses.length) return { status: "check", reason: "computer-use: agent stopped — verify in the open window", keepTab: true };
+
+      const results = [];
+      for (let u = 0; u < toolUses.length; u++) {
+        const tu = toolUses[u];
+        try { await jmCuDoAction(dbg, tu.input || {}); } catch (e3) {}
+        await jmStoppableSleep(550);                   // let the page/widget settle before the screenshot
+        let snap = "";
+        try { snap = await jmCuShot(dbg); } catch (e4) {}
+        results.push({ type: "tool_result", tool_use_id: tu.id,
+          content: snap ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: snap } }] : "screenshot unavailable",
+          is_error: !snap });
+      }
+      messages.push({ role: "user", content: results });
+    }
+    return { status: "check", reason: "computer-use: ran " + maxSteps + " steps, no confirmation — verify", keepTab: true };
+  } catch (e) {
+    if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
+    return { status: "check", reason: ("computer-use error: " + String((e && e.message) || e)).slice(0, 140), keepTab: true };
+  } finally {
+    chrome.debugger.onDetach.removeListener(onDetach);
+    if (dbg && !detached) { try { await jmCuTeardown(dbg); } catch (e5) {} }
+  }
+}
+
 async function jmProcessOne(item, cfg) {
   let t = await prefetchTailor(item, cfg);            // per-run prefetch cache (may already be running)
   if (!t) return { status: "error", reason: "tailor network error" };
@@ -373,6 +528,17 @@ async function jmProcessOne(item, cfg) {
     }
 
     let res = await fillPass();
+    // COMPUTER-USE agent (Claude controls the mouse) — the primary path when enabled. fillPass has already
+    // attached the résumé + trivial fields; the agent does the rest (dropdowns, custom Qs, multi-step,
+    // submit) by clicking like a human. Runs even on unrecognized ATS, and takes over the deterministic
+    // submit pipeline below.
+    if (cfg.computerUse && cfg.useClaude) {
+      if (res.captcha) return { status: "needs_you", reason: "CAPTCHA on page" };
+      if (res.login) return { status: "needs_you", reason: "login / account wall" };
+      const cu = await computerUsePass(tab, cfg, item, t, res);
+      keepTab = !!cu.keepTab;
+      return { status: cu.status, reason: cu.reason };
+    }
     if (!res.found) return { status: "skipped", reason: "no supported form on page" };
     if (res.captcha) return { status: "needs_you", reason: "CAPTCHA on page" };
     if (res.login) return { status: "needs_you", reason: "login / account wall" };
@@ -446,6 +612,7 @@ async function jmRunQueue(cfg) {
   if (JM_Q.running) return { ok: false, error: "already running" };
   JM_Q.running = true; JM_Q.stop = false;
   JM_Q.tailorPromises = new Map(); JM_Q.cost = { in: 0, out: 0 };
+  jmKeepAlive(true);                                                // survive the MV3 SW idle timer during long runs
   cfg.useClaude = !!cfg.claudeKey && cfg.provider !== "backend";   // Claude in-extension when a key is set
   // Fetch profile + résumé + learned bank ONCE — used to build Claude prompts and match the user's own
   // past answers client-side. (On the no-key fallback the backend does this server-side instead.)
@@ -478,6 +645,7 @@ async function jmRunQueue(cfg) {
   }
   if (JM_Q.stop) state.items.forEach((it) => { if (it.status === "queued" || it.status === "running") it.status = "stopped"; });
   state.running = false; JM_Q.running = false; JM_Q.currentTabId = null;
+  jmKeepAlive(false);
   await jmSaveQueue(state);
   return { ok: true };
 }
@@ -492,7 +660,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     jmRunQueue({
       items: msg.items || [], apibase: msg.apibase, token: msg.token,
       dryRun: msg.dryRun !== false, autosubmit: !!msg.autosubmit, delayMs: msg.delayMs || 8000,
-      vision: !!msg.vision, agentic: !!msg.agentic,
+      vision: !!msg.vision, agentic: !!msg.agentic, computerUse: !!msg.computerUse,
       claudeKey: msg.claudeKey || "", claudeModel: msg.claudeModel || "", provider: msg.provider || ""
     });
     sendResponse({ ok: true, started: true });
