@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "JobMatch Helper",
-  "version": "1.29.0",
-  "description": "Save jobs to your JobMatch tracker, tailor+autofill applications, batch auto-apply, and auto-import Tesla's bot-walled feed.",
+  "version": "1.30.0",
+  "description": "Save jobs to your JobMatch tracker, tailor+autofill applications, batch auto-apply (incl. Claude computer-use mouse control), and auto-import Tesla's bot-walled feed.",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "host_permissions": [
     "https://stemjobs.astrochakra.co/*",
