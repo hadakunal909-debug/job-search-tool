@@ -277,11 +277,8 @@ function collectAtsCandidates() {
 }
 
 async function init() {
-  cfg = Object.assign(cfg, await get(["token", "apibase", "claudeKey", "claudeModel", "provider"]));
+  cfg = Object.assign(cfg, await get(["token", "apibase"]));
   if (cfg.apibase) $("apibase").value = cfg.apibase;
-  if ($("claudekey")) $("claudekey").value = cfg.claudeKey || "";
-  if ($("claudemodel")) $("claudemodel").value = cfg.claudeModel || "claude-sonnet-4-6";
-  if ($("aiprovider")) $("aiprovider").value = cfg.provider || (cfg.claudeKey ? "claude" : "backend");
   if (cfg.token) {
     $("setup").style.display = "none";
     $("main").style.display = "block";
@@ -324,19 +321,6 @@ $("savetok").onclick = async () => {
 };
 
 $("reset").onclick = async () => { await set({ token: "" }); cfg.token = ""; init(); };
-
-// AI provider / Claude key settings (stored only in this browser).
-$("saveai").onclick = async () => {
-  const claudeKey = $("claudekey").value.trim();
-  const claudeModel = $("claudemodel").value.trim() || "claude-sonnet-4-6";
-  const provider = $("aiprovider").value;
-  await set({ claudeKey, claudeModel, provider });
-  cfg.claudeKey = claudeKey; cfg.claudeModel = claudeModel; cfg.provider = provider;
-  $("aimsg").style.color = "#0b7a52";
-  $("aimsg").textContent = provider === "claude"
-    ? (claudeKey ? "Saved — Claude runs in the extension." : "Saved, but no key set — using the backend fallback.")
-    : "Saved — using your backend's AI.";
-};
 
 // Manage learned answers: list + delete. (Edit = delete here, then re-capture the corrected value
 // with "Save my answers from this page".)
@@ -396,39 +380,47 @@ function applyAts(url) {
   return "";
 }
 
-// Tailor the résumé to this JD (Resume Brain → LaTeX→PDF), auto-fill the form, show the review panel.
+// Fill this application from the user's profile + their saved ("learned") answers — NO AI, no résumé,
+// no submit. Then show the review panel; the user uploads their résumé and clicks Submit.
 $("tailorfill").onclick = async () => {
   const tab = await activeTab();
   const tm = $("tailormsg");
-  tm.style.color = "#0b7a52"; tm.textContent = "Tailoring résumé… ~10s (keep this open).";
+  tm.style.color = "#0b7a52"; tm.textContent = "Filling the form…";
   try {
-    const r = await fetch(cfg.apibase + "/api/ext/tailor", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: cfg.token, job_url: tab.url,
-                             company: $("company").value.trim(), format: "pdf" })
-    });
-    const j = await r.json();
-    if (!j.ok) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't tailor: " + (j.error || "failed"); return; }
-    tm.textContent = "Filling the form…";
-    const payload = { fields: j.fields, file: j.file, defaults: j.defaults };
-    const out = await chrome.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true }, world: "MAIN",
-      func: jmFillApplication, args: [payload] });
-    const res = (out || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
+    const ctx = await (await fetch(cfg.apibase + "/api/ext/profile_fields?token=" + encodeURIComponent(cfg.token))).json();
+    if (!ctx || !ctx.fields) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't load your profile — check the App URL / token."; return; }
+    const payload = { fields: ctx.fields, defaults: ctx.defaults || {} };   // no file: you upload the résumé
+    async function fill() {
+      const out = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmFillApplication, args: [payload] });
+      return (out || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
+    }
+    let res = await fill();
     if (!res.found) {
       tm.style.color = "#c0392b";
-      tm.textContent = "No supported application form found here (this version fills Greenhouse).";
+      tm.textContent = "No supported application form found on this page.";
       return;
+    }
+    // Learned-answer pass for whatever's still empty (client-side, NO AI).
+    if (res.unfilled && res.unfilled.length) {
+      const snap = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmSnapshotForm });
+      let fields = [];
+      (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
+      const answers = jmMatchLearned(fields, ctx.learned || {});
+      if (Object.keys(answers).length) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmApplyAnswers, args: [answers] });
+        res = await fill();
+      }
     }
     await set({ jm_review: {
       result: res, token: cfg.token, apibase: cfg.apibase,
-      title: $("title").value.trim(), company: $("company").value.trim(), url: tab.url,
-      fileName: $("resume").value.trim() || j.default_resume || j.file.name,
-      fileLabel: j.file.name, ai_used: j.ai_used, compiled: j.compiled, cached: j.cached } });
+      title: $("title").value.trim(), company: $("company").value.trim(), url: tab.url, fileName: "" } });
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["overlay.js"] });
-    tm.textContent = "Filled " + res.filled + "/" + res.total + " — review the panel on the page" +
-      (j.cached ? " (cached)" : "") + ".";
-    setTimeout(() => window.close(), 900);          // let the user review + submit on the page
+    const left = (res.unfilled && res.unfilled.length) ? (" · " + res.unfilled.length + " left for you") : "";
+    tm.textContent = "Filled " + res.filled + "/" + res.total + " — upload your résumé & submit on the page" + left + ".";
+    setTimeout(() => window.close(), 1100);          // let the user upload + submit on the page
   } catch (e) {
     tm.style.color = "#c0392b"; tm.textContent = "Error: " + e.message;
   }
@@ -640,23 +632,16 @@ function parseQueueItems() {
 $("qstart").onclick = async () => {
   const items = parseQueueItems();
   if (!items.length) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
-  const dryRun = $("qdry").checked, autosubmit = $("qauto").checked, vision = $("qvision").checked, agentic = $("qagentic").checked, computerUse = $("qcompuse").checked;
-  const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 8)) * 1000;
-  // Grant broad site access FIRST, before any confirm()/alert() below. A JS dialog consumes the
-  // click's transient user activation, after which chrome.permissions.request throws
-  // "This function must be called during a user gesture". Reading lastError also silences the
-  // "Unchecked runtime.lastError" console warning. Per-origin breaks when an apply page redirects
-  // to another host (a company's own careers domain), so we ask for https://*/* (idempotent once granted).
+  const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 6)) * 1000;
+  // Grant broad site access so pages on any company careers domain can be filled (idempotent once granted).
+  // Per-origin breaks when an apply page redirects to another host, so we ask for https://*/*.
   const granted = await new Promise((res) =>
     chrome.permissions.request({ origins: ["https://*/*"] }, (r) => { void chrome.runtime.lastError; res(r); }));
   if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied — needed to fill the pages."; return; }
-  if (!dryRun && autosubmit &&
-      !confirm("This will SUBMIT real applications to " + items.length + " job(s) with no review. Continue?")) return;
   // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
-  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, dryRun, autosubmit, delayMs, vision, agentic, computerUse,
-    claudeKey: cfg.claudeKey || "", claudeModel: cfg.claudeModel || "", provider: cfg.provider || "" }, function () { void chrome.runtime.lastError; });
+  chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, delayMs }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#0b7a52";
-  $("qmsg").textContent = "Started: " + items.length + " jobs (" + (dryRun ? "dry run" : (autosubmit ? "AUTO-SUBMIT" : "fill only")) + ").";
+  $("qmsg").textContent = "Filling " + items.length + " job(s) — each opens in a tab for you to upload your résumé & submit.";
   pollQueue();
 };
 
@@ -677,9 +662,7 @@ function pollQueue() {
       e.preventDefault();
       const url = a.getAttribute("data-jmretry"); if (!url) return;
       const it = { url, title: (qJobs[url] || {}).title || "", company: (qJobs[url] || {}).company || "" };
-      chrome.runtime.sendMessage({ type: "jm_queue_start", items: [it], apibase: cfg.apibase, token: cfg.token,
-        dryRun: $("qdry").checked, autosubmit: $("qauto").checked, delayMs: 4000, vision: $("qvision").checked, agentic: $("qagentic").checked, computerUse: $("qcompuse").checked,
-        claudeKey: cfg.claudeKey || "", claudeModel: cfg.claudeModel || "", provider: cfg.provider || "" }, function () { void chrome.runtime.lastError; });
+      chrome.runtime.sendMessage({ type: "jm_queue_start", items: [it], apibase: cfg.apibase, token: cfg.token, delayMs: 4000 }, function () { void chrome.runtime.lastError; });
       $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Retrying 1 job…"; pollQueue();
     });
   }
@@ -690,10 +673,8 @@ function pollQueue() {
     (q.items || []).forEach((it) => { c[it.status] = (c[it.status] || 0) + 1; });
     const done = (q.items || []).filter((it) => it.status !== "queued" && it.status !== "running").length;
     $("qmsg").style.color = "#0b7a52";
-    $("qmsg").textContent = (q.running ? "Running " : "Done ") + done + "/" + q.total +
-      " — ✅" + (c.submitted || 0) + " 🔍" + (c.check || 0) + " 🟢" + (c.ready || 0) +
-      " ⏸️" + (c.needs_you || 0) + " ⚠️" + (c.error || 0) + (q.dryRun ? " (dry run)" : "") +
-      (q.useClaude ? " · Claude" : "") + (q.costUsd ? " · ~$" + Number(q.costUsd).toFixed(3) : "");
+    $("qmsg").textContent = (q.running ? "Filling " : "Done ") + done + "/" + q.total +
+      " — 🟢" + (c.ready || 0) + " ⏸️" + (c.needs_you || 0) + " ⏭️" + (c.skipped || 0) + " ⚠️" + (c.error || 0);
     $("qresults").innerHTML = (q.items || []).map((it) => {
       const u = (it.url || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
       const head = (icon[it.status] || "·") + " <b>" + (it.company || "").replace(/</g, "&lt;") + "</b> " + (it.title || "").replace(/</g, "&lt;");

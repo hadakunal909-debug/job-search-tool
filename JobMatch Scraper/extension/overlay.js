@@ -3,9 +3,8 @@
 // (to log the application through the background, which holds the backend host permissions and
 // thus bypasses the page's CSP) while still sharing the page DOM (to click the native Submit).
 //
-// It reads what to show from chrome.storage.local "jm_review", written by the popup right before
-// injection: { result, token, apibase, title, company, url, fileName, fileLabel, ai_used,
-//              compiled, cached }.
+// It reads what to show from chrome.storage.local "jm_review", written by the popup/background right
+// before injection: { result, token, apibase, title, company, url, fileName }.
 (function () {
   "use strict";
   var HOST_ID = "jm-review-overlay-host";
@@ -46,11 +45,6 @@
     var root = host.attachShadow({ mode: "open" });
     (document.body || document.documentElement).appendChild(host);
 
-    var noteBits = [];
-    if (R.cached) noteBits.push("cached");
-    noteBits.push(R.ai_used ? "AI-tailored" : "base résumé");
-    if (R.compiled) noteBits.push("PDF compiled"); else noteBits.push("PDF unavailable → " + (R.fileLabel || "file"));
-
     root.innerHTML =
       '<style>' +
       ':host{all:initial}' +
@@ -73,14 +67,13 @@
       '<div class="card">' +
       '<div class="hd"><span>JobMatch — review &amp; submit</span><span class="x" id="x">✕</span></div>' +
       '<div class="bd">' +
-      '<p class="stat">Filled ' + res.filled + ' of ' + res.total + ' fields' +
-      (res.fileAttached ? ' · résumé attached ✓' : ' · <span style="color:#b4232a">résumé NOT attached</span>') + '</p>' +
-      '<p class="dim">' + esc(noteBits.join(" · ")) + '</p>' +
-      (captcha ? '<div class="warn">A verification (CAPTCHA) is on this page — solve it yourself before submitting. Nothing is auto-submitted.</div>' : '') +
+      '<p class="stat">Filled ' + res.filled + ' of ' + res.total + ' fields</p>' +
+      '<div class="warn">📎 Upload your résumé yourself, then submit. This fills fields only — it never attaches files or auto-submits.</div>' +
+      (captcha ? '<div class="warn">A verification (CAPTCHA) is on this page — solve it yourself before submitting.</div>' : '') +
       (unfilled.length
-        ? '<p class="dim" style="margin-top:8px">Still needs your attention (click to jump):</p><ul class="list" id="uf">' +
-          unfilled.map(function (u) { return '<li data-l="' + esc(u.label) + '">' + esc(u.label.slice(0, 70)) + '</li>'; }).join("") + '</ul>'
-        : '<p class="dim" style="margin-top:8px;color:#0e8a5f">No required fields left empty. Review, then submit.</p>') +
+        ? '<p class="dim" style="margin-top:8px">Still needs you (click to jump):</p><ul class="list" id="uf">' +
+          unfilled.map(function (u) { var up = (u.reason === "no file"); return '<li data-l="' + esc(u.label) + '">' + (up ? "📎 " : "✍️ ") + esc(u.label.slice(0, 70)) + (up ? " — upload" : "") + '</li>'; }).join("") + '</ul>'
+        : '<p class="dim" style="margin-top:8px;color:#0e8a5f">No fields left for the tool. Upload your résumé, then submit.</p>') +
       '<div class="btns"><button class="primary" id="submit">Submit application</button>' +
       '<button class="ghost" id="dismiss">Dismiss</button></div>' +
       '<div class="msg" id="msg"></div>' +
