@@ -24,25 +24,21 @@
 
   <div id="main" style="display:none">
 
-    <!-- PRIMARY: apply on the current page -->
+    <!-- PRIMARY: fill the current application -->
     <div id="tailorwrap" style="display:none">
-      <button class="primary" id="tailorfill">✨ Tailor résumé &amp; fill this application</button>
+      <button class="primary" id="tailorfill">✍️ Fill this application</button>
       <button id="learnpage" style="margin-top:6px">📝 Save my answers from this page (train)</button>
       <div class="msg" id="tailormsg"></div>
     </div>
 
-    <!-- PRIMARY: batch auto-apply -->
-    <button class="primary" id="batchtoggle">🚀 Auto-apply to my matches…</button>
+    <!-- PRIMARY: batch fill latest matches -->
+    <button class="primary" id="batchtoggle">🚀 Fill my latest matches…</button>
     <div id="batchwrap" class="panel" style="display:none">
-      <button class="ghost" id="qfetch" style="margin-top:0">↻ Refresh my matched jobs</button>
-      <div class="lbl">Auto-loaded from your top matches (edit/paste URLs to override)</div>
+      <button class="ghost" id="qfetch" style="margin-top:0">↻ Refresh my latest matches</button>
+      <div class="lbl">Auto-loaded newest-first (edit/paste URLs to override)</div>
       <textarea id="qurls" rows="4" style="width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid #cbd5e1; border-radius:7px; font-size:11px; font-family:ui-monospace,Consolas,monospace"></textarea>
-      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qdry" checked style="width:auto; margin:0"> Dry run (fill &amp; check, don't submit)</label>
-      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qauto" style="width:auto; margin:0"> Auto-submit the clean ones</label>
-      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qvision" style="width:auto; margin:0"> Vision fallback (slower; rescues a parked form — briefly brings the tab to front)</label>
-      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qagentic" style="width:auto; margin:0"> Agentic mode (Claude drives a parked form step-by-step — experimental, foreground, costs tokens)</label>
-      <label class="lbl" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="qcompuse" style="width:auto; margin:0"> 🖱️ Computer-use (Claude controls the mouse on every job — works any site/dropdown; opens a focused window, slower, costs more)</label>
-      <div class="lbl">Delay between jobs (sec) <input id="qdelay" type="number" value="8" min="3" max="20" style="width:56px; margin-left:4px"></div>
+      <div class="lbl">Each job opens in its own tab and is filled from your profile + saved answers. You upload the résumé &amp; submit — nothing is auto-submitted.</div>
+      <div class="lbl">Delay between jobs (sec) <input id="qdelay" type="number" value="6" min="3" max="20" style="width:56px; margin-left:4px"></div>
       <div style="display:flex; gap:6px">
         <button class="primary" id="qstart" style="flex:1">Start</button>
         <button id="qstop" style="flex:1; background:#c0392b; color:#fff">⏹ Stop</button>
@@ -50,22 +46,6 @@
       <div class="msg" id="qmsg"></div>
       <div id="qresults" style="font-size:11px; max-height:170px; overflow:auto; margin-top:6px"></div>
     </div>
-
-    <!-- AI provider / Claude key -->
-    <details>
-      <summary>⚙️ AI provider &amp; Claude key</summary>
-      <div class="lbl" style="margin-top:6px">AI provider</div>
-      <select id="aiprovider" style="width:100%; box-sizing:border-box; padding:7px 9px; margin:3px 0; border:1px solid #cbd5e1; border-radius:7px; font-size:13px">
-        <option value="claude">Claude (in extension — needs key below)</option>
-        <option value="backend">Backend (your server's Gemini)</option>
-      </select>
-      <div class="lbl">Anthropic API key (stored only in this browser; never shared)</div>
-      <input id="claudekey" type="password" placeholder="sk-ant-...">
-      <div class="lbl">Claude model</div>
-      <input id="claudemodel" placeholder="claude-sonnet-4-6">
-      <button class="ghost" id="saveai">Save AI settings</button>
-      <div class="msg" id="aimsg"></div>
-    </details>
 
     <!-- Learned answers (training) -->
     <details id="learnedwrap">

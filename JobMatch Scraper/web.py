@@ -1760,9 +1760,9 @@ _FILLABLE_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.
 
 @app.route("/api/ext/apply_queue", methods=["GET", "OPTIONS"])
 def ext_apply_queue():
-    """Extension batch runner -> the user's auto-apply queue: top unapplied jobs on a supported
-    ATS (Greenhouse/Lever/Ashby/SmartRecruiters), ranked by match score with liked jobs boosted to
-    the top. Auto-sourced so the runner needs no manual URLs. ?limit= caps the count (default 50)."""
+    """Extension batch runner -> the user's auto-apply queue: unapplied jobs on a supported ATS
+    (Greenhouse/Lever/Ashby/SmartRecruiters), ordered NEWEST-FIRST by real posting date so the runner
+    works the latest postings. Auto-sourced so it needs no manual URLs. ?limit= caps the count (default 50)."""
     from flask import jsonify
     from urllib.parse import urlparse
     if request.method == "OPTIONS":
@@ -1798,7 +1798,9 @@ def ext_apply_queue():
                 rows.append(j)
     except Exception:
         pass
-    rows.sort(key=lambda j: (1 if j.get("url") in liked else 0, score(j)), reverse=True)  # liked first, then score
+    # Newest postings first: real verified posting date when known, else when we first found it
+    # (same recency expression the feed uses). ISO YYYY-MM-DD strings sort lexically.
+    rows.sort(key=lambda j: ((j.get("posted_verified") or j.get("found_date") or "")[:10]), reverse=True)
     try:
         limit = max(1, min(int(request.args.get("limit", 50)), 200))
     except Exception:

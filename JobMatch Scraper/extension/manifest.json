@@ -1,21 +1,19 @@
 {
   "manifest_version": 3,
   "name": "JobMatch Helper",
-  "version": "1.30.0",
-  "description": "Save jobs to your JobMatch tracker, tailor+autofill applications, batch auto-apply (incl. Claude computer-use mouse control), and auto-import Tesla's bot-walled feed.",
+  "version": "1.31.0",
+  "description": "Save jobs to your JobMatch tracker, instantly fill job applications from your profile + saved answers (you upload the résumé & submit), batch-fill your latest matches, and auto-import Tesla's bot-walled feed.",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
-    "alarms",
-    "debugger"
+    "alarms"
   ],
   "host_permissions": [
     "https://stemjobs.astrochakra.co/*",
     "http://localhost:5000/*",
     "http://127.0.0.1:5000/*",
-    "https://www.tesla.com/*",
-    "https://api.anthropic.com/*"
+    "https://www.tesla.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*"

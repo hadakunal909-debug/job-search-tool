@@ -559,7 +559,33 @@ function jmSnapshotForm() {
   return out.slice(0, 30);
 }
 
-// Apply AI answers (keyed by data-jmk) to the form. Self-contained, async (combobox needs waits).
+// ---- Learned-answer matching (NO AI) — shared by popup.js + background.js (both load filler.js) ----
+// Stable normalized label key, mirroring db.normalize_label, so the same question matches across forms.
+function jmNormLabel(s) {
+  s = String(s || "").toLowerCase();
+  s = s.replace(/\([^()]*\b(?:required|optional)\b[^()]*\)/g, " ");
+  s = s.replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  return s.slice(0, 200);
+}
+// Map snapshot fields -> {key: value} using ONLY the user's saved answers (no model). learned is
+// {normLabel: {value}}. For option fields the saved value must match an offered option, so a stale
+// answer is never forced onto a dropdown that no longer lists it.
+function jmMatchLearned(fields, learned) {
+  learned = learned || {};
+  var answers = {};
+  (fields || []).forEach(function (f) {
+    var rec = learned[jmNormLabel(f.label)];
+    var val = rec && rec.value;
+    if (!val) return;
+    var opts = f.options || [];
+    if (!opts.length) { answers[f.key] = val; return; }
+    var vl = String(val).toLowerCase().trim();
+    if (opts.some(function (o) { var ol = String(o).toLowerCase().trim(); return vl === ol || vl.indexOf(ol) >= 0 || ol.indexOf(vl) >= 0; })) answers[f.key] = val;
+  });
+  return answers;
+}
+
+// Apply saved/learned answers (keyed by data-jmk) to the form. Self-contained, async (combobox needs waits).
 async function jmApplyAnswers(answers) {
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function setNativeValue(el, value) {
