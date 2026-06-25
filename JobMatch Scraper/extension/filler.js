@@ -394,10 +394,18 @@ function jmClickSubmit(selector) {
 }
 
 // Has the application form rendered? (SPAs like Ashby / SmartRecruiters / EU Greenhouse render it
-// with JS after load.) Self-contained — the runner polls this before filling.
+// with JS after load, often inside web components — so pierce shadow DOM.) Self-contained.
 function jmFormReady() {
-  return !!document.querySelector(
-    'input[type=file], input[type=email], input[autocomplete="email"], #first_name, input[name*="email" i]');
+  var sel = 'input[type=file], input[type=email], input[autocomplete="email"], #first_name, ' +
+            'input[name*="email" i], input[name*="first" i]';
+  function find(root) {
+    if (!root || !root.querySelector) return false;
+    if (root.querySelector(sel)) return true;
+    var all = root.querySelectorAll("*");
+    for (var i = 0; i < all.length; i++) { if (all[i].shadowRoot && find(all[i].shadowRoot)) return true; }
+    return false;
+  }
+  return find(document);
 }
 
 // Click a gate that reveals the real form: "Apply" / "Apply now" / "Apply for this role" /
@@ -408,7 +416,10 @@ function jmClickApply() {
     var t = (x.textContent || x.value || "").replace(/\s+/g, " ").trim();
     if (!t || t.length > 40 || x.offsetParent === null) return false;
     var tl = t.toLowerCase();
+    // Skip sign-in/filter/share look-alikes AND third-party SSO autofill ("Apply With LinkedIn/Indeed",
+    // "Continue with Google") — those open an OAuth popup instead of revealing the on-page form.
     if (/sign|log ?in|filter|search|sort|saved|already applied|share|refer/.test(tl)) return false;
+    if (/\bwith\b|linkedin|indeed|google|facebook|\bseek\b|xing/.test(tl)) return false;
     return /^apply\b/.test(tl) ||                         // Apply / Apply now / Apply for this role
            /^(i'?m |i am )?interested\b/.test(tl) ||       // I'm interested / Interested
            /^(start|begin)\b.*\bapplication\b/.test(tl);   // Start (your) application / Begin application
