@@ -408,6 +408,21 @@ function jmFormReady() {
   return find(document);
 }
 
+// Is a "Start Your Application" chooser / modal dialog open in THIS frame? (e.g. Workday's
+// Autofill-with-Resume / Apply-Manually / Use-My-Last-Application.) Callers run this across ALL
+// frames before any gate-click, so a modal in one frame stops the "Apply" click in another.
+// Self-contained (injected on its own).
+function jmChooserOpen() {
+  var modal = document.querySelector('[role="dialog"], [aria-modal="true"], dialog[open]');
+  if (modal && modal.offsetParent !== null) return true;
+  return Array.prototype.some.call(
+    document.querySelectorAll('a, button, [role=button], input[type=submit]'),
+    function (x) {
+      return x.offsetParent !== null &&
+        /apply manually|autofill with resume|use my last application/i.test(x.textContent || "");
+    });
+}
+
 // Click a gate that reveals the real form: "Apply" / "Apply now" / "Apply for this role" /
 // "I'm interested" / "Start application". Self-contained. Skips sign-in/filter/share look-alikes.
 function jmClickApply() {

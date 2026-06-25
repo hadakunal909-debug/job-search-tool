@@ -127,7 +127,14 @@ async function jmProcessOne(item, cfg) {
         ready = (rr || []).some((o) => o && o.result);
       } catch (e) {}
       if (!ready && (k === 2 || k === 5)) {   // click "Apply" / "I'm interested" to reveal the form (retry once)
-        try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
+        let chooser = false;                  // ...unless a chooser/modal is open in any frame (Workday) — don't dismiss it
+        try {
+          const cc = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmChooserOpen });
+          chooser = (cc || []).some((o) => o && o.result);
+        } catch (e) {}
+        if (!chooser) {
+          try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
+        }
       }
     }
     if (JM_Q.stop) return { status: "stopped", reason: "stopped" };
