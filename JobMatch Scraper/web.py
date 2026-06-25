@@ -1753,9 +1753,17 @@ def ext_tailor():
     return _cors(jsonify({"ok": True, **payload}))
 
 
-# Hosts the extension's form-filler can auto-fill (keep in sync with filler.js adapters).
-# Workday/iCIMS/Oracle/Taleo are intentionally excluded — they're login/account-walled.
-_FILLABLE_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com")
+# Every ATS the scraper feeds, so the apply queue covers all our boards (keep in sync with
+# scraper/__init__.py detect_board + popup.js applyAts). greenhouse/lever/ashby/smartrecruiters have
+# tuned filler.js adapters; the rest rely on the GENERIC adapter (best-effort). Login/account-walled
+# ones (workday/oracle) are included by request — you review each open tab and sign in if needed.
+_FILLABLE_HOSTS = (
+    "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com",
+    "recruitee.com", "breezy.hr", "personio.com", "workable.com",
+    "ultipro.com", "bamboohr.com", "pinpointhq.com", "rippling.com",
+    "avature.net", "jobdiva.com", "myworkdayjobs.com", "myworkdaysite.com",
+    "oraclecloud.com", "jibeapply.com",
+)
 
 
 @app.route("/api/ext/apply_queue", methods=["GET", "OPTIONS"])
