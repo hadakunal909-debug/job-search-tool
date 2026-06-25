@@ -1,13 +1,19 @@
 name: Scrape jobs
 
-# Runs the scraper + scorer on a schedule and writes results to Supabase.
+# Runs the scraper on a schedule and writes results to Supabase.
 # NOTE: the app lives in the "JobMatch Scraper/" subfolder (the repo root holds
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
+#
+# SCHEDULE: hourly job-feed update, 9am–6pm Eastern. GitHub cron is UTC with no DST,
+# so we fire every UTC hour that could be 9–18 ET in either season (EDT=UTC-4 → 13–22,
+# EST=UTC-5 → 14–23; union = 13–23 UTC) and the gate step below trims scheduled runs to
+# exactly 9–18 ET. The heavy score/verify/email pass runs once a day (the 9am ET run)
+# to stay well within Actions minutes; manual dispatch always does the full pass.
 on:
   schedule:
-    - cron: "0 13 * * *"      # daily at 13:00 UTC (~8am ET). Times are UTC.
-  workflow_dispatch: {}        # also run on demand from the Actions tab
+    - cron: "0 13-23 * * *"   # hourly 13:00–23:00 UTC → exactly 9am–6pm ET after the gate
+  workflow_dispatch: {}        # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
   run:
@@ -16,6 +22,7 @@ defaults:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -23,21 +30,36 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Decide whether to run (9am–6pm ET window)
+        id: gate
+        run: |
+          H=$(TZ=America/New_York date +%-H)          # current Eastern hour, no leading zero
+          RUN=yes; HEAVY=no
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "$H" -lt 9 ] || [ "$H" -gt 18 ]; then RUN=no; fi
+            if [ "$H" -eq 9 ]; then HEAVY=yes; fi      # once-a-day heavy pass at the 9am ET run
+          else
+            HEAVY=yes                                   # manual / app-button run: full pass
+          fi
+          echo "run=$RUN"     >> "$GITHUB_OUTPUT"
+          echo "heavy=$HEAVY" >> "$GITHUB_OUTPUT"
+          echo "ET hour=$H  event=${{ github.event_name }}  ->  run=$RUN heavy=$HEAVY"
+
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'yes'
         run: pip install -r requirements.txt
 
-      - name: Scrape, score, and verify dates into Supabase
+      - name: Scrape new jobs into Supabase (hourly)
+        if: steps.gate.outputs.run == 'yes'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}    # aggregator boards (Tesla/Google/
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}  # IBM/...) stay dormant without these
-        run: |
-          python -m scraper
-          python -m scraper.score_jobs
-          python -m scraper.verify_dates --workers 24   # real posting dates -> posted_verified
+        run: python -m scraper
 
-      - name: Email new-job alerts (dormant unless SMTP_* secrets are set)
+      - name: Score + verify dates + alerts (once a day / on manual run)
+        if: steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -47,4 +69,7 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
-        run: python -m scraper.notify
+        run: |
+          python -m scraper.score_jobs
+          python -m scraper.verify_dates --workers 24   # real posting dates -> posted_verified
+          python -m scraper.notify
