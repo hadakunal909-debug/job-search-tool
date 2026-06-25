@@ -414,7 +414,19 @@ $("tailorfill").onclick = async () => {
     }
     let res = await fill();
     if (!res.found) {
-      // The form may be behind an "Apply" / "I'm interested" gate — click it, wait for the form, retry.
+      // If a chooser/modal is open in ANY frame (e.g. Workday's "Start Your Application"), DON'T
+      // auto-click a gate — it would dismiss the modal. Let the user pick their option first.
+      let chooser = false;
+      try {
+        const cc = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmChooserOpen });
+        chooser = (cc || []).some((o) => o && o.result);
+      } catch (e) {}
+      if (chooser) {
+        tm.style.color = "#c0392b";
+        tm.textContent = "Pick an option in the application dialog first (e.g. “Apply Manually” / sign in), then click Fill again.";
+        return;
+      }
+      // Otherwise the form may be behind a single "Apply" / "I'm interested" gate — click it, wait, retry.
       tm.textContent = "Opening the application…";
       try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmClickApply }); } catch (e) {}
       for (let k = 0; k < 8; k++) {
