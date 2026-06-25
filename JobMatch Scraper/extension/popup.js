@@ -294,7 +294,16 @@ async function init() {
     const blbl = bulkSiteLabel(tab && tab.url);    // show "import all jobs" only on supported sites
     if (blbl) { $("bulklbl").textContent = blbl; $("bulkwrap").style.display = "block"; }
     else { $("bulkwrap").style.display = "none"; }
-    $("tailorwrap").style.display = applyAts(tab && tab.url) ? "block" : "none";  // fill only on supported ATS
+    // Show "Fill" on any known ATS, OR any page where a real application form is detected
+    // (covers company career domains that embed a board + ATS we don't host-match yet).
+    let showFill = !!applyAts(tab && tab.url);
+    if (!showFill && tab && tab.id) {
+      try {
+        const fr = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: jmFormReady });
+        showFill = (fr || []).some((o) => o && o.result);
+      } catch (e) {}
+    }
+    $("tailorwrap").style.display = showFill ? "block" : "none";
     try {                                          // prefill résumé name + autocomplete list
       const pr = await (await fetch(cfg.apibase + "/api/ext/profile?token=" + encodeURIComponent(cfg.token))).json();
       if (pr && pr.ok) {
@@ -372,11 +381,19 @@ $("save").onclick = async () => {
 // Which apply-form ATS can we fill? (keep in sync with filler.js + the backend _FILLABLE_HOSTS)
 function applyAts(url) {
   let h = "";
-  try { h = new URL(url).hostname; } catch (e) { return ""; }
-  if (/greenhouse/.test(h)) return "greenhouse";
-  if (/lever\.co/.test(h)) return "lever";
-  if (/ashbyhq\.com/.test(h)) return "ashby";
-  if (/smartrecruiters\.com/.test(h)) return "smartrecruiters";
+  try { h = new URL(url).hostname.toLowerCase(); } catch (e) { return ""; }
+  // Every ATS the scraper feeds (keep in sync with scraper/__init__.py detect_board + web.py _FILLABLE_HOSTS).
+  // greenhouse/lever/ashby/smartrecruiters have tuned adapters; the rest fall back to filler.js's GENERIC adapter.
+  var ATS = [
+    [/greenhouse\.io/, "greenhouse"], [/lever\.co/, "lever"], [/ashbyhq\.com/, "ashby"],
+    [/smartrecruiters\.com/, "smartrecruiters"], [/recruitee\.com/, "recruitee"], [/breezy\.hr/, "breezy"],
+    [/personio\./, "personio"], [/workable\.com/, "workable"], [/ultipro\.com/, "ultipro"],
+    [/bamboohr\.com/, "bamboohr"], [/pinpointhq\.com/, "pinpoint"], [/rippling\.com/, "rippling"],
+    [/avature\.net/, "avature"], [/jobdiva\.com/, "jobdiva"],
+    [/myworkdayjobs\.com|myworkdaysite\.com/, "workday"], [/oraclecloud\.com/, "oracle"],
+    [/jibeapply\.com/, "jibe"]
+  ];
+  for (var i = 0; i < ATS.length; i++) if (ATS[i][0].test(h)) return ATS[i][1];
   return "";
 }
 
