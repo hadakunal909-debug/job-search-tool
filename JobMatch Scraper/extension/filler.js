@@ -411,6 +411,18 @@ function jmFormReady() {
 // Click a gate that reveals the real form: "Apply" / "Apply now" / "Apply for this role" /
 // "I'm interested" / "Start application". Self-contained. Skips sign-in/filter/share look-alikes.
 function jmClickApply() {
+  // If a chooser/modal is open (e.g. Workday's "Start Your Application": Autofill with Resume /
+  // Apply Manually / Use My Last Application), DON'T click any gate — clicking the "Apply" button
+  // behind the modal just dismisses it. Let the user pick their option inside the modal.
+  var modal = document.querySelector('[role="dialog"], [aria-modal="true"], dialog[open]');
+  if (modal && modal.offsetParent !== null) return false;
+  var hasChooser = Array.prototype.some.call(
+    document.querySelectorAll('a, button, [role=button], input[type=submit]'),
+    function (x) {
+      return x.offsetParent !== null &&
+        /apply manually|autofill with resume|use my last application/i.test(x.textContent || "");
+    });
+  if (hasChooser) return false;
   var els = Array.prototype.slice.call(document.querySelectorAll('a, button, [role=button], input[type=submit]'));
   var b = els.filter(function (x) {
     var t = (x.textContent || x.value || "").replace(/\s+/g, " ").trim();
