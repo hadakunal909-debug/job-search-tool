@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobMatch Helper",
-  "version": "1.32.0",
+  "version": "1.32.1",
   "description": "Save jobs to your JobMatch tracker, instantly fill job applications from your profile + saved answers (you upload the résumé & submit), batch-fill your latest matches, and auto-import Tesla's bot-walled feed.",
   "permissions": [
     "activeTab",

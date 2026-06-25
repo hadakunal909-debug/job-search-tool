@@ -420,6 +420,10 @@ function jmClickApply() {
     // "Continue with Google") — those open an OAuth popup instead of revealing the on-page form.
     if (/sign|log ?in|filter|search|sort|saved|already applied|share|refer/.test(tl)) return false;
     if (/\bwith\b|linkedin|indeed|google|facebook|\bseek\b|xing/.test(tl)) return false;
+    // Skip the options in a "Start Your Application" chooser (e.g. Workday) — "Apply Manually" /
+    // "Autofill with Resume" / "Use My Last Application" are account/résumé choices YOU make, not a
+    // gate to auto-click (clicking one dismisses the modal / hits a login wall).
+    if (/manually|autofill|last application/.test(tl)) return false;
     return /^apply\b/.test(tl) ||                         // Apply / Apply now / Apply for this role
            /^(i'?m |i am )?interested\b/.test(tl) ||       // I'm interested / Interested
            /^(start|begin)\b.*\bapplication\b/.test(tl);   // Start (your) application / Begin application
