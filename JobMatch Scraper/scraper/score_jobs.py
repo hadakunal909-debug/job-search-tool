@@ -500,11 +500,46 @@ def main():
     row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
     row_date = {r["url"]: (r.get("found_date") or "") for r in rows if r.get("url")}
     missing = {u for u, jd in row_jd.items() if not jd or full}
-    print("%d jobs: %d JDs stored, %d to fetch%s."
-          % (len(row_jd), len(row_jd) - len(missing), len(missing),
-             " (--full refetch)" if full else ""))
+    stored = len(row_jd) - len(missing)
+
+    # Per-run fetch cap: a scheduled CI run does BOUNDED work so it always finishes inside
+    # the Actions timeout; the rest of the backlog drains on the next runs. 0 / unset = no
+    # cap (a manual full backfill). Set via env SCORE_MAX_FETCH or the --max=N flag.
+    cap = 0
+    try:
+        cap = int(os.environ.get("SCORE_MAX_FETCH") or 0)
+    except Exception:
+        cap = 0
+    for _a in sys.argv:
+        if _a.startswith("--max="):
+            try:
+                cap = int(_a.split("=", 1)[1])
+            except Exception:
+                pass
+    if cap and len(missing) > cap:
+        missing = set(sorted(missing)[:cap])
+    print("%d jobs: %d JDs stored, %d to fetch this run%s%s."
+          % (len(row_jd), stored, len(missing), " (--full refetch)" if full else "",
+             " (capped)" if cap else ""))
 
     fetched, dates = {}, {}
+    # Persist freshly-fetched JDs in CHUNKS as we go, so an interruption/timeout never
+    # discards work: whatever we've uploaded counts as 'stored', so the next run resumes
+    # from a smaller backlog (guaranteed forward progress). Previously every JD was pushed
+    # only at the very end, so a run that ran out of time persisted NOTHING and the backlog
+    # could never shrink — which is how ~6.5k jobs ended up with no description.
+    _flushed = set()
+
+    def _persist_jds(buf):
+        chunk = {u: jd for u, jd in buf.items() if jd and u not in _flushed}
+        if not chunk:
+            return
+        try:
+            db.update_jds(chunk)
+            _flushed.update(chunk)
+        except Exception as e:
+            print("  (persist %d JDs failed: %s)" % (len(chunk), str(e)[:80]))
+
     if missing:
         # 2) Bulk-fetch boards whose list API already includes the JD — one request
         #    covers the whole board, so try these first. Boards run concurrently.
@@ -532,18 +567,26 @@ def main():
                     hits = {u: jd for u, jd in m.items() if u in missing and jd}
                     fetched.update(hits)
                     print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), len(m)))
+            _persist_jds(fetched)           # save bulk hits before the slower detail phase
             missing -= set(fetched)
 
         # 3) The rest need a per-job detail fetch (SmartRecruiters/Workday/page scrape) —
-        #    parallel, since each is an independent host round-trip.
+        #    parallel, since each is an independent host round-trip. Flush every CHUNK so a
+        #    timeout mid-phase still banks the JDs fetched so far.
         if missing:
             print("Detail-fetching %d remaining JD(s)..." % len(missing))
+            CHUNK, buf = 150, {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
                 for u, jd, date in ex.map(detail_jd, sorted(missing)):
                     if jd:                  # a failed fetch must never blank a stored JD
                         fetched[u] = jd
+                        buf[u] = jd
+                        if len(buf) >= CHUNK:
+                            _persist_jds(buf)
+                            buf = {}
                     if date and not (row_date.get(u) or "").strip():
                         dates[u] = date     # the page carried a posting date the list omitted
+            _persist_jds(buf)
         row_jd.update(fetched)
 
     # 4) Build IDF over the whole JD corpus (so common terms count less), then score
@@ -563,10 +606,10 @@ def main():
         scores[u] = core.score_against(resume_low, m["analyzed"])[0]
     core.save_jdmeta(jdmeta)
 
-    # 5) Persist all scores, but upload only the JDs fetched THIS run — re-pushing
-    #    hundreds of unchanged multi-KB JDs is what used to reset the connection.
+    # 5) Persist all scores. JDs were already uploaded incrementally in the fetch phase
+    #    (guaranteeing forward progress on a timeout); this just banks any residual.
     db.update_scores(scores)
-    db.update_jds(fetched)
+    _persist_jds(fetched)
     if dates:                       # fill in real posting dates the list view omitted (e.g. SAP)
         db.update_job_fields([{"url": u, "found_date": d} for u, d in dates.items()])
     if scores:
