@@ -5,15 +5,15 @@ name: Scrape jobs
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
 #
-# SCHEDULE: 4 feed updates a day (~9am, 12pm, 3pm, 6pm ET). GitHub cron is UTC and
-# does NOT track DST, so the four fixed UTC times below land ~1h earlier in winter
-# (EST) than in summer (EDT) — fine for a job feed. Cron fires exactly 4x/day (no
-# gated no-op runs), which keeps us well inside the free 2,000 Actions-minutes/month.
+# SCHEDULE: 3 feed updates a day (~9am, 1pm, 5pm ET). GitHub cron is UTC and does
+# NOT track DST, so the three fixed UTC times below land ~1h earlier in winter (EST)
+# than in summer (EDT) — fine for a job feed. Cron fires exactly 3x/day (no gated
+# no-op runs), which keeps us comfortably inside the free 2,000 Actions-minutes/month.
 # The heavy score/verify/email pass runs once a day (the morning run); manual dispatch
 # always does the full pass.
 on:
   schedule:
-    - cron: "0 13,16,19,22 * * *"   # 4x/day: ~9am,12pm,3pm,6pm ET (EDT); ~1h earlier under EST
+    - cron: "0 13,17,21 * * *"   # 3x/day: ~9am,1pm,5pm ET (EDT); ~1h earlier under EST
   workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
