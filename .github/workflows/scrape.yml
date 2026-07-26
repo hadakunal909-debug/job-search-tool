@@ -5,15 +5,16 @@ name: Scrape jobs
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
 #
-# SCHEDULE: hourly job-feed update, 9am–6pm Eastern. GitHub cron is UTC with no DST,
-# so we fire every UTC hour that could be 9–18 ET in either season (EDT=UTC-4 → 13–22,
-# EST=UTC-5 → 14–23; union = 13–23 UTC) and the gate step below trims scheduled runs to
-# exactly 9–18 ET. The heavy score/verify/email pass runs once a day (the 9am ET run)
-# to stay well within Actions minutes; manual dispatch always does the full pass.
+# SCHEDULE: 4 feed updates a day (~9am, 12pm, 3pm, 6pm ET). GitHub cron is UTC and
+# does NOT track DST, so the four fixed UTC times below land ~1h earlier in winter
+# (EST) than in summer (EDT) — fine for a job feed. Cron fires exactly 4x/day (no
+# gated no-op runs), which keeps us well inside the free 2,000 Actions-minutes/month.
+# The heavy score/verify/email pass runs once a day (the morning run); manual dispatch
+# always does the full pass.
 on:
   schedule:
-    - cron: "0 13-23 * * *"   # hourly 13:00–23:00 UTC → exactly 9am–6pm ET after the gate
-  workflow_dispatch: {}        # on-demand (Actions tab + the app's "Update jobs" button)
+    - cron: "0 13,16,19,22 * * *"   # 4x/day: ~9am,12pm,3pm,6pm ET (EDT); ~1h earlier under EST
+  workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
   run:
@@ -21,23 +22,24 @@ defaults:
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-latest          # Linux = 1x minute billing (Windows is 2x, macOS 10x)
+    timeout-minutes: 45             # hard cap so a stuck run can never silently drain the budget
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip                                        # reuse the pip download cache
+          cache-dependency-path: "JobMatch Scraper/requirements.txt"
 
-      - name: Decide whether to run (9am–6pm ET window)
+      - name: Decide whether this run does the heavy pass
         id: gate
         run: |
           H=$(TZ=America/New_York date +%-H)          # current Eastern hour, no leading zero
           RUN=yes; HEAVY=no
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            if [ "$H" -lt 9 ] || [ "$H" -gt 18 ]; then RUN=no; fi
-            if [ "$H" -eq 9 ]; then HEAVY=yes; fi      # once-a-day heavy pass at the 9am ET run
+            if [ "$H" -le 9 ]; then HEAVY=yes; fi      # the morning run does the once-a-day heavy pass
           else
             HEAVY=yes                                   # manual / app-button run: full pass
           fi
@@ -49,7 +51,7 @@ jobs:
         if: steps.gate.outputs.run == 'yes'
         run: pip install -r requirements.txt
 
-      - name: Scrape new jobs into Supabase (hourly)
+      - name: Scrape new jobs into Supabase
         if: steps.gate.outputs.run == 'yes'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
