@@ -2976,12 +2976,12 @@ def main():
         j.setdefault("found_date", stamp)        # keep the JD's posting date if set
         kept.append({k: j.get(k, "") for k in FIELDNAMES})
 
-    if kept:
-        db.add_jobs(kept)
-    try:                                  # breadcrumb so notify.py can email just this run's new jobs
+    try:            # persist this run's new jobs to disk FIRST so a DB hiccup can't lose the scrape
         json.dump(kept, open("last_new_jobs.json", "w", encoding="utf-8"))
     except Exception:
         pass
+    if kept:
+        db.add_jobs(kept)               # (also the breadcrumb notify.py reads for this run's alerts)
 
     # OPTIONAL corpus pruning — OFF by default (purely additive scrape; never deletes unless asked).
     # Set PRUNE_DAYS=60 (e.g. in the cron env) to drop jobs first seen > that many days ago,

@@ -603,7 +603,10 @@ def main():
     for u, jd in row_jd.items():
         m = core.job_meta(jd, idf)
         jdmeta[u] = m
-        scores[u] = core.score_against(resume_low, m["analyzed"])[0]
+        # A too-thin/truncated JD can't be scored honestly (it's what produced the fake ~100%s):
+        # store 0 so it sorts/filters low and the feed shows it as "JD pending" (the web layer
+        # keys off the same `thin` flag) instead of a misleading number.
+        scores[u] = 0 if m["analyzed"].get("thin") else core.score_against(resume_low, m["analyzed"])[0]
     core.save_jdmeta(jdmeta)
 
     # 5) Persist all scores. JDs were already uploaded incrementally in the fetch phase

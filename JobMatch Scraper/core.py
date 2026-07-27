@@ -10,6 +10,7 @@ import json
 import math
 from io import BytesIO
 from collections import Counter
+from functools import lru_cache
 
 import requests
 from bs4 import BeautifulSoup
@@ -307,22 +308,34 @@ ATS_KEYWORDS = {
 }
 
 
+# A JD this short (chars) or this term-poor after boilerplate stripping is too thin to score
+# honestly — e.g. the truncated Adzuna/Oracle blurbs that otherwise yield a handful of generic
+# terms a broad résumé fully covers, producing a misleading ~100%. Flagged as "thin" so callers
+# show "JD pending" instead of a confident number (see score_pending in web._build_row).
+_MIN_JD_CHARS = 400
+_MIN_JD_TERMS = 6
+
+
 def analyze_jd(jd_text, idf=None):
     """The résumé-INDEPENDENT half of the ATS match: the JD's important keywords and each
     one's weight. Depends only on the JD text, idf, the ATS keyword set, and the JD's
     requirements section — NOT the résumé — so it can be computed once per job and reused
     for every résumé and every page render.
 
-    Returns {"terms": [term, ...], "weight": {term: w}, "total": float}.
+    Returns {"terms": [term, ...], "weight": {term: w}, "total": float, "thin": bool}.
     """
     jd_low = (jd_text or "").lower()
     req_low = _requirements_text(jd_text).lower()
 
     # The JD's important keywords: its salient terms + any hard ATS keywords it names.
-    jd_terms = set(extract_keywords(jd_text, top_n=30))
+    salient = extract_keywords(jd_text, top_n=30)
+    # "thin" is judged on the JD's own substance (length + salient-term count), NOT on the ATS
+    # keywords a broad résumé would trivially match — so a truncated blurb stays flagged.
+    thin = len(jd_low.strip()) < _MIN_JD_CHARS or len(salient) < _MIN_JD_TERMS
+    jd_terms = set(salient)
     jd_terms |= {kw for kw in ATS_KEYWORDS if kw in jd_low}
     if not jd_terms:
-        return {"terms": [], "weight": {}, "total": 0.0}
+        return {"terms": [], "weight": {}, "total": 0.0, "thin": True}
 
     default_w = max(idf.values()) if idf else 1.0
 
@@ -337,22 +350,44 @@ def analyze_jd(jd_text, idf=None):
     terms = list(jd_terms)           # freeze the set's iteration order ONCE (see score_against)
     weight = {t: wt(t) for t in terms}
     total = sum(weight[t] for t in terms)
-    return {"terms": terms, "weight": weight, "total": total}
+    return {"terms": terms, "weight": weight, "total": total, "thin": thin}
+
+
+@lru_cache(maxsize=8)
+def _resume_wordset(resume_low):
+    """The set of whole word-tokens in a (lowercased) résumé, memoized so user_scores can
+    reuse it across every job in its loop instead of re-tokenizing per job."""
+    return frozenset(WORD_RE.findall(resume_low))
+
+
+def _term_present(t, resume_low, words):
+    """Whether a JD term appears in the résumé as a WHOLE word — so "data" no longer matches
+    "database", "plan" no longer matches "planning". Multi-word phrases and terms carrying
+    special chars (e.g. "power bi", "ci/cd", "c++") are already specific, so a plain substring
+    test is safe for those and avoids brittle \\b handling around punctuation."""
+    if " " in t or any(ch in t for ch in "+#./-"):
+        return t in resume_low
+    return t in words
 
 
 def score_against(resume_low, analyzed):
     """The résumé-DEPENDENT half: which of the JD's weighted keywords appear in the résumé.
     `resume_low` must already be lowercased. Returns (score, keywords_have, keywords_to_add).
 
-    Iterates the SAME `terms` list analyze_jd froze, so equal-weight sort ties keep their
-    order and the result is byte-identical to the original single-function skill_match."""
+    Matching is whole-word (not substring), so coverage isn't inflated by terms that merely
+    sit inside unrelated résumé words. The score is floored, not rounded, so a partial match
+    can never round UP to a misleading 100%."""
     terms = analyzed["terms"]
     if not terms:
         return 0, [], []
     weight = analyzed["weight"]
-    have = sorted((t for t in terms if t in resume_low), key=lambda t: -weight[t])
-    missing = sorted((t for t in terms if t not in resume_low), key=lambda t: -weight[t])
-    score = round(100.0 * sum(weight[t] for t in have) / (analyzed["total"] or 1.0))
+    words = _resume_wordset(resume_low)
+    have = sorted((t for t in terms if _term_present(t, resume_low, words)), key=lambda t: -weight[t])
+    missing = sorted((t for t in terms if not _term_present(t, resume_low, words)), key=lambda t: -weight[t])
+    pct = 100.0 * sum(weight[t] for t in have) / (analyzed["total"] or 1.0)
+    score = int(pct)                 # floor: 99.6% stays 99, never a phantom round-up to 100
+    if score >= 100 and missing:     # only a genuine full sweep of the JD's terms may read 100
+        score = 99
     return score, have, missing
 
 
@@ -589,6 +624,60 @@ def is_everify(company, index):
                       for n in index["norm"])
     _everify_cache[company] = hit
     return hit
+
+
+# ------------------------------------------------------------
+# STAFFING / CONSULTANCY ("agency") flag — mark body-shop / staffing-firm employers so the user
+# can spot-and-skip them. They're KEPT in the feed (many are heavy H-1B sponsors), just badged —
+# this is a hint, not a hard filter. Two signals: a generic body-shop NAME SHAPE (BODYSHOP_RE,
+# the single source of truth also imported by scraper/build_everify.py) + a small set of named
+# staffing/consultancy firms that are real companies the shape regex won't catch by name.
+# ------------------------------------------------------------
+# Real IT-services GIANTS (Infosys, Cognizant, HCL, TCS, Wipro, Accenture, Deloitte…) do NOT
+# match these shapes, so they're unaffected.
+BODYSHOP_RE = re.compile(
+    r"\b(soft\s*systems?|tech\s*solutions?|software\s*solutions?|it\s*solutions?|"
+    r"info(?:tech| systems?| solutions?)|tek\s*solutions?|consultancy services?|"
+    r"staffing|technologies\s+inc|solutions\s+inc|systems\s+inc|infotech|"
+    r"global\s+(?:it|tech|soft|systems?|solutions?))\b", re.I)
+
+# Named staffing / recruiting / bench-consultancy firms: real companies (so BODYSHOP_RE doesn't
+# flag them by shape) whose postings are agency/placement roles, not a direct employer's own
+# team. Matched as a normalized substring of the company name.
+_AGENCY_NAMES = (
+    "actalent", "aerotek", "teksystems", "insight global", "apex systems", "kforce",
+    "robert half", "randstad", "adecco", "manpower", "kelly services", "collabera",
+    "eteam", "judge group", "beacon hill", "signature consultants", "experis", "yoh",
+    "system one", "mastech", "diverse lynx", "compunnel", "artech", "cybercoders",
+    "on-board", "us tech solutions", "pyramid consulting", "nesco resource", "roljobs",
+)
+
+
+# Precise agency/body-shop NAME SHAPES for the live "Agency" badge. This deliberately does NOT
+# reuse the broad BODYSHOP_RE: that pattern's bare "<x> technologies/systems/solutions inc" rules
+# catch real DIRECT employers ("Keysight Technologies Inc", "Cadence Design Systems Inc"), and a
+# wrong Agency badge is worse for the user's trust than missing one. So here we match only
+# staffing-specific words + unambiguously body-shop "solutions/systems" shapes. (BODYSHOP_RE is
+# unchanged and still used by scraper/build_everify.py's E-Verify curation, where a human reviews.)
+_AGENCY_RE = re.compile(
+    r"\b(?:staffing|recruit(?:ing|ment|ers)|placements?|consultanc(?:y|ies) services?"
+    r"|(?:tech|software|it|hr)\s*solutions?"
+    r"|soft\s*systems?|infotech|info\s*(?:systems?|solutions?)|tek\s*solutions?"
+    r"|global\s+(?:it|tech|soft|systems?|solutions?)"
+    r"|talent\s+(?:group|advisors?|partners?|acquisition|solutions?))\b", re.I)
+
+
+def is_agency(company):
+    """Heuristic: True if `company` looks like a staffing agency / IT body-shop / bench
+    consultancy rather than a direct employer — a named staffing/recruiting firm (_AGENCY_NAMES)
+    OR a precise body-shop name shape (_AGENCY_RE). A hint to help the user spot-and-skip; these
+    rows are kept in the feed (for their H-1B sponsorship value), just badged."""
+    c = (company or "").lower()
+    if not c:
+        return False
+    if any(n in c for n in _AGENCY_NAMES):
+        return True
+    return bool(_AGENCY_RE.search(c))
 
 
 # ------------------------------------------------------------
