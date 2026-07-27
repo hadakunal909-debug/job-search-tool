@@ -16,6 +16,7 @@ import os
 import csv
 import json
 import re
+import time
 import datetime
 
 
@@ -164,20 +165,52 @@ def _fetch_all(table, params):
         offset += page
 
 
-def _upsert(rows):
-    """Insert/merge rows on the `url` primary key (PostgREST upsert).
-    PostgREST needs every object in a bulk write to share the SAME keys, so we
-    normalize to the union of keys (missing -> None)."""
+def _upsert(rows, chunk=200):
+    """Insert/merge rows on the `url` primary key (PostgREST upsert), in chunks with a soft retry.
+    A single huge merge-upsert (a full re-score, or a big backlog of new jobs after the scheduled
+    scrape has been down) is one giant statement; splitting it keeps each write small. On top of
+    that, free-tier Supabase occasionally goes through a minute or two of HTTP 500s under load, so
+    each chunk gets a couple of extra spaced-out attempts before we give up (and then we surface
+    the real response body, not a bare RetryError). PostgREST needs every object in a bulk write
+    to share the SAME keys, so we normalize to the union of keys (missing -> None)."""
     if not rows:
         return
+    # A single PostgREST upsert can't touch the same `url` twice — Postgres raises 21000
+    # ("ON CONFLICT DO UPDATE command cannot affect row a second time") and 500s the whole
+    # batch. Two different boards can legitimately return the same job URL in one run, so
+    # collapse duplicates here first, merging each url's non-null fields (later rows win).
+    merged = {}
+    order = []
+    passthrough = []
+    for r in rows:
+        u = r.get("url")
+        if u is None:
+            passthrough.append(r)
+            continue
+        if u not in merged:
+            merged[u] = {}
+            order.append(u)
+        merged[u].update({k: v for k, v in r.items() if v is not None})
+    rows = [merged[u] for u in order] + passthrough
     keys = sorted({k for r in rows for k in r})
-    body = [{k: r.get(k) for k in keys} for r in rows]
-    resp = _http.post(
-        _rest(TABLE),
-        headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
-        params={"on_conflict": "url"}, data=json.dumps(body), timeout=60)
-    if resp.status_code >= 400:
-        raise RuntimeError("Supabase upsert %s: %s" % (resp.status_code, resp.text[:300]))
+    for i in range(0, len(rows), chunk):
+        payload = json.dumps([{k: r.get(k) for k in keys} for r in rows[i:i + chunk]])
+        last = ""
+        for attempt in range(4):           # ~0 + 3 + 6 + 12s of backoff rides out a transient 500 window
+            try:
+                resp = _http.post(
+                    _rest(TABLE),
+                    headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                    params={"on_conflict": "url"}, data=payload, timeout=60)
+                if resp.status_code < 400:
+                    break
+                last = "%s: %s" % (resp.status_code, (resp.text or "")[:300])
+            except Exception as e:         # RetryError / connection reset -> treat as retryable
+                last = repr(e)[:300]
+            if attempt < 3:
+                time.sleep(3 * (attempt + 1))
+        else:
+            raise RuntimeError("Supabase upsert failed after retries — %s" % last)
 
 
 # ---------------- local-file helpers (fallback) ----------------

@@ -52,11 +52,16 @@ _STATUS_HEADERS = ("status", "account status", "account_status", "case_status")
 # classic fraud-adjacent shops; we SKIP + report them rather than auto-trust them.
 # Real IT-services GIANTS (Infosys, Cognizant, HCL, TCS, Wipro, Accenture, Deloitte…)
 # do NOT match these patterns, so they're unaffected.
-_BODYSHOP_RE = re.compile(
-    r"\b(soft\s*systems?|tech\s*solutions?|software\s*solutions?|it\s*solutions?|"
-    r"info(?:tech| systems?| solutions?)|tek\s*solutions?|consultancy services?|"
-    r"staffing|technologies\s+inc|solutions\s+inc|systems\s+inc|infotech|"
-    r"global\s+(?:it|tech|soft|systems?|solutions?))\b", re.I)
+# Single source of truth lives in core.BODYSHOP_RE (also used by the live feed's "Agency"
+# badge); fall back to a local copy if core isn't importable in an offline run.
+try:
+    from core import BODYSHOP_RE as _BODYSHOP_RE
+except Exception:
+    _BODYSHOP_RE = re.compile(
+        r"\b(soft\s*systems?|tech\s*solutions?|software\s*solutions?|it\s*solutions?|"
+        r"info(?:tech| systems?| solutions?)|tek\s*solutions?|consultancy services?|"
+        r"staffing|technologies\s+inc|solutions\s+inc|systems\s+inc|infotech|"
+        r"global\s+(?:it|tech|soft|systems?|solutions?))\b", re.I)
 
 # A few well-known large employers worth flagging even if they aren't currently a
 # scrapeable SOURCE (kept tiny + obviously legitimate). Extend as needed.

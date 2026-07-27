@@ -384,6 +384,10 @@ def _build_row(j, score):
     sv, sreason = meta.get("sponsor_jd") or ("", "")
     strength, scount = core.sponsor_strength(c, _SPONSOR_COUNTS)
     exp_y = meta.get("exp_years")
+    # A too-thin/truncated JD can't be scored honestly (see core.analyze_jd) — surface it as
+    # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
+    # rather than sitting at a fake ~100% on top of the feed.
+    pending = bool((meta.get("analyzed") or {}).get("thin"))
     return {"title": j.get("title", ""), "company": c, "location": j.get("location", ""),
             "url": u, "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
             "sponsors_h1b": j.get("sponsors_h1b", ""),
@@ -391,7 +395,8 @@ def _build_row(j, score):
             # The "New" badge is derived client-side from this date (it shows iff it reads "Today").
             "date": ((j.get("posted_verified") or j.get("found_date")) or "")[:10],
             "date_verified": bool(j.get("posted_verified")),
-            "score": score, "sponsor_jd": sv, "sponsor_reason": sreason,
+            "score": 0 if pending else score, "score_pending": pending,
+            "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c), "everify": core.is_everify(c, _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",
             "strength": strength, "strength_n": scount,
@@ -702,10 +707,13 @@ def api_job():
         have, missing = [], []
     sv, sreason = meta["sponsor_jd"]
     exp_y = meta["exp_years"]
+    pending = bool((meta.get("analyzed") or {}).get("thin"))
     return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
             "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
-            "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""), "score": int(score or 0),
+            "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""),
+            "score": 0 if pending else int(score or 0), "score_pending": pending,
             "sponsor_jd": sv, "sponsor_reason": sreason,
+            "agency": core.is_agency(job.get("company", "")),
             "cap_exempt": core.is_cap_exempt(job.get("company", "")),
             "everify": core.is_everify(job.get("company", ""), _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "",

@@ -43,6 +43,13 @@
       '<text x="23" y="27" text-anchor="middle" font-size="10" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">' + s + '%</text>' +
       '</svg>';
   }
+  // The score cell for a card/detail: the % ring, OR a neutral "JD pending" chip when the job's
+  // description is too short/truncated to score honestly (score_pending from the server).
+  function scoreCell(j) {
+    if (j && j.score_pending)
+      return '<span class="score-pending" title="This description is too short to score reliably yet — it\'ll get a match score once the full job description is fetched.">JD pending</span>';
+    return scoreRing((j && j.score) || 0);
+  }
   function toast(msg) {
     if (!toasts) return;
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
@@ -108,6 +115,8 @@
       badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">No lottery</span>';
     if (j.everify)
       badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov before relying on it.">E-Verify</span>';
+    if (j.agency)
+      badges += '<span class="agency" title="Staffing agency / consultancy — postings are placement or bench roles, not a direct employer\'s own team. Kept for their H-1B sponsorship, flagged so you can skip if you prefer direct employers.">Agency</span>';
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
       badges += '<span class="exp ' + ec + '" title="The description asks for about ' + H(j.exp_years) +
@@ -125,7 +134,7 @@
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
           '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
           '&sz=64" alt="" loading="lazy"></div>' +
-        scoreRing(j.score || 0) +
+        scoreCell(j) +
       '</div>' +
       '<div class="ctitle">' + esc(j.title) + '</div>' +
       '<div class="cmeta">' + esc(j.company) + ' · ' + esc(j.location || 'n/a') + posted + badges + '</div>' +
@@ -337,7 +346,7 @@
     modal.classList.add("open"); document.body.style.overflow = "hidden";
     fetch("/api/job?url=" + encodeURIComponent(mUrl)).then(function (r) { return r.json(); }).then(function (j) {
       if (!j || !j.ok) { $("m-jd").textContent = "Couldn't load details."; return; }
-      $("m-chip").innerHTML = scoreRing(j.score);
+      $("m-chip").innerHTML = scoreCell(j);
       var sk = "";
       if (j.missing && j.missing.length) sk += '<div class="sechdr">Add these to your résumé</div><div class="kw">' + j.missing.map(function (k) { return '<span class="tag miss">' + esc(k) + '</span>'; }).join("") + '</div>';
       if (j.have && j.have.length) sk += '<div class="sechdr">Skills you already match</div><div class="kw">' + j.have.map(function (k) { return '<span class="tag have">' + esc(k) + '</span>'; }).join("") + '</div>';
@@ -349,6 +358,7 @@
       }
       if (j.everify) spn += '<span class="ev" title="Confirm current status at e-verify.gov">E-Verify · STEM-OPT OK</span>';
       if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt — no H-1B lottery</span>';
+      if (j.agency) spn += '<span class="agency" title="Staffing agency / consultancy — not a direct employer">Agency</span>';
       if (j.sponsor_jd === "blocked") spn += '<span class="nospon">' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
       else if (j.sponsor_jd === "open") spn += '<span class="spon">' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
       if (spn) sk = '<div class="kw" style="margin-bottom:10px">' + spn + '</div>' + sk;
