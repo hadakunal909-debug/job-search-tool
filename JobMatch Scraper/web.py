@@ -197,6 +197,13 @@ _SCORE_CACHE_MAX = 64        # cap so a long-lived process doesn't grow unbounde
 # size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
 _FEED_INLINE_MAX = int(os.environ.get("FEED_INLINE_MAX", "4000"))
 _FEED_TOPN = int(os.environ.get("FEED_TOPN", "400"))      # how many top-match jobs to inline when paged
+# Feed grouping: how many cards one (title, company) run gets before the rest collapse into a
+# "+N more at <company>" tile. 0 turns grouping off entirely (an env-only kill switch — the value
+# is handed to app.js via the template so both sides read the same number). _GROUP_MIN is derived
+# rather than configured: a group only collapses if the tile hides at least TWO postings, so we
+# never trade a card for a tile that reveals a single row.
+_GROUP_LEAD = int(os.environ.get("FEED_GROUP_LEAD", "2"))
+_GROUP_MIN = _GROUP_LEAD + 2
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
                               # jdmeta.json (built by the cron scorer) so cold renders skip recompute
@@ -642,6 +649,106 @@ def _filter_rows(rows, statuses, p):
     return out                                  # else already in score order (rows pre-sorted)
 
 
+# ----------------------------- feed grouping -----------------------------
+# Some employers list one role hundreds of times, once per site or store. Measured on the live
+# corpus (16,416 rows): Actalent 527 "Project Manager", Amazon 431 "Operations Manager", Walmart
+# 150 "Pharmacy Pre-Grad Intern - WM" — 403 such runs of 4+ covering 32% of every row we have.
+# They are DISTINCT openings with their own job ids, so _dedupe_rows must not touch them (keying
+# on title+company+state once collapsed 4,770 real postings). The problem isn't duplication, it's
+# that one employer eats a screen. So we group for DISPLAY instead: a run of rows sharing
+# (normalized title, company) shows its best one or two cards plus a "+N more at <company>"
+# tile that expands the rest in place. Nothing is dropped — fully expanding a tile gets every
+# posting back, and scripts/feed_parity.py asserts that.
+#
+# Grouping runs AFTER filtering, never before, so "+N more" always counts what the user's own
+# filters left behind — a stale count would be a lie the moment they typed a location.
+_NONALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _group_key(r):
+    """Identity of a (title, company) run, or "" for a row that must never be grouped.
+
+    Normalization is the same shape _dupe_key uses, so "Operations Manager" and
+    "operations  manager" land together. The two halves are joined with "|", which is
+    collision-free because normalization has already stripped every non-alphanumeric
+    character from both. Mirrored in app.js groupKey().
+    """
+    t = _NONALNUM_RE.sub(" ", (r.get("title") or "").lower()).strip()
+    c = _NONALNUM_RE.sub(" ", (r.get("company") or "").lower()).strip()
+    if not (t and c):
+        return ""
+    return c + "|" + t
+
+
+def _pick_leaders(members, lead):
+    """The cards that represent a collapsed group, in their original rank order.
+
+    `members` is already in display order, so the first one is the best under whichever sort is
+    active. The second is the best row in a DIFFERENT state where one exists — two Amazon
+    "Operations Manager" cards are worth far more when they're in two different places than when
+    they're the top two rows of the same warehouse town. Falls back to plain rank order when the
+    group has too few distinct states. Mirrored in app.js pickLeaders().
+    """
+    if len(members) <= lead:
+        return list(members)
+    picked, seen = [], set()
+    for i, m in enumerate(members):
+        s = (m[0].get("loc_state") or "").upper()
+        if s not in seen:
+            seen.add(s)
+            picked.append(i)
+            if len(picked) == lead:
+                break
+    for i in range(len(members)):               # not enough distinct states — fill by rank
+        if len(picked) >= lead:
+            break
+        if i not in picked:
+            picked.append(i)
+    picked.sort()                               # keep the leaders in their original order
+    return [members[i] for i in picked]
+
+
+def _group_units(pairs):
+    """[(row, status)] -> [(row, status, hidden_count, group_key)] display units.
+
+    A group is anchored at the position of its FIRST member, so the active sort still drives the
+    feed's order; the tile is attached to the group's LAST leader (hidden_count > 0 there, 0 on
+    every other unit) so it renders directly beneath the cards it belongs to.
+    """
+    order, groups = [], {}
+    for pr in pairs:
+        k = _group_key(pr[0])
+        if not k:
+            order.append(("", pr))              # no title or company: never group blindly
+            continue
+        if k not in groups:
+            groups[k] = []
+            order.append((k, None))             # placeholder holding this group's slot
+        groups[k].append(pr)
+
+    out = []
+    for k, pr in order:
+        if not k:
+            out.append((pr[0], pr[1], 0, ""))
+            continue
+        members = groups[k]
+        if len(members) < _GROUP_MIN:            # too short to be noise — show every card
+            out.extend((m[0], m[1], 0, "") for m in members)
+            continue
+        leaders = _pick_leaders(members, _GROUP_LEAD)
+        hidden = len(members) - len(leaders)
+        for i, m in enumerate(leaders):
+            last = i == len(leaders) - 1
+            out.append((m[0], m[1], hidden if last else 0, k if last else ""))
+    return out
+
+
+def _grouping_on(p):
+    """Group the Recommended feed only. Liked/Applied/Hidden are the user's own shortlists —
+    collapsing rows they deliberately saved would hide their tracker from them."""
+    return _GROUP_LEAD > 0 and (p.get("tab") or "recommended") not in ("liked", "applied", "hidden")
+
+
 def login_required(f):
     @functools.wraps(f)
     def wrap(*a, **k):
@@ -819,30 +926,77 @@ def feed():
     return render_template("feed.html", feed_rows=feed_rows, has_resume=bool(resume),
                            total=total, default_total=default_total, counts=counts,
                            default_min=default_min, paged=paged, scraping=False,
+                           group_lead=_GROUP_LEAD,
                            metros=_feed_metros(rows), states=_feed_states(rows))
+
+
+def _page_args(p, default_limit=60):
+    """(offset, limit) from the query string, clamped."""
+    try:
+        offset = max(0, int(p.get("offset") or 0))
+    except Exception:
+        offset = 0
+    try:
+        limit = min(120, max(1, int(p.get("limit") or default_limit)))
+    except Exception:
+        limit = default_limit
+    return offset, limit
 
 
 @app.route("/api/feed")
 @login_required
 def api_feed():
     """Server-side search/filter/sort/paging over the FULL corpus, for the large-dataset feed.
-    Mirrors app.js's client filters; returns a compact page of card rows in the same shape."""
+    Mirrors app.js's client filters; returns a compact page of card rows in the same shape.
+
+    Paging counts DISPLAY UNITS (a collapsed group is one unit), while `total` stays the number
+    of matching JOBS so the header's "N of M jobs" keeps meaning jobs. `units` is what the
+    Load-more button has to count against — the two differ whenever a group collapsed.
+    """
     user = session["user"]
     resume = current_profile()
     rows = ranked_rows(user, resume)
     statuses = user_statuses(user)
     matched = _filter_rows(rows, statuses, request.args)
-    try:
-        offset = max(0, int(request.args.get("offset") or 0))
-    except Exception:
-        offset = 0
-    try:
-        limit = min(120, max(1, int(request.args.get("limit") or 60)))
-    except Exception:
-        limit = 60
-    page = matched[offset:offset + limit]
-    out_rows = [dict(r, status=st) for (r, st) in page]      # overlay status on a copy
-    return {"rows": out_rows, "total": len(matched), "has_more": offset + limit < len(matched)}
+    if _grouping_on(request.args):
+        units = _group_units(matched)
+    else:
+        units = [(r, st, 0, "") for (r, st) in matched]
+    offset, limit = _page_args(request.args)
+    page = units[offset:offset + limit]
+    out_rows = [dict(r, status=st, group_more=more, group_key=gk)      # status on a copy
+                for (r, st, more, gk) in page]
+    return {"rows": out_rows, "total": len(matched), "units": len(units),
+            "has_more": offset + limit < len(units)}
+
+
+@app.route("/api/group")
+@login_required
+def api_group():
+    """The postings a "+N more at <company>" tile hides, for expanding it in place.
+
+    Same filters as /api/feed (the client resends them) narrowed to one (title, company) group,
+    minus the leader cards already on screen, and paged — expanding Amazon's Operations Manager
+    run must not ship 431 cards at once.
+    """
+    gk = request.args.get("gk") or ""
+    if not gk:
+        return {"rows": [], "total": 0, "has_more": False}
+    user = session["user"]
+    rows = ranked_rows(user, current_profile())
+    statuses = user_statuses(user)
+    members = [p for p in _filter_rows(rows, statuses, request.args) if _group_key(p[0]) == gk]
+    # Recompute the leaders the same way the feed did, so expanding shows exactly the rows the
+    # tile was standing in for — no repeats of what's already rendered, nothing skipped.
+    if _grouping_on(request.args) and len(members) >= _GROUP_MIN:
+        leaders = {m[0]["url"] for m in _pick_leaders(members, _GROUP_LEAD)}
+        rest = [p for p in members if p[0]["url"] not in leaders]
+    else:
+        rest = members
+    offset, limit = _page_args(request.args)
+    page = rest[offset:offset + limit]
+    return {"rows": [dict(r, status=st) for (r, st) in page],
+            "total": len(rest), "has_more": offset + limit < len(rest)}
 
 
 @app.route("/api/job")
