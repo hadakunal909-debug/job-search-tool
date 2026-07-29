@@ -82,7 +82,29 @@ ACTIONS_FILE = "user_jobs.json"
 TABLE = "jobs"
 FIELDS = ["found_date", "title", "company", "location", "url",
           "sponsors_h1b", "match_score", "status",
-          "posted_verified", "posted_confidence"]
+          "posted_verified", "posted_confidence",
+          # --- derived by scraper/score_jobs.py so the feed can filter on them ---
+          "loc_state", "loc_metro", "remote",
+          "salary_min", "salary_max", "salary_period",
+          "last_seen", "is_active", "miss_count"]
+
+# One-time SQL for the derived columns above. Surfaced in the app (and printed by
+# score_jobs) when a write fails because they don't exist yet — same self-serve pattern
+# as APPLICATIONS_SQL. All `if not exists`, so it's safe to re-run.
+JOBS_DERIVED_SQL = (
+    "-- Location + pay + liveness, derived from data already stored on each job.\n"
+    "alter table public.jobs add column if not exists loc_state text;\n"
+    "alter table public.jobs add column if not exists loc_metro text;\n"
+    "alter table public.jobs add column if not exists remote boolean;\n"
+    "alter table public.jobs add column if not exists salary_min integer;\n"
+    "alter table public.jobs add column if not exists salary_max integer;\n"
+    "alter table public.jobs add column if not exists salary_period text;\n"
+    "alter table public.jobs add column if not exists last_seen date;\n"
+    "alter table public.jobs add column if not exists is_active boolean default true;\n"
+    "-- consecutive successful fetches of its own board a job has been absent from\n"
+    "alter table public.jobs add column if not exists miss_count integer default 0;\n"
+    "create index if not exists jobs_loc_state_idx on public.jobs (loc_state);\n"
+    "create index if not exists jobs_is_active_idx on public.jobs (is_active);\n")
 
 _creds_cache = None
 
@@ -243,9 +265,15 @@ def _save_actions(a):
 
 
 # ---------------- public API (scraper / score_jobs / app use these) ----------------
-# posted_verified = real posting date recovered by scraper.verify_dates (preferred on the
-# card over found_date). Listed explicitly so the feed select pulls it without the JD.
-_FEED_COLS = "url,found_date,posted_verified,title,company,location,sponsors_h1b,match_score,status"
+# Columns the feed needs, named explicitly so the select can skip the huge `jd` text.
+# _FEED_COLS_CORE has existed since the first schema; _FEED_COLS_OPT are added by later
+# migrations, so a select naming them 400s until those have been run — load_jobs falls back
+# to CORE in that case, which is what keeps the feed alive on an un-migrated database.
+_FEED_COLS_CORE = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
+_FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
+                  "salary_min", "salary_max", "salary_period",
+                  "is_active", "last_seen", "miss_count")
+_FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
 def load_jobs(include_jd=True):
@@ -258,11 +286,20 @@ def load_jobs(include_jd=True):
         try:
             return _fetch_all(TABLE, {"select": sel})
         except Exception:
-            # posted_verified not migrated yet -> retry without it so the feed keeps working
-            # until `alter table jobs add column posted_verified` is run. (include_jd=True uses
-            # "*", which never names the column, so only the explicit-column path needs this.)
-            if not include_jd and "posted_verified" in _FEED_COLS:
-                return _fetch_all(TABLE, {"select": _FEED_COLS.replace(",posted_verified", "")})
+            # An optional column isn't migrated yet -> retry with only the core set, so the
+            # feed keeps working until the ALTERs are run. Drop them one at a time so a
+            # partially-migrated database still gets everything it does have. (include_jd=True
+            # uses "*", which never names a column, so only this path needs the fallback.)
+            if include_jd:
+                raise
+            opt = list(_FEED_COLS_OPT)
+            while opt:
+                opt.pop()                      # newest/most-optional first
+                sel = _FEED_COLS_CORE + ("," + ",".join(opt) if opt else "")
+                try:
+                    return _fetch_all(TABLE, {"select": sel})
+                except Exception:
+                    continue
             raise
     rows = _read_csv()
     actions = _load_actions()
