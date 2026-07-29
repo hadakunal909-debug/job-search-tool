@@ -75,14 +75,16 @@
   <div class="banner">Showing baseline scores. <a href="{{ url_for('brain_home') }}">Build your profile in Resume Brain</a> for personalized matches.</div>
   {% endif %}
 </div>
-<div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs</div>
+<!-- The count stays in JOBS. Grouping only collapses cards, so every matching job is still
+     accounted for — #grouped says how many cards those jobs are drawn as when they differ. -->
+<div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs<span id="grouped"></span></div>
 
 <div id="scrapebar" class="scrapebar" style="display:none" role="status" aria-live="polite">
   <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
   <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
 </div>
 
-<div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}">
+<div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}" data-group-lead="{{ group_lead }}">
   {% for _ in range(8) %}
   <div class="skel" aria-hidden="true">
     <div class="skel-logo"></div>
