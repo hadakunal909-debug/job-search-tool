@@ -1,9 +1,23 @@
 ---
+# cPanel Git deploy. Runs on push; copies the app into DEPLOYPATH and restarts Passenger.
+#
+# !! DEPLOYPATH POINTS AT A SUSPENDED ACCOUNT !!
+# `/home/bnrqpozr/Stemjobs` belonged to the stemjobs.astrochakra.co account, which was
+# suspended around 2026-07-21. The live app is now stemjobs1.astrochakra.co under a
+# DIFFERENT cPanel user, so until this path is updated every git deploy copies files into
+# a home directory nobody serves — it "succeeds" and changes nothing.
+# Fix: cPanel -> File Manager (or `pwd` over SSH) on the stemjobs1 account to get its home,
+# then set DEPLOYPATH to <that home>/Stemjobs.
 deployment:
   tasks:
     - export DEPLOYPATH=/home/bnrqpozr/Stemjobs
     - export SRC="JobMatch Scraper"
     - /bin/cp -f "$SRC/web.py" "$SRC/core.py" "$SRC/db.py" "$SRC/auth.py" "$SRC/passenger_wsgi.py" "$SRC/requirements-cpanel.txt" "$SRC/idf.json" "$SRC/careers_us.md" "$SRC/sponsors.txt" $DEPLOYPATH/
+    # Optional data files: the H-1B filing counts that turn on the sponsor-strength tiers, and
+    # the E-Verify snapshot that turns on the STEM-OPT badge. Copied only if present so a
+    # missing everify.txt can't fail the deploy — each feature stays dormant until its file
+    # exists, which is the same contract core.load_sponsor_counts/load_everify already have.
+    - for f in sponsor_counts.json everify.txt; do test -f "$SRC/$f" && /bin/cp -f "$SRC/$f" $DEPLOYPATH/ || true; done
     - /bin/cp -rf "$SRC/scraper" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/resume_brain" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/templates" $DEPLOYPATH/

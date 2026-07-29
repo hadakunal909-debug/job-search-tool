@@ -480,6 +480,69 @@ def detail_jd(url):
     return url, jd, date
 
 
+def _norm_cmp(key, val):
+    """Comparable form of a derived value. Supabase hands back real booleans/ints but the
+    local jobs.csv fallback hands back strings, and "False" is a truthy string — comparing
+    raw would mark every row changed on every run."""
+    if val is None or val == "":
+        return None
+    if key == "remote":
+        return str(val).strip().lower() in ("1", "true", "t", "yes")
+    if key in ("salary_min", "salary_max"):
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+    return str(val)
+
+
+def _persist_derived(row_loc, row_jd):
+    """Derive each job's state/metro/remote flag and pay range, and write them to the jobs
+    table. Only rows whose values actually CHANGED are sent, so the daily run costs one small
+    upsert instead of re-writing the whole corpus.
+
+    Never raises: the columns don't exist until someone runs db.JOBS_DERIVED_SQL once, and a
+    missing column must not throw away a completed scoring pass.
+    """
+    try:
+        current = {r["url"]: r for r in db.load_jobs() if r.get("url")}
+    except Exception as e:
+        print("  (derived fields skipped, could not reload jobs: %s)" % str(e)[:90])
+        return
+
+    payload, stats = [], {"state": 0, "remote": 0, "salary": 0}
+    for u, loc in row_loc.items():
+        p = core.parse_location(loc, row_jd.get(u) or "")
+        s = core.parse_salary(row_jd.get(u) or "")
+        want = {
+            "loc_state": p["state"], "loc_metro": p["metro"], "remote": bool(p["remote"]),
+            "salary_min": s["min"], "salary_max": s["max"], "salary_period": s["period"],
+        }
+        if p["state"]:
+            stats["state"] += 1
+        if p["remote"]:
+            stats["remote"] += 1
+        if s["period"]:
+            stats["salary"] += 1
+
+        have = current.get(u) or {}
+        if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want.items()):
+            payload.append(dict(want, url=u))
+
+    if not payload:
+        print("Derived fields already current (%d state, %d remote, %d with pay)."
+              % (stats["state"], stats["remote"], stats["salary"]))
+        return
+    try:
+        db.update_job_fields(payload)
+        print("Derived fields: updated %d job(s) — %d state, %d remote, %d with pay."
+              % (len(payload), stats["state"], stats["remote"], stats["salary"]))
+    except Exception as e:
+        print("  (derived-field write failed: %s)" % str(e)[:160])
+        print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
+        print(db.JOBS_DERIVED_SQL)
+
+
 def main():
     full = "--full" in sys.argv
     resume = open("resume.txt", encoding="utf-8").read() if os.path.exists("resume.txt") else ""
@@ -499,6 +562,7 @@ def main():
     rows = db.load_jobs()
     row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
     row_date = {r["url"]: (r.get("found_date") or "") for r in rows if r.get("url")}
+    row_loc = {r["url"]: (r.get("location") or "") for r in rows if r.get("url")}
     missing = {u for u, jd in row_jd.items() if not jd or full}
     stored = len(row_jd) - len(missing)
 
@@ -615,6 +679,11 @@ def main():
     _persist_jds(fetched)
     if dates:                       # fill in real posting dates the list view omitted (e.g. SAP)
         db.update_job_fields([{"url": u, "found_date": d} for u, d in dates.items()])
+
+    # 6) Derived fields the FEED filters on. These live in real columns rather than jdmeta.json
+    #    because jdmeta.json is gitignored and never deployed — a column reaches the live site
+    #    through Supabase with no file deploy, the same way match_score already does.
+    _persist_derived(row_loc, row_jd)
     if scores:
         vals = list(scores.values())
         where = "Supabase" if db.using_supabase() else "jobs.csv"

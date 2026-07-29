@@ -681,6 +681,301 @@ def is_agency(company):
 
 
 # ------------------------------------------------------------
+# LOCATION parsing — the boards spell the same place ~5 different ways ("Seattle, WA" /
+# "Seattle, Washington, USA" / "US, WA, Seattle"), so the raw string can't be filtered on.
+# Resolve it to a state code + metro so the feed can offer a real "where" filter.
+# ------------------------------------------------------------
+_STATES = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
+    "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
+    "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
+    "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI",
+    "wyoming": "WY", "district of columbia": "DC", "puerto rico": "PR",
+}
+_STATE_CODES = set(_STATES.values())
+# Longest-first so "west virginia" is tried before "virginia" and "new york" before "york".
+_STATE_NAMES_RE = re.compile(
+    r"\b(" + "|".join(sorted((re.escape(n) for n in _STATES), key=len, reverse=True)) + r")\b")
+# Split on real separators only. Deliberately NOT on the words "or"/"and": "Portland, OR"
+# would lose Oregon to the delimiter.
+_LOC_SPLIT_RE = re.compile(r"\s*(?:,|/|\||;| - )\s*")
+# A token like "MA (Remote)", "CA United States" or "MN 55403" still leads with the code.
+_LEAD_CODE_RE = re.compile(r"([A-Za-z]{2})\b")
+# ...and some boards write the code last with no comma at all: "USA   Seattle WA".
+_TRAIL_CODE_RE = re.compile(r"\b([A-Z]{2})\s*$")
+# Washington DC must be tested BEFORE the state-name scan, or the bare word "Washington"
+# inside it resolves to WA.
+_DC_RE = re.compile(r"\bwashington,?\s*d\.?\s*c\.?|\bwashington\s+dc\b|\bdistrict of columbia\b", re.I)
+
+# City (or suburb) -> the metro a student actually thinks in. Only the high-volume ones;
+# anything unlisted just falls back to "<City>, ST" so the filter still works.
+_METROS = {
+    "Boston, MA": ("boston", "cambridge", "somerville", "waltham", "burlington", "quincy",
+                   "newton", "woburn", "lexington", "needham", "marlborough", "framingham"),
+    "New York, NY": ("new york", "manhattan", "brooklyn", "queens", "bronx", "new york city",
+                     "jersey city", "newark", "hoboken", "white plains", "long island city"),
+    "San Francisco Bay Area, CA": ("san francisco", "san jose", "palo alto", "mountain view",
+                                   "sunnyvale", "santa clara", "cupertino", "menlo park",
+                                   "oakland", "berkeley", "fremont", "redwood city", "milpitas",
+                                   "san mateo", "foster city", "emeryville", "campbell"),
+    "Seattle, WA": ("seattle", "bellevue", "redmond", "kirkland", "renton", "tukwila", "everett"),
+    "Los Angeles, CA": ("los angeles", "santa monica", "pasadena", "burbank", "el segundo",
+                        "culver city", "long beach", "irvine", "torrance", "glendale"),
+    "San Diego, CA": ("san diego", "carlsbad", "la jolla"),
+    "Austin, TX": ("austin", "round rock"),
+    "Dallas, TX": ("dallas", "plano", "irving", "fort worth", "richardson", "frisco", "arlington, tx"),
+    "Houston, TX": ("houston", "sugar land", "the woodlands"),
+    "Chicago, IL": ("chicago", "evanston", "naperville", "schaumburg", "deerfield"),
+    "Washington, DC": ("washington", "arlington", "alexandria", "bethesda", "reston", "mclean",
+                       "herndon", "tysons", "rockville", "silver spring", "vienna"),
+    "Atlanta, GA": ("atlanta", "alpharetta", "marietta", "sandy springs"),
+    "Denver, CO": ("denver", "boulder", "aurora", "broomfield", "englewood", "louisville, co"),
+    "Phoenix, AZ": ("phoenix", "tempe", "scottsdale", "chandler", "mesa", "gilbert"),
+    "Philadelphia, PA": ("philadelphia", "king of prussia", "malvern", "wayne, pa"),
+    "Minneapolis, MN": ("minneapolis", "saint paul", "st paul", "bloomington, mn", "eagan"),
+    "Portland, OR": ("portland", "beaverton", "hillsboro"),
+    "Raleigh-Durham, NC": ("raleigh", "durham", "cary", "chapel hill", "morrisville"),
+    "Charlotte, NC": ("charlotte",),
+    "Detroit, MI": ("detroit", "ann arbor", "dearborn", "troy, mi", "warren, mi", "auburn hills"),
+    "Miami, FL": ("miami", "fort lauderdale", "boca raton", "coral gables"),
+    "Orlando, FL": ("orlando", "lake mary"),
+    "Tampa, FL": ("tampa", "st petersburg", "saint petersburg"),
+    "Salt Lake City, UT": ("salt lake city", "lehi", "provo", "draper"),
+    "Nashville, TN": ("nashville", "franklin, tn", "brentwood, tn"),
+    "Pittsburgh, PA": ("pittsburgh",),
+    "Columbus, OH": ("columbus",),
+    "Cleveland, OH": ("cleveland",),
+    "Cincinnati, OH": ("cincinnati",),
+    "Indianapolis, IN": ("indianapolis",),
+    "Kansas City, MO": ("kansas city", "overland park"),
+    "St. Louis, MO": ("st louis", "saint louis"),
+    "Milwaukee, WI": ("milwaukee",),
+    "Madison, WI": ("madison",),
+    "Baltimore, MD": ("baltimore", "columbia, md", "hanover, md"),
+    "Richmond, VA": ("richmond",),
+    "Sacramento, CA": ("sacramento", "folsom", "roseville"),
+    "Las Vegas, NV": ("las vegas", "henderson"),
+    "San Antonio, TX": ("san antonio",),
+    "Boise, ID": ("boise", "meridian, id"),
+    "New Orleans, LA": ("new orleans",),
+    "Hartford, CT": ("hartford", "stamford", "shelton", "norwalk"),
+    "Buffalo, NY": ("buffalo", "rochester, ny", "syracuse"),
+}
+_CITY_TO_METRO = {city: metro for metro, cities in _METROS.items() for city in cities}
+
+# Metros that legitimately span state lines. Everything else is confined to the state in
+# its own label, which is what stops "Newark, DE" resolving to the New York metro (Newark,
+# NJ is in that list) and "Columbia, MD" / "Arlington, TX" landing in the wrong city.
+_METRO_EXTRA_STATES = {
+    "New York, NY": {"NJ", "CT", "PA"},
+    "Washington, DC": {"VA", "MD"},
+    "Philadelphia, PA": {"NJ", "DE"},
+    "Kansas City, MO": {"KS"},
+    "Portland, OR": {"WA"},
+    "Chicago, IL": {"IN", "WI"},
+    "St. Louis, MO": {"IL"},
+    "Charlotte, NC": {"SC"},
+    "Boston, MA": {"NH", "RI"},
+    "Cincinnati, OH": {"KY", "IN"},
+    "Memphis, TN": {"MS", "AR"},
+}
+_METRO_STATES = {
+    m: {m.rsplit(", ", 1)[-1]} | _METRO_EXTRA_STATES.get(m, set()) for m in _METROS
+}
+
+_REMOTE_POS_RE = re.compile(
+    r"\b(?:(?:fully|100%|entirely|permanently)\s+remote"
+    r"|remote[- ]first|remote[- ]friendly"
+    r"|work(?:ing)? from home|telecommut(?:e|ing)"
+    r"|remote (?:position|role|opportunity|job|work arrangement))\b", re.I)
+# "This is NOT a remote position" / "no telecommuting" must not read as remote.
+_REMOTE_NEG_RE = re.compile(r"\b(?:not|non|no|isn'?t|aren'?t|cannot|can'?t|without|neither)\b", re.I)
+
+_loc_cache = {}
+
+
+def _metro_for(tokens, state):
+    """Match the most specific city token to a metro. Tries '<city>, <st>' first so the
+    'Arlington' / 'Columbia' / 'Madison' collisions resolve correctly, and rejects any metro
+    that doesn't contain the state we resolved — otherwise 'Newark, DE' lands in New York."""
+    for t in tokens:
+        low = t.lower().strip()
+        if not low:
+            continue
+        if state:
+            m = _CITY_TO_METRO.get("%s, %s" % (low, state.lower()))
+            if m:
+                return m
+        m = _CITY_TO_METRO.get(low)
+        if m and (not state or state in _METRO_STATES.get(m, set())):
+            return m
+    return ""
+
+
+def parse_location(raw, jd=""):
+    """Normalize a job's free-text location into {city, state, metro, remote}.
+
+    The boards give us ~4,100 distinct spellings for a few hundred real places, so this
+    resolves what can be resolved and leaves the rest blank rather than guessing:
+      state  — a bare 2-letter code token wins, else a full state name anywhere in the string
+      metro  — a known city/suburb mapped to its metro, else '' (the state filter still works)
+      city   — the first token that isn't a state, country, or the word 'remote'
+      remote — 'remote' in the location, or an unambiguous remote phrase in the JD
+
+    Cached on (raw, whether the JD looks remote) since the same string repeats thousands
+    of times across the corpus.
+    """
+    raw = (raw or "").strip()
+    jd_remote = bool(jd) and _jd_says_remote(jd)
+    ck = (raw, jd_remote)
+    if ck in _loc_cache:
+        return _loc_cache[ck]
+
+    low = raw.lower()
+    out = {"city": "", "state": "", "metro": "", "remote": ("remote" in low) or jd_remote}
+
+    tokens = [t for t in _LOC_SPLIT_RE.split(raw) if t.strip()]
+    if _DC_RE.search(raw):
+        out["state"] = "DC"
+    # A 2-letter code is the most reliable signal, so look for one before place names.
+    if not out["state"]:
+        for t in tokens:
+            m = _LEAD_CODE_RE.match(t.strip())
+            if m and m.group(1).upper() in _STATE_CODES:
+                out["state"] = m.group(1).upper()
+                break
+    if not out["state"]:
+        m = _STATE_NAMES_RE.search(low)
+        if m:
+            out["state"] = _STATES[m.group(1)]
+    if not out["state"]:
+        m = _TRAIL_CODE_RE.search(raw)
+        if m and m.group(1) in _STATE_CODES:
+            out["state"] = m.group(1)
+
+    skip = {"us", "usa", "u s", "u s a", "united states", "united states of america",
+            "remote", "hybrid", "onsite", "on-site", "north america", "anywhere", "various",
+            "multiple locations", "flexible"}
+    for t in tokens:
+        c = t.strip()
+        cl = c.lower()
+        if not c or cl in skip or cl in _STATES:
+            continue
+        # Skip a token that IS the state ("MA", "MA (Remote)", "CA United States").
+        lead = _LEAD_CODE_RE.match(c)
+        if lead and lead.group(1).upper() in _STATE_CODES:
+            continue
+        out["city"] = c
+        break
+
+    out["metro"] = _metro_for(tokens, out["state"])
+    if not out["metro"] and out["city"] and out["state"]:
+        out["metro"] = "%s, %s" % (out["city"], out["state"])
+
+    _loc_cache[ck] = out
+    return out
+
+
+def _jd_says_remote(jd):
+    """True when the JD unambiguously offers remote work. Every candidate phrase is
+    rejected if a negation sits just before it, so 'this is not a remote position' —
+    which is common — doesn't flip the flag on."""
+    if not jd:
+        return False
+    for m in _REMOTE_POS_RE.finditer(jd[:20000]):
+        before = jd[max(0, m.start() - 45):m.start()]
+        if not _REMOTE_NEG_RE.search(before):
+            return True
+    return False
+
+
+# ------------------------------------------------------------
+# SALARY parsing — no board hands us a pay field we keep, but US pay-transparency laws
+# mean ~a third of JDs state a range in the text. Pull it out of the JD we already store.
+# ------------------------------------------------------------
+# A money amount we trust: comma-grouped ($120,000) or K-suffixed ($120K / $120.5k).
+_MONEY = r"\$\s?\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\$\s?\d{2,3}(?:\.\d)?\s?[kK]\b"
+_SALARY_RANGE_RE = re.compile(r"(" + _MONEY + r")\s*(?:-|–|—|to|and|through)\s*(" + _MONEY + r")", re.I)
+_HOURLY_RANGE_RE = re.compile(
+    r"\$\s?(\d{1,3}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?\s?(\d{1,3}(?:\.\d{1,2})?)"
+    r"\s*(?:per\s+hour|/\s?h(?:r|our)|an\s+hour|hourly)", re.I)
+_HOURLY_HINT_RE = re.compile(r"\b(?:per\s+hour|/\s?h(?:r|our)|an\s+hour|hourly)\b", re.I)
+
+# Plausibility gates. Below/above these a "$" figure is something else — a revenue
+# number, a signing bonus, a 401(k) cap, a tuition figure.
+_ANNUAL_MIN, _ANNUAL_MAX = 15000, 1000000
+_HOURLY_MIN, _HOURLY_MAX = 7, 500
+
+
+def _money_to_int(s):
+    """'$120,000' -> 120000 · '$120K' -> 120000 · '$120.5k' -> 120500."""
+    t = s.replace("$", "").replace(",", "").replace(" ", "").lower()
+    try:
+        if t.endswith("k"):
+            return int(round(float(t[:-1]) * 1000))
+        return int(round(float(t)))
+    except ValueError:
+        return 0
+
+
+def parse_salary(jd):
+    """Pull a pay range out of a job description.
+
+    Returns {"min": int|None, "max": int|None, "period": "year"|"hour"|""}. Annual ranges
+    are tried first and the first plausible one wins — JDs frequently mention other dollar
+    figures (equity, bonuses, revenue) after the pay range, never before it.
+    """
+    empty = {"min": None, "max": None, "period": ""}
+    if not jd:
+        return empty
+    head = jd[:40000]
+
+    for m in _SALARY_RANGE_RE.finditer(head):
+        lo, hi = _money_to_int(m.group(1)), _money_to_int(m.group(2))
+        if lo > hi:
+            lo, hi = hi, lo
+        if not (lo and hi):
+            continue
+        # A comma-grouped pair this small is an hourly rate written oddly, or not pay at all.
+        if _ANNUAL_MIN <= lo <= _ANNUAL_MAX and _ANNUAL_MIN <= hi <= _ANNUAL_MAX:
+            # "$45,000 - $55,000 per hour" never means per hour; trust the magnitude.
+            return {"min": lo, "max": hi, "period": "year"}
+
+    for m in _HOURLY_RANGE_RE.finditer(head):
+        try:
+            lo, hi = float(m.group(1)), float(m.group(2))
+        except ValueError:
+            continue
+        if lo > hi:
+            lo, hi = hi, lo
+        if _HOURLY_MIN <= lo <= _HOURLY_MAX and _HOURLY_MIN <= hi <= _HOURLY_MAX:
+            return {"min": int(round(lo)), "max": int(round(hi)), "period": "hour"}
+
+    return empty
+
+
+def salary_label(smin, smax, period):
+    """Card-ready text for a pay range: '$120k–$150k' or '$25–$35/hr'. '' when unknown."""
+    if not smin and not smax:
+        return ""
+    if period == "hour":
+        return "$%d–$%d/hr" % (smin, smax) if smax and smax != smin else "$%d/hr" % (smin or smax)
+
+    def k(v):
+        return "$%gk" % round(v / 1000.0, 1) if v < 1000000 else "$%.1fM" % (v / 1000000.0)
+    if smin and smax and smin != smax:
+        return "%s–%s" % (k(smin), k(smax))
+    return k(smin or smax)
+
+
+# ------------------------------------------------------------
 # Experience requirement parsing (to keep only entry-level roles)
 # ------------------------------------------------------------
 # A year mention: '5 years', '5+ years', '5-7 years', '5 to 7 years', '5 yrs'.

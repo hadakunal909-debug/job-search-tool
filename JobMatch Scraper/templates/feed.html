@@ -21,11 +21,26 @@
       <option value="score">Sort: Best match</option>
       <option value="newest">Sort: Newest</option>
     </select>
+    <input id="loc" list="locs" placeholder="City, metro or state" autocomplete="off"
+           title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
+    <datalist id="locs">
+      <option value="Remote">
+      {% for m in metros %}<option value="{{ m }}">{% endfor %}
+      {% for s in states %}<option value="{{ s }}">{% endfor %}
+    </datalist>
+    <select id="minsal" class="sel" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
+      <option value="">Any pay</option>
+      <option value="60000">$60k+</option>
+      <option value="80000">$80k+</option>
+      <option value="100000">$100k+</option>
+      <option value="130000">$130k+</option>
+    </select>
     <select id="date" class="sel" title="Posted within">
       <option value="any">Any time</option>
       <option value="1">Past 24 hours</option>
       <option value="7">Past 7 days</option>
-      <option value="30">Past 30 days</option>
+      <option value="30" selected>Past 30 days</option>
+      <option value="90">Past 90 days</option>
     </select>
     <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
       <option value="any">Any experience</option>
@@ -42,6 +57,12 @@
       <input type="checkbox" id="everifyonly"> E-Verify only</label>
     <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
       <input type="checkbox" id="hidenospon"> Hide no-sponsorship</label>
+    <label class="ck" title="Show only roles the posting says are remote or remote-friendly.">
+      <input type="checkbox" id="remoteonly"> Remote only</label>
+    <label class="ck" title="Staffing agencies and bench consultancies post placement roles rather than their own team's. Hidden by default; uncheck to see them.">
+      <input type="checkbox" id="hideagency" checked> Hide staffing agencies</label>
+    <label class="ck" title="Postings that have vanished from the company's own job board across several checks are hidden as probably filled. Saved and Applied jobs always stay visible.">
+      <input type="checkbox" id="showclosed"> Show closed postings</label>
   </div>
   <div class="tabs">
     <button class="tab on" data-tab="recommended">Recommended</button>

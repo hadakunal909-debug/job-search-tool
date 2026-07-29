@@ -18,6 +18,9 @@
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
       expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
       internSel = document.getElementById("intern"),
+      locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
+      minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
+      showClosed = document.getElementById("showclosed"),
       tabBtns = document.querySelectorAll(".tab");
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
@@ -126,10 +129,18 @@
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
     else if (j.sponsor_jd === 'open')
       badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
+    if (j.salary_label)
+      badges += '<span class="pay" title="Pay range stated in the job description">' +
+        H(j.salary_label) + '</span>';
+    if (j.remote)
+      badges += '<span class="rem" title="Remote or remote-friendly per the posting">Remote</span>';
+    if (j.closed)
+      badges += '<span class="closed" title="This posting has disappeared from the company\'s job board across several checks, so it is probably filled or expired.">Closed</span>';
     var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '"' +
       (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>' : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
-    return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
+    return '<article class="card' + (j.closed ? ' is-closed' : '') + '" data-url="' + H(j.url) +
+      '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
           '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
@@ -155,6 +166,19 @@
     if (!dateSel || dateSel.value === "any") return "";
     var d = new Date(); d.setDate(d.getDate() - parseInt(dateSel.value, 10)); return d.toISOString().slice(0, 10);
   }
+  var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
+  function annualize(amount, period) {
+    var n = parseInt(amount, 10) || 0;
+    return period === "hour" ? n * HOURS_PER_YEAR : n;
+  }
+  // Mirror of web.py _loc_hit(): metro, state code, or the raw string.
+  function locHit(j, needle) {
+    if (!needle) return true;
+    if (needle === "remote") return !!j.remote;
+    if (needle.length === 2) return needle.toUpperCase() === (j.loc_state || "").toUpperCase();
+    return ((j.loc_metro || "") + " " + (j.loc_state || "") + " " + (j.location || ""))
+      .toLowerCase().indexOf(needle) !== -1;
+  }
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
@@ -164,11 +188,25 @@
     // An active SEARCH bypasses the match filter: if you typed "deloitte" you want to
     // SEE Deloitte's jobs, not have them hidden because they score 40%.
     else ok = (st !== "hidden") && (searching || ignoreMin || sc >= minVal);
+    // Search covers LOCATION too — "boston" and "remote" are things people type in here.
     if (ok && searching)
-      ok = ((j.title || "") + " " + (j.company || "")).toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
+      ok = ((j.title || "") + " " + (j.company || "") + " " + (j.location || ""))
+        .toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = j.date || ""; if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
     if (ok && everifyOnly && everifyOnly.checked && !j.everify) ok = false;
+    if (ok && locInp && locInp.value.trim()) ok = locHit(j, locInp.value.trim().toLowerCase());
+    if (ok && remoteOnly && remoteOnly.checked && !j.remote) ok = false;
+    if (ok && minSalSel && minSalSel.value) {
+      // Requires a STATED range — mirrors web.py _filter_rows(). Only ~a third of
+      // descriptions state pay, so this narrows the list a lot; the tooltip says so.
+      var want = parseInt(minSalSel.value, 10) || 0;
+      if (!j.salary_min || annualize(j.salary_min, j.salary_period) < want) ok = false;
+    }
+    if (ok && hideAgency && hideAgency.checked && j.agency) ok = false;
+    // Closed rows stay visible in Saved/Applied so tracker history never breaks.
+    if (ok && j.closed && !(showClosed && showClosed.checked) &&
+        tab !== "liked" && tab !== "applied") ok = false;
     if (ok && internSel && internSel.value === "only" && !j.intern) ok = false;
     if (ok && internSel && internSel.value === "no" && j.intern) ok = false;
     // Experience filter: a job whose JD states no year count (exp_years "") is ALWAYS kept.
@@ -228,6 +266,11 @@
     if (everifyOnly && everifyOnly.checked) ps.push("everify=1");
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
+    if (locInp && locInp.value.trim()) ps.push("loc=" + encodeURIComponent(locInp.value.trim()));
+    if (remoteOnly && remoteOnly.checked) ps.push("remote=1");
+    if (minSalSel && minSalSel.value) ps.push("minsal=" + encodeURIComponent(minSalSel.value));
+    if (hideAgency && hideAgency.checked) ps.push("hideagency=1");
+    if (showClosed && showClosed.checked) ps.push("showclosed=1");
     return ps.join("&");
   }
   function renderServer(reset) {
@@ -294,6 +337,12 @@
   if (internSel) internSel.addEventListener("change", function () { render(true); });
   if (everifyOnly) everifyOnly.addEventListener("change", function () { render(true); });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
+  // Location is free text, so debounce it like the search box rather than firing per keystroke.
+  if (locInp) locInp.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
+  if (remoteOnly) remoteOnly.addEventListener("change", function () { render(true); });
+  if (minSalSel) minSalSel.addEventListener("change", function () { render(true); });
+  if (hideAgency) hideAgency.addEventListener("change", function () { render(true); });
+  if (showClosed) showClosed.addEventListener("change", function () { render(true); });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
   // feed clicks: action buttons, Apply auto-log, or open modal

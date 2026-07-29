@@ -2867,30 +2867,35 @@ def append_jobs(rows, path=OUTPUT_CSV):
 # ORCHESTRATOR  — the scraper itself
 # ============================================================
 
-def scrape_all(sources, workers=8, progress=None):
+def scrape_all(sources, workers=8, progress=None, board_results=None):
     """Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes
     a few minutes, not ~30. One bad source never stops the run. `progress(done, total,
-    found)` is called after each board finishes (used to drive the in-page progress bar)."""
+    found)` is called after each board finishes (used to drive the in-page progress bar).
+
+    Pass `board_results` (a list) to also collect per-board outcomes as dicts
+    {entry, ok, urls} — reconcile_closed() needs to know which board a URL came from and
+    whether that board's fetch actually succeeded.
+    """
     def _one(entry):
         url, ats_type, company = entry
         fn = SCRAPERS.get(ats_type)
         if fn is None:
-            return company, None, "unknown ats_type '%s'" % ats_type
+            return entry, company, None, "unknown ats_type '%s'" % ats_type
         try:
             time.sleep(random.uniform(0, 1.0))          # small stagger so we don't burst one API
             rows = fn(url)
             for r in rows:
                 r.setdefault("company", company)        # keep a per-row company if the scraper set
                                                          # one (aggregator search spans many firms)
-            return company, rows, None
+            return entry, company, rows, None
         except Exception as e:
-            return company, None, str(e)
+            return entry, company, None, str(e)
 
     all_jobs = []
     total = len(sources) if hasattr(sources, "__len__") else 0
     done = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        for company, rows, err in ex.map(_one, sources):     # results come back in source order
+        for entry, company, rows, err in ex.map(_one, sources):  # results come back in source order
             done += 1
             if err is not None:
                 print(f"  FAIL {company:<26} {err}")
@@ -2899,12 +2904,154 @@ def scrape_all(sources, workers=8, progress=None):
             else:
                 all_jobs.extend(rows)
                 print(f"  OK   {company:<26} {len(rows):>3} postings")
+            if board_results is not None:
+                board_results.append({
+                    "entry": entry, "company": company, "ok": rows is not None,
+                    "urls": {r.get("url") for r in (rows or []) if r.get("url")}})
             if progress:
                 try:
                     progress(done, total, len(all_jobs))
                 except Exception:
                     pass
     return all_jobs
+
+
+# ============================================================
+# CLOSED-POSTING DETECTION
+# Boards hand us their COMPLETE current listing every run, so a stored job that stops
+# appearing has almost certainly been filled or pulled. Nothing detected that before, so a
+# dead posting sat in the feed forever — applying to those is the most expensive way to
+# waste the one thing a job-seeker can't get back.
+#
+# Rows are MARKED (is_active=false), never deleted, so Saved/Applied history survives.
+# ============================================================
+# Absent from this many consecutive successful fetches of its OWN board before we call it
+# closed. The scrape runs 3x/day, so this is a few hours of corroboration, not one blip.
+CLOSED_AFTER_MISSES = 3
+# A board must return at least this many postings, and at least this fraction of what we
+# already have under its URL prefix, before we trust its listing enough to close anything.
+RECONCILE_MIN_ROWS = 3
+RECONCILE_MIN_RATIO = 0.5
+# Search aggregators return a QUERY's results, not a board's full inventory — absence from
+# one run means nothing, so they can never close a row.
+RECONCILE_SKIP_ATS = {"adzuna"}
+
+
+def _url_prefix(urls):
+    """Longest common '/'-delimited prefix of a board's URLs — the namespace that board owns.
+
+    This is what makes per-board scoping correct on shared hosts: every Greenhouse customer
+    lives on boards.greenhouse.io, so matching by host alone would let Stripe's board close
+    Flexport's jobs. The prefix comes out as boards.greenhouse.io/flexport instead.
+    """
+    parts = None
+    for u in urls:
+        segs = re.sub(r"^[a-z]+://", "", (u or ""), flags=re.I).split("/")
+        if parts is None:
+            parts = segs
+            continue
+        keep = []
+        for a, b in zip(parts, segs):
+            if a != b:
+                break
+            keep.append(a)
+        parts = keep
+        if not parts:
+            return ""
+    return "/".join(parts or [])
+
+
+def _norm_url(u):
+    return re.sub(r"^[a-z]+://", "", (u or ""), flags=re.I)
+
+
+def reconcile_closed(board_results, apply=False):
+    """Mark jobs that have vanished from their own board as closed. Returns (closed, considered).
+
+    `apply=False` reports what it WOULD do and writes nothing — always run that first on a
+    new board set, because the failure mode (a bot-walled board returning an empty list)
+    would otherwise retire its entire inventory in one pass.
+    """
+    try:
+        rows = db.load_jobs(include_jd=False)
+    except Exception as e:
+        print("  (closed-posting check skipped, could not load jobs: %s)" % str(e)[:90])
+        return 0, 0
+
+    by_url = {r.get("url"): r for r in rows if r.get("url")}
+    today = datetime.date.today().isoformat()
+    seen_now, to_close, considered = {}, [], 0
+
+    for br in board_results:
+        if not br.get("ok"):
+            continue                                   # a failed fetch proves nothing
+        ats = (br["entry"][1] or "").lower()
+        if ats in RECONCILE_SKIP_ATS:
+            continue
+        urls = {_norm_url(u) for u in br["urls"]}
+        if len(urls) < RECONCILE_MIN_ROWS:
+            continue
+        prefix = _url_prefix(br["urls"])
+        if not prefix or "/" not in prefix:
+            # Too broad to scope safely (a bare host would span every company on it).
+            continue
+
+        mine = [r for r in rows if _norm_url(r.get("url")).startswith(prefix)]
+        if not mine:
+            continue
+        # A board that suddenly returns a fraction of what we have is having a bad day
+        # (rate-limited, bot-walled, partial page) — don't let it retire the rest.
+        if len(urls) < RECONCILE_MIN_RATIO * len(mine):
+            print("  ~ %-26s returned %d vs %d stored — too few to trust, skipping"
+                  % (br["company"][:26], len(urls), len(mine)))
+            continue
+
+        considered += len(mine)
+        for r in mine:
+            u = r.get("url")
+            if _norm_url(u) in urls:
+                seen_now[u] = r
+                continue
+            if _truthy_false(r.get("is_active")):
+                continue                               # already retired; leave it alone
+            misses = int(r.get("miss_count") or 0) + 1
+            if misses >= CLOSED_AFTER_MISSES:
+                to_close.append({"url": u, "is_active": False, "miss_count": misses})
+            else:
+                to_close.append({"url": u, "miss_count": misses})
+
+    fresh = [{"url": u, "last_seen": today, "miss_count": 0, "is_active": True}
+             for u, r in seen_now.items()
+             if (r.get("last_seen") or "")[:10] != today or int(r.get("miss_count") or 0)]
+    newly_closed = [d for d in to_close if d.get("is_active") is False]
+
+    print("  closed-posting check: %d row(s) under healthy boards · %d still listed · "
+          "%d newly closed · %d missing but under the %d-miss threshold"
+          % (considered, len(seen_now), len(newly_closed),
+             len(to_close) - len(newly_closed), CLOSED_AFTER_MISSES))
+    if not apply:
+        print("  DRY RUN — nothing written. Set RECONCILE_CLOSED=1 to apply.")
+        for d in newly_closed[:10]:
+            r = by_url.get(d["url"]) or {}
+            print("     would close: %-40s %s" % ((r.get("company") or "?")[:40], d["url"][:70]))
+        return 0, considered
+
+    try:
+        if fresh:
+            db.update_job_fields(fresh)
+        if to_close:
+            db.update_job_fields(to_close)
+    except Exception as e:
+        print("  (closed-posting write failed: %s)" % str(e)[:140])
+        print("  If that mentions an unknown column, run db.JOBS_DERIVED_SQL once in Supabase.")
+        return 0, considered
+    return len(newly_closed), considered
+
+
+def _truthy_false(v):
+    """True when the stored value already means 'not active' — avoids rewriting rows we
+    already retired on an earlier run."""
+    return v is False or str(v).strip().lower() in ("false", "f", "0")
 
 
 def main():
@@ -2945,7 +3092,8 @@ def main():
             db.set_scrape_status({"phase": phase, "done": done, "total": total,
                                   "found": found, "started_at": started, "run": stamp})
     _progress(0, len(sources), 0, force=True)
-    scraped = scrape_all(sources, progress=_progress)
+    board_results = []          # per-board outcome, for the closed-posting check below
+    scraped = scrape_all(sources, progress=_progress, board_results=board_results)
     _progress(len(sources), len(sources), len(scraped), phase="saving", force=True)
 
     kept = []
@@ -2991,6 +3139,18 @@ def main():
         pruned = db.prune_old_jobs(prune_days)
         if pruned:
             print(f"Pruned {pruned} stale job(s) older than {prune_days} days (kept flagged ones).")
+
+    # Retire postings that have vanished from their own board. DRY RUN unless
+    # RECONCILE_CLOSED=1 — the damage case (a bot-walled board returning nothing) is bad
+    # enough that the first run on any new board set should be inspected, not trusted.
+    if os.environ.get("RECONCILE_CLOSED", "dry").lower() not in ("0", "off", "no"):
+        try:
+            closed, considered = reconcile_closed(
+                board_results, apply=os.environ.get("RECONCILE_CLOSED", "").strip() == "1")
+            if closed:
+                print(f"Marked {closed} posting(s) closed (rows kept; Saved/Applied unaffected).")
+        except Exception as e:
+            print("  (closed-posting check errored, scrape unaffected: %s)" % str(e)[:120])
 
     dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
     print(f"\nScanned {len(scraped)} postings ({dropped or 'nothing dropped'}).")

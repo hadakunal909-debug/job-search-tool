@@ -19,6 +19,7 @@ import hashlib
 import secrets
 import datetime
 import functools
+import collections
 
 import gzip as _gzip
 
@@ -388,7 +389,29 @@ def _build_row(j, score):
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
     # rather than sitting at a fake ~100% on top of the feed.
     pending = bool((meta.get("analyzed") or {}).get("thin"))
-    return {"title": j.get("title", ""), "company": c, "location": j.get("location", ""),
+    # Location: prefer the columns score_jobs derived (it had the JD, so its `remote` is
+    # better informed), but fall back to parsing the raw string here so the "where" filter
+    # works even before db.JOBS_DERIVED_SQL has been run. parse_location is memoized over
+    # the ~4,100 distinct spellings, so this costs nothing per row.
+    lstate, lmetro = j.get("loc_state") or "", j.get("loc_metro") or ""
+    lremote = j.get("remote")
+    if not (lstate or lmetro):
+        p = core.parse_location(j.get("location") or "")
+        lstate, lmetro = p["state"], p["metro"]
+        if lremote is None:
+            lremote = p["remote"]
+    # Salary comes from the columns only. It can't be parsed here as a fallback the way
+    # location is: get_jobs() selects without `jd` on purpose (~20 MB of description text),
+    # so pay appears once db.JOBS_DERIVED_SQL is applied and score_jobs has run once.
+    smin, smax = j.get("salary_min") or None, j.get("salary_max") or None
+    speriod = j.get("salary_period") or ""
+    active = j.get("is_active")
+    # `or ""` not .get(k, "") throughout: a NULL column comes back as None, not a missing key.
+    return {"title": j.get("title") or "", "company": c, "location": j.get("location") or "",
+            "loc_state": lstate, "loc_metro": lmetro, "remote": bool(lremote),
+            "salary_min": smin, "salary_max": smax, "salary_period": speriod,
+            "salary_label": core.salary_label(smin, smax, speriod),
+            "closed": active is False or str(active).lower() == "false",
             "url": u, "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
             "sponsors_h1b": j.get("sponsors_h1b", ""),
             # date = the real posting date (verify_dates) when we have it, else found_date.
@@ -405,6 +428,69 @@ def _build_row(j, score):
             "initial": c[:1].upper() if c else "?"}
 
 
+_AGGREGATOR_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
+_HOST_RE = re.compile(r"^[a-z]+://([^/?#]+)", re.I)
+
+
+def _dupe_key(r):
+    """Identity of a POSTING rather than of a URL: title + company + full location.
+
+    Location is the RAW string, not just the state. Using the state collapsed 4,770 rows in
+    this corpus, but almost all of them were real, distinct openings — Amazon genuinely lists
+    431 "Operations Manager" roles and Walmart 144 store-level pharmacy internships. Those are
+    inventory, not duplicates.
+    """
+    t = re.sub(r"[^a-z0-9]+", " ", (r.get("title") or "").lower()).strip()
+    c = re.sub(r"[^a-z0-9]+", " ", (r.get("company") or "").lower()).strip()
+    if not (t and c):
+        return None
+    loc = re.sub(r"[^a-z0-9]+", " ", (r.get("location") or "").lower()).strip()
+    return (t, c, loc)
+
+
+def _host(r):
+    m = _HOST_RE.match(r.get("url") or "")
+    return (m.group(1) if m else "").lower()
+
+
+def _dupe_rank(r):
+    """Preference among duplicates, lowest wins: the employer's own posting over an
+    aggregator's copy, a verified posting date over a derived one, then a real score."""
+    aggregator = any(h in _host(r) for h in _AGGREGATOR_HOSTS)
+    return (1 if aggregator else 0,
+            0 if r.get("date_verified") else 1,
+            0 if r.get("score") else 1,
+            -(r.get("score") or 0))
+
+
+def _dedupe_rows(rows):
+    """Collapse the SAME posting reaching us from two different hosts, keeping the better copy.
+
+    Only groups spanning more than one host are collapsed. Within a single host, two rows that
+    look alike are two separate openings with different job ids, and merging them would delete
+    real jobs from the feed. In practice this is a small, precise fix — the duplicates it finds
+    are Greenhouse serving one posting as both boards.greenhouse.io and job-boards.greenhouse.io.
+
+    Render-time only: nothing is deleted, so it's reversible and can't lose a posting.
+    """
+    groups = {}
+    singles = []
+    for r in rows:
+        k = _dupe_key(r)
+        if k is None:                        # missing title or company: never merge blindly
+            singles.append(r)
+        else:
+            groups.setdefault(k, []).append(r)
+
+    out = singles
+    for grp in groups.values():
+        if len(grp) > 1 and len({_host(x) for x in grp}) > 1:
+            out.append(min(grp, key=_dupe_rank))
+        else:
+            out.extend(grp)
+    return out
+
+
 def ranked_rows(username, resume):
     """The FULL corpus as card rows, sorted by this user's match score (desc), cached per
     (user, profile). Reuses user_scores; the master ordering for both the inline top-N and the
@@ -415,6 +501,7 @@ def ranked_rows(username, resume):
         return _rows_cache[key]
     scores = user_scores(username, resume)
     rows = [_build_row(j, scores.get(j.get("url"), 0)) for j in get_jobs() if j.get("url")]
+    rows = _dedupe_rows(rows)
     rows.sort(key=lambda r: r["score"], reverse=True)
     if len(_rows_cache) >= _SCORE_CACHE_MAX:
         _rows_cache.pop(next(iter(_rows_cache)), None)
@@ -432,6 +519,46 @@ def _date_cutoff(date_param):
         return ""
 
 
+def _feed_metros(rows, limit=40):
+    """Metros present in the corpus, busiest first — the location box's suggestions.
+    Only offering places that actually have jobs keeps the user out of dead ends."""
+    ct = collections.Counter(r.get("loc_metro") for r in rows if r.get("loc_metro"))
+    return [m for m, _ in ct.most_common(limit)]
+
+
+def _feed_states(rows):
+    """State codes present in the corpus, alphabetical (they're suggestions, not a ranking)."""
+    return sorted({r.get("loc_state") for r in rows if r.get("loc_state")})
+
+
+_HOURS_PER_YEAR = 2080          # 40 h/wk × 52 — the usual full-time convention
+
+
+def _annualize(amount, period):
+    """Compare hourly and salaried pay on one scale so a single Min-salary control works."""
+    try:
+        n = int(amount or 0)
+    except (TypeError, ValueError):
+        return 0
+    return n * _HOURS_PER_YEAR if period == "hour" else n
+
+
+def _loc_hit(r, needle):
+    """Does this row match a typed location? Checks the metro, the state code and the raw
+    string, so "boston", "ma" and "cambridge" all land. Mirrored in app.js locHit()."""
+    if not needle:
+        return True
+    if needle == "remote":
+        return bool(r.get("remote"))
+    hay = ((r.get("loc_metro") or "") + " " + (r.get("loc_state") or "") + " " +
+           (r.get("location") or "")).lower()
+    # A 2-letter needle is a state code — match it as a whole token so "ma" doesn't
+    # match "Miami" or "Omaha".
+    if len(needle) == 2:
+        return needle.upper() == (r.get("loc_state") or "").upper()
+    return needle in hay
+
+
 def _filter_rows(rows, statuses, p):
     """Server-side mirror of app.js matches() + sort: filter the ranked rows by the feed
     controls and return a list of (row, status) in display order. `p` is the query args."""
@@ -447,6 +574,14 @@ def _filter_rows(rows, statuses, p):
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
+    loc = (p.get("loc") or "").strip().lower()
+    remote_only = (p.get("remote") or "") in ("1", "true", "yes", "on")
+    hide_agency = (p.get("hideagency") or "") in ("1", "true", "yes", "on")
+    show_closed = (p.get("showclosed") or "") in ("1", "true", "yes", "on")
+    try:
+        minsal = int(p.get("minsal") or 0)
+    except Exception:
+        minsal = 0
     out = []
     for r in rows:
         st = statuses.get(r["url"], "")
@@ -458,13 +593,31 @@ def _filter_rows(rows, statuses, p):
                 continue
             if not (searching or r["score"] >= minv):   # search bypasses the match floor
                 continue
-        if searching and q not in (r["title"] + " " + r["company"]).lower():
+        # Search covers LOCATION too — "boston" and "remote" are things people type here.
+        if searching and q not in (r["title"] + " " + r["company"] + " " +
+                                   (r.get("location") or "")).lower():
             continue
         if cut and r["date"] and r["date"] < cut:
             continue
         if hide_no and r["sponsor_jd"] == "blocked":
             continue
         if everify_only and not r["everify"]:
+            continue
+        if loc and not _loc_hit(r, loc):
+            continue
+        if remote_only and not r.get("remote"):
+            continue
+        if minsal:
+            # Requires a STATED range, like every other job board: keeping unknown-pay rows
+            # made the control look broken (the count never moved, because only ~a third of
+            # descriptions state pay). The tooltip warns that this narrows the list a lot.
+            sm = r.get("salary_min")
+            if not sm or _annualize(sm, r.get("salary_period")) < minsal:
+                continue
+        if hide_agency and r.get("agency"):
+            continue
+        # Closed rows stay visible in the saved/applied tabs so tracker history never breaks.
+        if not show_closed and r.get("closed") and tab not in ("liked", "applied"):
             continue
         if intern == "only" and not r.get("intern"):
             continue
@@ -651,16 +804,22 @@ def feed():
     default_min = 45 if resume else 0
     paged = total > _FEED_INLINE_MAX
     inline = rows[:_FEED_TOPN] if paged else rows
-    # default ("Recommended") count so the header + Load-more are right without a first fetch
-    if paged:
-        default_total = sum(1 for r in rows
-                            if statuses.get(r["url"], "") != "hidden" and r["score"] >= default_min)
-    else:
-        default_total = total
+    # Default ("Recommended") count so the header + Load-more are right without a first fetch.
+    # Must apply the SAME defaults the toolbar ships with — 30-day window, agencies hidden,
+    # closed hidden — or the "N of M" on first paint disagrees with what the user sees.
+    cut30 = _date_cutoff("30")
+    default_total = sum(
+        1 for r in rows
+        if statuses.get(r["url"], "") != "hidden"
+        and r["score"] >= default_min
+        and not (r["date"] and r["date"] < cut30)
+        and not r.get("agency")
+        and not r.get("closed"))
     feed_rows = [dict(r, status=statuses.get(r["url"], "")) for r in inline]   # overlay status (copy)
     return render_template("feed.html", feed_rows=feed_rows, has_resume=bool(resume),
                            total=total, default_total=default_total, counts=counts,
-                           default_min=default_min, paged=paged, scraping=False)
+                           default_min=default_min, paged=paged, scraping=False,
+                           metros=_feed_metros(rows), states=_feed_states(rows))
 
 
 @app.route("/api/feed")
