@@ -22,7 +22,8 @@ import ipaddress
 import concurrent.futures
 import re
 import datetime
-from urllib.parse import urljoin, urlparse, parse_qs, unquote
+from urllib.parse import (urljoin, urlparse, parse_qs, unquote,
+                          urlsplit, urlunsplit, parse_qsl, urlencode)
 
 # Windows terminals default to cp1252 and crash when printing characters that some job
 # titles contain (em dashes, non-breaking hyphens, accents). Force UTF-8 stdout so a
@@ -776,6 +777,69 @@ def is_http_url(url):
         return urlparse(url or "").scheme.lower() in ("http", "https")
     except Exception:
         return False
+
+
+# Analytics params. These say where a click came FROM, never WHICH posting it points at,
+# so two URLs differing only in these are the same job.
+_TRACKING_PARAMS = frozenset((
+    "gh_src", "utm_source", "utm_medium", "utm_campaign",
+    "utm_term", "utm_content", "utm_id", "utm_ref",
+))
+
+# Greenhouse serves every board under two interchangeable hostnames, and the API's
+# absolute_url has flipped between them over time — so one posting arrives as
+# boards.greenhouse.io/<co>/jobs/<id>?gh_jid=<id> on an old run and as
+# job-boards.greenhouse.io/<co>/jobs/<id> on a later one, landing twice in `jobs`
+# (which is keyed on url alone).
+_GH_HOSTS = frozenset(("boards.greenhouse.io", "job-boards.greenhouse.io"))
+
+
+def canonical_url(url):
+    """One posting -> one URL string, so the url-keyed `jobs` table can't hold it twice.
+
+    DELIBERATELY conservative: merging two genuinely different postings is far worse than
+    keeping a duplicate, so this only drops what provably cannot identify a posting. Two
+    rules that look obvious were measured against the live corpus and REJECTED:
+
+      * stripping gh_jid everywhere — on company-hosted Greenhouse boards it is the ONLY
+        identifier (stripe.com/jobs/search?gh_jid=7061338), and dropping it collapsed 64
+        distinct Stripe postings into one. It is removed only on a greenhouse.io host
+        whose path already ends in that same id, where it is pure duplication.
+      * dropping the #fragment — JobDiva's portal is hash-routed, so
+        www1.jobdiva.com/portal/?a=<token>#/jobs/<id> tells 424 postings apart by
+        fragment alone.
+
+    The query string is rebuilt only when a param is actually dropped, so re-encoding
+    can never silently rewrite a URL we meant to leave alone. Non-http(s) or unparseable
+    input comes back unchanged."""
+    if not url:
+        return url
+    try:
+        s = urlsplit(url.strip())
+        if s.scheme.lower() not in ("http", "https"):
+            return url                       # is_http_url() rejects these before storage
+        host = (s.hostname or "").lower()
+        if not host or ":" in host:
+            return url                       # no host, or an IPv6 literal — urlsplit drops
+                                             # the [brackets] and we'd rebuild it malformed
+        if s.port:
+            host = "%s:%d" % (host, s.port)
+        path, query = s.path, s.query
+        pairs = parse_qsl(query, keep_blank_values=True)
+        keep = pairs
+        if host in _GH_HOSTS:
+            host = "job-boards.greenhouse.io"
+            job_id = path.rstrip("/").rsplit("/", 1)[-1]
+            keep = [(k, v) for k, v in keep
+                    if not (k.lower() == "gh_jid" and v == job_id)]
+        keep = [(k, v) for k, v in keep if k.lower() not in _TRACKING_PARAMS]
+        if len(keep) != len(pairs):
+            query = urlencode(keep)
+        if len(path) > 1:
+            path = path.rstrip("/") or "/"
+        return urlunsplit(("https", host, path, query, s.fragment))
+    except Exception:
+        return url                           # a URL we can't parse is left exactly as-is
 
 
 def _ip_is_public(addr):
@@ -2930,7 +2994,9 @@ def main():
     else:
         print("No %s found — using the base role filter only." % RESUME_FILE)
 
-    seen = db.existing_urls()
+    # Canonicalize BOTH sides of the dedupe: stored rows predate normalization (and hold
+    # e.g. the old boards.greenhouse.io form), so comparing raw would re-insert them.
+    seen = {canonical_url(u) for u in db.existing_urls()}
     sources = SOURCES + custom_sources()
     if len(sources) > len(SOURCES):
         print("+ %d board(s) added via the app." % (len(sources) - len(SOURCES)))
@@ -2952,6 +3018,7 @@ def main():
     tally = {"already known": 0, "senior/off-target title": 0,
              "no matching role keyword": 0, "non-US location": 0}
     for j in scraped:
+        j["url"] = canonical_url(j.get("url", ""))
         if j["url"] in seen:
             tally["already known"] += 1
             continue                       # already in jobs.csv from a past run
@@ -2974,6 +3041,8 @@ def main():
         else:
             j["sponsors_h1b"] = "unknown"
         j.setdefault("found_date", stamp)        # keep the JD's posting date if set
+        seen.add(j["url"])                       # two boards in ONE run can serve the same
+                                                 # posting (e.g. both Greenhouse hosts)
         kept.append({k: j.get(k, "") for k in FIELDNAMES})
 
     try:            # persist this run's new jobs to disk FIRST so a DB hiccup can't lose the scrape
