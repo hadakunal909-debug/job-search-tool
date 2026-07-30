@@ -19,6 +19,7 @@ import hashlib
 import secrets
 import datetime
 import functools
+import collections
 
 import gzip as _gzip
 
@@ -388,7 +389,29 @@ def _build_row(j, score):
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
     # rather than sitting at a fake ~100% on top of the feed.
     pending = bool((meta.get("analyzed") or {}).get("thin"))
-    return {"title": j.get("title", ""), "company": c, "location": j.get("location", ""),
+    # Location: prefer the columns score_jobs derived (it had the JD, so its `remote` is
+    # better informed), but fall back to parsing the raw string here so the "where" filter
+    # works even before db.JOBS_DERIVED_SQL has been run. parse_location is memoized over
+    # the ~4,100 distinct spellings, so this costs nothing per row.
+    lstate, lmetro = j.get("loc_state") or "", j.get("loc_metro") or ""
+    lremote = j.get("remote")
+    if not (lstate or lmetro):
+        p = core.parse_location(j.get("location") or "")
+        lstate, lmetro = p["state"], p["metro"]
+        if lremote is None:
+            lremote = p["remote"]
+    # Salary comes from the columns only. It can't be parsed here as a fallback the way
+    # location is: get_jobs() selects without `jd` on purpose (~20 MB of description text),
+    # so pay appears once db.JOBS_DERIVED_SQL is applied and score_jobs has run once.
+    smin, smax = j.get("salary_min") or None, j.get("salary_max") or None
+    speriod = j.get("salary_period") or ""
+    active = j.get("is_active")
+    # `or ""` not .get(k, "") throughout: a NULL column comes back as None, not a missing key.
+    return {"title": j.get("title") or "", "company": c, "location": j.get("location") or "",
+            "loc_state": lstate, "loc_metro": lmetro, "remote": bool(lremote),
+            "salary_min": smin, "salary_max": smax, "salary_period": speriod,
+            "salary_label": core.salary_label(smin, smax, speriod),
+            "closed": active is False or str(active).lower() == "false",
             "url": u, "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
             "sponsors_h1b": j.get("sponsors_h1b", ""),
             # date = the real posting date (verify_dates) when we have it, else found_date.
@@ -405,6 +428,69 @@ def _build_row(j, score):
             "initial": c[:1].upper() if c else "?"}
 
 
+_AGGREGATOR_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
+_HOST_RE = re.compile(r"^[a-z]+://([^/?#]+)", re.I)
+
+
+def _dupe_key(r):
+    """Identity of a POSTING rather than of a URL: title + company + full location.
+
+    Location is the RAW string, not just the state. Using the state collapsed 4,770 rows in
+    this corpus, but almost all of them were real, distinct openings — Amazon genuinely lists
+    431 "Operations Manager" roles and Walmart 144 store-level pharmacy internships. Those are
+    inventory, not duplicates.
+    """
+    t = re.sub(r"[^a-z0-9]+", " ", (r.get("title") or "").lower()).strip()
+    c = re.sub(r"[^a-z0-9]+", " ", (r.get("company") or "").lower()).strip()
+    if not (t and c):
+        return None
+    loc = re.sub(r"[^a-z0-9]+", " ", (r.get("location") or "").lower()).strip()
+    return (t, c, loc)
+
+
+def _host(r):
+    m = _HOST_RE.match(r.get("url") or "")
+    return (m.group(1) if m else "").lower()
+
+
+def _dupe_rank(r):
+    """Preference among duplicates, lowest wins: the employer's own posting over an
+    aggregator's copy, a verified posting date over a derived one, then a real score."""
+    aggregator = any(h in _host(r) for h in _AGGREGATOR_HOSTS)
+    return (1 if aggregator else 0,
+            0 if r.get("date_verified") else 1,
+            0 if r.get("score") else 1,
+            -(r.get("score") or 0))
+
+
+def _dedupe_rows(rows):
+    """Collapse the SAME posting reaching us from two different hosts, keeping the better copy.
+
+    Only groups spanning more than one host are collapsed. Within a single host, two rows that
+    look alike are two separate openings with different job ids, and merging them would delete
+    real jobs from the feed. In practice this is a small, precise fix — the duplicates it finds
+    are Greenhouse serving one posting as both boards.greenhouse.io and job-boards.greenhouse.io.
+
+    Render-time only: nothing is deleted, so it's reversible and can't lose a posting.
+    """
+    groups = {}
+    singles = []
+    for r in rows:
+        k = _dupe_key(r)
+        if k is None:                        # missing title or company: never merge blindly
+            singles.append(r)
+        else:
+            groups.setdefault(k, []).append(r)
+
+    out = singles
+    for grp in groups.values():
+        if len(grp) > 1 and len({_host(x) for x in grp}) > 1:
+            out.append(min(grp, key=_dupe_rank))
+        else:
+            out.extend(grp)
+    return out
+
+
 def ranked_rows(username, resume):
     """The FULL corpus as card rows, sorted by this user's match score (desc), cached per
     (user, profile). Reuses user_scores; the master ordering for both the inline top-N and the
@@ -415,6 +501,7 @@ def ranked_rows(username, resume):
         return _rows_cache[key]
     scores = user_scores(username, resume)
     rows = [_build_row(j, scores.get(j.get("url"), 0)) for j in get_jobs() if j.get("url")]
+    rows = _dedupe_rows(rows)
     rows.sort(key=lambda r: r["score"], reverse=True)
     if len(_rows_cache) >= _SCORE_CACHE_MAX:
         _rows_cache.pop(next(iter(_rows_cache)), None)
@@ -432,6 +519,67 @@ def _date_cutoff(date_param):
         return ""
 
 
+def _user_prefs(user):
+    """The user's saved search, always a complete valid dict (defaults if never saved or if
+    the search_prefs column hasn't been migrated yet)."""
+    try:
+        return core.normalize_prefs((db.get_profile(user) or {}).get("search_prefs"))
+    except Exception:
+        return dict(core.DEFAULT_PREFS)
+
+
+def _prefs_as_params(prefs):
+    """Saved prefs -> the same query-arg shape _filter_rows reads, so one code path decides
+    what matches whether the filters came from the URL or from the user's saved search."""
+    return {
+        "tab": "recommended", "min": str(prefs.get("min", 0)),
+        "date": prefs.get("date") or "any", "exp": prefs.get("exp") or "any",
+        "intern": prefs.get("intern") or "any", "loc": prefs.get("loc") or "",
+        "minsal": str(prefs.get("minsal") or 0), "sort": prefs.get("sort") or "score",
+        "remote": "1" if prefs.get("remote") else "",
+        "hideagency": "1" if prefs.get("hideagency") else "",
+        "everify": "1" if prefs.get("everify") else "",
+        "hidenospon": "1" if prefs.get("hidenospon") else "",
+    }
+
+
+def _visa_badge_context(prof, timeline):
+    """Two booleans app.js uses to word the E-Verify / cap-exempt badges for THIS viewer.
+
+    Empty dict when the user hasn't entered any dates, which leaves the badges reciting the
+    general rule — the correct default, since we shouldn't imply we know someone's situation.
+    """
+    if not timeline.get("has_data"):
+        return {}
+    return {
+        # Still on post-completion OPT with a STEM window ahead: E-Verify actually matters now.
+        "stemPending": any(i["key"] == "stem_window" for i in timeline["items"]),
+        # Needs sponsorship and isn't cap-exempt-bound: the March lottery is a real dependency.
+        "needsLottery": str(prof.get("requires_sponsorship_future")
+                            or prof.get("needs_sponsorship") or "").strip().lower()
+        in ("yes", "true", "1"),
+    }
+
+
+def _feed_metros(rows, limit=40):
+    """Metros present in the corpus, busiest first — the location box's suggestions.
+    Only offering places that actually have jobs keeps the user out of dead ends."""
+    ct = collections.Counter(r.get("loc_metro") for r in rows if r.get("loc_metro"))
+    return [m for m, _ in ct.most_common(limit)]
+
+
+def _feed_states(rows):
+    """State codes present in the corpus, alphabetical (they're suggestions, not a ranking)."""
+    return sorted({r.get("loc_state") for r in rows if r.get("loc_state")})
+
+
+# Pay scaling and location matching live in core so the feed, the digest and app.js can't
+# drift apart on what "$100k+" or "boston" means. app.js mirrors both in JS.
+_HOURS_PER_YEAR = core.HOURS_PER_YEAR
+_annualize = core.annualize_pay
+_loc_hit = core.location_matches
+
+
 def _filter_rows(rows, statuses, p):
     """Server-side mirror of app.js matches() + sort: filter the ranked rows by the feed
     controls and return a list of (row, status) in display order. `p` is the query args."""
@@ -447,6 +595,14 @@ def _filter_rows(rows, statuses, p):
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
+    loc = (p.get("loc") or "").strip().lower()
+    remote_only = (p.get("remote") or "") in ("1", "true", "yes", "on")
+    hide_agency = (p.get("hideagency") or "") in ("1", "true", "yes", "on")
+    show_closed = (p.get("showclosed") or "") in ("1", "true", "yes", "on")
+    try:
+        minsal = int(p.get("minsal") or 0)
+    except Exception:
+        minsal = 0
     out = []
     for r in rows:
         st = statuses.get(r["url"], "")
@@ -458,13 +614,31 @@ def _filter_rows(rows, statuses, p):
                 continue
             if not (searching or r["score"] >= minv):   # search bypasses the match floor
                 continue
-        if searching and q not in (r["title"] + " " + r["company"]).lower():
+        # Search covers LOCATION too — "boston" and "remote" are things people type here.
+        if searching and q not in (r["title"] + " " + r["company"] + " " +
+                                   (r.get("location") or "")).lower():
             continue
         if cut and r["date"] and r["date"] < cut:
             continue
         if hide_no and r["sponsor_jd"] == "blocked":
             continue
         if everify_only and not r["everify"]:
+            continue
+        if loc and not _loc_hit(r, loc):
+            continue
+        if remote_only and not r.get("remote"):
+            continue
+        if minsal:
+            # Requires a STATED range, like every other job board: keeping unknown-pay rows
+            # made the control look broken (the count never moved, because only ~a third of
+            # descriptions state pay). The tooltip warns that this narrows the list a lot.
+            sm = r.get("salary_min")
+            if not sm or _annualize(sm, r.get("salary_period")) < minsal:
+                continue
+        if hide_agency and r.get("agency"):
+            continue
+        # Closed rows stay visible in the saved/applied tabs so tracker history never breaks.
+        if not show_closed and r.get("closed") and tab not in ("liked", "applied"):
             continue
         if intern == "only" and not r.get("intern"):
             continue
@@ -648,19 +822,49 @@ def feed():
         if stv in counts:
             counts[stv] += 1
     total = len(rows)
-    default_min = 45 if resume else 0
+    # The user's saved search seeds the controls, so ten filters stop resetting every visit.
+    # No résumé means no meaningful score, so the match floor drops to 0 regardless.
+    prefs = _user_prefs(user)
+    if not resume:
+        prefs = dict(prefs, min=0)
+    default_min = prefs["min"]
     paged = total > _FEED_INLINE_MAX
     inline = rows[:_FEED_TOPN] if paged else rows
-    # default ("Recommended") count so the header + Load-more are right without a first fetch
-    if paged:
-        default_total = sum(1 for r in rows
-                            if statuses.get(r["url"], "") != "hidden" and r["score"] >= default_min)
-    else:
-        default_total = total
+    # Default ("Recommended") count so the header + Load-more are right without a first fetch.
+    # Must apply the SAME filters the toolbar ships with, now that those come from prefs, or
+    # the "N of M" on first paint disagrees with what the user actually sees.
+    default_total = len(_filter_rows(rows, statuses, _prefs_as_params(prefs)))
     feed_rows = [dict(r, status=statuses.get(r["url"], "")) for r in inline]   # overlay status (copy)
+    # Work-authorization nudge. visa_alert returns None unless something is actually close, so
+    # a user with no dates entered — or with months of runway — sees nothing at all.
+    try:
+        vprof = db.get_profile(user) or {}
+        vtl = core.visa_timeline(vprof)
+        visa = core.visa_alert(vtl)
+        visa_ctx = _visa_badge_context(vprof, vtl)
+    except Exception:
+        visa, visa_ctx = None, {}
     return render_template("feed.html", feed_rows=feed_rows, has_resume=bool(resume),
                            total=total, default_total=default_total, counts=counts,
-                           default_min=default_min, paged=paged, scraping=False)
+                           default_min=default_min, paged=paged, scraping=False,
+                           metros=_feed_metros(rows), states=_feed_states(rows),
+                           visa=visa, visa_ctx=visa_ctx, prefs=prefs)
+
+
+@app.route("/prefs", methods=["POST"])
+@login_required
+def save_prefs():
+    """Save the current toolbar state as this user's default search — which also decides what
+    goes into their email digest, so there is only one definition of "my search"."""
+    from flask import jsonify
+    user = session["user"]
+    body = request.get_json(silent=True) or request.form.to_dict() or {}
+    prefs = core.normalize_prefs(dict(_user_prefs(user), **body))
+    ok, msg = db.save_profile(user, {"search_prefs": prefs})
+    if not ok:
+        return jsonify({"ok": False, "error": msg[:200]}), 200
+    _rows_cache.clear()          # the first-paint count is derived from prefs
+    return jsonify({"ok": True, "prefs": prefs, "note": msg})
 
 
 @app.route("/api/feed")
@@ -1499,6 +1703,8 @@ def profile():
             "address_line1", "address_line2", "city", "state", "postal_code", "country",
             "github", "portfolio", "website",
             "work_auth_status", "requires_sponsorship_now", "requires_sponsorship_future",
+            "program_end_date", "opt_type", "opt_start_date", "opt_end_date",
+            "stem_eligible", "unemployment_days_used",
             "gender", "race_ethnicity", "hispanic_latino", "veteran_status", "disability_status",
             "desired_salary", "salary_currency", "available_start_date",
             "willing_to_relocate", "how_did_you_hear",
@@ -1508,6 +1714,12 @@ def profile():
             raw = (f.get(jk) or "").strip()
             if raw:
                 payload[jk] = raw                       # save_profile validates/parses
+        # The two alert settings live INSIDE search_prefs (they're part of "my search", and the
+        # digest reads one object), so merge them into the saved prefs rather than adding columns.
+        if "alerts" in f or "alert_min" in f:
+            payload["search_prefs"] = core.normalize_prefs(dict(
+                _user_prefs(user),
+                alerts=f.get("alerts", ""), alert_min=f.get("alert_min", "") or 0))
         ok, msg = db.save_profile(user, payload)
         flash("Saved." if ok else ("Couldn't save — " + msg[:120]))
         return redirect(url_for("profile"))
@@ -1515,7 +1727,9 @@ def profile():
         prof = db.get_profile(user) or {}
     except Exception:
         prof = {}
-    return render_template("profile.html", prof=prof, token=_ext_token(user))
+    return render_template("profile.html", prof=prof, token=_ext_token(user),
+                           timeline=core.visa_timeline(prof),
+                           prefs=core.normalize_prefs(prof.get("search_prefs")))
 
 
 @app.route("/api/ext/save", methods=["POST", "OPTIONS"])
