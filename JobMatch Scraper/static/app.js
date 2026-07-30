@@ -298,19 +298,6 @@
     return ((j.loc_metro || "") + " " + (j.loc_state || "") + " " + (j.location || ""))
       .toLowerCase().indexOf(needle) !== -1;
   }
-  var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
-  function annualize(amount, period) {
-    var n = parseInt(amount, 10) || 0;
-    return period === "hour" ? n * HOURS_PER_YEAR : n;
-  }
-  // Mirror of web.py _loc_hit(): metro, state code, or the raw string.
-  function locHit(j, needle) {
-    if (!needle) return true;
-    if (needle === "remote") return !!j.remote;
-    if (needle.length === 2) return needle.toUpperCase() === (j.loc_state || "").toUpperCase();
-    return ((j.loc_metro || "") + " " + (j.loc_state || "") + " " + (j.location || ""))
-      .toLowerCase().indexOf(needle) !== -1;
-  }
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
