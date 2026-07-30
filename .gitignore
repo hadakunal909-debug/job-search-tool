@@ -10,3 +10,6 @@ __pycache__/
 
 # Large reproducible data deliverables (not source) — e.g. the USCIS H-1B data hub export.
 USCIS H-1B Data Hub/
+
+# Deploy bundles built for cPanel uploads — reproducible from the tree, not source.
+*_deploy.zip
