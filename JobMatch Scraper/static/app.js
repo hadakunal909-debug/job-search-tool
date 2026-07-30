@@ -20,7 +20,7 @@
       internSel = document.getElementById("intern"),
       locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
       minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
-      showClosed = document.getElementById("showclosed"),
+      showClosed = document.getElementById("showclosed"), groupedEl = document.getElementById("grouped"),
       tabBtns = document.querySelectorAll(".tab");
   // The viewer's own work-authorization situation, so the E-Verify / cap-exempt badges can say
   // what they mean FOR THEM rather than reciting a general rule. Absent = generic wording.
@@ -33,6 +33,15 @@
   // empty and everything stays client-side (instant) exactly as before.
   var PAGED = feed.getAttribute("data-paged") === "1";
   var shown = 0, _seq = 0, _deb;
+  // Feed grouping — see the "feed grouping" block in web.py. Both numbers come from the server
+  // so one env var (FEED_GROUP_LEAD) moves the client and the server together; 0 disables it.
+  var GROUP_LEAD = parseInt(feed.getAttribute("data-group-lead"), 10);
+  if (isNaN(GROUP_LEAD)) GROUP_LEAD = 0;
+  var GROUP_MIN = GROUP_LEAD + 2;
+  // Which groups the user has opened, and how many of their hidden rows are revealed:
+  // {groupKey: count}. Only the non-paged path reads it (it re-renders wholesale); the paged
+  // path inserts the extra cards into the DOM instead. Cleared whenever the filters change.
+  var expanded = Object.create(null);
 
   // textContent escape (safe in element text)
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
@@ -105,7 +114,9 @@
   }
 
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
-  function cardHTML(j) {
+  // `xg` (optional) tags the card as one revealed by expanding that group's "+N more" tile,
+  // so collapsing the tile again knows exactly which cards to take back out.
+  function cardHTML(j, xg) {
     var st = j.status || "";
     // "New" mirrors the card's own date label: show it iff the displayed date renders as "Today".
     // relTime() is the same fn that renders .posted, so the badge and the date can never disagree,
@@ -155,8 +166,9 @@
     var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '"' +
       (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>' : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
-    return '<article class="card' + (j.closed ? ' is-closed' : '') + '" data-url="' + H(j.url) +
-      '" data-status="' + H(st) + '">' + newFlag +
+    var cls = "card" + (j.closed ? " is-closed" : "") + (xg ? " in-group" : "");
+    return '<article class="' + cls + '"' + (xg ? ' data-xg="' + H(xg) + '"' : '') +
+      ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
           '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
@@ -178,6 +190,90 @@
     '</article>';
   }
 
+  // ---- feed grouping (mirror of the "feed grouping" block in web.py) ----
+  // Mirror of web.py _group_key(): "" means never group this row.
+  function groupKey(j) {
+    var t = (j.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    var c = (j.company || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!t || !c) return "";
+    return c + "|" + t;
+  }
+  // Mirror of web.py _pick_leaders(): best row, then the best one in a different state.
+  function pickLeaders(mem, lead) {
+    if (mem.length <= lead) return mem.slice();
+    var picked = [], seen = Object.create(null), i, s;
+    for (i = 0; i < mem.length; i++) {
+      s = (mem[i].loc_state || "").toUpperCase();
+      if (!seen[s]) { seen[s] = 1; picked.push(i); if (picked.length === lead) break; }
+    }
+    for (i = 0; i < mem.length && picked.length < lead; i++)
+      if (picked.indexOf(i) === -1) picked.push(i);
+    picked.sort(function (a, b) { return a - b; });
+    var out = [];
+    for (i = 0; i < picked.length; i++) out.push(mem[picked[i]]);
+    return out;
+  }
+  // Mirror of web.py _group_units(). A unit is {row, key, more, rest}. `key` and `more` are set
+  // on exactly one unit per collapsed group — its LAST leader, the one the tile hangs off — and
+  // are empty/0 everywhere else, so "has a key" and "renders a tile" mean the same thing on both
+  // sides of the wire. `rest` is the hidden rows, which the non-paged path reveals without a
+  // round-trip (the paged path fetches them from /api/group instead).
+  function groupUnits(list) {
+    var order = [], groups = Object.create(null), i, k;
+    for (i = 0; i < list.length; i++) {
+      k = groupKey(list[i]);
+      if (!k) { order.push({ row: list[i], key: "", more: 0, rest: [] }); continue; }
+      if (!groups[k]) { groups[k] = []; order.push({ key: k }); }
+      groups[k].push(list[i]);
+    }
+    var out = [];
+    for (i = 0; i < order.length; i++) {
+      if (!order[i].key) { out.push(order[i]); continue; }
+      var mem = groups[order[i].key];
+      var m;
+      if (mem.length < GROUP_MIN) {              // too short to be noise — show every card
+        for (m = 0; m < mem.length; m++) out.push({ row: mem[m], key: "", more: 0, rest: [] });
+        continue;
+      }
+      var leaders = pickLeaders(mem, GROUP_LEAD), lset = Object.create(null);
+      for (m = 0; m < leaders.length; m++) lset[leaders[m].url] = 1;
+      var rest = [];
+      for (m = 0; m < mem.length; m++) if (!lset[mem[m].url]) rest.push(mem[m]);
+      for (m = 0; m < leaders.length; m++) {
+        var last = m === leaders.length - 1;
+        out.push({ row: leaders[m], key: last ? order[i].key : "", rest: rest,
+                   more: last ? rest.length : 0 });
+      }
+    }
+    return out;
+  }
+  function flatUnits(list) {
+    var out = [];
+    for (var i = 0; i < list.length; i++) out.push({ row: list[i], key: "", more: 0, rest: [] });
+    return out;
+  }
+  // Mirror of web.py _grouping_on(): Recommended only — never collapse the user's own shortlists.
+  function groupingOn() { return GROUP_LEAD > 0 && tab !== "liked" && tab !== "applied" && tab !== "hidden"; }
+
+  // The "+N more at <company>" tile. Sits in the grid right after its group's leader cards and
+  // carries its own state: data-more = how many rows it stands for, data-shown = how many of
+  // those are currently revealed below it.
+  function groupTileHTML(row, key, more, shownN) {
+    var left = more - (shownN || 0);
+    var label = left > 0 ? "+" + left + " more at " + row.company : "Show less";
+    return '<div class="grpmore" data-gk="' + H(key) + '" data-more="' + more +
+        '" data-shown="' + (shownN || 0) + '" data-company="' + H(row.company) + '">' +
+      '<div class="grpsub">' + esc(row.title) + '</div>' +
+      '<button type="button" class="grpbtn">' + esc(label) + '</button>' +
+      '<div class="grpnote">' + esc(row.company + " lists this role " + (more + GROUP_LEAD) +
+        " times in your current results — collapsed so one employer can't fill the feed.") + '</div>' +
+    '</div>';
+  }
+  function setGroupedNote(jobs, cards) {
+    if (!groupedEl) return;
+    groupedEl.textContent = (cards && cards < jobs) ? " · grouped into " + cards + " cards" : "";
+  }
+
   function dateCutoff() {
     if (!dateSel || dateSel.value === "any") return "";
     var d = new Date();
@@ -188,6 +284,19 @@
     // as a 424-vs-410 split. Matters more now that "Past 30 days" is the default.
     var mm = d.getMonth() + 1, dd = d.getDate();
     return d.getFullYear() + "-" + (mm < 10 ? "0" : "") + mm + "-" + (dd < 10 ? "0" : "") + dd;
+  }
+  var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
+  function annualize(amount, period) {
+    var n = parseInt(amount, 10) || 0;
+    return period === "hour" ? n * HOURS_PER_YEAR : n;
+  }
+  // Mirror of web.py _loc_hit(): metro, state code, or the raw string.
+  function locHit(j, needle) {
+    if (!needle) return true;
+    if (needle === "remote") return !!j.remote;
+    if (needle.length === 2) return needle.toUpperCase() === (j.loc_state || "").toUpperCase();
+    return ((j.loc_metro || "") + " " + (j.loc_state || "") + " " + (j.location || ""))
+      .toLowerCase().indexOf(needle) !== -1;
   }
   var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
   function annualize(amount, period) {
@@ -246,22 +355,33 @@
     return ok;
   }
   function renderLocal(reset) {
-    if (reset) limit = PAGE;
+    if (reset) { limit = PAGE; expanded = Object.create(null); }
     var cut = dateCutoff(), matched = [];
     for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
     matched.sort(function (a, b) {
       if (sortBy === "newest") return (b.date || "").localeCompare(a.date || "");
       return (b.score || 0) - (a.score || 0);
     });
-    var slice = matched.slice(0, limit), html = "";
-    for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
+    // `limit` paginates DISPLAY UNITS, so a collapsed group costs one slot rather than 431.
+    // Rows revealed by an open tile are extra: they're inside their group, not on the page's tail.
+    var units = groupingOn() ? groupUnits(matched) : flatUnits(matched);
+    var slice = units.slice(0, limit), html = "";
+    for (var k = 0; k < slice.length; k++) {
+      var u = slice[k];
+      html += cardHTML(u.row);
+      if (!u.more) continue;
+      var xn = Math.min(expanded[u.key] || 0, u.rest.length);
+      for (var x = 0; x < xn; x++) html += cardHTML(u.rest[x], u.key);
+      html += groupTileHTML(u.row, u.key, u.more, xn);
+    }
     feed.innerHTML = html;
     formatDates(); wireLogos();
-    if (countEl) countEl.textContent = matched.length;
+    if (countEl) countEl.textContent = matched.length;          // JOBS matched, not cards drawn
+    setGroupedNote(matched.length, units.length);
     if (emptyEl) emptyEl.style.display = matched.length ? "none" : "";
     if (moreBtn) {
-      moreBtn.style.display = (matched.length > limit) ? "" : "none";
-      if (matched.length > limit) moreBtn.textContent = "Load more (" + (matched.length - limit) + " more)";
+      moreBtn.style.display = (units.length > limit) ? "" : "none";
+      if (units.length > limit) moreBtn.textContent = "Load more (" + (units.length - limit) + " more)";
     }
   }
 
@@ -280,9 +400,11 @@
   // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.
   function render(reset) { markFilters(); if (PAGED) renderServer(reset); else renderLocal(reset); }
 
-  function buildParams(offset) {
+  // Every filter control as query params, with NO paging — /api/group reuses this so an
+  // expansion is scoped to exactly the results the tile was summarising.
+  function filterParams() {
     var ps = ["tab=" + encodeURIComponent(tab), "min=" + (minVal || 0),
-              "sort=" + encodeURIComponent(sortBy), "offset=" + offset, "limit=" + PAGE];
+              "sort=" + encodeURIComponent(sortBy)];
     if (q && q.value.trim()) ps.push("q=" + encodeURIComponent(q.value.trim()));
     if (dateSel && dateSel.value !== "any") ps.push("date=" + encodeURIComponent(dateSel.value));
     if (expSel && expSel.value !== "any") ps.push("exp=" + encodeURIComponent(expSel.value));
@@ -296,21 +418,78 @@
     if (showClosed && showClosed.checked) ps.push("showclosed=1");
     return ps.join("&");
   }
+  function buildParams(offset) {
+    return filterParams() + "&offset=" + offset + "&limit=" + PAGE;
+  }
   function renderServer(reset) {
-    if (reset) { shown = 0; feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
+    if (reset) { shown = 0; expanded = Object.create(null); feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
     var mySeq = ++_seq;                                   // ignore out-of-order responses
     fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) { return r.json(); }).then(function (d) {
       if (mySeq !== _seq) return;
       var rows = (d && d.rows) || [], htmlc = "";
       for (var i = 0; i < rows.length; i++) byUrl[rows[i].url] = rows[i];
-      for (var k = 0; k < rows.length; k++) htmlc += cardHTML(rows[k]);
+      for (var k = 0; k < rows.length; k++) {
+        htmlc += cardHTML(rows[k]);
+        if (rows[k].group_more)
+          htmlc += groupTileHTML(rows[k], rows[k].group_key, rows[k].group_more, 0);
+      }
       if (reset) feed.innerHTML = htmlc; else feed.insertAdjacentHTML("beforeend", htmlc);
+      // `rows` is a page of DISPLAY UNITS, so `shown` counts units and lines up with `d.units`.
       shown += rows.length;
       formatDates(); wireLogos();
-      if (countEl) countEl.textContent = (d && d.total) || 0;
-      if (emptyEl) emptyEl.style.display = (d && d.total) ? "none" : "";
-      if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + ((d.total - shown)) + " more)"; }
+      var jobs = (d && d.total) || 0, units = (d && d.units) || 0;
+      if (countEl) countEl.textContent = jobs;             // JOBS matched, not cards drawn
+      setGroupedNote(jobs, units);
+      if (emptyEl) emptyEl.style.display = jobs ? "none" : "";
+      if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + (units - shown) + " more)"; }
     }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">Couldn\'t load jobs — try again.</div>'; });
+  }
+
+  // ---- expanding / collapsing a "+N more at <company>" tile ----
+  // Non-paged: record how many rows are open and re-render (every row is already local).
+  // Paged: fetch the group's next slice from /api/group and splice the cards in just above the
+  // tile, so the rest of the feed and its paging are untouched.
+  function expandGroup(tile) {
+    var gk = tile.getAttribute("data-gk"), have = parseInt(tile.getAttribute("data-shown"), 10) || 0;
+    var total = parseInt(tile.getAttribute("data-more"), 10) || 0;
+    if (!PAGED) { expanded[gk] = have + PAGE; renderLocal(false); return; }
+    var btn = tile.querySelector(".grpbtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+    fetch("/api/group?gk=" + encodeURIComponent(gk) + "&offset=" + have + "&limit=" + PAGE +
+          "&" + filterParams())
+      .then(function (r) { return r.json(); }).then(function (d) {
+        // The user may have changed a filter mid-flight, which re-rendered the feed and threw
+        // this tile away. Inserting relative to a detached node throws, so just drop the page.
+        if (!tile.parentNode) return;
+        var rows = (d && d.rows) || [], html = "";
+        for (var i = 0; i < rows.length; i++) { byUrl[rows[i].url] = rows[i]; html += cardHTML(rows[i], gk); }
+        tile.insertAdjacentHTML("beforebegin", html);
+        formatDates(); wireLogos();
+        setTileState(tile, have + rows.length, total);
+        if (btn) btn.disabled = false;
+      }).catch(function () {
+        if (!tile.parentNode) return;
+        if (btn) { btn.disabled = false; }
+        setTileState(tile, have, total);
+        toast("Couldn't load the rest — try again.");
+      });
+  }
+  function collapseGroup(tile) {
+    var gk = tile.getAttribute("data-gk"), total = parseInt(tile.getAttribute("data-more"), 10) || 0;
+    if (!PAGED) { delete expanded[gk]; renderLocal(false); return; }
+    var xs = feed.querySelectorAll(".card[data-xg]");
+    for (var i = 0; i < xs.length; i++)
+      if (xs[i].getAttribute("data-xg") === gk && xs[i].parentNode) xs[i].parentNode.removeChild(xs[i]);
+    setTileState(tile, 0, total);
+  }
+  // The tile's label IS its state: "+N more" while rows remain, "Show less" once they're all out.
+  function setTileState(tile, shownN, total) {
+    tile.setAttribute("data-shown", shownN);
+    var btn = tile.querySelector(".grpbtn");
+    if (!btn) return;
+    var left = total - shownN;
+    btn.textContent = left > 0 ? "+" + left + " more at " + (tile.getAttribute("data-company") || "this employer")
+                               : "Show less";
   }
   function debouncedRender() { if (_deb) clearTimeout(_deb); _deb = setTimeout(function () { render(true); }, 250); }
   function cardEl(url) { var cs = feed.querySelectorAll(".card"); for (var i = 0; i < cs.length; i++) if (cs[i].getAttribute("data-url") === url) return cs[i]; return null; }
@@ -319,7 +498,9 @@
   function afterAction(j) {
     if (!PAGED) { render(false); return; }
     var el = cardEl(j.url);
-    if (matches(j, dateCutoff())) { if (el) el.outerHTML = cardHTML(j); }
+    // Keep the data-xg marker: a re-rendered card that came from an expanded group must still be
+    // one, or "Show less" would leave it stranded in the grid.
+    if (matches(j, dateCutoff())) { if (el) el.outerHTML = cardHTML(j, el.getAttribute("data-xg")); }
     else if (el) { if (el.parentNode) el.parentNode.removeChild(el); if (countEl) { var n = parseInt(countEl.textContent, 10); if (!isNaN(n) && n > 0) countEl.textContent = n - 1; } }
   }
 
@@ -396,8 +577,18 @@
   });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
-  // feed clicks: action buttons, Apply auto-log, or open modal
+  // feed clicks: group tile, action buttons, Apply auto-log, or open modal
   feed.addEventListener("click", function (e) {
+    // Checked first: the tile is not a .card, so it must not fall through to the detail modal.
+    var gb = e.target.closest ? e.target.closest(".grpbtn") : null;
+    if (gb) {
+      e.preventDefault();
+      var tile = gb.closest(".grpmore"); if (!tile) return;
+      var have = parseInt(tile.getAttribute("data-shown"), 10) || 0;
+      var tot = parseInt(tile.getAttribute("data-more"), 10) || 0;
+      if (have >= tot) collapseGroup(tile); else expandGroup(tile);
+      return;
+    }
     var btn = e.target.closest ? e.target.closest("button[data-act]") : null;
     if (btn) {
       e.preventDefault();

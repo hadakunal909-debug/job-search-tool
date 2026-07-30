@@ -206,6 +206,16 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .ico:hover{background:var(--surface2);color:var(--ink)}
 .ico:active{opacity:.7}
 .ico:disabled{opacity:.4}
+/* "+N more at <company>" — one employer's run of near-identical postings, collapsed. It's a grid
+   cell like a card (so the grid stays even) but dashed and quiet, so it reads as an affordance
+   rather than as a job. Cards revealed by opening it get a left accent tying them to the group. */
+.grpmore{background:var(--surface2);border:1px dashed var(--line-strong);border-radius:var(--r-lg);padding:16px 17px;display:flex;flex-direction:column;justify-content:center;gap:8px;text-align:center;min-height:118px}
+.grpsub{font-size:12.5px;font-weight:600;color:var(--muted);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.grpbtn{background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);font-size:13.5px;font-weight:650;padding:8px 14px;border-radius:9px;cursor:pointer;transition:border-color .18s,background .18s}
+.grpbtn:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink)}
+.grpbtn:disabled{opacity:.55;cursor:default}
+.grpnote{font-size:11.5px;color:var(--muted);line-height:1.45}
+.card.in-group{border-left:3px solid var(--brand-soft)}
 .empty{background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-lg);padding:44px 26px;text-align:center;color:var(--muted);grid-column:1/-1}
 .empty h3{color:var(--ink);margin:0 0 6px}
 .empty .btn{margin-top:14px}
