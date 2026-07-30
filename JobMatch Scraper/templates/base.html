@@ -11,7 +11,7 @@
   <style>a.who{color:inherit;text-decoration:none;font-weight:600;cursor:pointer}a.who:hover{text-decoration:underline}</style>
   <script nonce="{{ csp_nonce }}">try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 {% if current_user %}
 <header class="topbar">
   <a class="brand" href="{{ url_for('feed') }}">
@@ -20,6 +20,7 @@
   {% set ep = request.endpoint or '' %}
   <nav>
     <a href="{{ url_for('feed') }}" class="{{ 'active' if ep == 'feed' }}">Jobs</a>
+    <a href="{{ url_for('swipe') }}" class="{{ 'active' if ep == 'swipe' }}">Swipe</a>
     <a href="{{ url_for('applications') }}" class="{{ 'active' if ep == 'applications' }}">Applications</a>
     <a href="{{ url_for('brain_home') }}" class="{{ 'active' if ep.startswith('brain') }}">Resume Brain</a>
     <a href="{{ url_for('careers') }}" class="{{ 'active' if ep == 'careers' }}">Sponsors</a>

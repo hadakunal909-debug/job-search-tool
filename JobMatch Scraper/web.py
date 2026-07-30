@@ -739,6 +739,37 @@ def api_action():
         return {"ok": False, "error": str(e)}, 500
 
 
+# ----------------------------- swipe deck (Tinder-style) -----------------------------
+@app.route("/swipe")
+@login_required
+def swipe():
+    """Tinder-style swipe deck. The card queue is fetched client-side from /api/feed (works at any
+    corpus size), so this route just renders the shell + warms the per-user scoring cache."""
+    resume = current_profile()                     # warm the ranked_rows cache, same as feed()
+    return render_template("swipe.html", has_resume=bool(resume),
+                           default_min=45 if resume else 0)
+
+
+@app.route("/api/swipe/tailor", methods=["POST"])
+@login_required
+def api_swipe_tailor():
+    """In-app (cookie-auth) tailor for the swipe deck: build a tailored résumé for one job and
+    return {ok, file:{name,mime,b64}, ...}. Reuses the cached _build_tailored pipeline, so a
+    re-swipe of the same job is instant. Body: {url, company?, force?}."""
+    from flask import jsonify
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "error": "no url"}, 400
+    payload = _build_tailored(session["user"], job_url=url,
+                              company=(data.get("company") or ""),
+                              force=bool(data.get("force")))
+    if not payload.get("ok"):
+        code = 400 if "No résumé" in (payload.get("error") or "") else 500
+        return jsonify(payload), code
+    return jsonify(payload)
+
+
 @app.route("/reload")
 @login_required
 def reload_jobs():
@@ -1642,28 +1673,23 @@ def ext_profile_fields():
     return _cors(jsonify({"ok": True, "resume": resume, "learned": learned, **_ext_profile_fields(user)}))
 
 
-@app.route("/api/ext/tailor", methods=["POST", "OPTIONS"])
-def ext_tailor():
-    """Extension -> tailor the résumé to a JD (Resume Brain + optional Gemini), compile it to a
-    PDF via LaTeX/Tectonic, and return the file (base64) + the profile field map for autofill.
-    Cached per (user, job, format, résumé-corpus) so retriggers are instant. Token-authenticated."""
-    from flask import jsonify
+def _build_tailored(user, job_url="", company="", company_url="", jd_text="", fmt="pdf", force=False):
+    """Tailor the user's résumé to a JD (Resume Brain plan + optional AI rewrite), compile it to a
+    PDF via LaTeX/Tectonic, and return a payload dict:
+        {ok, file:{name,mime,b64}, tailored_resume, cover_letter, ai_used, compiled, cached,
+         notes, fields, defaults, default_resume}
+    Cached per (user, job, format, résumé-corpus, profile) so retriggers are instant. Shared by the
+    extension (/api/ext/tailor) and the in-app swipe deck (/api/swipe/tailor). Never raises: on
+    failure it returns {ok: False, error}, and the file build degrades pdf -> docx -> txt.
+    With no AI key it falls back to the best-matching base résumé (ai_used=False)."""
     import base64, hashlib, re
-    if request.method == "OPTIONS":
-        return _cors(app.make_response(("", 204)))
-    data = request.get_json(silent=True) or {}
-    user = _ext_user(data.get("token", ""))
-    if not user:
-        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
-
-    job_url = (data.get("job_url") or "").strip()
-    company = (data.get("company") or "").strip()
-    company_url = (data.get("company_url") or "").strip()
-    fmt = (data.get("format") or "pdf").strip().lower()
+    job_url = (job_url or "").strip()
+    company = (company or "").strip()
+    company_url = (company_url or "").strip()
+    fmt = (fmt or "pdf").strip().lower()
     if fmt not in ("pdf", "docx", "text"):
         fmt = "pdf"
-    force = bool(data.get("force"))
-    jd = (data.get("jd_text") or "").strip() or (db.get_job_jd(job_url) or "")
+    jd = (jd_text or "").strip() or (db.get_job_jd(job_url) or "")
 
     raw = {}
     try:
@@ -1684,15 +1710,15 @@ def ext_tailor():
     if not force:
         cached = db.get_tailored(cache_key)
         if cached:
-            cached = dict(cached); cached["cached"] = True
-            return _cors(jsonify({"ok": True, **cached}))
+            cached = dict(cached); cached["cached"] = True; cached["ok"] = True
+            return cached
 
-    # Deterministic plan (cheap); Gemini rewrite (expensive) only if a key exists.
+    # Deterministic plan (cheap); AI rewrite (expensive) only if a key exists.
     try:
         plan = rb.run_tailor(user, jd_text=jd, job_url=job_url, company_name=company,
                              company_url=company_url, record=False)
     except Exception as e:
-        return _cors(jsonify({"ok": False, "error": "tailor failed: %s" % str(e)[:160]})), 500
+        return {"ok": False, "error": "tailor failed: %s" % str(e)[:160]}
     result = (plan or {}).get("result") or {}
     best = result.get("best_resume")
     base_resume_text = ((best or {}).get("resume") or {}).get("content", "") if best else ""
@@ -1710,11 +1736,12 @@ def ext_tailor():
                 ai_used = bool(out_resume)
         except Exception as e:
             notes = ["AI rewrite failed, using base résumé: %s" % str(e)[:120]]
+    else:
+        notes = ["No AI key set — used your best-matching résumé as-is. Add a key for AI tailoring."]
     if not out_resume:
         out_resume = base_resume_text
     if not out_resume.strip():
-        return _cors(jsonify({"ok": False,
-                              "error": "No résumé found — add one in Resume Brain first."})), 400
+        return {"ok": False, "error": "No résumé found — add one in Resume Brain first."}
 
     # Build the file: pdf (LaTeX/Tectonic) -> docx -> text, degrading gracefully.
     full_name = prof["fields"]["full_name"] or user
@@ -1747,6 +1774,7 @@ def ext_tailor():
 
     file_name = "%s_%s_Resume.%s" % (safe(last), safe(company)[:24], ext)
     payload = {
+        "ok": True,
         "tailored_resume": out_resume, "cover_letter": out_cover, "notes": notes,
         "file": {"name": file_name, "mime": mime,
                  "b64": base64.b64encode(body).decode("ascii")},
@@ -1758,7 +1786,160 @@ def ext_tailor():
         db.put_tailored(cache_key, payload, username=user)
     except Exception:
         pass
-    return _cors(jsonify({"ok": True, **payload}))
+    return payload
+
+
+@app.route("/api/ext/tailor", methods=["POST", "OPTIONS"])
+def ext_tailor():
+    """Extension -> tailor the résumé to a JD and return the file (base64) + the profile field map
+    for autofill. Cached per (user, job, format, résumé-corpus). Token-authenticated; CORS-open."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    user = _ext_user(data.get("token", ""))
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    payload = _build_tailored(
+        user,
+        job_url=data.get("job_url", ""),
+        company=data.get("company", ""),
+        company_url=data.get("company_url", ""),
+        jd_text=data.get("jd_text", ""),
+        fmt=data.get("format", "pdf"),
+        force=bool(data.get("force")),
+    )
+    if not payload.get("ok"):
+        code = 400 if "No résumé" in (payload.get("error") or "") else 500
+        return _cors(jsonify(payload)), code
+    return _cors(jsonify(payload))
+
+
+# ----------------------------- native mobile app API (token-authed JSON) -----------------------------
+# The Expo / React-Native app can't use the Flask session cookie, so these mirror the web
+# feed/job/action endpoints but authenticate with the same stateless per-user token the extension
+# uses (_ext_token/_ext_user). They reuse the exact scoring/filter/status helpers so the app and
+# the website always agree. Tailoring reuses the existing token-authed /api/ext/tailor.
+def _app_user():
+    """Username for a valid token taken from ?token=, an X-Token header, or the JSON body."""
+    tok = request.args.get("token") or request.headers.get("X-Token") or ""
+    if not tok:
+        data = request.get_json(silent=True) or {}
+        tok = data.get("token") or ""
+    return _ext_user(tok)
+
+
+@app.route("/api/app/login", methods=["POST", "OPTIONS"])
+def app_login():
+    """Exchange username+password for the long-lived app token (same PBKDF2 check as web login)."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    data = request.get_json(silent=True) or {}
+    u = (data.get("username") or "").strip()
+    p = data.get("password") or ""
+    try:
+        rec = db.get_user(u)
+    except Exception:
+        rec = None
+    if not rec or not auth.verify_password(p, rec.get("password_hash", "")):
+        return _cors(jsonify({"ok": False, "error": "Invalid username or password."})), 401
+    return _cors(jsonify({"ok": True, "username": u, "token": _ext_token(u)}))
+
+
+@app.route("/api/app/feed", methods=["GET", "OPTIONS"])
+def app_feed():
+    """Scored / filtered / paged feed for the app — mirrors /api/feed, token-authed."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _app_user()
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    try:
+        resume = db.profile_text(user) or ""
+    except Exception:
+        resume = ""
+    rows = ranked_rows(user, resume)
+    try:
+        statuses = db.get_user_statuses(user)
+    except Exception:
+        statuses = {}
+    matched = _filter_rows(rows, statuses, request.args)
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except Exception:
+        offset = 0
+    try:
+        limit = min(60, max(1, int(request.args.get("limit") or 20)))
+    except Exception:
+        limit = 20
+    page = matched[offset:offset + limit]
+    out = [dict(r, status=st) for (r, st) in page]
+    return _cors(jsonify({"ok": True, "rows": out, "total": len(matched),
+                          "has_more": offset + limit < len(matched)}))
+
+
+@app.route("/api/app/job", methods=["GET", "OPTIONS"])
+def app_job():
+    """One job's JD + matched/missing skills for the app detail view — mirrors /api/job."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _app_user()
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    url = request.args.get("url", "")
+    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    if not job:
+        return _cors(jsonify({"ok": False})), 404
+    try:
+        resume = db.profile_text(user) or ""
+    except Exception:
+        resume = ""
+    jd = db.get_job_jd(url) or ""
+    meta = jd_meta({"url": url, "jd": jd}, core.load_idf())
+    if resume and jd:
+        score, have, missing = core.score_against(resume.lower(), meta["analyzed"])
+    else:
+        try:
+            score = int(job.get("match_score") or 0)
+        except Exception:
+            score = 0
+        have, missing = [], []
+    pending = bool((meta.get("analyzed") or {}).get("thin"))
+    sv, sreason = meta["sponsor_jd"]
+    exp_y = meta["exp_years"]
+    return _cors(jsonify({"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
+                          "location": job.get("location", ""), "url": url,
+                          "score": 0 if pending else int(score or 0), "score_pending": pending,
+                          "sponsor_jd": sv, "sponsor_reason": sreason,
+                          "exp_years": exp_y if exp_y is not None else "",
+                          "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}))
+
+
+@app.route("/api/app/action", methods=["POST", "OPTIONS"])
+def app_action():
+    """Set liked / applied / hidden (or '' to clear) for the app — mirrors /api/action."""
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    user = _app_user()
+    if not user:
+        return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    status = data.get("status", "")
+    if not url:
+        return _cors(jsonify({"ok": False, "error": "no url"})), 400
+    try:
+        db.set_user_status(user, url, status)
+        _status_cache.pop(user, None)
+        if status == "applied":
+            _autolog_application(user, url)
+        return _cors(jsonify({"ok": True, "status": status}))
+    except Exception as e:
+        return _cors(jsonify({"ok": False, "error": str(e)})), 500
 
 
 # Every ATS the scraper feeds, so the apply queue covers all our boards (keep in sync with

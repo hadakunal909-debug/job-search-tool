@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block body_class %}swipe-app{% endblock %}
+{% block content %}
+<header class="app-bar">
+  <button class="icon-btn" id="nav-open" type="button" aria-label="Menu">&#9776;</button>
+  <div class="app-title">Swipe</div>
+  <div class="app-right">
+    <button class="pill" id="tray-open" type="button" style="display:none">Résumés <span class="dot" id="tray-count">0</span></button>
+    <button class="pill" id="filt-open" type="button">Filters</button>
+  </div>
+</header>
+
+<div class="deck-stage" data-default-min="{{ default_min }}">
+  <div id="deck" class="deck"></div>
+  <div id="deck-loading" class="deck-msg"><span class="spin"></span> Loading jobs…</div>
+  <div id="deck-empty" class="deck-msg" style="display:none">
+    You're all caught up. Tap <b>Filters</b> and lower <b>Min match</b>, or check back after the next scrape.
+  </div>
+</div>
+
+<div class="action-bar">
+  <button id="sw-pass" class="sw-btn pass" type="button" aria-label="Pass">&times;</button>
+  <button id="sw-undo" class="sw-btn undo" type="button" aria-label="Undo" disabled>&#8634;</button>
+  <button id="sw-info" class="sw-btn info" type="button" aria-label="Details">&#8505;</button>
+  <button id="sw-apply" class="sw-btn apply" type="button" aria-label="Apply">&#10003;</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<nav class="drawer" id="drawer" aria-label="Menu">
+  <div class="dw-brand">Job<b>Match</b></div>
+  <a class="dw-link active" href="{{ url_for('swipe') }}">Swipe</a>
+  <a class="dw-link" href="{{ url_for('feed') }}">Jobs feed</a>
+  <a class="dw-link" href="{{ url_for('applications') }}">Applications</a>
+  <a class="dw-link" href="{{ url_for('brain_home') }}">Resume Brain</a>
+  <a class="dw-link" href="{{ url_for('careers') }}">Sponsors</a>
+  <a class="dw-link" href="{{ url_for('add_board') }}">Add board</a>
+  <div class="dw-sep"></div>
+  <a class="dw-link" href="{{ url_for('profile') }}">Profile</a>
+  <button class="dw-link" id="theme-toggle-drawer" type="button">Toggle theme</button>
+  <div class="dw-spacer"></div>
+  <div class="dw-user">Signed in as {{ current_user }}</div>
+  <a class="dw-link" href="{{ url_for('logout') }}">Log out</a>
+</nav>
+
+<div class="sheet" id="filtersheet" role="dialog" aria-label="Filters">
+  <div class="grab"></div>
+  <div class="sheet-head"><h3>Filters</h3><button class="icon-btn" id="filt-done" type="button" aria-label="Close">&times;</button></div>
+  <div class="sheet-body">
+    <div class="matchfilter">
+      <span class="filt-label">Match</span>
+      <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
+      <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
+    </div>
+    <select id="sort" class="sel" title="Sort by">
+      <option value="score">Sort: Best match</option>
+      <option value="newest">Sort: Newest</option>
+    </select>
+    <select id="date" class="sel" title="Posted within">
+      <option value="any">Any time</option>
+      <option value="1">Past 24 hours</option>
+      <option value="7">Past 7 days</option>
+      <option value="30">Past 30 days</option>
+    </select>
+    <select id="exp" class="sel" title="Experience the JD asks for">
+      <option value="any">Any experience</option>
+      <option value="2">Entry &middot; &le;2 yrs</option>
+      <option value="5">&le;5 yrs</option>
+      <option value="senior">Hide 6+ yrs</option>
+    </select>
+    <select id="intern" class="sel" title="Internships / co-ops">
+      <option value="any">Intern + full-time</option>
+      <option value="only">Internships &amp; co-ops only</option>
+      <option value="no">Exclude internships</option>
+    </select>
+    <label class="ck"><input type="checkbox" id="everifyonly"> E-Verify employers only</label>
+    <label class="ck"><input type="checkbox" id="hidenospon"> Hide no-sponsorship roles</label>
+  </div>
+</div>
+
+<div class="sheet" id="traysheet" role="dialog" aria-label="Tailored résumés">
+  <div class="grab"></div>
+  <div class="sheet-head"><h3>Tailored résumés</h3><button class="icon-btn" id="tray-close" type="button" aria-label="Close">&times;</button></div>
+  <div id="tray-list" class="tray-list"></div>
+</div>
+
+<div class="modal-overlay" id="jobmodal">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="logo" id="m-logo"></div>
+      <div style="flex:1;min-width:0">
+        <h2 id="m-title"></h2>
+        <div class="cmeta" id="m-meta"></div>
+      </div>
+      <div id="m-chip"></div>
+      <button class="modal-x" id="m-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="m-skills"></div>
+      <div class="sechdr">Job description</div>
+      <div class="jd" id="m-jd">Loading…</div>
+    </div>
+    <div class="modal-foot">
+      <a class="btn primary" id="m-apply" target="_blank" rel="noopener">Apply ↗</a>
+      <a class="btn" id="m-tailor">Tailor view</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_v('swipe.js') }}"></script>
+{% endblock %}
