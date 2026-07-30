@@ -316,3 +316,116 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   .ck{flex:1 1 calc(50% - 5px);padding:8px 0;font-size:13.5px}
   .tab{padding:8px 13px}
 }
+
+/* ======================= swipe deck — mobile app shell (/swipe) ======================= */
+/* On /swipe we hide the global top nav and run a full-screen app: a slim app-bar, a slide-out
+   drawer for nav/account, filter + résumé bottom-sheets, a big card, and a fixed action bar. */
+body.swipe-app{overflow:hidden}
+body.swipe-app .topbar{display:none}
+body.swipe-app main{height:100vh;height:100dvh;max-width:none;margin:0;padding:0;
+  display:flex;flex-direction:column;overflow:hidden}
+body.swipe-app .flash{margin:0}
+
+.app-bar{flex:0 0 auto;display:flex;align-items:center;gap:6px;height:56px;padding:0 8px;
+  background:var(--surface);border-bottom:1px solid var(--line);position:relative;z-index:20}
+.app-bar .app-title{flex:1;text-align:center;font-weight:800;font-size:17px;letter-spacing:-.01em}
+.app-bar .app-right{display:flex;align-items:center;gap:6px}
+.icon-btn{width:42px;height:42px;border:0;background:none;border-radius:12px;cursor:pointer;
+  color:var(--ink);font-size:20px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.icon-btn:hover{background:var(--surface2)}
+.icon-btn:active{transform:scale(.94)}
+.app-bar .pill{border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px}
+.app-bar .pill:hover{border-color:var(--line-strong)}
+.app-bar .pill .dot{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--brand);
+  color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center}
+
+.deck-stage{position:relative;flex:1 1 auto;min-height:0}
+.deck{position:absolute;inset:14px}
+.deck-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:30px;color:var(--muted);font-size:15px;line-height:1.6}
+.swipe-card{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;
+  background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--e3);
+  padding:22px 22px 18px;overflow:hidden;cursor:grab;touch-action:none;user-select:none;
+  -webkit-user-select:none;will-change:transform}
+.swipe-card:active{cursor:grabbing}
+.swipe-card .sc-top{display:flex;align-items:center;justify-content:space-between}
+.swipe-card .logo{width:54px;height:54px;border-radius:14px}
+.sc-title{font-size:22px;font-weight:800;line-height:1.22;margin-top:6px;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.sc-company{font-size:15.5px;font-weight:600;color:var(--ink)}
+.sc-meta{font-size:13px;color:var(--muted)}
+.sc-badges{display:flex;flex-wrap:wrap;gap:6px 4px;margin-top:4px}
+.sc-badges>span{margin-left:0}
+.sc-why{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;min-height:4px}
+.sc-why-lab{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin-right:2px}
+.sc-tap{margin-top:auto;text-align:center;font-size:12px;color:var(--muted);opacity:.8}
+.ov{position:absolute;top:22px;font-size:28px;font-weight:900;letter-spacing:.06em;padding:6px 14px;
+  border-radius:10px;border:3px solid;opacity:0;pointer-events:none;transition:opacity .05s linear}
+.ov-like{right:20px;color:var(--ok);border-color:var(--ok);transform:rotate(11deg)}
+.ov-nope{left:20px;color:var(--danger);border-color:var(--danger);transform:rotate(-11deg)}
+
+.action-bar{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:20px;
+  padding:12px 0 calc(14px + env(safe-area-inset-bottom));
+  background:var(--surface);border-top:1px solid var(--line)}
+.sw-btn{width:60px;height:60px;border-radius:50%;border:1px solid var(--line);background:var(--surface);
+  box-shadow:var(--e2);font-size:24px;line-height:1;cursor:pointer;color:var(--ink);
+  display:inline-flex;align-items:center;justify-content:center;transition:transform .12s,box-shadow .12s}
+.sw-btn:hover{box-shadow:var(--e3)}
+.sw-btn:active{transform:scale(.92)}
+.sw-btn:disabled{opacity:.35;cursor:default;transform:none;box-shadow:var(--e1)}
+.sw-btn.pass{color:var(--danger)}
+.sw-btn.apply{color:var(--ok);width:70px;height:70px;font-size:30px}
+.sw-btn.info{color:var(--brand);width:50px;height:50px;font-size:20px}
+.sw-btn.undo{color:var(--muted);width:50px;height:50px;font-size:20px}
+
+/* scrim shared by drawer + sheets */
+.scrim{position:fixed;inset:0;background:rgba(15,17,25,.45);opacity:0;visibility:hidden;
+  transition:opacity .2s;z-index:60}
+.scrim.show{opacity:1;visibility:visible}
+
+/* left slide-out drawer: nav + account */
+.drawer{position:fixed;top:0;left:0;bottom:0;width:min(84vw,300px);z-index:70;
+  background:var(--surface);border-right:1px solid var(--line);box-shadow:var(--e3);
+  transform:translateX(-102%);transition:transform .25s ease;display:flex;flex-direction:column;
+  padding:16px 14px calc(16px + env(safe-area-inset-bottom));overflow:auto}
+.drawer.open{transform:none}
+.drawer .dw-brand{font-weight:800;font-size:20px;padding:6px 8px 14px}
+.drawer .dw-brand b{color:var(--brand)}
+.drawer a.dw-link,.drawer button.dw-link{display:flex;align-items:center;gap:10px;width:100%;
+  padding:12px;border-radius:12px;border:0;background:none;text-align:left;text-decoration:none;
+  color:var(--ink);font-size:15.5px;font-weight:600;cursor:pointer}
+.drawer a.dw-link:hover,.drawer button.dw-link:hover{background:var(--surface2)}
+.drawer a.dw-link.active{background:var(--brand-soft);color:var(--brand-ink)}
+.drawer .dw-sep{height:1px;background:var(--line);margin:10px 6px}
+.drawer .dw-spacer{flex:1}
+.drawer .dw-user{padding:8px 12px;color:var(--muted);font-size:12.5px}
+
+/* bottom sheets: filters + résumés */
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:70;background:var(--surface);
+  border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.18);
+  transform:translateY(102%);transition:transform .25s ease;
+  max-height:82vh;overflow:auto;padding:8px 16px calc(18px + env(safe-area-inset-bottom))}
+.sheet.open{transform:none}
+.sheet .grab{width:40px;height:4px;border-radius:3px;background:var(--line-strong);margin:8px auto 12px}
+.sheet .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sheet .sheet-head h3{margin:0;font-size:16px}
+.sheet-body{display:flex;flex-wrap:wrap;gap:11px}
+.sheet-body .matchfilter{width:100%}
+.sheet-body .sel{flex:1 1 calc(50% - 6px);min-width:0}
+.sheet-body .ck{flex:1 1 100%;padding:6px 2px}
+
+.tray-list{padding:2px 0}
+.tr-row{padding:11px 10px;border-radius:12px;border:1px solid var(--line);margin:8px 0}
+.tr-title{font-size:14px;font-weight:700;line-height:1.3}
+.tr-co{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.tr-body{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tr-building{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.tr-note{font-size:12px;color:var(--muted)}
+.tr-err{font-size:12.5px;color:var(--danger)}
+.tr-empty{padding:20px 10px;text-align:center;font-size:13px;color:var(--muted)}
+
+@media (min-width:620px){                 /* center a phone-width column on desktop */
+  body.swipe-app main{max-width:480px;margin:0 auto;border-left:1px solid var(--line);border-right:1px solid var(--line)}
+}
