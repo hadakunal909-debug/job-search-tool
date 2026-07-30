@@ -8,6 +8,7 @@ import os
 import re
 import json
 import math
+import datetime
 from io import BytesIO
 from collections import Counter
 from functools import lru_cache
@@ -571,6 +572,14 @@ def sponsor_strength(company, counts):
     return "", 0
 
 
+# NO per-state sponsor count here, on purpose. The USCIS H-1B Data Hub's State/City is the
+# PETITIONER's mailing address, not the worksite: measured over FY2019-23, Google is 100% CA,
+# Microsoft 100% WA, Infosys 100% TX and Deloitte 86% PA (its Hermitage processing centre).
+# So "sponsored N H-1Bs in MA" would tell a student the opposite of the truth about where an
+# employer actually hires. Worksite-level sponsorship needs the DOL LCA disclosure files
+# (which carry WORKSITE_STATE) — see scraper/build_sponsors.py for that data source.
+
+
 # ------------------------------------------------------------
 # E-VERIFY — flag employers enrolled in E-Verify. This is the signal an F-1 student
 # needs for the STEM-OPT 24-month extension (which REQUIRES an E-Verify employer) —
@@ -678,6 +687,649 @@ def is_agency(company):
     if any(n in c for n in _AGENCY_NAMES):
         return True
     return bool(_AGENCY_RE.search(c))
+
+
+# ------------------------------------------------------------
+# LOCATION parsing — the boards spell the same place ~5 different ways ("Seattle, WA" /
+# "Seattle, Washington, USA" / "US, WA, Seattle"), so the raw string can't be filtered on.
+# Resolve it to a state code + metro so the feed can offer a real "where" filter.
+# ------------------------------------------------------------
+_STATES = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
+    "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
+    "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
+    "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI",
+    "wyoming": "WY", "district of columbia": "DC", "puerto rico": "PR",
+}
+_STATE_CODES = set(_STATES.values())
+# Longest-first so "west virginia" is tried before "virginia" and "new york" before "york".
+_STATE_NAMES_RE = re.compile(
+    r"\b(" + "|".join(sorted((re.escape(n) for n in _STATES), key=len, reverse=True)) + r")\b")
+# Split on real separators only. Deliberately NOT on the words "or"/"and": "Portland, OR"
+# would lose Oregon to the delimiter.
+_LOC_SPLIT_RE = re.compile(r"\s*(?:,|/|\||;| - )\s*")
+# A token like "MA (Remote)", "CA United States" or "MN 55403" still leads with the code.
+_LEAD_CODE_RE = re.compile(r"([A-Za-z]{2})\b")
+# ...and some boards write the code last with no comma at all: "USA   Seattle WA".
+_TRAIL_CODE_RE = re.compile(r"\b([A-Z]{2})\s*$")
+# Washington DC must be tested BEFORE the state-name scan, or the bare word "Washington"
+# inside it resolves to WA.
+_DC_RE = re.compile(r"\bwashington,?\s*d\.?\s*c\.?|\bwashington\s+dc\b|\bdistrict of columbia\b", re.I)
+
+# City (or suburb) -> the metro a student actually thinks in. Only the high-volume ones;
+# anything unlisted just falls back to "<City>, ST" so the filter still works.
+_METROS = {
+    "Boston, MA": ("boston", "cambridge", "somerville", "waltham", "burlington", "quincy",
+                   "newton", "woburn", "lexington", "needham", "marlborough", "framingham"),
+    "New York, NY": ("new york", "manhattan", "brooklyn", "queens", "bronx", "new york city",
+                     "jersey city", "newark", "hoboken", "white plains", "long island city"),
+    "San Francisco Bay Area, CA": ("san francisco", "san jose", "palo alto", "mountain view",
+                                   "sunnyvale", "santa clara", "cupertino", "menlo park",
+                                   "oakland", "berkeley", "fremont", "redwood city", "milpitas",
+                                   "san mateo", "foster city", "emeryville", "campbell"),
+    "Seattle, WA": ("seattle", "bellevue", "redmond", "kirkland", "renton", "tukwila", "everett"),
+    "Los Angeles, CA": ("los angeles", "santa monica", "pasadena", "burbank", "el segundo",
+                        "culver city", "long beach", "irvine", "torrance", "glendale"),
+    "San Diego, CA": ("san diego", "carlsbad", "la jolla"),
+    "Austin, TX": ("austin", "round rock"),
+    "Dallas, TX": ("dallas", "plano", "irving", "fort worth", "richardson", "frisco", "arlington, tx"),
+    "Houston, TX": ("houston", "sugar land", "the woodlands"),
+    "Chicago, IL": ("chicago", "evanston", "naperville", "schaumburg", "deerfield"),
+    "Washington, DC": ("washington", "arlington", "alexandria", "bethesda", "reston", "mclean",
+                       "herndon", "tysons", "rockville", "silver spring", "vienna"),
+    "Atlanta, GA": ("atlanta", "alpharetta", "marietta", "sandy springs"),
+    "Denver, CO": ("denver", "boulder", "aurora", "broomfield", "englewood", "louisville, co"),
+    "Phoenix, AZ": ("phoenix", "tempe", "scottsdale", "chandler", "mesa", "gilbert"),
+    "Philadelphia, PA": ("philadelphia", "king of prussia", "malvern", "wayne, pa"),
+    "Minneapolis, MN": ("minneapolis", "saint paul", "st paul", "bloomington, mn", "eagan"),
+    "Portland, OR": ("portland", "beaverton", "hillsboro"),
+    "Raleigh-Durham, NC": ("raleigh", "durham", "cary", "chapel hill", "morrisville"),
+    "Charlotte, NC": ("charlotte",),
+    "Detroit, MI": ("detroit", "ann arbor", "dearborn", "troy, mi", "warren, mi", "auburn hills"),
+    "Miami, FL": ("miami", "fort lauderdale", "boca raton", "coral gables"),
+    "Orlando, FL": ("orlando", "lake mary"),
+    "Tampa, FL": ("tampa", "st petersburg", "saint petersburg"),
+    "Salt Lake City, UT": ("salt lake city", "lehi", "provo", "draper"),
+    "Nashville, TN": ("nashville", "franklin, tn", "brentwood, tn"),
+    "Pittsburgh, PA": ("pittsburgh",),
+    "Columbus, OH": ("columbus",),
+    "Cleveland, OH": ("cleveland",),
+    "Cincinnati, OH": ("cincinnati",),
+    "Indianapolis, IN": ("indianapolis",),
+    "Kansas City, MO": ("kansas city", "overland park"),
+    "St. Louis, MO": ("st louis", "saint louis"),
+    "Milwaukee, WI": ("milwaukee",),
+    "Madison, WI": ("madison",),
+    "Baltimore, MD": ("baltimore", "columbia, md", "hanover, md"),
+    "Richmond, VA": ("richmond",),
+    "Sacramento, CA": ("sacramento", "folsom", "roseville"),
+    "Las Vegas, NV": ("las vegas", "henderson"),
+    "San Antonio, TX": ("san antonio",),
+    "Boise, ID": ("boise", "meridian, id"),
+    "New Orleans, LA": ("new orleans",),
+    "Hartford, CT": ("hartford", "stamford", "shelton", "norwalk"),
+    "Buffalo, NY": ("buffalo", "rochester, ny", "syracuse"),
+}
+_CITY_TO_METRO = {city: metro for metro, cities in _METROS.items() for city in cities}
+
+# Metros that legitimately span state lines. Everything else is confined to the state in
+# its own label, which is what stops "Newark, DE" resolving to the New York metro (Newark,
+# NJ is in that list) and "Columbia, MD" / "Arlington, TX" landing in the wrong city.
+_METRO_EXTRA_STATES = {
+    "New York, NY": {"NJ", "CT", "PA"},
+    "Washington, DC": {"VA", "MD"},
+    "Philadelphia, PA": {"NJ", "DE"},
+    "Kansas City, MO": {"KS"},
+    "Portland, OR": {"WA"},
+    "Chicago, IL": {"IN", "WI"},
+    "St. Louis, MO": {"IL"},
+    "Charlotte, NC": {"SC"},
+    "Boston, MA": {"NH", "RI"},
+    "Cincinnati, OH": {"KY", "IN"},
+    "Memphis, TN": {"MS", "AR"},
+}
+_METRO_STATES = {
+    m: {m.rsplit(", ", 1)[-1]} | _METRO_EXTRA_STATES.get(m, set()) for m in _METROS
+}
+
+_REMOTE_POS_RE = re.compile(
+    r"\b(?:(?:fully|100%|entirely|permanently)\s+remote"
+    r"|remote[- ]first|remote[- ]friendly"
+    r"|work(?:ing)? from home|telecommut(?:e|ing)"
+    r"|remote (?:position|role|opportunity|job|work arrangement))\b", re.I)
+# "This is NOT a remote position" / "no telecommuting" must not read as remote.
+_REMOTE_NEG_RE = re.compile(r"\b(?:not|non|no|isn'?t|aren'?t|cannot|can'?t|without|neither)\b", re.I)
+
+_loc_cache = {}
+
+
+def _metro_for(tokens, state):
+    """Match the most specific city token to a metro. Tries '<city>, <st>' first so the
+    'Arlington' / 'Columbia' / 'Madison' collisions resolve correctly, and rejects any metro
+    that doesn't contain the state we resolved — otherwise 'Newark, DE' lands in New York."""
+    for t in tokens:
+        low = t.lower().strip()
+        if not low:
+            continue
+        if state:
+            m = _CITY_TO_METRO.get("%s, %s" % (low, state.lower()))
+            if m:
+                return m
+        m = _CITY_TO_METRO.get(low)
+        if m and (not state or state in _METRO_STATES.get(m, set())):
+            return m
+    return ""
+
+
+def parse_location(raw, jd=""):
+    """Normalize a job's free-text location into {city, state, metro, remote}.
+
+    The boards give us ~4,100 distinct spellings for a few hundred real places, so this
+    resolves what can be resolved and leaves the rest blank rather than guessing:
+      state  — a bare 2-letter code token wins, else a full state name anywhere in the string
+      metro  — a known city/suburb mapped to its metro, else '' (the state filter still works)
+      city   — the first token that isn't a state, country, or the word 'remote'
+      remote — 'remote' in the location, or an unambiguous remote phrase in the JD
+
+    Cached on (raw, whether the JD looks remote) since the same string repeats thousands
+    of times across the corpus.
+    """
+    raw = (raw or "").strip()
+    jd_remote = bool(jd) and _jd_says_remote(jd)
+    ck = (raw, jd_remote)
+    if ck in _loc_cache:
+        return _loc_cache[ck]
+
+    low = raw.lower()
+    out = {"city": "", "state": "", "metro": "", "remote": ("remote" in low) or jd_remote}
+
+    tokens = [t for t in _LOC_SPLIT_RE.split(raw) if t.strip()]
+    if _DC_RE.search(raw):
+        out["state"] = "DC"
+    # A 2-letter code is the most reliable signal, so look for one before place names.
+    if not out["state"]:
+        for t in tokens:
+            m = _LEAD_CODE_RE.match(t.strip())
+            if m and m.group(1).upper() in _STATE_CODES:
+                out["state"] = m.group(1).upper()
+                break
+    if not out["state"]:
+        m = _STATE_NAMES_RE.search(low)
+        if m:
+            out["state"] = _STATES[m.group(1)]
+    if not out["state"]:
+        m = _TRAIL_CODE_RE.search(raw)
+        if m and m.group(1) in _STATE_CODES:
+            out["state"] = m.group(1)
+
+    skip = {"us", "usa", "u s", "u s a", "united states", "united states of america",
+            "remote", "hybrid", "onsite", "on-site", "north america", "anywhere", "various",
+            "multiple locations", "flexible"}
+    for t in tokens:
+        c = t.strip()
+        cl = c.lower()
+        if not c or cl in skip or cl in _STATES:
+            continue
+        # Skip a token that IS the state ("MA", "MA (Remote)", "CA United States").
+        lead = _LEAD_CODE_RE.match(c)
+        if lead and lead.group(1).upper() in _STATE_CODES:
+            continue
+        out["city"] = c
+        break
+
+    out["metro"] = _metro_for(tokens, out["state"])
+    if not out["metro"] and out["city"] and out["state"]:
+        out["metro"] = "%s, %s" % (out["city"], out["state"])
+
+    _loc_cache[ck] = out
+    return out
+
+
+def _jd_says_remote(jd):
+    """True when the JD unambiguously offers remote work. Every candidate phrase is
+    rejected if a negation sits just before it, so 'this is not a remote position' —
+    which is common — doesn't flip the flag on."""
+    if not jd:
+        return False
+    for m in _REMOTE_POS_RE.finditer(jd[:20000]):
+        before = jd[max(0, m.start() - 45):m.start()]
+        if not _REMOTE_NEG_RE.search(before):
+            return True
+    return False
+
+
+# ------------------------------------------------------------
+# SALARY parsing — no board hands us a pay field we keep, but US pay-transparency laws
+# mean ~a third of JDs state a range in the text. Pull it out of the JD we already store.
+# ------------------------------------------------------------
+# A money amount we trust: comma-grouped ($120,000) or K-suffixed ($120K / $120.5k).
+_MONEY = r"\$\s?\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\$\s?\d{2,3}(?:\.\d)?\s?[kK]\b"
+_SALARY_RANGE_RE = re.compile(r"(" + _MONEY + r")\s*(?:-|–|—|to|and|through)\s*(" + _MONEY + r")", re.I)
+_HOURLY_RANGE_RE = re.compile(
+    r"\$\s?(\d{1,3}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?\s?(\d{1,3}(?:\.\d{1,2})?)"
+    r"\s*(?:per\s+hour|/\s?h(?:r|our)|an\s+hour|hourly)", re.I)
+_HOURLY_HINT_RE = re.compile(r"\b(?:per\s+hour|/\s?h(?:r|our)|an\s+hour|hourly)\b", re.I)
+
+# Plausibility gates. Below/above these a "$" figure is something else — a revenue
+# number, a signing bonus, a 401(k) cap, a tuition figure.
+_ANNUAL_MIN, _ANNUAL_MAX = 15000, 1000000
+_HOURLY_MIN, _HOURLY_MAX = 7, 500
+
+
+def _money_to_int(s):
+    """'$120,000' -> 120000 · '$120K' -> 120000 · '$120.5k' -> 120500."""
+    t = s.replace("$", "").replace(",", "").replace(" ", "").lower()
+    try:
+        if t.endswith("k"):
+            return int(round(float(t[:-1]) * 1000))
+        return int(round(float(t)))
+    except ValueError:
+        return 0
+
+
+def parse_salary(jd):
+    """Pull a pay range out of a job description.
+
+    Returns {"min": int|None, "max": int|None, "period": "year"|"hour"|""}. Annual ranges
+    are tried first and the first plausible one wins — JDs frequently mention other dollar
+    figures (equity, bonuses, revenue) after the pay range, never before it.
+    """
+    empty = {"min": None, "max": None, "period": ""}
+    if not jd:
+        return empty
+    head = jd[:40000]
+
+    for m in _SALARY_RANGE_RE.finditer(head):
+        lo, hi = _money_to_int(m.group(1)), _money_to_int(m.group(2))
+        if lo > hi:
+            lo, hi = hi, lo
+        if not (lo and hi):
+            continue
+        # A comma-grouped pair this small is an hourly rate written oddly, or not pay at all.
+        if _ANNUAL_MIN <= lo <= _ANNUAL_MAX and _ANNUAL_MIN <= hi <= _ANNUAL_MAX:
+            # "$45,000 - $55,000 per hour" never means per hour; trust the magnitude.
+            return {"min": lo, "max": hi, "period": "year"}
+
+    for m in _HOURLY_RANGE_RE.finditer(head):
+        try:
+            lo, hi = float(m.group(1)), float(m.group(2))
+        except ValueError:
+            continue
+        if lo > hi:
+            lo, hi = hi, lo
+        if _HOURLY_MIN <= lo <= _HOURLY_MAX and _HOURLY_MIN <= hi <= _HOURLY_MAX:
+            return {"min": int(round(lo)), "max": int(round(hi)), "period": "hour"}
+
+    return empty
+
+
+def salary_label(smin, smax, period):
+    """Card-ready text for a pay range: '$120k–$150k' or '$25–$35/hr'. '' when unknown."""
+    if not smin and not smax:
+        return ""
+    if period == "hour":
+        return "$%d–$%d/hr" % (smin, smax) if smax and smax != smin else "$%d/hr" % (smin or smax)
+
+    def k(v):
+        return "$%gk" % round(v / 1000.0, 1) if v < 1000000 else "$%.1fM" % (v / 1000000.0)
+    if smin and smax and smin != smax:
+        return "%s–%s" % (k(smin), k(smax))
+    return k(smin or smax)
+
+
+# ------------------------------------------------------------
+# SAVED SEARCH PREFERENCES
+#
+# The feed shipped ten controls that all reset to their defaults on every visit, so a student
+# re-declared "PM roles, Boston or remote, entry level, E-Verify only" every single time. These
+# are the saved answers — one shape, used both to seed the feed's controls and to decide what
+# lands in the email digest, so the two can never mean different things by "my search".
+# ------------------------------------------------------------
+DEFAULT_PREFS = {
+    "min": 45,            # minimum match %
+    "loc": "",            # metro / city / 2-letter state / "remote"
+    "remote": False,
+    "minsal": 0,          # annualized floor; 0 = any
+    "hideagency": True,   # staffing agencies off by default (they flood the feed)
+    "everify": False,
+    "hidenospon": False,
+    "exp": "any",         # any | 2 | 5 | senior
+    "intern": "any",      # any | only | no
+    "date": "30",         # any | 1 | 7 | 30 | 90
+    "sort": "score",      # score | newest
+    "alerts": "off",      # off | daily  — email digest of new matches
+    "alert_min": 0,       # extra match floor for the email only; 0 = use `min`
+}
+_PREF_CHOICES = {
+    "exp": ("any", "2", "5", "senior"),
+    "intern": ("any", "only", "no"),
+    "date": ("any", "1", "7", "30", "90"),
+    "sort": ("score", "newest"),
+    "alerts": ("off", "daily"),
+}
+
+
+def _pref_bool(v):
+    return str(v).strip().lower() in ("1", "true", "yes", "on", "t")
+
+
+def normalize_prefs(raw):
+    """Coerce anything (a form post, a jsonb column, None) into a complete valid prefs dict.
+
+    Every value is validated against DEFAULT_PREFS rather than trusted, because this comes
+    from a browser and then gets used to build an email — an unvalidated `loc` or `min` would
+    otherwise flow straight into the digest query.
+    """
+    out = dict(DEFAULT_PREFS)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "{}")
+        except Exception:
+            raw = {}
+    if not isinstance(raw, dict):
+        return out
+
+    for key, default in DEFAULT_PREFS.items():
+        if key not in raw or raw[key] is None:
+            continue
+        v = raw[key]
+        if isinstance(default, bool):
+            out[key] = _pref_bool(v)
+        elif isinstance(default, int):
+            try:
+                out[key] = max(0, int(float(str(v).strip() or 0)))
+            except (TypeError, ValueError):
+                pass
+        elif key in _PREF_CHOICES:
+            s = str(v).strip().lower()
+            if s in _PREF_CHOICES[key]:
+                out[key] = s
+        else:
+            out[key] = str(v).strip()[:80]
+    out["min"] = min(out["min"], 100)
+    return out
+
+
+def prefs_match(row, prefs):
+    """Does this job match the user's saved search?
+
+    Scope note: this is the subset that means something for a job we just discovered — the
+    "posted within" window is skipped because every candidate is new by definition, and search
+    text isn't a saved preference. web.py::_filter_rows remains the authority for the live
+    feed; this exists so the EMAIL agrees with it, and a test asserts the two agree on the
+    filters they share.
+    """
+    p = prefs or DEFAULT_PREFS
+    floor = p.get("alert_min") or p.get("min") or 0
+    if (row.get("score") or 0) < floor:
+        return False
+    if p.get("hidenospon") and row.get("sponsor_jd") == "blocked":
+        return False
+    if p.get("everify") and not row.get("everify"):
+        return False
+    if p.get("hideagency") and row.get("agency"):
+        return False
+    if p.get("remote") and not row.get("remote"):
+        return False
+    if row.get("closed"):
+        return False
+    loc = (p.get("loc") or "").strip().lower()
+    if loc and not location_matches(row, loc):
+        return False
+    if p.get("minsal"):
+        sm = row.get("salary_min")
+        if not sm or annualize_pay(sm, row.get("salary_period")) < p["minsal"]:
+            return False
+    intern = p.get("intern") or "any"
+    if intern == "only" and not row.get("intern"):
+        return False
+    if intern == "no" and row.get("intern"):
+        return False
+    exp = p.get("exp") or "any"
+    if exp != "any":
+        ev = row.get("exp_years")
+        if ev not in ("", None):
+            try:
+                yrs = int(ev)
+            except (TypeError, ValueError):
+                yrs = None
+            if yrs is not None:
+                if exp == "senior":
+                    if yrs >= 6:
+                        return False
+                elif yrs > (int(exp) if str(exp).isdigit() else 99):
+                    return False
+    return True
+
+
+HOURS_PER_YEAR = 2080          # 40 h/wk x 52; web.py imports this so one constant governs both
+
+
+def annualize_pay(amount, period):
+    """Put hourly and salaried pay on one scale so a single minimum works for both."""
+    try:
+        n = int(amount or 0)
+    except (TypeError, ValueError):
+        return 0
+    return n * HOURS_PER_YEAR if period == "hour" else n
+
+
+def location_matches(row, needle):
+    """Does a row match a typed location? Metro, 2-letter state code, or the raw string.
+    Mirrored by web.py::_loc_hit and app.js::locHit — keep the three in step."""
+    if not needle:
+        return True
+    if needle == "remote":
+        return bool(row.get("remote"))
+    if len(needle) == 2:
+        return needle.upper() == (row.get("loc_state") or "").upper()
+    hay = ((row.get("loc_metro") or "") + " " + (row.get("loc_state") or "") + " " +
+           (row.get("location") or "")).lower()
+    return needle in hay
+
+
+def digest_row(job, score, everify_index=None):
+    """The row shape prefs_match wants, built from a RAW db job row.
+
+    The email path has no access to web.py's _build_row (importing Flask into the scraper
+    would be absurd), so this derives the same fields from the job itself using the same
+    core helpers the feed uses.
+    """
+    company = job.get("company") or ""
+    jd = job.get("jd") or ""
+    loc = parse_location(job.get("location") or "", jd)
+    sal = parse_salary(jd)
+    if job.get("salary_min"):
+        sal = {"min": job.get("salary_min"), "max": job.get("salary_max"),
+               "period": job.get("salary_period") or "year"}
+    active = job.get("is_active")
+    return {
+        "title": job.get("title") or "", "company": company,
+        "url": job.get("url") or "", "location": job.get("location") or "",
+        "score": score,
+        "loc_state": job.get("loc_state") or loc["state"],
+        "loc_metro": job.get("loc_metro") or loc["metro"],
+        "remote": bool(job.get("remote")) or loc["remote"],
+        "salary_min": sal["min"], "salary_max": sal["max"], "salary_period": sal["period"],
+        "salary_label": salary_label(sal["min"], sal["max"], sal["period"]),
+        "sponsors_h1b": job.get("sponsors_h1b") or "",
+        "sponsor_jd": sponsorship_from_jd(jd)[0] if jd else "",
+        "agency": is_agency(company), "cap_exempt": is_cap_exempt(company),
+        "everify": is_everify(company, everify_index) if everify_index else False,
+        "exp_years": experience_min_years(jd) if jd else "",
+        "intern": bool(re.search(r"\b(intern|internship|co-?op)\b", job.get("title") or "", re.I)),
+        "closed": active is False or str(active).strip().lower() == "false",
+    }
+
+
+# ------------------------------------------------------------
+# WORK-AUTHORIZATION TIMELINE
+#
+# The job search of an F-1 student runs against a clock nobody else's does: the EAD expiry,
+# the window to file the STEM extension, the annual H-1B registration, and the cap on days
+# spent unemployed. No job tool tracks it, so people track it in their head and miss it.
+#
+# THIS IS A REMINDER, NOT ADVICE. Everything below is arithmetic on dates the user typed in.
+# It asserts no eligibility, and every surface that renders it says to confirm with the
+# school's international-student office (DSO) and uscis.gov, because the rules do change.
+# ------------------------------------------------------------
+# Post-completion OPT allows 90 days of unemployment; the 24-month STEM extension raises the
+# aggregate allowance to 150. https://www.ice.gov/sevis/practical-training
+UNEMPLOYMENT_LIMIT_OPT = 90
+UNEMPLOYMENT_LIMIT_STEM = 150
+# USCIS accepts the STEM extension I-765 up to 90 days before the current EAD expires, and it
+# must be filed before that expiry.
+STEM_FILE_WINDOW_DAYS = 90
+# The H-1B registration period has opened in early March every recent year (exact dates are
+# announced annually), so March 1 is an anchor for "how far away is it", never a claim.
+H1B_REGISTRATION_MONTH = 3
+H1B_REGISTRATION_DAY = 1
+
+
+def _as_date(v):
+    """Parse a YYYY-MM-DD-ish string (or pass a date through). None when unusable — these
+    come from free-text profile fields, so anything unparseable is simply absent."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime.date):
+        return v
+    s = str(v).strip()[:10]
+    try:
+        return datetime.date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _severity(days):
+    """How loudly to render a deadline: past/urgent/soon/ok."""
+    if days is None:
+        return ""
+    if days < 0:
+        return "past"
+    if days <= 30:
+        return "urgent"
+    if days <= 90:
+        return "soon"
+    return "ok"
+
+
+def next_h1b_registration(today):
+    """The next early-March H-1B registration anchor on or after `today`."""
+    anchor = datetime.date(today.year, H1B_REGISTRATION_MONTH, H1B_REGISTRATION_DAY)
+    if anchor < today:
+        anchor = datetime.date(today.year + 1, H1B_REGISTRATION_MONTH, H1B_REGISTRATION_DAY)
+    return anchor
+
+
+def visa_timeline(prof, today=None):
+    """Turn the visa dates on a user's profile into dated reminders.
+
+    Returns {"has_data", "items": [...], "unemployment": {...} | None}. Each item is
+    {key, label, date, days, severity, note}; `days` is signed (negative = already past).
+    Reads only these profile keys, all optional: opt_type, opt_start_date, opt_end_date,
+    program_end_date, stem_eligible, unemployment_days_used.
+    """
+    prof = prof or {}
+    today = today or datetime.date.today()
+    opt_type = (prof.get("opt_type") or "").strip().lower()
+    opt_end = _as_date(prof.get("opt_end_date"))
+    opt_start = _as_date(prof.get("opt_start_date"))
+    prog_end = _as_date(prof.get("program_end_date"))
+    stem_eligible = str(prof.get("stem_eligible") or "").strip().lower() in ("yes", "true", "1", "on")
+
+    items = []
+
+    if prog_end and prog_end >= today:
+        items.append({
+            "key": "program_end", "label": "Program end date", "date": prog_end.isoformat(),
+            "days": (prog_end - today).days, "severity": "ok",
+            "note": "OPT must be applied for within the window around this date."})
+
+    if opt_end:
+        d = (opt_end - today).days
+        items.append({
+            "key": "opt_end",
+            "label": "STEM OPT EAD expires" if opt_type == "stem" else "OPT EAD expires",
+            "date": opt_end.isoformat(), "days": d, "severity": _severity(d),
+            "note": "Work authorization ends on this date unless something else is approved."})
+
+        # The STEM filing window only makes sense while on post-completion OPT.
+        if opt_type in ("", "opt", "post-completion opt") and stem_eligible:
+            opens = opt_end - datetime.timedelta(days=STEM_FILE_WINDOW_DAYS)
+            if today <= opt_end:
+                open_now = today >= opens
+                d2 = (opt_end - today).days if open_now else (opens - today).days
+                items.append({
+                    "key": "stem_window",
+                    "label": "STEM extension filing window closes" if open_now
+                             else "STEM extension filing window opens",
+                    "date": (opt_end if open_now else opens).isoformat(),
+                    "days": d2, "severity": _severity(d2) if open_now else "ok",
+                    "note": ("USCIS must RECEIVE the I-765 before your EAD expires."
+                             if open_now else
+                             "You can file up to %d days before the EAD expires."
+                             % STEM_FILE_WINDOW_DAYS)})
+
+    # Only worth showing to someone who still needs sponsorship.
+    if opt_end or prog_end:
+        reg = next_h1b_registration(today)
+        items.append({
+            "key": "h1b_registration", "label": "H-1B registration (typically early March)",
+            "date": reg.isoformat(), "days": (reg - today).days, "severity": "ok",
+            "note": "An employer registers you; exact dates are announced by USCIS each year."})
+
+    items.sort(key=lambda i: i["date"])
+
+    unemployment = None
+    used_raw = prof.get("unemployment_days_used")
+    if used_raw not in (None, "") or opt_end:
+        try:
+            used = max(0, int(str(used_raw).strip() or 0))
+        except (TypeError, ValueError):
+            used = 0
+        limit = UNEMPLOYMENT_LIMIT_STEM if opt_type == "stem" else UNEMPLOYMENT_LIMIT_OPT
+        left = limit - used
+        unemployment = {
+            "used": used, "limit": limit, "left": left,
+            "severity": "past" if left < 0 else "urgent" if left <= 15
+                        else "soon" if left <= 30 else "ok",
+            "note": "Counted only while on OPT, and only days you were not employed."}
+
+    return {"has_data": bool(items or (unemployment and unemployment["used"])),
+            "items": items, "unemployment": unemployment,
+            "opt_start": opt_start.isoformat() if opt_start else ""}
+
+
+def visa_alert(timeline):
+    """The single most pressing item, for the slim feed strip — or None to show nothing.
+
+    Deliberately quiet: only an item inside 90 days, or an unemployment allowance under 30
+    days, is worth interrupting a job search for. Everything else lives on the profile page.
+    """
+    if not timeline or not timeline.get("has_data"):
+        return None
+    un = timeline.get("unemployment") or {}
+    cands = []
+    for it in timeline["items"]:
+        if it["severity"] in ("past", "urgent", "soon") and it["key"] != "h1b_registration":
+            cands.append((0 if it["severity"] == "past" else 1, it["days"], it))
+    if un and un.get("severity") in ("past", "urgent", "soon"):
+        cands.append((0 if un["severity"] == "past" else 1, un.get("left", 999), {
+            "key": "unemployment",
+            "label": "%d of %d unemployment days left" % (max(un["left"], 0), un["limit"]),
+            "date": "", "days": un.get("left"), "severity": un["severity"],
+            "note": un.get("note", "")}))
+    if not cands:
+        return None
+    cands.sort(key=lambda c: (c[0], c[1]))
+    return cands[0][2]
 
 
 # ------------------------------------------------------------

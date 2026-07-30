@@ -178,6 +178,23 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .spon,.ev{background:var(--ok-soft);color:var(--ok)}
 .nospon{background:var(--danger-soft);color:var(--danger)}
 .agency{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap;vertical-align:middle;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line)}
+/* Work-authorization deadline strip. Only rendered when core.visa_alert finds something
+   inside 90 days, so it must read as information, not as a permanent warning banner. */
+.visabar{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin:0 0 12px;padding:9px 13px;border-radius:var(--r);font-size:13.5px;border:1px solid}
+.visabar .vb-when{font-weight:700}
+.visabar .vb-note{color:var(--muted);font-size:12.5px;flex:1;min-width:200px}
+.visabar .vb-link{white-space:nowrap;font-weight:600;text-decoration:none;color:inherit;border-bottom:1px solid currentColor;opacity:.8}
+.visabar-ok{background:var(--surface2);border-color:var(--line)}
+.visabar-soon{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.visabar-urgent,.visabar-past{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+/* Pay range pulled out of the JD, remote flag, and a closed/probably-filled posting. */
+.pay,.rem,.closed{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap;vertical-align:middle}
+.pay{background:var(--ok-soft);color:var(--ok);font-variant-numeric:tabular-nums}
+.rem{background:var(--brand-soft);color:var(--brand-ink)}
+.closed{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}
+/* A closed posting is de-emphasised rather than hidden when the user opts to see them. */
+.card.is-closed{opacity:.62}
+.card.is-closed:hover{opacity:1}
 .exp{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap}
 .exp-lo{background:var(--ok-soft);color:var(--ok)}
 .exp-mid{background:var(--warn-bg);color:var(--warn)}

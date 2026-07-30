@@ -82,7 +82,29 @@ ACTIONS_FILE = "user_jobs.json"
 TABLE = "jobs"
 FIELDS = ["found_date", "title", "company", "location", "url",
           "sponsors_h1b", "match_score", "status",
-          "posted_verified", "posted_confidence"]
+          "posted_verified", "posted_confidence",
+          # --- derived by scraper/score_jobs.py so the feed can filter on them ---
+          "loc_state", "loc_metro", "remote",
+          "salary_min", "salary_max", "salary_period",
+          "last_seen", "is_active", "miss_count"]
+
+# One-time SQL for the derived columns above. Surfaced in the app (and printed by
+# score_jobs) when a write fails because they don't exist yet — same self-serve pattern
+# as APPLICATIONS_SQL. All `if not exists`, so it's safe to re-run.
+JOBS_DERIVED_SQL = (
+    "-- Location + pay + liveness, derived from data already stored on each job.\n"
+    "alter table public.jobs add column if not exists loc_state text;\n"
+    "alter table public.jobs add column if not exists loc_metro text;\n"
+    "alter table public.jobs add column if not exists remote boolean;\n"
+    "alter table public.jobs add column if not exists salary_min integer;\n"
+    "alter table public.jobs add column if not exists salary_max integer;\n"
+    "alter table public.jobs add column if not exists salary_period text;\n"
+    "alter table public.jobs add column if not exists last_seen date;\n"
+    "alter table public.jobs add column if not exists is_active boolean default true;\n"
+    "-- consecutive successful fetches of its own board a job has been absent from\n"
+    "alter table public.jobs add column if not exists miss_count integer default 0;\n"
+    "create index if not exists jobs_loc_state_idx on public.jobs (loc_state);\n"
+    "create index if not exists jobs_is_active_idx on public.jobs (is_active);\n")
 
 _creds_cache = None
 
@@ -243,9 +265,15 @@ def _save_actions(a):
 
 
 # ---------------- public API (scraper / score_jobs / app use these) ----------------
-# posted_verified = real posting date recovered by scraper.verify_dates (preferred on the
-# card over found_date). Listed explicitly so the feed select pulls it without the JD.
-_FEED_COLS = "url,found_date,posted_verified,title,company,location,sponsors_h1b,match_score,status"
+# Columns the feed needs, named explicitly so the select can skip the huge `jd` text.
+# _FEED_COLS_CORE has existed since the first schema; _FEED_COLS_OPT are added by later
+# migrations, so a select naming them 400s until those have been run — load_jobs falls back
+# to CORE in that case, which is what keeps the feed alive on an un-migrated database.
+_FEED_COLS_CORE = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
+_FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
+                  "salary_min", "salary_max", "salary_period",
+                  "is_active", "last_seen", "miss_count")
+_FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
 def load_jobs(include_jd=True):
@@ -258,11 +286,20 @@ def load_jobs(include_jd=True):
         try:
             return _fetch_all(TABLE, {"select": sel})
         except Exception:
-            # posted_verified not migrated yet -> retry without it so the feed keeps working
-            # until `alter table jobs add column posted_verified` is run. (include_jd=True uses
-            # "*", which never names the column, so only the explicit-column path needs this.)
-            if not include_jd and "posted_verified" in _FEED_COLS:
-                return _fetch_all(TABLE, {"select": _FEED_COLS.replace(",posted_verified", "")})
+            # An optional column isn't migrated yet -> retry with only the core set, so the
+            # feed keeps working until the ALTERs are run. Drop them one at a time so a
+            # partially-migrated database still gets everything it does have. (include_jd=True
+            # uses "*", which never names a column, so only this path needs the fallback.)
+            if include_jd:
+                raise
+            opt = list(_FEED_COLS_OPT)
+            while opt:
+                opt.pop()                      # newest/most-optional first
+                sel = _FEED_COLS_CORE + ("," + ",".join(opt) if opt else "")
+                try:
+                    return _fetch_all(TABLE, {"select": sel})
+                except Exception:
+                    continue
             raise
     rows = _read_csv()
     actions = _load_actions()
@@ -715,6 +752,15 @@ APPLICATIONS_SQL = (
     "alter table public.profiles add column if not exists available_start_date text;\n"
     "alter table public.profiles add column if not exists willing_to_relocate text;\n"
     "alter table public.profiles add column if not exists how_did_you_hear text;\n"
+    # --- work-authorization timeline (core.visa_timeline) ---
+    "alter table public.profiles add column if not exists program_end_date text;\n"
+    "alter table public.profiles add column if not exists opt_type text;\n"
+    "alter table public.profiles add column if not exists opt_start_date text;\n"
+    "alter table public.profiles add column if not exists opt_end_date text;\n"
+    "alter table public.profiles add column if not exists stem_eligible text;\n"
+    "alter table public.profiles add column if not exists unemployment_days_used text;\n"
+    "-- saved feed filters + email-digest opt-in (core.normalize_prefs)\n"
+    "alter table public.profiles add column if not exists search_prefs jsonb default '{}'::jsonb;\n"
     "alter table public.profiles add column if not exists extra jsonb default '{}'::jsonb;\n"
     "alter table public.profiles add column if not exists application_defaults jsonb default '{}'::jsonb;\n\n"
     # --- tailored-résumé cache ---
@@ -1029,6 +1075,13 @@ PROFILE_FIELDS = (
     "github", "portfolio", "website",
     # work authorization
     "work_auth_status", "requires_sponsorship_now", "requires_sponsorship_future",
+    # work-authorization timeline (dates the user enters; read by core.visa_timeline).
+    # Also listed in PROFILE_OPT_FIELDS below — save_profile drops them and retries if the
+    # migration hasn't been run, so an un-migrated database can still save everything else.
+    "program_end_date", "opt_type", "opt_start_date", "opt_end_date",
+    "stem_eligible", "unemployment_days_used",
+    # saved feed filters + digest opt-in
+    "search_prefs",
     # EEO / voluntary self-identification
     "gender", "race_ethnicity", "hispanic_latino", "veteran_status", "disability_status",
     # compensation & logistics
@@ -1038,7 +1091,11 @@ PROFILE_FIELDS = (
     "extra", "application_defaults",
     "updated_at",
 )
-_PROFILE_JSON_FIELDS = ("extra", "application_defaults")
+_PROFILE_JSON_FIELDS = ("extra", "application_defaults", "search_prefs")
+# Profile columns that only exist after the latest ALTERs in APPLICATIONS_SQL have been run.
+# save_profile retries without these on a 400 so an un-migrated database still saves the rest.
+PROFILE_OPT_FIELDS = ("program_end_date", "opt_type", "opt_start_date", "opt_end_date",
+                      "stem_eligible", "unemployment_days_used", "search_prefs")
 
 
 def _decode_profile(rec):
@@ -1084,10 +1141,23 @@ def save_profile(username, fields):
     rec["username"] = username
     rec["updated_at"] = _now()
     if using_supabase():
-        resp = _http.post(
-            _rest(PROFILES_TABLE),
-            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
-            params={"on_conflict": "username"}, data=json.dumps(rec), timeout=30)
+        def _post(payload):
+            return _http.post(
+                _rest(PROFILES_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "username"}, data=json.dumps(payload), timeout=30)
+
+        resp = _post(rec)
+        # A profile column added by a later migration makes PostgREST reject the WHOLE upsert,
+        # which would break saving name/address/EEO too — not just the new field. So drop the
+        # migration-dependent keys and retry once, and report that they weren't saved.
+        if resp.status_code >= 400 and any(k in rec for k in PROFILE_OPT_FIELDS):
+            trimmed = {k: v for k, v in rec.items() if k not in PROFILE_OPT_FIELDS}
+            retry = _post(trimmed)
+            if retry.status_code < 400:
+                return True, ("saved, but the work-authorization dates need a one-time "
+                              "migration first (see the setup SQL on the Applications page)")
+            resp = retry
         if resp.status_code >= 400:
             return False, "Supabase save_profile %s: %s" % (resp.status_code, resp.text[:300])
         return True, ""

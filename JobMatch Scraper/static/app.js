@@ -18,7 +18,14 @@
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
       expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
       internSel = document.getElementById("intern"),
+      locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
+      minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
+      showClosed = document.getElementById("showclosed"),
       tabBtns = document.querySelectorAll(".tab");
+  // The viewer's own work-authorization situation, so the E-Verify / cap-exempt badges can say
+  // what they mean FOR THEM rather than reciting a general rule. Absent = generic wording.
+  var VISA = {};
+  try { VISA = JSON.parse(feed.getAttribute("data-visa") || "{}") || {}; } catch (e) { VISA = {}; }
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
   // Large corpus: the server inlines only the top-N matches and we fetch the rest (search/filter/
@@ -107,14 +114,26 @@
     var badges = "";
     if (j.intern)
       badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
-    if (j.sponsors_h1b === "yes")
-      badges += '<span class="h1b" title="Company has sponsored H-1B before' +
-        (j.strength ? ' &middot; ~' + (j.strength_n || 0) + ' filings' : '') + '">H1B' +
+    if (j.sponsors_h1b === "yes") {
+      // Deliberately NATIONAL only. USCIS records the petitioner's mailing address, not the
+      // worksite, so a per-state count reads as "Deloitte sponsors in Pennsylvania" (their
+      // processing centre) — worksite-level data needs the DOL LCA files, not this one.
+      var h1bTip = "Company has sponsored H-1B before";
+      if (j.strength) h1bTip += " · ~" + (j.strength_n || 0) + " approvals FY2019-23";
+      h1bTip += ". USCIS H-1B Data Hub; past filings, not a promise.";
+      badges += '<span class="h1b" title="' + H(h1bTip) + '">H1B' +
         (j.strength === 'high' ? ' (top sponsor)' : '') + '</span>';
+    }
     if (j.cap_exempt)
-      badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery. Verify.">No lottery</span>';
+      badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery' +
+        (VISA.needsLottery ? ", so this route does not depend on the March registration you're waiting on" : "") +
+        '. Verify.">No lottery</span>';
     if (j.everify)
-      badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov before relying on it.">E-Verify</span>';
+      badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot' +
+        (VISA.stemPending
+          ? " — E-Verify is required for the STEM extension you may still file, so this employer keeps that option open"
+          : " — required for the STEM-OPT extension") +
+        '. Confirm current status at e-verify.gov before relying on it.">E-Verify</span>';
     if (j.agency)
       badges += '<span class="agency" title="Staffing agency / consultancy — postings are placement or bench roles, not a direct employer\'s own team. Kept for their H-1B sponsorship, flagged so you can skip if you prefer direct employers.">Agency</span>';
     if (j.exp_years !== "" && j.exp_years != null) {
@@ -126,10 +145,18 @@
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
     else if (j.sponsor_jd === 'open')
       badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
+    if (j.salary_label)
+      badges += '<span class="pay" title="Pay range stated in the job description">' +
+        H(j.salary_label) + '</span>';
+    if (j.remote)
+      badges += '<span class="rem" title="Remote or remote-friendly per the posting">Remote</span>';
+    if (j.closed)
+      badges += '<span class="closed" title="This posting has disappeared from the company\'s job board across several checks, so it is probably filled or expired.">Closed</span>';
     var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '"' +
       (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>' : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
-    return '<article class="card" data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
+    return '<article class="card' + (j.closed ? ' is-closed' : '') + '" data-url="' + H(j.url) +
+      '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
           '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
@@ -153,7 +180,27 @@
 
   function dateCutoff() {
     if (!dateSel || dateSel.value === "any") return "";
-    var d = new Date(); d.setDate(d.getDate() - parseInt(dateSel.value, 10)); return d.toISOString().slice(0, 10);
+    var d = new Date();
+    d.setDate(d.getDate() - parseInt(dateSel.value, 10));
+    // LOCAL date parts, deliberately not toISOString(): that converts to UTC, so during the
+    // hours when the local and UTC dates differ the client cut one day more than web.py's
+    // _date_cutoff (which uses date.today(), local) and the two filters disagreed — measured
+    // as a 424-vs-410 split. Matters more now that "Past 30 days" is the default.
+    var mm = d.getMonth() + 1, dd = d.getDate();
+    return d.getFullYear() + "-" + (mm < 10 ? "0" : "") + mm + "-" + (dd < 10 ? "0" : "") + dd;
+  }
+  var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
+  function annualize(amount, period) {
+    var n = parseInt(amount, 10) || 0;
+    return period === "hour" ? n * HOURS_PER_YEAR : n;
+  }
+  // Mirror of web.py _loc_hit(): metro, state code, or the raw string.
+  function locHit(j, needle) {
+    if (!needle) return true;
+    if (needle === "remote") return !!j.remote;
+    if (needle.length === 2) return needle.toUpperCase() === (j.loc_state || "").toUpperCase();
+    return ((j.loc_metro || "") + " " + (j.loc_state || "") + " " + (j.location || ""))
+      .toLowerCase().indexOf(needle) !== -1;
   }
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
@@ -164,11 +211,25 @@
     // An active SEARCH bypasses the match filter: if you typed "deloitte" you want to
     // SEE Deloitte's jobs, not have them hidden because they score 40%.
     else ok = (st !== "hidden") && (searching || ignoreMin || sc >= minVal);
+    // Search covers LOCATION too — "boston" and "remote" are things people type in here.
     if (ok && searching)
-      ok = ((j.title || "") + " " + (j.company || "")).toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
+      ok = ((j.title || "") + " " + (j.company || "") + " " + (j.location || ""))
+        .toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = j.date || ""; if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
     if (ok && everifyOnly && everifyOnly.checked && !j.everify) ok = false;
+    if (ok && locInp && locInp.value.trim()) ok = locHit(j, locInp.value.trim().toLowerCase());
+    if (ok && remoteOnly && remoteOnly.checked && !j.remote) ok = false;
+    if (ok && minSalSel && minSalSel.value) {
+      // Requires a STATED range — mirrors web.py _filter_rows(). Only ~a third of
+      // descriptions state pay, so this narrows the list a lot; the tooltip says so.
+      var want = parseInt(minSalSel.value, 10) || 0;
+      if (!j.salary_min || annualize(j.salary_min, j.salary_period) < want) ok = false;
+    }
+    if (ok && hideAgency && hideAgency.checked && j.agency) ok = false;
+    // Closed rows stay visible in Saved/Applied so tracker history never breaks.
+    if (ok && j.closed && !(showClosed && showClosed.checked) &&
+        tab !== "liked" && tab !== "applied") ok = false;
     if (ok && internSel && internSel.value === "only" && !j.intern) ok = false;
     if (ok && internSel && internSel.value === "no" && j.intern) ok = false;
     // Experience filter: a job whose JD states no year count (exp_years "") is ALWAYS kept.
@@ -228,6 +289,11 @@
     if (everifyOnly && everifyOnly.checked) ps.push("everify=1");
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
+    if (locInp && locInp.value.trim()) ps.push("loc=" + encodeURIComponent(locInp.value.trim()));
+    if (remoteOnly && remoteOnly.checked) ps.push("remote=1");
+    if (minSalSel && minSalSel.value) ps.push("minsal=" + encodeURIComponent(minSalSel.value));
+    if (hideAgency && hideAgency.checked) ps.push("hideagency=1");
+    if (showClosed && showClosed.checked) ps.push("showclosed=1");
     return ps.join("&");
   }
   function renderServer(reset) {
@@ -294,6 +360,40 @@
   if (internSel) internSel.addEventListener("change", function () { render(true); });
   if (everifyOnly) everifyOnly.addEventListener("change", function () { render(true); });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
+  // Location is free text, so debounce it like the search box rather than firing per keystroke.
+  if (locInp) locInp.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
+  if (remoteOnly) remoteOnly.addEventListener("change", function () { render(true); });
+  if (minSalSel) minSalSel.addEventListener("change", function () { render(true); });
+  if (hideAgency) hideAgency.addEventListener("change", function () { render(true); });
+  if (showClosed) showClosed.addEventListener("change", function () { render(true); });
+  // "Save as default" — remember the current toolbar as this user's search, which also
+  // decides what lands in their email digest. Search text is deliberately NOT saved: it's a
+  // one-off lookup, not a standing preference.
+  var savePrefsBtn = document.getElementById("saveprefs");
+  if (savePrefsBtn) savePrefsBtn.addEventListener("click", function () {
+    var body = {
+      min: minVal, loc: locInp ? locInp.value.trim() : "",
+      remote: !!(remoteOnly && remoteOnly.checked),
+      minsal: minSalSel ? (parseInt(minSalSel.value, 10) || 0) : 0,
+      hideagency: !!(hideAgency && hideAgency.checked),
+      everify: !!(everifyOnly && everifyOnly.checked),
+      hidenospon: !!(hideNo && hideNo.checked),
+      exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
+      date: dateSel ? dateSel.value : "any", sort: sortBy
+    };
+    savePrefsBtn.disabled = true;
+    fetch("/prefs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      savePrefsBtn.disabled = false;
+      if (d && d.ok) toast(d.note ? "Saved — " + d.note : "Saved as your default search.");
+      else toast("Couldn't save: " + ((d && d.error) || "unknown error"));
+    }).catch(function () {
+      savePrefsBtn.disabled = false;
+      toast("Couldn't save your default search.");
+    });
+  });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
   // feed clicks: action buttons, Apply auto-log, or open modal
