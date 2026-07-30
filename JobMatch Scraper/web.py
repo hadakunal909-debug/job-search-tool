@@ -2247,7 +2247,9 @@ def ext_bulk_jobs():
     except Exception:
         sidx = None
     try:
-        seen = db.existing_urls()
+        # canonical on both sides — same reason as the scraper's dedupe (stored rows
+        # predate normalization), so a re-import can't add a second row for one posting
+        seen = {scraper.canonical_url(u) for u in db.existing_urls()}
     except Exception:
         seen = set()
 
@@ -2258,7 +2260,10 @@ def ext_bulk_jobs():
     # returns them as needs_jd so the extension can backfill their JDs (a first import
     # may have failed mid-fetch, or predates JD support).
     have_jd = db.urls_with_jd()          # feed rows omit JD text; ask the DB which have one
-    no_jd = {u for u in (j.get("url") for j in get_jobs()) if u and u not in have_jd}
+    # canonical form -> the url AS STORED. needs_jd must hand back the exact key the jobs
+    # table uses: a canonical variant the DB doesn't hold would upsert a whole new row.
+    no_jd = {scraper.canonical_url(u): u
+             for u in (j.get("url") for j in get_jobs()) if u and u not in have_jd}
     needs_jd = []
     for j in jobs[:2000]:
         if not isinstance(j, dict):
@@ -2269,10 +2274,12 @@ def ext_bulk_jobs():
         if not url or not title:
             dropped["bad"] += 1
             continue
+        url = scraper.canonical_url(url)     # one posting -> one row (non-http passes through
+                                             # untouched and is rejected just below)
         if url in seen:
             dropped["dup"] += 1
             if url in no_jd and len(needs_jd) < 25:
-                needs_jd.append(url)
+                needs_jd.append(no_jd[url])
             continue
         if not scraper.is_http_url(url):                        # block javascript:/data: URLs —
             dropped["bad"] += 1                                 # these get rendered as <a href> for everyone
