@@ -211,8 +211,23 @@ _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_
 # The feed list no longer carries JD text, so such a job simply shows no JD-derived badges and
 # its baseline match_score until the next cron run refreshes jdmeta.json.
 _EMPTY_META = {"analyzed": {}, "exp_years": None, "exp_level": "", "sponsor_jd": ("", "")}
-_SPONSOR_COUNTS = core.load_sponsor_counts()      # {} until sponsor_counts.json is built
-_EVERIFY_INDEX = core.load_everify()              # None until everify.txt is built
+_EVERIFY_INDEX = core.load_everify()              # None until everify.txt is built; tiny file
+
+# sponsor_counts.json parses to ~118k keys / ~11 MB of Python objects. Loading that at import
+# put it on Passenger's cold-start path, where shared-hosting memory is tightest and a failure
+# takes down the whole app rather than one feature. Defer it to first use instead, like db.py's
+# _LazyHTTP and the lazy `import scraper` in the routes below. {} until the file is built.
+_sponsor_counts_cache = None
+
+
+def sponsor_counts():
+    global _sponsor_counts_cache
+    if _sponsor_counts_cache is None:
+        try:
+            _sponsor_counts_cache = core.load_sponsor_counts()
+        except Exception:
+            _sponsor_counts_cache = {}      # a bad/huge file must not 500 the feed
+    return _sponsor_counts_cache
 _resume_cache = {}           # username -> (resume_text, fetched_at)
 _status_cache = {}           # username -> ({url: status}, fetched_at); busted on every action
 _STATUS_TTL = 30             # seconds; mutations bust immediately, this just bounds cross-worker drift
@@ -390,7 +405,7 @@ def _build_row(j, score):
     u = j.get("url")
     meta = _jdmeta.get(u) or _EMPTY_META
     sv, sreason = meta.get("sponsor_jd") or ("", "")
-    strength, scount = core.sponsor_strength(c, _SPONSOR_COUNTS)
+    strength, scount = core.sponsor_strength(c, sponsor_counts())
     exp_y = meta.get("exp_years")
     # A too-thin/truncated JD can't be scored honestly (see core.analyze_jd) — surface it as
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
