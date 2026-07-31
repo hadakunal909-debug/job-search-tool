@@ -35,7 +35,12 @@ from email.mime.text import MIMEText
 import core
 import db
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+# Force UTF-8 stdout (Windows cp1252 consoles crash on em dashes / accents in titles), but
+# only when stdout actually supports it: under Passenger and some cron wrappers sys.stdout is
+# a substitute object with no reconfigure(), and an unguarded call there is an AttributeError
+# at import. Same guard as scraper/__init__.py and score_jobs.py.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 NEW_FILE = "last_new_jobs.json"
 MAX_ROWS_PER_EMAIL = 40          # a digest nobody scrolls is a digest nobody reads

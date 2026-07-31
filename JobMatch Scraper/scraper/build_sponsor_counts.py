@@ -49,7 +49,8 @@ import json
 import argparse
 import collections
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):      # absent under Passenger / some cron wrappers
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from scraper import _norm_name                       # the exact key sponsor_strength looks up
 
