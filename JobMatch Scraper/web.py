@@ -2622,5 +2622,12 @@ def healthz():
     return Response("ok", mimetype="text/plain")
 
 
+# WSGI alias. cPanel's generated stub does `application = wsgi.<entry point>`, and its
+# "Application Entry point" field defaults to `application` while Flask convention names the
+# object `app` — which is an AttributeError at startup, not a 404 you can debug from the page.
+# Exporting both names means the app starts whichever value that field happens to hold, and
+# also satisfies any generic WSGI server that looks for `application`.
+application = app
+
 if __name__ == "__main__":
     app.run(debug=True, port=int(os.environ.get("PORT", 5000)))
