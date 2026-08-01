@@ -11,6 +11,7 @@ On cPanel:     passenger_wsgi.py exposes `application = web.app`
 """
 import os
 import re
+import sys
 import json
 import time
 import html
@@ -22,6 +23,22 @@ import functools
 import collections
 
 import gzip as _gzip
+
+# Anchor to this file's directory BEFORE core/db import, because both read files by relative
+# path (.env, idf.json, sponsor_counts.json, sponsors.txt, everify.txt).
+#
+# This can't be left to passenger_wsgi.py. cPanel REGENERATES that file from the Python App's
+# "Application startup file" setting, and its generated stub does no chdir — so depending on
+# which entry style is configured, the app would boot with the wrong cwd and silently come up
+# with no Supabase credentials and no data. Doing it here makes the app work identically
+# however it is launched: cPanel's stub, our own passenger_wsgi.py, a cron job, or `python web.py`.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
+try:
+    os.chdir(_APP_DIR)
+except OSError:
+    pass                    # a read-only or vanished cwd must not stop the app from booting
 
 # Load a local .env (GEMINI_API_KEY, SUPABASE_*, etc.) when running `python web.py`. No-op if
 # python-dotenv isn't installed or there's no .env — production sets real env vars.
