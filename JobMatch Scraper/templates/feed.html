@@ -10,71 +10,69 @@
       </form>
     </div>
   </div>
+  {# Three rows, in the order a job-seeker actually narrows a search: what am I looking for,
+     then which jobs qualify, then the on/off refinements. Flat-wrapping all twelve controls
+     put them in an order nobody could scan. #}
   <div class="filters">
-    <input id="q" placeholder="Search title or company" autocomplete="off">
-    <div class="matchfilter">
-      <span class="filt-label">Match</span>
-      <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
-      <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
+    <div class="frow">
+      <input id="q" placeholder="Search title, company or location" autocomplete="off">
+      <div class="matchfilter">
+        <span class="filt-label">Match</span>
+        <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
+        <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
+      </div>
+      <select id="sort" class="sel" title="Sort by">
+        <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
+        <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
+      </select>
     </div>
-    <select id="sort" class="sel" title="Sort by">
-      <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
-      <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
-    </select>
-    <input id="loc" list="locs" placeholder="City, metro or state" autocomplete="off"
-           value="{{ prefs.loc }}"
-           title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
-    <datalist id="locs">
-      <option value="Remote">
-      {% for m in metros %}<option value="{{ m }}">{% endfor %}
-      {% for s in states %}<option value="{{ s }}">{% endfor %}
-    </datalist>
-    <select id="minsal" class="sel" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
-      {% for v, lab in [(0, 'Any pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
-      <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
-      {% endfor %}
-    </select>
-    <input id="loc" list="locs" placeholder="City, metro or state" autocomplete="off"
-           title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
-    <datalist id="locs">
-      <option value="Remote">
-      {% for m in metros %}<option value="{{ m }}">{% endfor %}
-      {% for s in states %}<option value="{{ s }}">{% endfor %}
-    </datalist>
-    <select id="minsal" class="sel" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
-      <option value="">Any pay</option>
-      <option value="60000">$60k+</option>
-      <option value="80000">$80k+</option>
-      <option value="100000">$100k+</option>
-      <option value="130000">$130k+</option>
-    </select>
-    <select id="date" class="sel" title="Posted within">
-      {% for v, lab in [('any', 'Any time'), ('1', 'Past 24 hours'), ('7', 'Past 7 days'), ('30', 'Past 30 days'), ('90', 'Past 90 days')] %}
-      <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
-      {% endfor %}
-    </select>
-    <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
-      {% for v, lab in [('any', 'Any experience'), ('2', 'Entry · ≤2 yrs'), ('5', '≤5 yrs'), ('senior', 'Hide 6+ yrs')] %}
-      <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
-      {% endfor %}
-    </select>
-    <select id="intern" class="sel" title="Internships and co-ops are OPT / STEM-OPT eligible. Show them alongside full-time roles, only them, or exclude them.">
-      {% for v, lab in [('any', 'Intern + full-time'), ('only', 'Internships & co-ops only'), ('no', 'Exclude internships')] %}
-      <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
-      {% endfor %}
-    </select>
-    <label class="ck" title="Show only employers in the E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov.">
-      <input type="checkbox" id="everifyonly"{{ ' checked' if prefs.everify else '' }}> E-Verify only</label>
-    <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
-      <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
-    <label class="ck" title="Show only roles the posting says are remote or remote-friendly.">
-      <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote only</label>
-    <label class="ck" title="Staffing agencies and bench consultancies post placement roles rather than their own team's. Hidden by default; uncheck to see them.">
-      <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide staffing agencies</label>
-    <label class="ck" title="Postings that have vanished from the company's own job board across several checks are hidden as probably filled. Saved and Applied jobs always stay visible.">
-      <input type="checkbox" id="showclosed"> Show closed postings</label>
-    <button id="saveprefs" class="btn sm" type="button"
-            title="Remember these filters as your default search, and use them to pick what goes in your email digest.">Save as default</button>
+
+    <div class="frow">
+      <input id="loc" class="locin" list="locs" placeholder="City, metro or state" autocomplete="off"
+             value="{{ prefs.loc }}"
+             title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
+      <datalist id="locs">
+        <option value="Remote">
+        {% for m in metros %}<option value="{{ m }}">{% endfor %}
+        {% for s in states %}<option value="{{ s }}">{% endfor %}
+      </datalist>
+      <select id="minsal" class="sel" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
+        {% for v, lab in [(0, 'Any pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
+        <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
+        {% endfor %}
+      </select>
+      <select id="date" class="sel" title="Posted within">
+        {% for v, lab in [('any', 'Any time'), ('1', 'Past 24 hours'), ('7', 'Past 7 days'), ('30', 'Past 30 days'), ('90', 'Past 90 days')] %}
+        <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
+        {% endfor %}
+      </select>
+      <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
+        {% for v, lab in [('any', 'Any experience'), ('2', 'Entry · ≤2 yrs'), ('5', '≤5 yrs'), ('senior', 'Hide 6+ yrs')] %}
+        <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
+        {% endfor %}
+      </select>
+      <select id="intern" class="sel" title="Internships and co-ops are OPT / STEM-OPT eligible. Show them alongside full-time roles, only them, or exclude them.">
+        {% for v, lab in [('any', 'Intern + full-time'), ('only', 'Internships & co-ops only'), ('no', 'Exclude internships')] %}
+        <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="frow frow-toggles">
+      <label class="ck" title="Show only employers in the E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov.">
+        <input type="checkbox" id="everifyonly"{{ ' checked' if prefs.everify else '' }}> E-Verify only</label>
+      <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
+        <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
+      <label class="ck" title="Show only roles the posting says are remote or remote-friendly.">
+        <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote only</label>
+      <label class="ck" title="Staffing agencies and bench consultancies post placement roles rather than their own team's. Hidden by default; uncheck to see them.">
+        <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide staffing agencies</label>
+      <label class="ck" title="Postings that have vanished from the company's own job board across several checks are hidden as probably filled. Saved and Applied jobs always stay visible.">
+        <input type="checkbox" id="showclosed"> Show closed postings</label>
+      <span class="fspacer"></span>
+      <button id="saveprefs" class="btn sm" type="button"
+              title="Remember these filters as your default search, and use them to pick what goes in your email digest.">Save as default</button>
+    </div>
   </div>
   <div class="tabs">
     <button class="tab on" data-tab="recommended">Recommended</button>

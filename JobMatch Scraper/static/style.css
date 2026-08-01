@@ -97,8 +97,20 @@ textarea{resize:vertical}
 /* feed controls */
 .feedrow{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .feedtools{display:flex;gap:8px}
-.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0 10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 14px}
-.filters #q{flex:1;min-width:200px}
+/* Filters stack as three rows — search/sort, then the narrowing selects, then the toggles.
+   A single flex-wrap over all twelve controls reflowed into an unscannable order, and the
+   text inputs inherited the global input{width:100%} so each one claimed a whole line. */
+.filters{display:flex;flex-direction:column;gap:9px;margin:18px 0 10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 14px}
+.frow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.frow-toggles{gap:16px;padding-top:2px;border-top:1px solid var(--line)}
+.fspacer{flex:1}
+.filters #q{flex:1;min-width:220px;width:auto}
+/* Sized to the longest realistic value ("San Francisco Bay Area, CA") without eating the row. */
+.filters .locin{flex:0 1 260px;min-width:170px;width:auto}
+@media (max-width:720px){
+  .filters .locin{flex:1 1 100%}
+  .frow-toggles{gap:12px}
+}
 .rng{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;white-space:nowrap}
 .rng input[type=range]{accent-color:var(--brand);width:120px}
 .rng b{color:var(--ink)}
