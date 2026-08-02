@@ -109,7 +109,10 @@ textarea{resize:vertical}
    Desktop visibility is pure CSS. The old #fpanel shipped with the `hidden` ATTRIBUTE and only
    setPanel() cleared it, so a returning user whose jm_fpanel was "0" could get a filter panel that
    never appeared, with no JS error. Nothing here depends on JS having run. */
-.feedwrap{max-width:1560px;margin:0 auto}
+/* The cap is deliberately way above a laptop's width. .feedwrap is fluid at viewport-52
+   (main's padding), so this only binds above a 1612px viewport — below that it's a no-op, and
+   above it the extra width goes to the card grid instead of to gutters. */
+.feedwrap{max-width:1880px;margin:0 auto}
 /* align-items:start is load-bearing twice over: a grid item defaults to stretch, which leaves
    position:sticky no room to slide (it would silently never stick), and a short rail would
    otherwise draw as a full-height empty card. */
@@ -131,7 +134,8 @@ textarea{resize:vertical}
    horizontal scrollbar. */
 .railfoot{position:sticky;bottom:0;display:flex;gap:8px;padding:11px 0 0;background:var(--surface);border-top:1px solid var(--line)}
 .railfoot .btn{flex:1}
-/* 252px of usable width, so controls go full-bleed. #q and .locin pick width:100% back up from the
+/* At least 252px of usable width (the 280px rail, wider above 1900px), so controls go full-bleed.
+   #q and .locin pick width:100% back up from the
    global input rule now that .filters is gone. Deliberately NOT `.rail input{width:100%}` — that
    ties with .ck input{width:auto} and wins on source order, blowing the checkboxes out to full
    width. */
@@ -147,11 +151,13 @@ textarea{resize:vertical}
 
 /* ---- collapsed rail ----
    Once a search is dialled in the filters are dead weight, so the whole rail folds to a 46px
-   strip and the grid picks up a fourth card column (1560 - 46 - 20 = 1494px of results).
+   strip and the grid picks up another card column (1880 - 46 - 20 = 1814px of results, more
+   above 1900px).
    The strip keeps the active-filter badge: a collapsed rail must never hide that filters are on.
-   These live in the file's ONLY min-width query. The alternative — declaring them unconditionally
-   and undoing six of them in the <=900px block — fought `.rail.open .railbody` on specificity and
-   could leave the mobile rail unopenable. Scoping to desktop is the safer shape. */
+   These live in a min-width query rather than being declared unconditionally. The alternative —
+   declaring them unconditionally and undoing six of them in the <=900px block — fought
+   `.rail.open .railbody` on specificity and could leave the mobile rail unopenable. Scoping to
+   desktop is the safer shape. */
 .railstrip{display:none}
 .railcollapsebtn{display:none;margin-left:auto;font:inherit;font-size:15px;line-height:1;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:7px;padding:4px 8px;cursor:pointer;transition:background .14s,color .14s}
 .railcollapsebtn:hover{background:var(--surface2);color:var(--ink)}
@@ -169,6 +175,18 @@ textarea{resize:vertical}
   .rs-chev{font-size:16px;font-weight:700;line-height:1}
   /* vertical so the word fits a 46px column without truncating */
   .rs-txt{writing-mode:vertical-rl;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+}
+
+/* ---- wide displays ----
+   Above ~1900 the 1880 cap starts leaving gutters again, and a 280px rail reads as a sliver
+   next to 1900px of cards, so both widen. The card count follows from the grid's own arithmetic
+   (330px min track + 14px gap = 344px a column, so n columns need 344n-14 of results track):
+   4 columns at 1920, 5 at 2560, and one more than that with the rail collapsed.
+   Specificity here is (0,1,0) ON PURPOSE — .feedlayout.railcollapsed above is (0,2,0) and has to
+   keep winning the 46px track no matter how wide the display is. */
+@media (min-width:1900px){
+  .feedwrap{max-width:2280px}
+  .feedlayout{grid-template-columns:clamp(300px,17vw,360px) minmax(0,1fr)}
 }
 
 /* career-track segmented control — the feed's primary split, so it reads as one solid object */
