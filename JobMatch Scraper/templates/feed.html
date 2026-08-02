@@ -42,8 +42,19 @@
 {# Two columns: everything that NARROWS the list on the left, everything about VIEWING it on the
    right. Nothing else may sit directly inside .feedlayout — a stray child becomes a grid item and
    auto-places into the 280px rail column. #}
-<div class="feedlayout">
+<div class="feedlayout" id="feedlayout">
   <aside class="rail" id="filterrail" aria-label="Search and filters">
+    {# The whole rail folded down to a 46px strip. Once a search is dialled in the filters are
+       just overhead, so this buys the grid a fourth card column. It carries the active-filter
+       badge so a collapsed rail can never hide that filters are on. Desktop only — below 900px
+       the rail is already a collapsible block. #}
+    <button type="button" id="railexpand" class="railstrip" aria-label="Show filters"
+            title="Show filters">
+      <span class="rs-chev" aria-hidden="true">›</span>
+      <span class="fbadge" hidden>0</span>
+      <span class="rs-txt">Filters</span>
+    </button>
+
     {# Always visible, mobile included: these two START a search. Only the eight below, which
        NARROW one, collapse behind the toggle. #}
     <div class="railtop">
@@ -71,6 +82,8 @@
               aria-controls="railbody" aria-label="Show filters">
         <span class="railtoggle-t">Show</span><span class="fcaret" aria-hidden="true">▾</span>
       </button>
+      <button type="button" id="railcollapse" class="railcollapsebtn" aria-label="Collapse filters"
+              title="Collapse the filter rail — gives the feed a fourth column">‹</button>
     </div>
 
     <div class="railbody" id="railbody">

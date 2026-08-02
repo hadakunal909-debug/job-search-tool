@@ -24,7 +24,12 @@
       trackSel = document.getElementById("track"),
       trackSeg = document.getElementById("trackseg"),
       fmoreBtn = document.getElementById("fmore"), rail = document.getElementById("filterrail"),
-      fbadge = document.getElementById("fbadge"),
+      // Two badges: one in the rail head, one on the collapsed strip. Only one is ever visible,
+      // and markFilters writes to both, so a folded rail still shows that filters are on.
+      fbadges = document.querySelectorAll(".fbadge"),
+      feedLayout = document.getElementById("feedlayout"),
+      railCollapseBtn = document.getElementById("railcollapse"),
+      railExpandBtn = document.getElementById("railexpand"),
       locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
       minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
       showClosed = document.getElementById("showclosed"), groupedEl = document.getElementById("grouped"),
@@ -415,7 +420,10 @@
     setFlag(minSalSel, minSalSel && minSalSel.value);
     setFlag(locInp, locInp && locInp.value.trim());
     var n = activeFilterCount();
-    if (fbadge) { fbadge.textContent = n; fbadge.hidden = !n; }
+    for (var b = 0; b < fbadges.length; b++) {
+      fbadges[b].textContent = n;
+      fbadges[b].hidden = !n;
+    }
     if (fmoreBtn) fmoreBtn.classList.toggle("fset", !!n);
     // Segmented buttons follow the hidden input, so prefs-seeded state and clicks agree.
     if (trackSeg && trackSel) {
@@ -615,6 +623,28 @@
     try { wasOpen = localStorage.getItem("jm_fpanel") || "0"; } catch (err) { wasOpen = "0"; }
     setPanel(wasOpen === "1");
     fmoreBtn.addEventListener("click", function () { setPanel(!rail.classList.contains("open")); });
+  }
+
+  // ---- collapse the whole rail to a strip (desktop) ----
+  // Purely presentational: no filter value changes, so nothing re-renders. Persisted per browser
+  // because whether you want the filters parked is a standing preference, not a per-visit one.
+  // Below 900px the CSS ignores .railcollapsed entirely — there the rail is already collapsible.
+  function setRail(collapsed) {
+    if (!feedLayout) return;
+    feedLayout.classList.toggle("railcollapsed", !!collapsed);
+    if (railCollapseBtn) railCollapseBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    try { localStorage.setItem("jm_railcollapsed", collapsed ? "1" : "0"); } catch (err) { /* private mode */ }
+  }
+  if (feedLayout && (railCollapseBtn || railExpandBtn)) {
+    var railWas = "0";
+    try { railWas = localStorage.getItem("jm_railcollapsed") || "0"; } catch (err) { railWas = "0"; }
+    setRail(railWas === "1");
+    if (railCollapseBtn) railCollapseBtn.addEventListener("click", function () { setRail(true); });
+    if (railExpandBtn) railExpandBtn.addEventListener("click", function () {
+      setRail(false);
+      var f = document.getElementById("q");        // land focus somewhere useful on reopen
+      if (f) f.focus({ preventScroll: true });
+    });
   }
 
   // ---- "Clear" — reset every NARROWING filter, leaving search text and track alone ----
