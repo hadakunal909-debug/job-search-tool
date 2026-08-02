@@ -846,6 +846,50 @@ SESSION = _make_session()
 
 
 # ============================================================
+# TRUNCATION REGISTRY
+#
+# Every paged scraper stops at a safety cap so one giant tenant can't page forever. The
+# danger isn't the cap, it's that hitting one used to be SILENT: the board reported a
+# healthy-looking count and nobody could tell it was a ceiling rather than the real total.
+# That is how "Program Manager, Relo Ops Excellence (RLOI)" went missing — Amazon returned
+# 734 hits for its search term and the scraper took the first 200 without comment.
+#
+# So a scraper that stops because of its cap now says so, and main() prints the list at the
+# end of the run. Finding out costs one line of output; not finding out costs a job you only
+# notice months later because you happened to see it somewhere else.
+# ============================================================
+TRUNCATED = []
+
+
+def note_truncation(board, fetched, cap, total=None, detail=""):
+    """Record that `board` stopped at its cap rather than running out of results.
+
+    total=None means the source never told us how many there were (most don't), so all we
+    can say is "we stopped at the ceiling". When a source DOES report a total, we can show
+    exactly how much was left behind — far more actionable.
+    """
+    TRUNCATED.append({"board": board, "fetched": fetched, "cap": cap,
+                      "total": total, "detail": detail})
+
+
+def truncation_report():
+    """Human-readable summary of everything that hit a ceiling this run ('' if nothing did)."""
+    if not TRUNCATED:
+        return ""
+    lines = ["", "!! %d board(s) hit a paging cap — these are TRUNCATED, not complete:" % len(TRUNCATED)]
+    for t in sorted(TRUNCATED, key=lambda x: -(x.get("total") or x["fetched"])):
+        miss = ""
+        if t.get("total"):
+            miss = "  (source reports %d — missing ~%d)" % (t["total"], max(0, t["total"] - t["fetched"]))
+        lines.append("   %-34s stopped at %d (cap %d)%s%s"
+                     % (t["board"][:34], t["fetched"], t["cap"], miss,
+                        (" " + t["detail"]) if t["detail"] else ""))
+    lines.append("   Raise that source's MAX_* constant to go deeper (costs scrape time).")
+    return "\n".join(lines)
+
+
+
+# ============================================================
 # FETCHERS  — turn a board URL into job rows
 # Greenhouse / Lever / Ashby / SmartRecruiters each expose a public JSON API,
 # which is far more stable than scraping HTML and returns clean locations. Only
@@ -1265,6 +1309,11 @@ def scrape_workday(board_url):
         if total and offset >= total:                    # read the whole board
             break
         time.sleep(random.uniform(0.1, 0.25))
+    else:
+        # Fell out on WORKDAY_MAX_JOBS. Worse here than elsewhere: we page with an EMPTY
+        # search, so the order is the tenant's own and the jobs we never see are an
+        # arbitrary slice, not the low-relevance tail.
+        note_truncation(board_url, offset, WORKDAY_MAX_JOBS, total)
     return rows
 
 
@@ -1344,6 +1393,10 @@ def scrape_amazon(board_url):
             if offset >= total:                  # walked the whole result set for this term
                 break
             time.sleep(random.uniform(0.3, 0.7))
+        else:
+            # while-loop ran to AMAZON_MAX_PER_TERM without exhausting the term
+            note_truncation("Amazon", offset, AMAZON_MAX_PER_TERM, total,
+                            detail="term=%r" % term)
     return rows
 
 
@@ -1453,6 +1506,12 @@ def scrape_adzuna(board_url):
         if len(results) < 50 or page * 50 >= data.get("count", 0):
             break
         time.sleep(random.uniform(0.3, 0.7))
+    else:
+        # Ran all 5 pages with more still available. Deliberately NOT raised: Adzuna's free
+        # tier is ~250 calls/day and these company pulls already use most of it. This is a
+        # budget ceiling, not an oversight — but it should still be visible.
+        note_truncation("adzuna:" + company, len(seen), 250, data.get("count"),
+                        detail="(Adzuna free-tier budget)")
     return rows
 
 
@@ -1499,6 +1558,9 @@ def scrape_adzuna_search(board_url):
         if len(results) < 50 or page * 50 >= data.get("count", 0):
             break
         time.sleep(random.uniform(0.3, 0.7))
+    else:
+        note_truncation("adzuna-search:" + query, len(seen), 200, data.get("count"),
+                        detail="(Adzuna free-tier budget)")
     return rows
 
 
@@ -1746,6 +1808,8 @@ def scrape_phenom(board_url):
         if total and offset >= total:
             break
         time.sleep(random.uniform(0.2, 0.5))
+    else:
+        note_truncation(board_url, offset, PHENOM_MAX_JOBS, total)
     return rows
 
 
@@ -1803,6 +1867,8 @@ def scrape_oracle(board_url):
         if total and offset >= total:
             break
         time.sleep(random.uniform(0.2, 0.5))
+    else:
+        note_truncation(board_url, offset, ORACLE_MAX_JOBS, total)
     return rows
 
 
@@ -1816,6 +1882,11 @@ def _workable_slug(board_url):
     return segs[0] if segs else ""                    # apply.workable.com/{slug}
 
 
+# 10 postings per page. Raised from 30 pages (300) on 2026-08-01 — a hard cap that low was
+# silently clipping any mid-size tenant, and Workable pages are cheap.
+WORKABLE_MAX_PAGES = 120
+
+
 def scrape_workable(board_url):
     """Workable via the public v3 jobs search the apply.workable.com pages call (POST,
     paged by a nextPage token). The older v1 'widget' endpoint often returns an empty
@@ -1826,7 +1897,7 @@ def scrape_workable(board_url):
     api = "https://apply.workable.com/api/v3/accounts/%s/jobs" % slug
     hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
     rows, seen, token = [], set(), ""
-    for _ in range(30):                               # 10/page -> up to 300 postings
+    for _page in range(WORKABLE_MAX_PAGES):           # 10/page
         body = {"query": "", "department": [], "location": [],
                 "remote": [], "workplace": [], "worktype": []}
         if token:
@@ -1852,6 +1923,8 @@ def scrape_workable(board_url):
         if not token:
             break
         time.sleep(random.uniform(0.2, 0.4))
+    else:
+        note_truncation(board_url, len(seen), WORKABLE_MAX_PAGES * 10)
     return rows
 
 
@@ -1927,6 +2000,8 @@ def scrape_ultipro(board_url):
         if total and skip >= total:
             break
         time.sleep(random.uniform(0.2, 0.5))
+    else:
+        note_truncation(board_url, skip, ULTIPRO_MAX_JOBS, total)
     return rows
 
 
@@ -2144,6 +2219,10 @@ def _rippling_jobposts(page_html):
     return [], 0
 
 
+# 20 postings per page. Raised from 25 pages (500) on 2026-08-01 alongside the other caps.
+RIPPLING_MAX_PAGES = 100
+
+
 def scrape_rippling(board_url):
     """Rippling ATS boards. No public JSON API, but the board page is server-rendered
     Next.js — each page's job list (20/page) rides in its __NEXT_DATA__ blob."""
@@ -2152,7 +2231,7 @@ def scrape_rippling(board_url):
         return []
     slug = m.group(1)
     rows, seen = [], set()
-    for page in range(25):                            # 20/page -> up to 500 postings
+    for page in range(RIPPLING_MAX_PAGES):            # 20/page
         try:
             r = _safe_get("https://ats.rippling.com/%s/jobs?page=%d" % (slug, page),
                           timeout=20)
@@ -2181,6 +2260,9 @@ def scrape_rippling(board_url):
         if page + 1 >= (total_pages or 1):
             break
         time.sleep(random.uniform(0.2, 0.5))
+    else:
+        note_truncation(board_url, len(seen), RIPPLING_MAX_PAGES * 20,
+                        detail="(totalPages=%s)" % total_pages)
     return rows
 
 
@@ -2244,6 +2326,8 @@ def _jobdiva_pages(token, jh):
         if total and frm >= total:
             break
         time.sleep(random.uniform(0.15, 0.35))
+    else:
+        note_truncation("jobdiva:%s" % str(token)[:20], frm, JOBDIVA_MAX_JOBS, total)
 
 
 def scrape_jobdiva(board_url):
@@ -2396,6 +2480,8 @@ def scrape_avature(board_url):
         if not cards or new == 0:                           # reached the end of the board
             break
         time.sleep(random.uniform(0.2, 0.4))
+    else:
+        note_truncation(board_url, offset, AVATURE_MAX_JOBS)
     return rows
 
 
@@ -3353,6 +3439,12 @@ def main():
                 print(f"Marked {closed} posting(s) closed (rows kept; Saved/Applied unaffected).")
         except Exception as e:
             print("  (closed-posting check errored, scrape unaffected: %s)" % str(e)[:120])
+
+    # Any board that stopped at its paging cap rather than running out of results. Printed
+    # BEFORE the new-jobs list so it can't scroll off the end of a long run's output.
+    trunc = truncation_report()
+    if trunc:
+        print(trunc)
 
     dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
     print(f"\nScanned {len(scraped)} postings ({dropped or 'nothing dropped'}).")
