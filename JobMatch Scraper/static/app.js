@@ -100,8 +100,15 @@
     for (var i = 0; i < ps.length; i++) {
       var s = ps[i].getAttribute("data-d");
       if (s) {
-        ps[i].textContent = relTime(s);
-        ps[i].title = (ps[i].getAttribute("data-verified") ? "Verified posting date · " : "Posted ") + s;
+        var rel = relTime(s);
+        if (ps[i].getAttribute("data-added")) {
+          // "Added today" reads better than "Added Today"; older values are already lowercase.
+          ps[i].textContent = "Added " + (rel === "Today" || rel === "Yesterday" ? rel.toLowerCase() : rel);
+          ps[i].title = "This employer publishes no posting date. First seen in your feed on " + s + ".";
+        } else {
+          ps[i].textContent = rel;
+          ps[i].title = (ps[i].getAttribute("data-verified") ? "Verified posting date · " : "Posted ") + s;
+        }
       }
     }
   }
@@ -133,6 +140,9 @@
     // "New" mirrors the card's own date label: show it iff the displayed date renders as "Today".
     // relTime() is the same fn that renders .posted, so the badge and the date can never disagree,
     // and it's timezone-correct in the viewer's locale (handles UTC-stamped dates that read today).
+    // Deliberately j.date only, NOT rowDate(): "New" means newly POSTED, and for a job with no
+    // publisher date we don't know that. Firing on first_seen would also paint hundreds of badges
+    // at once every time the extension re-imports a board like Tesla wholesale.
     var newFlag = (relTime(j.date) === "Today") ? '<span class="newflag">New</span>' : '';
     var badges = "";
     if (j.intern)
@@ -175,8 +185,18 @@
       badges += '<span class="rem" title="Remote or remote-friendly per the posting">Remote</span>';
     if (j.closed)
       badges += '<span class="closed" title="This posting has disappeared from the company\'s job board across several checks, so it is probably filled or expired.">Closed</span>';
-    var posted = j.date ? ' · <span class="posted" data-d="' + H(j.date) + '"' +
-      (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>' : '';
+    // Some employers publish no posting date anywhere, so the card falls back to when the job
+    // reached us. It carries data-added so formatDates() labels it "Added …" and styles it
+    // apart — an approximate arrival date must never read as a posting date. The text starts
+    // out as "Added <iso>" so there's no flash of a bare date before formatDates() runs.
+    var posted = '';
+    if (j.date) {
+      posted = ' · <span class="posted" data-d="' + H(j.date) + '"' +
+        (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>';
+    } else if (j.first_seen) {
+      posted = ' · <span class="posted added" data-d="' + H(j.first_seen) +
+        '" data-added="1">Added ' + H(j.first_seen) + '</span>';
+    }
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "") + (xg ? " in-group" : "");
     return '<article class="' + cls + '"' + (xg ? ' data-xg="' + H(xg) + '"' : '') +
@@ -297,6 +317,10 @@
     var mm = d.getMonth() + 1, dd = d.getDate();
     return d.getFullYear() + "-" + (mm < 10 ? "0" : "") + mm + "-" + (dd < 10 ? "0" : "") + dd;
   }
+  // Mirror of web.py _row_date(): the date a job is ordered and filtered by. Falls back to
+  // first_seen so a job whose employer publishes no posting date (Tesla) is judged on when it
+  // reached us rather than escaping every date filter. feed_parity.py checks this twin.
+  function rowDate(j) { return j.date || j.first_seen || ""; }
   var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
   function annualize(amount, period) {
     var n = parseInt(amount, 10) || 0;
@@ -323,7 +347,7 @@
     if (ok && searching)
       ok = ((j.title || "") + " " + (j.company || "") + " " + (j.location || ""))
         .toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
-    if (ok && cut) { var dt = j.date || ""; if (dt && dt < cut) ok = false; }
+    if (ok && cut) { var dt = rowDate(j); if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
     if (ok && everifyOnly && everifyOnly.checked && !j.everify) ok = false;
     if (ok && locInp && locInp.value.trim()) ok = locHit(j, locInp.value.trim().toLowerCase());
@@ -361,7 +385,7 @@
     var cut = dateCutoff(), matched = [];
     for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
     matched.sort(function (a, b) {
-      if (sortBy === "newest") return (b.date || "").localeCompare(a.date || "");
+      if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
       return (b.score || 0) - (a.score || 0);
     });
     // `limit` paginates DISPLAY UNITS, so a collapsed group costs one slot rather than 431.

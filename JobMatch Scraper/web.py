@@ -457,6 +457,10 @@ def _build_row(j, score):
             # The "New" badge is derived client-side from this date (it shows iff it reads "Today").
             "date": ((j.get("posted_verified") or j.get("found_date")) or "")[:10],
             "date_verified": bool(j.get("posted_verified")),
+            # Some employers publish no posting date at all (Tesla's careers API has no date
+            # field anywhere), so this is when the job first entered OUR database. Rendered as
+            # "Added <x>", never as a posting date. "" until the migration has been run.
+            "first_seen": str(j.get("first_seen") or "")[:10],
             "score": 0 if pending else score, "score_pending": pending,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c), "everify": core.is_everify(c, _EVERIFY_INDEX),
@@ -623,6 +627,17 @@ _annualize = core.annualize_pay
 _loc_hit = core.location_matches
 
 
+# The date a row is ORDERED AND FILTERED by. "Posted within" and "Newest" go through this rather
+# than reading r["date"], so a job whose employer publishes no posting date is judged on when it
+# entered the corpus instead of being treated as dateless. Without the fallback those rows passed
+# every date filter — the test is `date and date < cut`, and an empty date short-circuits to
+# "keep" — so "Past 24 hours" silently returned 374 undated Tesla cards. One function for both
+# uses, deliberately: a separate filter/sort pair is two things that can drift.
+# app.js mirrors this as rowDate(); scripts/feed_parity.py checks the mirror.
+def _row_date(r):
+    return r.get("date") or r.get("first_seen") or ""
+
+
 def _filter_rows(rows, statuses, p):
     """Server-side mirror of app.js matches() + sort: filter the ranked rows by the feed
     controls and return a list of (row, status) in display order. `p` is the query args."""
@@ -662,8 +677,10 @@ def _filter_rows(rows, statuses, p):
         if searching and q not in (r["title"] + " " + r["company"] + " " +
                                    (r.get("location") or "")).lower():
             continue
-        if cut and r["date"] and r["date"] < cut:
-            continue
+        if cut:
+            rdate = _row_date(r)
+            if rdate and rdate < cut:
+                continue
         if hide_no and r["sponsor_jd"] == "blocked":
             continue
         if everify_only and not r["everify"]:
@@ -705,7 +722,7 @@ def _filter_rows(rows, statuses, p):
                         continue
         out.append((r, st))
     if (p.get("sort") or "score") == "newest":
-        out.sort(key=lambda rs: rs[0]["date"] or "", reverse=True)
+        out.sort(key=lambda rs: _row_date(rs[0]), reverse=True)
     return out                                  # else already in score order (rows pre-sorted)
 
 
@@ -2491,7 +2508,9 @@ def ext_bulk_jobs():
             spons = "yes" if scraper.sponsors_h1b(company, sidx) else "no"
         # NO import-time stamp: an imported job's posting date is UNKNOWN until the
         # detail-fetch finds a real datePosted — a stamp would show as "Today" in the
-        # feed and lie about freshness. Empty -> the card simply shows no date.
+        # feed and lie about freshness. The honest "when did this reach us" value is the
+        # jobs.first_seen column, which the DATABASE fills on insert; empty found_date now
+        # means the card shows "Added <date>" rather than no date at all.
         kept.append({"found_date": (j.get("found_date") or ""), "title": title,
                      "company": company, "location": loc, "url": url, "sponsors_h1b": spons})
 

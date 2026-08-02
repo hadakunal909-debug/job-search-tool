@@ -89,6 +89,12 @@ def _merge_fields(keeper, losers):
     if dates and dates[0] != (keeper.get("found_date") or "").strip():
         patch["found_date"] = dates[0]
 
+    # first_seen is when the posting entered OUR database, so the same rule applies: the
+    # earliest sighting anywhere in the group is when we really first saw this job.
+    seen = sorted(d for d in ((str(r.get("first_seen") or "")).strip() for r in group) if d)
+    if seen and seen[0] != str(keeper.get("first_seen") or "").strip():
+        patch["first_seen"] = seen[0]
+
     # Everything else: fill only what the keeper is missing.
     for field in ("title", "company", "location", "sponsors_h1b",
                   "posted_verified", "posted_confidence", "status"):
@@ -104,8 +110,15 @@ def main(argv):
     apply = "--apply" in argv
     assume_yes = "--yes" in argv
 
-    rows = [r for r in db._fetch_all(db.TABLE, {"select": ",".join(db.FIELDS)})
-            if r.get("url")]
+    # Unlike db.load_jobs() this names every column, so it 400s on a database where the newest
+    # migration hasn't been run. Retry without first_seen rather than dying on the un-migrated
+    # case — the merge below simply won't have a date to carry forward.
+    try:
+        fetched = db._fetch_all(db.TABLE, {"select": ",".join(db.FIELDS)})
+    except Exception:
+        cols = [c for c in db.FIELDS if c != "first_seen"]
+        fetched = db._fetch_all(db.TABLE, {"select": ",".join(cols)})
+    rows = [r for r in fetched if r.get("url")]
     with_jd = db.urls_with_jd()
     statuses = _user_job_rows()
     flagged_by_url = collections.defaultdict(list)
