@@ -5,15 +5,27 @@ name: Scrape jobs
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
 #
-# SCHEDULE: 3 feed updates a day (~9am, 1pm, 5pm ET). GitHub cron is UTC and does
-# NOT track DST, so the three fixed UTC times below land ~1h earlier in winter (EST)
-# than in summer (EDT) — fine for a job feed. Cron fires exactly 3x/day (no gated
-# no-op runs), which keeps us comfortably inside the free 2,000 Actions-minutes/month.
-# The heavy score/verify/email pass runs once a day (the morning run); manual dispatch
-# always does the full pass.
+# SCHEDULE: 2 feed updates per WEEKDAY — 10am and 2pm ET — and nothing on Sat/Sun.
+# That's 2 x ~22 = ~44 scheduled runs a month, down from the previous 3-a-day-every-day
+# (~90), so it sits well inside the free 2,000 Actions-minutes/month.
+#
+# GitHub cron is UTC and does NOT track DST, so these two fixed UTC times are exactly
+# 10am/2pm ET during EDT (Mar-Nov) and land an hour earlier — 9am/1pm ET — under EST.
+# Accepted drift: a job feed does not care, and the alternative (extra cron entries at
+# 15/19 UTC gated by the Eastern hour) burns billed minutes on no-op runs to buy an hour.
+# Both times stay on the same UTC calendar day as the ET day, so 1-5 really is Mon-Fri
+# either side of the DST switch — no run leaks onto Saturday or Sunday.
+#
+# Day-of-week is written 1-5 rather than MON-FRI purely because the numeric form is
+# unambiguous in every cron parser. Sunday is 0.
+#
+# The heavy score/verify/email pass runs once a day, on the morning run (see the gate
+# step below, which keys off the Eastern hour, not the cron line). Manual dispatch always
+# does the full pass. With no weekend runs, no scoring or email digest goes out Sat/Sun.
 on:
   schedule:
-    - cron: "0 13,17,21 * * *"   # 3x/day: ~9am,1pm,5pm ET (EDT); ~1h earlier under EST
+    - cron: "0 14 * * 1-5"      # 10am ET Mon-Fri (9am under EST) — the heavy pass runs here
+    - cron: "0 18 * * 1-5"      #  2pm ET Mon-Fri (1pm under EST) — feed refresh only
   workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
@@ -39,7 +51,11 @@ jobs:
           H=$(TZ=America/New_York date +%-H)          # current Eastern hour, no leading zero
           RUN=yes; HEAVY=no
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            if [ "$H" -le 9 ]; then HEAVY=yes; fi      # the morning run does the once-a-day heavy pass
+            # "Before noon Eastern" == the morning run, which does the once-a-day heavy pass.
+            # Deliberately a noon boundary rather than an exact hour: the 14:00 UTC cron lands
+            # at 10am ET under EDT and 9am under EST, and the 18:00 UTC one at 2pm/1pm, so this
+            # test picks the right run of the day without caring which side of DST we are on.
+            if [ "$H" -lt 12 ]; then HEAVY=yes; fi
           else
             HEAVY=yes                                   # manual / app-button run: full pass
           fi
