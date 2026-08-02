@@ -1289,20 +1289,36 @@ AMAZON_QUERIES = (
 )
 
 
+# Amazon's search.json caps a page at 100 and reports the true total in `hits`, so we can
+# page a term to exhaustion. MAX_PER_TERM is only a safety stop, mirroring WORKDAY_MAX_JOBS.
+AMAZON_PAGE_LIMIT = 100
+AMAZON_MAX_PER_TERM = 1000
+
+
 def scrape_amazon(board_url):
-    """Amazon's own portal via its public search.json feed. Queries entry-level role
-    terms (US-only); the title filter then trims to genuinely entry-level titles."""
+    """Amazon's own portal via its public search.json feed. Runs each term in
+    AMAZON_QUERIES (US-only) and pages it to exhaustion; the title filter then decides
+    what to keep.
+
+    Pages EVERY result, not the first two pages. Amazon's relevance ranking buries plenty
+    of on-target roles: measured 2026-08-01, "program manager" returns 734 US hits and
+    "Program Manager, Relo Ops Excellence (RLOI)" sits at #351 — invisible to the old
+    2-page (200-result) window. Across results 201-800 for that one term, 316 more titles
+    passed the filter than the 168 the window caught, i.e. the cap was costing us about
+    two thirds of Amazon. Same lesson scrape_workday learned; see its docstring."""
     from urllib.parse import urlparse, parse_qs
     q = parse_qs(urlparse(board_url).query)
     country = (q.get("country") or ["USA"])[0]
     loc = (q.get("loc_query") or ["United States"])[0]
     seen, rows = set(), []
     for term in AMAZON_QUERIES:
-        offset = 0
-        for _ in range(2):                       # up to 2 pages per term
+        offset, total = 0, None
+        while offset < AMAZON_MAX_PER_TERM:
             data = _get_json("https://www.amazon.jobs/en/search.json", params={
                 "base_query": term, "country": country, "loc_query": loc,
-                "result_limit": 100, "offset": offset, "sort": "relevant"})
+                "result_limit": AMAZON_PAGE_LIMIT, "offset": offset, "sort": "relevant"})
+            if total is None:
+                total = data.get("hits") or 0
             hits = data.get("jobs", [])
             if not hits:
                 break
@@ -1325,6 +1341,8 @@ def scrape_amazon(board_url):
                     pass
                 rows.append(row)
             offset += len(hits)
+            if offset >= total:                  # walked the whole result set for this term
+                break
             time.sleep(random.uniform(0.3, 0.7))
     return rows
 
