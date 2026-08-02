@@ -86,7 +86,10 @@ FIELDS = ["found_date", "title", "company", "location", "url",
           # --- derived by scraper/score_jobs.py so the feed can filter on them ---
           "loc_state", "loc_metro", "remote",
           "salary_min", "salary_max", "salary_period",
-          "last_seen", "is_active", "miss_count"]
+          "last_seen", "is_active", "miss_count",
+          # Written by the DATABASE (default + triggers), never by us — see add_jobs(). Listed
+          # here so the CSV path round-trips it and dedupe_urls carries it across a URL move.
+          "first_seen"]
 
 # One-time SQL for the derived columns above. Surfaced in the app (and printed by
 # score_jobs) when a write fails because they don't exist yet — same self-serve pattern
@@ -104,7 +107,22 @@ JOBS_DERIVED_SQL = (
     "-- consecutive successful fetches of its own board a job has been absent from\n"
     "alter table public.jobs add column if not exists miss_count integer default 0;\n"
     "create index if not exists jobs_loc_state_idx on public.jobs (loc_state);\n"
-    "create index if not exists jobs_is_active_idx on public.jobs (is_active);\n")
+    "create index if not exists jobs_is_active_idx on public.jobs (is_active);\n"
+    "\n"
+    "-- first_seen: the date a job first entered THIS database. NOT found_date, which is the\n"
+    "-- publisher's posting date (or our scrape stamp). Some employers publish no posting date\n"
+    "-- anywhere -- Tesla's careers API has no date field at all -- so without this their cards\n"
+    "-- show no date and slip through every 'posted within' filter.\n"
+    "alter table public.jobs add column if not exists first_seen date;\n"
+    "-- Backfill: an existing date is the best evidence of when we first saw the row. found_date\n"
+    "-- is TEXT, either 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM', hence substring rather than a cast.\n"
+    "update public.jobs set first_seen = substring(found_date from 1 for 10)::date\n"
+    " where first_seen is null and found_date ~ '^\\d{4}-\\d{2}-\\d{2}';\n"
+    "-- Rows with no date at all: we only know it was on or before today, so today is the floor.\n"
+    "update public.jobs set first_seen = current_date where first_seen is null;\n"
+    "-- Default LAST. `add column ... default current_date` as ONE statement would have rewritten\n"
+    "-- every existing row with today, which is the lie this column exists to avoid.\n"
+    "alter table public.jobs alter column first_seen set default current_date;\n")
 
 _creds_cache = None
 
@@ -272,7 +290,7 @@ def _save_actions(a):
 _FEED_COLS_CORE = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
 _FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
                   "salary_min", "salary_max", "salary_period",
-                  "is_active", "last_seen", "miss_count")
+                  "is_active", "last_seen", "miss_count", "first_seen")
 _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
@@ -348,10 +366,19 @@ def add_jobs(rows):
     if not rows:
         return
     if using_supabase():
-        _upsert([{k: r[k] for k in FIELDS if k in r and r[k] != ""} for r in rows])
+        # first_seen is EXCLUDED on purpose, even though it's in FIELDS. _upsert normalizes each
+        # chunk to the union of its rows' keys, so a single row carrying it would make every
+        # other row in that chunk send an explicit null and merge-duplicates would blank dates
+        # we already recorded. The column's DEFAULT + triggers own it; we never send it.
+        _upsert([{k: r[k] for k in FIELDS if k != "first_seen" and k in r and r[k] != ""}
+                 for r in rows])
         return
     existing = existing_urls()
-    new = [r for r in rows if r.get("url") not in existing]
+    # A CSV has no column defaults, so stamp it here. Safe: this branch only appends URLs that
+    # aren't already stored, so it can never move an existing job's first_seen.
+    today = datetime.date.today().isoformat()
+    new = [dict(r, first_seen=(r.get("first_seen") or today))
+           for r in rows if r.get("url") not in existing]
     _write_csv(_read_csv() + new)
 
 

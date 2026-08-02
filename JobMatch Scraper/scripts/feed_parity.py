@@ -42,7 +42,7 @@ APP_JS = os.path.join(ROOT, "static", "app.js")
 # The pure predicate/grouping functions app.js and web.py mirror. Order matters only for
 # readability — node hoists function declarations.
 JS_FUNCS = ["groupKey", "pickLeaders", "groupUnits", "flatUnits", "groupingOn",
-            "locHit", "annualize", "matches"]
+            "locHit", "annualize", "rowDate", "matches"]
 
 
 # ----------------------------- the corpus -----------------------------
@@ -70,6 +70,9 @@ def _row(rng, n, title, company, state, **over):
         "date": (datetime.date.today() - datetime.timedelta(
             days=rng.choice([0, 1, 3, 9, 20, 29, 31, 64, 140]))).isoformat(),
         "date_verified": False,
+        # Empty for every row except the undated cohort below — a normal row is filtered on
+        # its posting date and never reaches the fallback.
+        "first_seen": "",
         "sponsor_jd": rng.choice(["", "", "open", "blocked"]),
         "sponsors_h1b": "", "everify": rng.random() < 0.35,
         "agency": False, "cap_exempt": False, "intern": False,
@@ -118,6 +121,20 @@ def build_corpus():
     # ...while a genuinely different level must not.
     add("Software Engineer II", "Normalize Inc", "CA")
     add("Software Engineer III", "Normalize Inc", "CA")
+
+    # Employers that publish NO posting date (Tesla, and a ~180-row tail). These carry only a
+    # first_seen, so both implementations have to fall back to it or the date filter diverges —
+    # and before that fallback existed they passed EVERY "posted within" filter.
+    def ago(days):
+        return (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+
+    for k, age in enumerate([0, 0, 1, 2, 6, 8, 29, 31, 88, 91, 200]):
+        for i in range(4):
+            add("Production Associate %d" % k, "Undated Motors",
+                STATES[(k + i) % len(STATES)], date="", first_seen=ago(age))
+    # Neither date: must still survive every date filter, on both sides.
+    for i in range(4):
+        add("Mystery Role %d" % i, "No Dates Inc", "TX", date="", first_seen="")
 
     # A run where every member shares one state: the leader picker must fall back to rank order.
     for i in range(9):
@@ -200,6 +217,12 @@ def build_cases():
         ("date any", {"date": "any"}),
         ("date 7d", {"date": "7"}),
         ("date 1d", {"date": "1"}),
+        # The undated cohort: these hit the first_seen fallback rather than r["date"], and
+        # each window straddles a couple of their ages so the boundary is really tested.
+        ("undated rows, 1d", {"date": "1", "min": "0"}),
+        ("undated rows, 7d", {"date": "7", "min": "0"}),
+        ("undated rows, 30d", {"date": "30", "min": "0"}),
+        ("undated rows, 90d + newest", {"date": "90", "sort": "newest", "min": "0"}),
         ("min 0", {"min": "0"}),
         ("min 68", {"min": "68"}),
     ]
@@ -308,7 +331,7 @@ IN.cases.forEach(function (cs) {
   // this a test of the FILTER, not of a timezone. dateCutoff() is compared separately below.
   var matched = IN.rows.filter(function (j) { return matches(j, cs.cut); });
   matched.sort(function (a, b) {
-    if (sortBy === "newest") return (b.date || "").localeCompare(a.date || "");
+    if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
     return (b.score || 0) - (a.score || 0);
   });
   var units = groupingOn() ? groupUnits(matched) : flatUnits(matched);
