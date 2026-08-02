@@ -19,9 +19,11 @@ name: Scrape jobs
 # Day-of-week is written 1-5 rather than MON-FRI purely because the numeric form is
 # unambiguous in every cron parser. Sunday is 0.
 #
-# The heavy score/verify/email pass runs once a day, on the morning run (see the gate
-# step below, which keys off the Eastern hour, not the cron line). Manual dispatch always
-# does the full pass. With no weekend runs, no scoring or email digest goes out Sat/Sun.
+# The heavy score/verify/email pass runs on the morning run each weekday, PLUS the Friday
+# afternoon run so a Friday PM batch is scored and emailed before the weekend instead of
+# waiting until Monday. That's ~26 heavy passes a month. The gate step below decides, keyed
+# off the Eastern hour and weekday rather than the cron line. Manual dispatch always does
+# the full pass. Nothing at all runs Sat/Sun, so the digest is weekdays only.
 on:
   schedule:
     - cron: "0 14 * * 1-5"      # 10am ET Mon-Fri (9am under EST) — the heavy pass runs here
@@ -49,6 +51,7 @@ jobs:
         id: gate
         run: |
           H=$(TZ=America/New_York date +%-H)          # current Eastern hour, no leading zero
+          D=$(TZ=America/New_York date +%u)           # Eastern day of week, 1=Mon .. 7=Sun
           RUN=yes; HEAVY=no
           if [ "${{ github.event_name }}" = "schedule" ]; then
             # "Before noon Eastern" == the morning run, which does the once-a-day heavy pass.
@@ -56,12 +59,17 @@ jobs:
             # at 10am ET under EDT and 9am under EST, and the 18:00 UTC one at 2pm/1pm, so this
             # test picks the right run of the day without caring which side of DST we are on.
             if [ "$H" -lt 12 ]; then HEAVY=yes; fi
+            # ...plus Friday afternoon. There is no weekend run, so without this anything the
+            # Friday PM scrape finds sits unscored — score_pending on the card, invisible to the
+            # match filter, and absent from the digest — until Monday morning. One extra heavy
+            # pass a week buys a scored, emailed Friday batch.
+            if [ "$D" = "5" ] && [ "$H" -ge 12 ]; then HEAVY=yes; fi
           else
             HEAVY=yes                                   # manual / app-button run: full pass
           fi
           echo "run=$RUN"     >> "$GITHUB_OUTPUT"
           echo "heavy=$HEAVY" >> "$GITHUB_OUTPUT"
-          echo "ET hour=$H  event=${{ github.event_name }}  ->  run=$RUN heavy=$HEAVY"
+          echo "ET $(TZ=America/New_York date '+%a %H:%M') (dow=$D hour=$H)  event=${{ github.event_name }}  ->  run=$RUN heavy=$HEAVY"
 
       - name: Install dependencies
         if: steps.gate.outputs.run == 'yes'
