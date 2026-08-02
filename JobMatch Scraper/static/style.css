@@ -145,6 +145,32 @@ textarea{resize:vertical}
 .results .tabs{margin-top:0}
 .results .count{margin:0}
 
+/* ---- collapsed rail ----
+   Once a search is dialled in the filters are dead weight, so the whole rail folds to a 46px
+   strip and the grid picks up a fourth card column (1560 - 46 - 20 = 1494px of results).
+   The strip keeps the active-filter badge: a collapsed rail must never hide that filters are on.
+   These live in the file's ONLY min-width query. The alternative — declaring them unconditionally
+   and undoing six of them in the <=900px block — fought `.rail.open .railbody` on specificity and
+   could leave the mobile rail unopenable. Scoping to desktop is the safer shape. */
+.railstrip{display:none}
+.railcollapsebtn{display:none;margin-left:auto;font:inherit;font-size:15px;line-height:1;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:7px;padding:4px 8px;cursor:pointer;transition:background .14s,color .14s}
+.railcollapsebtn:hover{background:var(--surface2);color:var(--ink)}
+.railcollapsebtn:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+@media (min-width:901px){
+  .railcollapsebtn{display:inline-flex}
+  .feedlayout.railcollapsed{grid-template-columns:46px minmax(0,1fr)}
+  .feedlayout.railcollapsed .rail{padding:10px 4px;align-items:center;max-height:none;overflow:visible}
+  .feedlayout.railcollapsed .railtop,
+  .feedlayout.railcollapsed .railhead,
+  .feedlayout.railcollapsed .railbody{display:none}
+  .feedlayout.railcollapsed .railstrip{display:flex;flex-direction:column;align-items:center;gap:9px;width:100%;padding:6px 0;font:inherit;background:transparent;border:0;border-radius:8px;cursor:pointer;color:var(--muted);transition:background .14s,color .14s}
+  .feedlayout.railcollapsed .railstrip:hover{background:var(--surface2);color:var(--brand-ink)}
+  .feedlayout.railcollapsed .railstrip:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  .rs-chev{font-size:16px;font-weight:700;line-height:1}
+  /* vertical so the word fits a 46px column without truncating */
+  .rs-txt{writing-mode:vertical-rl;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+}
+
 /* career-track segmented control — the feed's primary split, so it reads as one solid object */
 .seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
 .segb{font:inherit;font-size:13.5px;font-weight:600;color:var(--muted);background:transparent;border:0;border-radius:7px;padding:7px 13px;cursor:pointer;white-space:nowrap;transition:background .14s,color .14s,box-shadow .14s}
