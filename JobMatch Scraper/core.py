@@ -985,6 +985,73 @@ def salary_label(smin, smax, period):
 
 
 # ------------------------------------------------------------
+# ROLE TRACK — "is this a builder job or a manager job?"
+#
+# The corpus carries two genuinely different careers since the scraper's title filter was
+# widened to software engineering (2026-08-01): ~17k PM/program/analyst/ops roles and ~8k
+# software/data/ML/infra roles. Nobody is job-hunting for both at once, so the feed offers a
+# one-click split and this is the single definition it splits on. The email digest reads the
+# same function, so "my search" can't mean two different things.
+#
+# Relationship to scraper.INCLUDE: that list decides what we COLLECT, this decides how a
+# collected job is FILED. They're deliberately separate — widening what we scrape shouldn't
+# silently re-file existing jobs, and this has to classify rows scraped before it existed.
+#
+# MANAGEMENT WINS TIES, and that ordering is the whole trick: "Technical Program Manager",
+# "Machine Learning Product Manager" and "Engineering Program Manager" all carry software
+# words but are management jobs. A title is only "dev" when it has a builder phrase and NO
+# management phrase. Anything unrecognised falls to "mgmt" so the two buckets always add up
+# to the whole feed — a job that matched neither (say "Operations Intern") must still appear
+# somewhere, or turning the filter on would silently swallow it.
+_MGMT_TITLE_RE = re.compile(r"""\b(?:
+    (?:project|program|product|portfolio|delivery|engagement|release\s+train)\s+
+        (?:manager|management|coordinator|specialist|administrator|owner|analyst|associate|lead)
+  | project\s+controls? | cost\s+analyst | project\s+planner | planning\s+analyst
+  | (?:project|master|program)\s+scheduler
+  | scrum\s+master | agile\s+coach | pmo | chief\s+of\s+staff
+  | business\s+analyst | business\s+operations | business\s+process
+  | operations\s+(?:manager|analyst|coordinator|specialist|associate|lead)
+  | (?:supply\s+chain|logistics|procurement)\s+(?:analyst|manager|coordinator|specialist)
+  | implementation\s+(?:manager|specialist|consultant|analyst)
+  | product\s+(?:strategist|strategy|operations)
+)\b""", re.I | re.X)
+
+_DEV_TITLE_RE = re.compile(r"""\b(?:
+    software\s+(?:engineer\w*|developer|development|test|quality|architect)
+  | (?:web|mobile|application|applications|game|salesforce|java|python|sql|etl|bi|rpa|ios|
+       android|javascript|react|node|dotnet|net|c\#|full\s*stack|frontend|backend|cloud)\s+
+       (?:developer|development|engineer)
+  | (?:front|back)[-\s]?end | full[-\s]?stack | fullstack
+  | sde | swe | sdet | dba | programmer
+  | (?:data|analytics|platform|infrastructure|systems?|network|release|build|automation|test|
+       qa|security|integration|api|cloud|devops|ml|ai|mobile|ios|android|firmware|embedded)\s+
+       engineer\w*
+  | data\s+(?:scientist|analyst|engineering|science)
+  | machine\s+learning | deep\s+learning | computer\s+vision | artificial\s+intelligence
+  | applied\s+scientist | ml\s*ops | mlops | nlp | prompt\s+engineer\w*
+  | business\s+intelligence | analytics\s+engineer\w*
+  | database\s+(?:administrator|engineer|developer)
+  | dev\s?ops | dev\s?sec\s?ops | site\s+reliability | sre | kubernetes
+  | quality\s+assurance\s+engineer\w* | test\s+automation | application\s+security
+  | systems?\s+(?:analyst|development)
+  | computer\s+science | embedded\s+software | engineering\s+manager
+)\b""", re.I | re.X)
+
+
+def role_track(title):
+    """Which career track a posting belongs to: 'dev' (software/data/infra IC work) or
+    'mgmt' (project/program/product/ops/analyst work).
+
+    Never returns empty — every job lands in exactly one bucket, so the feed's two
+    one-click filters partition the corpus instead of hiding the leftovers.
+    """
+    t = title or ""
+    if _MGMT_TITLE_RE.search(t):
+        return "mgmt"
+    return "dev" if _DEV_TITLE_RE.search(t) else "mgmt"
+
+
+# ------------------------------------------------------------
 # SAVED SEARCH PREFERENCES
 #
 # The feed shipped ten controls that all reset to their defaults on every visit, so a student
@@ -1002,6 +1069,7 @@ DEFAULT_PREFS = {
     "hidenospon": False,
     "exp": "any",         # any | 2 | 5 | senior
     "intern": "any",      # any | only | no
+    "track": "any",       # any | dev (software/data) | mgmt (project/product/ops) — see role_track
     "date": "30",         # any | 1 | 7 | 30 | 90
     "sort": "score",      # score | newest
     "alerts": "off",      # off | daily  — email digest of new matches
@@ -1010,6 +1078,7 @@ DEFAULT_PREFS = {
 _PREF_CHOICES = {
     "exp": ("any", "2", "5", "senior"),
     "intern": ("any", "only", "no"),
+    "track": ("any", "dev", "mgmt"),
     "date": ("any", "1", "7", "30", "90"),
     "sort": ("score", "newest"),
     "alerts": ("off", "daily"),
@@ -1091,6 +1160,10 @@ def prefs_match(row, prefs):
     if intern == "only" and not row.get("intern"):
         return False
     if intern == "no" and row.get("intern"):
+        return False
+    track = p.get("track") or "any"
+    # Fall back to classifying the title: rows cached before `track` existed won't carry it.
+    if track != "any" and (row.get("track") or role_track(row.get("title"))) != track:
         return False
     exp = p.get("exp") or "any"
     if exp != "any":

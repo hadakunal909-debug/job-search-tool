@@ -73,6 +73,9 @@ def _row(rng, n, title, company, state, **over):
         "sponsor_jd": rng.choice(["", "", "open", "blocked"]),
         "sponsors_h1b": "", "everify": rng.random() < 0.35,
         "agency": False, "cap_exempt": False, "intern": False,
+        # Classified from the title exactly as _build_row does, so the track filter is
+        # exercised against the real partition rather than a hand-written label.
+        "track": web.core.role_track(title),
         "exp_years": rng.choice(["", "", 1, 3, 5, 7]), "exp_level": "",
     }
     r.update(over)
@@ -187,6 +190,8 @@ def build_cases():
         ("hide no-sponsorship", {"hidenospon": "1"}),
         ("interns only", {"intern": "only"}),
         ("exclude interns", {"intern": "no"}),
+        ("track: software & data", {"track": "dev", "min": "0", "date": "any"}),
+        ("track: management", {"track": "mgmt", "min": "0", "date": "any"}),
         ("exp <=2 yrs", {"exp": "2"}),
         ("exp hide senior", {"exp": "senior"}),
         ("show closed", {"showclosed": "1"}),
@@ -217,6 +222,11 @@ def build_cases():
         ("salary + exp + closed", {"minsal": "60000", "exp": "5", "showclosed": "1", "min": "0"}),
         ("search amazon, all agencies, closed", {"q": "manager", "hideagency": "", "showclosed": "1",
                                                  "min": "0", "date": "any"}),
+        ("dev track + remote + newest", {"track": "dev", "remote": "1", "sort": "newest",
+                                         "min": "0", "date": "any"}),
+        ("mgmt track + interns + agencies", {"track": "mgmt", "intern": "only", "hideagency": "",
+                                             "min": "0", "date": "any"}),
+        ("dev track + search + exp", {"track": "dev", "q": "engineer", "exp": "5", "min": "0"}),
     ]
     for name, over in mixes:
         c = dict(base)
@@ -266,6 +276,7 @@ var tab = "recommended", minVal = 0, sortBy = "score";
 function ctl(v) { return { value: v }; }
 function chk(v) { return { checked: !!v }; }
 var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any"),
+    trackSel = ctl("any"),
     locInp = ctl(""), minSalSel = ctl(""), sortSel = ctl("score"),
     hideNo = chk(false), everifyOnly = chk(false), remoteOnly = chk(false),
     hideAgency = chk(false), showClosed = chk(false);
@@ -283,6 +294,7 @@ IN.cases.forEach(function (cs) {
   dateSel.value = p.date || "any";
   expSel.value = p.exp || "any";
   internSel.value = p.intern || "any";
+  trackSel.value = p.track || "any";
   locInp.value = p.loc || "";
   minSalSel.value = p.minsal || "";
   hideNo.checked = p.hidenospon === "1";

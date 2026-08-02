@@ -18,6 +18,13 @@
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
       expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
       internSel = document.getElementById("intern"),
+      // Career track ("any" | "dev" | "mgmt"). A hidden input, not the buttons: every filter
+      // path reads `.value` the same way it reads the selects, and the parity harness can stub
+      // it with the same ctl() shim. The segmented buttons only write to it.
+      trackSel = document.getElementById("track"),
+      trackSeg = document.getElementById("trackseg"),
+      fmoreBtn = document.getElementById("fmore"), rail = document.getElementById("filterrail"),
+      fbadge = document.getElementById("fbadge"),
       locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
       minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
       showClosed = document.getElementById("showclosed"), groupedEl = document.getElementById("grouped"),
@@ -328,6 +335,9 @@
         tab !== "liked" && tab !== "applied") ok = false;
     if (ok && internSel && internSel.value === "only" && !j.intern) ok = false;
     if (ok && internSel && internSel.value === "no" && j.intern) ok = false;
+    // Career track: "dev" (software/data/infra) vs "mgmt" (project/product/ops). Every row
+    // carries exactly one, so the two settings partition the feed — see core.role_track.
+    if (ok && trackSel && trackSel.value !== "any" && j.track !== trackSel.value) ok = false;
     // Experience filter: a job whose JD states no year count (exp_years "") is ALWAYS kept.
     if (ok && expSel && expSel.value !== "any") {
       var ev = j.exp_years;
@@ -374,6 +384,26 @@
 
   // Highlight any control set to a non-default value (so active filters are obvious at a glance).
   function setFlag(el, on) { if (el) el.classList.toggle("fset", !!on); }
+
+  // How many NARROWING filters are on — the eight under "Filters" in the rail. Search, track and
+  // sort are excluded: they START a search rather than narrow one, and they stay visible at every
+  // width. The count matters most below 900px, where the rail body collapses and would otherwise
+  // hide active filters — the bug any disclosure invites.
+  function activeFilterCount() {
+    var n = 0;
+    if (minVal > 0) n++;
+    if (dateSel && dateSel.value !== "any") n++;
+    if (expSel && expSel.value !== "any") n++;
+    if (internSel && internSel.value !== "any") n++;
+    if (locInp && locInp.value.trim()) n++;
+    if (minSalSel && minSalSel.value) n++;
+    if (everifyOnly && everifyOnly.checked) n++;
+    if (hideNo && hideNo.checked) n++;
+    if (remoteOnly && remoteOnly.checked) n++;
+    if (hideAgency && hideAgency.checked) n++;
+    if (showClosed && showClosed.checked) n++;
+    return n;
+  }
   function markFilters() {
     setFlag(sortSel, sortSel && sortSel.value !== "score");
     setFlag(dateSel, dateSel && dateSel.value !== "any");
@@ -381,6 +411,21 @@
     setFlag(internSel, internSel && internSel.value !== "any");
     setFlag(everifyOnly && everifyOnly.closest(".ck"), everifyOnly && everifyOnly.checked);
     setFlag(hideNo && hideNo.closest(".ck"), hideNo && hideNo.checked);
+    setFlag(remoteOnly && remoteOnly.closest(".ck"), remoteOnly && remoteOnly.checked);
+    setFlag(minSalSel, minSalSel && minSalSel.value);
+    setFlag(locInp, locInp && locInp.value.trim());
+    var n = activeFilterCount();
+    if (fbadge) { fbadge.textContent = n; fbadge.hidden = !n; }
+    if (fmoreBtn) fmoreBtn.classList.toggle("fset", !!n);
+    // Segmented buttons follow the hidden input, so prefs-seeded state and clicks agree.
+    if (trackSeg && trackSel) {
+      var bs = trackSeg.querySelectorAll(".segb");
+      for (var i = 0; i < bs.length; i++) {
+        var on = bs[i].getAttribute("data-track") === trackSel.value;
+        bs[i].classList.toggle("on", on);
+        bs[i].setAttribute("aria-pressed", on ? "true" : "false");
+      }
+    }
   }
 
   // Dispatcher: small corpus renders locally from the inline DATA (instant); large corpus
@@ -398,6 +443,7 @@
     if (everifyOnly && everifyOnly.checked) ps.push("everify=1");
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
+    if (trackSel && trackSel.value !== "any") ps.push("track=" + encodeURIComponent(trackSel.value));
     if (locInp && locInp.value.trim()) ps.push("loc=" + encodeURIComponent(locInp.value.trim()));
     if (remoteOnly && remoteOnly.checked) ps.push("remote=1");
     if (minSalSel && minSalSel.value) ps.push("minsal=" + encodeURIComponent(minSalSel.value));
@@ -534,6 +580,59 @@
   if (minSalSel) minSalSel.addEventListener("change", function () { render(true); });
   if (hideAgency) hideAgency.addEventListener("change", function () { render(true); });
   if (showClosed) showClosed.addEventListener("change", function () { render(true); });
+
+  // ---- career track: one click swaps the whole feed between the two careers in the corpus ----
+  if (trackSeg && trackSel) trackSeg.addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest(".segb") : null;
+    if (!b) return;
+    var v = b.getAttribute("data-track") || "any";
+    if (v === trackSel.value) return;            // already there: don't re-render for nothing
+    trackSel.value = v;
+    render(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // ---- "Filters" disclosure — below 900px only ----
+  // Above that the rail shows its body from CSS alone, so neither a JS failure nor a stale
+  // localStorage value can leave the feed with no visible filters. That was a live hazard in the
+  // old toolbar: #fpanel shipped with the `hidden` ATTRIBUTE and only this function cleared it,
+  // so a returning user whose jm_fpanel was "0" would have got an always-open rail that never
+  // actually appeared. Below 900px .railbody is display:none until .rail carries .open, which is
+  // all this toggles. Open state persists per browser so someone who works with pay + location
+  // open every session doesn't re-open the rail each visit.
+  var fmoreLbl = fmoreBtn ? fmoreBtn.querySelector(".railtoggle-t") : null;
+  function setPanel(open) {
+    if (!rail || !fmoreBtn) return;
+    rail.classList.toggle("open", !!open);
+    fmoreBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    fmoreBtn.setAttribute("aria-label", (open ? "Hide" : "Show") + " filters");
+    fmoreBtn.classList.toggle("open", !!open);
+    if (fmoreLbl) fmoreLbl.textContent = open ? "Hide" : "Show";
+    try { localStorage.setItem("jm_fpanel", open ? "1" : "0"); } catch (err) { /* private mode */ }
+  }
+  if (fmoreBtn && rail) {
+    var wasOpen = "0";
+    try { wasOpen = localStorage.getItem("jm_fpanel") || "0"; } catch (err) { wasOpen = "0"; }
+    setPanel(wasOpen === "1");
+    fmoreBtn.addEventListener("click", function () { setPanel(!rail.classList.contains("open")); });
+  }
+
+  // ---- "Clear" — reset every NARROWING filter, leaving search text and track alone ----
+  var clearBtn = document.getElementById("clearfilters");
+  if (clearBtn) clearBtn.addEventListener("click", function () {
+    if (minR) { minR.value = 0; minVal = 0; setFill(); }
+    if (locInp) locInp.value = "";
+    if (minSalSel) minSalSel.value = "";
+    if (dateSel) dateSel.value = "any";
+    if (expSel) expSel.value = "any";
+    if (internSel) internSel.value = "any";
+    if (everifyOnly) everifyOnly.checked = false;
+    if (hideNo) hideNo.checked = false;
+    if (remoteOnly) remoteOnly.checked = false;
+    if (hideAgency) hideAgency.checked = false;
+    if (showClosed) showClosed.checked = false;
+    render(true);
+  });
   // "Save as default" — remember the current toolbar as this user's search, which also
   // decides what lands in their email digest. Search text is deliberately NOT saved: it's a
   // one-off lookup, not a standing preference.
@@ -547,6 +646,7 @@
       everify: !!(everifyOnly && everifyOnly.checked),
       hidenospon: !!(hideNo && hideNo.checked),
       exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
+      track: trackSel ? trackSel.value : "any",
       date: dateSel ? dateSel.value : "any", sort: sortBy
     };
     savePrefsBtn.disabled = true;

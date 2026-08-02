@@ -463,6 +463,9 @@ def _build_row(j, score):
             "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",
             "strength": strength, "strength_n": scount,
             "intern": bool(_INTERN_RE.search(j.get("title") or "")),
+            # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
+            # career split. core.role_track is the single definition; the digest reads it too.
+            "track": core.role_track(j.get("title") or ""),
             "logo_domain": logodomain(c), "logo_color": logocolor(c),
             "initial": c[:1].upper() if c else "?"}
 
@@ -573,7 +576,8 @@ def _prefs_as_params(prefs):
     return {
         "tab": "recommended", "min": str(prefs.get("min", 0)),
         "date": prefs.get("date") or "any", "exp": prefs.get("exp") or "any",
-        "intern": prefs.get("intern") or "any", "loc": prefs.get("loc") or "",
+        "intern": prefs.get("intern") or "any", "track": prefs.get("track") or "any",
+        "loc": prefs.get("loc") or "",
         "minsal": str(prefs.get("minsal") or 0), "sort": prefs.get("sort") or "score",
         "remote": "1" if prefs.get("remote") else "",
         "hideagency": "1" if prefs.get("hideagency") else "",
@@ -634,6 +638,7 @@ def _filter_rows(rows, statuses, p):
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
+    track = p.get("track") or "any"        # any | dev (software/data) | mgmt (project/product/ops)
     loc = (p.get("loc") or "").strip().lower()
     remote_only = (p.get("remote") or "") in ("1", "true", "yes", "on")
     hide_agency = (p.get("hideagency") or "") in ("1", "true", "yes", "on")
@@ -682,6 +687,8 @@ def _filter_rows(rows, statuses, p):
         if intern == "only" and not r.get("intern"):
             continue
         if intern == "no" and r.get("intern"):
+            continue
+        if track != "any" and r.get("track") != track:
             continue
         if exp != "any":
             ev = r["exp_years"]
