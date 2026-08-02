@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<div class="feedwrap">
 <div class="feedhead">
   <div class="feedrow">
     <h1>Jobs feed</h1>
@@ -9,76 +10,6 @@
         <button id="updatejobs" class="btn" type="submit" {{ 'disabled' if scraping else '' }}>Update jobs</button>
       </form>
     </div>
-  </div>
-  {# Three rows, in the order a job-seeker actually narrows a search: what am I looking for,
-     then which jobs qualify, then the on/off refinements. Flat-wrapping all twelve controls
-     put them in an order nobody could scan. #}
-  <div class="filters">
-    <div class="frow">
-      <input id="q" placeholder="Search title, company or location" autocomplete="off">
-      <div class="matchfilter">
-        <span class="filt-label">Match</span>
-        <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
-        <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
-      </div>
-      <select id="sort" class="sel" title="Sort by">
-        <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
-        <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
-      </select>
-    </div>
-
-    <div class="frow">
-      <input id="loc" class="locin" list="locs" placeholder="City, metro or state" autocomplete="off"
-             value="{{ prefs.loc }}"
-             title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
-      <datalist id="locs">
-        <option value="Remote">
-        {% for m in metros %}<option value="{{ m }}">{% endfor %}
-        {% for s in states %}<option value="{{ s }}">{% endfor %}
-      </datalist>
-      <select id="minsal" class="sel" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
-        {% for v, lab in [(0, 'Any pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
-        <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
-      <select id="date" class="sel" title="Posted within">
-        {% for v, lab in [('any', 'Any time'), ('1', 'Past 24 hours'), ('7', 'Past 7 days'), ('30', 'Past 30 days'), ('90', 'Past 90 days')] %}
-        <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
-      <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
-        {% for v, lab in [('any', 'Any experience'), ('2', 'Entry · ≤2 yrs'), ('5', '≤5 yrs'), ('senior', 'Hide 6+ yrs')] %}
-        <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
-      <select id="intern" class="sel" title="Internships and co-ops are OPT / STEM-OPT eligible. Show them alongside full-time roles, only them, or exclude them.">
-        {% for v, lab in [('any', 'Intern + full-time'), ('only', 'Internships & co-ops only'), ('no', 'Exclude internships')] %}
-        <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="frow frow-toggles">
-      <label class="ck" title="Show only employers in the E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov.">
-        <input type="checkbox" id="everifyonly"{{ ' checked' if prefs.everify else '' }}> E-Verify only</label>
-      <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
-        <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
-      <label class="ck" title="Show only roles the posting says are remote or remote-friendly.">
-        <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote only</label>
-      <label class="ck" title="Staffing agencies and bench consultancies post placement roles rather than their own team's. Hidden by default; uncheck to see them.">
-        <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide staffing agencies</label>
-      <label class="ck" title="Postings that have vanished from the company's own job board across several checks are hidden as probably filled. Saved and Applied jobs always stay visible.">
-        <input type="checkbox" id="showclosed"> Show closed postings</label>
-      <span class="fspacer"></span>
-      <button id="saveprefs" class="btn sm" type="button"
-              title="Remember these filters as your default search, and use them to pick what goes in your email digest.">Save as default</button>
-    </div>
-  </div>
-  <div class="tabs">
-    <button class="tab on" data-tab="recommended">Recommended</button>
-    <button class="tab" data-tab="liked">Liked <span class="tabn">{{ counts.liked }}</span></button>
-    <button class="tab" data-tab="applied">Applied <span class="tabn">{{ counts.applied }}</span></button>
-    <button class="tab" data-tab="hidden">Hidden <span class="tabn">{{ counts.hidden }}</span></button>
   </div>
   {% if scraping %}<div class="banner">A scrape is running — hit Reload in a few minutes for new jobs.</div>{% endif %}
   {% if not has_resume %}
@@ -102,28 +33,161 @@
   </div>
   {% endif %}
 </div>
-<!-- The count stays in JOBS. Grouping only collapses cards, so every matching job is still
-     accounted for — #grouped says how many cards those jobs are drawn as when they differ. -->
-<div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs<span id="grouped"></span></div>
 
 <div id="scrapebar" class="scrapebar" style="display:none" role="status" aria-live="polite">
   <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
   <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
 </div>
 
-<div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}" data-visa="{{ visa_ctx|tojson|forceescape }}" data-group-lead="{{ group_lead }}">
-  {% for _ in range(8) %}
-  <div class="skel" aria-hidden="true">
-    <div class="skel-logo"></div>
-    <div class="skel-lines"><span class="skel-bar w70"></span><span class="skel-bar w40"></span><span class="skel-bar w55"></span></div>
-    <div class="skel-chip"></div>
+{# Two columns: everything that NARROWS the list on the left, everything about VIEWING it on the
+   right. Nothing else may sit directly inside .feedlayout — a stray child becomes a grid item and
+   auto-places into the 280px rail column. #}
+<div class="feedlayout">
+  <aside class="rail" id="filterrail" aria-label="Search and filters">
+    {# Always visible, mobile included: these two START a search. Only the eight below, which
+       NARROW one, collapse behind the toggle. #}
+    <div class="railtop">
+      <input id="q" placeholder="Title, company or location" autocomplete="off" aria-label="Search jobs">
+      {# The one-click career split. The visible buttons write to #track; every filter code
+         path (client matches(), /api/feed, saved prefs) reads that hidden input, so the
+         segmented control stays pure presentation. #}
+      <input type="hidden" id="track" value="{{ prefs.track or 'any' }}">
+      <div class="seg" id="trackseg" role="group" aria-label="Career track">
+        {% for v, lab, tip in [
+             ('any',  'All roles',        'Every job in the feed — software and management together.'),
+             ('dev',  'Software & Data',  'Engineering, data, ML/AI, DevOps, QA and DBA roles — the people who build.'),
+             ('mgmt', 'Management',       'Project, program, product, operations and analyst roles.')] %}
+        <button type="button" class="segb{{ ' on' if (prefs.track or 'any') == v else '' }}"
+                data-track="{{ v }}" title="{{ tip }}"
+                aria-pressed="{{ 'true' if (prefs.track or 'any') == v else 'false' }}">{{ lab }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="railhead">
+      <h2 class="railtitle">Filters</h2>
+      <span class="fbadge" id="fbadge" hidden>0</span>
+      <button type="button" id="fmore" class="btn sm railtoggle" aria-expanded="false"
+              aria-controls="railbody" aria-label="Show filters">
+        <span class="railtoggle-t">Show</span><span class="fcaret" aria-hidden="true">▾</span>
+      </button>
+    </div>
+
+    <div class="railbody" id="railbody">
+      <div class="fgroup">
+        <div class="matchfilter">
+          <div class="matchrow">
+            <span class="flab">Match</span>
+            <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
+          </div>
+          {# scripts/test_saved_search.py asserts this attribute string verbatim — don't add a
+             class, reorder it, or move aria-label ahead of value. #}
+          <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
+        </div>
+      </div>
+
+      {# Sponsorship sits second, not last: it's the reason this app exists. #}
+      <div class="fgroup" role="group" aria-labelledby="lab-visa">
+        <h3 class="flab" id="lab-visa">Visa &amp; sponsorship</h3>
+        <label class="ck" title="Show only employers in the E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov.">
+          <input type="checkbox" id="everifyonly"{{ ' checked' if prefs.everify else '' }}> E-Verify only</label>
+        <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
+          <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
+      </div>
+
+      <div class="fgroup">
+        <h3 class="flab" id="lab-loc">Location</h3>
+        <input id="loc" class="locin" list="locs" placeholder="City, metro or state" autocomplete="off"
+               value="{{ prefs.loc }}" aria-labelledby="lab-loc"
+               title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
+        <datalist id="locs">
+          <option value="Remote">
+          {% for m in metros %}<option value="{{ m }}">{% endfor %}
+          {% for s in states %}<option value="{{ s }}">{% endfor %}
+        </datalist>
+        <label class="ck" title="Show only roles the posting says are remote or remote-friendly.">
+          <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote only</label>
+      </div>
+
+      <div class="fgroup">
+        <h3 class="flab" id="lab-pay">Pay &amp; experience</h3>
+        <select id="minsal" class="sel" aria-labelledby="lab-pay" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
+          {% for v, lab in [(0, 'Any pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
+          <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
+          {% for v, lab in [('any', 'Any experience'), ('2', 'Entry · ≤2 yrs'), ('5', '≤5 yrs'), ('senior', 'Hide 6+ yrs')] %}
+          <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        <select id="intern" class="sel" title="Internships and co-ops are OPT / STEM-OPT eligible. Show them alongside full-time roles, only them, or exclude them.">
+          {% for v, lab in [('any', 'Intern + full-time'), ('only', 'Internships & co-ops only'), ('no', 'Exclude internships')] %}
+          <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="fgroup">
+        <h3 class="flab" id="lab-date">Date posted</h3>
+        <select id="date" class="sel" aria-labelledby="lab-date" title="Posted within">
+          {% for v, lab in [('any', 'Any time'), ('1', 'Past 24 hours'), ('7', 'Past 7 days'), ('30', 'Past 30 days'), ('90', 'Past 90 days')] %}
+          <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="fgroup" role="group" aria-labelledby="lab-other">
+        <h3 class="flab" id="lab-other">Other</h3>
+        <label class="ck" title="Staffing agencies and bench consultancies post placement roles rather than their own team's. Hidden by default; uncheck to see them.">
+          <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide staffing agencies</label>
+        <label class="ck" title="Postings that have vanished from the company's own job board across several checks are hidden as probably filled. Saved and Applied jobs always stay visible.">
+          <input type="checkbox" id="showclosed"> Show closed postings</label>
+      </div>
+
+      <div class="railfoot">
+        <button id="clearfilters" class="btn sm ghost" type="button"
+                title="Reset every narrowing filter to wide open. Your search text and career track stay as they are.">Clear</button>
+        <button id="saveprefs" class="btn sm" type="button"
+                title="Remember these filters as your default search, and use them to pick what goes in your email digest.">Save as default</button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="results">
+    <div class="tabs">
+      <button class="tab on" data-tab="recommended">Recommended</button>
+      <button class="tab" data-tab="liked">Liked <span class="tabn">{{ counts.liked }}</span></button>
+      <button class="tab" data-tab="applied">Applied <span class="tabn">{{ counts.applied }}</span></button>
+      <button class="tab" data-tab="hidden">Hidden <span class="tabn">{{ counts.hidden }}</span></button>
+    </div>
+
+    <div class="countrow">
+      <!-- The count stays in JOBS. Grouping only collapses cards, so every matching job is still
+           accounted for — #grouped says how many cards those jobs are drawn as when they differ.
+           " of N jobs" must stay OUTSIDE #count: app.js parses the span back out as an integer. -->
+      <div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs<span id="grouped"></span></div>
+      <select id="sort" class="sel" title="Sort by">
+        <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
+        <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
+      </select>
+    </div>
+
+    <div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}" data-visa="{{ visa_ctx|tojson|forceescape }}" data-group-lead="{{ group_lead }}">
+      {% for _ in range(8) %}
+      <div class="skel" aria-hidden="true">
+        <div class="skel-logo"></div>
+        <div class="skel-lines"><span class="skel-bar w70"></span><span class="skel-bar w40"></span><span class="skel-bar w55"></span></div>
+        <div class="skel-chip"></div>
+      </div>
+      {% endfor %}
+    </div>
+    <script id="feeddata" type="application/json">{{ feed_rows|tojson }}</script>
+    <noscript><p style="padding:16px">This jobs feed needs JavaScript enabled to display.</p></noscript>
+    <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Match</b>, clear search, or switch tabs.</div>
+    <div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
   </div>
-  {% endfor %}
 </div>
-<script id="feeddata" type="application/json">{{ feed_rows|tojson }}</script>
-<noscript><p style="padding:16px">This jobs feed needs JavaScript enabled to display.</p></noscript>
-<div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Min match</b>, clear search, or switch tabs.</div>
-<div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
 
 <div class="modal-overlay" id="jobmodal">
   <div class="modal" role="dialog" aria-modal="true">
@@ -149,6 +213,7 @@
       <button class="btn" id="m-hide">Hide</button>
     </div>
   </div>
+</div>
 </div>
 {% endblock %}
 

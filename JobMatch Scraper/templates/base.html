@@ -31,6 +31,17 @@
     <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
   </div>
 </header>
+{# The feed's filter rail sticks below this bar, so it needs the bar's real height. It isn't a
+   constant: .topbar wraps its nav around ~870px and again at <=560px, which is exactly where a
+   hardcoded offset would be wrong. --topbar-h in :root is the no-JS fallback. #}
+<script nonce="{{ csp_nonce }}">
+(function(){var t=document.querySelector('.topbar');if(!t)return;
+function set(){document.documentElement.style.setProperty('--topbar-h',t.offsetHeight+'px');}
+set();addEventListener('load',set);addEventListener('resize',set);
+/* The observer is parked on window deliberately: an unreferenced ResizeObserver is collectible,
+   and a collected one stops firing silently — which froze --topbar-h at its load-time value. */
+if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__topbarRO.observe(t);}})();
+</script>
 {% endif %}
 <main>
   {% with msgs = get_flashed_messages() %}

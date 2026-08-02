@@ -593,6 +593,19 @@ ADZUNA_SEARCH_BOARDS = [
     ("adzuna-search:analyst intern",       "adzuna-search", "Adzuna"),
     ("adzuna-search:operations intern",    "adzuna-search", "Adzuna"),
     ("adzuna-search:management co-op",     "adzuna-search", "Adzuna"),
+    # Software engineering (2026-08-01). Deliberately a SHORT list of high-yield umbrella
+    # phrases rather than one per title — each phrase costs up to 4 of Adzuna's ~250
+    # free calls/day, and "software engineer" alone already surfaces the senior/junior/
+    # frontend/backend variants. Trim these first if the daily budget starts erroring.
+    ("adzuna-search:software engineer",    "adzuna-search", "Adzuna"),
+    ("adzuna-search:software developer",   "adzuna-search", "Adzuna"),
+    ("adzuna-search:full stack developer", "adzuna-search", "Adzuna"),
+    ("adzuna-search:data engineer",        "adzuna-search", "Adzuna"),
+    ("adzuna-search:data scientist",       "adzuna-search", "Adzuna"),
+    ("adzuna-search:machine learning engineer", "adzuna-search", "Adzuna"),
+    ("adzuna-search:devops engineer",      "adzuna-search", "Adzuna"),
+    ("adzuna-search:qa engineer",          "adzuna-search", "Adzuna"),
+    ("adzuna-search:software engineering intern", "adzuna-search", "Adzuna"),
 ]
 
 # Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
@@ -648,6 +661,51 @@ INCLUDE = (
     # they pulled retail/hourly/clinical noise. Trimmed for focus (2026-06-16): "financial analyst",
     # "marketing manager", and the generic consulting block (consulting/management/strategy/business
     # consultant) — off-PM scatter the user flagged. Re-add any of these to widen the net again.
+    # --- Software engineering (added 2026-08-01) ---
+    # The whole software/data/infra track. Bare "engineer"/"developer"/"scientist" deliberately
+    # stay OUT of this list (they'd pull mechanical/civil/chemical/lab roles); every entry is a
+    # software-specific PHRASE instead, and the non-software engineering disciplines are named
+    # explicitly in EXCLUDE below so the generic early-career markers ("intern", "new grad")
+    # can't drag a Mechanical Engineering Intern in through the side door.
+    "software engineer", "software developer", "software engineering", "software development",
+    "software development engineer", "sde", "swe", "programmer", "programmer analyst",
+    "application engineer", "applications engineer", "application developer",
+    "applications developer", "systems analyst", "computer science",
+    # web / front-end / back-end / full-stack / mobile
+    "web developer", "web development", "web engineer",
+    "front end engineer", "front-end engineer", "frontend engineer",
+    "front end developer", "front-end developer", "frontend developer",
+    "front end software", "frontend software",
+    "back end engineer", "back-end engineer", "backend engineer",
+    "back end developer", "back-end developer", "backend developer",
+    "backend software", "back end software", "back-end software",
+    "full stack", "full-stack", "fullstack",
+    "ui engineer", "ui developer", "javascript developer", "react developer",
+    "mobile engineer", "mobile developer", "mobile application engineer",
+    "mobile application developer", "mobile software",
+    "ios engineer", "ios developer", "android engineer", "android developer",
+    "game developer", "embedded software",
+    # language / platform specific
+    "java developer", "python developer", "net developer", "dotnet developer",
+    "c# developer", "salesforce developer", "sql developer", "etl developer",
+    "bi developer", "rpa developer", "api engineer", "integration engineer",
+    # AI / ML / data
+    "machine learning engineer", "machine learning", "ml engineer", "mlops",
+    "ai engineer", "ai/ml engineer", "ai developer", "artificial intelligence",
+    "deep learning", "nlp engineer", "computer vision", "prompt engineer",
+    "data scientist", "applied scientist", "machine learning scientist",
+    "data engineer", "data engineering", "analytics engineer", "big data",
+    "etl engineer", "business intelligence", "bi analyst",
+    "database administrator", "dba", "database engineer", "database developer",
+    # infra / devops / cloud / QA / security
+    "devops", "dev ops", "devsecops", "site reliability", "sre",
+    "platform engineer", "infrastructure engineer", "cloud engineer", "cloud developer",
+    "cloud support engineer", "systems development", "systems development engineer",
+    "systems engineer", "system engineer", "network engineer",
+    "release engineer", "build engineer", "automation engineer", "test automation",
+    "test engineer", "qa engineer", "qa analyst", "quality assurance engineer",
+    "sdet", "software test", "software quality",
+    "security engineer", "application security", "kubernetes",
     # --- Early-career / new-grad markers (program-style roles; low noise) ---
     "entry level", "entry-level", "graduate", "new grad", "early career",
     "rotation program", "rotational program", "trainee", "apprentice",
@@ -665,10 +723,12 @@ EXCLUDE = (
     # mid-level roles, so "senior", "sr", "lead", "staff", "ii", "iii" were dropped from here
     # (a "Senior Analyst" / "Analyst II" now passes). Add them back to re-tighten to junior-only.
     "principal", "head", "director", "vp", "vice president", "chief", "iv", "expert", "architect",
-    # Clearly off-target functions for a PM/analyst/ops search. Word boundaries
-    # mean "engineer" drops "Software Engineer" but NOT "Engineering Program
-    # Manager". Comment any of these back in if you DO want that function.
-    "engineer", "developer", "designer", "scientist", "counsel", "attorney",
+    # Clearly off-target functions. NOTE (2026-08-01): "engineer", "developer" and
+    # "scientist" USED to be here — they were removed when the software-engineering
+    # block was added to INCLUDE, since a bare "engineer" drops "Software Engineer"
+    # too. The non-software engineering disciplines are now named explicitly further
+    # down instead. Re-add these three words to go back to a PM/analyst-only feed.
+    "designer", "counsel", "attorney",
     "physician", "nurse", "account executive", "sales development", "sdr",
     # Trades / retail / hospitality — these sneak in via the early-career markers
     # ("apprentice"/"trainee"/"entry level"): e.g. Tesla's "Apprentice Collision
@@ -678,7 +738,12 @@ EXCLUDE = (
     "cashier", "janitor", "custodian",
     # Grocery / retail floor roles (a single big grocery board — Safeway/Albertsons —
     # otherwise floods the feed: 462 "Front End Entry Level" clerks in one run).
-    "front end", "courtesy clerk", "grocery", "deli", "bakery", "cake decorator",
+    # ("front end" used to be a bare exclude here for the grocery flood, but that also
+    # killed "Front End Engineer"/"Front End Developer" — so the grocery-specific
+    # phrasings are spelled out instead.)
+    "front end entry level", "front end clerk", "front end associate", "front end retail",
+    "front end service", "front end supervisor", "front end team member", "front end checker",
+    "courtesy clerk", "grocery", "deli", "bakery", "cake decorator",
     "produce", "meat", "seafood", "stocker", "bagger", "checker", "store associate",
     "retail associate", "sales associate", "sales representative", "merchandiser",
     "stock clerk", "pharmacy graduate", "pharmacy intern", "warehouse associate",
@@ -691,13 +756,46 @@ EXCLUDE = (
     "teller", "phlebotom", "caregiver", "client service associate",
     "surgery", "surgical",          # clinical schedulers/coordinators (bare "scheduler" else slips)
     # Off-domain intern/co-op variants the word-boundary excludes above miss
-    # ("engineer" doesn't match "Engineering", "scientist" doesn't match "Science").
-    # Target the intern/co-op phrasing so PM titles like "Engineering Program
-    # Manager" are still kept.
-    "engineering intern", "engineering co-op", "engineering coop",
-    "software intern", "hardware intern", "research intern",
-    "science intern", "design intern", "laboratory intern", "lab intern",
+    # ("scientist" doesn't match "Science"). NOTE: "engineering intern"/"co-op" and
+    # "software intern" were REMOVED here on 2026-08-01 — they blocked "Software
+    # Engineering Intern", which is now a wanted title. Non-software engineering
+    # interns are caught by the discipline block below instead.
+    "hardware intern", "research intern", "design intern",
+    "laboratory intern", "lab intern",
     "nursing intern", "clinical intern", "medical intern", "pharmacy intern",
+    # --- Non-software ENGINEERING disciplines (added 2026-08-01) ---
+    # Bare "engineer" is no longer an exclude, so the other engineering fields have to
+    # be named. These words never appear in a software/data/infra title, and they also
+    # stop the generic early-career markers ("intern", "new grad", "entry level",
+    # "trainee", "co-op") from dragging in a Mechanical Engineering Intern.
+    "mechanical", "civil", "chemical", "electrical", "structural", "geotechnical",
+    "aerospace", "aeronautical", "astronautical", "avionics", "propulsion", "flight",
+    "petroleum", "drilling", "geological", "geologist", "mining engineer",
+    "metallurgy", "metallurgical", "biomedical", "bioengineering", "biochemical",
+    "agricultural", "marine engineer", "nuclear", "hvac", "piping", "welding",
+    "thermal", "combustion", "hydraulic", "acoustic", "corrosion",
+    "industrial engineer", "industrial engineering",
+    "manufacturing engineer", "manufacturing engineering",
+    "materials engineer", "materials engineering", "materials science",
+    "environmental engineer", "environmental engineering", "environmental science",
+    "process engineer", "process engineering", "plant engineer", "facilities engineer",
+    "field engineer", "packaging engineer", "sales engineer",
+    "transportation engineer", "traffic engineer", "water resources", "wastewater",
+    "hardware engineer", "hardware engineering", "rf engineer", "optical engineer",
+    "antenna", "asic", "fpga", "vlsi",
+    # Non-software "science" fields (bare "science intern" used to be excluded, which
+    # also killed "Computer Science Intern" / "Data Science Intern").
+    "life science", "political science", "animal science", "food science",
+    "health science", "clinical science", "social science",
+    # Measured leaks from the first widened run (2026-08-01). Each of these was checked
+    # against all 8,094 new titles first and drops ONLY non-software roles — no software
+    # title anywhere in that batch matches them. Utility/rail/lab "engineer" titles get
+    # in through the generic early-career markers ("entry level", "trainee", "co-op").
+    "substation", "distribution engineer", "transmission engineer",
+    "passenger engineer", "train engineer", "locomotive",
+    "stationary engineer", "operating engineer", "building engineer",
+    "manufacturing test engineer", "physical security",
+    "medical laboratory", "laboratory scientist", "rfid",
 )
 
 # If sponsors.txt is loaded: True = DROP companies not on the list; False = keep
@@ -1060,6 +1158,12 @@ WORKDAY_QUERIES = (
     # project controls / scheduling / PMO family
     "project controls", "scheduler", "project scheduler", "pmo", "portfolio manager",
     "project planner", "cost analyst",
+    # software engineering (2026-08-01) — Workday's search is query-driven, so without
+    # these terms a SWE role on a Workday tenant is never even fetched to be filtered.
+    "software engineer", "software developer", "full stack", "front end", "back end",
+    "data engineer", "data scientist", "machine learning engineer", "devops",
+    "qa engineer", "test engineer", "cloud engineer", "systems engineer",
+    "application developer", "web developer", "database administrator",
     # internships / co-ops (OPT-eligible)
     "intern", "internship", "co-op", "summer analyst",
 )
@@ -1173,6 +1277,13 @@ AMAZON_QUERIES = (
     "product owner", "project planner",
     # project controls / scheduling / PMO family
     "project controls", "project scheduler", "pmo", "portfolio manager",
+    # software engineering (2026-08-01) — Amazon's feed is query-driven too. "software
+    # development engineer" is Amazon's own title for SWE (SDE); the rest cover its
+    # data/ML/infra ladders.
+    "software development engineer", "software engineer", "front end engineer",
+    "data engineer", "data scientist", "applied scientist", "machine learning engineer",
+    "business intelligence engineer", "systems development engineer",
+    "quality assurance engineer", "cloud support engineer",
     # internships / co-ops (OPT-eligible)
     "intern", "internship", "co-op",
 )
@@ -1295,7 +1406,11 @@ def scrape_adzuna(board_url):
                         # mentions — for Google that found 0 of its 3.8k listings);
                         # what_or biases the 250-result page budget toward our roles.
                         "company": company,
-                        "what_or": "project program analyst coordinator operations implementation scrum consultant consulting",
+                        # 2026-08-01: software/data terms added alongside the PM ones so a
+                        # company-scoped pull spends its 250-result budget on BOTH tracks.
+                        "what_or": ("project program analyst coordinator operations implementation "
+                                    "scrum consultant consulting software engineer developer "
+                                    "data scientist devops"),
                         "results_per_page": 50, "content-type": "application/json"})
         except Exception:
             break
@@ -2789,7 +2904,7 @@ def title_verdict(title):
     good = _INCLUDE_RE.search(title)
     if good:
         return True, "matched '%s'" % good.group(0)
-    return False, "no entry-level PM/coordinator/analyst keyword"
+    return False, "no PM/coordinator/analyst/software keyword"
 
 
 def is_entry_level(title):
