@@ -1,100 +1,77 @@
 # JobMatch Helper — Chrome extension
 
-Save any job to your JobMatch **Applications** tracker with one click — from LinkedIn,
-Workday, or any company careers site. On supported application forms it can also **tailor your
-résumé to the job (Resume Brain → LaTeX → PDF) and auto-fill the form**, then let you review
-before you submit.
+Fills job application forms from your JobMatch profile and your own saved answers, saves jobs to
+your **Applications** tracker, and imports jobs the server-side scraper can't reach.
+
+**No AI is involved in applying.** The extension fills the fields it can answer from your data;
+**you upload your résumé and click Submit.** Nothing is ever auto-submitted.
 
 ## Install (one time, ~1 min)
-1. In JobMatch, open **Profile**, set your **Default résumé file name**, and copy your **token**
-   (looks like `username:xxxxxxxx`).
+1. In JobMatch, open **Profile**, fill it in (name, contact, work authorization, EEO, salary —
+   whatever you're willing to answer), set your **Default résumé file name**, and copy your
+   **token** (looks like `username:xxxxxxxx`).
 2. In Chrome go to **`chrome://extensions`**.
 3. Turn on **Developer mode** (top-right toggle).
 4. Click **Load unpacked** and select this **`extension/`** folder.
 5. Pin **JobMatch Helper** (puzzle-piece icon).
-6. Click it, paste your **token**, set the **App URL** (`https://stemjobs.astrochakra.co`, or
-   `http://127.0.0.1:5000` to test against a local preview), and hit **Save**.
+6. Click it, paste your **token**, set the **App URL** (`https://stemjobs1.astrochakra.co`, or
+   `http://127.0.0.1:5000` to test against a local `python web.py`), and hit **Save**.
+
+> The app moved from `stemjobs.astrochakra.co` to **`stemjobs1.astrochakra.co`** (the old cPanel
+> account was suspended). An install still pointing at the old host repoints itself on the next
+> popup open — nothing to do by hand.
 
 ## Use
-- On any job posting, click the extension. It auto-detects the **job title** and **company**
-  (you can tweak them), then **📌 Just save to tracker** logs it to your **Applications** tab —
-  status *applied*, today's date, and your **default résumé name** attached. Duplicates are ignored.
-- **✨ Tailor résumé & fill this application (NEW):** on a supported application form (currently
-  **Greenhouse** — `boards.greenhouse.io` / `job-boards.greenhouse.io`), the popup shows this
-  button. It (1) tailors your résumé to the job description with Resume Brain and compiles it to a
-  **PDF via LaTeX**, (2) auto-fills your name, contact, links, work-authorization, EEO answers, and
-  common questions from your **Profile**, and attaches the tailored PDF, then (3) drops a **review
-  panel** on the page showing how many fields were filled and what still needs your attention.
-  **Nothing is submitted automatically** — you review, fix anything flagged, and click **Submit**;
-  the panel then logs the application to your tracker. Fill in your **Profile** first so there's
-  data to fill with. If you've set a Gemini key in JobMatch it's used to tailor; if not, your best
-  matching base résumé is used as-is.
-- **Import all jobs on a page → feed:** on **tesla.com/careers/search**, the popup shows an
-  **Import all jobs on this page** button. Tesla's site blocks the server-side scraper (Akamai
-  bot-wall), but *your* browser has already passed it — so the extension reads the full listing
-  from inside the page and sends it to your **jobs feed**, run through the same entry-level /
-  title / US filter as every scraped board. Let the careers page finish loading, then click it.
-- **Import from ANY careers page (v1.2):** the import button now works on most career
-  sites, not just Tesla. It first reads the page's schema.org job data (what Google for
-  Jobs reads); if there is none, it harvests the visible job links. Either way the server
-  applies the same strict title + US filter and URL dedupe, so a noisy page can't pollute
-  the feed. Disabled on LinkedIn/Indeed/Glassdoor (their terms ban collection and your
-  account could get flagged — use 📌 Save for single jobs there). RULE OF THUMB: if a site
-  has a real job board, paste its URL into **➕ Add board** first — the server then scrapes
-  it automatically every day, with full descriptions. Use the extension's import for sites
-  the server can't reach: bot-walled (Tesla), JavaScript-only, or feed-less pages.
-- **Descriptions + locations come along (v1.3):** after an import, the popup fetches each
-  NEW job's detail page (same site, from inside the page) and reads its description, real
-  location, and posting date — so imported jobs get a real match %, the 🚫/✅ sponsorship
-  badge, and a readable description in the feed, just like scraped boards. Keep the popup
-  open for the ~20s it reports while fetching.
-- **Tesla AUTO-import (v1.1):** no clicking needed anymore. The extension runs the Tesla
-  import by itself **once a day** (background alarm, ~3 min after Chrome starts) and also
-  whenever you browse **tesla.com/careers** (throttled to once a day). It then fetches each
-  new job's **description**, so those jobs get a real match % instead of 0. The popup shows
-  the last run ("🤖 Tesla auto-import …") plus a **Run Tesla import now** button. If a
-  background run is blocked by the bot-wall, just open tesla.com/careers once — the visit
-  itself triggers the import.
+- **✍️ Fill this application** — appears on any page where a real application form is detected
+  (every ATS the scraper feeds, plus company career domains running Phenom/SuccessFactors/iCIMS
+  under their own hostname). It fills your profile fields, then replays your **learned answers**
+  for custom questions, then drops a **review panel** listing what it filled and what's left,
+  including the **résumé upload** it deliberately doesn't touch. If the form is behind an
+  "Apply" / "I'm interested" gate it clicks that first — but never while a chooser dialog
+  (Workday's "Start Your Application") is open, since that would dismiss your choice.
+- **🚀 Fill my latest matches** — the batch version. It loads **the same jobs your feed would
+  show**: your saved search decides what qualifies (match %, visa routes, location, pay,
+  dev/management track, staffing agencies), closed postings are dropped, repeat listings from one
+  employer are collapsed, and anything already marked applied is skipped. Newest first. Each job
+  opens in its own tab, gets filled, and **stays open** for you to upload the résumé and submit.
+  Tick **Include company career sites beyond the known ATS** for the wider, best-effort net.
+- **📝 Save my answers from this page (train)** — reads how *you* filled the current form and
+  saves it to your answer bank, so the next form with the same question fills itself. This also
+  happens **passively**: whenever you submit or advance an application form anywhere, the answers
+  are captured automatically (sensitive fields — password/SSN/card/DOB — are always skipped).
+  Manage or delete saved answers under **🧠 Learned answers (training)**.
+- **📌 Save this job to my tracker** — logs the current posting to **Applications** (status
+  *applied*, today's date, your default résumé name) and marks it **applied in the feed**. The URL
+  is normalized the same way the scraper stores jobs, so it lands on the row the feed already has
+  instead of creating a second entry.
+- **Import all jobs on this page → feed** (under *More tools*) — for pages the server can't
+  scrape. Reads the page's schema.org job data, else the visible job links, and sends them
+  through the same title/US filter and URL dedupe as every scraped board. Disabled on
+  LinkedIn/Indeed/Glassdoor (their terms ban collection). If a site has a real job board, prefer
+  pasting its URL into **➕ Add board** in the app — the server then scrapes it every run, with
+  full descriptions.
+- **Tesla auto-import** — Tesla's Akamai bot-wall 403s every server-side scraper, but your
+  browser has already passed it. The extension imports Tesla's US jobs once a day (background
+  alarm, and whenever you browse tesla.com/careers), then fetches each new job's description so
+  they get real match scores. *More tools* shows the last run plus a manual button.
 
-## Batch auto-apply (🚀, NEW)
-Open the popup → **🚀 Batch auto-apply**. It **auto-loads your top matched jobs** (highest match
-score, liked ones first) on supported ATS — no pasting URLs (you can still edit/paste to override).
-Pick options → **Start**. The runner then, for each job, opens it in a background
-tab, tailors your résumé, fills the form, and:
-- **Dry run** (default ON): fills + checks and reports "would submit" — **never submits**. Use this first.
-- **Auto-submit the clean ones**: when a form is fully filled (résumé attached, no required gaps) and
-  there's **no CAPTCHA/login wall**, it submits and logs it to your tracker. Anything with a wall or a
-  missing answer is **parked** ("⏸️ needs you") with the reason — it never forces those through.
-- Live results show in the popup (✅ submitted · 🟢 ready · ⏸️ needs you · ⚠️ error). It runs in the
-  background, but for long queues keep Chrome open; very long runs can pause (browser may idle-evict the
-  worker) — just press Start again to resume the rest.
-- On Start you'll be asked to **grant access to those job sites** (so the background can fill them), and —
-  if auto-submit is on — to **confirm** before any real submission.
-
-Handles **Greenhouse, Lever, Ashby, SmartRecruiters**, plus a **generic mode** for any standard
-application form (résumé upload + email + submit). **Workday, iCIMS, Oracle, Taleo** are login/
-account-walled and can't be auto-filled — they're parked as "⏸️ needs you," same as a CAPTCHA.
-
-## Tailor & fill — requirements and limits
-- **Server setup (one time):** résumé PDFs are compiled with **Tectonic** (a single self-contained
-  LaTeX binary). Install it into the repo's `bin/` once with `scripts/get_tectonic.ps1` (Windows)
-  or `scripts/get_tectonic.sh` (Linux/macOS) — no system TeX install needed. The first compile
-  downloads LaTeX packages into `.tectonic-cache/` (one time). If Tectonic can't run where the
-  backend lives (e.g. some shared hosts), the endpoint automatically falls back to a `.docx`.
-  **Tip:** for the most reliable apply flow, point the extension's **App URL** at your **local**
-  backend (`http://127.0.0.1:5000`) where Tectonic is installed.
-- **Coverage:** Greenhouse, Lever, Ashby, SmartRecruiters + a generic fallback for standard forms.
-  Workday/iCIMS/Oracle/Taleo are login/account-walled (out of scope) and get parked, not forced.
-- **CAPTCHAs / logins:** never bypassed. If a verification is detected, the panel says so — solve
-  it yourself, then submit. Nothing is auto-submitted.
-- **Permissions:** filling runs under `activeTab` (granted when you click the extension), so no
-  broad host permission is needed for the page you're on. `optional_host_permissions` is declared
-  for future embed/redirect cases but isn't requested unless needed — this keeps the install
-  warning minimal.
+## Coverage and limits
+- **Tuned adapters:** Greenhouse, Lever, Ashby, SmartRecruiters. Everything else — Workday,
+  iCIMS, Oracle, SuccessFactors, Phenom, Workable, UltiPro, BambooHR, Pinpoint, Rippling,
+  Avature, JobDiva, Recruitee, Breezy, Personio, Jobvite — goes through the **generic adapter**,
+  which handles standard forms plus React comboboxes and custom Yes/No toggle widgets.
+- **Login/account walls** (Workday, iCIMS, Oracle) aren't bypassed. Those jobs still queue by
+  request — the tab opens, you sign in, and the fill runs on what's there.
+- **CAPTCHAs** are never bypassed. The panel says one is present; you solve it.
+- **Questions it hasn't seen** stay blank until you answer them once — after that they're in your
+  bank and fill themselves. The filler self-improves without a model.
+- **Permissions:** single-page filling runs under `activeTab` (granted when you click the
+  extension). Batch filling asks for broad site access on **Start**, because an apply page often
+  redirects to a different host mid-flow.
 
 ## Notes
-- Single-job **Save** logs to your **tracker**; **Tailor & fill** additionally fills the form.
-- Company/title auto-detect is best-effort (reads the page's job metadata) — just edit the two
-  fields in the popup if a site doesn't expose it.
-- Your token links the extension to your account — keep it private. Re-open Profile any time to
-  copy it again.
+- Your token links the extension to your account — keep it private. Re-open Profile to copy it
+  again. Content scripts never see it: the background worker holds it and makes the calls.
+- Résumé *tailoring* is not part of this extension. It lives in the app (Resume Brain).
+- Company/title auto-detect is best-effort (reads the page's job metadata) — edit the two fields
+  in the popup if a site doesn't expose it.

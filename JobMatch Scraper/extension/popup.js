@@ -4,7 +4,9 @@ const get = (keys) => new Promise((r) => chrome.storage.local.get(keys, r));
 const set = (obj) => new Promise((r) => chrome.storage.local.set(obj, r));
 const activeTab = () => new Promise((r) => chrome.tabs.query({ active: true, currentWindow: true }, (t) => r(t[0])));
 
-let cfg = { token: "", apibase: "https://stemjobs.astrochakra.co" };
+// JM_DEFAULT_APIBASE / jmApiBase come from tesla_shared.js (loaded first in popup.html); they
+// retire the suspended stemjobs.astrochakra.co host so an old install repoints itself.
+let cfg = { token: "", apibase: JM_DEFAULT_APIBASE };
 
 function cleanTitle(t) { return (t || "").split(/\s[|\-–—·]\s/)[0].trim(); }
 
@@ -277,8 +279,11 @@ function collectAtsCandidates() {
 }
 
 async function init() {
-  cfg = Object.assign(cfg, await get(["token", "apibase"]));
-  if (cfg.apibase) $("apibase").value = cfg.apibase;
+  const saved = await get(["token", "apibase"]);
+  cfg = Object.assign(cfg, saved);
+  cfg.apibase = jmApiBase(cfg.apibase);
+  if (cfg.apibase !== saved.apibase) await set({ apibase: cfg.apibase });  // heal the moved app URL
+  $("apibase").value = cfg.apibase;
   if (cfg.token) {
     $("setup").style.display = "none";
     $("main").style.display = "block";
@@ -322,7 +327,7 @@ async function init() {
 
 $("savetok").onclick = async () => {
   const token = $("token").value.trim();
-  const apibase = ($("apibase").value.trim() || "https://stemjobs.astrochakra.co").replace(/\/+$/, "");
+  const apibase = jmApiBase($("apibase").value);
   if (!token) { $("setupmsg").textContent = "Paste your token first."; return; }
   await set({ token, apibase });
   cfg.token = token; cfg.apibase = apibase;
@@ -384,6 +389,9 @@ function applyAts(url) {
   try { h = new URL(url).hostname.toLowerCase(); } catch (e) { return ""; }
   // Every ATS the scraper feeds (keep in sync with scraper/__init__.py detect_board + web.py _FILLABLE_HOSTS).
   // greenhouse/lever/ashby/smartrecruiters have tuned adapters; the rest fall back to filler.js's GENERIC adapter.
+  // This list is only a FAST PATH — most of the corpus now sits on employer domains running
+  // Phenom/SuccessFactors/iCIMS under their own hostname, which no list can enumerate, so init()
+  // also offers the Fill button on any page where jmFormReady finds a real application form.
   var ATS = [
     [/greenhouse\.io/, "greenhouse"], [/lever\.co/, "lever"], [/ashbyhq\.com/, "ashby"],
     [/smartrecruiters\.com/, "smartrecruiters"], [/recruitee\.com/, "recruitee"], [/breezy\.hr/, "breezy"],
@@ -391,7 +399,8 @@ function applyAts(url) {
     [/bamboohr\.com/, "bamboohr"], [/pinpointhq\.com/, "pinpoint"], [/rippling\.com/, "rippling"],
     [/avature\.net/, "avature"], [/jobdiva\.com/, "jobdiva"],
     [/myworkdayjobs\.com|myworkdaysite\.com/, "workday"], [/oraclecloud\.com/, "oracle"],
-    [/jibeapply\.com/, "jibe"]
+    [/jibeapply\.com/, "jibe"], [/icims\.com/, "icims"], [/successfactors\.com/, "successfactors"],
+    [/phenompeople\.com/, "phenom"], [/jobvite\.com/, "jobvite"]
   ];
   for (var i = 0; i < ATS.length; i++) if (ATS[i][0].test(h)) return ATS[i][1];
   return "";
@@ -656,18 +665,50 @@ $("batchtoggle").onclick = () => {
   if (opening) { pollQueue(); if (!$("qurls").value.trim()) fetchQueue(); }   // auto-source on open
 };
 
+const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+// The feed's visa-route tags, worded the way the app words them.
+const VISA_LABEL = { h1b: "H-1B", green_card: "Green Card", stem_opt: "STEM-OPT", e3: "E-3", h1b1: "H-1B1" };
+
+// One line per queued job, showing what the FEED knows about it — match %, visa routes, track,
+// where, when — so the list you're about to fill is recognizably the same list the app shows.
+function renderQueueList(jobs) {
+  const el = $("qlist");
+  if (!jobs.length) { el.innerHTML = ""; return; }
+  el.innerHTML = jobs.map((j) => {
+    const pct = j.score ? "<b style='color:#0e8a5f'>" + j.score + "%</b> " : "";
+    const badges = (j.visa || []).map((t) => VISA_LABEL[t] || t)
+      .concat(j.track === "dev" ? ["Dev"] : (j.track === "mgmt" ? ["Mgmt"] : []))
+      .concat(j.remote ? ["Remote"] : []).concat(j.agency ? ["Agency"] : [])
+      .map((t) => "<span style='background:#eef2f7;border-radius:6px;padding:0 4px'>" + esc(t) + "</span>")
+      .join(" ");
+    const where = j.remote ? "" : esc((j.location || "").split(",").slice(0, 2).join(",").trim());
+    return "<div style='padding:2px 0;border-bottom:1px solid #f0f2f6'>" + pct +
+      "<b>" + esc(j.company) + "</b> " + esc(j.title) +
+      "<br><span style='color:#888'>" + [where, esc(j.date)].filter(Boolean).join(" · ") + " </span>" +
+      badges + "</div>";
+  }).join("");
+}
+
 async function fetchQueue() {
   $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Finding your best matched jobs…";
+  const wide = $("qwide").checked ? "&all=1" : "";
   try {
-    const j = await (await fetch(cfg.apibase + "/api/ext/apply_queue?token=" + encodeURIComponent(cfg.token))).json();
+    const j = await (await fetch(cfg.apibase + "/api/ext/apply_queue?token=" +
+      encodeURIComponent(cfg.token) + wide)).json();
     if (!j.ok) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Error: " + (j.error || "failed"); return; }
+    const jobs = j.jobs || [];
     qJobs = {};
-    (j.jobs || []).forEach((job) => { qJobs[job.url] = { title: job.title, company: job.company }; });
-    $("qurls").value = (j.jobs || []).map((job) => job.url).join("\n");
-    $("qmsg").textContent = "Auto-loaded " + (j.count || 0) + " matched job(s) on supported ATS. Press Start.";
+    jobs.forEach((job) => { qJobs[job.url] = { title: job.title, company: job.company }; });
+    $("qurls").value = jobs.map((job) => job.url).join("\n");
+    renderQueueList(jobs);
+    if (!jobs.length) $("qmsg").style.color = "#c0392b";
+    $("qmsg").textContent = jobs.length
+      ? "Loaded " + jobs.length + " job(s) matching your saved search. Press Start."
+      : "Nothing matched your saved search — widen the filters on JobMatch, or tick the box above.";
   } catch (e) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Network error."; }
 }
 $("qfetch").onclick = fetchQueue;
+$("qwide").onchange = fetchQueue;
 
 function parseQueueItems() {
   return $("qurls").value.split("\n").map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s))

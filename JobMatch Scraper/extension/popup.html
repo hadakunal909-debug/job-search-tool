@@ -20,7 +20,7 @@
 </head>
 <body>
   <h3>🎯 JobMatch Helper</h3>
-  <div class="tag">Tailor &amp; apply with your résumé brain</div>
+  <div class="tag">Fill job applications from your JobMatch profile</div>
 
   <div id="main" style="display:none">
 
@@ -35,6 +35,13 @@
     <button class="primary" id="batchtoggle">🚀 Fill my latest matches…</button>
     <div id="batchwrap" class="panel" style="display:none">
       <button class="ghost" id="qfetch" style="margin-top:0">↻ Refresh my latest matches</button>
+      <div class="lbl">Uses your saved search on JobMatch — match %, visa routes, location, pay and
+        dev/management track — newest first, closed postings and repeat listings dropped.</div>
+      <label class="lbl" style="display:flex; align-items:center; gap:6px; cursor:pointer">
+        <input type="checkbox" id="qwide" style="width:auto; margin:0">
+        Include company career sites beyond the known ATS (best-effort)
+      </label>
+      <div id="qlist" style="font-size:11px; max-height:150px; overflow:auto; margin:4px 0"></div>
       <div class="lbl">Auto-loaded newest-first (edit/paste URLs to override)</div>
       <textarea id="qurls" rows="4" style="width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid #cbd5e1; border-radius:7px; font-size:11px; font-family:ui-monospace,Consolas,monospace"></textarea>
       <div class="lbl">Each job opens in its own tab and is filled from your profile + saved answers. You upload the résumé &amp; submit — nothing is auto-submitted.</div>
@@ -87,7 +94,7 @@
     <div class="lbl">Token (from the Profile page in JobMatch)</div>
     <input id="token" placeholder="username:xxxxxxxx">
     <div class="lbl">App URL</div>
-    <input id="apibase" value="https://stemjobs.astrochakra.co">
+    <input id="apibase" value="https://stemjobs1.astrochakra.co">
     <button class="primary" id="savetok">Save</button>
     <div class="msg" id="setupmsg"></div>
   </div>

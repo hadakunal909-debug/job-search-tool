@@ -1993,8 +1993,21 @@ def ext_save():
     url = (data.get("url") or "").strip()[:1000]
     if url and not scraper.is_http_url(url):       # never store a javascript:/data: link
         url = ""
+    # Same normalization the scraper stores jobs under, so a link the extension picked up off the
+    # apply page (…?gh_src=, boards. vs job-boards.) lands on the SAME row the feed shows rather
+    # than becoming a second, unlinked tracker entry.
+    if url:
+        url = scraper.canonical_url(url)
     if not (title or company):
         return _cors(jsonify({"ok": False, "error": "No job info"})), 400
+    # Mark it applied in the feed too (the app's own Apply button does both). Best-effort: the
+    # status is keyed by url, so it only lands when the page url matches the posting we scraped.
+    if url:
+        try:
+            db.set_user_status(user, url, "applied")
+            _status_cache.pop(user, None)
+        except Exception:
+            pass
     try:
         if url and db.find_application_by_url(user, url):
             return _cors(jsonify({"ok": True, "dup": True}))
@@ -2222,66 +2235,100 @@ def ext_tailor():
 # Every ATS the scraper feeds, so the apply queue covers all our boards (keep in sync with
 # scraper/__init__.py detect_board + popup.js applyAts). greenhouse/lever/ashby/smartrecruiters have
 # tuned filler.js adapters; the rest rely on the GENERIC adapter (best-effort). Login/account-walled
-# ones (workday/oracle) are included by request — you review each open tab and sign in if needed.
+# ones (workday/oracle/icims) are included by request — you review each open tab and sign in if needed.
 _FILLABLE_HOSTS = (
     "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com",
     "recruitee.com", "breezy.hr", "personio.com", "workable.com",
     "ultipro.com", "bamboohr.com", "pinpointhq.com", "rippling.com",
     "avature.net", "jobdiva.com", "myworkdayjobs.com", "myworkdaysite.com",
-    "oraclecloud.com", "jibeapply.com",
+    "oraclecloud.com", "jibeapply.com", "icims.com", "successfactors.com",
+    "phenompeople.com", "jobvite.com",
 )
+
+# Never queued, whatever the caller asks for: aggregators list a posting they don't host, so the
+# page has no form to fill — following one is a redirect, not an application. (Adzuna is how the
+# feed reaches employers with no public board; the apply link there belongs to someone else.)
+_QUEUE_SKIP_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
+
+
+def _queue_fillable(url, wide=False):
+    """Is this a page the filler should open? Known ATS always; with `wide`, any employer-hosted
+    career site too. The corpus is now mostly company domains running Phenom/SuccessFactors/iCIMS
+    behind a custom hostname, which no host list can enumerate — hence the opt-in wide net."""
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host or any(h in host for h in _QUEUE_SKIP_HOSTS):
+        return False
+    if any(h in host for h in _FILLABLE_HOSTS):
+        return True
+    # PeopleSoft runs on each institution's own hostname (jobs.omni.fsu.edu), so no host list
+    # can catch it — its component name in the path is the reliable tell. Account-walled like
+    # Workday, and included on the same terms: the tab opens, you sign in, the filler fills.
+    if "HRS_HRAM_FL" in (url or ""):
+        return True
+    return bool(wide)
 
 
 @app.route("/api/ext/apply_queue", methods=["GET", "OPTIONS"])
 def ext_apply_queue():
-    """Extension batch runner -> the user's auto-apply queue: unapplied jobs on a supported ATS
-    (Greenhouse/Lever/Ashby/SmartRecruiters), ordered NEWEST-FIRST by real posting date so the runner
-    works the latest postings. Auto-sourced so it needs no manual URLs. ?limit= caps the count (default 50)."""
+    """Extension batch filler -> the jobs this user's FEED would show, narrowed to pages the
+    filler can actually fill.
+
+    Built from the feed's own pipeline rather than re-derived from the raw table, so the queue
+    can't disagree with the app: `ranked_rows` gives the personalized match score and collapses
+    the same-posting-two-hosts duplicates, the user's SAVED SEARCH decides what qualifies (match
+    floor, visa routes, location, pay, dev/mgmt track, staffing agencies, posting age), closed
+    postings are dropped, and employer runs are collapsed exactly the way the feed collapses them
+    — without that last step "fill my latest matches" spends a whole queue on 50 copies of one
+    Amazon opening.
+
+    Query args: `limit` (<=200), `sort=newest|score` (default newest — the runner wants the
+    freshest postings), `all=1` to include employer career domains beyond the tuned ATS list.
+    """
     from flask import jsonify
-    from urllib.parse import urlparse
     if request.method == "OPTIONS":
         return _cors(app.make_response(("", 204)))
     user = _ext_user(request.args.get("token", ""))
     if not user:
         return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
     try:
-        st = db.get_user_statuses(user) or {}
-    except Exception:
-        st = {}
-    applied = {u for u, s in st.items() if s == "applied"}
-    liked = {u for u, s in st.items() if s == "liked"}
-
-    def supported(u):
-        try:
-            h = (urlparse(u).hostname or "").lower()
-        except Exception:
-            return False
-        return any(host in h for host in _FILLABLE_HOSTS)
-
-    def score(j):
-        try:
-            return int(j.get("match_score") or 0)
-        except Exception:
-            return 0
-
-    rows = []
-    try:
-        for j in get_jobs():
-            u = j.get("url")
-            if u and u not in applied and supported(u):
-                rows.append(j)
-    except Exception:
-        pass
-    # Newest postings first: real verified posting date when known, else when we first found it
-    # (same recency expression the feed uses). ISO YYYY-MM-DD strings sort lexically.
-    rows.sort(key=lambda j: ((j.get("posted_verified") or j.get("found_date") or "")[:10]), reverse=True)
-    try:
         limit = max(1, min(int(request.args.get("limit", 50)), 200))
     except Exception:
         limit = 50
-    jobs = [{"url": j.get("url"), "title": j.get("title", ""), "company": j.get("company", ""),
-             "score": score(j), "liked": j.get("url") in liked} for j in rows[:limit]]
-    return _cors(jsonify({"ok": True, "jobs": jobs, "count": len(jobs)}))
+    wide = (request.args.get("all") or "") in ("1", "true", "yes", "on")
+    try:
+        statuses = user_statuses(user)
+    except Exception:
+        statuses = {}
+    try:
+        resume = db.profile_text(user)          # same whole-profile text the feed scores against
+    except Exception:
+        resume = ""
+    params = dict(_prefs_as_params(_user_prefs(user)))
+    params["sort"] = "score" if request.args.get("sort") == "score" else "newest"
+    try:
+        matched = _filter_rows(ranked_rows(user, resume), statuses, params)
+    except Exception:
+        matched = []
+    jobs = []
+    for r, st, _hidden, _gk in _group_units(matched):
+        url = r.get("url") or ""
+        # Already applied stays out of the queue: _filter_rows only drops `hidden` on this tab.
+        if st == "applied" or not _queue_fillable(url, wide):
+            continue
+        jobs.append({"url": url, "title": r.get("title", ""), "company": r.get("company", ""),
+                     "score": int(r.get("score") or 0), "liked": st == "liked",
+                     "location": r.get("location", ""), "remote": bool(r.get("remote")),
+                     "date": r.get("date") or r.get("first_seen") or "",
+                     "visa": list(r.get("visa") or ()), "track": r.get("track") or "",
+                     "agency": bool(r.get("agency")), "salary": r.get("salary_label") or ""})
+        if len(jobs) >= limit:
+            break
+    return _cors(jsonify({"ok": True, "jobs": jobs, "count": len(jobs),
+                          "wide": wide, "prefs_applied": True}))
 
 
 @app.route("/api/ext/answer", methods=["POST", "OPTIONS"])
