@@ -66,7 +66,10 @@ for exp in ("any", "2", "5", "senior"):
     grid.append({"exp": exp})
 for intern in ("any", "only", "no"):
     grid.append({"intern": intern})
-grid.append({"everify": True})
+for tag in core.VISA_TAGS:
+    grid.append({"visatags": tag})
+grid.append({"visatags": "h1b,green_card"})
+grid.append({"visatags": "stem_opt,e3,h1b1"})
 grid.append({"hidenospon": True})
 grid.append({"loc": "boston", "min": 40, "hideagency": True, "exp": "5", "intern": "no"})
 grid.append({"loc": "CA", "minsal": 100000, "hidenospon": True, "min": 35})
@@ -90,6 +93,30 @@ print("  %d prefs combinations compared" % len(grid))
 check("zero disagreements", mismatch_total == 0,
       "" if mismatch_total == 0 else "total differing urls: %d, worst: %r" % (mismatch_total, worst))
 
+# Without this the visa half of the grid is a no-op: with no index every row gets (), every
+# visa case matches nothing on BOTH sides, and "zero disagreements" passes while testing
+# nothing. Fail loudly instead of passing quietly.
+_vidx = core.load_visa_tags()
+check("visa index is loaded (else the visa cases above are vacuous)", len(_vidx) > 1000,
+      "%d employers" % len(_vidx))
+_tagged = {t for r in rows for t in (r.get("visa") or ())}
+check("corpus actually carries visa tags", len(_tagged) >= 3, "present: %s" % sorted(_tagged))
+
+print()
+print("=" * 78)
+print("visatags normalization")
+print("=" * 78)
+check("junk dropped", core.normalize_prefs({"visatags": "nonsense,h1b"})["visatags"] == "h1b")
+check("order canonicalized",
+      core.normalize_prefs({"visatags": "e3,h1b"})["visatags"] == "h1b,e3")
+check("duplicates collapsed",
+      core.normalize_prefs({"visatags": "h1b,h1b"})["visatags"] == "h1b")
+_mig = core.normalize_prefs({"everify": True})
+check("legacy everify migrates to stem_opt", _mig["visatags"] == "stem_opt")
+check("...and clears everify, so unticking STEM-OPT sticks", _mig["everify"] is False)
+check("normalize_prefs keeps the full key set",
+      set(core.normalize_prefs({})) == set(core.DEFAULT_PREFS))
+
 print()
 print("=" * 78)
 print("prefs_match specifics the feed can't express")
@@ -110,10 +137,10 @@ print("digest_row builds the shape prefs_match needs, from a RAW db job")
 print("=" * 78)
 import db
 raw = next(j for j in db.load_jobs() if (j.get("jd") or "").strip() and j.get("location"))
-dr = core.digest_row(raw, 55, core.load_everify())
+dr = core.digest_row(raw, 55, core.load_everify(), core.load_visa_tags())
 for k in ("title", "company", "url", "location", "score", "loc_state", "loc_metro", "remote",
           "salary_min", "salary_period", "salary_label", "sponsors_h1b", "sponsor_jd",
-          "agency", "cap_exempt", "everify", "exp_years", "intern", "closed"):
+          "agency", "cap_exempt", "everify", "visa", "exp_years", "intern", "closed"):
     check("digest_row has %s" % k, k in dr)
 check("digest_row is prefs_match-compatible",
       isinstance(core.prefs_match(dr, core.normalize_prefs({"min": 0})), bool))

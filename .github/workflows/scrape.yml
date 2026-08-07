@@ -82,6 +82,13 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}    # aggregator boards (Tesla/Google/
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}  # IBM/...) stay dormant without these
+          # FRESHNESS POLICY — keep only roughly the last month of postings.
+          # A posting that has been up 30+ days is almost always filled, and on the Supabase
+          # free tier every dead row costs space and slows the feed. MAX_AGE_DAYS refuses them
+          # on the way in; PRUNE_DAYS removes ones already stored. Both are stated here rather
+          # than left to the code defaults so the policy is visible in the run log.
+          MAX_AGE_DAYS: "30"
+          PRUNE_DAYS: "30"
         run: python -m scraper
 
       - name: Score + verify dates + alerts (once a day / on manual run)

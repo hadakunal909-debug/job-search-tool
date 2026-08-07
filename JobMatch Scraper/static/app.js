@@ -11,12 +11,31 @@
   var byUrl = {};
   for (var di = 0; di < DATA.length; di++) byUrl[DATA[di].url] = DATA[di];
 
+  // Visa routes. Written as strict JSON literals (double quotes, no trailing commas) because
+  // scripts/feed_parity.py lifts them out of this file and json.loads them, then asserts they
+  // equal core.VISA_TAGS / core.VISA_TAG_LABELS — otherwise the card, the email digest and the
+  // server filter could drift apart silently.
+  var VISA_TAGS = ["h1b", "green_card", "stem_opt", "e3", "h1b1"];
+  var VISA_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "E-Verify",
+                     "e3": "E-3", "h1b1": "H-1B1"};
+  var VISA_TIPS = {
+    "h1b": "Has certified H-1B labor condition applications. Past filings, not a promise.",
+    "green_card": "Has certified PERM applications — sponsors permanent residency, not just temporary visas.",
+    "stem_opt": "Enrolled E-Verify employer, required for the STEM-OPT 24-month extension. Confirm at e-verify.gov.",
+    "e3": "Has filed E-3 applications (Australian nationals).",
+    "h1b1": "Has filed H-1B1 applications (Chile / Singapore nationals)."
+  };
+
   var q = document.getElementById("q"), minR = document.getElementById("min"),
       minLab = document.getElementById("minlab"), sortSel = document.getElementById("sort"),
       dateSel = document.getElementById("date"), countEl = document.getElementById("count"),
       emptyEl = document.getElementById("empty"), moreBtn = document.getElementById("loadmore"),
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
-      expSel = document.getElementById("exp"), everifyOnly = document.getElementById("everifyonly"),
+      expSel = document.getElementById("exp"),
+      // Visa-route filter. Same hidden-input trick as trackSel below: the five checkboxes only
+      // write into this, and every filter path reads its `.value`, so the parity harness can
+      // stub one control instead of a NodeList.
+      visaSel = document.getElementById("visatags"),
       internSel = document.getElementById("intern"),
       // Career track ("any" | "dev" | "mgmt"). A hidden input, not the buttons: every filter
       // path reads `.value` the same way it reads the selects, and the parity harness can stub
@@ -78,11 +97,24 @@
       return '<span class="score-pending" title="This description is too short to score reliably yet — it\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);
   }
-  function toast(msg) {
+  function toast(msg, undoFn) {
     if (!toasts) return;
-    var t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+    var t = document.createElement("div"); t.className = "toast";
+    t.appendChild(document.createTextNode(msg));
+    var timer;
+    if (undoFn) {
+      // Undo inside the toast rather than a confirm dialog: hiding a job should cost one
+      // click and be reversible for a few seconds, not interrupt the scan with a modal.
+      var u = document.createElement("button");
+      u.className = "undo"; u.type = "button"; u.textContent = "Undo";
+      u.addEventListener("click", function () { clearTimeout(timer); t.remove(); undoFn(); });
+      t.appendChild(u);
+    }
     toasts.appendChild(t);
-    setTimeout(function () { t.style.transition = "opacity .3s"; t.style.opacity = "0"; setTimeout(function () { t.remove(); }, 300); }, 2300);
+    timer = setTimeout(function () {
+      t.style.transition = "opacity .3s"; t.style.opacity = "0";
+      setTimeout(function () { t.remove(); }, 300);
+    }, undoFn ? 6000 : 2300);   // longer window when there's something to undo
   }
   function relTime(s) {
     if (!s) return "";
@@ -147,10 +179,22 @@
     var badges = "";
     if (j.intern)
       badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
-    if (j.sponsors_h1b === "yes") {
-      // Deliberately NATIONAL only. USCIS records the petitioner's mailing address, not the
-      // worksite, so a per-state count reads as "Deloitte sponsors in Pennsylvania" (their
-      // processing centre) — worksite-level data needs the DOL LCA files, not this one.
+    // Visa routes this employer has actually filed for (DOL LCA + PERM + E-Verify). Capped at
+    // three chips: a big sponsor carries all five, and with Internship / No-lottery / Agency /
+    // experience / pay / Remote alongside them one card could otherwise show a dozen.
+    var vt = (j.visa || []);
+    for (var vi = 0; vi < vt.length && vi < 3; vi++) {
+      var vk = vt[vi], vtip = VISA_TIPS[vk] || "";
+      if (vk === "h1b" && j.strength)
+        vtip += " ~" + (j.strength_n || 0) + " USCIS approvals FY2019-23.";
+      badges += '<span class="vt vt-' + H(vk) + '" title="' + H(vtip) + '">' +
+        esc(VISA_LABELS[vk] || vk) + (vk === "h1b" && j.strength === "high" ? " ★" : "") + '</span>';
+    }
+    if (vt.length > 3)
+      badges += '<span class="vt vt-more" title="' + H(vt.map(function (k) {
+        return VISA_LABELS[k] || k; }).join(", ")) + '">+' + (vt.length - 3) + '</span>';
+    // Fallback for when visa_tags.json hasn't been built: the old name-list H-1B flag.
+    if (!vt.length && j.sponsors_h1b === "yes") {
       var h1bTip = "Company has sponsored H-1B before";
       if (j.strength) h1bTip += " · ~" + (j.strength_n || 0) + " approvals FY2019-23";
       h1bTip += ". USCIS H-1B Data Hub; past filings, not a promise.";
@@ -161,12 +205,6 @@
       badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery' +
         (VISA.needsLottery ? ", so this route does not depend on the March registration you're waiting on" : "") +
         '. Verify.">No lottery</span>';
-    if (j.everify)
-      badges += '<span class="ev" title="Listed in an E-Verify enrolled-employer snapshot' +
-        (VISA.stemPending
-          ? " — E-Verify is required for the STEM extension you may still file, so this employer keeps that option open"
-          : " — required for the STEM-OPT extension") +
-        '. Confirm current status at e-verify.gov before relying on it.">E-Verify</span>';
     if (j.agency)
       badges += '<span class="agency" title="Staffing agency / consultancy — postings are placement or bench roles, not a direct employer\'s own team. Kept for their H-1B sponsorship, flagged so you can skip if you prefer direct employers.">Agency</span>';
     if (j.exp_years !== "" && j.exp_years != null) {
@@ -334,6 +372,23 @@
     return ((j.loc_metro || "") + " " + (j.loc_state || "") + " " + (j.location || ""))
       .toLowerCase().indexOf(needle) !== -1;
   }
+  // Mirror of core.parse_visa_pref(): the ticked routes, canonical order, junk dropped.
+  function visaWanted() {
+    var raw = (visaSel && visaSel.value) || "";
+    if (!raw) return [];
+    var want = raw.toLowerCase().split(","), out = [];
+    for (var i = 0; i < VISA_TAGS.length; i++)
+      if (want.indexOf(VISA_TAGS[i]) !== -1) out.push(VISA_TAGS[i]);
+    return out;
+  }
+  // Mirror of core.visa_tags_match(): OR, and no ticked routes means no filter.
+  function visaHit(j, wanted) {
+    if (!wanted || !wanted.length) return true;
+    var have = j.visa || [];
+    for (var i = 0; i < wanted.length; i++)
+      if (have.indexOf(wanted[i]) !== -1) return true;
+    return false;
+  }
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
@@ -349,7 +404,7 @@
         .toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = rowDate(j); if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
-    if (ok && everifyOnly && everifyOnly.checked && !j.everify) ok = false;
+    if (ok && !visaHit(j, visaWanted())) ok = false;
     if (ok && locInp && locInp.value.trim()) ok = locHit(j, locInp.value.trim().toLowerCase());
     if (ok && remoteOnly && remoteOnly.checked && !j.remote) ok = false;
     if (ok && minSalSel && minSalSel.value) {
@@ -426,7 +481,7 @@
     if (internSel && internSel.value !== "any") n++;
     if (locInp && locInp.value.trim()) n++;
     if (minSalSel && minSalSel.value) n++;
-    if (everifyOnly && everifyOnly.checked) n++;
+    if (visaWanted().length) n++;      // the whole visa group counts as ONE filter, not five
     if (hideNo && hideNo.checked) n++;
     if (remoteOnly && remoteOnly.checked) n++;
     if (hideAgency && hideAgency.checked) n++;
@@ -438,7 +493,9 @@
     setFlag(dateSel, dateSel && dateSel.value !== "any");
     setFlag(expSel, expSel && expSel.value !== "any");
     setFlag(internSel, internSel && internSel.value !== "any");
-    setFlag(everifyOnly && everifyOnly.closest(".ck"), everifyOnly && everifyOnly.checked);
+    var vbox = document.querySelectorAll(".visack input[data-vt]");
+    for (var vb = 0; vb < vbox.length; vb++)
+      setFlag(vbox[vb].closest(".ck"), vbox[vb].checked);
     setFlag(hideNo && hideNo.closest(".ck"), hideNo && hideNo.checked);
     setFlag(remoteOnly && remoteOnly.closest(".ck"), remoteOnly && remoteOnly.checked);
     setFlag(minSalSel, minSalSel && minSalSel.value);
@@ -472,7 +529,8 @@
     if (q && q.value.trim()) ps.push("q=" + encodeURIComponent(q.value.trim()));
     if (dateSel && dateSel.value !== "any") ps.push("date=" + encodeURIComponent(dateSel.value));
     if (expSel && expSel.value !== "any") ps.push("exp=" + encodeURIComponent(expSel.value));
-    if (everifyOnly && everifyOnly.checked) ps.push("everify=1");
+    var vw = visaWanted();
+    if (vw.length) ps.push("visatags=" + encodeURIComponent(vw.join(",")));
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
     if (trackSel && trackSel.value !== "any") ps.push("track=" + encodeURIComponent(trackSel.value));
@@ -577,6 +635,20 @@
       }).catch(function () { toast("Network error."); return false; });
   }
   function actLabel(s) { return s === "liked" ? "Saved" : s === "applied" ? "Marked applied" : s === "hidden" ? "Hidden" : "Removed"; }
+  // Shrink + fade the card out, then hand back to the caller to re-render (which drops the
+  // node and reflows the grid). Two rAFs so the browser paints the start state before the
+  // class that changes it, otherwise there's nothing to transition FROM. `done` fires on a
+  // timer rather than transitionend: a backgrounded tab never fires that event and the card
+  // would sit half-faded forever.
+  function collapseCard(card, done) {
+    if (!card || !card.parentNode) { done(); return; }
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) { done(); return; }
+    card.classList.add("card-collapse");
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { card.classList.add("gone"); });
+    });
+    setTimeout(done, 240);
+  }
 
   // controls
   for (var t = 0; t < tabBtns.length; t++) tabBtns[t].addEventListener("click", function () {
@@ -604,7 +676,22 @@
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
   if (expSel) expSel.addEventListener("change", function () { render(true); });
   if (internSel) internSel.addEventListener("change", function () { render(true); });
-  if (everifyOnly) everifyOnly.addEventListener("change", function () { render(true); });
+  // One delegated listener over the visa group: the checkboxes are the UI, visaSel.value is
+  // the state every filter path actually reads.
+  function syncVisa() {
+    if (!visaSel) return;
+    var on = [], boxes = document.querySelectorAll(".visack input[data-vt]");
+    for (var i = 0; i < VISA_TAGS.length; i++)
+      for (var b = 0; b < boxes.length; b++)
+        if (boxes[b].getAttribute("data-vt") === VISA_TAGS[i] && boxes[b].checked)
+          on.push(VISA_TAGS[i]);
+    visaSel.value = on.join(",");
+  }
+  var visaGroup = visaSel && visaSel.parentNode;
+  if (visaGroup) visaGroup.addEventListener("change", function (e) {
+    if (!e.target || !e.target.getAttribute || !e.target.getAttribute("data-vt")) return;
+    syncVisa(); render(true);
+  });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   // Location is free text, so debounce it like the search box rather than firing per keystroke.
   if (locInp) locInp.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
@@ -680,7 +767,9 @@
     if (dateSel) dateSel.value = "any";
     if (expSel) expSel.value = "any";
     if (internSel) internSel.value = "any";
-    if (everifyOnly) everifyOnly.checked = false;
+    var vclr = document.querySelectorAll(".visack input[data-vt]");
+    for (var vc = 0; vc < vclr.length; vc++) vclr[vc].checked = false;
+    if (visaSel) visaSel.value = "";
     if (hideNo) hideNo.checked = false;
     if (remoteOnly) remoteOnly.checked = false;
     if (hideAgency) hideAgency.checked = false;
@@ -697,7 +786,7 @@
       remote: !!(remoteOnly && remoteOnly.checked),
       minsal: minSalSel ? (parseInt(minSalSel.value, 10) || 0) : 0,
       hideagency: !!(hideAgency && hideAgency.checked),
-      everify: !!(everifyOnly && everifyOnly.checked),
+      visatags: visaWanted().join(","),
       hidenospon: !!(hideNo && hideNo.checked),
       exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
       track: trackSel ? trackSel.value : "any",
@@ -738,8 +827,22 @@
       var act = btn.getAttribute("data-act"), cur = j.status || "", next = (cur === act) ? "" : act;
       btn.disabled = true;
       doAction(j.url, next).then(function (ok) {
-        btn.disabled = false; if (!ok) return; toast(actLabel(next));
-        j.status = next; afterAction(j);
+        btn.disabled = false; if (!ok) return;
+        j.status = next;
+        // Hiding is the one action that removes the card from view, so it gets the collapse
+        // + Undo treatment. The others just relabel in place and re-render as before.
+        if (next === "hidden" && tab !== "hidden") {
+          collapseCard(card, function () { afterAction(j); });
+          toast("Hidden", function () {
+            doAction(j.url, cur).then(function (ok2) {
+              if (!ok2) { toast("Couldn't undo — try again."); return; }
+              j.status = cur; render(true);
+            });
+          });
+        } else {
+          toast(actLabel(next));
+          afterAction(j);
+        }
       });
       return;
     }
@@ -788,7 +891,11 @@
         var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
         spn += '<span class="exp ' + ec + '">' + ey + '+ yrs experience</span>';
       }
-      if (j.everify) spn += '<span class="ev" title="Confirm current status at e-verify.gov">E-Verify · STEM-OPT OK</span>';
+      // The modal has room, so it shows every route rather than the card's top three.
+      var mvt = j.visa || [];
+      for (var mi = 0; mi < mvt.length; mi++)
+        spn += '<span class="vt vt-' + H(mvt[mi]) + '" title="' + H(VISA_TIPS[mvt[mi]] || "") +
+          '">' + esc(VISA_LABELS[mvt[mi]] || mvt[mi]) + '</span>';
       if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt — no H-1B lottery</span>';
       if (j.agency) spn += '<span class="agency" title="Staffing agency / consultancy — not a direct employer">Agency</span>';
       if (j.sponsor_jd === "blocked") spn += '<span class="nospon">' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';

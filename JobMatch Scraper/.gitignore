@@ -48,3 +48,17 @@ job-hunt-app.zip
 # personal / local — not needed by the deployed app
 Kunal_Job_Search_Tracker.xlsx
 .claude/
+
+# migratemate mining artifacts — REVIEW OUTPUT, regenerable, and one of them is 65 MB.
+# The durable result of that work is the board list already pasted into scraper/__init__.py;
+# these are the working files it came from. visa_tags.json is deliberately NOT here: the app
+# reads it at runtime and there is no build step on the server, so it has to be committed.
+migratemate_jobs.json
+migratemate_companies.csv
+migratemate_boards*.csv
+migratemate_probed.txt
+visa_tags_report.csv
+SOURCES_lines*.txt
+
+# run logs
+jd_backfill_*.log

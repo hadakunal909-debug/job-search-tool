@@ -185,6 +185,917 @@ EXTRA_BOARDS = [
     # --- Added 2026-06-18 (LCA FY2026-Q2 web-search wave 2) ---
     ("https://jobs.lever.co/spotify",                           "lever", "Spotify"),                 # ~136
     ("https://job-boards.greenhouse.io/hubspotjobs",            "greenhouse", "HubSpot"),            # ~164
+    # --- Added 2026-08-07 (user-supplied link; the ?for= embed URL normalizes to this) ---
+    ("https://job-boards.greenhouse.io/netradyne",              "greenhouse", "Netradyne"),          # ~28
+    # --- Added 2026-08-07: 64 boards recovered by probing the 771 employers that appear on
+    # migratemate.co's product/project pages but weren't in SOURCES. Every one below had its
+    # identity CONFIRMED — the board's own reported name matched the company on a whole-string
+    # fuzzy check, not the subset check that once let "Charles Schwab" bind to a board called
+    # "charles". The unverified/guessed hits from that probe were deliberately NOT added.
+    # GE Vernova and AEP came from reading their careers pages by hand: their Workday sites are
+    # "Vernova_ExternalSite" / "AEPCareerSite", which no slug guess can reach. ---
+    ("https://jobs.smartrecruiters.com/eurofins",               "smartrecruiters", "Eurofins"),      # ~2552
+    ("https://gevernova.wd5.myworkdayjobs.com/Vernova_ExternalSite", "workday", "GE Vernova"),       # ~2150
+    ("https://job-boards.greenhouse.io/speechify",              "greenhouse", "Speechify"),          # ~1302
+    ("https://job-boards.greenhouse.io/coupang",                "greenhouse", "Coupang"),            # ~666
+    ("https://jobs.smartrecruiters.com/rrdonnelley",            "smartrecruiters", "RR Donnelley"),  # ~569
+    ("https://job-boards.greenhouse.io/anthropic",              "greenhouse", "Anthropic"),          # ~390
+    ("https://job-boards.greenhouse.io/braze",                  "greenhouse", "Braze"),              # ~258
+    ("https://job-boards.greenhouse.io/veeamsoftware",          "greenhouse", "Veeam Software"),     # ~241
+    ("https://job-boards.greenhouse.io/astspacemobile",         "greenhouse", "AST SpaceMobile"),    # ~209
+    ("https://job-boards.greenhouse.io/formlabs",               "greenhouse", "Formlabs"),           # ~203
+    ("https://job-boards.greenhouse.io/monsterenergy",          "greenhouse", "Monster Energy"),     # ~182
+    ("https://jobs.smartrecruiters.com/testingxperts",          "smartrecruiters", "Testingxperts"), # ~179
+    ("https://job-boards.greenhouse.io/riotgames",              "greenhouse", "Riot Games"),         # ~167
+    ("https://job-boards.greenhouse.io/figma",                  "greenhouse", "Figma"),              # ~167
+    ("https://jobs.smartrecruiters.com/accionlabs",             "smartrecruiters", "Accion Labs"),   # ~166
+    ("https://aep.wd1.myworkdayjobs.com/AEPCareerSite",         "workday", "American Electric Power"), # ~162
+    ("https://jobs.smartrecruiters.com/kpffconsultingengineers", "smartrecruiters", "KPFF Consulting Engineers"), # ~157
+    ("https://job-boards.greenhouse.io/gotion",                 "greenhouse", "Gotion"),             # ~157
+    ("https://job-boards.greenhouse.io/cannondesign",           "greenhouse", "CannonDesign"),       # ~148
+    ("https://job-boards.greenhouse.io/redwoodmaterials",       "greenhouse", "Redwood Materials"),  # ~139
+    ("https://jobs.smartrecruiters.com/sodexo",                 "smartrecruiters", "Sodexo"),        # ~126
+    ("https://job-boards.greenhouse.io/gusto",                  "greenhouse", "Gusto"),              # ~95
+    ("https://jobs.smartrecruiters.com/universityofnotredame",  "smartrecruiters", "University of Notre Dame"), # ~94
+    ("https://job-boards.greenhouse.io/fanduel",                "greenhouse", "FanDuel"),            # ~87
+    ("https://grantthornton.recruitee.com/",                    "recruitee", "Grant Thornton"),      # ~86
+    ("https://job-boards.greenhouse.io/neuralink",              "greenhouse", "Neuralink"),          # ~79
+    ("https://job-boards.greenhouse.io/hunterdouglas",          "greenhouse", "Hunter Douglas"),     # ~78
+    ("https://job-boards.greenhouse.io/caddellconstruction",    "greenhouse", "Caddell Construction"), # ~61
+    ("https://job-boards.greenhouse.io/cpisecurity",            "greenhouse", "CPI Security"),       # ~54
+    ("https://job-boards.greenhouse.io/codeandtheory",          "greenhouse", "Code and Theory"),    # ~53
+    ("https://job-boards.greenhouse.io/peloton",                "greenhouse", "Peloton"),            # ~52
+    ("https://job-boards.greenhouse.io/discord",                "greenhouse", "Discord"),            # ~48
+    ("https://job-boards.greenhouse.io/summittherapeutics",     "greenhouse", "Summit Therapeutics"), # ~47
+    ("https://job-boards.greenhouse.io/flex",                   "greenhouse", "Flex"),               # ~47
+    ("https://job-boards.greenhouse.io/willmengconstruction",   "greenhouse", "Willmeng Construction"), # ~46
+    ("https://job-boards.greenhouse.io/project44",              "greenhouse", "project44"),          # ~34
+    ("https://job-boards.greenhouse.io/jfrog",                  "greenhouse", "JFrog"),              # ~34
+    ("https://job-boards.greenhouse.io/pacificfusion",          "greenhouse", "Pacific Fusion"),     # ~33
+    ("https://job-boards.greenhouse.io/clearstreet",            "greenhouse", "Clear Street"),       # ~28
+    ("https://job-boards.greenhouse.io/altoslabs",              "greenhouse", "Altos Labs"),         # ~25
+    ("https://job-boards.greenhouse.io/waymark",                "greenhouse", "Waymark"),            # ~19
+    ("https://jobs.smartrecruiters.com/saintgobain",            "smartrecruiters", "Saint-Gobain"),  # ~18
+    ("https://job-boards.greenhouse.io/innovid",                "greenhouse", "Innovid"),            # ~18
+    ("https://job-boards.greenhouse.io/collectivehealth",       "greenhouse", "Collective Health"),  # ~15
+    ("https://aramark.recruitee.com/",                          "recruitee", "Aramark"),             # ~15
+    ("https://job-boards.greenhouse.io/udemy",                  "greenhouse", "Udemy"),              # ~12
+    ("https://job-boards.greenhouse.io/siliconranch",           "greenhouse", "Silicon Ranch"),      # ~12
+    ("https://job-boards.greenhouse.io/motive",                 "greenhouse", "Motive"),             # ~11
+    ("https://job-boards.greenhouse.io/generatebiomedicines",   "greenhouse", "Generate Biomedicines"), # ~11
+    ("https://jobs.smartrecruiters.com/bostonmedicalcenter",    "smartrecruiters", "Boston Medical Center"), # ~10
+    ("https://job-boards.greenhouse.io/brightcoreenergy",       "greenhouse", "Brightcore Energy"),  # ~9
+    ("https://jobs.smartrecruiters.com/servicetitan",           "smartrecruiters", "ServiceTitan"),  # ~8
+    ("https://job-boards.greenhouse.io/lattice",                "greenhouse", "Lattice"),            # ~8
+    ("https://jobs.smartrecruiters.com/centraprise",            "smartrecruiters", "Centraprise"),   # ~7
+    ("https://jobs.smartrecruiters.com/celanese",               "smartrecruiters", "Celanese"),      # ~5
+    ("https://jobs.smartrecruiters.com/brookfieldproperties",   "smartrecruiters", "Brookfield Properties"), # ~4
+    ("https://job-boards.greenhouse.io/pliancy",                "greenhouse", "Pliancy"),            # ~4
+    ("https://jobs.smartrecruiters.com/henryschein",            "smartrecruiters", "Henry Schein"),  # ~3
+    ("https://jobs.smartrecruiters.com/athene",                 "smartrecruiters", "Athene"),        # ~1
+    ("https://jobs.smartrecruiters.com/sutterhealth",           "smartrecruiters", "Sutter Health"), # ~1
+    ("https://jobs.smartrecruiters.com/stifel",                 "smartrecruiters", "Stifel"),        # ~1
+    ("https://jobs.smartrecruiters.com/kimberlyclark",          "smartrecruiters", "Kimberly-Clark"), # ~1
+    ("https://jobs.smartrecruiters.com/applicantz",             "smartrecruiters", "Applicantz"),    # ~1
+    ("https://jobs.smartrecruiters.com/tikehaucapital",         "smartrecruiters", "Tikehau Capital"), # ~1
+    # --- Added 2026-08-07: probed from migratemate.co's public sponsor directory
+    # (scraper/mine_migratemate.py -> scraper/probe_migratemate.py). Every entry had its
+    # IDENTITY VERIFIED: the board reported a matching name, or it was reached by resolving
+    # the company's own domain, or the slug is the company name verbatim. Unverified and
+    # single-token guesses were NOT added. Dollar General / PetSmart / Ulta were dropped —
+    # ~110k frontline retail postings the title filter discards anyway, at real fetch cost. ---
+    ("https://davita.wd1.myworkdayjobs.com/DKC_External", "workday", "DaVita"),              # ~3486
+    ("https://careers.cintas.com", "successfactors", "Cintas"),                              # ~2359
+    ("https://hdox.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "Quest Diagnostics"), # ~2095
+    ("https://fivebelow.wd1.myworkdayjobs.com/fivebelowcareers", "workday", "Five Below"),   # ~2000
+    ("https://genpact.wd108.myworkdayjobs.com/External_Careers", "workday", "Genpact"),      # ~2000
+    ("https://mmc.wd1.myworkdayjobs.com/MMC", "workday", "Marsh"),                           # ~1976
+    ("https://jabil.wd5.myworkdayjobs.com/Jabil_Careers", "workday", "Jabil"),               # ~1901
+    ("https://republic.wd5.myworkdayjobs.com/Republic", "workday", "Republic Services"),     # ~1708
+    ("https://skechers.wd5.myworkdayjobs.com/One-career-site", "workday", "Skechers"),       # ~1669
+    ("https://kbr.wd5.myworkdayjobs.com/KBR_Careers", "workday", "KBR"),                     # ~1640
+    ("https://wawa.wd1.myworkdayjobs.com/careers", "workday", "Wawa"),                       # ~1505
+    ("https://careers.pruitthealth.com", "phenom", "PruittHealth"),                          # ~1475
+    ("https://careers.accentcare.com", "jibe", "AccentCare"),                                # ~1386
+    ("https://careers.mastec-civil.com", "jibe", "Mastec Civil"),                            # ~1361
+    ("https://ur.wd1.myworkdayjobs.com/URcareers", "workday", "United Rentals"),             # ~1353
+    ("https://richemont.wd3.myworkdayjobs.com/richemont", "workday", "Richemont"),           # ~1291
+    ("https://careers.orlandohealth.com", "jibe", "Orlando Health"),                         # ~1269
+    ("https://careers.rollins.com", "jibe", "Rollins"),                                      # ~1227
+    ("https://jobs.smartrecruiters.com/RedBull", "smartrecruiters", "Red Bull"),             # ~1173
+    ("https://carrier.wd5.myworkdayjobs.com/jobs", "workday", "Carrier"),                    # ~1171
+    ("https://careers.celestica.com", "successfactors", "Celestica"),                        # ~1089
+    ("https://jobs.sephora.com", "successfactors", "Sephora"),                               # ~1077
+    ("https://sunbeltrentals.wd1.myworkdayjobs.com/sbcareers", "workday", "Sunbelt Rentals"), # ~1042
+    ("https://ohiohealth.wd5.myworkdayjobs.com/OhioHealthJobs", "workday", "OhioHealth"),    # ~1009
+    ("https://weis.wd108.myworkdayjobs.com/Careers", "workday", "Weis Markets"),             # ~973
+    ("https://kone.wd3.myworkdayjobs.com/Careers", "workday", "KONE"),                       # ~962
+    ("https://gianteagle.wd503.myworkdayjobs.com/GEExternalcareers", "workday", "Giant Eagle"), # ~866
+    ("https://autonation.wd5.myworkdayjobs.com/Careers", "workday", "AutoNation"),           # ~854
+    ("https://careers.medpace.com", "jibe", "Medpace"),                                      # ~764
+    ("https://jobs.ametek.com", "successfactors", "AMETEK"),                                 # ~739
+    ("https://job-boards.greenhouse.io/capco", "greenhouse", "Capco"),                       # ~728
+    ("https://aegistherapies.wd1.myworkdayjobs.com/AegisCareers", "workday", "Aegis Therapies"), # ~720
+    ("https://synnex.wd5.myworkdayjobs.com/tdsynnexcareers", "workday", "TD SYNNEX"),        # ~711
+    ("https://ecolab.wd1.myworkdayjobs.com/Ecolab_External", "workday", "Ecolab"),           # ~704
+    ("https://jobs.smartrecruiters.com/PublicStorage", "smartrecruiters", "Public Storage"), # ~676
+    ("https://careers.quiktrip.com", "successfactors", "QuikTrip"),                          # ~630
+    ("https://fa-ewji-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "eClerx"), # ~578
+    ("https://careers.paychex.com", "jibe", "Paychex"),                                      # ~574
+    ("https://careers.andritz.com", "successfactors", "ANDRITZ"),                            # ~571
+    ("https://jobs.cemex.com", "successfactors", "CEMEX"),                                   # ~544
+    ("https://jobs.lever.co/lyrahealth", "lever", "Lyra Health"),                            # ~526
+    ("https://honorhealth.wd12.myworkdayjobs.com/HonorHealth_careers", "workday", "HonorHealth"), # ~513
+    ("https://careers.crocs.com", "successfactors", "Crocs"),                                # ~511
+    ("https://careers.teradyne.com", "successfactors", "Teradyne"),                          # ~501
+    ("https://hckd.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "Molina Healthcare"), # ~442
+    ("https://jobs.lever.co/shieldai", "lever", "Shield AI"),                                # ~433
+    ("https://jobs.ferrero.com", "successfactors", "Ferrero"),                               # ~431
+    ("https://chenmed.wd1.myworkdayjobs.com/ChenMed", "workday", "ChenMed"),                 # ~417
+    ("https://airliquidehr.wd3.myworkdayjobs.com/AirgasExternalCareer", "workday", "Airgas"), # ~412
+    ("https://fortrea.wd1.myworkdayjobs.com/Fortrea", "workday", "Fortrea"),                 # ~396
+    ("https://unisys.wd5.myworkdayjobs.com/External", "workday", "Unisys"),                  # ~396
+    ("https://atriumhospitality.wd5.myworkdayjobs.com/AtriumHospitality", "workday", "Atrium Hospitality"), # ~384
+    ("https://jobs.townpump.com", "phenom", "Town Pump"),                                    # ~378
+    ("https://jobs.dana.com", "successfactors", "Dana"),                                     # ~368
+    ("https://jobs.smartrecruiters.com/Konecranes", "smartrecruiters", "Konecranes"),        # ~365
+    ("https://careers.swissport.com", "jibe", "Swissport"),                                  # ~365
+    ("https://careers.ucb.com", "phenom", "UCB"),                                            # ~362
+    ("https://jobs.gft.com", "successfactors", "GFT"),                                       # ~361
+    ("https://sunrun.wd5.myworkdayjobs.com/Sunrun_Careers", "workday", "Sunrun"),            # ~352
+    ("https://job-boards.greenhouse.io/olsson", "greenhouse", "Olsson"),                     # ~334
+    ("https://jobs.growmark.com", "successfactors", "GROWMARK"),                             # ~329
+    ("https://careers.nrgenergy.com", "successfactors", "NRG Energy"),                       # ~324
+    ("https://careers.yash.com", "successfactors", "YASH Technologies"),                     # ~311
+    ("https://careers.airmethods.com", "jibe", "Air Methods"),                               # ~304
+    ("https://job-boards.greenhouse.io/canonical", "greenhouse", "Canonical"),               # ~304
+    ("https://jobs.ashbyhq.com/fluidstack", "ashby", "Fluidstack"),                          # ~287
+    ("https://job-boards.greenhouse.io/convenientmd", "greenhouse", "ConvenientMD"),         # ~283
+    ("https://job-boards.greenhouse.io/revolutionmedicines", "greenhouse", "Revolution Medicines"), # ~270
+    ("https://jobs.zs.com", "jibe", "ZS"),                                                   # ~270
+    ("https://jobs.kerry.com", "phenom", "Kerry"),                                           # ~264
+    ("https://job-boards.greenhouse.io/loenbro", "greenhouse", "Loenbro"),                   # ~259
+    ("https://cubesmart.jibeapply.com", "jibe", "CubeSmart"),                                # ~255
+    ("https://jobs.arkema.com", "successfactors", "Arkema"),                                 # ~251
+    ("https://jobs.smartrecruiters.com/Canva", "smartrecruiters", "Canva"),                  # ~245
+    ("https://roberthalf.wd1.myworkdayjobs.com/RobertHalfStaffingCareers", "workday", "Robert Half"), # ~236
+    ("https://job-boards.greenhouse.io/natera", "greenhouse", "Natera"),                     # ~226
+    ("https://job-boards.greenhouse.io/alphasense", "greenhouse", "AlphaSense"),             # ~225
+    ("https://careers.brp.com", "phenom", "BRP"),                                            # ~216
+    ("https://republicfinance.jibeapply.com", "jibe", "Republic Finance"),                   # ~216
+    ("https://careers.unitedsiteservices.com", "jibe", "United Site Services"),              # ~215
+    ("https://jobs.puig.com", "successfactors", "Puig"),                                     # ~213
+    ("https://careers.hanger.com", "phenom", "Hanger"),                                      # ~209
+    ("https://clarios.wd5.myworkdayjobs.com/clarioscareers", "workday", "Clarios"),          # ~208
+    ("https://logitech.wd5.myworkdayjobs.com/Logitech", "workday", "Logitech"),              # ~203
+    ("https://careers.technipfmc.com", "successfactors", "TechnipFMC"),                      # ~201
+    ("https://job-boards.greenhouse.io/fivetran", "greenhouse", "Fivetran"),                 # ~198
+    ("https://job-boards.greenhouse.io/appian", "greenhouse", "Appian"),                     # ~194
+    ("https://careers.southwire.com", "successfactors", "Southwire Company"),                # ~194
+    ("https://jobs.ashbyhq.com/formenergy", "ashby", "Form Energy"),                         # ~184
+    ("https://jobs.lever.co/xsolla", "lever", "Xsolla"),                                     # ~181
+    ("https://jobs.smartrecruiters.com/Endava", "smartrecruiters", "Endava"),                # ~178
+    ("https://jobs.ashbyhq.com/whoop", "ashby", "Whoop"),                                    # ~175
+    ("https://jda.wd5.myworkdayjobs.com/JDA_Careers", "workday", "Blue Yonder"),             # ~173
+    ("https://careers.teleflex.com", "successfactors", "Teleflex"),                          # ~173
+    ("https://job-boards.greenhouse.io/via", "greenhouse", "via"),                           # ~173
+    ("https://jobs.lever.co/Aprio", "lever", "Aprio"),                                       # ~170
+    ("https://job-boards.greenhouse.io/asteralabs", "greenhouse", "Astera Labs"),            # ~167
+    ("https://careers.incyte.com", "jibe", "Incyte"),                                        # ~167
+    ("https://job-boards.greenhouse.io/clickhouse", "greenhouse", "ClickHouse"),             # ~166
+    ("https://jobs.barry-callebaut.com", "successfactors", "Barry Callebaut"),               # ~163
+    ("https://brambles.wd5.myworkdayjobs.com/Brambles_Careers", "workday", "CHEP"),          # ~163
+    ("https://careers.allanmyers.com", "jibe", "Allan Myers"),                               # ~159
+    ("https://job-boards.greenhouse.io/workato", "greenhouse", "Workato"),                   # ~159
+    ("https://job-boards.greenhouse.io/clarksoneyecare", "greenhouse", "Clarkson Eyecare"),  # ~156
+    ("https://job-boards.greenhouse.io/epicgames", "greenhouse", "Epic Games"),              # ~155
+    ("https://jobs.smartrecruiters.com/Freshworks", "smartrecruiters", "Freshworks"),        # ~155
+    ("https://jobs.smartrecruiters.com/IntegratedDermatology", "smartrecruiters", "Integrated Dermatology"), # ~154
+    ("https://jobs.ashbyhq.com/maintainx", "ashby", "MaintainX"),                            # ~154
+    ("https://job-boards.greenhouse.io/five9", "greenhouse", "Five9"),                       # ~153
+    ("https://job-boards.greenhouse.io/asana", "greenhouse", "Asana"),                       # ~150
+    ("https://tarkett.wd3.myworkdayjobs.com/Tarkett_Careers", "workday", "Tarkett"),         # ~150
+    ("https://criteo.wd3.myworkdayjobs.com/Criteo_Career_Site", "workday", "Criteo"),        # ~147
+    ("https://job-boards.greenhouse.io/oneoncology", "greenhouse", "OneOncology"),           # ~146
+    ("https://careers.avalara.com", "jibe", "Avalara"),                                      # ~144
+    ("https://job-boards.greenhouse.io/cookunity", "greenhouse", "CookUnity"),               # ~143
+    ("https://jobs.lever.co/includedhealth", "lever", "Included Health"),                    # ~143
+    ("https://job-boards.greenhouse.io/netskope", "greenhouse", "Netskope"),                 # ~142
+    ("https://careers.chobani.com", "successfactors", "Chobani"),                            # ~140
+    ("https://job-boards.greenhouse.io/intersystems", "greenhouse", "InterSystems"),         # ~140
+    ("https://job-boards.greenhouse.io/scopely", "greenhouse", "Scopely"),                   # ~140
+    ("https://jobs.ashbyhq.com/cohere", "ashby", "Cohere"),                                  # ~139
+    ("https://jobs.igt.com", "successfactors", "IGT"),                                       # ~138
+    ("https://careers.rhimagnesita.com", "successfactors", "RHI Magnesita"),                 # ~138
+    ("https://jobs.shamrockfoods.com", "phenom", "Shamrock Foods Company"),                  # ~137
+    ("https://job-boards.greenhouse.io/jensenhughes", "greenhouse", "Jensen Hughes"),        # ~136
+    ("https://eehb.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2005", "oracle", "Rockland Trust Company"), # ~134
+    ("https://therealreal.wd1.myworkdayjobs.com/Careers", "workday", "The RealReal"),        # ~134
+    ("https://jobs.rogers.com", "successfactors", "Rogers"),                                 # ~133
+    ("https://careers.belden.com", "successfactors", "Belden"),                              # ~130
+    ("https://jobs.biontech.com", "successfactors", "BioNTech"),                             # ~128
+    ("https://zendesk.wd1.myworkdayjobs.com/zendesk", "workday", "Zendesk"),                 # ~128
+    ("https://careers.cvent.com", "jibe", "Cvent"),                                          # ~126
+    ("https://jobs.bekaert.com", "successfactors", "Bekaert"),                               # ~123
+    ("https://tt.wd503.myworkdayjobs.com/ThorntonTomasetti", "workday", "Thornton Tomasetti"), # ~121
+    ("https://jobs.ashbyhq.com/uipath", "ashby", "UiPath"),                                  # ~121
+    ("https://corespaces.jibeapply.com", "jibe", "Core Spaces"),                             # ~120
+    ("https://recruiting.ultipro.com/ARH1000ARH/JobBoard/e5051b40-e91f-fa81-f0bf-ed2e9361f690", "ultipro", "Arhaus"), # ~119
+    ("https://careers.eidebailly.com", "jibe", "Eide Bailly"),                               # ~118
+    ("https://job-boards.greenhouse.io/ixllearning", "greenhouse", "IXL Learning"),          # ~117
+    ("https://jobs.ashbyhq.com/skydio", "ashby", "Skydio"),                                  # ~114
+    ("https://braunintertec.wd5.myworkdayjobs.com/BraunIntertecCareers", "workday", "Braun Intertec"), # ~113
+    ("https://jobs.lever.co/extremenetworks", "lever", "Extreme Networks"),                  # ~112
+    ("https://ebwg.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "oracle", "ACI Worldwide"), # ~110
+    ("https://job-boards.greenhouse.io/fahertybrand", "greenhouse", "Faherty Brand"),        # ~110
+    ("https://jobs.ashbyhq.com/etched", "ashby", "Etched"),                                  # ~109
+    ("https://job-boards.greenhouse.io/geotab", "greenhouse", "Geotab"),                     # ~108
+    ("https://jobs.ashbyhq.com/plaid", "ashby", "Plaid"),                                    # ~106
+    ("https://job-boards.greenhouse.io/postman", "greenhouse", "Postman"),                   # ~106
+    ("https://job-boards.greenhouse.io/advancedtechnologyservices", "greenhouse", "Advanced Technology Services"), # ~105
+    ("https://job-boards.greenhouse.io/freedomcare", "greenhouse", "Freedom Care"),          # ~102
+    ("https://job-boards.greenhouse.io/nuro", "greenhouse", "Nuro"),                         # ~102
+    ("https://jobs.ashbyhq.com/langchain", "ashby", "LangChain"),                            # ~101
+    ("https://job-boards.greenhouse.io/smartsheet", "greenhouse", "Smartsheet"),             # ~101
+    ("https://job-boards.greenhouse.io/billiontoone", "greenhouse", "BillionToOne"),         # ~99
+    ("https://careers.dentsplysirona.com", "successfactors", "Dentsply Sirona"),             # ~99
+    ("https://wd5.myworkdaysite.com/recruiting/conmed/conmed", "workday", "CONMED"),         # ~98
+    ("https://boseallaboutme.wd503.myworkdayjobs.com/Bose_Careers", "workday", "Bose"),      # ~97
+    ("https://careers.primetals.com", "phenom", "Primetals Technologies"),                   # ~97
+    ("https://msci.jibeapply.com", "jibe", "MSCI"),                                          # ~95
+    ("https://job-boards.greenhouse.io/taboola", "greenhouse", "Taboola"),                   # ~95
+    ("https://ameresco.wd5.myworkdayjobs.com/Ameresco", "workday", "Ameresco"),              # ~94
+    ("https://job-boards.greenhouse.io/modernanimal", "greenhouse", "Modern Animal"),        # ~94
+    ("https://job-boards.greenhouse.io/fictiv", "greenhouse", "Fictiv"),                     # ~93
+    ("https://job-boards.greenhouse.io/justworks", "greenhouse", "Justworks"),               # ~93
+    ("https://job-boards.greenhouse.io/onetrust", "greenhouse", "OneTrust"),                 # ~93
+    ("https://careers.pacificorp.com", "successfactors", "PacifiCorp"),                      # ~93
+    ("https://jobs.ashbyhq.com/socure", "ashby", "Socure"),                                  # ~93
+    ("https://job-boards.greenhouse.io/blankstreet", "greenhouse", "Blank Street"),          # ~91
+    ("https://jobs.lever.co/pattern", "lever", "Pattern"),                                   # ~90
+    ("https://job-boards.greenhouse.io/uberfreight", "greenhouse", "Uber Freight"),          # ~87
+    ("https://cordis.jibeapply.com", "jibe", "Cordis"),                                      # ~86
+    ("https://job-boards.greenhouse.io/fashionnova", "greenhouse", "Fashion Nova"),          # ~85
+    ("https://job-boards.greenhouse.io/apptronik", "greenhouse", "Apptronik"),               # ~84
+    ("https://job-boards.greenhouse.io/vercel", "greenhouse", "Vercel"),                     # ~81
+    ("https://job-boards.greenhouse.io/knowbe4", "greenhouse", "KnowBe4"),                   # ~80
+    ("https://jobs.ashbyhq.com/mercor", "ashby", "MERCOR"),                                  # ~80
+    ("https://job-boards.greenhouse.io/standishmanagement", "greenhouse", "Standish Management"), # ~79
+    ("https://jobs.lever.co/aircall", "lever", "Aircall"),                                   # ~77
+    ("https://blackbaud.wd1.myworkdayjobs.com/ExternalCareers", "workday", "Blackbaud"),     # ~77
+    ("https://job-boards.greenhouse.io/crunchyroll", "greenhouse", "Crunchyroll"),           # ~76
+    ("https://darktrace.wd3.myworkdayjobs.com/DarktaceExternal", "workday", "Darktrace"),    # ~76
+    ("https://jobs.lever.co/mainspringenergy", "lever", "Mainspring Energy"),                # ~76
+    ("https://job-boards.greenhouse.io/dynetherapeutics", "greenhouse", "Dyne Therapeutics"), # ~74
+    ("https://job-boards.greenhouse.io/pubmatic", "greenhouse", "PubMatic"),                 # ~74
+    ("https://job-boards.greenhouse.io/vaynermedia", "greenhouse", "VaynerMedia"),           # ~74
+    ("https://job-boards.greenhouse.io/bloomreach", "greenhouse", "Bloomreach"),             # ~73
+    ("https://jobs.lever.co/mantisinnovation", "lever", "Mantis Innovation"),                # ~73
+    ("https://jobs.ashbyhq.com/delinea", "ashby", "Delinea"),                                # ~72
+    ("https://jobs.lever.co/ttecdigital", "lever", "TTEC Digital"),                          # ~72
+    ("https://fa-eyau-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "Argano"), # ~71
+    ("https://job-boards.greenhouse.io/cloverhealth", "greenhouse", "Clover Health"),        # ~71
+    ("https://job-boards.greenhouse.io/opentable", "greenhouse", "OpenTable"),               # ~71
+    ("https://job-boards.greenhouse.io/psiquantum", "greenhouse", "PsiQuantum"),             # ~71
+    ("https://alignmenthealthcare.wd12.myworkdayjobs.com/ahc_external", "workday", "Alignment Healthcare"), # ~70
+    ("https://job-boards.greenhouse.io/lotusworks", "greenhouse", "LotusWorks"),             # ~70
+    ("https://livanova.wd5.myworkdayjobs.com/Search", "workday", "LivaNova"),                # ~70
+    ("https://job-boards.greenhouse.io/pmg", "greenhouse", "PMG"),                           # ~70
+    ("https://job-boards.greenhouse.io/trace3", "greenhouse", "Trace3"),                     # ~70
+    ("https://job-boards.greenhouse.io/chowbus", "greenhouse", "Chowbus"),                   # ~69
+    ("https://jobs.ashbyhq.com/commure", "ashby", "Commure"),                                # ~69
+    ("https://job-boards.greenhouse.io/cribl", "greenhouse", "Cribl"),                       # ~69
+    ("https://job-boards.greenhouse.io/ensono", "greenhouse", "Ensono"),                     # ~69
+    ("https://job-boards.greenhouse.io/fireblocks", "greenhouse", "Fireblocks"),             # ~69
+    ("https://job-boards.greenhouse.io/lightmatter", "greenhouse", "Lightmatter"),           # ~69
+    ("https://job-boards.greenhouse.io/coherehealth", "greenhouse", "Cohere Health"),        # ~68
+    ("https://jobs.ashbyhq.com/illumio", "ashby", "Illumio"),                                # ~68
+    ("https://jobs.ashbyhq.com/industrious", "ashby", "Industrious"),                        # ~68
+    ("https://jobs.lever.co/lendbuzz", "lever", "Lendbuzz"),                                 # ~68
+    ("https://jobs.ashbyhq.com/lambda", "ashby", "Lambda"),                                  # ~67
+    ("https://job-boards.greenhouse.io/vaco", "greenhouse", "Vaco"),                         # ~67
+    ("https://job-boards.greenhouse.io/nexhealth", "greenhouse", "NexHealth"),               # ~65
+    ("https://job-boards.greenhouse.io/convera", "greenhouse", "Convera"),                   # ~63
+    ("https://jobs.ashbyhq.com/mapbox", "ashby", "Mapbox"),                                  # ~63
+    ("https://job-boards.greenhouse.io/vaxcyte", "greenhouse", "Vaxcyte"),                   # ~63
+    ("https://job-boards.greenhouse.io/digicert", "greenhouse", "DigiCert"),                 # ~62
+    ("https://job-boards.greenhouse.io/guidepointsecurity", "greenhouse", "GuidePoint Security"), # ~62
+    ("https://job-boards.greenhouse.io/clinchoice", "greenhouse", "ClinChoice"),             # ~61
+    ("https://job-boards.greenhouse.io/faradayfuture", "greenhouse", "Faraday Future"),      # ~61
+    ("https://jobs.ashbyhq.com/reflectionai", "ashby", "Reflection AI"),                     # ~61
+    ("https://job-boards.greenhouse.io/tatari", "greenhouse", "Tatari"),                     # ~61
+    ("https://eisai.wd5.myworkdayjobs.com/eisai", "workday", "Eisai"),                       # ~60
+    ("https://jobs.lever.co/payjoy", "lever", "PayJoy"),                                     # ~59
+    ("https://jobs.lever.co/sambatv", "lever", "Samba TV"),                                  # ~59
+    ("https://job-boards.greenhouse.io/kaseya", "greenhouse", "Kaseya"),                     # ~59
+    ("https://careers.aptean.com", "jibe", "Aptean"),                                        # ~58
+    ("https://job-boards.greenhouse.io/torcrobotics", "greenhouse", "Torc Robotics"),        # ~58
+    ("https://job-boards.greenhouse.io/agilityrobotics", "greenhouse", "Agility Robotics"),  # ~57
+    ("https://job-boards.greenhouse.io/gigaenergy", "greenhouse", "Giga Energy"),            # ~56
+    ("https://job-boards.greenhouse.io/zocdoc", "greenhouse", "Zocdoc"),                     # ~56
+    ("https://jobs.ashbyhq.com/drata", "ashby", "Drata"),                                    # ~55
+    ("https://job-boards.greenhouse.io/gallup", "greenhouse", "Gallup"),                     # ~55
+    ("https://jobs.smartrecruiters.com/Mirantis", "smartrecruiters", "Mirantis"),            # ~55
+    ("https://jobs.ashbyhq.com/writer", "ashby", "WRITER"),                                  # ~55
+    ("https://job-boards.greenhouse.io/altruist", "greenhouse", "ALTRUIST"),                 # ~54
+    ("https://americanregent.wd1.myworkdayjobs.com/American_Regent_Careers", "workday", "American Regent"), # ~53
+    ("https://jobs.smartrecruiters.com/Brainlab", "smartrecruiters", "Brainlab"),            # ~53
+    ("https://jobs.ashbyhq.com/instructure", "ashby", "Instructure"),                        # ~53
+    ("https://jobs.lever.co/spreetail", "lever", "Spreetail"),                               # ~53
+    ("https://careers.allnex.com", "successfactors", "allnex"),                              # ~52
+    ("https://ehtl.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "oracle", "Resideo"), # ~52
+    ("https://job-boards.greenhouse.io/forgen", "greenhouse", "Forgen"),                     # ~51
+    ("https://job-boards.greenhouse.io/cargurus", "greenhouse", "CarGurus"),                 # ~50
+    ("https://careers.knapp.com", "successfactors", "Knapp"),                                # ~50
+    ("https://jobs.power-electronics.com", "successfactors", "POWER ELECTRONICS"),           # ~50
+    ("https://jobs.ashbyhq.com/thumbtack", "ashby", "Thumbtack"),                            # ~50
+    ("https://jobs.lever.co/acceldata", "lever", "Acceldata"),                               # ~49
+    ("https://careers.assistrx.com", "jibe", "AssistRx"),                                    # ~49
+    ("https://job-boards.greenhouse.io/fastly", "greenhouse", "Fastly"),                     # ~49
+    ("https://jobs.lever.co/lessen", "lever", "Lessen"),                                     # ~49
+    ("https://jobs.ashbyhq.com/lumaai", "ashby", "Luma AI"),                                 # ~49
+    ("https://job-boards.greenhouse.io/sweetgreen", "greenhouse", "Sweetgreen"),             # ~49
+    ("https://yelp.jibeapply.com", "jibe", "Yelp"),                                          # ~49
+    ("https://jobs.smartrecruiters.com/Cricut", "smartrecruiters", "Cricut"),                # ~48
+    ("https://job-boards.greenhouse.io/moloco", "greenhouse", "Moloco"),                     # ~47
+    ("https://job-boards.greenhouse.io/skhynixamerica", "greenhouse", "SK Hynix America"),   # ~47
+    ("https://jobs.lever.co/appletreedental", "lever", "Apple Tree Dental"),                 # ~46
+    ("https://argenx.wd3.myworkdayjobs.com/External_Careers", "workday", "argenx"),          # ~46
+    ("https://job-boards.greenhouse.io/azuritypharmaceuticals", "greenhouse", "Azurity Pharmaceuticals"), # ~46
+    ("https://jobs.ashbyhq.com/hopper", "ashby", "Hopper"),                                  # ~46
+    ("https://job-boards.greenhouse.io/spire", "greenhouse", "Spire"),                       # ~46
+    ("https://job-boards.greenhouse.io/evgspecialtynetwork", "greenhouse", "EVG Specialty Network"), # ~45
+    ("https://jobs.ashbyhq.com/meter", "ashby", "Meter"),                                    # ~45
+    ("https://jobs.ashbyhq.com/sentilink", "ashby", "SentiLink"),                            # ~45
+    ("https://job-boards.greenhouse.io/forter", "greenhouse", "Forter"),                     # ~43
+    ("https://jobs.ashbyhq.com/reprally", "ashby", "RepRally"),                              # ~43
+    ("https://job-boards.greenhouse.io/simplisafe", "greenhouse", "SimpliSafe"),             # ~43
+    ("https://job-boards.greenhouse.io/snorkelai", "greenhouse", "Snorkel AI"),              # ~43
+    ("https://job-boards.greenhouse.io/verifone", "greenhouse", "Verifone"),                 # ~43
+    ("https://job-boards.greenhouse.io/beyondfinance", "greenhouse", "Beyond Finance"),      # ~42
+    ("https://collegeboard.wd1.myworkdayjobs.com/Careers", "workday", "College Board"),      # ~42
+    ("https://job-boards.greenhouse.io/devrev", "greenhouse", "DevRev"),                     # ~42
+    ("https://job-boards.greenhouse.io/ridgeline", "greenhouse", "Ridgeline"),               # ~42
+    ("https://jobs.lever.co/smarsh", "lever", "Smarsh"),                                     # ~42
+    ("https://athenahealth.wd1.myworkdayjobs.com/External", "workday", "athenahealth"),      # ~41
+    ("https://jobs.lever.co/diamondfoundry", "lever", "Diamond Foundry"),                    # ~41
+    ("https://job-boards.greenhouse.io/kiniksapharmaceuticals", "greenhouse", "Kiniksa Pharmaceuticals"), # ~41
+    ("https://jobs.ashbyhq.com/planhat", "ashby", "Planhat"),                                # ~41
+    ("https://jobs.ashbyhq.com/serval", "ashby", "SERVAL"),                                  # ~41
+    ("https://careers.somatus.com", "jibe", "Somatus"),                                      # ~41
+    ("https://job-boards.greenhouse.io/clear", "greenhouse", "CLEAR"),                       # ~41
+    ("https://jobs.lever.co/avalerehealth", "lever", "Avalere Health"),                      # ~40
+    ("https://job-boards.greenhouse.io/gofundme", "greenhouse", "GoFundMe"),                 # ~40
+    ("https://jobs.ashbyhq.com/junipersquare", "ashby", "Juniper Square"),                   # ~40
+    ("https://kyndryl.wd5.myworkdayjobs.com/KyndrylEarlyCareers", "workday", "Kyndryl"),     # ~40
+    ("https://job-boards.greenhouse.io/recordedfuture", "greenhouse", "Recorded Future"),    # ~40
+    ("https://job-boards.greenhouse.io/singlestore", "greenhouse", "SingleStore"),           # ~40
+    ("https://job-boards.greenhouse.io/tanium", "greenhouse", "Tanium"),                     # ~40
+    ("https://job-boards.greenhouse.io/truveta", "greenhouse", "Truveta"),                   # ~40
+    ("https://agilent.wd5.myworkdayjobs.com/Agilent_Student_Careers", "workday", "Agilent Technologies"), # ~39
+    ("https://job-boards.greenhouse.io/lucidsoftware", "greenhouse", "Lucid Software"),      # ~39
+    ("https://jobs.lever.co/reply", "lever", "REPLY"),                                       # ~39
+    ("https://jobs.ashbyhq.com/betterup", "ashby", "BetterUp"),                              # ~38
+    ("https://job-boards.greenhouse.io/flatironhealth", "greenhouse", "Flatiron Health"),    # ~38
+    ("https://jobs.lever.co/innophos", "lever", "Innophos"),                                 # ~38
+    ("https://job-boards.greenhouse.io/neo4j", "greenhouse", "Neo4j"),                       # ~38
+    ("https://job-boards.greenhouse.io/pendo", "greenhouse", "Pendo"),                       # ~38
+    ("https://job-boards.greenhouse.io/avride", "greenhouse", "Avride"),                     # ~37
+    ("https://careers.gentherm.com", "successfactors", "Gentherm"),                          # ~37
+    ("https://job-boards.greenhouse.io/phdata", "greenhouse", "phData"),                     # ~37
+    ("https://jobs.ashbyhq.com/stepful", "ashby", "Stepful"),                                # ~37
+    ("https://job-boards.greenhouse.io/doubleverify", "greenhouse", "DoubleVerify"),         # ~36
+    ("https://job-boards.greenhouse.io/kikoff", "greenhouse", "Kikoff"),                     # ~36
+    ("https://job-boards.greenhouse.io/amplitude", "greenhouse", "Amplitude"),               # ~35
+    ("https://jobs.lever.co/cellares", "lever", "Cellares"),                                 # ~35
+    ("https://job-boards.greenhouse.io/oportun", "greenhouse", "Oportun"),                   # ~35
+    ("https://job-boards.greenhouse.io/vixxo", "greenhouse", "Vixxo"),                       # ~35
+    ("https://jobs.lever.co/celerion", "lever", "Celerion"),                                 # ~34
+    ("https://job-boards.greenhouse.io/komodohealth", "greenhouse", "Komodo Health"),        # ~34
+    ("https://job-boards.greenhouse.io/life360", "greenhouse", "Life360"),                   # ~34
+    ("https://job-boards.greenhouse.io/lonestarcircleofcare", "greenhouse", "Lone Star Circle of Care"), # ~34
+    ("https://job-boards.greenhouse.io/akunacapital", "greenhouse", "Akuna Capital"),        # ~33
+    ("https://jobs.ashbyhq.com/campfire", "ashby", "campfire"),                              # ~33
+    ("https://archwellessentials.wd1.myworkdayjobs.com/Careers", "workday", "Freedom Mortgage"), # ~33
+    ("https://job-boards.greenhouse.io/maxcessinternational", "greenhouse", "Maxcess International"), # ~33
+    ("https://jobs.lever.co/outreach", "lever", "Outreach"),                                 # ~33
+    ("https://jobs.lever.co/tutorintelligence", "lever", "Tutor Intelligence"),              # ~33
+    ("https://jobs.smartrecruiters.com/Vitol", "smartrecruiters", "Vitol"),                  # ~33
+    ("https://job-boards.greenhouse.io/arcesiumllc", "greenhouse", "Arcesium"),              # ~32
+    ("https://recruiting.ultipro.com/INT1043EXCUR/JobBoard/ad5e5978-552f-4ef7-90c8-70ebb0a57994", "ultipro", "arrivia"), # ~32
+    ("https://job-boards.greenhouse.io/atomicmachines", "greenhouse", "Atomic Machines"),    # ~32
+    ("https://jobs.ashbyhq.com/dexmate", "ashby", "Dexmate"),                                # ~32
+    ("https://job-boards.greenhouse.io/edgeconnex", "greenhouse", "EdgeConneX"),             # ~32
+    ("https://job-boards.greenhouse.io/everlaw", "greenhouse", "Everlaw"),                   # ~32
+    ("https://job-boards.greenhouse.io/nexamp", "greenhouse", "Nexamp"),                     # ~32
+    ("https://job-boards.greenhouse.io/quinstreet", "greenhouse", "QuinStreet"),             # ~32
+    ("https://jobs.ashbyhq.com/safetyculture", "ashby", "SafetyCulture"),                    # ~32
+    ("https://job-boards.greenhouse.io/backblaze", "greenhouse", "Backblaze"),               # ~32
+    ("https://job-boards.greenhouse.io/bandwidth", "greenhouse", "Bandwidth"),               # ~31
+    ("https://careers.certara.com", "jibe", "Certara"),                                      # ~31
+    ("https://jobs.ashbyhq.com/retell-ai", "ashby", "Retell AI"),                            # ~31
+    ("https://job-boards.greenhouse.io/suvoda", "greenhouse", "Suvoda"),                     # ~31
+    ("https://job-boards.greenhouse.io/vianttechnology", "greenhouse", "Viant Technology"),  # ~31
+    ("https://job-boards.greenhouse.io/obsidiansecurity", "greenhouse", "Obsidian Security"), # ~30
+    ("https://job-boards.greenhouse.io/omadahealth", "greenhouse", "Omada Health"),          # ~30
+    ("https://job-boards.greenhouse.io/stockx", "greenhouse", "StockX"),                     # ~30
+    ("https://job-boards.greenhouse.io/tia", "greenhouse", "Tia"),                           # ~30
+    ("https://jobs.ashbyhq.com/astronomer", "ashby", "Astronomer"),                          # ~29
+    ("https://jobs.ashbyhq.com/confluent", "ashby", "Confluent"),                            # ~29
+    ("https://job-boards.greenhouse.io/druva", "greenhouse", "Druva"),                       # ~29
+    ("https://jobs.smartrecruiters.com/Oetiker", "smartrecruiters", "Oetiker"),              # ~29
+    ("https://job-boards.greenhouse.io/onbe", "greenhouse", "onbe"),                         # ~29
+    ("https://job-boards.greenhouse.io/reltio", "greenhouse", "Reltio"),                     # ~28
+    ("https://careers.dentons.com", "successfactors", "Dentons"),                            # ~27
+    ("https://jobs.lever.co/parallelwireless", "lever", "Parallel Wireless"),                # ~27
+    ("https://jobs.ashbyhq.com/traba", "ashby", "Traba"),                                    # ~27
+    ("https://job-boards.greenhouse.io/cockroachlabs", "greenhouse", "Cockroach Labs"),      # ~26
+    ("https://job-boards.greenhouse.io/gruve", "greenhouse", "Gruve"),                       # ~26
+    ("https://job-boards.greenhouse.io/iterable", "greenhouse", "Iterable"),                 # ~26
+    ("https://job-boards.greenhouse.io/perryellisinternational", "greenhouse", "Perry Ellis International"), # ~26
+    ("https://job-boards.greenhouse.io/bayasystems", "greenhouse", "Baya Systems"),          # ~25
+    ("https://job-boards.greenhouse.io/beamtherapeutics", "greenhouse", "Beam Therapeutics"), # ~25
+    ("https://job-boards.greenhouse.io/cypresscreekrenewables", "greenhouse", "Cypress Creek Renewables"), # ~25
+    ("https://jobs.lever.co/equativ", "lever", "Equativ"),                                   # ~25
+    ("https://job-boards.greenhouse.io/otter", "greenhouse", "Otter"),                       # ~25
+    ("https://jobs.ashbyhq.com/poshmark", "ashby", "Poshmark"),                              # ~25
+    ("https://jobs.ashbyhq.com/workos", "ashby", "WorkOS"),                                  # ~25
+    ("https://careers.aflac.com", "successfactors", "Aflac"),                                # ~24
+    ("https://jobs.ashbyhq.com/cardless", "ashby", "Cardless"),                              # ~24
+    ("https://job-boards.greenhouse.io/environmentalscienceassociates", "greenhouse", "Environmental Science Associates"), # ~24
+    ("https://jobs.ashbyhq.com/envoy", "ashby", "Envoy"),                                    # ~24
+    ("https://jobs.ashbyhq.com/redis", "ashby", "Redis"),                                    # ~24
+    ("https://job-boards.greenhouse.io/aftership", "greenhouse", "AfterShip"),               # ~23
+    ("https://jobs.lever.co/eliyan", "lever", "Eliyan"),                                     # ~23
+    ("https://job-boards.greenhouse.io/khealthcareers", "greenhouse", "K Health"),           # ~23
+    ("https://job-boards.greenhouse.io/lusternational", "greenhouse", "Luster National"),    # ~23
+    ("https://jobs.lever.co/luxurypresence", "lever", "Luxury Presence"),                    # ~23
+    ("https://job-boards.greenhouse.io/platformscience", "greenhouse", "Platform Science"),  # ~23
+    ("https://jobs.ashbyhq.com/webai", "ashby", "webAI"),                                    # ~23
+    ("https://jobs.lever.co/gridware", "lever", "Gridware"),                                 # ~22
+    ("https://job-boards.greenhouse.io/pagerduty", "greenhouse", "PagerDuty"),               # ~22
+    ("https://job-boards.greenhouse.io/sonatus", "greenhouse", "Sonatus"),                   # ~22
+    ("https://job-boards.greenhouse.io/xairatherapeutics", "greenhouse", "Xaira Therapeutics"), # ~22
+    ("https://job-boards.greenhouse.io/dataiku", "greenhouse", "Dataiku"),                   # ~21
+    ("https://jobs.lever.co/goodleap", "lever", "GoodLeap"),                                 # ~21
+    ("https://job-boards.greenhouse.io/minio", "greenhouse", "MinIO"),                       # ~21
+    ("https://job-boards.greenhouse.io/pacvue", "greenhouse", "Pacvue"),                     # ~21
+    ("https://jobs.ashbyhq.com/semperis", "ashby", "Semperis"),                              # ~21
+    ("https://jobs.ashbyhq.com/strava", "ashby", "Strava"),                                  # ~21
+    ("https://jobs.ashbyhq.com/ambiencehealthcare", "ashby", "Ambience Healthcare"),         # ~20
+    ("https://jobs.ashbyhq.com/articul8", "ashby", "Articul8"),                              # ~20
+    ("https://job-boards.greenhouse.io/mindbody", "greenhouse", "Mindbody"),                 # ~20
+    ("https://job-boards.greenhouse.io/newsela", "greenhouse", "Newsela"),                   # ~20
+    ("https://job-boards.greenhouse.io/redcellpartners", "greenhouse", "Red Cell Partners"), # ~20
+    ("https://job-boards.greenhouse.io/grouppmx", "greenhouse", "Group PMX"),                # ~19
+    ("https://jobs.lever.co/jumpcloud", "lever", "JumpCloud"),                               # ~19
+    ("https://jobs.ashbyhq.com/parafin", "ashby", "Parafin"),                                # ~19
+    ("https://jobs.ashbyhq.com/plasmidsaurus", "ashby", "Plasmidsaurus"),                    # ~19
+    ("https://job-boards.greenhouse.io/radar", "greenhouse", "Radar"),                       # ~19
+    ("https://careers.trilliumflow.com", "successfactors", "Trillium Flow Technologies"),    # ~19
+    ("https://jobs.ashbyhq.com/virtahealth", "ashby", "Virta Health"),                       # ~19
+    ("https://job-boards.greenhouse.io/amperity", "greenhouse", "Amperity"),                 # ~18
+    ("https://job-boards.greenhouse.io/eikontherapeutics", "greenhouse", "Eikon Therapeutics"), # ~18
+    ("https://job-boards.greenhouse.io/eulerity", "greenhouse", "Eulerity"),                 # ~18
+    ("https://job-boards.greenhouse.io/ginkgobioworks", "greenhouse", "Ginkgo Bioworks"),    # ~18
+    ("https://jobs.ashbyhq.com/gorgias", "ashby", "Gorgias"),                                # ~18
+    ("https://jobs.lever.co/hottopic", "lever", "Hot Topic"),                                # ~18
+    ("https://jobs.ashbyhq.com/overjet", "ashby", "OVERJET"),                                # ~18
+    ("https://jobs.ashbyhq.com/plenful", "ashby", "Plenful"),                                # ~18
+    ("https://job-boards.greenhouse.io/roboforce", "greenhouse", "RoboForce"),               # ~18
+    ("https://job-boards.greenhouse.io/stubhubinc", "greenhouse", "StubHub"),                # ~18
+    ("https://sunpower.breezy.hr", "breezy", "SunPower"),                                    # ~18
+    ("https://job-boards.greenhouse.io/axiom", "greenhouse", "Axiom Technologies"),          # ~17
+    ("https://job-boards.greenhouse.io/balsambrands", "greenhouse", "Balsam Brands"),        # ~17
+    ("https://jobs.lever.co/doxel", "lever", "Doxel"),                                       # ~17
+    ("https://job-boards.greenhouse.io/healthverity", "greenhouse", "HealthVerity"),         # ~17
+    ("https://job-boards.greenhouse.io/known", "greenhouse", "Known"),                       # ~17
+    ("https://jobs.lever.co/mashgin", "lever", "Mashgin"),                                   # ~17
+    ("https://jobs.ashbyhq.com/mintlify", "ashby", "Mintlify"),                              # ~17
+    ("https://jobs.lever.co/modeln", "lever", "Model N"),                                    # ~17
+    ("https://job-boards.greenhouse.io/noahmedical", "greenhouse", "Noah Medical"),          # ~17
+    ("https://jobs.ashbyhq.com/semgrep", "ashby", "Semgrep"),                                # ~17
+    ("https://job-boards.greenhouse.io/squarespace", "greenhouse", "Squarespace"),           # ~17
+    ("https://job-boards.greenhouse.io/thrivemarket", "greenhouse", "Thrive Market"),        # ~17
+    ("https://job-boards.greenhouse.io/upgrade", "greenhouse", "Upgrade"),                   # ~17
+    ("https://jobs.lever.co/wealthfront", "lever", "Wealthfront"),                           # ~17
+    ("https://job-boards.greenhouse.io/array", "greenhouse", "Array Technologies"),          # ~16
+    ("https://job-boards.greenhouse.io/bombas", "greenhouse", "Bombas"),                     # ~16
+    ("https://job-boards.greenhouse.io/cambridgemobiletelematics", "greenhouse", "Cambridge Mobile Telematics"), # ~16
+    ("https://job-boards.greenhouse.io/courierhealth", "greenhouse", "Courier Health"),      # ~16
+    ("https://job-boards.greenhouse.io/gatherai", "greenhouse", "Gather AI"),                # ~16
+    ("https://jobs.oregontool.com", "successfactors", "Oregon Tool"),                        # ~16
+    ("https://job-boards.greenhouse.io/pointdigitalfinance", "greenhouse", "Point Digital Finance"), # ~16
+    ("https://job-boards.greenhouse.io/semafor", "greenhouse", "SEMAFOR"),                   # ~16
+    ("https://job-boards.greenhouse.io/typeface", "greenhouse", "Typeface"),                 # ~16
+    ("https://job-boards.greenhouse.io/ultimagenomics", "greenhouse", "Ultima Genomics"),    # ~16
+    ("https://job-boards.greenhouse.io/cogentbiosciences", "greenhouse", "Cogent Biosciences"), # ~15
+    ("https://job-boards.greenhouse.io/lunarenergy", "greenhouse", "Lunar Energy"),          # ~15
+    ("https://job-boards.greenhouse.io/nextdoor", "greenhouse", "Nextdoor"),                 # ~15
+    ("https://jobs.ashbyhq.com/sphere", "ashby", "Sphere"),                                  # ~15
+    ("https://jobs.lever.co/zimperium", "lever", "Zimperium"),                               # ~15
+    ("https://job-boards.greenhouse.io/crexi", "greenhouse", "Crexi"),                       # ~14
+    ("https://jobs.ashbyhq.com/deposco", "ashby", "Deposco"),                                # ~14
+    ("https://lower.wd1.myworkdayjobs.com/lower_external_careers", "workday", "Lower"),      # ~14
+    ("https://job-boards.greenhouse.io/spinnakersupport", "greenhouse", "Spinnaker Support"), # ~14
+    ("https://jobs.lever.co/analyticpartners", "lever", "Analytic Partners"),                # ~13
+    ("https://job-boards.greenhouse.io/avantus", "greenhouse", "Avantus"),                   # ~13
+    ("https://jobs.ashbyhq.com/centivo", "ashby", "Centivo"),                                # ~13
+    ("https://jobs.lever.co/cyngn", "lever", "Cyngn"),                                       # ~13
+    ("https://job-boards.greenhouse.io/himarley", "greenhouse", "Hi Marley"),                # ~13
+    ("https://job-boards.greenhouse.io/kodiaksolutions", "greenhouse", "Kodiak Solutions"),  # ~13
+    ("https://job-boards.greenhouse.io/lendingtree", "greenhouse", "LendingTree"),           # ~13
+    ("https://veev.breezy.hr", "breezy", "Lennar"),                                          # ~13
+    ("https://job-boards.greenhouse.io/syndigo", "greenhouse", "Syndigo"),                   # ~13
+    ("https://job-boards.greenhouse.io/voxmedia", "greenhouse", "Vox Media"),                # ~13
+    ("https://jobs.ashbyhq.com/amigo", "ashby", "AMIGO"),                                    # ~12
+    ("https://jobs.lever.co/calstart", "lever", "CALSTART"),                                 # ~12
+    ("https://job-boards.greenhouse.io/capstoneinvestmentadvisors", "greenhouse", "Capstone Investment Advisors"), # ~12
+    ("https://jobs.lever.co/duetti", "lever", "Duetti"),                                     # ~12
+    ("https://job-boards.greenhouse.io/juullabs", "greenhouse", "Juul Labs"),                # ~12
+    ("https://jobs.smartrecruiters.com/LongbridgeFinancial", "smartrecruiters", "Longbridge Financial"), # ~12
+    ("https://job-boards.greenhouse.io/maesa", "greenhouse", "Maesa"),                       # ~12
+    ("https://job-boards.greenhouse.io/neptunemedical", "greenhouse", "Neptune Medical"),    # ~12
+    ("https://job-boards.greenhouse.io/precisionmedicine", "greenhouse", "Precision Medicine Group"), # ~12
+    ("https://job-boards.greenhouse.io/stitchfix", "greenhouse", "Stitch Fix"),              # ~12
+    ("https://jobs.ashbyhq.com/stedi", "ashby", "Stedi"),                                    # ~12
+    ("https://jobs.ashbyhq.com/substack", "ashby", "Substack"),                              # ~12
+    ("https://job-boards.greenhouse.io/taskrabbit", "greenhouse", "Taskrabbit"),             # ~12
+    ("https://jobs.lever.co/aeratechnology", "lever", "Aera Technology"),                    # ~11
+    ("https://jobs.ashbyhq.com/furtherai", "ashby", "FurtherAI"),                            # ~11
+    ("https://job-boards.greenhouse.io/pivotbio", "greenhouse", "Pivot Bio"),                # ~11
+    ("https://jobs.lever.co/activecampaign", "lever", "ActiveCampaign"),                     # ~10
+    ("https://jobs.smartrecruiters.com/Alnylam", "smartrecruiters", "Alnylam"),              # ~10
+    ("https://job-boards.greenhouse.io/avetta", "greenhouse", "Avetta"),                     # ~10
+    ("https://job-boards.greenhouse.io/forgebiologics", "greenhouse", "Forge Biologics"),    # ~10
+    ("https://job-boards.greenhouse.io/knit", "greenhouse", "Knit"),                         # ~10
+    ("https://job-boards.greenhouse.io/koddi", "greenhouse", "Koddi"),                       # ~10
+    ("https://job-boards.greenhouse.io/novacredit", "greenhouse", "Nova Credit"),            # ~10
+    ("https://jobs.ashbyhq.com/titan", "ashby", "Titan"),                                    # ~10
+    ("https://job-boards.greenhouse.io/vestmark", "greenhouse", "Vestmark"),                 # ~10
+    ("https://job-boards.greenhouse.io/wasabi", "greenhouse", "Wasabi Technologies"),        # ~10
+    ("https://job-boards.greenhouse.io/acuitymd", "greenhouse", "AcuityMD"),                 # ~9
+    ("https://jobs.ashbyhq.com/capsule", "ashby", "Capsule"),                                # ~9
+    ("https://jobs.ashbyhq.com/jellyfish", "ashby", "Jellyfish"),                            # ~9
+    ("https://job-boards.greenhouse.io/locusrobotics", "greenhouse", "Locus Robotics"),      # ~9
+    ("https://job-boards.greenhouse.io/pathai", "greenhouse", "PathAI"),                     # ~9
+    ("https://job-boards.greenhouse.io/renewedvision", "greenhouse", "Renewed Vision"),      # ~9
+    ("https://jobs.smartrecruiters.com/TexasHealthResources", "smartrecruiters", "Texas Health Resources"), # ~9
+    ("https://jobs.ashbyhq.com/vesta", "ashby", "Vesta"),                                    # ~9
+    ("https://jobs.smartrecruiters.com/RaasInfotek", "smartrecruiters", "Raas Infotek"),     # ~8
+    ("https://jobs.ashbyhq.com/todyl", "ashby", "Todyl"),                                    # ~8
+    ("https://job-boards.greenhouse.io/upwork", "greenhouse", "Upwork"),                     # ~8
+    ("https://jobs.ashbyhq.com/blissway", "ashby", "BLISSWAY"),                              # ~7
+    ("https://jobs.lever.co/disqo", "lever", "Disqo"),                                       # ~7
+    ("https://job-boards.greenhouse.io/doximity", "greenhouse", "Doximity"),                 # ~7
+    ("https://job-boards.greenhouse.io/magicleap", "greenhouse", "Magic Leap"),              # ~7
+    ("https://jobs.ashbyhq.com/nusano", "ashby", "Nusano"),                                  # ~7
+    ("https://job-boards.greenhouse.io/shopmonkey", "greenhouse", "Shopmonkey"),             # ~7
+    ("https://jobs.lever.co/topazlabs", "lever", "Topaz Labs"),                              # ~7
+    ("https://jobs.lever.co/aquabyte", "lever", "Aquabyte"),                                 # ~6
+    ("https://jobs.ashbyhq.com/brunswick", "ashby", "Brunswick"),                            # ~6
+    ("https://job-boards.greenhouse.io/hginsights", "greenhouse", "HG Insights"),            # ~6
+    ("https://jobs.ashbyhq.com/hockeystack", "ashby", "HockeyStack"),                        # ~6
+    ("https://jobs.ashbyhq.com/patreon", "ashby", "Patreon"),                                # ~6
+    ("https://jobs.lever.co/valkyrietrading", "lever", "Valkyrie Trading"),                  # ~6
+    ("https://jobs.smartrecruiters.com/Winsupply", "smartrecruiters", "Winsupply"),          # ~6
+    ("https://job-boards.greenhouse.io/10xgenomics", "greenhouse", "10x Genomics"),          # ~5
+    ("https://jobs.smartrecruiters.com/ChathamFinancial", "smartrecruiters", "Chatham Financial"), # ~5
+    ("https://jobs.ashbyhq.com/eventual", "ashby", "Eventual"),                              # ~5
+    ("https://job-boards.greenhouse.io/instabase", "greenhouse", "Instabase"),               # ~5
+    ("https://jobs.lever.co/payactiv", "lever", "Payactiv"),                                 # ~5
+    ("https://jobs.smartrecruiters.com/PresbyterianHealthcareServices", "smartrecruiters", "Presbyterian Healthcare Services"), # ~5
+    ("https://job-boards.greenhouse.io/quanata", "greenhouse", "Quanata"),                   # ~5
+    ("https://jobs.ashbyhq.com/quora", "ashby", "Quora"),                                    # ~5
+    ("https://job-boards.greenhouse.io/resortpass", "greenhouse", "ResortPass"),             # ~5
+    ("https://job-boards.greenhouse.io/invisible", "greenhouse", "Invisible Technologies"),  # ~5
+    ("https://jobs.smartrecruiters.com/BAYADAHomeHealthCare", "smartrecruiters", "BAYADA Home Health Care"), # ~4
+    ("https://jobs.lever.co/genesis", "lever", "Genesis"),                                   # ~4
+    ("https://job-boards.greenhouse.io/runwise", "greenhouse", "Runwise"),                   # ~4
+    ("https://job-boards.greenhouse.io/septerna", "greenhouse", "Septerna"),                 # ~4
+    ("https://jobs.smartrecruiters.com/Vivint", "smartrecruiters", "Vivint"),                # ~4
+    ("https://jobs.lever.co/voltai", "lever", "Voltai"),                                     # ~4
+    ("https://jobs.smartrecruiters.com/YoungstownStateUniversity", "smartrecruiters", "Youngstown State University"), # ~4
+    ("https://job-boards.greenhouse.io/videoamp", "greenhouse", "VideoAmp"),                 # ~4
+    ("https://job-boards.greenhouse.io/fleishmanhillard", "greenhouse", "FleishmanHillard"), # ~3
+    ("https://jobs.smartrecruiters.com/MissouriSouthernStateUniversity", "smartrecruiters", "Missouri Southern State University"), # ~3
+    ("https://job-boards.greenhouse.io/mobilityware", "greenhouse", "MobilityWare"),         # ~3
+    ("https://job-boards.greenhouse.io/owllabs", "greenhouse", "Owl Labs"),                  # ~3
+    ("https://jobs.smartrecruiters.com/Synechron", "smartrecruiters", "Synechron"),          # ~3
+    ("https://jobs.smartrecruiters.com/VITASHealthcare", "smartrecruiters", "VITAS Healthcare"), # ~3
+    ("https://jobs.smartrecruiters.com/Zeeco", "smartrecruiters", "Zeeco"),                  # ~3
+    ("https://jobs.smartrecruiters.com/armis", "smartrecruiters", "armis"),                  # ~2
+    ("https://jobs.ashbyhq.com/cranston", "ashby", "CRANSTON"),                              # ~2
+    ("https://jobs.smartrecruiters.com/FamilyHealthCentersofSanDiego", "smartrecruiters", "Family Health Centers of San Diego"), # ~2
+    ("https://job-boards.greenhouse.io/imbue", "greenhouse", "Imbue"),                       # ~2
+    ("https://jobs.smartrecruiters.com/KentStateUniversity", "smartrecruiters", "Kent State University"), # ~2
+    ("https://jobs.smartrecruiters.com/NorthwesternMedicalCenter", "smartrecruiters", "Northwestern Medical Center"), # ~2
+    ("https://jobs.smartrecruiters.com/UniversityofMinnesotaPhysicians", "smartrecruiters", "University of Minnesota Physicians"), # ~2
+    ("https://jobs.smartrecruiters.com/AdvancedPhysicalTherapy", "smartrecruiters", "Advanced Physical Therapy"), # ~1
+    ("https://jobs.smartrecruiters.com/AlabamaStateUniversity", "smartrecruiters", "Alabama State University"), # ~1
+    ("https://jobs.lever.co/anyscale", "lever", "Anyscale"),                                 # ~1
+    ("https://jobs.smartrecruiters.com/CEDSystems", "smartrecruiters", "CED Systems"),       # ~1
+    ("https://jobs.smartrecruiters.com/ComfortKeepers", "smartrecruiters", "Comfort Keepers"), # ~1
+    ("https://jobs.smartrecruiters.com/DGNTechnologies", "smartrecruiters", "DGN Technologies"), # ~1
+    ("https://job-boards.greenhouse.io/invoca", "greenhouse", "Invoca"),                     # ~1
+    ("https://jobs.smartrecruiters.com/LambWeston", "smartrecruiters", "Lamb Weston"),       # ~1
+    ("https://jobs.smartrecruiters.com/MaineHealth", "smartrecruiters", "MaineHealth"),      # ~1
+    ("https://jobs.smartrecruiters.com/Masimo", "smartrecruiters", "Masimo"),                # ~1
+    ("https://jobs.smartrecruiters.com/My3Tech", "smartrecruiters", "My3Tech"),              # ~1
+    ("https://jobs.smartrecruiters.com/Nsight", "smartrecruiters", "Nsight"),                # ~1
+    ("https://jobs.smartrecruiters.com/PrimeSourceBuildingProducts", "smartrecruiters", "PrimeSource Building Products"), # ~1
+    ("https://jobs.smartrecruiters.com/ProcDNA", "smartrecruiters", "ProcDNA"),              # ~1
+    ("https://job-boards.greenhouse.io/resilience", "greenhouse", "Resilience"),             # ~1
+    ("https://jobs.smartrecruiters.com/RentTheRunway", "smartrecruiters", "Rent The Runway"), # ~1
+    ("https://jobs.smartrecruiters.com/SEGULATechnologies", "smartrecruiters", "SEGULA Technologies"), # ~1
+    ("https://jobs.smartrecruiters.com/ShopLC", "smartrecruiters", "Shop LC"),               # ~1
+    ("https://jobs.smartrecruiters.com/Wayfair", "smartrecruiters", "Wayfair"),              # ~1
+    ("https://jobs.smartrecruiters.com/WaylandBaptistUniversity", "smartrecruiters", "Wayland Baptist University"), # ~1
+    ("https://jobs.smartrecruiters.com/WiderCircle", "smartrecruiters", "Wider Circle"),     # ~1
+    # --- Added 2026-08-07: probed from migratemate.co's public sponsor directory
+    # (scraper/mine_migratemate.py -> scraper/probe_migratemate.py). Every entry had its
+    # IDENTITY VERIFIED: the board reported a matching name, or it was reached by resolving
+    # the company's own domain, or the slug is the company name verbatim. Unverified and
+    # single-token guesses were NOT added. Dollar General / PetSmart / Ulta were dropped —
+    # ~110k frontline retail postings the title filter discards anyway, at real fetch cost. ---
+    ("https://careers.bureauveritas.com", "successfactors", "Bureau Veritas"),               # ~2048
+    ("https://cw.wd1.myworkdayjobs.com/External", "workday", "Cushman & Wakefield"),         # ~2000
+    ("https://freseniusmedicalcare.wd3.myworkdayjobs.com/fme", "workday", "Fresenius Medical Care"), # ~2000
+    ("https://aspendental.wd1.myworkdayjobs.com/Careers_Aspen_Dental", "workday", "Aspen Dental"), # ~1742
+    ("https://careers.quest-global.com", "phenom", "Quest Global"),                          # ~1704
+    ("https://cnx.wd1.myworkdayjobs.com/external_global", "workday", "Concentrix"),          # ~1665
+    ("https://careers.mcdean.com", "jibe", "M.C. Dean, Inc."),                               # ~1626
+    ("https://ssmh.wd5.myworkdayjobs.com/ssmhealth", "workday", "SSM Health"),               # ~1622
+    ("https://jobs.smartrecruiters.com/NorthwesternMedicine", "smartrecruiters", "Northwestern Medicine"), # ~1461
+    ("https://rbc.wd3.myworkdayjobs.com/RBCGLOBAL1", "workday", "RBC"),                      # ~1388
+    ("https://meijer.wd5.myworkdayjobs.com/Meijer_Stores_Hourly", "workday", "Meijer"),      # ~1385
+    ("https://careers.lemartec.com", "jibe", "Lemartec"),                                    # ~1360
+    ("https://carmax.wd1.myworkdayjobs.com/External", "workday", "CarMax"),                  # ~1209
+    ("https://jobs.kuehne-nagel.com", "phenom", "Kuehne+Nagel"),                             # ~1116
+    ("https://jobs.aon.com", "jibe", "Aon"),                                                 # ~1050
+    ("https://gehc.wd5.myworkdayjobs.com/GEHC_ExternalSite", "workday", "GE HealthCare"),    # ~985
+    ("https://conehealth.wd12.myworkdayjobs.com/Cone_Health-Careers", "workday", "Cone Health"), # ~925
+    ("https://jobs.zf.com", "successfactors", "ZF"),                                         # ~827
+    ("https://jobs.lever.co/gopuff", "lever", "Gopuff"),                                     # ~806
+    ("https://dxctechnology.wd1.myworkdayjobs.com/DXCJobs", "workday", "CSC"),               # ~788
+    ("https://jobs.ashbyhq.com/openai", "ashby", "OpenAI"),                                  # ~748
+    ("https://gsk.wd5.myworkdayjobs.com/GSKCareers", "workday", "GSK"),                      # ~730
+    ("https://saks.wd1.myworkdayjobs.com/careers_at_saks", "workday", "Saks Global"),        # ~728
+    ("https://jobs.smartrecruiters.com/Equinox", "smartrecruiters", "Equinox"),              # ~674
+    ("https://careers.ecslimited.com", "jibe", "ECS Limited"),                               # ~669
+    ("https://belron.wd3.myworkdayjobs.com/Safelite_Careers", "workday", "Safelite"),        # ~669
+    ("https://jobs.smartrecruiters.com/Wabtec", "smartrecruiters", "Wabtec"),                # ~644
+    ("https://jobs.ashbyhq.com/airwallex", "ashby", "Airwallex"),                            # ~634
+    ("https://careers.vetcor.com", "jibe", "Vetcor"),                                        # ~617
+    ("https://jobs.exxonmobil.com", "successfactors", "ExxonMobil"),                         # ~590
+    ("https://careers.hubbell.com", "successfactors", "Hubbell"),                            # ~578
+    ("https://sedgwick.wd1.myworkdayjobs.com/Sedgwick", "workday", "Sedgwick"),              # ~551
+    ("https://careers.conduent.com", "phenom", "Conduent"),                                  # ~537
+    ("https://bdx.wd1.myworkdayjobs.com/EXTERNAL_CAREER_SITE_USA", "workday", "BD"),         # ~518
+    ("https://regalrexnord.wd1.myworkdayjobs.com/Careers", "workday", "Regal Rexnord Corporation"), # ~505
+    ("https://fa-evly-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "TriHealth Inc."), # ~504
+    ("https://crateandbarrel.wd1.myworkdayjobs.com/CBH", "workday", "Crate and Barrel"),     # ~502
+    ("https://gohealthuc.wd12.myworkdayjobs.com/External", "workday", "UPMC"),               # ~440
+    ("https://hccz.fa.em3.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2", "oracle", "Pearson"), # ~439
+    ("https://erhk.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "R+L Carriers"), # ~437
+    ("https://jobs.churchilldowns.com", "successfactors", "Churchill Downs Inc."),           # ~409
+    ("https://careers.novonordisk.com", "successfactors", "Novo Nordisk, Inc."),             # ~407
+    ("https://abcsupply.wd1.myworkdayjobs.com/ABCSupplyCareers", "workday", "ABC Supply Co., Inc."), # ~402
+    ("https://quickenloans.wd5.myworkdayjobs.com/rocket_careers", "workday", "Rocket"),      # ~397
+    ("https://icf.wd5.myworkdayjobs.com/ICFExternal_Career_Site", "workday", "ICF"),         # ~381
+    ("https://oumedicine.wd5.myworkdayjobs.com/OUHealthCareers", "workday", "OU Health"),    # ~381
+    ("https://job-boards.greenhouse.io/sumup", "greenhouse", "SumUp"),                       # ~377
+    ("https://careers.zimmerbiomet.com", "phenom", "Zimmer Biomet"),                         # ~368
+    ("https://ebez.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "CBIZ"), # ~361
+    ("https://jobs.ashbyhq.com/harvey", "ashby", "HARVEY"),                                  # ~361
+    ("https://jobs.ashbyhq.com/crusoe", "ashby", "CRUSOE"),                                  # ~360
+    ("https://myhrhome.wd1.myworkdayjobs.com/OneMainCareers", "workday", "OneMain Financial"), # ~352
+    ("https://jobs.nucor.com", "successfactors", "Nucor Corporation"),                       # ~341
+    ("https://travelers.wd5.myworkdayjobs.com/External", "workday", "Travelers"),            # ~341
+    ("https://jobs.lear.com", "successfactors", "Lear Corporation"),                         # ~330
+    ("https://careers.garmin.com", "jibe", "Garmin"),                                        # ~323
+    ("https://jobs.newyorklife.com", "successfactors", "New York Life"),                     # ~321
+    ("https://rxo.wd501.myworkdayjobs.com/rxojobs", "workday", "RXO"),                       # ~320
+    ("https://elyb.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001", "oracle", "CentraCare"), # ~308
+    ("https://jobs.smartrecruiters.com/SanDisk", "smartrecruiters", "SanDisk"),              # ~305
+    ("https://jobs.grainger.com", "successfactors", "Grainger"),                             # ~304
+    ("https://thrivent.wd5.myworkdayjobs.com/external", "workday", "Thrivent"),              # ~304
+    ("https://careers.opentext.com", "phenom", "OpenText"),                                  # ~299
+    ("https://careers.willscot.com", "successfactors", "WillScot"),                          # ~297
+    ("https://careers.kindermorgan.com", "jibe", "Kinder Morgan"),                           # ~284
+    ("https://jobs.nexteraenergy.com", "successfactors", "NextEra Energy"),                  # ~276
+    ("https://eewl.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "oracle", "Sundt"), # ~260
+    ("https://careers.getinge.com", "successfactors", "Getinge"),                            # ~254
+    ("https://jobs.entergy.com", "successfactors", "Entergy"),                               # ~253
+    ("https://victaulic.wd1.myworkdayjobs.com/victaulic_careers", "workday", "Victaulic"),   # ~236
+    ("https://goodyear.wd1.myworkdayjobs.com/GoodyearCareers", "workday", "Goodyear"),       # ~235
+    ("https://invesco.wd1.myworkdayjobs.com/IVZ", "workday", "Invesco"),                     # ~234
+    ("https://careers.timken.com", "successfactors", "Timken"),                              # ~234
+    ("https://jobs.statefarm.com", "jibe", "State Farm"),                                    # ~232
+    ("https://careers.appliedmedical.com", "jibe", "Applied Medical"),                       # ~225
+    ("https://jobs.constellationenergy.com", "jibe", "Constellation Energy"),                # ~223
+    ("https://newbalance.wd1.myworkdayjobs.com/Careers", "workday", "New Balance"),          # ~221
+    ("https://wwwinc.wd1.myworkdayjobs.com/WWW", "workday", "Wolverine Worldwide"),          # ~220
+    ("https://hdep.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2003", "oracle", "Digital Realty"), # ~219
+    ("https://terex.wd1.myworkdayjobs.com/terexcareers", "workday", "Terex Corporation"),    # ~219
+    ("https://job-boards.greenhouse.io/thetradedesk", "greenhouse", "The Trade Desk"),       # ~201
+    ("https://careers.straumann.com", "phenom", "Straumann Group"),                          # ~195
+    ("https://job-boards.greenhouse.io/42northdental", "greenhouse", "42 North Dental"),     # ~194
+    ("https://jobs.smartrecruiters.com/SaxonGlobal", "smartrecruiters", "Saxon Global"),     # ~193
+    ("https://careers.syncreon.com", "successfactors", "Syncreon"),                          # ~193
+    ("https://job-boards.greenhouse.io/gitlab", "greenhouse", "GitLab"),                     # ~188
+    ("https://careers.abskids.com", "phenom", "ABS Kids"),                                   # ~182
+    ("https://jobs.enersys.com", "successfactors", "EnerSys"),                               # ~181
+    ("https://frostbank.wd5.myworkdayjobs.com/external", "workday", "Frost Bank"),           # ~177
+    ("https://sleepnumber.wd5.myworkdayjobs.com/sleepnumber", "workday", "Sleep Number Corporation"), # ~175
+    ("https://careers.gates.com", "successfactors", "Gates Corporation"),                    # ~173
+    ("https://lazboy.wd1.myworkdayjobs.com/LZBCareers", "workday", "La-Z-Boy"),              # ~173
+    ("https://razer.wd3.myworkdayjobs.com/Careers", "workday", "Razer"),                     # ~166
+    ("https://job-boards.greenhouse.io/thenewyorktimes", "greenhouse", "The New York Times"), # ~166
+    ("https://eisneramper.wd1.myworkdayjobs.com/EisnerAmper_External", "workday", "EisnerAmper"), # ~164
+    ("https://lifeworks.wd3.myworkdayjobs.com/External", "workday", "Telus"),                # ~164
+    ("https://finastra.wd3.myworkdayjobs.com/FINC", "workday", "Finastra"),                  # ~162
+    ("https://job-boards.greenhouse.io/sezzle", "greenhouse", "Sezzle"),                     # ~148
+    ("https://workingatbooking.jibeapply.com", "jibe", "Booking Holdings"),                  # ~147
+    ("https://formfactor.wd1.myworkdayjobs.com/FFI-Careers", "workday", "FormFactor, Inc."), # ~146
+    ("https://job-boards.greenhouse.io/hasbro", "greenhouse", "Hasbro, Inc."),               # ~146
+    ("https://xcelenergy.wd1.myworkdayjobs.com/External", "workday", "Xcel Energy"),         # ~146
+    ("https://job-boards.greenhouse.io/bozzuto", "greenhouse", "Bozzuto"),                   # ~143
+    ("https://job-boards.greenhouse.io/welbehealth", "greenhouse", "WelbeHealth"),           # ~142
+    ("https://pru.wd5.myworkdayjobs.com/Careers", "workday", "Prudential"),                  # ~139
+    ("https://jobs.smartrecruiters.com/JackLinksProteinSnacks", "smartrecruiters", "Jack Link's Protein Snacks"), # ~136
+    ("https://assurant.wd1.myworkdayjobs.com/Assurant_Careers", "workday", "Assurant"),      # ~133
+    ("https://job-boards.greenhouse.io/cortland", "greenhouse", "Cortland"),                 # ~133
+    ("https://fugro.wd3.myworkdayjobs.com/Careers", "workday", "Fugro"),                     # ~133
+    ("https://job-boards.greenhouse.io/ripple", "greenhouse", "Ripple"),                     # ~131
+    ("https://centene.wd5.myworkdayjobs.com/centene_external", "workday", "Centene"),        # ~129
+    ("https://jobs.ashbyhq.com/decagon", "ashby", "Decagon"),                                # ~125
+    ("https://job-boards.greenhouse.io/lilasciences", "greenhouse", "Lila Sciences"),        # ~122
+    ("https://jobs.smartrecruiters.com/StanfordMedicineChildrensHealth", "smartrecruiters", "Stanford Medicine Children's Health"), # ~116
+    ("https://job-boards.greenhouse.io/wayve", "greenhouse", "Wayve"),                       # ~106
+    ("https://job-boards.greenhouse.io/thinkacademyus", "greenhouse", "Think Academy US"),   # ~105
+    ("https://careers.andersen.com", "jibe", "Andersen Corporation"),                        # ~104
+    ("https://meadhunt.jibeapply.com", "jibe", "Mead & Hunt, Inc."),                         # ~103
+    ("https://franklin-electric.pinpointhq.com", "pinpoint", "Franklin Electric"),           # ~99
+    ("https://careers.starktech.com", "phenom", "Stark Tech"),                               # ~98
+    ("https://job-boards.greenhouse.io/cresta", "greenhouse", "Cresta"),                     # ~97
+    ("https://jobs.farmersinsurance.com", "successfactors", "Farmers Insurance Group"),      # ~97
+    ("https://job-boards.greenhouse.io/upstart", "greenhouse", "Upstart"),                   # ~97
+    ("https://careers.jameshardie.com", "successfactors", "James Hardie"),                   # ~95
+    ("https://jobs.lever.co/coupa", "lever", "Coupa"),                                       # ~92
+    ("https://jobs.ashbyhq.com/perplexity", "ashby", "Perplexity"),                          # ~92
+    ("https://chrobinson.wd5.myworkdayjobs.com/CHRobinson", "workday", "C.H. Robinson"),     # ~90
+    ("https://careers.merrick.com", "jibe", "Merrick & Company"),                            # ~89
+    ("https://choicehotels.wd5.myworkdayjobs.com/HotelExternal", "workday", "Choice Hotels"), # ~85
+    ("https://freddiemac.wd5.myworkdayjobs.com/External", "workday", "Freddie Mac"),         # ~85
+    ("https://job-boards.greenhouse.io/orioninnovation", "greenhouse", "Orion Innovation"),  # ~83
+    ("https://job-boards.greenhouse.io/motional", "greenhouse", "Motional"),                 # ~81
+    ("https://job-boards.greenhouse.io/metropolis", "greenhouse", "Metropolis"),             # ~80
+    ("https://careers.dominionenergy.com", "successfactors", "Dominion Energy"),             # ~79
+    ("https://job-boards.greenhouse.io/realchemistry", "greenhouse", "Real Chemistry"),      # ~78
+    ("https://jobs.lever.co/standtogether", "lever", "Stand Together"),                      # ~78
+    ("https://prologis.wd5.myworkdayjobs.com/Prologis_External_Careers", "workday", "Prologis"), # ~77
+    ("https://job-boards.greenhouse.io/rockstargames", "greenhouse", "Rockstar Games"),      # ~74
+    ("https://jobs.franke.com", "successfactors", "Franke"),                                 # ~71
+    ("https://steeleurope.wd3.myworkdayjobs.com/Job_Board", "workday", "thyssenkrupp"),      # ~71
+    ("https://jobs.ashbyhq.com/headway", "ashby", "Headway"),                                # ~70
+    ("https://careers.siriusxm.com", "jibe", "SiriusXM"),                                    # ~70
+    ("https://job-boards.greenhouse.io/faire", "greenhouse", "Faire"),                       # ~66
+    ("https://jobs.ashbyhq.com/riveron", "ashby", "Riveron"),                                # ~66
+    ("https://unum.wd1.myworkdayjobs.com/External", "workday", "Unum"),                      # ~66
+    ("https://job-boards.greenhouse.io/carta", "greenhouse", "Carta"),                       # ~64
+    ("https://fmc.wd12.myworkdayjobs.com/FMC", "workday", "FMC Corporation"),                # ~64
+    ("https://jobs.peabodyenergy.com", "successfactors", "Peabody Energy"),                  # ~63
+    ("https://jobs.bourns.com", "successfactors", "Bourns"),                                 # ~62
+    ("https://job-boards.greenhouse.io/blinkhealth", "greenhouse", "Blink Health"),          # ~60
+    ("https://careers.keolis.com", "successfactors", "Keolis"),                              # ~60
+    ("https://job-boards.greenhouse.io/geniussports", "greenhouse", "Genius Sports"),        # ~58
+    ("https://job-boards.greenhouse.io/mercury", "greenhouse", "Mercury"),                   # ~57
+    ("https://careers.cambrex.com", "jibe", "Cambrex"),                                      # ~56
+    ("https://job-boards.greenhouse.io/getyourguide", "greenhouse", "GetYourGuide"),         # ~53
+    ("https://job-boards.greenhouse.io/nintendo", "greenhouse", "Nintendo"),                 # ~52
+    ("https://jobs.ashbyhq.com/serverobotics", "ashby", "Serve Robotics"),                   # ~52
+    ("https://jobs.lever.co/provectus", "lever", "Provectus"),                               # ~50
+    ("https://job-boards.greenhouse.io/futuresecureai", "greenhouse", "Future Secure AI"),   # ~49
+    ("https://jobs.ashbyhq.com/carian", "ashby", "CARIAN"),                                  # ~48
+    ("https://jobs.ashbyhq.com/sentry", "ashby", "Sentry"),                                  # ~47
+    ("https://job-boards.greenhouse.io/tenableinc", "greenhouse", "Tenable"),                # ~46
+    ("https://jobs.ashbyhq.com/sereact", "ashby", "Sereact"),                                # ~45
+    ("https://job-boards.greenhouse.io/williamblair", "greenhouse", "William Blair & Company"), # ~45
+    ("https://job-boards.greenhouse.io/trustpilot", "greenhouse", "Trustpilot"),             # ~43
+    ("https://job-boards.greenhouse.io/axle", "greenhouse", "Axle"),                         # ~42
+    ("https://jobs.lever.co/protective", "lever", "Protective"),                             # ~42
+    ("https://job-boards.greenhouse.io/wing", "greenhouse", "Wing"),                         # ~42
+    ("https://jobs.lever.co/metlife", "lever", "MetLife"),                                   # ~39
+    ("https://jobs.ashbyhq.com/aerovect", "ashby", "AeroVect"),                              # ~38
+    ("https://jobs.lever.co/solarlandscape", "lever", "Solar Landscape"),                    # ~37
+    ("https://gentex.wd5.myworkdayjobs.com/Gentex", "workday", "Gentex Corporation"),        # ~35
+    ("https://job-boards.greenhouse.io/algolia", "greenhouse", "Algolia"),                   # ~34
+    ("https://job-boards.greenhouse.io/workstream", "greenhouse", "Workstream Technologies"), # ~33
+    ("https://job-boards.greenhouse.io/freenome", "greenhouse", "Freenome"),                 # ~30
+    ("https://job-boards.greenhouse.io/accuweather", "greenhouse", "AccuWeather"),           # ~29
+    ("https://jobs.ashbyhq.com/physicalintelligence", "ashby", "Physical Intelligence"),     # ~29
+    ("https://jobs.smartrecruiters.com/SoftpathSystemLLC", "smartrecruiters", "Softpath System LLC"), # ~28
+    ("https://jobs.lever.co/pivotal", "lever", "Pivotal"),                                   # ~27
+    ("https://jobs.hilmarcheese.com", "successfactors", "Hilmar Cheese Company"),            # ~26
+    ("https://job-boards.greenhouse.io/mindgruve", "greenhouse", "Mindgruve"),               # ~26
+    ("https://jobs.ashbyhq.com/paraform", "ashby", "Paraform"),                              # ~26
+    ("https://job-boards.greenhouse.io/jumio", "greenhouse", "Jumio Corporation"),           # ~25
+    ("https://job-boards.greenhouse.io/vestwell", "greenhouse", "Vestwell"),                 # ~25
+    ("https://job-boards.greenhouse.io/kairospower", "greenhouse", "Kairos Power"),          # ~24
+    ("https://job-boards.greenhouse.io/oculartherapeutix", "greenhouse", "Ocular Therapeutix, Inc."), # ~24
+    ("https://careers.ofi.com", "successfactors", "OFI"),                                    # ~24
+    ("https://job-boards.greenhouse.io/berkadia", "greenhouse", "Berkadia"),                 # ~23
+    ("https://jobs.ashbyhq.com/oscilar", "ashby", "Oscilar"),                                # ~23
+    ("https://job-boards.greenhouse.io/tebra", "greenhouse", "Tebra"),                       # ~23
+    ("https://jobs.ashbyhq.com/versemedical", "ashby", "Verse Medical"),                     # ~23
+    ("https://jobs.lever.co/bounteous", "lever", "Bounteous"),                               # ~22
+    ("https://job-boards.greenhouse.io/quantifind", "greenhouse", "Quantifind"),             # ~22
+    ("https://jobs.ashbyhq.com/centerfield", "ashby", "Centerfield"),                        # ~21
+    ("https://careers.wheelsup.com", "jibe", "Wheels Up"),                                   # ~20
+    ("https://careers.astellas.com", "successfactors", "Astellas"),                          # ~19
+    ("https://jobs.lever.co/snappr", "lever", "Snappr"),                                     # ~19
+    ("https://job-boards.greenhouse.io/mill", "greenhouse", "Mill"),                         # ~18
+    ("https://bestwestern.wd1.myworkdayjobs.com/careers", "workday", "Best Western"),        # ~17
+    ("https://job-boards.greenhouse.io/firstnationalbankofamerica", "greenhouse", "First National Bank of America"), # ~17
+    ("https://job-boards.greenhouse.io/groupon", "greenhouse", "Groupon"),                   # ~17
+    ("https://job-boards.greenhouse.io/legion", "greenhouse", "Legion"),                     # ~17
+    ("https://jobs.xfab.com", "successfactors", "X-FAB"),                                    # ~17
+    ("https://jobs.ashbyhq.com/brightwheel", "ashby", "brightwheel"),                        # ~16
+    ("https://careers.americanintegrityinsurance.com", "jibe", "American Integrity Insurance Company"), # ~15
+    ("https://job-boards.greenhouse.io/auctane", "greenhouse", "Auctane"),                   # ~15
+    ("https://job-boards.greenhouse.io/landdesign", "greenhouse", "LandDesign, Inc"),        # ~15
+    ("https://job-boards.greenhouse.io/make", "greenhouse", "MAKE"),                         # ~15
+    ("https://job-boards.greenhouse.io/mochihealth", "greenhouse", "Mochi Health"),          # ~15
+    ("https://job-boards.greenhouse.io/collegetrack", "greenhouse", "College Track"),        # ~14
+    ("https://job-boards.greenhouse.io/falconx", "greenhouse", "FalconX"),                   # ~14
+    ("https://job-boards.greenhouse.io/starburst", "greenhouse", "Starburst"),               # ~14
+    ("https://jobs.ashbyhq.com/artafinance", "ashby", "Arta Finance"),                       # ~13
+    ("https://jobs.ashbyhq.com/demandbase", "ashby", "Demandbase"),                          # ~13
+    ("https://job-boards.greenhouse.io/hearcom", "greenhouse", "hear.com"),                  # ~13
+    ("https://job-boards.greenhouse.io/ownwell", "greenhouse", "Ownwell, Inc."),             # ~13
+    ("https://jobs.lever.co/sysdig", "lever", "Sysdig"),                                     # ~13
+    ("https://jobs.lever.co/valiantys", "lever", "VALIANTYS"),                               # ~13
+    ("https://job-boards.greenhouse.io/goldenstate", "greenhouse", "Golden State"),          # ~12
+    ("https://job-boards.greenhouse.io/paystand", "greenhouse", "PayStand"),                 # ~12
+    ("https://job-boards.greenhouse.io/madisonenergyinfrastructure", "greenhouse", "Madison Energy Infrastructure"), # ~11
+    ("https://job-boards.greenhouse.io/vay", "greenhouse", "Vay"),                           # ~11
+    ("https://jobs.smartrecruiters.com/CarilionClinic", "smartrecruiters", "Carilion Clinic"), # ~10
+    ("https://jobs.smartrecruiters.com/FamiliaDental", "smartrecruiters", "Familia Dental"), # ~10
+    ("https://jobs.ashbyhq.com/glimpse", "ashby", "Glimpse"),                                # ~10
+    ("https://jobs.smartrecruiters.com/KatalystHealthcaresLifeSciences", "smartrecruiters", "Katalyst Healthcares & Life Sciences"), # ~10
+    ("https://careers.keyence.com", "successfactors", "Keyence"),                            # ~10
+    ("https://job-boards.greenhouse.io/pdtpartners", "greenhouse", "PDT Partners"),          # ~10
+    ("https://job-boards.greenhouse.io/supernal", "greenhouse", "Supernal"),                 # ~10
+    ("https://jobs.ashbyhq.com/zello", "ashby", "Zello"),                                    # ~10
+    ("https://job-boards.greenhouse.io/elsevier", "greenhouse", "Elsevier"),                 # ~9
+    ("https://job-boards.greenhouse.io/flash", "greenhouse", "Flash"),                       # ~9
+    ("https://job-boards.greenhouse.io/skyryse", "greenhouse", "SkyRyse"),                   # ~9
+    ("https://jobs.ashbyhq.com/tensec", "ashby", "Tensec"),                                  # ~9
+    ("https://jobs.smartrecruiters.com/MastechDigital", "smartrecruiters", "Mastech Digital"), # ~8
+    ("https://job-boards.greenhouse.io/ooma", "greenhouse", "Ooma, Inc."),                   # ~8
+    ("https://job-boards.greenhouse.io/primemedicine", "greenhouse", "Prime Medicine, Inc."), # ~8
+    ("https://ballinger.bamboohr.com", "bamboohr", "Ballinger"),                             # ~7
+    ("https://jobs.smartrecruiters.com/HealthPartners", "smartrecruiters", "HealthPartners"), # ~7
+    ("https://jobs.smartrecruiters.com/SmartITFrameLLC", "smartrecruiters", "Smart IT Frame LLC"), # ~7
+    ("https://jobs.smartrecruiters.com/YamahaMotor", "smartrecruiters", "Yamaha Motor"),     # ~7
+    ("https://jobs.smartrecruiters.com/iPivot", "smartrecruiters", "iPivot"),                # ~6
+    ("https://jobs.smartrecruiters.com/Lonza", "smartrecruiters", "Lonza"),                  # ~6
+    ("https://jobs.smartrecruiters.com/PhoenixCharterAcademyNetwork", "smartrecruiters", "Phoenix Charter Academy Network"), # ~6
+    ("https://jobs.smartrecruiters.com/TexasWaterDevelopmentBoard", "smartrecruiters", "Texas Water Development Board"), # ~6
+    ("https://job-boards.greenhouse.io/valerahealth", "greenhouse", "Valera Health"),        # ~6
+    ("https://jobs.ashbyhq.com/ernest", "ashby", "Ernest"),                                  # ~5
+    ("https://jobs.smartrecruiters.com/MGMResortsInternational", "smartrecruiters", "MGM Resorts International"), # ~5
+    ("https://jobs.ashbyhq.com/tapblaze", "ashby", "TapBlaze"),                              # ~5
+    ("https://job-boards.greenhouse.io/akoya", "greenhouse", "Akoya"),                       # ~4
+    ("https://jobs.lever.co/gatorbio", "lever", "Gator Bio"),                                # ~4
+    ("https://jobs.smartrecruiters.com/iHeartMedia", "smartrecruiters", "iHeartMedia"),      # ~4
+    ("https://jobs.lever.co/influ2", "lever", "Influ2"),                                     # ~3
+    ("https://jobs.smartrecruiters.com/ServiceLink", "smartrecruiters", "ServiceLink"),      # ~3
+    ("https://jobs.smartrecruiters.com/BONITABAYCLUB", "smartrecruiters", "BONITA BAY CLUB"), # ~2
+    ("https://jobs.smartrecruiters.com/FirstServiceResidential", "smartrecruiters", "FirstService Residential"), # ~2
+    ("https://jobs.smartrecruiters.com/JayesTechLLC", "smartrecruiters", "Jayes Tech LLC"),  # ~2
+    ("https://jobs.smartrecruiters.com/KarsunSolutionsLLC", "smartrecruiters", "Karsun Solutions LLC"), # ~2
+    ("https://jobs.lever.co/nextech", "lever", "Nextech"),                                   # ~2
+    ("https://jobs.smartrecruiters.com/ReveilleTechnologiesInc", "smartrecruiters", "Reveille Technologies,Inc"), # ~2
+    ("https://jobs.smartrecruiters.com/Resmed", "smartrecruiters", "Resmed"),                # ~2
+    ("https://jobs.smartrecruiters.com/Solovis", "smartrecruiters", "Solovis"),              # ~2
+    ("https://jobs.smartrecruiters.com/ArizonaPublicServiceAPS", "smartrecruiters", "Arizona Public Service (APS)"), # ~1
+    ("https://jobs.smartrecruiters.com/Arthrex", "smartrecruiters", "Arthrex"),              # ~1
+    ("https://jobs.smartrecruiters.com/Avangrid", "smartrecruiters", "Avangrid"),            # ~1
+    ("https://jobs.smartrecruiters.com/Canidium", "smartrecruiters", "Canidium"),            # ~1
+    ("https://jobs.smartrecruiters.com/COGENTDATASOLUTIONSLLC", "smartrecruiters", "COGENT DATA SOLUTIONS LLC"), # ~1
+    ("https://jobs.smartrecruiters.com/CrunchFitness", "smartrecruiters", "Crunch Fitness"), # ~1
+    ("https://jobs.smartrecruiters.com/GEICO", "smartrecruiters", "GEICO"),                  # ~1
+    ("https://itron.wd5.myworkdayjobs.com/Early_Careers", "workday", "Itron"),               # ~1
+    ("https://jobs.smartrecruiters.com/KPIPartners", "smartrecruiters", "KPI Partners"),     # ~1
+    ("https://jobs.smartrecruiters.com/MooreVanAllen", "smartrecruiters", "Moore & Van Allen"), # ~1
+    ("https://jobs.ashbyhq.com/optimum", "ashby", "Optimum"),                                # ~1
+    ("https://job-boards.greenhouse.io/paradigm", "greenhouse", "Paradigm"),                 # ~1
+    ("https://job-boards.greenhouse.io/phantomai", "greenhouse", "Phantom AI"),              # ~1
+    ("https://jobs.smartrecruiters.com/Qurrent", "smartrecruiters", "Qurrent"),              # ~1
+    ("https://jobs.smartrecruiters.com/SaintAlphonsusHealthSystem", "smartrecruiters", "Saint Alphonsus Health System"), # ~1
+    ("https://jobs.smartrecruiters.com/UCIrvineHealth", "smartrecruiters", "UC Irvine Health"), # ~1
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -814,6 +1725,13 @@ VERBOSE = False
 # Drop a job if its description requires MORE than this many years of experience.
 # Only enforced where the scraper actually has the JD text (e.g. Amazon). 5 = keep mid-level too.
 MAX_YEARS = 5
+
+# Refuse a posting the employer published more than this many days ago — by then the role
+# is usually filled, and storing it just inflates the database. Only applied when the board
+# actually publishes a date: a posting with NO date (Meta, Workable, BambooHR, Rippling, and
+# one of the two Avature templates) is KEPT and ages by first_seen instead, because for those
+# boards "still listed" is the only freshness signal there is. 0 disables the gate.
+MAX_AGE_DAYS = int(os.environ.get("MAX_AGE_DAYS", "30") or 0)
 
 # Be polite: random pause between sources, and a normal browser User-Agent.
 MIN_DELAY, MAX_DELAY = 2, 5
@@ -3362,7 +4280,12 @@ def main():
 
     # Canonicalize BOTH sides of the dedupe: stored rows predate normalization (and hold
     # e.g. the old boards.greenhouse.io form), so comparing raw would re-insert them.
-    seen = {canonical_url(u) for u in db.existing_urls()}
+    # Compared CASE-INSENSITIVELY. Workday's site segment isn't case-stable — Applied
+    # Materials' board answered on both /external/ and /External/, and because those are
+    # different strings the same 79 postings were stored twice, under two different company
+    # labels ("Amat" and "Applied Materials"), and rendered as duplicate cards. Two genuinely
+    # distinct postings whose URLs differ only by letter case don't occur in practice.
+    seen = {canonical_url(u).lower() for u in db.existing_urls()}
     sources = SOURCES + custom_sources()
     if len(sources) > len(SOURCES):
         print("+ %d board(s) added via the app." % (len(sources) - len(SOURCES)))
@@ -3383,10 +4306,13 @@ def main():
 
     kept = []
     tally = {"already known": 0, "senior/off-target title": 0,
-             "no matching role keyword": 0, "non-US location": 0}
+             "no matching role keyword": 0, "non-US location": 0,
+             "posted over %d days ago" % MAX_AGE_DAYS: 0}
+    age_cutoff = ((datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS)).isoformat()
+                  if MAX_AGE_DAYS > 0 else "")
     for j in scraped:
         j["url"] = canonical_url(j.get("url", ""))
-        if j["url"] in seen:
+        if j["url"].lower() in seen:
             tally["already known"] += 1
             continue                       # already in jobs.csv from a past run
         keep, why = title_verdict(j["title"])
@@ -3400,6 +4326,17 @@ def main():
             print("  %s %-52s %s" % ("KEEP " if keep else "drop ", j["title"][:52], why))
         if not keep:
             continue
+        # Freshness gate. This has to run BEFORE the setdefault below: that line stamps
+        # undated rows with today's date, so a gate placed after it would see every dateless
+        # board as brand new and could never reject anything. Here the value is still exactly
+        # what the employer published — a date, an empty string, or nothing at all.
+        if age_cutoff:
+            posted = (j.get("found_date") or "")[:10]
+            if posted and posted < age_cutoff:
+                tally["posted over %d days ago" % MAX_AGE_DAYS] += 1
+                if VERBOSE:
+                    print("  drop  %-52s posted %s" % (j["title"][:52], posted))
+                continue
         if sponsor_index:
             sponsored = sponsors_h1b(j["company"], sponsor_index)
             if REQUIRE_SPONSOR and not sponsored:
@@ -3408,7 +4345,7 @@ def main():
         else:
             j["sponsors_h1b"] = "unknown"
         j.setdefault("found_date", stamp)        # keep the JD's posting date if set
-        seen.add(j["url"])                       # two boards in ONE run can serve the same
+        seen.add(j["url"].lower())               # two boards in ONE run can serve the same
                                                  # posting (e.g. both Greenhouse hosts)
         kept.append({k: j.get(k, "") for k in FIELDNAMES})
 
@@ -3419,10 +4356,17 @@ def main():
     if kept:
         db.add_jobs(kept)               # (also the breadcrumb notify.py reads for this run's alerts)
 
-    # OPTIONAL corpus pruning — OFF by default (purely additive scrape; never deletes unless asked).
-    # Set PRUNE_DAYS=60 (e.g. in the cron env) to drop jobs first seen > that many days ago,
-    # except any a user has liked/applied/hidden — to keep the DB bounded as the wider net grows it.
-    prune_days = int(os.environ.get("PRUNE_DAYS", "0"))
+    # Corpus pruning. This is the OTHER HALF of the freshness policy and defaults to the same
+    # window as MAX_AGE_DAYS, deliberately: the gate above refuses stale postings on the way
+    # IN, this removes stale rows already stored, and if the two numbers ever disagree the
+    # corpus drifts to whichever is looser. One knob, so they can't.
+    #
+    # It has to run on every scheduled scrape, not by hand. Purging manually doesn't hold: the
+    # table was cut to 12,711 twice in one day and a scheduled run put the rows straight back,
+    # including a Palantir posting dated 2014 and Northwestern Mutual internships from 2015.
+    # Flagged jobs (liked / applied / hidden) are never deleted — see db.prune_old_jobs.
+    # PRUNE_DAYS=0 disables it.
+    prune_days = int(os.environ.get("PRUNE_DAYS", str(MAX_AGE_DAYS)) or 0)
     if prune_days > 0:
         pruned = db.prune_old_jobs(prune_days)
         if pruned:

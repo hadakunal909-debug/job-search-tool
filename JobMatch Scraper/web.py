@@ -245,6 +245,26 @@ def sponsor_counts():
         except Exception:
             _sponsor_counts_cache = {}      # a bad/huge file must not 500 the feed
     return _sponsor_counts_cache
+
+
+# visa_tags.json is ~1.8 MB / ~77k keys — same cold-start reasoning as sponsor_counts above,
+# so it's deferred to first use rather than loaded at import. {} until the file is built,
+# which makes every visa badge and the visa filter simply not render.
+_visa_index_cache = None
+
+# (key, checkbox label, tooltip) for the five visa filters, in core.VISA_TAGS order so the
+# controls, the card badges and the digest chips can never drift out of order.
+_VISA_TAG_CONTROLS = [(k, core.VISA_TAG_LABELS[k], core.VISA_TAG_TIPS[k]) for k in core.VISA_TAGS]
+
+
+def visa_index():
+    global _visa_index_cache
+    if _visa_index_cache is None:
+        try:
+            _visa_index_cache = core.load_visa_tags()
+        except Exception:
+            _visa_index_cache = {}
+    return _visa_index_cache
 _resume_cache = {}           # username -> (resume_text, fetched_at)
 _status_cache = {}           # username -> ({url: status}, fetched_at); busted on every action
 _STATUS_TTL = 30             # seconds; mutations bust immediately, this just bounds cross-worker drift
@@ -423,6 +443,9 @@ def _build_row(j, score):
     meta = _jdmeta.get(u) or _EMPTY_META
     sv, sreason = meta.get("sponsor_jd") or ("", "")
     strength, scount = core.sponsor_strength(c, sponsor_counts())
+    # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
+    # sponsorship must not carry sponsorship badges (see core.visa_tags_for_posting).
+    vtags = core.visa_tags_for_posting(core.visa_tags(c, visa_index()), sv, sreason)
     exp_y = meta.get("exp_years")
     # A too-thin/truncated JD can't be scored honestly (see core.analyze_jd) — surface it as
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
@@ -463,7 +486,13 @@ def _build_row(j, score):
             "first_seen": str(j.get("first_seen") or "")[:10],
             "score": 0 if pending else score, "score_pending": pending,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
-            "cap_exempt": core.is_cap_exempt(c), "everify": core.is_everify(c, _EVERIFY_INDEX),
+            "cap_exempt": core.is_cap_exempt(c),
+            # Which immigration routes this employer has actually filed for (DOL LCA + PERM
+            # + E-Verify). A missing tag means "no record", never "won't sponsor".
+            "visa": vtags,
+            # stem_opt IS the E-Verify fact; the everify.txt path stays as a fallback for
+            # anyone who built that file (it has never existed in this repo).
+            "everify": ("stem_opt" in vtags) or core.is_everify(c, _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",
             "strength": strength, "strength_n": scount,
             "intern": bool(_INTERN_RE.search(j.get("title") or "")),
@@ -585,7 +614,7 @@ def _prefs_as_params(prefs):
         "minsal": str(prefs.get("minsal") or 0), "sort": prefs.get("sort") or "score",
         "remote": "1" if prefs.get("remote") else "",
         "hideagency": "1" if prefs.get("hideagency") else "",
-        "everify": "1" if prefs.get("everify") else "",
+        "visatags": prefs.get("visatags") or "",
         "hidenospon": "1" if prefs.get("hidenospon") else "",
     }
 
@@ -649,7 +678,7 @@ def _filter_rows(rows, statuses, p):
     except Exception:
         minv = 0
     cut = _date_cutoff(p.get("date"))
-    everify_only = (p.get("everify") or "") in ("1", "true", "yes", "on")
+    want_visa = core.parse_visa_pref(p.get("visatags"))
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
@@ -683,7 +712,7 @@ def _filter_rows(rows, statuses, p):
                 continue
         if hide_no and r["sponsor_jd"] == "blocked":
             continue
-        if everify_only and not r["everify"]:
+        if not core.visa_tags_match(r.get("visa"), want_visa):
             continue
         if loc and not _loc_hit(r, loc):
             continue
@@ -1012,6 +1041,7 @@ def feed():
                            default_min=default_min, paged=paged, scraping=False,
                            group_lead=_GROUP_LEAD,
                            metros=_feed_metros(rows), states=_feed_states(rows),
+                           visa_tag_controls=_VISA_TAG_CONTROLS,
                            visa=visa, visa_ctx=visa_ctx, prefs=prefs)
 
 
@@ -1129,7 +1159,11 @@ def api_job():
             "sponsor_jd": sv, "sponsor_reason": sreason,
             "agency": core.is_agency(job.get("company", "")),
             "cap_exempt": core.is_cap_exempt(job.get("company", "")),
-            "everify": core.is_everify(job.get("company", ""), _EVERIFY_INDEX),
+            # Keep in step with _build_row — the modal and the card must not disagree.
+            "visa": core.visa_tags_for_posting(
+                core.visa_tags(job.get("company", ""), visa_index()), sv, sreason),
+            "everify": ("stem_opt" in core.visa_tags(job.get("company", ""), visa_index()))
+                       or core.is_everify(job.get("company", ""), _EVERIFY_INDEX),
             "exp_years": exp_y if exp_y is not None else "",
             "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}
 

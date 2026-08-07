@@ -636,6 +636,133 @@ def is_everify(company, index):
 
 
 # ------------------------------------------------------------
+# VISA TAGS — which immigration routes has this employer actually filed for?
+# Backed by visa_tags.json (see scraper/build_visa_tags.py), an index of
+# {normalized employer name: bitmask} built from the DOL LCA + PERM disclosure files
+# and the E-Verify employer export.
+#
+# Lookup here is a plain dict hit and nothing more. All the fuzzy name matching happens
+# at BUILD time, where each decision is written to visa_tags_report.csv and can be
+# reviewed — doing it at request time would mean silent wrong tags with no audit trail.
+#
+# A present tag means "this employer has filed for this route before". A MISSING tag means
+# we have no record, NOT that they won't sponsor: the index covers whichever quarters were
+# fed to the builder. Never render absence as a negative.
+# ------------------------------------------------------------
+VISA_TAGS = ("h1b", "green_card", "stem_opt", "e3", "h1b1")     # == render order
+_VISA_BITS = {"h1b": 1, "green_card": 2, "stem_opt": 4, "e3": 8, "h1b1": 16}
+VISA_TAG_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "E-Verify",
+                   "e3": "E-3", "h1b1": "H-1B1"}
+VISA_TAG_TIPS = {
+    "h1b": "This employer has certified H-1B labor condition applications. Past filings, "
+           "not a promise.",
+    "green_card": "This employer has certified PERM (green card) applications — they sponsor "
+                  "permanent residency, not just temporary work visas.",
+    "stem_opt": "Listed as an enrolled E-Verify employer, which is required for the STEM-OPT "
+                "24-month extension. Confirm at e-verify.gov before relying on it.",
+    "e3": "This employer has filed E-3 applications (Australian nationals).",
+    "h1b1": "This employer has filed H-1B1 applications (Chile / Singapore nationals).",
+}
+
+
+def load_visa_tags(path="visa_tags.json"):
+    """{normalized name: bitmask} from visa_tags.json. {} when the file is absent, so every
+    badge and filter simply doesn't render until it's built."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(d, dict):
+        return {}
+    d.pop("#meta", None)            # provenance block, never a company (a '#' can't survive _norm_name)
+    return d
+
+
+_visa_cache = {}
+
+
+def visa_tags(company, index):
+    """Tuple of tag keys for `company`, in VISA_TAGS order. () when unknown.
+
+    Returns a TUPLE deliberately: the result is memoized and shared across every row for
+    that employer, so a mutable return would be an aliasing bug waiting to happen.
+    """
+    if not index or not company:
+        return ()
+    hit = _visa_cache.get(company)
+    if hit is not None:
+        return hit
+    try:
+        import scraper                  # lazy: scraper imports core (avoid circular at load)
+        norm = scraper._norm_name(company)
+    except Exception:
+        norm = re.sub(r"[^a-z0-9 ]+", " ", company.lower()).strip()
+    mask = index.get(norm) or 0
+    out = tuple(t for t in VISA_TAGS if mask & _VISA_BITS[t]) if mask else ()
+    _visa_cache[company] = out
+    return out
+
+
+def visa_tag_labels(tags):
+    """['H-1B', 'Green Card'] for display in the email digest and the card."""
+    return [VISA_TAG_LABELS[t] for t in (tags or ()) if t in VISA_TAG_LABELS]
+
+
+# A blocked JD whose reason mentions one of these rules out EVERY foreign candidate, including
+# one who needs no sponsorship at all. Matched against the reason strings in _SPONSOR_BLOCK.
+_BLOCKS_EVERYONE = ("citizenship", "clearance", "green card")
+
+
+def visa_tags_for_posting(tags, sponsor_jd, reason=""):
+    """Narrow an EMPLOYER's visa tags down to what THIS posting actually allows.
+
+    The tags say what a company has sponsored in the past; the JD says what this particular
+    role will do. When they disagree the JD wins, otherwise a card reads
+    "H-1B · Green Card · E-3 · No sponsorship", which is nonsense and the exact false
+    positive that makes the whole feature untrustworthy.
+
+    The two cases are deliberately different:
+      * "no visa sponsorship" removes the routes that REQUIRE the employer to sponsor
+        (H-1B, green card, E-3, H-1B1) but KEEPS E-Verify. OPT and STEM-OPT are not
+        sponsorship — the candidate already holds work authorization, and all the employer
+        has to be is E-Verify enrolled. Those roles are still worth seeing.
+      * citizenship / security clearance / "must already hold a green card" rule out a
+        foreign candidate entirely, so every tag goes.
+    """
+    tags = tuple(tags or ())
+    if sponsor_jd != "blocked" or not tags:
+        return tags
+    low = (reason or "").lower()
+    if any(k in low for k in _BLOCKS_EVERYONE):
+        return ()
+    return tuple(t for t in tags if t == "stem_opt")
+
+
+def parse_visa_pref(s):
+    """'h1b,junk,e3' -> ('h1b','e3'). Canonical order, junk dropped, duplicates collapsed."""
+    if not s:
+        return ()
+    if not isinstance(s, str):
+        s = ",".join(str(x) for x in s)
+    want = {p.strip().lower() for p in s.split(",") if p.strip()}
+    return tuple(t for t in VISA_TAGS if t in want)
+
+
+def visa_tags_match(row_tags, wanted):
+    """OR semantics: a row passes if it carries ANY wanted tag. No wanted tags == no filter.
+
+    OR rather than AND on purpose — five AND-ed checkboxes return almost nothing, and the
+    question a user is asking is "H-1B *or* green card", not "both at once".
+    """
+    if not wanted:
+        return True
+    return bool(set(wanted) & set(row_tags or ()))
+
+
+# ------------------------------------------------------------
 # STAFFING / CONSULTANCY ("agency") flag — mark body-shop / staffing-firm employers so the user
 # can spot-and-skip them. They're KEPT in the feed (many are heavy H-1B sponsors), just badged —
 # this is a hint, not a hard filter. Two signals: a generic body-shop NAME SHAPE (BODYSHOP_RE,
@@ -1065,7 +1192,11 @@ DEFAULT_PREFS = {
     "remote": False,
     "minsal": 0,          # annualized floor; 0 = any
     "hideagency": True,   # staffing agencies off by default (they flood the feed)
+    # LEGACY. Superseded by "visatags" (stem_opt is the same fact). Kept in the dict so an
+    # old saved search still round-trips and so tests asserting the key set keep passing;
+    # normalize_prefs migrates a True into visatags and clears it. Nothing reads it.
     "everify": False,
+    "visatags": "",       # csv subset of VISA_TAGS, e.g. "h1b,green_card"; "" = no filter
     "hidenospon": False,
     "exp": "any",         # any | 2 | 5 | senior
     "intern": "any",      # any | only | no
@@ -1083,6 +1214,9 @@ _PREF_CHOICES = {
     "sort": ("score", "newest"),
     "alerts": ("off", "daily"),
 }
+# Keys whose value is a comma-separated subset of a fixed vocabulary. Validated separately
+# from _PREF_CHOICES (which is one-of) so junk is dropped and the order is canonicalized.
+_PREF_CSV = {"visatags": VISA_TAGS}
 
 
 def _pref_bool(v):
@@ -1116,6 +1250,8 @@ def normalize_prefs(raw):
                 out[key] = max(0, int(float(str(v).strip() or 0)))
             except (TypeError, ValueError):
                 pass
+        elif key in _PREF_CSV:
+            out[key] = ",".join(parse_visa_pref(v))
         elif key in _PREF_CHOICES:
             s = str(v).strip().lower()
             if s in _PREF_CHOICES[key]:
@@ -1123,6 +1259,13 @@ def normalize_prefs(raw):
         else:
             out[key] = str(v).strip()[:80]
     out["min"] = min(out["min"], 100)
+    # Migrate the retired "E-Verify only" checkbox onto the visa-tag filter. The clear is
+    # load-bearing: save_prefs merges the posted body over the stored dict, so a browser
+    # that no longer sends `everify` would leave a stale True behind and silently re-add
+    # stem_opt every time the user unticked it.
+    if out.get("everify"):
+        out["visatags"] = ",".join(parse_visa_pref(out.get("visatags", "") + ",stem_opt"))
+        out["everify"] = False
     return out
 
 
@@ -1141,7 +1284,7 @@ def prefs_match(row, prefs):
         return False
     if p.get("hidenospon") and row.get("sponsor_jd") == "blocked":
         return False
-    if p.get("everify") and not row.get("everify"):
+    if not visa_tags_match(row.get("visa"), parse_visa_pref(p.get("visatags"))):
         return False
     if p.get("hideagency") and row.get("agency"):
         return False
@@ -1208,7 +1351,7 @@ def location_matches(row, needle):
     return needle in hay
 
 
-def digest_row(job, score, everify_index=None):
+def digest_row(job, score, everify_index=None, visa_index=None):
     """The row shape prefs_match wants, built from a RAW db job row.
 
     The email path has no access to web.py's _build_row (importing Flask into the scraper
@@ -1223,7 +1366,12 @@ def digest_row(job, score, everify_index=None):
         sal = {"min": job.get("salary_min"), "max": job.get("salary_max"),
                "period": job.get("salary_period") or "year"}
     active = job.get("is_active")
+    _sv, _sreason = (sponsorship_from_jd(jd) if jd else ("", ""))
+    # Same narrowing the feed applies, so the email never claims a route the JD rules out.
+    vtags = visa_tags_for_posting(visa_tags(company, visa_index) if visa_index else (),
+                                  _sv, _sreason)
     return {
+        "visa": vtags,
         "title": job.get("title") or "", "company": company,
         "url": job.get("url") or "", "location": job.get("location") or "",
         "score": score,
@@ -1233,9 +1381,12 @@ def digest_row(job, score, everify_index=None):
         "salary_min": sal["min"], "salary_max": sal["max"], "salary_period": sal["period"],
         "salary_label": salary_label(sal["min"], sal["max"], sal["period"]),
         "sponsors_h1b": job.get("sponsors_h1b") or "",
-        "sponsor_jd": sponsorship_from_jd(jd)[0] if jd else "",
+        "sponsor_jd": _sv,
         "agency": is_agency(company), "cap_exempt": is_cap_exempt(company),
-        "everify": is_everify(company, everify_index) if everify_index else False,
+        # stem_opt IS the E-Verify fact, now sourced from the visa index; fall back to the
+        # old everify.txt path for anyone who built that file.
+        "everify": ("stem_opt" in vtags) or bool(
+            everify_index and is_everify(company, everify_index)),
         "exp_years": experience_min_years(jd) if jd else "",
         "intern": bool(re.search(r"\b(intern|internship|co-?op)\b", job.get("title") or "", re.I)),
         "closed": active is False or str(active).strip().lower() == "false",

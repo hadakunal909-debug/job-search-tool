@@ -8,6 +8,14 @@
   --r-sm:7px; --r:10px; --r-lg:13px;
   --e1:0 1px 2px rgba(20,23,31,.05); --e2:0 4px 14px rgba(20,23,31,.08); --e3:0 18px 50px rgba(15,17,21,.20);
   --focus:0 0 0 3px rgba(79,70,229,.25);
+  /* MOTION. One vocabulary for the whole app so nothing feels hand-timed. Measured off a
+     reference feed we liked: ~0.15s for hover/colour, ~0.2s for anything that moves, and a
+     slower custom ease for collapse/expand so a card folding away reads as deliberate rather
+     than as a glitch. These are the only durations anything should use. */
+  --ease:cubic-bezier(.4,0,.2,1);
+  --ease-out:cubic-bezier(0,0,.2,1);
+  --ease-collapse:cubic-bezier(.61,.1,.21,.92);
+  --t-fast:.15s; --t:.2s; --t-slow:.36s;
   /* Sticky offset for the feed's filter rail. base.html measures the real .topbar height onto
      :root on load and on resize; this is the no-JS fallback. Layout constant, not a theme token,
      so it is deliberately NOT redeclared in [data-theme="dark"]. */
@@ -25,6 +33,36 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0}
+
+/* ------------------------------------------------------------------
+   MOTION LAYER
+   Everything interactive settles instead of snapping. Deliberately lists the
+   properties rather than using `all`: `all` would also animate width/height/top on
+   every hover and force layout on each frame, which is what makes "smooth" CSS feel
+   sluggish. Colour and opacity are composited cheaply; transform is GPU-cheap too.
+   ------------------------------------------------------------------ */
+a,button,.btn,.iconbtn,.ico,.chip,.mchip,.segb,.ck,.tag,.pill,.list-row,.card,
+input,select,textarea,summary,.railcollapsebtn,.vt,.h1b,.cx,.ev,.intl,.spon,.nospon,.agency{
+  transition:color var(--t-fast) var(--ease),
+             background-color var(--t-fast) var(--ease),
+             border-color var(--t-fast) var(--ease),
+             box-shadow var(--t) var(--ease),
+             opacity var(--t) var(--ease),
+             transform var(--t) var(--ease);
+}
+/* Pressed states: a small, instant-feeling scale that makes a click land physically. */
+button:active,.btn:active,.ico:active,.segb:active{transform:scale(.97)}
+.card:active{transform:scale(.995)}
+
+/* Honour the OS setting. The app previously only silenced skeleton shimmer, so adding
+   motion everywhere without this would be a real accessibility regression: reduced-motion
+   is set by people who get migraines or motion sickness from UI movement. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important; animation-iteration-count:1 !important;
+    transition-duration:.001ms !important; scroll-behavior:auto !important;
+  }
+}
 body{font-family:Inter,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
 a{color:var(--brand);text-decoration:none}
 main{padding:24px 26px 72px}
@@ -238,11 +276,28 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 
 /* card grid */
 .feedgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
-.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 17px;display:flex;flex-direction:column;gap:9px;cursor:pointer;transition:border-color .18s,box-shadow .18s}
+/* Flatter and rounder: at rest the card carries no shadow and separates from the page by
+   radius and fill alone, so a dense grid reads as one calm surface instead of dozens of
+   floating tiles. Elevation is reserved for hover, where it means "this one". */
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 17px;display:flex;flex-direction:column;gap:9px;cursor:pointer;will-change:transform}
 /* "New" flag — today's freshly-pulled jobs (app.js adds it by comparing the date to today, so it
    disappears on its own the next day). Sits in the top-right corner, above the score ring. */
 .newflag{position:absolute;top:-7px;right:12px;z-index:3;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--ok);padding:3px 8px;border-radius:999px;box-shadow:var(--e1)}
-.card:hover{border-color:var(--line-strong);box-shadow:var(--e2)}
+.card:hover{border-color:var(--line-strong);box-shadow:var(--e2);transform:translateY(-2px)}
+
+/* Hide = the card visibly leaves, then the grid reflows.
+   Fade + scale rather than a height collapse. .feedgrid is
+   `repeat(auto-fill,minmax(330px,1fr))`, so cards are grid items laid out in tracks: folding
+   one to zero height doesn't close the gap the way it would in a vertical list, because the
+   remaining items reflow across the columns regardless. Transform and opacity also stay off
+   the layout path, so this can't jank a 60-card grid. */
+.card-collapse{pointer-events:none;
+  transition:opacity var(--t) var(--ease), transform var(--t) var(--ease-collapse)}
+.card-collapse.gone{opacity:0;transform:scale(.94) translateY(-8px)}
+/* Undo lives in the toast, so the action stays reversible without a modal. */
+.toast .undo{margin-left:12px;background:transparent;border:0;padding:2px 6px;border-radius:6px;
+  font:inherit;font-size:13px;font-weight:700;color:var(--brand);cursor:pointer;text-decoration:underline}
+.toast .undo:hover{background:var(--brand-soft)}
 /* Loading skeleton — rendered server-side inside #feed so the user sees card-shaped
    placeholders the instant the page paints; app.js replaces them once it renders the feed. */
 .skel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 17px;display:flex;align-items:flex-start;gap:12px;min-height:118px}
@@ -270,9 +325,18 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .chip.low{background:var(--surface2);color:var(--muted)}
 .chip.big{display:inline-block;font-size:18px;padding:9px 14px}
 .h1b{background:var(--blue-soft);color:var(--blue);font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap}
-.cx,.nospon,.spon,.ev,.intl{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap;vertical-align:middle}
+.cx,.nospon,.spon,.ev,.intl,.vt{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;margin-left:6px;white-space:nowrap;vertical-align:middle}
 .cx{background:var(--blue-soft);color:var(--blue)}
 .intl{background:var(--brand-soft);color:var(--brand-ink)}
+/* Visa routes. The temporary work visas (H-1B, E-3, H-1B1) share the blue family so they read
+   as one group; green card gets the brand green because it's the materially different outcome;
+   E-Verify keeps the .ev success green it has always used. */
+.vt-h1b{background:var(--blue-soft);color:var(--blue)}
+.vt-e3,.vt-h1b1{background:var(--blue-soft);color:var(--blue);opacity:.85}
+.vt-green_card{background:var(--brand-soft);color:var(--brand-ink)}
+.vt-stem_opt{background:var(--ok-soft);color:var(--ok)}
+.vt-more{background:var(--surface2);color:var(--muted)}
+.fnote{font-size:11.5px;line-height:1.45;color:var(--muted);margin:6px 0 0}
 /* Update-jobs live progress bar */
 .scrapebar{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;box-shadow:var(--e1)}
 .sb-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px;font-size:13.5px}
