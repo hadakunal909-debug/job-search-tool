@@ -442,21 +442,61 @@ def get_statuses():
     return _load_actions()
 
 
-def delete_urls(urls):
-    """Remove jobs by url (used when tightening the filter). Works on both backends."""
-    urls = list(urls)
+def _in_list(values):
+    """PostgREST `in.(...)` operand. Each value is double-quoted and its own double-quotes and
+    backslashes escaped, so a URL containing a comma or a quote can't break out of the list."""
+    return "in.(%s)" % ",".join(
+        '"%s"' % str(v).replace("\\", "\\\\").replace('"', '\\"') for v in values)
+
+
+# Max characters of `in.(...)` operand per DELETE. Batching by COUNT doesn't work here: the
+# limit is on query-string length, not row count, and our URLs run 58-227 chars. Measured
+# against the live project: a ~12KB operand (100 average URLs) succeeds, ~24KB returns 400.
+# 8000 keeps a wide margin and still means ~70 rows per request.
+_DELETE_QS_BUDGET = 8000
+
+
+def _url_batches(urls, budget=_DELETE_QS_BUDGET):
+    """Split urls into batches whose in.() operand stays under `budget` characters."""
+    batch, size = [], 0
+    for u in urls:
+        cost = len(str(u)) + 8                       # quotes, comma, escaping headroom
+        if batch and size + cost > budget:
+            yield batch
+            batch, size = [], 0
+        batch.append(u)
+        size += cost
+    if batch:
+        yield batch
+
+
+def delete_urls(urls, progress=None):
+    """Remove jobs by url (used when tightening the filter). Works on both backends.
+
+    Batched via PostgREST `url=in.(...)` rather than one request per URL: a 30-day purge
+    deletes ~17k rows, and 17k sequential round-trips is both slow and a good way to
+    rediscover the WinError 10054 that chunking fixed everywhere else. Rides the same
+    retry/backoff from _make_http().
+    """
+    urls = [u for u in dict.fromkeys(urls) if u]     # de-dup, preserve order, drop blanks
     if not urls:
-        return
+        return 0
     if using_supabase():
-        for u in urls:
+        done = 0
+        for batch in _url_batches(urls):
             resp = _http.delete(
                 _rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
-                params={"url": "eq.%s" % u}, timeout=30)
+                params={"url": _in_list(batch)}, timeout=60)
             if resp.status_code >= 400:
-                raise RuntimeError("Supabase delete %s: %s" % (resp.status_code, resp.text[:200]))
-        return
+                raise RuntimeError("Supabase delete %s (%d urls): %s"
+                                   % (resp.status_code, len(batch), resp.text[:200]))
+            done += len(batch)
+            if progress:
+                progress(done, len(urls))
+        return done
     drop = set(urls)
     _write_csv([r for r in _read_csv() if r.get("url") not in drop])
+    return len(drop)
 
 
 def delete_all():
@@ -483,21 +523,56 @@ def all_flagged_urls():
     return out
 
 
-def prune_old_jobs(days=60):
-    """Delete jobs first seen more than `days` ago, EXCEPT any a user has flagged — keeps the
-    corpus fresh and the DB bounded as the wider net grows it. Returns how many were removed.
-    Defensive: never raises (a failed prune must not abort the scrape)."""
+def row_age_date(r):
+    """The date a row should be JUDGED BY: the employer's verified date, else the date the
+    board reported, else the day it entered the corpus. Same precedence web._row_date uses to
+    filter and sort the feed, so 'older than 30 days' means the same thing in the purge as it
+    does on screen. The first_seen leg is what makes undated boards (Meta, Workable, BambooHR,
+    Rippling) ageable at all — prune_old_jobs used to read found_date alone and could never
+    see them."""
+    return ((r.get("posted_verified") or "")[:10] or (r.get("found_date") or "")[:10]
+            or str(r.get("first_seen") or "")[:10])
+
+
+def stale_urls(days=30):
+    """URLs whose row_age_date is older than `days`. Rows with no date of any kind are left
+    alone — we can't prove they're stale, so we don't guess."""
+    cutoff = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
+    if using_supabase():
+        rows = None
+        # first_seen / posted_verified may not exist yet (see SUPABASE_PENDING_MIGRATION.sql);
+        # drop the optional columns and retry rather than failing the whole purge.
+        for sel in ("url,found_date,posted_verified,first_seen",
+                    "url,found_date,posted_verified", "url,found_date"):
+            try:
+                rows = _fetch_all(TABLE, {"select": sel})
+                break
+            except Exception:
+                continue
+        rows = rows or []
+    else:
+        rows = _read_csv()
+    out = []
+    for r in rows:
+        u, d = r.get("url"), row_age_date(r)
+        if u and d and d < cutoff:
+            out.append(u)
+    return out, cutoff
+
+
+def prune_old_jobs(days=60, dry_run=False, protect_flagged=True, progress=None):
+    """Delete jobs older than `days` (by row_age_date), EXCEPT any a user has flagged — keeps
+    the corpus fresh and the DB bounded as the wider net grows it. Returns how many were
+    removed, or would be for dry_run. Defensive: never raises (a failed prune must not abort
+    the scrape)."""
     try:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
-        if using_supabase():
-            old = {r["url"] for r in _fetch_all(TABLE, {"select": "url", "found_date": "lt.%s" % cutoff})
-                   if r.get("url")}
-        else:
-            old = {r["url"] for r in _read_csv()
-                   if r.get("url") and (r.get("found_date") or "")[:10] and (r["found_date"][:10] < cutoff)}
-        to_delete = list(old - all_flagged_urls())     # protect liked/applied/hidden
-        if to_delete:
-            delete_urls(to_delete)
+        old, _cut = stale_urls(days)
+        to_delete = list(old)
+        if protect_flagged:
+            flagged = all_flagged_urls()               # protect liked/applied/hidden
+            to_delete = [u for u in to_delete if u not in flagged]
+        if to_delete and not dry_run:
+            delete_urls(to_delete, progress=progress)
         return len(to_delete)
     except Exception as e:
         print("prune_old_jobs skipped:", str(e)[:200])

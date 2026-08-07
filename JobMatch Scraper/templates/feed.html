@@ -102,8 +102,17 @@
       {# Sponsorship sits second, not last: it's the reason this app exists. #}
       <div class="fgroup" role="group" aria-labelledby="lab-visa">
         <h3 class="flab" id="lab-visa">Visa &amp; sponsorship</h3>
-        <label class="ck" title="Show only employers in the E-Verify enrolled-employer snapshot — required for the STEM-OPT extension. Confirm current status at e-verify.gov.">
-          <input type="checkbox" id="everifyonly"{{ ' checked' if prefs.everify else '' }}> E-Verify only</label>
+        {# The tag set is carried in ONE hidden input rather than read off five checkboxes,
+           because scripts/feed_parity.py drives the JS filter with a stubbed control object
+           and can fake a single .value but not a NodeList. Same trick #track already uses. #}
+        <input type="hidden" id="visatags" value="{{ prefs.visatags }}">
+        {% for key, label, tip in visa_tag_controls %}
+        <label class="ck visack" title="{{ tip }}">
+          <input type="checkbox" id="visa-{{ key }}" data-vt="{{ key }}"
+                 {{ ' checked' if key in prefs.visatags.split(',') else '' }}> {{ label }}</label>
+        {% endfor %}
+        <p class="fnote">Matches any ticked route. Based on the employer's past federal filings — a
+          route not shown just means we have no record of it.</p>
         <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
           <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
       </div>

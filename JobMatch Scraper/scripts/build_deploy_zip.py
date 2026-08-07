@@ -32,7 +32,7 @@ FILES = [
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
 # contract core.load_sponsor_counts / load_everify already have — so a missing one is fine.
-OPTIONAL_FILES = ["sponsor_counts.json", "everify.txt"]
+OPTIONAL_FILES = ["sponsor_counts.json", "everify.txt", "visa_tags.json"]
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}

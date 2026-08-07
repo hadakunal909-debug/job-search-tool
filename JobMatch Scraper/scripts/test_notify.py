@@ -26,6 +26,19 @@ def _fake_send(cfg, to, subject, html):
 
 notify._send = _fake_send
 
+# The digest reads whatever the LAST SCRAPE happened to leave in last_new_jobs.json. That made
+# this file's results depend on ambient state: a scrape that turned up two California jobs made
+# the Boston/remote users below match nothing and the run "fail" with no code change. Point the
+# module at our own fixture instead, so the test asserts behaviour rather than yesterday's scrape.
+FIXTURE = os.path.join(os.environ.get("TEMP") or "/tmp", "_test_notify_new_jobs.json")
+json.dump([
+    {"found_date": "2026-08-07", "title": "Program Manager", "company": "Acme Health",
+     "location": "Boston, MA", "url": "https://example.test/j/1", "sponsors_h1b": "yes"},
+    {"found_date": "2026-08-07", "title": "Technical Program Manager", "company": "Globex",
+     "location": "Remote, United States", "url": "https://example.test/j/2", "sponsors_h1b": "yes"},
+], open(FIXTURE, "w", encoding="utf-8"))
+notify.NEW_FILE = FIXTURE
+
 real_get_profile = db.get_profile
 real_list_users = db.list_users
 real_profile_text = db.profile_text

@@ -42,7 +42,18 @@ APP_JS = os.path.join(ROOT, "static", "app.js")
 # The pure predicate/grouping functions app.js and web.py mirror. Order matters only for
 # readability — node hoists function declarations.
 JS_FUNCS = ["groupKey", "pickLeaders", "groupUnits", "flatUnits", "groupingOn",
-            "locHit", "annualize", "rowDate", "matches"]
+            "locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches"]
+
+# _row() must emit exactly these. A field that _build_row produces but _row() forgets makes
+# the parity run pass VACUOUSLY — the server sees None, JS sees undefined, both filter the
+# same way, and the diff is empty no matter how badly the two implementations disagree.
+ROW_KEYS = {
+    "title", "company", "location", "loc_state", "loc_metro", "remote",
+    "salary_min", "salary_max", "salary_period", "closed", "url", "score",
+    "score_pending", "date", "date_verified", "first_seen", "sponsor_jd",
+    "sponsors_h1b", "everify", "visa", "agency", "cap_exempt", "intern", "track",
+    "exp_years", "exp_level",
+}
 
 
 # ----------------------------- the corpus -----------------------------
@@ -51,6 +62,14 @@ CITIES = {"TX": "Dallas, TX", "CA": "Sunnyvale, CA", "WA": "Seattle, WA", "NY": 
           "MN": "Minneapolis, MN", "IL": "Chicago, IL", "MA": "Boston, MA", "FL": "Tampa, FL",
           "AZ": "Phoenix, AZ", "": "United States", "OH": "Columbus, OH", "GA": "Atlanta, GA"}
 METROS = {"WA": "Seattle", "MA": "Boston", "NY": "New York", "IL": "Chicago", "CA": "Bay Area"}
+
+
+def _visa_for(n, sponsor_jd="", reason=""):
+    """Tag list for row `n`, cycling all 32 subsets of the 5 routes, then narrowed by the
+    posting's own sponsorship verdict exactly as _build_row narrows it."""
+    mask = n % 32
+    tags = [t for i, t in enumerate(web.core.VISA_TAGS) if mask & (1 << i)]
+    return list(web.core.visa_tags_for_posting(tags, sponsor_jd, reason))
 
 
 def _row(rng, n, title, company, state, **over):
@@ -73,14 +92,27 @@ def _row(rng, n, title, company, state, **over):
         # Empty for every row except the undated cohort below — a normal row is filtered on
         # its posting date and never reaches the fallback.
         "first_seen": "",
-        "sponsor_jd": rng.choice(["", "", "open", "blocked"]),
-        "sponsors_h1b": "", "everify": rng.random() < 0.35,
+        "sponsors_h1b": "",
         "agency": False, "cap_exempt": False, "intern": False,
         # Classified from the title exactly as _build_row does, so the track filter is
         # exercised against the real partition rather than a hand-written label.
         "track": web.core.role_track(title),
         "exp_years": rng.choice(["", "", 1, 3, 5, 7]), "exp_level": "",
     }
+    # sponsor_jd and visa are COUPLED in _build_row (a JD that rules out sponsorship strips
+    # the sponsorship routes), so derive them together here rather than independently — an
+    # uncoupled fixture would let a real regression in that narrowing slip through.
+    sj, reason = rng.choice([
+        ("", ""), ("", ""), ("open", ""),
+        ("blocked", "JD says no visa sponsorship"),          # keeps stem_opt
+        ("blocked", "JD requires U.S. citizenship"),         # strips everything
+        ("blocked", "JD requires a security clearance"),
+    ])
+    r["sponsor_jd"] = sj
+    # Every one of the 32 tag combinations occurs, cycled by row index rather than randomised
+    # so a failing case is reproducible.
+    r["visa"] = _visa_for(n, sj, reason)
+    r["everify"] = "stem_opt" in r["visa"]
     r.update(over)
     return r
 
@@ -203,7 +235,15 @@ def build_cases():
         ("remote only", {"remote": "1"}),
         ("min salary 100k", {"minsal": "100000"}),
         ("min salary 60k", {"minsal": "60000"}),
-        ("e-verify only", {"everify": "1"}),
+        ("visa: h1b", {"visatags": "h1b", "min": "0"}),
+        ("visa: green_card", {"visatags": "green_card", "min": "0"}),
+        ("visa: stem_opt", {"visatags": "stem_opt", "min": "0"}),
+        ("visa: e3", {"visatags": "e3", "min": "0"}),
+        ("visa: h1b1", {"visatags": "h1b1", "min": "0"}),
+        ("visa: h1b OR green_card", {"visatags": "h1b,green_card", "min": "0"}),
+        ("visa: all five", {"visatags": "h1b,green_card,stem_opt,e3,h1b1", "min": "0"}),
+        ("visa: junk is ignored", {"visatags": "nonsense,,h1b", "min": "0"}),
+        ("visa: empty means no filter", {"visatags": "", "min": "0"}),
         ("hide no-sponsorship", {"hidenospon": "1"}),
         ("interns only", {"intern": "only"}),
         ("exclude interns", {"intern": "no"}),
@@ -241,7 +281,11 @@ def build_cases():
     mixes = [
         ("agencies + newest + any date", {"hideagency": "", "sort": "newest", "date": "any", "min": "0"}),
         ("search + loc + remote", {"q": "engineer", "loc": "WA", "remote": "1", "min": "0"}),
-        ("interns + 90d + e-verify", {"intern": "only", "date": "90", "everify": "1", "min": "0"}),
+        ("interns + 90d + stem_opt", {"intern": "only", "date": "90", "visatags": "stem_opt", "min": "0"}),
+        ("visa + loc + track", {"visatags": "h1b,e3", "loc": "MA", "track": "mgmt", "min": "0",
+                                "date": "any"}),
+        ("visa + newest + agencies", {"visatags": "green_card", "sort": "newest",
+                                      "hideagency": "", "min": "0", "date": "any"}),
         ("salary + exp + closed", {"minsal": "60000", "exp": "5", "showclosed": "1", "min": "0"}),
         ("search amazon, all agencies, closed", {"q": "manager", "hideagency": "", "showclosed": "1",
                                                  "min": "0", "date": "any"}),
@@ -290,6 +334,39 @@ def js_const(src, name):
     return int(m.group(1))
 
 
+def js_json(src, name):
+    """Read a top-level `var NAME = <json literal>;` out of app.js.
+
+    Only works because those literals are written as strict JSON (double-quoted keys, no
+    trailing commas) — see the comment above them in app.js. Lets us assert the JS and Python
+    vocabularies are identical instead of trusting that nobody edited one of them.
+    """
+    m = re.search(r"var\s+" + re.escape(name) + r"\s*=\s*([\[{])", src)
+    if not m:
+        raise SystemExit("feed_parity: can't find var %s in static/app.js" % name)
+    open_ch, close_ch = m.group(1), {"[": "]", "{": "}"}[m.group(1)]
+    i, depth, instr, esc = m.start(1), 0, False, False
+    while i < len(src):
+        ch = src[i]
+        if instr:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                instr = False
+        elif ch == '"':
+            instr = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return json.loads(src[m.start(1):i + 1])
+        i += 1
+    raise SystemExit("feed_parity: unbalanced literal reading var %s from app.js" % name)
+
+
 DRIVER_PREAMBLE = """\
 // Generated by scripts/feed_parity.py — do not edit.
 // Stubs standing in for app.js's DOM controls, so the real predicate/grouping functions can run
@@ -301,8 +378,9 @@ function chk(v) { return { checked: !!v }; }
 var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any"),
     trackSel = ctl("any"),
     locInp = ctl(""), minSalSel = ctl(""), sortSel = ctl("score"),
-    hideNo = chk(false), everifyOnly = chk(false), remoteOnly = chk(false),
+    hideNo = chk(false), visaSel = ctl(""), remoteOnly = chk(false),
     hideAgency = chk(false), showClosed = chk(false);
+var VISA_TAGS = %(visa_tags)s;
 """
 
 DRIVER_MAIN = """
@@ -321,7 +399,7 @@ IN.cases.forEach(function (cs) {
   locInp.value = p.loc || "";
   minSalSel.value = p.minsal || "";
   hideNo.checked = p.hidenospon === "1";
-  everifyOnly.checked = p.everify === "1";
+  visaSel.value = p.visatags || "";
   remoteOnly.checked = p.remote === "1";
   hideAgency.checked = p.hideagency === "1";
   showClosed.checked = p.showclosed === "1";
@@ -351,8 +429,19 @@ def run_js(rows, cases, cuts, scratch):
     if hours != web._HOURS_PER_YEAR:
         raise SystemExit("feed_parity: HOURS_PER_YEAR is %d in app.js but %d in web.py"
                          % (hours, web._HOURS_PER_YEAR))
+    # The card, the digest and the server filter all key off this vocabulary. If app.js and
+    # core.py ever disagree the badges quietly mislabel routes, and no row-level diff would
+    # catch it — so compare them directly.
+    js_tags = js_json(src, "VISA_TAGS")
+    if tuple(js_tags) != tuple(web.core.VISA_TAGS):
+        raise SystemExit("feed_parity: VISA_TAGS is %r in app.js but %r in core.py"
+                         % (js_tags, list(web.core.VISA_TAGS)))
+    js_labels = js_json(src, "VISA_LABELS")
+    if js_labels != dict(web.core.VISA_TAG_LABELS):
+        raise SystemExit("feed_parity: VISA_LABELS differs between app.js and core.py:\n  js=%r\n  py=%r"
+                         % (js_labels, dict(web.core.VISA_TAG_LABELS)))
     driver = DRIVER_PREAMBLE % {"group_lead": web._GROUP_LEAD, "group_min": web._GROUP_MIN,
-                                "hours": hours}
+                                "hours": hours, "visa_tags": json.dumps(js_tags)}
     for fn in JS_FUNCS:
         driver += "\n" + js_function(src, fn) + "\n"
     driver += DRIVER_MAIN
@@ -382,6 +471,43 @@ def first_diff(a, b):
         extra = (a if len(a) > len(b) else b)[min(len(a), len(b))]
         return "%s has %d extra, first is %r" % (side, abs(len(a) - len(b)), extra)
     return "identical"
+
+
+# ----------------------------- anti-vacuity -----------------------------
+def check_not_vacuous(rows, statuses, cases):
+    """Guard against the failure mode this harness is blind to by construction.
+
+    The parity diff compares two implementations against each other. When a field is missing
+    from _row(), the server reads None and JS reads undefined — both drop (or keep) every row
+    identically, the diff is empty, and the run prints PASS however wrong the filter is.
+
+    Two cheap structural checks close that hole for every case, past and future:
+      1. _row() emits exactly the field set _build_row does.
+      2. Every filter case matches somewhere between 1 and N-1 rows. A case that matches all
+         of them or none of them isn't exercising its filter.
+    """
+    fails = 0
+    got = set(_row(random.Random(0), 0, "Operations Manager", "Acme", "MA"))
+    missing, extra = ROW_KEYS - got, got - ROW_KEYS
+    if missing or extra:
+        print("FAIL _row() field set drifted from ROW_KEYS: missing=%s extra=%s"
+              % (sorted(missing) or "-", sorted(extra) or "-"))
+        fails += 1
+
+    total = len(rows)
+    for name, params in cases:
+        # "no hits" and the empty-by-design tabs are legitimately allowed to match nothing.
+        if "no hits" in name or params.get("q") == "zzzznothing":
+            continue
+        n = len(web._filter_rows(rows, statuses, params))
+        if n == 0:
+            print("FAIL case %-36s matched 0 of %d rows — filter untested" % (name, total))
+            fails += 1
+        elif n == total and params.get("min") == "0" and "everything visible" not in name:
+            print("FAIL case %-36s matched ALL %d rows — filter untested" % (name, total))
+            fails += 1
+    print("anti-vacuity: %s" % ("all cases discriminate" if not fails else "%d problem(s)" % fails))
+    return fails
 
 
 # ----------------------------- invariants -----------------------------
@@ -611,6 +737,7 @@ def main():
 
     print("\n%d/%d filter+grouping cases agree." % (len(cases) - fails, len(cases)))
     fails += 1 if date_regression else 0
+    fails += check_not_vacuous(rows, statuses, cases)
     fails += check_invariants(rows, statuses, cases)
     fails += check_routes(rows, statuses, cases)
     return 1 if fails else 0

@@ -86,12 +86,16 @@ def render_digest(rows, prefs, app_url=""):
             out.append(r["salary_label"])
         if r.get("remote"):
             out.append("Remote")
-        if r.get("sponsors_h1b") == "yes":
-            out.append("H1B")
+        # Visa routes come from the shared label map, so the email can't disagree with the
+        # card about what an employer sponsors. Falls back to the old flag when the index
+        # hasn't been built.
+        vt = core.visa_tag_labels(r.get("visa"))
+        if vt:
+            out.extend(vt)
+        elif r.get("sponsors_h1b") == "yes":
+            out.append("H-1B")
         if r.get("cap_exempt"):
             out.append("no lottery")
-        if r.get("everify"):
-            out.append("E-Verify")
         if r.get("exp_years") not in ("", None):
             out.append("%s+ yrs" % r["exp_years"])
         return " &middot; ".join(_esc(c) for c in out)
@@ -193,6 +197,7 @@ def main():
     jobs = [by_url.get(r.get("url")) or r for r in new]
     idf = core.load_idf()
     everify = core.load_everify()
+    visa_idx = core.load_visa_tags()
 
     people = recipients()
     if not people:
@@ -222,7 +227,7 @@ def main():
             except (TypeError, ValueError):
                 base = 0
             score = _score_for(text_low, job, idf, base)
-            row = core.digest_row(job, score, everify)
+            row = core.digest_row(job, score, everify, visa_idx)
             if core.prefs_match(row, prefs):
                 rows.append(row)
         rows.sort(key=lambda r: -r["score"])

@@ -194,8 +194,16 @@ def read_hub_csvs(directory, years):
 
 
 def our_universe():
-    """Distinct company names the app actually shows: the jobs table + sponsors.txt.
-    Degrades to sponsors.txt alone when the DB isn't reachable."""
+    """Distinct company names the app actually shows: the jobs table + every configured
+    board + sponsors.txt. Degrades to whatever of those is reachable.
+
+    SOURCES matters as much as the jobs table. A resolved entry is only written for a name
+    that appears HERE, so a company with no live postings on the day of the rebuild loses
+    its count entirely — and that is not hypothetical: the 30-day purge emptied several
+    employers, and the next rebuild silently dropped Meta from ~26,700 approvals to 1,
+    along with Mastech Digital and Northwestern Mutual. A configured board is a permanent
+    part of our universe whether or not it happens to be hiring today.
+    """
     names = set()
     try:
         import db
@@ -206,6 +214,15 @@ def our_universe():
         print("  %d distinct companies from the jobs table" % len(names))
     except Exception as e:
         print("  (jobs table unavailable: %s)" % str(e)[:90])
+    try:
+        import scraper
+        before = len(names)
+        for _u, _a, c in list(scraper.SOURCES) + list(scraper.custom_sources()):
+            if c and c.strip():
+                names.add(c.strip())
+        print("  +%d from configured boards (SOURCES)" % (len(names) - before))
+    except Exception as e:
+        print("  (SOURCES unavailable: %s)" % str(e)[:90])
     if os.path.exists("sponsors.txt"):
         with open("sponsors.txt", encoding="utf-8") as f:
             for ln in f:
@@ -263,9 +280,22 @@ def resolve(names, totals):
         generic = len(key) < 4 or key in GENERIC
         if not generic:
             hits = expand(key)
+            # Drop the long tail of unrelated filers that merely share the brand's first
+            # token. Measured on the live index: "ge" prefix-reaches 30 keys of which 26 are
+            # one-off firms (GE Capital, GE Aviation Systems...), "hp" reaches 11 of which 10
+            # are ("HP Buildings", "HP & Assoc PC"), and "meta" picks up Meta Hub IT
+            # Solutions. A key contributing under a thousandth of the brand's best single
+            # match is not that brand, and summing them inflates the number the tooltip shows.
             if hits:
-                matches.update(hits)
-                how.append("prefix")
+                best = max(totals[k] for k in hits)
+                floor = max(2, best // 1000)
+                keep = [k for k in hits if totals[k] >= floor]
+                dropped = len(hits) - len(keep)
+                if keep:
+                    matches.update(keep)
+                    how.append("prefix")
+                if dropped:
+                    report["prefix_tail_dropped"] += dropped
 
         if not matches:
             report["too_generic" if generic and not how else "miss"] += 1
