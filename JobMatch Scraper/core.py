@@ -651,7 +651,12 @@ def is_everify(company, index):
 # ------------------------------------------------------------
 VISA_TAGS = ("h1b", "green_card", "stem_opt", "e3", "h1b1")     # == render order
 _VISA_BITS = {"h1b": 1, "green_card": 2, "stem_opt": 4, "e3": 8, "h1b1": 16}
-VISA_TAG_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "E-Verify",
+# Labelled STEM-OPT, not "E-Verify": E-Verify is the evidence, STEM-OPT is the thing you're
+# actually looking for. Note there is deliberately NO plain "OPT" filter — regular 12-month
+# OPT needs nothing from the employer (you already hold the EAD), so every job would match
+# and it would filter nothing. The 24-month STEM extension is different: the employer MUST be
+# E-Verify enrolled, which is a real, checkable property of the company.
+VISA_TAG_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "STEM-OPT",
                    "e3": "E-3", "h1b1": "H-1B1"}
 VISA_TAG_TIPS = {
     "h1b": "This employer has certified H-1B labor condition applications. Past filings, "

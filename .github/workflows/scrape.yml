@@ -89,6 +89,12 @@ jobs:
           # than left to the code defaults so the policy is visible in the run log.
           MAX_AGE_DAYS: "30"
           PRUNE_DAYS: "30"
+          # AUTO-DISCOVERY. Probe this many not-yet-scraped employers from migratemate.co's
+          # public sponsor directory each run and save any with a readable ATS board, so the
+          # board list keeps growing without a code change. ~0.7 companies/sec, so 60 costs
+          # ~90s — negligible against the scrape, and it compounds every weekday. The window
+          # rotates by day-of-year, which is what makes it work on a stateless runner.
+          DISCOVER_LIMIT: "60"
         run: python -m scraper
 
       - name: Score + verify dates + alerts (once a day / on manual run)
