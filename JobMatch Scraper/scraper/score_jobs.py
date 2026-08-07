@@ -261,6 +261,31 @@ def phenom_detail_jd(url):
         return ""
 
 
+_PS_JOB_RE = re.compile(r"HRS_HRAM_FL\.HRS_CG_SEARCH_FL\.GBL.*[?&]JobOpeningId=\d+", re.I)
+
+
+def peoplesoft_detail_jd(url):
+    """PeopleSoft posting pages. The description sits in HRS_SCH_PSTDSC_DESCRLONG$N spans —
+    one per posting section (overview, responsibilities, qualifications, ...), which is why
+    they're joined rather than taking the first.
+
+    Targeted extraction, not a whole-page scrape: the page also carries the portal chrome and
+    the 50-row search grid, so core.fetch_jd's page text would bury the actual posting in
+    other jobs' titles — and then the résumé match would be scoring the wrong thing."""
+    if not _PS_JOB_RE.search(url or ""):
+        return ""
+    try:
+        r = scraper._safe_get(url, timeout=25)
+        if r.status_code != 200:
+            return ""
+        soup = BeautifulSoup(r.text, "lxml")
+        parts = [el.get_text(" ", strip=True) for el in
+                 soup.select("span[id^='HRS_SCH_PSTDSC_DESCRLONG$']")]
+        return _text(" ".join(p for p in parts if p))
+    except Exception:
+        return ""
+
+
 def ultipro_detail_jd(url):
     """UKG Pro: the OpportunityDetail page is a JS shell, but the full Description
     rides inside its embedded JSON (so core.fetch_jd — which drops <script> — can't
@@ -473,6 +498,8 @@ def detail_jd(url):
         jd = rippling_detail_jd(url)
     if not jd and _PHENOM_JOB_RE.match(url) and "/job/" in url:
         jd = phenom_detail_jd(url)
+    if not jd and "HRS_HRAM_FL" in url:                              # PeopleSoft posting page
+        jd = peoplesoft_detail_jd(url)
     if not jd:                                      # structured data beats page text
         jd, date = microdata_jd(url)
     if not jd:                                      # last resort: fetch the page

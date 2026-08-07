@@ -1433,6 +1433,11 @@ ADZUNA_BOARDS = [
     # --- Added 2026-06-11: sponsors from the user's H1B LCA list whose own career
     # sites expose NO public feed (custom portals / SuccessFactors / bot-walled).
     # The aggregator is the only way to scrape them; each costs ~1 API call per run.
+    # CBRE's own careers site (Avature on careers.cbre.com) sits behind AWS WAF Bot Control:
+    # every URL, including the site root, answers 202 with a JS challenge and no job data. The
+    # aggregator is the sanctioned route, same as Google above. NOTE: Adzuna's `company` facet
+    # is empty for CBRE — scrape_adzuna's phrase fallback is what makes this entry work.
+    ("adzuna:CBRE",                 "adzuna", "CBRE"),
     ("adzuna:IBM",                  "adzuna", "IBM"),
     ("adzuna:CGI",                  "adzuna", "CGI"),
     ("adzuna:Mphasis",              "adzuna", "Mphasis"),
@@ -1527,12 +1532,20 @@ METACAREERS_BOARDS = [
     ("https://www.metacareers.com/jobs/", "metacareers", "Meta"),
 ]
 
+# PeopleSoft Candidate Gateway — the stock careers portal for universities and hospital
+# systems, i.e. the CAP-EXEMPT employers (no H-1B lottery) that matter most here.
+PEOPLESOFT_BOARDS = [
+    ("https://jobs.omni.fsu.edu/psc/sprdhr_er/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL",
+     "peoplesoft", "Florida State University"),                                          # ~207
+]
+
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
-# Avature + SuccessFactors + Adzuna + Meta.
+# Avature + SuccessFactors + PeopleSoft + Adzuna + Meta.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
-           + SF_BOARDS + ADZUNA_BOARDS + ADZUNA_SEARCH_BOARDS + METACAREERS_BOARDS)
+           + SF_BOARDS + PEOPLESOFT_BOARDS + ADZUNA_BOARDS + ADZUNA_SEARCH_BOARDS
+           + METACAREERS_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -1986,6 +1999,29 @@ def _safe_post(url, body, headers=None, timeout=20):
     return r
 
 
+def _safe_form_post(url, fields, headers=None, timeout=25):
+    """Form-encoded POST, hardened exactly like _safe_post (which sends JSON).
+
+    Needed because PeopleSoft's portal speaks application/x-www-form-urlencoded and rejects
+    a JSON body outright, so the JSON helper can't be reused for it."""
+    headers = dict(headers or HEADERS)
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
+    if not public_http_url(url):
+        raise ValueError("blocked non-public URL: %s" % url)
+    r = SESSION.post(url, headers=headers, data=fields, timeout=timeout,
+                     allow_redirects=False, stream=True)
+    total, chunks = 0, []
+    for chunk in r.iter_content(8192):
+        total += len(chunk)
+        if total > _MAX_FETCH_BYTES:
+            r.close()
+            raise ValueError("response exceeds %d bytes" % _MAX_FETCH_BYTES)
+        chunks.append(chunk)
+    r._content = b"".join(chunks)
+    r._content_consumed = True
+    return r
+
+
 def _slug(board_url):
     """The board slug is the last path segment of the career-board URL:
        https://job-boards.greenhouse.io/boulevard     -> 'boulevard'
@@ -2391,51 +2427,63 @@ def scrape_adzuna(board_url):
         return []
     company = board_url.split(":", 1)[1] if ":" in board_url else board_url
     target  = _norm_name(company)
-    rows, seen = [], set()
-    for page in range(1, 6):                          # up to 5 pages x 50 = 250 results
-        try:
-            data = _get_json(
-                "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
-                params={"app_id": app_id, "app_key": app_key,
-                        # company= returns ONLY this employer (keyword `what` searches
-                        # mentions — for Google that found 0 of its 3.8k listings);
-                        # what_or biases the 250-result page budget toward our roles.
-                        "company": company,
-                        # 2026-08-01: software/data terms added alongside the PM ones so a
-                        # company-scoped pull spends its 250-result budget on BOTH tracks.
-                        "what_or": ("project program analyst coordinator operations implementation "
-                                    "scrum consultant consulting software engineer developer "
-                                    "data scientist devops"),
-                        "results_per_page": 50, "content-type": "application/json"})
-        except Exception:
-            break
-        results = data.get("results", [])
-        if not results:
-            break
-        for j in results:
-            co = ((j.get("company") or {}).get("display_name") or "").strip()
-            con = _norm_name(co)
-            if not con or not (con == target or con.startswith(target + " ")):
-                continue                              # skip recruiters / unrelated keyword hits
-            url = j.get("redirect_url") or ""
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            rows.append({
-                "title": (j.get("title") or "").strip(),
-                "url": url,
-                "location": ((j.get("location") or {}).get("display_name") or ""),
-                "found_date": (j.get("created") or "")[:10],
-            })
-        if len(results) < 50 or page * 50 >= data.get("count", 0):
-            break
-        time.sleep(random.uniform(0.3, 0.7))
-    else:
-        # Ran all 5 pages with more still available. Deliberately NOT raised: Adzuna's free
-        # tier is ~250 calls/day and these company pulls already use most of it. This is a
-        # budget ceiling, not an oversight — but it should still be visible.
-        note_truncation("adzuna:" + company, len(seen), 250, data.get("count"),
-                        detail="(Adzuna free-tier budget)")
+    # 2026-08-01: software/data terms added alongside the PM ones so a company-scoped pull
+    # spends its 250-result budget on BOTH tracks.
+    what_or = ("project program analyst coordinator operations implementation "
+               "scrum consultant consulting software engineer developer "
+               "data scientist devops")
+
+    def pull(selector):
+        """One employer pull under a given selector, employer-verified. Returns (rows, count)."""
+        rows, seen, data = [], set(), {}
+        for page in range(1, 6):                      # up to 5 pages x 50 = 250 results
+            try:
+                data = _get_json(
+                    "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
+                    params=dict({"app_id": app_id, "app_key": app_key, "what_or": what_or,
+                                 "results_per_page": 50, "content-type": "application/json"},
+                                **selector))
+            except Exception:
+                break
+            results = data.get("results", [])
+            if not results:
+                break
+            for j in results:
+                co = ((j.get("company") or {}).get("display_name") or "").strip()
+                con = _norm_name(co)
+                if not con or not (con == target or con.startswith(target + " ")):
+                    continue                          # skip recruiters / unrelated keyword hits
+                url = j.get("redirect_url") or ""
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                rows.append({
+                    "title": (j.get("title") or "").strip(),
+                    "url": url,
+                    "location": ((j.get("location") or {}).get("display_name") or ""),
+                    "found_date": (j.get("created") or "")[:10],
+                })
+            if len(results) < 50 or page * 50 >= data.get("count", 0):
+                break
+            time.sleep(random.uniform(0.3, 0.7))
+        else:
+            # Ran all 5 pages with more still available. Deliberately NOT raised: Adzuna's free
+            # tier is ~250 calls/day and these company pulls already use most of it. This is a
+            # budget ceiling, not an oversight — but it should still be visible.
+            note_truncation("adzuna:" + company, len(seen), 250, data.get("count"),
+                            detail="(Adzuna free-tier budget)")
+        return rows
+
+    # company= returns ONLY this employer, so it's tried first — the keyword search matches
+    # mentions, and for Google that found 0 of its 3.8k listings.
+    rows = pull({"company": company})
+    if not rows:
+        # ...but Adzuna's company facet is not populated for every employer: CBRE has 4,068 US
+        # postings under its own display name and `company=CBRE` returns zero. Falling back to
+        # the phrase search recovers those, and it's safe here because every row is still
+        # verified against the employer's display name above — that guard is what makes a
+        # keyword search usable as an employer feed.
+        rows = pull({"what_phrase": company})
     return rows
 
 
@@ -3409,6 +3457,145 @@ def scrape_avature(board_url):
     return rows
 
 
+# ============================================================
+# ORACLE PEOPLESOFT "Candidate Gateway" (Fluid) — jobs.<institution>.edu
+#
+# The stock careers portal for universities and hospital systems, which is to say the
+# CAP-EXEMPT employers (no H-1B lottery) this feed cares most about. It LOOKS unscrapeable:
+# a stateful ICAction portal that 302s straight to ?cmd=login. Three facts make it easy:
+#
+#   1. A guest session is one GET away. Hitting the /psp/ portal URL mints an anonymous
+#      PS_TOKEN cookie; the /psc/ component URL then renders for us. Skip that GET and every
+#      request bounces to the login page — which is why this looked walled at first glance.
+#   2. The results grid (HRS_AGNT_RSLT_I) is rendered SERVER-SIDE, 50 rows at a time, and
+#      each row carries title, location, job id, opened and closes dates. No JS, no JSON API.
+#   3. Its "show more" is a single form POST that returns the WHOLE grown grid rather than a
+#      delta — so paging is: post, re-parse, repeat until the row count stops growing.
+#      Confirmed on FSU: 50 -> 100 -> 150 -> 200 -> 207 in four hops.
+#
+# The grid is sorted newest-first, so even a run that stops at the cap keeps the fresh end.
+# ============================================================
+PEOPLESOFT_GBL = "/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL"
+PEOPLESOFT_MAX_ROWS = 1500          # ~30 "show more" hops; FSU needs 4
+PEOPLESOFT_MAX_HOPS = 40
+
+# Grid columns, by the PeopleSoft field name each cell's <span id> is built from.
+_PS_ROW_FIELDS = (("title", "SCH_JOB_TITLE"),
+                  ("location", "LOCATION"),
+                  ("job_id", "HRS_APP_JBSCH_I_HRS_JOB_OPENING_ID"),
+                  ("opened", "SCH_OPENED"))
+_PS_TOTAL_RE = re.compile(r"([\d,]+)\s+jobs?\s+found", re.I)
+
+
+def _peoplesoft_parts(url):
+    """(origin, site_id) from any PeopleSoft careers URL, or (None, None).
+
+    The site id is the tenant's portal name and differs per install (FSU: 'sprdhr_er'), so
+    it has to be read off the URL rather than assumed. /psc/ and /psp/ are the same site
+    reached through different servlets."""
+    try:
+        p = urlparse(url or "")
+    except Exception:
+        return None, None
+    m = re.search(r"/ps[cp]/([^/]+)/", p.path or "")
+    if not (p.netloc and m):
+        return None, None
+    return "%s://%s" % (p.scheme or "https", p.netloc), m.group(1)
+
+
+def _ps_job_url(origin, site, job_id):
+    """Deep link to one posting. Verified to render server-side from a COLD session (no
+    cookie, no prior search), so it works both as the link we store for the user and as the
+    URL score_jobs fetches the description from."""
+    return ("%s/psc/%s%s?Page=HRS_APP_JBPST_FL&Action=U&FOCUS=Applicant"
+            "&SiteId=1&JobOpeningId=%s&PostingSeq=1" % (origin, site, PEOPLESOFT_GBL, job_id))
+
+
+def _ps_date(s):
+    """PeopleSoft prints MM/DD/YYYY; the corpus stores ISO. '' when it's anything else."""
+    m = re.match(r"\s*(\d{1,2})/(\d{1,2})/(\d{4})", s or "")
+    return "%s-%02d-%02d" % (m.group(3), int(m.group(1)), int(m.group(2))) if m else ""
+
+
+def _ps_rows(html_text):
+    """Grid rows out of a rendered page — or out of the XML a 'show more' POST returns, which
+    carries the same markup inside CDATA, so one parser covers both."""
+    from html import unescape
+    by_idx = {}
+    for key, fld in _PS_ROW_FIELDS:
+        for i, v in re.findall(r"id='%s\$(\d+)'[^>]*>([^<]{0,200})" % fld, html_text or ""):
+            by_idx.setdefault(int(i), {})[key] = unescape(v).strip()
+    return [by_idx[k] for k in sorted(by_idx)]
+
+
+def _ps_state(html_text, prev="1"):
+    """(ICStateNum, ICSID) — PeopleSoft rejects a POST that doesn't echo its current state.
+    The counter increments per interaction; fall back to prev+1 when a response omits it."""
+    m = re.search(r"name='ICStateNum'[^>]*value='(\d+)'", html_text or "")
+    s = re.search(r"name='ICSID'[^>]*value='([^']*)'", html_text or "")
+    return (m.group(1) if m else str(int(prev) + 1)), (s.group(1) if s else "")
+
+
+def scrape_peoplesoft(board_url):
+    """PeopleSoft Candidate Gateway. Anonymous, no API key, no browser — see the block above."""
+    origin, site = _peoplesoft_parts(board_url)
+    if not origin:
+        return []
+    listing = "%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U" % (origin, site, PEOPLESOFT_GBL)
+    try:
+        # Guest session first: this GET is what makes everything after it visible.
+        _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=1&FOCUS=Applicant"
+                  % (origin, site, PEOPLESOFT_GBL), timeout=25)
+        r = _safe_get(listing, timeout=30)
+    except ValueError:
+        return []                                   # non-public host -> refuse (SSRF guard)
+    if r.status_code != 200:
+        return []
+    rows = _ps_rows(r.text)
+    m = _PS_TOTAL_RE.search(re.sub(r"<[^>]+>", " ", r.text))
+    total = int(m.group(1).replace(",", "")) if m else None
+    snum, sid = _ps_state(r.text)
+
+    hops = 0
+    while (rows and len(rows) < PEOPLESOFT_MAX_ROWS and hops < PEOPLESOFT_MAX_HOPS
+           and (not total or len(rows) < total)):
+        hops += 1
+        try:
+            more = _safe_form_post(listing, {
+                "ICAJAX": "1", "ICNAVTYPEDROPDOWN": "0", "ICType": "Panel", "ICElementNum": "0",
+                "ICStateNum": snum, "ICAction": "HRS_AGNT_RSLT_I$hdown$0", "ICModelCancel": "0",
+                "ICXPos": "0", "ICYPos": "0", "ResponsetoDiffFrame": "-1",
+                "TargetFrameName": "None", "FacetPath": "None", "ICFocus": "",
+                "ICSaveWarningFilter": "0", "ICChanged": "-1", "ICResubmit": "0", "ICSID": sid,
+            }, headers=dict(HEADERS, **{"X-Requested-With": "XMLHttpRequest", "Referer": listing}))
+        except ValueError:
+            break
+        if more.status_code != 200:
+            break
+        grown = _ps_rows(more.text)
+        if len(grown) <= len(rows):                 # the grid stopped growing = end of list
+            break
+        rows = grown
+        snum, sid2 = _ps_state(more.text, snum)
+        sid = sid2 or sid
+        time.sleep(random.uniform(0.2, 0.5))
+    if len(rows) >= PEOPLESOFT_MAX_ROWS or hops >= PEOPLESOFT_MAX_HOPS:
+        note_truncation(board_url, len(rows), PEOPLESOFT_MAX_ROWS, total)
+
+    out = []
+    for row in rows:
+        title, jid = row.get("title", ""), row.get("job_id", "")
+        if not (title and jid):
+            continue
+        job = {"title": title, "url": _ps_job_url(origin, site, jid),
+               "location": row.get("location", "")}
+        d = _ps_date(row.get("opened"))             # a REAL posting date, not a found-date
+        if d:
+            job["found_date"] = d
+        out.append(job)
+    return out
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "lever": scrape_lever,
@@ -3433,6 +3620,7 @@ SCRAPERS = {
     "rippling": scrape_rippling,
     "avature": scrape_avature,
     "jobdiva": scrape_jobdiva,
+    "peoplesoft": scrape_peoplesoft,
     "metacareers": scrape_metacareers,
 }
 
@@ -3540,6 +3728,20 @@ def detect_board(url):
         if token:
             return ("https://www1.jobdiva.com/portal/?a=%s" % token, "jobdiva",
                     _jobdiva_agency(token) or "JobDiva portal")
+
+    # PeopleSoft Candidate Gateway: any /ps[cp]/<site>/…/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL URL,
+    # whichever page of it the user happened to copy (search, one posting, the portal frame).
+    # Matched on the component name, not the host, since every institution self-hosts.
+    if "HRS_HRAM_FL" in (p.path or "") and re.search(r"/ps[cp]/[^/]+/", p.path or ""):
+        origin, site = _peoplesoft_parts(url)
+        if origin and site:
+            label = [x for x in host.split(".")
+                     if x not in ("www", "jobs", "careers", "omni", "edu", "org", "com")]
+            name = label[0] if label else host
+            # These are mostly universities, whose domain label IS an acronym — _name_from
+            # would title-case "fsu" into "Fsu". Anything this short is an initialism.
+            name = name.upper() if (len(name) <= 4 and name.isalpha()) else _name_from(name)
+            return ("%s/psc/%s%s" % (origin, site, PEOPLESOFT_GBL), "peoplesoft", name)
 
     return None
 
@@ -3794,6 +3996,19 @@ def probe_board(board_url, ats_type):
                 return int(m.group(1).replace(",", ""))
             soup = BeautifulSoup(r.text, "lxml")
             return len(soup.select("tr.data-row a.jobTitle-link")) or None
+        if ats_type == "peoplesoft":
+            origin, site = _peoplesoft_parts(board_url)
+            if not origin:
+                return None
+            _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=1&FOCUS=Applicant"
+                      % (origin, site, PEOPLESOFT_GBL), timeout=15)   # guest cookie first
+            r = _safe_get("%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U"
+                          % (origin, site, PEOPLESOFT_GBL), timeout=20)
+            if r.status_code != 200:
+                return None
+            m = _PS_TOTAL_RE.search(re.sub(r"<[^>]+>", " ", r.text))
+            # The stated total beats the row count: the grid only renders its first 50.
+            return int(m.group(1).replace(",", "")) if m else (len(_ps_rows(r.text)) or None)
         if ats_type == "jobdiva":
             token = _jobdiva_token(board_url)
             jh = _jobdiva_session(token) if token else None
