@@ -17,8 +17,9 @@ bot). So the honest outcome is: clean jobs auto-submit; the rest are handed back
 - **Local dir:** `C:\Users\k.signhhada\Desktop\Job Planning & Research\JobMatch Scraper`
 - **Stack:** Python/Flask (`web.py`) + `db.py` (Supabase REST, local-JSON fallback) + Chrome MV3
   extension (`extension/`) + Resume Brain (`resume_brain/`). Supabase project ref `oxvikayddpeczlrzanlb`.
-- **Live site:** stemjobs.astrochakra.co (cPanel) — runs the **OLD** code. **Auto-apply only runs
-  locally** until the new code + Tectonic are deployed there.
+- **Live site:** **stemjobs1.astrochakra.co** (cPanel). The former host `stemjobs.astrochakra.co`
+  was **suspended** in July 2026 and 302s every path to a suspended-page CGI — the extension
+  rewrites that URL to the live one automatically (`jmApiBase` in `extension/tesla_shared.js`).
 
 ## 3. What's built (all on `main`)
 **Backend (`web.py`) ext endpoints (token auth via `_ext_user`, CORS via `_cors`):**

@@ -11,7 +11,8 @@
   if (window.__jmAutoCaptureLoaded) return;            // guard against double-injection in a frame
   window.__jmAutoCaptureLoaded = true;
   // Don't capture the JobMatch app's own forms (login/profile) — only real application sites.
-  if (/(^|\.)stemjobs\.astrochakra\.co$/.test(location.hostname) ||
+  // (stemjobs\d* — the live app moved from stemjobs to stemjobs1; match both hosts.)
+  if (/(^|\.)stemjobs\d*\.astrochakra\.co$/.test(location.hostname) ||
       location.hostname === "localhost" || location.hostname === "127.0.0.1" ||
       /(^|\.)anthropic\.com$/.test(location.hostname)) return;
 

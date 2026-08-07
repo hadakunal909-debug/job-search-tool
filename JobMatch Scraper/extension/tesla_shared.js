@@ -13,6 +13,19 @@
 const JM_THROTTLE_MS = 20 * 60 * 60 * 1000;   // auto-runs at most ~once a day
 const JM_JD_LIMIT = 25;                        // max detail fetches per run (politeness)
 
+// The live JobMatch app. It MOVED: the old stemjobs.astrochakra.co cPanel account was suspended
+// in July 2026 and now 302s every path to a suspended-page CGI, so an extension still pointing
+// there fails every call with no useful error. jmApiBase() reads the user's saved App URL but
+// retires that dead host, which is why an install that was configured before the move heals
+// itself on the next popup open instead of looking broken. Loaded by the popup + the worker.
+const JM_DEFAULT_APIBASE = "https://stemjobs1.astrochakra.co";
+const JM_DEAD_APIBASE_RE = /^https?:\/\/stemjobs\.astrochakra\.co/i;
+function jmApiBase(saved) {
+  const b = String(saved || "").trim().replace(/\/+$/, "");
+  if (!b || JM_DEAD_APIBASE_RE.test(b)) return JM_DEFAULT_APIBASE;
+  return b;
+}
+
 const jmGet = (keys) => new Promise((r) => chrome.storage.local.get(keys, r));
 const jmSet = (obj) => new Promise((r) => chrome.storage.local.set(obj, r));
 const jmSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -315,7 +328,7 @@ async function jmRunTeslaImport(opts) {
   const canTabs = !!(opts && opts.canUseTabs) && !!(chrome.tabs && chrome.scripting);
   const cfg = await jmGet(["token", "apibase", "tesla_last"]);
   if (!cfg.token) return { ok: false, note: "no token saved" };
-  const base = (cfg.apibase || "https://stemjobs.astrochakra.co").replace(/\/+$/, "");
+  const base = jmApiBase(cfg.apibase);
   const last = cfg.tesla_last || {};
   if (trigger !== "manual" && last.ok && Date.now() - (last.at || 0) < JM_THROTTLE_MS) {
     return { ok: true, note: "ran recently — skipped" };

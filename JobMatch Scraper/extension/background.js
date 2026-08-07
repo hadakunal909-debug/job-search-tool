@@ -56,7 +56,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     JM_AC.sig = sig; JM_AC.at = now;
     chrome.storage.local.get(["token", "apibase"], (st) => {
       const token = st && st.token; if (!token || !fields.length) return;
-      const apibase = (st && st.apibase) || "https://stemjobs.astrochakra.co";
+      const apibase = jmApiBase(st && st.apibase);
       fetch(apibase + "/api/ext/learn", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, company: msg.company || "", fields })
