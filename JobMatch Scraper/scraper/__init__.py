@@ -1733,6 +1733,12 @@ MAX_YEARS = 5
 # boards "still listed" is the only freshness signal there is. 0 disables the gate.
 MAX_AGE_DAYS = int(os.environ.get("MAX_AGE_DAYS", "30") or 0)
 
+# How many not-yet-scraped employers from migratemate.co's public sponsor directory to probe
+# for a readable ATS board on each scrape. Reading the directory itself is ONE request; the
+# cost is the probing, at ~0.7 companies/sec, so 60 is about 90 seconds. Their JOB pages are
+# never fetched here — this discovers employers, not postings. 0 disables it.
+DISCOVER_LIMIT_DEFAULT = 60
+
 # Be polite: random pause between sources, and a normal browser User-Agent.
 MIN_DELAY, MAX_DELAY = 2, 5
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -4286,6 +4292,23 @@ def main():
     # labels ("Amat" and "Applied Materials"), and rendered as duplicate cards. Two genuinely
     # distinct postings whose URLs differ only by letter case don't occur in practice.
     seen = {canonical_url(u).lower() for u in db.existing_urls()}
+
+    # AUTO-DISCOVERY. Before building the source list, probe a rotating slice of the employers
+    # migratemate.co lists that we DON'T yet scrape, and save any with a readable ATS board to
+    # the `boards` table. custom_sources() below then picks them up, so a board found here is
+    # scraped in THIS run — no code edit, no deploy. Bounded per run (~0.7 companies/sec) so it
+    # can't push the run past the CI timeout; the window rotates daily to cover the whole list.
+    # DISCOVER_LIMIT=0 turns it off. Defensive by construction: discover() never raises.
+    # Defaults ON (not 0): "every scrape keeps finding new employers" is the point, and a
+    # default of off would mean it only ever ran in CI, never on a manual or app-button run.
+    _dlimit = int(os.environ.get("DISCOVER_LIMIT", str(DISCOVER_LIMIT_DEFAULT)) or 0)
+    if _dlimit > 0:
+        try:
+            from scraper.discover import discover as _discover
+            _discover(_dlimit)
+        except Exception as e:
+            print("  discovery skipped: %s" % str(e)[:100])
+
     sources = SOURCES + custom_sources()
     if len(sources) > len(SOURCES):
         print("+ %d board(s) added via the app." % (len(sources) - len(SOURCES)))

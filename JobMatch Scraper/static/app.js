@@ -16,7 +16,7 @@
   // equal core.VISA_TAGS / core.VISA_TAG_LABELS — otherwise the card, the email digest and the
   // server filter could drift apart silently.
   var VISA_TAGS = ["h1b", "green_card", "stem_opt", "e3", "h1b1"];
-  var VISA_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "E-Verify",
+  var VISA_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "STEM-OPT",
                      "e3": "E-3", "h1b1": "H-1B1"};
   var VISA_TIPS = {
     "h1b": "Has certified H-1B labor condition applications. Past filings, not a promise.",
