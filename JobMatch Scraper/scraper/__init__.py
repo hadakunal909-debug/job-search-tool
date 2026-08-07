@@ -1539,13 +1539,21 @@ PEOPLESOFT_BOARDS = [
      "peoplesoft", "Florida State University"),                                          # ~207
 ]
 
+# Paylocity Recruiting — small and mid-size US employers. One board per company, keyed by the
+# company GUID in its careers URL.
+PAYLOCITY_BOARDS = [
+    ("https://recruiting.paylocity.com/recruiting/jobs/All/"
+     "155dc82e-5369-4654-bc29-7289091fe518/West-Cary-Group-LLC",
+     "paylocity", "West Cary Group"),                                                      # ~3
+]
+
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
 # Avature + SuccessFactors + PeopleSoft + Adzuna + Meta.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
-           + SF_BOARDS + PEOPLESOFT_BOARDS + ADZUNA_BOARDS + ADZUNA_SEARCH_BOARDS
-           + METACAREERS_BOARDS)
+           + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS + ADZUNA_BOARDS
+           + ADZUNA_SEARCH_BOARDS + METACAREERS_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -1863,6 +1871,11 @@ def is_http_url(url):
 _TRACKING_PARAMS = frozenset((
     "gh_src", "utm_source", "utm_medium", "utm_campaign",
     "utm_term", "utm_content", "utm_id", "utm_ref",
+    # jr_id rides on every link a job-alert aggregator hands out, across unrelated ATS hosts
+    # (Freshteam, CATS, Paylocity, ADP all seen with it). It identifies the referral, not the
+    # posting, so without this the same job stores twice — once as we scraped it, once as the
+    # user pasted it.
+    "jr_id",
 ))
 
 # Greenhouse serves every board under two interchangeable hostnames, and the API's
@@ -3596,6 +3609,125 @@ def scrape_peoplesoft(board_url):
     return out
 
 
+# ============================================================
+# PAYLOCITY RECRUITING (recruiting.paylocity.com)
+#
+# The careers page is a React app and the company job list renders client-side, so the HTML
+# looks empty to a scraper — no <a> to a posting anywhere in it. It isn't empty: the whole
+# list ships in a `window.pageData` blob that React hydrates from, complete with job ids,
+# real published dates and structured locations. Driving a browser here would be wasted work;
+# confirmed by watching the rendered page make ZERO XHR for job data.
+#
+# Job DETAIL pages are ordinary server-rendered HTML (see score_jobs.paylocity_detail_jd),
+# so descriptions cost one plain GET each.
+# ============================================================
+PAYLOCITY_HOST = "recruiting.paylocity.com"
+# The slug charset is deliberately narrow. This regex is run over raw HTML as well as over
+# URLs (that's how a single-posting link is resolved to its board), and a looser class like
+# [^/?#]+ keeps matching straight through the closing quote into the rest of the tag.
+_PAYLOCITY_ALL_RE = re.compile(
+    r"/recruiting/jobs/all/([0-9a-f-]{36})(?:/([A-Za-z0-9._-]+))?", re.I)
+
+
+def _paylocity_pagedata(html):
+    """The window.pageData object a Paylocity careers page ships, or {}.
+
+    Parsed with raw_decode so the JSON's own brace matching decides where the object ends —
+    a regex would have to guess, and the blob contains job descriptions full of braces."""
+    i = (html or "").find("window.pageData")
+    j = html.find("{", i) if i >= 0 else -1
+    if j < 0:
+        return {}
+    try:
+        obj, _end = json.JSONDecoder().raw_decode(html, j)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+
+def _paylocity_board_url(guid, slug=""):
+    return "https://%s/recruiting/jobs/All/%s%s" % (PAYLOCITY_HOST, guid, "/" + slug if slug else "")
+
+
+def _paylocity_location(j):
+    """A job's location string. Paylocity often leaves City/State null on remote roles and
+    says so with IsRemote instead, so fall through those in order rather than trusting one."""
+    loc = j.get("JobLocation") or {}
+    named = (j.get("LocationName") or "").strip()
+    city, state = (loc.get("City") or "").strip(), (loc.get("State") or "").strip()
+    if named:
+        return named
+    if city or state:
+        return ", ".join(x for x in (city, state) if x)
+    if j.get("IsRemote"):
+        return "Remote"
+    return (loc.get("Country") or "").strip()
+
+
+def scrape_paylocity(board_url):
+    """One Paylocity employer's postings, read from the careers page's embedded pageData."""
+    m = _PAYLOCITY_ALL_RE.search(board_url or "")
+    if not m:
+        return []
+    try:
+        r = _safe_get(_paylocity_board_url(m.group(1), m.group(2) or ""), timeout=25)
+    except ValueError:
+        return []
+    if r.status_code != 200:
+        return []
+    rows = []
+    for j in (_paylocity_pagedata(r.text).get("Jobs") or []):
+        jid, title = j.get("JobId"), (j.get("JobTitle") or "").strip()
+        if not (jid and title):
+            continue
+        country = ((j.get("JobLocation") or {}).get("Country") or "").strip().upper()
+        if US_ONLY and country and country not in ("USA", "US", "UNITED STATES"):
+            continue
+        row = {"title": title,
+               "url": "https://%s/Recruiting/Jobs/Details/%s" % (PAYLOCITY_HOST, jid),
+               "location": _paylocity_location(j)}
+        d = _posted(j.get("PublishedDate"))          # a real published date, not a found-date
+        if d:
+            row["found_date"] = d
+        rows.append(row)
+    return rows
+
+
+def detect_paylocity(url):
+    """Recognize a Paylocity careers link, including a link to a SINGLE posting.
+
+    A /Recruiting/Jobs/Details/<id> URL carries no company id, and that is the shape people
+    actually copy — it's what a job alert links to. The posting page's "All Jobs" breadcrumb
+    is the only place the company GUID appears, so that one case costs a fetch. The list URL
+    itself is matched without touching the network."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    if PAYLOCITY_HOST not in (urlparse(url).netloc or "").lower():
+        return None
+    m = _PAYLOCITY_ALL_RE.search(url)
+    if m:
+        return (_paylocity_board_url(m.group(1), m.group(2) or ""), "paylocity",
+                _name_from(m.group(2) or "Paylocity employer"))
+    if not re.search(r"/recruiting/jobs/details/\d+", url, re.I):
+        return None
+    try:
+        r = _safe_get(url, timeout=20)
+        if r.status_code != 200:
+            return None
+        m = _PAYLOCITY_ALL_RE.search(r.text)
+        if not m:
+            return None
+        # The <title> is "<Company> - <Job Title>", a better name than the URL slug.
+        t = re.search(r"<title>([^<]*)</title>", r.text, re.I)
+        name = (t.group(1).split(" - ")[0].strip() if t else "") or _name_from(m.group(2) or "")
+        return (_paylocity_board_url(m.group(1), m.group(2) or ""), "paylocity", name)
+    except Exception:
+        return None
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "lever": scrape_lever,
@@ -3621,6 +3753,7 @@ SCRAPERS = {
     "avature": scrape_avature,
     "jobdiva": scrape_jobdiva,
     "peoplesoft": scrape_peoplesoft,
+    "paylocity": scrape_paylocity,
     "metacareers": scrape_metacareers,
 }
 
@@ -3996,6 +4129,8 @@ def probe_board(board_url, ats_type):
                 return int(m.group(1).replace(",", ""))
             soup = BeautifulSoup(r.text, "lxml")
             return len(soup.select("tr.data-row a.jobTitle-link")) or None
+        if ats_type == "paylocity":
+            return len(scrape_paylocity(board_url)) or None
         if ats_type == "peoplesoft":
             origin, site = _peoplesoft_parts(board_url)
             if not origin:

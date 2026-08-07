@@ -1740,7 +1740,8 @@ def add_board():
         url = (request.form.get("url") or "").strip()
         name = (request.form.get("name") or "").strip()
         if url:
-            det = (scraper.detect_board(url) or scraper.detect_jibe(url)
+            det = (scraper.detect_board(url) or scraper.detect_paylocity(url)
+                   or scraper.detect_jibe(url)
                    or scraper.detect_phenom(url) or scraper.detect_successfactors(url)
                    or scraper.detect_linked_ats(url) or scraper.detect_jsonld(url))
             if not det:
@@ -2626,7 +2627,8 @@ def ext_detect_board():
     page = (data.get("url") or "").strip()
     det = None
     if page:
-        det = (scraper.detect_board(page) or scraper.detect_jibe(page)
+        det = (scraper.detect_board(page) or scraper.detect_paylocity(page)
+               or scraper.detect_jibe(page)
                or scraper.detect_phenom(page) or scraper.detect_successfactors(page)
                or scraper.detect_linked_ats(page))
     if not det:
