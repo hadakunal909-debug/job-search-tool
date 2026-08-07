@@ -261,6 +261,21 @@ def phenom_detail_jd(url):
         return ""
 
 
+def paylocity_detail_jd(url):
+    """Paylocity posting pages. The company's job LIST is client-rendered, but a posting page
+    is plain server-rendered HTML with the description in div.job-preview-details."""
+    if "recruiting.paylocity.com" not in (url or "").lower():
+        return ""
+    try:
+        r = scraper._safe_get(url, timeout=25)
+        if r.status_code != 200:
+            return ""
+        el = BeautifulSoup(r.text, "lxml").select_one("div.job-preview-details")
+        return _text(el.get_text(" ", strip=True)) if el else ""
+    except Exception:
+        return ""
+
+
 _PS_JOB_RE = re.compile(r"HRS_HRAM_FL\.HRS_CG_SEARCH_FL\.GBL.*[?&]JobOpeningId=\d+", re.I)
 
 
@@ -500,6 +515,8 @@ def detail_jd(url):
         jd = phenom_detail_jd(url)
     if not jd and "HRS_HRAM_FL" in url:                              # PeopleSoft posting page
         jd = peoplesoft_detail_jd(url)
+    if not jd and "recruiting.paylocity.com" in url:
+        jd = paylocity_detail_jd(url)
     if not jd:                                      # structured data beats page text
         jd, date = microdata_jd(url)
     if not jd:                                      # last resort: fetch the page
