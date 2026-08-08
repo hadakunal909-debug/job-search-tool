@@ -1,17 +1,27 @@
 ---
 # cPanel Git deploy. Runs on push; copies the app into DEPLOYPATH and restarts Passenger.
 #
-# !! DEPLOYPATH POINTS AT A SUSPENDED ACCOUNT !!
-# `/home/bnrqpozr/Stemjobs` belonged to the stemjobs.astrochakra.co account, which was
-# suspended around 2026-07-21. The live app is now stemjobs1.astrochakra.co under a
-# DIFFERENT cPanel user, so until this path is updated every git deploy copies files into
-# a home directory nobody serves — it "succeeds" and changes nothing.
-# Fix: cPanel -> File Manager (or `pwd` over SSH) on the stemjobs1 account to get its home,
-# then set DEPLOYPATH to <that home>/Stemjobs.
+# DEPLOYPATH uses $HOME rather than a hardcoded /home/<user>. cPanel runs these tasks as the
+# account that owns the repository, so $HOME always resolves to the right home directory —
+# which is what stops this breaking again the next time the app moves accounts.
+#
+# It broke exactly that way once: the path was pinned to /home/bnrqpozr/Stemjobs, the
+# stemjobs.astrochakra.co account was suspended around 2026-07-21, and the app moved to
+# stemjobs1.astrochakra.co under a different cPanel user. Every deploy after that copied
+# files into a home nobody served, reported success, and changed nothing.
+#
+# `stemjobs` is the Python app root shown in cPanel -> Setup Python App -> Application root.
+# If that folder is ever renamed, this line is the only thing that needs changing.
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/bnrqpozr/Stemjobs
+    - export DEPLOYPATH=$HOME/stemjobs
     - export SRC="JobMatch Scraper"
+    # Fail loudly on a wrong path instead of quietly deploying into nowhere. The previous
+    # breakage was silent precisely because nothing checked: cp into a missing tree, mkdir -p
+    # later recreating it, deploy reports success. A missing directory here means the app root
+    # was renamed or this is the wrong account — either way, stop.
+    # (quoted: an unquoted YAML scalar containing ": " parses as a mapping, not a command)
+    - 'test -d "$DEPLOYPATH" || { echo "DEPLOY ABORTED - $DEPLOYPATH does not exist. Check cPanel Setup Python App -> Application root, then update DEPLOYPATH in .cpanel.yml."; exit 1; }'
     # NOTE analytics.py belongs in this list: web.py imports it at module scope. The import is
     # written defensively so a missing file degrades to "no usage tracking" rather than a dead
     # site, but leaving it out silently turns the feature off — add new top-level modules here.

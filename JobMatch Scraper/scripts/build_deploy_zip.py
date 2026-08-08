@@ -25,9 +25,10 @@ import os
 import sys
 import zipfile
 
-# Mirrors the /bin/cp list in .cpanel.yml. Keep the two in sync.
+# Mirrors the /bin/cp list in .cpanel.yml. Keep the two in sync — the check below fails the
+# build if they drift, because a bundle missing a module web.py imports is a dead site.
 FILES = [
-    "web.py", "core.py", "db.py", "auth.py", "passenger_wsgi.py",
+    "web.py", "core.py", "db.py", "auth.py", "analytics.py", "passenger_wsgi.py",
     "requirements-cpanel.txt", "idf.json", "careers_us.md", "sponsors.txt",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
