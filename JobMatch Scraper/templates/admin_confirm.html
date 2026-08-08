@@ -1,0 +1,43 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}Delete “{{ name }}”{% endblock %}
+
+{% block admin %}
+<div class="banner">
+  <b>This cannot be undone.</b> Deleting an account also removes every row belonging to it.
+  There is no backup other than Supabase's point-in-time recovery.
+</div>
+
+<section class="panel">
+  <h2>What will be deleted</h2>
+  <p class="muted">Counted live, just now — not an estimate.</p>
+  <table class="adm-t">
+    <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
+    <tbody>
+    {% for table, n in counts|dictsort %}
+      <tr><td>{{ table }}</td><td class="num">{{ '{:,}'.format(n) }}</td></tr>
+    {% endfor %}
+      <tr><td><b>Total</b></td><td class="num"><b>{{ '{:,}'.format(total) }}</b></td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:12px">
+    Their job history is <i>not</i> retained anywhere else — the jobs themselves stay, but which
+    ones this person liked, hid or applied to goes with the account, and so do their logged
+    applications and any résumés stored against them.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Confirm</h2>
+  <form method="post" action="{{ url_for('admin_user_delete') }}" class="confirmform">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="username" value="{{ name }}">
+    <label for="confirm">Type <code>{{ name }}</code> to confirm:</label>
+    <input id="confirm" name="confirm" autocomplete="off" autocapitalize="off"
+           spellcheck="false" required>
+    <div class="confirmrow">
+      <button class="btn danger" type="submit">Delete this account</button>
+      <a class="btn" href="{{ url_for('admin_users') }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

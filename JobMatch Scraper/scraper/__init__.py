@@ -4791,6 +4791,13 @@ def main():
     # distinct postings whose URLs differ only by letter case don't occur in practice.
     seen = {canonical_url(u).lower() for u in db.existing_urls()}
 
+    # Companies an admin blocked from /admin/data. Loaded once per run, next to `seen`, because
+    # the keep loop below consults it per posting. Returns an empty set on ANY failure — a
+    # blocklist read must never be the reason a scrape aborts; worst case it behaves as it did
+    # before the feature existed. Without this check, deleting a company's jobs is theatre:
+    # the twice-daily scrape puts them straight back.
+    blocked = db.blocked_company_keys()
+
     # AUTO-DISCOVERY. Before building the source list, probe a rotating slice of the employers
     # migratemate.co lists that we DON'T yet scrape, and save any with a readable ATS board to
     # the `boards` table. custom_sources() below then picks them up, so a board found here is
@@ -4828,6 +4835,7 @@ def main():
     kept = []
     tally = {"already known": 0, "off-target function title": 0,
              "no matching role keyword": 0, "non-US location": 0,
+             "blocked company": 0,
              "posted over %d days ago" % MAX_AGE_DAYS: 0}
     age_cutoff = ((datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS)).isoformat()
                   if MAX_AGE_DAYS > 0 else "")
@@ -4836,6 +4844,12 @@ def main():
         if j["url"].lower() in seen:
             tally["already known"] += 1
             continue                       # already in jobs.csv from a past run
+        # Right after the dedupe and before any title work: this is the cheapest position, and
+        # putting it in the tally makes the drop visible in the run summary. A blocklist you
+        # can't see working is one you won't trust.
+        if blocked and db.block_key(j.get("company", "")) in blocked:
+            tally["blocked company"] += 1
+            continue
         keep, why = title_verdict(j["title"])
         if not keep:
             tally["off-target function title" if why.startswith("off-target")

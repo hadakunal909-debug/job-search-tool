@@ -11,7 +11,9 @@
   <style>a.who{color:inherit;text-decoration:none;font-weight:600;cursor:pointer}a.who:hover{text-decoration:underline}</style>
   <script nonce="{{ csp_nonce }}">try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
-<body>
+{# data-sid carries the SERVER's session id to the client beacons, so events from both sides
+   stitch into one session. Absent when logged out, which is ev.js's cue to do nothing. #}
+<body{% if current_user %} data-sid="{{ session_id() }}"{% endif %}>
 {% if current_user %}
 <header class="topbar">
   <a class="brand" href="{{ url_for('feed') }}">
@@ -24,6 +26,7 @@
     <a href="{{ url_for('brain_home') }}" class="{{ 'active' if ep.startswith('brain') }}">Resume Brain</a>
     <a href="{{ url_for('careers') }}" class="{{ 'active' if ep == 'careers' }}">Sponsors</a>
     <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','add_board_post') }}">Add board</a>
+    {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
   <div class="acct">
     <button id="themetoggle" class="iconbtn" title="Toggle dark mode" aria-label="Toggle theme">Dark</button>
@@ -89,6 +92,7 @@ b.addEventListener('click',function(){set(document.documentElement.getAttribute(
 })();
 </script>
 <script src="{{ static_v('perf.js') }}"></script>
+{% if current_user %}<script src="{{ static_v('ev.js') }}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

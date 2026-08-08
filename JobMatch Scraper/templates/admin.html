@@ -1,0 +1,235 @@
+{% extends "admin_base.html" %}
+{# Operator overview. Everything here reads sources the app already talks to — Supabase via
+   db.py and the GitHub Actions REST API via the same PAT the Update-jobs button uses.
+   Corpus breakdowns and health live on /admin/data; behaviour lives on /admin/usage. #}
+{% block admin_title %}Overview{% endblock %}
+{% block admin_tools %}
+    <a class="btn" href="{{ url_for('admin', refresh=1) }}">Re-read DB</a>
+    <form id="scrapeform" method="post" action="{{ url_for('scrape_now') }}" class="inline">
+      <button id="updatejobs" class="btn primary" type="submit">Update jobs</button>
+    </form>
+{% endblock %}
+
+{% block admin %}
+{% if not gh_token %}
+<div class="banner">
+  No <code>GH_TOKEN</code> is set on this server, so <b>Update jobs</b> and the run history below
+  are unavailable. Add a fine-grained GitHub PAT (Actions: read and write) to <code>.env</code>.
+  You can still start a scrape from the repo's Actions tab.
+</div>
+{% endif %}
+
+<div id="scrapebar" class="scrapebar" style="display:none" role="status" aria-live="polite">
+  <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
+  <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
+</div>
+
+{# ---- headline counters ---- #}
+<div class="tiles">
+  <div class="tile">
+    <span class="tile-n">{{ '{:,}'.format(stats.total) }}</span>
+    <span class="tile-l">Jobs in corpus</span>
+    <span class="tile-s">{{ stats.source_count }} sources · {{ '{:,}'.format(stats.company_count) }} employers</span>
+  </div>
+  <div class="tile">
+    <span class="tile-n">{{ '{:,}'.format(stats.fresh7) }}</span>
+    <span class="tile-l">Posted in last 7 days</span>
+    <span class="tile-s">{{ '{:,}'.format(stats.fresh1) }} today · {{ '{:,}'.format(stats.fresh30) }} in 30d</span>
+  </div>
+  <div class="tile{{ ' warn' if stats.pending > stats.scored }}">
+    <span class="tile-n">{{ '{:,}'.format(stats.scored) }}</span>
+    <span class="tile-l">Scored</span>
+    <span class="tile-s">{{ '{:,}'.format(stats.pending) }} still JD-pending{% if stats.total %} ({{ (100 * stats.pending / stats.total)|round|int }}%){% endif %}</span>
+  </div>
+  <div class="tile">
+    <span class="tile-n">{{ '{:,}'.format(stats.verified) }}</span>
+    <span class="tile-l">Verified posting dates</span>
+    <span class="tile-s">{{ '{:,}'.format(stats.undated) }} with no date at all</span>
+  </div>
+  <div class="tile">
+    <span class="tile-n">{{ '{:,}'.format(stats.closed) }}</span>
+    <span class="tile-l">Detected closed</span>
+    <span class="tile-s">{{ '{:,}'.format(stats.remote) }} remote · {{ '{:,}'.format(stats.salaried) }} with pay</span>
+  </div>
+</div>
+
+<div class="adm-cols">
+  {# ---- score distribution ---- #}
+  <section class="panel">
+    <h2>Match-score spread</h2>
+    <p class="muted">Scored jobs only — JD-pending rows sit at 0 and are excluded.</p>
+    <div class="hist">
+      {% for b in stats.buckets %}
+      <div class="hist-row">
+        <span class="hist-k">{{ b.label }}</span>
+        <span class="hist-bar"><i style="width:{{ (100 * b.n / stats.bucket_max)|round(1) }}%"></i></span>
+        <span class="hist-v">{{ '{:,}'.format(b.n) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ---- Actions run history ---- #}
+  <section class="panel">
+    <h2>Recent scrape runs</h2>
+    {% if runs is none %}
+      <p class="muted">Needs <code>GH_TOKEN</code> to read the Actions API.</p>
+    {% elif not runs %}
+      <p class="muted">Couldn't read run history from GitHub (token scope, or no runs yet).</p>
+    {% else %}
+    <table class="adm-t">
+      <thead><tr><th>Run</th><th>Result</th><th>Started (UTC)</th><th>Took</th></tr></thead>
+      <tbody>
+      {% for r in runs %}
+        <tr>
+          <td><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">#{{ r.n }}</a>
+              <span class="muted">{{ r.event }}</span></td>
+          <td><span class="pill {{ 'ok' if r.conclusion == 'success' else ('bad' if r.conclusion in ('failure','timed_out','cancelled') else 'run') }}">{{ r.conclusion }}</span></td>
+          <td>{{ r.started }}</td>
+          <td>{{ r.mins or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+</div>
+
+<div class="adm-cols">
+  <section class="panel">
+    <h2>Accounts</h2>
+    <table class="adm-t">
+      <thead><tr><th>User</th><th>Created</th></tr></thead>
+      <tbody>
+      {% for u in users %}
+        <tr><td>{{ u.username }}{% if is_admin(u.username) %} <span class="pill ok">admin</span>{% endif %}
+                {% if u.disabled_at %} <span class="pill bad">disabled</span>{% endif %}</td>
+            <td class="muted">{{ (u.created_at or '')[:16]|replace('T', ' ') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="margin-top:10px">
+      Admin access: <b>{{ admin_mode }}</b>. Manage accounts on the
+      <a href="{{ url_for('admin_users') }}">Users</a> page.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Wiring</h2>
+    <table class="adm-t">
+      <tbody>
+        <tr><td>Actions repo</td><td><code>{{ gh_repo }}</code></td></tr>
+        <tr><td>Workflow</td><td><code>{{ gh_workflow }}</code></td></tr>
+        <tr><td>GH_TOKEN</td><td>{% if gh_token %}<span class="pill ok">set</span>{% else %}<span class="pill bad">missing</span>{% endif %}</td></tr>
+        <tr><td>Last status row</td><td><code>{{ status.phase or 'none' }}</code>
+            {% if status.updated_at %}<span class="muted">· updated {{ status.updated_at[:16]|replace('T', ' ') }}</span>{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Self-contained copy of the feed's scrape-button behaviour. app.js is NOT loaded here — it
+   is written against the feed's DOM (cards, filter rail, paging) and would throw on this page. #}
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var bar = document.getElementById("scrapebar"), label = document.getElementById("sb-label"),
+      meta = document.getElementById("sb-meta"), fill = document.getElementById("sb-fill"),
+      form = document.getElementById("scrapeform"), btn = document.getElementById("updatejobs");
+  if (!bar || !form) return;
+  var poll = null, pollStart = 0;
+  var PHASES = { queued: "Starting…", scraping: "Scraping boards", saving: "Saving jobs",
+                 scoring: "Scoring against your profile", done: "Done" };
+
+  function clock(sec) {
+    sec = Math.max(0, Math.round(sec || 0));
+    return Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2);
+  }
+
+  function render(st) {
+    if (!st || !st.phase) return "";
+    bar.style.display = "";
+    var done = +st.done || 0, total = +st.total || 0, pct = total ? (100 * done / total) : 0;
+    label.textContent = PHASES[st.phase] || st.phase;
+    // Only the scraping phase reports done/total; the rest get an indeterminate sweep rather
+    // than a bar frozen at whatever percentage the previous phase happened to end on.
+    if (st.phase === "scraping" && total) {
+      fill.classList.remove("indet");
+      fill.style.width = pct.toFixed(1) + "%";
+    } else if (st.phase === "done") {
+      fill.classList.remove("indet");
+      fill.style.width = "100%";
+    } else {
+      fill.classList.add("indet");
+    }
+    var bits = [];
+    if (total) bits.push(done + "/" + total + " boards");
+    if (st.found) bits.push(st.found + " found");
+    var started = st.started_at ? Date.parse(st.started_at) : NaN;
+    if (!isNaN(started)) bits.push(clock((Date.now() - started) / 1000) + " elapsed");
+    meta.textContent = bits.join(" · ");
+    return st.phase;
+  }
+
+  function stop(reload) {
+    if (poll) { clearInterval(poll); poll = null; }
+    if (btn) btn.disabled = false;
+    if (reload) setTimeout(function () { location.href = "{{ url_for('admin', refresh=1) }}"; }, 900);
+  }
+
+  function tick() {
+    fetch("/api/scrape_status", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (st) {
+        var phase = render(st);
+        var upd = st && st.updated_at ? Date.parse(st.updated_at) : NaN;
+        // A cancelled run stops writing without ever reaching "done", so treat 3 minutes of
+        // silence as finished — otherwise the bar spins until the 45-minute cap.
+        var stale = !isNaN(upd) && (Date.now() - upd > 180000);
+        if (phase === "done" || stale || (Date.now() - pollStart > 45 * 60 * 1000)) stop(true);
+      })
+      .catch(function () { /* a blip shouldn't kill the poll; the next tick retries */ });
+  }
+
+  function start() {
+    pollStart = Date.now();
+    if (poll) clearInterval(poll);
+    poll = setInterval(tick, 5000);
+    tick();
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (btn) btn.disabled = true;
+    bar.style.display = "";
+    label.textContent = "Starting…";
+    meta.textContent = "";
+    fill.classList.add("indet");
+    fetch(form.action, { method: "POST", headers: { "X-Requested-With": "fetch" } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { label.textContent = d.msg || "Couldn't start the scrape."; fill.classList.remove("indet"); if (btn) btn.disabled = false; return; }
+        start();
+      })
+      .catch(function () {
+        label.textContent = "Couldn't start the scrape.";
+        fill.classList.remove("indet");
+        if (btn) btn.disabled = false;
+      });
+  });
+
+  // Pick up a run already in flight (the weekday cron, or a scrape started from the feed tab).
+  fetch("/api/scrape_status", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (st) {
+      var upd = st && st.updated_at ? Date.parse(st.updated_at) : NaN;
+      if (st && st.phase && st.phase !== "done" && !isNaN(upd) && (Date.now() - upd < 180000)) {
+        if (btn) btn.disabled = true;
+        render(st); start();
+      }
+    })
+    .catch(function () {});
+})();
+</script>
+{% endblock %}

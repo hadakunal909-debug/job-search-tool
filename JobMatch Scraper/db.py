@@ -205,6 +205,40 @@ def _fetch_all(table, params):
         offset += page
 
 
+def table_count(table, params=None):
+    """Exact row count WITHOUT downloading a single row.
+
+    PostgREST answers a HEAD carrying `Content-Range: 0-999/19268` when asked for count=exact;
+    we take the tail. Everything in this file counted by walking the table until now
+    (`len(existing_urls())` pages 19k rows to learn one integer), which is fine once a day in a
+    scraper and wrong on a page render.
+
+    Returns None — never 0 — when the count is unavailable (missing table, HTTP error, or
+    PostgREST's `*/*` unknown form), so a caller can render "—" instead of a confident zero.
+    Every admin panel below distinguishes those two, and a delete preview that reports 0 rows
+    because the request failed is exactly how you delete the wrong thing on the retry.
+
+    HEAD is already allowlisted by the retry adapter in _make_http, so this needs no plumbing.
+    `params` takes the usual PostgREST filters, e.g. {"company": "eq.Tesla"}.
+    """
+    if not using_supabase():
+        return None
+    p = dict(params or {})
+    # Any column works — HEAD returns no body regardless — but naming one keeps the request
+    # small and avoids `select=*` expanding on wide tables.
+    p.setdefault("select", "url" if table == TABLE else "*")
+    try:
+        r = _http.head(_rest(table), headers=_headers({"Prefer": "count=exact"}),
+                       params=p, timeout=30)
+        if r.status_code >= 400:
+            return None
+        rng = r.headers.get("Content-Range") or ""       # "0-999/19268" | "*/0" | "*/*"
+        total = rng.rsplit("/", 1)[-1] if "/" in rng else ""
+        return int(total) if total.isdigit() else None
+    except Exception:
+        return None
+
+
 def _upsert(rows, chunk=200):
     """Insert/merge rows on the `url` primary key (PostgREST upsert), in chunks with a soft retry.
     A single huge merge-upsert (a full re-score, or a big backlog of new jobs after the scheduled
@@ -476,17 +510,26 @@ def _url_batches(urls, budget=_DELETE_QS_BUDGET):
         yield batch
 
 
-def delete_urls(urls, progress=None):
+def delete_urls(urls, progress=None, remote_only=False):
     """Remove jobs by url (used when tightening the filter). Works on both backends.
 
     Batched via PostgREST `url=in.(...)` rather than one request per URL: a 30-day purge
     deletes ~17k rows, and 17k sequential round-trips is both slow and a good way to
     rediscover the WinError 10054 that chunking fixed everywhere else. Rides the same
     retry/backoff from _make_http().
+
+    remote_only=True refuses to fall through to the local CSV. Admin actions pass it: with
+    Supabase briefly unreachable the fallback would rewrite an empty/absent jobs.csv, report
+    "0 removed", and leave the real rows untouched — and reading that as "there was nothing
+    to delete" is exactly how you delete the wrong thing on the retry. The scraper and
+    dedupe script keep the old behaviour.
     """
     urls = [u for u in dict.fromkeys(urls) if u]     # de-dup, preserve order, drop blanks
     if not urls:
         return 0
+    if remote_only and not using_supabase():
+        raise RuntimeError("delete_urls(remote_only=True) with no Supabase credentials — "
+                           "refusing to touch the local-file fallback.")
     if using_supabase():
         done = 0
         for batch in _url_batches(urls):
@@ -505,8 +548,21 @@ def delete_urls(urls, progress=None):
     return len(drop)
 
 
-def delete_all():
-    """Wipe the jobs table (used when switching the whole source set)."""
+def delete_all(confirm=""):
+    """Wipe the ENTIRE jobs table. Deliberately awkward to call.
+
+    This has no flagged-row protection, no batching, no undo, and — as of this writing — no
+    callers anywhere in the repo. It exists for a one-off source-set switch from a shell.
+
+    Three locks, because the cost of reaching it by accident is the whole corpus: a sentinel
+    argument that can't be passed by mistake, an environment gate that is never set in
+    production, and the rule that web.py never names this symbol at all. The admin panel's
+    company delete goes through delete_urls() with an explicit list instead.
+    """
+    if confirm != "yes-wipe-the-jobs-table":
+        raise RuntimeError("delete_all() requires confirm='yes-wipe-the-jobs-table'")
+    if os.environ.get("ALLOW_DELETE_ALL") != "1":
+        raise RuntimeError("delete_all() requires ALLOW_DELETE_ALL=1 in the environment")
     if using_supabase():
         resp = _http.delete(_rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"url": "neq.__none__"}, timeout=60)
@@ -635,17 +691,30 @@ def _dump_json(path, obj):
 
 # ---- accounts ----
 def create_user(username, password_hash, resume=""):
+    """Create an account. Returns (ok, message).
+
+    A duplicate username is REPORTED, not raised: PostgREST answers 409/23505 and the admin
+    UI needs to say "that name is taken" rather than 500. Note this is deliberately not an
+    upsert — merging on conflict would silently overwrite an existing user's password, which
+    is the one outcome a "create" must never have.
+    """
     if using_supabase():
         resp = _http.post(
             _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
             data=json.dumps({"username": username, "password_hash": password_hash,
                              "resume": resume}), timeout=30)
-        if resp.status_code >= 400:
-            raise RuntimeError("create_user %s: %s" % (resp.status_code, resp.text[:200]))
-        return
+        if resp.status_code < 400:
+            return (True, "")
+        body = resp.text or ""
+        if resp.status_code == 409 or "23505" in body:
+            return (False, "That username is already taken.")
+        return (False, "create_user %s: %s" % (resp.status_code, body[:200]))
     users = _load_json(USERS_FILE)
+    if username in users:
+        return (False, "That username is already taken.")
     users[username] = {"password_hash": password_hash, "resume": resume, "created_at": _now()}
     _dump_json(USERS_FILE, users)
+    return (True, "")
 
 
 def get_user(username):
@@ -664,14 +733,30 @@ def get_user(username):
     return None
 
 
+# Widest-first select ladder, same idea as load_jobs' column fallback: ask for the admin
+# columns, and drop back to the original pair if SUPABASE_ADMIN_MIGRATION.sql hasn't been run.
+# Rows from the short select simply lack the keys, so every consumer must use .get().
+_USER_COLS = ("username,created_at,disabled_at,token_epoch", "username,created_at")
+
+
 def list_users():
+    """Every account. Never includes password_hash — this feeds the admin table and the
+    per-request account cache, neither of which has any business holding hashes."""
     if using_supabase():
-        r = _http.get(_rest(USERS_TABLE), headers=_headers(),
-                         params={"select": "username,created_at", "order": "created_at"}, timeout=30)
-        r.raise_for_status()
-        return r.json()
+        last = None
+        for sel in _USER_COLS:
+            try:
+                r = _http.get(_rest(USERS_TABLE), headers=_headers(),
+                              params={"select": sel, "order": "created_at"}, timeout=30)
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                last = e
+        raise last
     users = _load_json(USERS_FILE)
-    return [{"username": k, "created_at": v.get("created_at", "")} for k, v in users.items()]
+    return [{"username": k, "created_at": v.get("created_at", ""),
+             "disabled_at": v.get("disabled_at"), "token_epoch": v.get("token_epoch", 0)}
+            for k, v in users.items()]
 
 
 def _patch_user(username, fields):
@@ -696,16 +781,222 @@ def set_user_resume(username, resume):
     _patch_user(username, {"resume": resume})
 
 
-def delete_user(username):
+def set_user_disabled(username, disabled=True):
+    """Disable (or re-enable) an account. Requires SUPABASE_ADMIN_MIGRATION.sql — without the
+    column PostgREST 400s and this raises, which the caller surfaces as "run the migration"."""
+    _patch_user(username, {"disabled_at":
+                           datetime.datetime.now(datetime.timezone.utc).isoformat()
+                           if disabled else None})
+
+
+def bump_token_epoch(username):
+    """Invalidate every browser-extension token this user holds, by changing the value folded
+    into their token's HMAC. Read-then-write: PostgREST has no atomic increment without an RPC,
+    and a lost update here costs nothing worse than one extra click to revoke again."""
+    cur = 0
+    try:
+        cur = int((get_user(username) or {}).get("token_epoch") or 0)
+    except Exception:
+        pass
+    _patch_user(username, {"token_epoch": cur + 1})
+    return cur + 1
+
+
+def _user_child_tables():
+    """Tables keyed by username, children first. Resolved at CALL time on purpose:
+    PROFILES_TABLE, APPLICATIONS_TABLE, RESUMES_TABLE and LEARNED_TABLE are all defined
+    further down this file, so binding them at module level here would NameError on import."""
+    return (USERJOBS_TABLE, PROFILES_TABLE, APPLICATIONS_TABLE, RESUMES_TABLE, LEARNED_TABLE)
+
+
+def delete_user(username, dry_run=False):
+    """Delete an account and everything keyed to it. Returns {table: rows_removed}.
+
+    Children are deleted FIRST and `users` LAST: if a child delete fails we stop before
+    removing the users row, so a partial failure leaves a live account rather than exactly the
+    orphans this function exists to stop creating.
+
+    The child deletes are redundant once SUPABASE_ADMIN_MIGRATION.sql has added the cascading
+    foreign keys — kept anyway so this stays correct before the migration is run, on the
+    local-file backend, and so dry_run can report per-table counts for the confirm screen.
+
+    tailored_cache is skipped: put_tailored() writes username='' for anonymous entries, so it
+    has no usable per-user filter and is pruned by age instead.
+    """
+    out = {}
     if using_supabase():
-        for table in (USERJOBS_TABLE, USERS_TABLE):
-            resp = _http.delete(_rest(table), headers=_headers({"Prefer": "return=minimal"}),
-                                   params={"username": "eq.%s" % username}, timeout=30)
+        for table in _user_child_tables() + (USERS_TABLE,):
+            if dry_run:
+                out[table] = table_count(table, {"username": "eq.%s" % username}) or 0
+                continue
+            resp = _http.delete(_rest(table), headers=_headers({"Prefer": "return=representation"}),
+                                params={"username": "eq.%s" % username}, timeout=30)
             if resp.status_code >= 400:
-                raise RuntimeError("delete_user %s: %s" % (resp.status_code, resp.text[:200]))
+                raise RuntimeError("delete_user %s (%s): %s"
+                                   % (table, resp.status_code, resp.text[:200]))
+            try:
+                out[table] = len(resp.json() or [])
+            except Exception:
+                out[table] = 0
+        return out
+    users = _load_json(USERS_FILE)
+    uj = _load_json(USER_JOBS_FILE)
+    out = {USERS_TABLE: 1 if username in users else 0,
+           USERJOBS_TABLE: len(uj.get(username) or {})}
+    if not dry_run:
+        users.pop(username, None); _dump_json(USERS_FILE, users)
+        uj.pop(username, None); _dump_json(USER_JOBS_FILE, uj)
+    return out
+
+
+# ---- company blocklist ----
+# Deleting a company's jobs does NOT stick on its own: the scrape runs twice a weekday and
+# puts them straight back. Both ingestion paths (scraper.main and the extension's bulk import)
+# consult this table, so a delete paired with a block is the only combination that holds.
+#
+# Every function here swallows its errors and returns an empty result. A blocklist read runs
+# inside the scraper's hot path and must never be the reason a scrape aborts — worst case it
+# reads as "nothing blocked", which is the behaviour before this feature existed.
+BLOCKED_TABLE = "blocked_companies"
+BLOCKED_FILE = "blocked_companies_local.json"
+
+
+def block_key(name):
+    """Blocklist key for a company name. Reuses normalize_label (defined further down this
+    file, so it is resolved at call time): lowercased, punctuation collapsed.
+
+    Suffixes are deliberately NOT stripped. Reducing "Apple Inc" to "apple" would also match
+    "Apple Hospitality", a different employer — a blocklist that over-matches silently deletes
+    jobs the operator never chose to block.
+    """
+    return normalize_label(name)
+
+
+def blocked_company_keys():
+    """set() of normalized names the ingestion paths must refuse. Empty on any failure."""
+    try:
+        return {(r.get("name_key") or "") for r in list_blocked() if r.get("name_key")}
+    except Exception:
+        return set()
+
+
+def list_blocked():
+    """[{name_key, name, reason, added_by, created_at}], newest first. [] if unavailable."""
+    if using_supabase():
+        try:
+            r = _http.get(_rest(BLOCKED_TABLE), headers=_headers(),
+                          params={"select": "*", "order": "created_at.desc"}, timeout=20)
+            return r.json() if r.status_code < 400 else []
+        except Exception:
+            return []
+    try:
+        return list((_load_json(BLOCKED_FILE) or {}).values())
+    except Exception:
+        return []
+
+
+def add_blocked(name, reason="", added_by=""):
+    """Block a company. Upserts on name_key, so re-blocking just refreshes the reason."""
+    key = block_key(name)
+    if not key:
+        return False
+    rec = {"name_key": key, "name": (name or "").strip()[:200],
+           "reason": (reason or "")[:300], "added_by": (added_by or "")[:80]}
+    if using_supabase():
+        try:
+            resp = _http.post(
+                _rest(BLOCKED_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "name_key"}, data=json.dumps(rec), timeout=20)
+            return resp.status_code < 400
+        except Exception:
+            return False
+    blob = _load_json(BLOCKED_FILE) or {}
+    rec["created_at"] = _now()
+    blob[key] = rec
+    _dump_json(BLOCKED_FILE, blob)
+    return True
+
+
+def remove_blocked(name_key):
+    if using_supabase():
+        try:
+            resp = _http.delete(_rest(BLOCKED_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                                params={"name_key": "eq.%s" % name_key}, timeout=20)
+            return resp.status_code < 400
+        except Exception:
+            return False
+    blob = _load_json(BLOCKED_FILE) or {}
+    blob.pop(name_key, None)
+    _dump_json(BLOCKED_FILE, blob)
+    return True
+
+
+# ---- admin audit trail ----
+AUDIT_TABLE = "admin_audit"
+AUDIT_FILE = "admin_audit_local.json"
+
+
+def audit_log(actor, action, target="", count=0, detail=None):
+    """Record an admin action and return its id (or "" if it couldn't be written).
+
+    Called BEFORE a destructive action begins so the intent survives a process that dies
+    mid-batch, then updated with the real count via audit_update. `detail` must stay small —
+    a sample, never the full URL list.
+    """
+    import uuid
+    rec = {"id": uuid.uuid4().hex, "actor": (actor or "")[:80], "action": (action or "")[:60],
+           "target": (target or "")[:200], "count": int(count or 0),
+           "detail": detail if isinstance(detail, dict) else {}}
+    if using_supabase():
+        try:
+            resp = _http.post(_rest(AUDIT_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                              data=json.dumps(rec), timeout=20)
+            return rec["id"] if resp.status_code < 400 else ""
+        except Exception:
+            return ""
+    blob = _load_json(AUDIT_FILE) or {}
+    rec["at"] = _now()
+    blob[rec["id"]] = rec
+    _dump_json(AUDIT_FILE, blob)
+    return rec["id"]
+
+
+def audit_update(audit_id, count, detail=None):
+    """Fill in the outcome of an action logged by audit_log. Best-effort."""
+    if not audit_id:
         return
-    users = _load_json(USERS_FILE); users.pop(username, None); _dump_json(USERS_FILE, users)
-    uj = _load_json(USER_JOBS_FILE); uj.pop(username, None); _dump_json(USER_JOBS_FILE, uj)
+    fields = {"count": int(count or 0)}
+    if isinstance(detail, dict):
+        fields["detail"] = detail
+    if using_supabase():
+        try:
+            _http.patch(_rest(AUDIT_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                        params={"id": "eq.%s" % audit_id}, data=json.dumps(fields), timeout=20)
+        except Exception:
+            pass
+        return
+    blob = _load_json(AUDIT_FILE) or {}
+    if audit_id in blob:
+        blob[audit_id].update(fields)
+        _dump_json(AUDIT_FILE, blob)
+
+
+def list_audit(limit=25):
+    """Most recent admin actions. [] if the table doesn't exist yet."""
+    if using_supabase():
+        try:
+            r = _http.get(_rest(AUDIT_TABLE), headers=_headers(),
+                          params={"select": "*", "order": "at.desc", "limit": limit}, timeout=20)
+            return r.json() if r.status_code < 400 else []
+        except Exception:
+            return []
+    try:
+        rows = sorted((_load_json(AUDIT_FILE) or {}).values(),
+                      key=lambda r: r.get("at") or "", reverse=True)
+        return rows[:limit]
+    except Exception:
+        return []
 
 
 # ---- per-user liked / hidden / applied ----
@@ -727,7 +1018,24 @@ def set_user_status(username, url, status):
                 _rest(USERJOBS_TABLE),
                 headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
                 params={"on_conflict": "username,url"},
-                data=json.dumps({"username": username, "url": url, "status": status}), timeout=30)
+                # updated_at is written EXPLICITLY, not left to the column default. This is an
+                # upsert with merge-duplicates, and a `default now()` only fires on insert — so
+                # re-liking an existing row would keep the original timestamp forever. Harmless
+                # if the column doesn't exist yet: PostgREST ignores unknown keys? It does NOT,
+                # it 400s — so the migration-free path is covered by the retry just below.
+                data=json.dumps({"username": username, "url": url, "status": status,
+                                 "updated_at": datetime.datetime.now(
+                                     datetime.timezone.utc).isoformat()}), timeout=30)
+            if resp.status_code >= 400 and "updated_at" in (resp.text or ""):
+                # SUPABASE_EVENTS_MIGRATION.sql hasn't been run: drop the column and retry, the
+                # same shape as load_jobs' column fallback. Losing the timestamp costs recency
+                # reporting, not the like itself.
+                resp = _http.post(
+                    _rest(USERJOBS_TABLE),
+                    headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                    params={"on_conflict": "username,url"},
+                    data=json.dumps({"username": username, "url": url, "status": status}),
+                    timeout=30)
         else:
             resp = _http.delete(
                 _rest(USERJOBS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
@@ -1432,27 +1740,28 @@ def delete_learned(username, key):
     return False
 
 
-# ---- live scrape progress (for the in-page "Update jobs" progress bar) ----
-# One shared row the scraper updates as it runs; the feed page polls it. Supabase table:
-#   create table scrape_status (id text primary key, data jsonb, updated_at timestamptz);
-# Works without the table (local-file fallback); never raises (a status write must never
-# break a scrape).
+# ---- shared key/value blobs ----
+# `scrape_status` is (id text primary key, data jsonb, updated_at timestamptz) and was created
+# for the one row the "Update jobs" bar polls. The shape is a generic kv store and the id column
+# takes any key, so the admin panel's database-size history lives here too rather than earning a
+# migration of its own. Works without the table (local-file fallback); never raises — a status
+# write must not be able to break a scrape.
 SCRAPE_STATUS_TABLE = "scrape_status"
 SCRAPE_STATUS_FILE = "scrape_status_local.json"
 _SCRAPE_STATUS_KEY = "current"
 
 
-def set_scrape_status(d):
-    """Persist the current scrape progress dict (phase/done/total/found/started_at/...).
-    Best-effort: returns silently on any failure so it can't abort a scrape."""
+def put_kv(key, obj):
+    """Persist a JSON blob under `key`. Stamps updated_at (UTC, ISO) into the blob itself as
+    well as the column, because the browser reads it out of the JSON. Best-effort."""
     try:
-        rec = dict(d or {})
-        # UTC with 'Z' so the browser parses it correctly (the scrape may run on GitHub's
-        # UTC runners while the viewer is in any timezone — naive local times would skew elapsed).
+        rec = dict(obj or {})
+        # UTC with an offset so the browser parses it correctly — a scrape may run on GitHub's
+        # UTC runners while the viewer is in any timezone, and a naive local time skews elapsed.
         rec["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if using_supabase():
             try:
-                payload = {"id": _SCRAPE_STATUS_KEY, "data": rec, "updated_at": rec["updated_at"]}
+                payload = {"id": key, "data": rec, "updated_at": rec["updated_at"]}
                 resp = _http.post(
                     _rest(SCRAPE_STATUS_TABLE),
                     headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
@@ -1461,18 +1770,25 @@ def set_scrape_status(d):
                     return
             except Exception:
                 pass
-        _dump_json(SCRAPE_STATUS_FILE, rec)
+        # Local fallback is a dict OF blobs keyed by id. The file used to hold the bare status
+        # dict, so a pre-existing one is migrated on first write rather than clobbered.
+        blob = _load_json(SCRAPE_STATUS_FILE)
+        if not isinstance(blob, dict) or "phase" in blob:
+            blob = {_SCRAPE_STATUS_KEY: blob} if isinstance(blob, dict) and blob else {}
+        blob[key] = rec
+        _dump_json(SCRAPE_STATUS_FILE, blob)
     except Exception:
         pass
 
 
-def get_scrape_status():
-    """The latest scrape progress dict, or {} if none. Never raises."""
+def get_kv(key, default=None):
+    """The JSON blob stored under `key`, or `default` ({} unless given). Never raises."""
+    fallback = {} if default is None else default
     try:
         if using_supabase():
             try:
                 r = _http.get(_rest(SCRAPE_STATUS_TABLE), headers=_headers(),
-                              params={"id": "eq.%s" % _SCRAPE_STATUS_KEY, "select": "data", "limit": 1},
+                              params={"id": "eq.%s" % key, "select": "data", "limit": 1},
                               timeout=15)
                 if r.status_code < 400:
                     rows = r.json()
@@ -1484,7 +1800,180 @@ def get_scrape_status():
                             return d
             except Exception:
                 pass
-        d = _load_json(SCRAPE_STATUS_FILE)
+        blob = _load_json(SCRAPE_STATUS_FILE)
+        if isinstance(blob, dict):
+            # Old shape: the file WAS the status dict. Only "current" can be served from it.
+            if "phase" in blob:
+                return blob if key == _SCRAPE_STATUS_KEY else fallback
+            d = blob.get(key)
+            if isinstance(d, dict):
+                return d
+        return fallback
+    except Exception:
+        return fallback
+
+
+def set_scrape_status(d):
+    """Persist the current scrape progress dict (phase/done/total/found/started_at/...)."""
+    put_kv(_SCRAPE_STATUS_KEY, d)
+
+
+def get_scrape_status():
+    """The latest scrape progress dict, or {} if none."""
+    return get_kv(_SCRAPE_STATUS_KEY)
+
+
+# ---- database size (admin panel) ----
+# PostgREST cannot run arbitrary SQL, so Postgres' own size functions are only reachable through
+# a stored function exposed at /rpc/. This text is kept here — beside APPLICATIONS_SQL and
+# JOBS_DERIVED_SQL — so the admin page can render it as a paste-this block when the function
+# doesn't exist yet, which is the same self-serve pattern the boards and applications tables use.
+DB_STATS_SQL = """-- JobMatch — database size for the admin panel.
+-- Paste into Supabase -> SQL Editor -> Run. Safe to re-run.
+
+create or replace function public.db_stats()
+returns json
+language sql
+security definer
+set search_path = public, pg_catalog
+as $$
+  select json_build_object(
+    'db_bytes',    pg_database_size(current_database()),
+    'db_pretty',   pg_size_pretty(pg_database_size(current_database())),
+    'measured_at', now(),
+    'tables', (
+      -- NOTE the ordering lives INSIDE json_agg. Sorting the rendered JSON instead would
+      -- compare total_bytes as text and put 9 MB above 400 MB.
+      select coalesce(json_agg(json_build_object(
+               'table',       x.relname,
+               'est_rows',    x.reltuples::bigint,
+               'total_bytes', x.total_bytes,
+               'table_bytes', x.table_bytes,
+               'index_bytes', x.index_bytes,
+               'toast_bytes', x.toast_bytes,
+               'pretty',      pg_size_pretty(x.total_bytes)
+             ) order by x.total_bytes desc), '[]'::json)
+      from (
+        select c.relname, c.reltuples,
+               pg_total_relation_size(c.oid)                        as total_bytes,
+               pg_table_size(c.oid)                                 as table_bytes,
+               pg_indexes_size(c.oid)                               as index_bytes,
+               coalesce(pg_total_relation_size(c.reltoastrelid), 0) as toast_bytes
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind = 'r'
+      ) x)
+  );
+$$;
+
+revoke all on function public.db_stats() from public;
+grant execute on function public.db_stats() to anon, authenticated, service_role;
+
+-- PostgREST caches the schema; without this the new function 404s until it reloads.
+notify pgrst, 'reload schema';
+"""
+
+
+# ---- product analytics events ----
+# Schema lives in SUPABASE_EVENTS_MIGRATION.sql; this constant is only the path so the admin
+# page can point at it when a write fails because the table isn't there yet.
+EVENTS_TABLE = "events"
+EVENTS_DAILY_TABLE = "events_daily"
+EVENTS_SQL_FILE = "SUPABASE_EVENTS_MIGRATION.sql"
+
+
+def insert_events(rows):
+    """Bulk-insert analytics events. Returns True on success. NEVER raises.
+
+    A plain insert, not an upsert: `id` is a bigserial and there is no conflict target.
+    _upsert() can't be reused here — it is hard-wired to the jobs table — so this follows the
+    same inline-POST convention every other non-jobs table in this file uses.
+
+    Analytics must never break a request or a scrape, so every failure is swallowed. The caller
+    (analytics.py) counts consecutive failures and stops trying rather than retrying forever.
+    """
+    if not rows or not using_supabase():
+        return False
+    # PostgREST requires a uniform key set across a bulk insert; a missing key in one row of
+    # the batch makes it reject the whole batch rather than defaulting that column.
+    keys = sorted({k for r in rows for k in r})
+    payload = [{k: r.get(k) for k in keys} for r in rows]
+    try:
+        resp = _http.post(_rest(EVENTS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                          data=json.dumps(payload), timeout=15)
+        return resp.status_code < 400
+    except Exception:
+        return False
+
+
+def ev_usage(days=7):
+    """Aggregated event stats via the public.ev_usage() RPC. {} if it isn't installed.
+
+    Deliberately an RPC rather than pulling rows: _fetch_all pages at 1000 a request (and
+    defaults to `order=url`, a column this table doesn't have), so reading 60k events over the
+    wire from shared cPanel is 60 sequential round trips for numbers Postgres can produce in one.
+    """
+    if not using_supabase():
+        return {}
+    try:
+        r = _http.post(_rest("rpc/ev_usage"), headers=_headers(),
+                       data=json.dumps({"days": int(days)}), timeout=25)
+        if r.status_code >= 400:
+            return {}
+        d = r.json()
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def events_daily(since_day):
+    """Pre-aggregated daily counts from `since_day` (ISO date). [] if unavailable."""
+    if not using_supabase():
+        return []
+    try:
+        r = _http.get(_rest(EVENTS_DAILY_TABLE), headers=_headers(),
+                      params={"select": "*", "day": "gte.%s" % since_day,
+                              "order": "day", "limit": 20000}, timeout=25)
+        return r.json() if r.status_code < 400 else []
+    except Exception:
+        return []
+
+
+def prune_events(before_day):
+    """Delete raw events older than `before_day` (ISO date). Returns True if it ran.
+
+    Deleting does not hand space back to the OS — autovacuum reclaims it for reuse — so the
+    table PLATEAUS rather than shrinking. That is the intended outcome; the dashboard number
+    settling instead of dropping is not a bug.
+    """
+    if not using_supabase():
+        return False
+    try:
+        r = _http.delete(_rest(EVENTS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
+                         params={"ts": "lt.%s" % before_day}, timeout=60)
+        return r.status_code < 400
+    except Exception:
+        return False
+
+
+def db_stats():
+    """Database and per-table sizes via the public.db_stats() RPC.
+
+    {} when the function hasn't been created yet (PostgREST answers 404/PGRST202) or on any
+    error — the admin page then renders DB_STATS_SQL as a paste-this block instead of a number.
+
+    Two caveats the caller must surface rather than hide: `est_rows` is autovacuum's estimate
+    (-1 on a never-analyzed table) and must never be shown as a count — table_count() is the
+    real one; and pg_database_size is a FLOOR on what Supabase bills, which counts the whole
+    instance including the auth/storage schemas and WAL.
+    """
+    if not using_supabase():
+        return {}
+    try:
+        r = _http.post(_rest("rpc/db_stats"), headers=_headers(), data="{}", timeout=20)
+        if r.status_code >= 400:
+            return {}
+        d = r.json()
         return d if isinstance(d, dict) else {}
     except Exception:
         return {}

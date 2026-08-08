@@ -12,7 +12,10 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/bnrqpozr/Stemjobs
     - export SRC="JobMatch Scraper"
-    - /bin/cp -f "$SRC/web.py" "$SRC/core.py" "$SRC/db.py" "$SRC/auth.py" "$SRC/passenger_wsgi.py" "$SRC/requirements-cpanel.txt" "$SRC/idf.json" "$SRC/careers_us.md" "$SRC/sponsors.txt" $DEPLOYPATH/
+    # NOTE analytics.py belongs in this list: web.py imports it at module scope. The import is
+    # written defensively so a missing file degrades to "no usage tracking" rather than a dead
+    # site, but leaving it out silently turns the feature off — add new top-level modules here.
+    - /bin/cp -f "$SRC/web.py" "$SRC/core.py" "$SRC/db.py" "$SRC/auth.py" "$SRC/analytics.py" "$SRC/passenger_wsgi.py" "$SRC/requirements-cpanel.txt" "$SRC/idf.json" "$SRC/careers_us.md" "$SRC/sponsors.txt" $DEPLOYPATH/
     # Optional data files: the H-1B filing counts that turn on the sponsor-strength tiers, and
     # the E-Verify snapshot that turns on the STEM-OPT badge. Copied only if present so a
     # missing everify.txt can't fail the deploy — each feature stays dormant until its file

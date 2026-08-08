@@ -54,6 +54,25 @@ from flask import (Flask, request, session, redirect, url_for,
 import core
 import db
 import auth
+
+try:
+    import analytics
+except Exception:                       # pragma: no cover - deploy safety net
+    # Usage tracking is a nice-to-have; the app must not fail to BOOT without it. A deploy that
+    # forgets analytics.py (it has to be listed in .cpanel.yml) then loses the events rather
+    # than the site. Every call site uses only emit() and stats().
+    class _NoAnalytics(object):
+        _optout = {"names": frozenset(), "at": 0.0}
+
+        @staticmethod
+        def emit(*a, **k):
+            pass
+
+        @staticmethod
+        def stats():
+            return {"off": True, "queued": 0, "muted": False, "hour_count": 0, "optouts": 0}
+
+    analytics = _NoAnalytics()
 # `scraper` is a heavy (~2000-line) module needed only by the add-board + extension routes,
 # and Resume Brain is needed only on /brain* routes — both are imported lazily (scraper inside
 # its functions, Resume Brain via the _LazyMod proxies below) so a cold Passenger start doesn't
@@ -117,12 +136,35 @@ app.config.update(
 )
 
 
+# A session is 30 minutes of inactivity, GA4's convention and about the length of a real
+# feed-scanning sitting. The id lives in the existing signed, HttpOnly login cookie: no table,
+# no DB round trip, and it is shared by server events and client beacons so the two streams
+# stitch together. sessionStorage was the alternative and is wrong — two open tabs would look
+# like two people.
+_SESSION_GAP = 30 * 60
+
+
+def _sid():
+    now = int(time.time())
+    sid, at = session.get("sid"), session.get("sid_at") or 0
+    if not sid or now - at > _SESSION_GAP:
+        sid = secrets.token_urlsafe(9)
+        session["sid"], session["sid_at"] = sid, now
+    elif now - at > 60:
+        # Rewriting sid_at on EVERY request marks the session modified, which makes Flask emit
+        # Set-Cookie on every response including each /api/feed poll. Once a minute is invisible.
+        session["sid_at"] = now
+    return sid
+
+
 @app.before_request
 def _csp_nonce():
     """A fresh random nonce per request. Templates stamp it onto their inline <script>
     tags (nonce="{{ csp_nonce }}") so the CSP can allowlist OUR inline scripts by nonce
     without opening the door to all inline script ('unsafe-inline')."""
     g.csp_nonce = secrets.token_urlsafe(16)
+    g.t0 = time.perf_counter()
+    g.sid = _sid() if session.get("user") else ""
 
 
 # Resources the UI legitimately loads from off-site, kept here so the CSP stays readable:
@@ -201,6 +243,31 @@ def _compress(resp):
             resp.headers["Vary"] = vary + ", Accept-Encoding"
     except Exception:
         return resp
+    return resp
+
+
+# Registered AFTER _compress on purpose. Flask runs after_request handlers in REVERSE
+# registration order, so this executes first — before the body is gzipped — and it never
+# touches the body anyway.
+#
+# This one hook is what makes dead-feature detection free: every page in the app reports itself
+# with no per-route work, so "which of these 58 routes has nobody opened in 30 days" becomes a
+# query instead of a guess. props.ms is the render time, which is the closest thing this app has
+# to latency monitoring — on shared cPanel a slow feed is the most likely reason someone quietly
+# stops using it.
+@app.after_request
+def _ev_page_view(resp):
+    try:
+        user = session.get("user")
+        if (user and resp.status_code == 200
+                and (resp.content_type or "").startswith("text/html")
+                and request.endpoint not in ("static", "healthz", "api_ev")):
+            analytics.emit(user, getattr(g, "sid", ""), "page_view",
+                           ep=request.endpoint or "?",
+                           ms=int((time.perf_counter() - getattr(g, "t0", 0)) * 1000),
+                           src=(request.args.get("src") or "")[:20])
+    except Exception:
+        pass
     return resp
 
 
@@ -856,10 +923,21 @@ def _grouping_on(p):
 
 
 def login_required(f):
+    """Session check, plus a per-request confirmation that the account still exists and is
+    enabled. Without that second half, deleting or disabling an account changes nothing for up
+    to the 30-day cookie lifetime — the session cookie is self-contained and was never checked
+    against the database again after sign-in. The lookup is a dict hit against _accounts'
+    60-second cache, not a query."""
     @functools.wraps(f)
     def wrap(*a, **k):
-        if not session.get("user"):
+        user = session.get("user")
+        if not user:
             return redirect(url_for("login", next=request.path))
+        dead = _session_dead(user)
+        if dead:
+            session.clear()
+            flash(dead)
+            return redirect(url_for("login"))
         return f(*a, **k)
     return wrap
 
@@ -980,10 +1058,17 @@ def login():
         except Exception:
             flash("Couldn't reach the database. Try again.")
         if rec and auth.verify_password(p, rec.get("password_hash", "")):
+            # Checked AFTER the password, so a wrong guess can't be used to enumerate which
+            # accounts are disabled. Read off the row we already fetched, not the cache, so a
+            # just-disabled account can't sign in during the cache's 60-second window.
+            if rec.get("disabled_at"):
+                flash("That account has been disabled.")
+                return render_template("login.html")
             _login_fails.pop(u, None)              # clear on success
             session.permanent = True
             session["user"] = u                    # résumé stays OUT of the cookie (size cap)
             _resume_cache[u] = (rec.get("resume", "") or "", time.time())
+            analytics.emit(u, _sid(), "login")
             return redirect(_safe_next(request.args.get("next")) or url_for("feed"))
         if rec is not None:
             _login_fails.setdefault(u, []).append(time.time())
@@ -993,6 +1078,9 @@ def login():
 
 @app.route("/logout")
 def logout():
+    # Before the clear: session.clear() drops the sid, and the next login mints a fresh one.
+    if session.get("user"):
+        analytics.emit(session["user"], session.get("sid") or "", "logout")
     session.clear()
     return redirect(url_for("login"))
 
@@ -1071,6 +1159,9 @@ def save_prefs():
     if not ok:
         return jsonify({"ok": False, "error": msg[:200]}), 200
     _rows_cache.clear()          # the first-paint count is derived from prefs
+    # Which keys they actually moved off the defaults — the saved-search adoption signal.
+    analytics.emit(user, getattr(g, "sid", ""), "prefs_save",
+                   keys=[k for k, v in prefs.items() if v != core.DEFAULT_PREFS.get(k)][:12])
     return jsonify({"ok": True, "prefs": prefs, "note": msg})
 
 
@@ -1097,8 +1188,50 @@ def api_feed():
     page = units[offset:offset + limit]
     out_rows = [dict(r, status=st, group_more=more, group_key=gk)      # status on a copy
                 for (r, st, more, gk) in page]
+    _ev_feed_view(user, request.args, out_rows, len(matched), len(units), offset)
     return {"rows": out_rows, "total": len(matched), "units": len(units),
             "has_more": offset + limit < len(units)}
+
+
+def _ev_feed_view(user, args, rows, total, units, offset):
+    """The workhorse event. app.js already serialises the entire toolbar into this request's
+    query string (filterParams), so every filter change, search, sort and page arrives here for
+    free — no client instrumentation, and nothing that can slow the feed down.
+
+    props.f holds ONLY the prefs that differ from core.DEFAULT_PREFS, which is what makes
+    "which of the 12 filters does anyone touch" answerable instead of "everyone sets all 12".
+    """
+    try:
+        defaults = core.DEFAULT_PREFS
+        f = {}
+        for k, default in defaults.items():
+            if k in ("alerts", "alert_min"):
+                continue                       # set on /profile, never in the feed toolbar
+            raw = args.get(k)
+            if raw is None or raw == "":
+                continue
+            if str(raw) != str(default) and not (str(default) == "False" and raw in ("0", "")):
+                f[k] = str(raw)[:40]
+        q = (args.get("q") or "").strip()
+        props = {"tab": (args.get("tab") or "recommended")[:20], "n": total, "units": units,
+                 "off": offset, "shown": len(rows), "qn": len(q), "f": f}
+        # A 5-bucket histogram of what was actually ON SCREEN. This is the impression
+        # denominator for score calibration; per-job impressions would be ~60 rows a render.
+        hist = [0] * 5
+        for r in rows:
+            try:
+                hist[min(int(r.get("score") or 0), 100) // 20] += 1
+            except Exception:
+                pass
+        props["hist"] = hist
+        # Raw search text ONLY when it found nothing. A query that returned results reveals more
+        # and teaches less; a query that returned nothing IS the finding — it names a gap in the
+        # corpus. See the privacy note in analytics.py.
+        if q and total == 0:
+            props["q"] = q[:60]
+        analytics.emit(user, getattr(g, "sid", ""), "feed_view", **props)
+    except Exception:
+        pass
 
 
 @app.route("/api/group")
@@ -1126,6 +1259,8 @@ def api_group():
         rest = members
     offset, limit = _page_args(request.args)
     page = rest[offset:offset + limit]
+    analytics.emit(user, getattr(g, "sid", ""), "group_expand",
+                   company=(page[0][0].get("company") if page else ""), n=len(rest), off=offset)
     return {"rows": [dict(r, status=st) for (r, st) in page],
             "total": len(rest), "has_more": offset + limit < len(rest)}
 
@@ -1152,6 +1287,11 @@ def api_job():
     sv, sreason = meta["sponsor_jd"]
     exp_y = meta["exp_years"]
     pending = bool((meta.get("analyzed") or {}).get("thin"))
+    # company/source/score are stamped on the event rather than looked up later: the 30-day
+    # pruner deletes this row, and match_score is rewritten every scoring run.
+    analytics.emit(session["user"], getattr(g, "sid", ""), "job_open", job_url=url,
+                   company=job.get("company"), source=_host(job),
+                   score=0 if pending else int(score or 0), pending=pending)
     return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
             "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
             "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""),
@@ -1177,14 +1317,39 @@ def api_action():
     status = data.get("status", "")
     if not url:
         return {"ok": False, "error": "no url"}, 400
+    user = session["user"]
+    # Read the PREVIOUS status before the write. user_jobs is current-state-only with no
+    # timestamp, so like -> hide -> unhide leaves one row or none; this from/to pair is the
+    # transition ledger that table structurally cannot keep. Without it, "hiding is really being
+    # used as dismiss-for-now" is unanswerable, because the unhide erases the evidence.
     try:
-        db.set_user_status(session["user"], url, status)
-        _status_cache.pop(session["user"], None)     # reflect the change on the next feed render
+        prev = user_statuses(user).get(url, "")
+    except Exception:
+        prev = ""
+    try:
+        db.set_user_status(user, url, status)
+        _status_cache.pop(user, None)                # reflect the change on the next feed render
         if status == "applied":
-            _autolog_application(session["user"], url)
+            _autolog_application(user, url)
+        _ev_action(user, url, prev, status, "api")
         return {"ok": True, "status": status}
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
+
+
+def _ev_action(user, url, prev, status, via):
+    """One like/hide/apply, with the job's company, board and score attached."""
+    try:
+        job = next((j for j in get_jobs() if j.get("url") == url), None) or {}
+        try:
+            score = int(job.get("match_score") or 0)
+        except Exception:
+            score = 0
+        analytics.emit(user, getattr(g, "sid", ""), "action", job_url=url,
+                       company=job.get("company"), source=_host(job), score=score,
+                       to=status or "cleared", frm=prev or "none", via=via)
+    except Exception:
+        pass
 
 
 @app.route("/reload")
@@ -1264,7 +1429,31 @@ def scrape_now():
                               "started_at": now, "run": now})
     except Exception:
         pass
+    analytics.emit(session["user"], getattr(g, "sid", ""), "scrape_click")
     return {"ok": True, "msg": "Scrape started on GitHub Actions."}
+
+
+@app.route("/api/ev", methods=["POST"])
+def api_ev():
+    """Client-only interaction events (rail toggles, outbound apply clicks, dwell).
+
+    Always 204, and deliberately NOT @login_required: a sendBeacon can neither follow a redirect
+    nor report an error, so a 302 to /login would just burn a round trip. Logged out, this
+    quietly does nothing — SameSite=Lax means a cross-site beacon arrives with no session and
+    fails the `if user` check, which is the same posture /api/action already has.
+    """
+    user = session.get("user")
+    if user:
+        try:
+            body = request.get_json(silent=True) or {}
+            sid = getattr(g, "sid", "")      # server-side, never taken from the request body
+            for e in (body.get("ev") or [])[:40]:
+                if not isinstance(e, dict):
+                    continue
+                analytics.emit(user, sid, str(e.get("e") or ""), **(e.get("p") or {}))
+        except Exception:
+            pass
+    return ("", 204)
 
 
 @app.route("/api/scrape_status")
@@ -1275,16 +1464,1278 @@ def api_scrape_status():
     return db.get_scrape_status() or {}
 
 
+# ----------------------------- admin dashboard -----------------------------
+# Who may open /admin. ADMIN_USERS is a comma-separated allowlist; with it unset we fall back
+# to "the only account is the admin", which is right for the single-user install this started
+# as and fails CLOSED the moment a second account is created. The obvious alternative default
+# — any logged-in user — would silently hand the scrape trigger and the account list to every
+# new login, and nothing about creating an account would prompt you to notice.
+_ADMIN_USERS = {u.strip().lower()
+                for u in (os.environ.get("ADMIN_USERS") or "").split(",") if u.strip()}
+# 60s, not 300: a disable has to bite quickly, and this is a 3-row table. One PostgREST GET per
+# TTL per worker process, amortised to a dict lookup per request.
+_ACCOUNTS_TTL = 60
+_accounts_cache = {"map": None, "at": 0.0}
+
+
+def _accounts(force=False):
+    """{username: row} for the whole users table, cached.
+
+    On a DB error we keep the LAST GOOD map and retry sooner rather than returning {} — an
+    empty map reads as "every account has been deleted", which would log everyone out of their
+    own app over a transient Supabase blip. Returns None only when we have NEVER had a good
+    read; callers treat that as "can't tell" and fail open.
+    """
+    c = _accounts_cache
+    if force or c["map"] is None or time.time() - c["at"] > _ACCOUNTS_TTL:
+        try:
+            c["map"] = {(u.get("username") or ""): u for u in (db.list_users() or [])}
+            c["at"] = time.time()
+        except Exception:
+            if c["map"] is None:
+                return None
+            c["at"] = time.time() - _ACCOUNTS_TTL + 10      # serve stale, retry in 10s
+    return c["map"]
+
+
+def _account_state(username):
+    """The users row for `username`. None when the account is genuinely gone; {} when we can't
+    tell. Callers fail CLOSED on None and OPEN on {} — see _accounts."""
+    m = _accounts()
+    if m is None:
+        return {}
+    return m.get(username)
+
+
+def _session_dead(username):
+    """Reason this session should be ended, or "" to let it through. One definition of "is this
+    login still real", shared by login_required, admin_required and the login route."""
+    st = _account_state(username)
+    if st is None:
+        return "That account no longer exists."
+    if st.get("disabled_at"):
+        return "That account has been disabled."
+    return ""
+
+
+def _sole_user():
+    """The username when this install has exactly one account, else "".
+
+    Counts DISABLED accounts too, deliberately. If they were excluded, disabling the second of
+    two accounts would silently re-promote the first to sole-admin — admin scope must never
+    widen as a side effect of a disable.
+    """
+    m = _accounts()
+    names = list(m or {})
+    return names[0] if len(names) == 1 else ""
+
+
+@app.template_global()
+def session_id():
+    """The session id, for base.html's data-sid. Server-derived so a client beacon can't
+    invent one — /api/ev ignores any sid in the request body and uses g.sid."""
+    return getattr(g, "sid", "")
+
+
+@app.template_global()
+def is_admin(user=None):
+    user = (user or session.get("user") or "").strip()
+    if not user:
+        return False
+    if _ADMIN_USERS:
+        return user.lower() in _ADMIN_USERS
+    return user == _sole_user()
+
+
+def _csrf_token():
+    tok = session.get("_csrf")
+    if not tok:
+        tok = secrets.token_urlsafe(32)
+        session["_csrf"] = tok
+    return tok
+
+
+@app.template_global()
+def csrf_token():
+    return _csrf_token()
+
+
+def _check_csrf():
+    sent = request.form.get("_csrf") or request.headers.get("X-CSRF-Token") or ""
+    return bool(sent) and hmac.compare_digest(sent, _csrf_token())
+
+
+def admin_required(f):
+    """login_required + admin, plus CSRF on anything that isn't a read.
+
+    The CSRF check lives HERE rather than in each route so a future admin route cannot forget
+    it. SameSite=Lax and `form-action 'self'` already stop classic cross-site form posts, which
+    is the right bar for like/hide — it is not the right bar for "delete this account and every
+    row belonging to it".
+    """
+    @functools.wraps(f)
+    def wrap(*a, **k):
+        user = session.get("user")
+        if not user:
+            return redirect(url_for("login", next=request.path))
+        dead = _session_dead(user)
+        if dead:
+            session.clear()
+            flash(dead)
+            return redirect(url_for("login"))
+        if not is_admin():
+            flash("That page is admin-only.")
+            return redirect(url_for("feed"))
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not _check_csrf():
+            flash("That form expired — reload the page and try again.")
+            return redirect(url_for("admin_users"))
+        return f(*a, **k)
+    return wrap
+
+
+def _gh_runs(limit=8):
+    """Recent runs of the scrape workflow. None when no token is configured, [] when GitHub
+    refuses. Read-only, and the fine-grained PAT the Update-jobs button already uses is scoped
+    Actions: read+write — so this tile needs no new secret, just the token you already have."""
+    tok = _gh_token()
+    if not tok:
+        return None
+    import requests
+    try:
+        r = requests.get(
+            "https://api.github.com/repos/%s/actions/workflows/%s/runs" % (GH_REPO, GH_WORKFLOW),
+            headers={"Authorization": "Bearer %s" % tok,
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"},
+            params={"per_page": limit}, timeout=15)
+        if r.status_code >= 400:
+            return []
+        out = []
+        for run in (r.json().get("workflow_runs") or [])[:limit]:
+            started, ended = run.get("run_started_at") or "", run.get("updated_at") or ""
+            mins = ""
+            try:
+                # A run still in progress has no meaningful end, so only completed runs get a
+                # duration — updated_at on a live run is just "a moment ago" and would render
+                # as a bogus 0m next to a bar that is still moving.
+                if started and ended and run.get("status") == "completed":
+                    d = (datetime.datetime.fromisoformat(ended.replace("Z", "+00:00"))
+                         - datetime.datetime.fromisoformat(started.replace("Z", "+00:00")))
+                    mins = "%dm %02ds" % (int(d.total_seconds()) // 60, int(d.total_seconds()) % 60)
+            except Exception:
+                pass
+            out.append({
+                "n": run.get("run_number"),
+                "status": run.get("status") or "",
+                # in-progress runs carry conclusion=None; show the live status instead of a blank
+                "conclusion": run.get("conclusion") or (run.get("status") or ""),
+                "event": run.get("event") or "",
+                "started": started[:16].replace("T", " "),
+                "mins": mins,
+                "url": run.get("html_url") or "",
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _job_date(j):
+    """Posting date for a RAW db row — the same choice _build_row makes for feed cards
+    (verified posting date, else the day we first saw it), so both agree on what "fresh" is."""
+    return ((j.get("posted_verified") or j.get("found_date")) or "")[:10]
+
+
+_ADMIN_STATS_TTL = 60
+_admin_stats_cache = {"data": None, "at": 0.0}
+
+
+def _admin_stats():
+    """Corpus health, computed off the already-cached job rows (get_jobs is a 1 h cache), so
+    opening the dashboard costs no DB round-trip on a warm process. Cached another 60 s on top
+    because every tile below walks the full ~25 k-row list."""
+    c = _admin_stats_cache
+    if c["data"] is not None and time.time() - c["at"] < _ADMIN_STATS_TTL:
+        return c["data"]
+    jobs = get_jobs()
+    today = datetime.date.today()
+    d1 = (today - datetime.timedelta(days=1)).isoformat()
+    d7 = (today - datetime.timedelta(days=7)).isoformat()
+    d30 = (today - datetime.timedelta(days=30)).isoformat()
+
+    s = {"total": len(jobs), "closed": 0, "fresh1": 0, "fresh7": 0, "fresh30": 0, "undated": 0,
+         "verified": 0, "scored": 0, "salaried": 0, "remote": 0}
+    buckets = [0] * 5                       # 0-19 / 20-39 / 40-59 / 60-79 / 80-100
+    hosts, companies, host_fresh = collections.Counter(), collections.Counter(), collections.Counter()
+    for j in jobs:
+        # is_active is None on an un-migrated row; only an explicit False means "we checked and
+        # the posting is gone". `is False` rather than `not ...` keeps None out of the count.
+        if j.get("is_active") is False:
+            s["closed"] += 1
+        if j.get("posted_verified"):
+            s["verified"] += 1
+        if j.get("salary_min"):
+            s["salaried"] += 1
+        if j.get("remote"):
+            s["remote"] += 1
+        dt = _job_date(j)
+        if not dt:
+            s["undated"] += 1
+        else:
+            if dt >= d30:
+                s["fresh30"] += 1
+            if dt >= d7:
+                s["fresh7"] += 1
+            if dt >= d1:
+                s["fresh1"] += 1
+        try:
+            sc = int(j.get("match_score") or 0)
+        except Exception:
+            sc = 0
+        if sc > 0:
+            s["scored"] += 1
+            buckets[min(sc, 100) // 20] += 1
+        c_name = (j.get("company") or "").strip()
+        if c_name:
+            companies[c_name] += 1
+        h = _host(j)                        # the feed's own host helper: ATS domain per posting
+        if h:
+            hosts[h] += 1
+            if dt and dt >= d7:
+                host_fresh[h] += 1
+    s["pending"] = s["total"] - s["scored"]
+    s["buckets"] = [{"label": lbl, "n": n}
+                    for lbl, n in zip(("0-19", "20-39", "40-59", "60-79", "80-100"), buckets)]
+    s["bucket_max"] = max(buckets) or 1
+    # Sources ranked by size, each with how many of its postings are from the last 7 days. A
+    # big board sitting at 0 fresh is the signal worth having here: it means that scraper is
+    # returning rows but nothing NEW, which is what a silently-broken board looks like — it
+    # never errors, it just stops finding things.
+    s["sources"] = [{"host": h, "n": n, "fresh": host_fresh.get(h, 0)}
+                    for h, n in hosts.most_common(14)]
+    s["companies"] = companies.most_common(12)
+    s["source_count"] = len(hosts)
+    s["company_count"] = len(companies)
+    c["data"], c["at"] = s, time.time()
+    return s
+
+
+@app.route("/admin")
+@admin_required
+def admin():
+    """Operator dashboard: corpus health, board freshness, recent Action runs, and the same
+    Update-jobs trigger the feed has. ?refresh=1 re-pulls jobs from Supabase first (the normal
+    view reads the 1 h cache, so right after a scrape it would otherwise show stale counts)."""
+    if request.args.get("refresh"):
+        get_jobs(force=True)
+        _admin_stats_cache["data"] = None
+        _accounts(force=True)
+        flash("Re-read jobs from the database.")
+        return redirect(url_for("admin"))
+    try:
+        users = db.list_users() or []
+    except Exception:
+        users = []
+    return render_template(
+        "admin.html", stats=_admin_stats(), status=db.get_scrape_status() or {},
+        runs=_gh_runs(), users=users, gh_token=bool(_gh_token()),
+        gh_repo=GH_REPO, gh_workflow=GH_WORKFLOW,
+        admin_mode=("ADMIN_USERS" if _ADMIN_USERS else "sole-account"))
+
+
+# ---- /admin/data — storage, growth, health ----------------------------------
+# Supabase's free tier caps the database at 500 MB. Nothing in this app has ever measured its
+# own size, and the only retention is age-based (PRUNE_DAYS, applied on every scrape), never
+# size-triggered — so the first warning of a full database would have been writes failing.
+_FREE_TIER_BYTES = 500 * 1024 * 1024
+_SIZE_HISTORY_KEY = "db_size_history"
+_SIZE_HISTORY_MAX = 90          # ~3 months of daily points; the blob stays a few KB
+
+# Fallback list for the degraded panel shown when the db_stats RPC isn't installed. When the
+# RPC IS available we count whatever tables IT reports instead (see _admin_db) — a fixed list
+# here silently showed "—" for every table added after it was written, which is exactly what
+# happened to events/admin_audit/blocked_companies the day they were created.
+#
+# brain_companies is deliberately absent: it was never migrated to Supabase and lives only in
+# brain_companies_local.json, so counting it always yields None. The health checks say so
+# explicitly rather than leaving a permanent blank row here.
+_COUNTED_TABLES = ("jobs", "users", "user_jobs", "applications", "profiles",
+                   "resumes", "tailored_cache", "learned_answers", "boards")
+# Every table keyed by username, for the orphan check. db.delete_user() historically removed
+# only user_jobs + users, so anything else here can hold rows belonging to a deleted account.
+_USER_SCOPED_TABLES = ("user_jobs", "profiles", "applications", "resumes", "learned_answers")
+
+
+def _record_db_size(nbytes):
+    """Append one {date, bytes} sample, at most once a day.
+
+    The date gate is load-bearing: without it an admin refreshing the page twenty times fills
+    the window with same-day points and flattens the slope to nothing. Stored in the existing
+    scrape_status table via put_kv — it is already (id, data jsonb, updated_at), so the history
+    needs no migration of its own."""
+    if not nbytes:
+        return
+    try:
+        hist = db.get_kv(_SIZE_HISTORY_KEY) or {}
+        samples = [s for s in (hist.get("samples") or []) if isinstance(s, dict)]
+        today = datetime.date.today().isoformat()
+        if samples and samples[-1].get("d") == today:
+            return
+        samples.append({"d": today, "b": int(nbytes)})
+        db.put_kv(_SIZE_HISTORY_KEY, {"samples": samples[-_SIZE_HISTORY_MAX:]})
+    except Exception:
+        pass
+
+
+def _size_projection(samples):
+    """Least-squares MB/day over the size history, and when that reaches the free-tier cap.
+
+    Returns a dict with a `verdict` the template renders verbatim. The flat case gets its own
+    wording on purpose: prune_old_jobs runs at the end of every scrape, so a corpus in a steady
+    state is the EXPECTED answer, and extrapolating noise into a scary date is how a tile stops
+    being believed."""
+    pts = [(i, s.get("b") or 0) for i, s in enumerate(samples) if isinstance(s, dict)]
+    if len(pts) < 3:
+        need = 3 - len(pts)
+        return {"state": "cold", "verdict": "Collecting data — %d more daily sample%s needed."
+                % (need, "" if need == 1 else "s")}
+    try:
+        span = (datetime.date.fromisoformat(samples[-1]["d"])
+                - datetime.date.fromisoformat(samples[0]["d"])).days
+    except Exception:
+        span = len(pts) - 1
+    if span < 7:
+        return {"state": "cold", "verdict": "Collecting data — %d days so far, 7 needed for a "
+                "trend." % max(span, 1)}
+    n = len(pts)
+    mx = sum(p[0] for p in pts) / n
+    my = sum(p[1] for p in pts) / n
+    denom = sum((p[0] - mx) ** 2 for p in pts)
+    slope = (sum((p[0] - mx) * (p[1] - my) for p in pts) / denom) if denom else 0.0
+    per_day = slope * (n - 1) / float(span) if span else 0.0     # samples/day -> bytes/day
+    cur = pts[-1][1]
+    if per_day <= 0:
+        return {"state": "flat", "per_day_mb": per_day / 1048576.0,
+                "verdict": "Flat or shrinking — the %s-day prune is keeping up."
+                           % os.environ.get("PRUNE_DAYS", "30")}
+    days_left = (_FREE_TIER_BYTES - cur) / per_day
+    if days_left <= 0:
+        return {"state": "over", "per_day_mb": per_day / 1048576.0,
+                "verdict": "Already over the 500 MB free-tier cap."}
+    when = datetime.date.today() + datetime.timedelta(days=min(int(days_left), 3650))
+    return {"state": "growing", "per_day_mb": per_day / 1048576.0, "days_left": int(days_left),
+            "verdict": "+%.1f MB/day · reaches 500 MB around %s (%d days)"
+                       % (per_day / 1048576.0, when.isoformat(), int(days_left))}
+
+
+_ADMIN_DB_TTL = 300
+_admin_db_cache = {"data": None, "at": 0.0}
+
+
+def _admin_db(force=False):
+    """Sizes (one RPC) + exact row counts (one HEAD each). Cached 5 minutes — an /admin/data
+    load is ~10 round trips and none of these numbers move minute to minute."""
+    c = _admin_db_cache
+    if not force and c["data"] is not None and time.time() - c["at"] < _ADMIN_DB_TTL:
+        return c["data"]
+    stats = db.db_stats() or {}
+    nbytes = int(stats.get("db_bytes") or 0)
+    if nbytes:
+        _record_db_size(nbytes)
+    hist = (db.get_kv(_SIZE_HISTORY_KEY) or {}).get("samples") or []
+    # Count exactly the tables the RPC found, so a table added later appears with a real count
+    # instead of a dash. Falls back to the fixed list only when the RPC isn't installed.
+    named = [row.get("table") for row in (stats.get("tables") or []) if row.get("table")]
+    counts = {t: db.table_count(t) for t in (named or _COUNTED_TABLES)}
+    # est_rows is autovacuum's estimate and is -1 on a never-analyzed table; it is shown only
+    # next to the real count so a big divergence is visible as "stats are stale", never alone.
+    tables = []
+    for row in (stats.get("tables") or []):
+        name = row.get("table") or ""
+        tables.append({"name": name, "pretty": row.get("pretty") or "",
+                       "total": int(row.get("total_bytes") or 0),
+                       "table": int(row.get("table_bytes") or 0),
+                       "index": int(row.get("index_bytes") or 0),
+                       "toast": int(row.get("toast_bytes") or 0),
+                       "est_rows": int(row.get("est_rows") or 0),
+                       "rows": counts.get(name)})
+    out = {"have_rpc": bool(stats), "sql": db.DB_STATS_SQL,
+           "bytes": nbytes, "pretty": stats.get("db_pretty") or "",
+           "pct": (100.0 * nbytes / _FREE_TIER_BYTES) if nbytes else 0.0,
+           "cap_mb": _FREE_TIER_BYTES // 1048576,
+           "tables": tables, "counts": counts,
+           "history": hist, "projection": _size_projection(hist)}
+    c["data"], c["at"] = out, time.time()
+    return out
+
+
+def _check(name, ok, detail, fix="", warn=False):
+    return {"name": name, "state": "pass" if ok else ("warn" if warn else "fail"),
+            "detail": detail, "fix": fix}
+
+
+def _health_checks():
+    """Pass/fail rows over the corpus and the account tables. Runs on demand (a button), not on
+    page render — it costs ~8 round trips plus a walk of the cached job rows."""
+    out = []
+    jobs = get_jobs()
+    total = len(jobs)
+    stats = _admin_stats()
+
+    jd = db.table_count("jobs", {"jd": "not.is.null"})
+    if jd is None:
+        out.append(_check("JD coverage", False, "Couldn't read the count.", warn=True))
+    else:
+        pct = (100.0 * jd / total) if total else 0
+        out.append(_check("JD coverage", pct >= 60,
+                          "%s of %s jobs have a stored description (%.0f%%)."
+                          % ("{:,}".format(jd), "{:,}".format(total), pct),
+                          "Raise SCORE_MAX_FETCH / SCORE_BUDGET_MIN in scrape.yml — a job with "
+                          "no JD scores 0 and is invisible to the match filter."))
+
+    pend = stats["pending"]
+    out.append(_check("Scored rows", total and (100.0 * pend / total) <= 30,
+                      "%s of %s unscored (%.0f%%)." % ("{:,}".format(pend), "{:,}".format(total),
+                                                       (100.0 * pend / total) if total else 0),
+                      "Same fix as JD coverage — unscored is almost always JD-pending."))
+
+    # Same posting reaching us from two hosts. _dupe_key is the feed's own identity function, so
+    # this counts exactly what the feed already hides but the database still pays to store.
+    groups = {}
+    for j in jobs:
+        k = _dupe_key(j)
+        if k:
+            groups.setdefault(k, set()).add(_host(j))
+    dupes = sum(1 for hosts in groups.values() if len(hosts) > 1)
+    out.append(_check("Cross-host duplicates", total and (100.0 * dupes / total) <= 3,
+                      "%s postings appear on 2+ hosts (%.1f%%)."
+                      % ("{:,}".format(dupes), (100.0 * dupes / total) if total else 0),
+                      "Run python -m scraper.dedupe_urls"))
+
+    # Rows with no date in ANY of the three columns row_age_date checks. stale_urls() can never
+    # touch these, so they are a permanent storage leak — distinct from the overview's "undated"
+    # tile, which only means the employer published no date.
+    undated = sum(1 for j in jobs if not db.row_age_date(j))
+    out.append(_check("Prunable rows", undated == 0,
+                      "%s rows have no date at all and can never be pruned."
+                      % "{:,}".format(undated),
+                      "These need first_seen backfilled; the column defaults to current_date "
+                      "for new rows only.", warn=True))
+
+    # Any source big enough to rank in stats["sources"] (the top 14 by volume) yet contributing
+    # nothing in a week. Deliberately NOT an absolute row threshold: the first version used
+    # ">500 rows" and sailed past Tesla at 452 — the one genuinely dead board in this corpus.
+    # Ranking scales with the corpus; a hand-picked number only ever fits the day it was chosen.
+    stale = [s for s in stats["sources"] if s["fresh"] == 0]
+    out.append(_check("Source freshness", not stale,
+                      ("Every major source has fresh postings." if not stale else
+                       "%s of the top %s sources returned nothing new in 7 days: %s"
+                       % (len(stale), len(stats["sources"]),
+                          ", ".join("%s (%s rows)" % (s["host"], "{:,}".format(s["n"]))
+                                    for s in stale[:4]))),
+                      "Those scrapers still return rows but find nothing new — check the parser."))
+
+    # Orphans: rows keyed to a username that no longer exists. db.delete_user() removed only
+    # user_jobs + users, so every other table here can hold them.
+    try:
+        names = [u.get("username") or "" for u in (db.list_users() or [])]
+    except Exception:
+        names = []
+    orphans = {}
+    if names:
+        for t in _USER_SCOPED_TABLES:
+            n = db.table_count(t, {"username": "not." + db._in_list(names)})
+            if n:
+                orphans[t] = n
+    out.append(_check("Orphaned rows", not orphans,
+                      ("No rows belong to a deleted account." if not orphans else
+                       ", ".join("%s: %s" % (t, n) for t, n in orphans.items())),
+                      "delete_user() only cleared user_jobs + users; the rest was left behind."))
+
+    tc = db.table_count("tailored_cache")
+    out.append(_check("Unbounded tables", tc is not None and tc <= 5000,
+                      "tailored_cache holds %s rows and has no expiry anywhere in the codebase."
+                      % ("{:,}".format(tc) if tc is not None else "?"),
+                      "Needs an age-based prune; nothing deletes from it today.", warn=True))
+
+    out.append(_check("brain_companies table", db.table_count("brain_companies") is not None,
+                      "Not present in Supabase — Resume Brain's company cache is local-file only, "
+                      "so it is empty on the deployed app and not shared between machines.",
+                      "Run the create-table SQL in BRAIN_SETUP.md.", warn=True))
+
+    out.append(_check("APP_SECRET", bool(os.environ.get("APP_SECRET")),
+                      ("Set." if os.environ.get("APP_SECRET") else
+                       "Unset — the session key is derived from the Supabase key instead, so "
+                       "rotating that key silently logs everyone out and invalidates every "
+                       "extension token."),
+                      "Set APP_SECRET in the cPanel .env."))
+
+    secure = os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+    out.append(_check("Secure cookies", secure,
+                      "SESSION_COOKIE_SECURE is %s." % ("on" if secure else "off"),
+                      "Set SESSION_COOKIE_SECURE=1 in production so the session cookie can't "
+                      "leak over http.", warn=True))
+    return out
+
+
+_ADMIN_HEALTH_TTL = 300
+_admin_health_cache = {"data": None, "at": 0.0}
+
+
+@app.route("/admin/data")
+@admin_required
+def admin_data():
+    """Storage against the free-tier cap, growth trend, and corpus/account health checks."""
+    if request.args.get("refresh"):
+        get_jobs(force=True)
+        _admin_stats_cache["data"] = None
+        _admin_db_cache["data"] = None
+        _admin_health_cache["data"] = None
+        flash("Re-read the database.")
+        return redirect(url_for("admin_data"))
+    return render_template("admin_data.html", dbi=_admin_db(), stats=_admin_stats(),
+                           health=_admin_health_cache["data"], blocked=db.list_blocked(),
+                           audit=db.list_audit(20), delete_max=ADMIN_DELETE_MAX)
+
+
+@app.route("/admin/health.json")
+@admin_required
+def admin_health():
+    """Run the checks on demand. Behind a button rather than the page render because it costs
+    ~8 round trips; cached so a double-click doesn't pay twice."""
+    c = _admin_health_cache
+    if c["data"] is None or time.time() - c["at"] > _ADMIN_HEALTH_TTL:
+        c["data"], c["at"] = _health_checks(), time.time()
+    return {"checks": c["data"]}
+
+
+# ---- /admin/usage — behaviour, from the data that already exists ------------
+# Everything here is derived from user_jobs (current like/hide/apply state) and applications
+# (which carries a real created_at). Two limits are structural and are stated on the page
+# rather than hidden: user_jobs has NO timestamp, so there is no "when" and no history — a
+# like that was later undone left no trace; and jobs.match_score is re-derived on every scoring
+# run, so a score shown next to a like is today's score, not the score at the moment of the click.
+_ADMIN_USAGE_TTL = 300
+_admin_usage_cache = {"data": None, "at": 0.0}
+
+_STATUSES = ("liked", "applied", "hidden")
+
+# Title words too common to carry signal. Everything else is fair game — the point of the
+# token lift is to surface the words nobody thought to filter on.
+_TITLE_STOP = frozenset("""
+a an and at by for from in of on or the to with new senior sr jr junior lead i ii iii iv
+engineer manager analyst specialist associate developer director intern
+""".split())
+
+
+def _median(vals):
+    s = sorted(vals)
+    n = len(s)
+    if not n:
+        return 0
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _all_user_jobs():
+    """Every (username, url, status) row. 126 rows today — one paged GET, no per-user fan-out."""
+    try:
+        return db._fetch_all(db.USERJOBS_TABLE, {"select": "username,url,status"})
+    except Exception:
+        return []
+
+
+def _all_applications():
+    """Every application row across all users, newest first."""
+    try:
+        r = db._http.get(db._rest(db.APPLICATIONS_TABLE), headers=db._headers(),
+                         params={"select": "*", "order": "created_at.desc"}, timeout=30)
+        return r.json() if r.status_code < 400 else []
+    except Exception:
+        return []
+
+
+def _rate_table(counter_by_key, min_events, limit=15):
+    """{key: {liked,applied,hidden}} -> rows sorted by hide rate, for the auto-filter candidates.
+    `min_events` guards against a single hide on a single posting reading as a 100% verdict."""
+    rows = []
+    for key, c in counter_by_key.items():
+        n = c["liked"] + c["applied"] + c["hidden"]
+        if n < min_events:
+            continue
+        rows.append({"key": key, "n": n, "liked": c["liked"], "applied": c["applied"],
+                     "hidden": c["hidden"], "hide_pct": 100.0 * c["hidden"] / n})
+    rows.sort(key=lambda r: (-r["hide_pct"], -r["n"]))
+    return rows[:limit]
+
+
+def _admin_usage(force=False):
+    """Behaviour rollup. Reads two small tables plus the already-warm job cache, so this costs
+    no more than a couple of round trips; the 5-minute cache is for the Python walk, not the IO."""
+    c = _admin_usage_cache
+    if not force and c["data"] is not None and time.time() - c["at"] < _ADMIN_USAGE_TTL:
+        return c["data"]
+
+    jobs = get_jobs()
+    by_url = {j.get("url"): j for j in jobs if j.get("url")}
+    flags = _all_user_jobs()
+    apps = _all_applications()
+
+    def _blank():
+        return {"liked": 0, "applied": 0, "hidden": 0}
+
+    per_user = collections.defaultdict(_blank)
+    per_company = collections.defaultdict(_blank)
+    per_host = collections.defaultdict(_blank)
+    scores = {s: [] for s in _STATUSES}
+    liked_company = collections.Counter()
+    per_user_company = collections.defaultdict(collections.Counter)
+    hidden_tokens = collections.Counter()
+    matched = 0
+
+    for row in flags:
+        st = (row.get("status") or "").strip()
+        if st not in _STATUSES:
+            continue
+        user, url = row.get("username") or "?", row.get("url") or ""
+        per_user[user][st] += 1
+        # Host comes straight off the URL, so this breakdown is COMPLETE — it still counts a
+        # posting whose job row the 30-day pruner has since removed. The company breakdown
+        # below needs the join and therefore can't be, which is why coverage is reported.
+        h = _host({"url": url})
+        if h:
+            per_host[h][st] += 1
+        j = by_url.get(url)
+        if not j:
+            continue
+        matched += 1
+        co = (j.get("company") or "").strip()
+        if co:
+            per_company[co][st] += 1
+            if st == "liked":
+                liked_company[co] += 1
+            per_user_company[user][co] += 1
+        try:
+            sc = int(j.get("match_score") or 0)
+        except Exception:
+            sc = 0
+        if sc > 0:
+            scores[st].append(sc)
+        if st == "hidden":
+            for tok in re.split(r"[^a-z0-9+#]+", (j.get("title") or "").lower()):
+                if len(tok) > 2 and tok not in _TITLE_STOP:
+                    hidden_tokens[tok] += 1
+
+    # Title-token lift: how much more often a word appears in what someone hid than in the
+    # corpus at large. A word at 3x+ is a filter or a scoring penalty waiting to be written.
+    corpus_tokens = collections.Counter()
+    for j in jobs:
+        for tok in set(re.split(r"[^a-z0-9+#]+", (j.get("title") or "").lower())):
+            if len(tok) > 2 and tok not in _TITLE_STOP:
+                corpus_tokens[tok] += 1
+    hid_total = sum(1 for r in flags if (r.get("status") or "") == "hidden") or 1
+    cor_total = len(jobs) or 1
+    token_lift = []
+    for tok, n in hidden_tokens.most_common(120):
+        if n < 3:
+            continue
+        base = corpus_tokens.get(tok, 0) / float(cor_total)
+        if base <= 0:
+            continue
+        token_lift.append({"tok": tok, "n": n, "lift": (n / float(hid_total)) / base,
+                           "corpus": corpus_tokens.get(tok, 0)})
+    token_lift.sort(key=lambda r: -r["lift"])
+
+    # Score distribution per action. This is the first honest read on whether the scoring engine
+    # predicts anything: if applied and hidden sit on the same median, the number is noise.
+    score_summary = []
+    for st in _STATUSES:
+        v = scores[st]
+        score_summary.append({"status": st, "n": len(v), "median": _median(v),
+                              "mean": (sum(v) / float(len(v))) if v else 0})
+
+    # Corpus supply vs revealed demand, both as 5 buckets, normalised to percentages so a
+    # 19k-row corpus and a 126-row flag set are comparable on the same axis.
+    def _hist(vals):
+        b = [0] * 5
+        for v in vals:
+            b[min(int(v), 100) // 20] += 1
+        tot = sum(b) or 1
+        return [100.0 * x / tot for x in b]
+
+    corpus_scores = []
+    for j in jobs:
+        try:
+            s = int(j.get("match_score") or 0)
+        except Exception:
+            s = 0
+        if s > 0:
+            corpus_scores.append(s)
+    supply_demand = {"labels": ["0-19", "20-39", "40-59", "60-79", "80-100"],
+                     "supply": _hist(corpus_scores),
+                     "demand": _hist(scores["liked"] + scores["applied"])}
+
+    # ---- applications: the only real timeline in the product ----
+    by_day = collections.Counter()
+    by_hour = collections.Counter()
+    by_dow = collections.Counter()
+    outcomes = collections.Counter()
+    resumes_used = collections.Counter()
+    apps_per_user = collections.Counter()
+    auto_logged = 0
+    for a in apps:
+        u = a.get("username") or "?"
+        apps_per_user[u] += 1
+        outcomes[(a.get("status") or "applied").strip() or "applied"] += 1
+        resumes_used[(a.get("resume_name") or "(none)").strip() or "(none)"] += 1
+        created = str(a.get("created_at") or "")
+        if len(created) >= 10:
+            by_day[created[:10]] += 1
+            try:
+                d = datetime.date.fromisoformat(created[:10])
+                by_dow[d.strftime("%a")] += 1
+            except Exception:
+                pass
+        # db._now() writes "%Y-%m-%d %H:%M"; Supabase's own default is ISO with a T.
+        if len(created) >= 13:
+            hh = created[11:13]
+            if hh.isdigit():
+                by_hour[int(hh)] += 1
+        # _autolog_application writes applied_date == the creation day with no notes; a row the
+        # user typed themselves almost always differs on one of those.
+        if (a.get("applied_date") or "")[:10] == created[:10] and not (a.get("notes") or "").strip():
+            auto_logged += 1
+
+    days = sorted(by_day.items())[-30:]
+    users = sorted(per_user.items(), key=lambda kv: -(kv[1]["liked"] + kv[1]["applied"]))
+
+    # Features nobody uses. Stated outright rather than left to be inferred from a table of
+    # zeros — "0% hide rate" across every company reads like a broken query, when what it
+    # actually means is that the Hide button has never been pressed. That is the more useful
+    # fact and it is the one the page should say.
+    totals = collections.Counter()
+    for v in per_user.values():
+        for st in _STATUSES:
+            totals[st] += v[st]
+    acted = sum(totals.values())
+    dead = []
+    if acted and not totals["liked"]:
+        dead.append({"what": "Like / Save",
+                     "detail": "Never used. All %s saved actions are applies." % acted,
+                     "sowhat": "The Liked tab and its filter are dead weight, and the Applied "
+                               "rows all came from the Apply link auto-logging. Either the "
+                               "button is not discoverable or people apply straight from the "
+                               "card without wanting a shortlist."})
+    if acted and not totals["hidden"]:
+        dead.append({"what": "Hide",
+                     "detail": "Never used. No job has been hidden by anyone.",
+                     "sowhat": "This is why the auto-filter tables below are empty. Hiding was "
+                               "meant to be the signal that teaches the feed what to stop "
+                               "showing; with none of it, the filters are the only control."})
+    if apps and auto_logged == len(apps):
+        dead.append({"what": "Manual application entry",
+                     "detail": "All %s applications were auto-logged from the feed; none were "
+                               "typed in." % len(apps),
+                     "sowhat": "The add/edit form on /applications is unused. Good news for the "
+                               "feed — it means people really do apply from here."})
+    advanced = sum(n for s, n in outcomes.items() if s not in ("applied", "saved"))
+    if apps and not advanced:
+        dead.append({"what": "Outcome tracking",
+                     "detail": "All %s applications are still at 'applied' — nothing has been "
+                               "moved to assessment, interview, offer or rejected." % len(apps),
+                     "sowhat": "The one metric that would measure real-world success is not "
+                               "being fed. Worth a nudge in the digest, or dropping the "
+                               "statuses entirely."})
+
+    out = {
+        "dead": dead, "totals": dict(totals),
+        "flag_rows": len(flags), "app_rows": len(apps),
+        "coverage": (100.0 * matched / len(flags)) if flags else 0.0,
+        "per_user": [{"user": u, "liked": v["liked"], "applied": v["applied"],
+                      "hidden": v["hidden"],
+                      "top": per_user_company[u].most_common(5)} for u, v in users],
+        "top_liked": liked_company.most_common(15),
+        "hide_company": _rate_table(per_company, min_events=3),
+        "hide_host": _rate_table(per_host, min_events=5),
+        "token_lift": token_lift[:15],
+        "scores": score_summary,
+        "supply_demand": supply_demand,
+        "apps_per_user": apps_per_user.most_common(),
+        "outcomes": [(s, outcomes.get(s, 0)) for s in APP_STATUSES if outcomes.get(s)],
+        "by_day": days, "by_day_max": max([n for _, n in days] or [1]),
+        "by_hour": [(h, by_hour.get(h, 0)) for h in range(24)],
+        "by_hour_max": max(list(by_hour.values()) or [1]),
+        "by_dow": [(d, by_dow.get(d, 0)) for d in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")],
+        # Weekday totals need their own scale — sizing those bars by the busiest single DAY
+        # makes a full week of applications look like a quiet one.
+        "by_dow_max": max(list(by_dow.values()) or [1]),
+        "resumes": resumes_used.most_common(8),
+        "auto_logged": auto_logged,
+    }
+    c["data"], c["at"] = out, time.time()
+    return out
+
+
+@app.route("/admin/usage")
+@admin_required
+def admin_usage():
+    """What the three accounts actually do, from data that already exists. No tracking code —
+    and therefore no history: see the caveats rendered at the top of the page."""
+    if request.args.get("refresh"):
+        get_jobs(force=True)
+        _admin_usage_cache["data"] = None
+        _admin_ev_cache["data"] = None
+        flash("Re-read the database.")
+        return redirect(url_for("admin_usage"))
+    return render_template("admin_usage.html", u=_admin_usage(), ev=_admin_ev(),
+                           evstats=analytics.stats())
+
+
+_ADMIN_EV_TTL = 300
+_admin_ev_cache = {"data": None, "at": 0.0}
+_EV_WINDOW = 30
+
+
+def _admin_ev(force=False):
+    """Tracked-behaviour panels, entirely from the ev_usage RPC.
+
+    Never pages the events table: PostgREST returns 1000 rows a request, so 60k events is 60
+    sequential round trips from shared cPanel for numbers Postgres computes in one. `have` is
+    False until SUPABASE_EVENTS_MIGRATION.sql is run, and the page says so rather than showing
+    a wall of zeroes that reads like the feature is broken.
+    """
+    c = _admin_ev_cache
+    if not force and c["data"] is not None and time.time() - c["at"] < _ADMIN_EV_TTL:
+        return c["data"]
+    raw = db.ev_usage(_EV_WINDOW) or {}
+    out = {"have": bool(raw), "days": _EV_WINDOW, "sql_file": db.EVENTS_SQL_FILE}
+    if raw:
+        f = raw.get("funnel") or {}
+        shown, opens = f.get("shown") or 0, f.get("opens") or 0
+        out.update({
+            "events": raw.get("events") or 0, "sessions": raw.get("sessions") or 0,
+            "users": raw.get("users") or 0,
+            "by_event": sorted((raw.get("by_event") or {}).items(), key=lambda kv: -kv[1]),
+            "routes": raw.get("by_route") or [],
+            "funnel": f,
+            "ctr": (100.0 * opens / shown) if shown else 0.0,
+            "open_apply": (100.0 * (f.get("applies") or 0) / opens) if opens else 0.0,
+            "by_score": raw.get("by_score") or [],
+            "top_co": raw.get("top_co") or [],
+            "filters": sorted((raw.get("filters") or {}).items(), key=lambda kv: -kv[1]),
+            "zero_q": raw.get("zero_q") or [],
+        })
+        # Filters nobody has touched in the window. The point of the panel is the ABSENCE —
+        # a filter at zero is UI debt, and only the full DEFAULT_PREFS list reveals it.
+        seen = {k for k, _ in out["filters"]}
+        out["unused_filters"] = [k for k in core.DEFAULT_PREFS
+                                 if k not in seen and k not in ("alerts", "alert_min")]
+        # Routes with no page_view at all. Every route reports itself via the after_request
+        # hook, so silence here is evidence rather than an oversight.
+        hit = {r.get("ep") for r in out["routes"]}
+        out["cold_routes"] = sorted(
+            rule.endpoint for rule in app.url_map.iter_rules()
+            if rule.endpoint not in hit and "GET" in (rule.methods or ())
+            and not rule.rule.startswith(("/api/", "/static"))
+            and rule.endpoint not in ("static", "healthz"))[:20]
+    c["data"], c["at"] = out, time.time()
+    return out
+
+
+# ---- /admin/users — account management --------------------------------------
+# The operations mirror manage_users.py exactly (get_user existence check -> create_user /
+# set_user_password / delete_user with auth.hash_password); this is the same logic behind a
+# form, not a second implementation of it.
+#
+# db.get_user() interpolates the username straight into a PostgREST `eq.` filter without
+# escaping, so a name containing a comma, quote or paren produces a nonsense filter rather
+# than a lookup. Cheaper to refuse those at the door than to fix every call site.
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{2,40}$")
+_MIN_PASSWORD = 12
+
+
+def _can_disable():
+    """Whether SUPABASE_ADMIN_MIGRATION.sql has been run. list_users' select ladder drops the
+    admin columns when they don't exist, so their absence from a row is the signal."""
+    m = _accounts() or {}
+    for row in m.values():
+        return "disabled_at" in row
+    return False
+
+
+def _admin_user_guard(target, action):
+    """Shared refusals for every mutating user route. Returns a reason, or "" to proceed."""
+    me = session.get("user") or ""
+    if not _USERNAME_RE.match(target or ""):
+        return "That username isn't valid (2-40 chars: letters, digits, dot, dash, underscore)."
+    if not (_accounts() or {}).get(target):
+        return "No such account: %s" % target
+    if action in ("disable", "delete") and target == me:
+        # One click would otherwise cost the only admin their own access, with no way back in
+        # short of the CLI.
+        return "You can't %s your own account." % action
+    if action == "delete" and len(_accounts() or {}) <= 1:
+        # Zero accounts is unrecoverable: with none left, _sole_user() returns "" and — unless
+        # ADMIN_USERS names someone who no longer exists — nobody can reach this page again.
+        return "That's the last account — deleting it would lock everyone out for good."
+    return ""
+
+
+@app.route("/admin/users")
+@admin_required
+def admin_users():
+    rows = []
+    for name, row in sorted((_accounts() or {}).items(), key=lambda kv: kv[1].get("created_at") or ""):
+        rows.append({"username": name,
+                     "created_at": (row.get("created_at") or "")[:16].replace("T", " "),
+                     "disabled_at": (row.get("disabled_at") or "")[:16].replace("T", " ")
+                                    if row.get("disabled_at") else "",
+                     "epoch": row.get("token_epoch") or 0,
+                     "is_admin": is_admin(name),
+                     "is_you": name == session.get("user")})
+    return render_template("admin_users.html", users=rows, can_disable=_can_disable(),
+                           admin_mode=("ADMIN_USERS" if _ADMIN_USERS else "sole-account"),
+                           min_password=_MIN_PASSWORD)
+
+
+@app.route("/admin/user/create", methods=["POST"])
+@admin_required
+def admin_user_create():
+    name = (request.form.get("username") or "").strip()
+    pw = request.form.get("password") or ""
+    if not _USERNAME_RE.match(name):
+        flash("That username isn't valid (2-40 chars: letters, digits, dot, dash, underscore).")
+    elif len(pw) < _MIN_PASSWORD:
+        flash("Password must be at least %d characters." % _MIN_PASSWORD)
+    elif db.get_user(name):
+        flash("User '%s' already exists — use Reset password instead." % name)
+    else:
+        ok, msg = db.create_user(name, auth.hash_password(pw))
+        flash("Created '%s'. They can sign in now." % name if ok else msg)
+        _accounts(force=True)
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/user/password", methods=["POST"])
+@admin_required
+def admin_user_password():
+    name = (request.form.get("username") or "").strip()
+    pw = request.form.get("password") or ""
+    bad = _admin_user_guard(name, "reset")
+    if bad:
+        flash(bad)
+    elif len(pw) < _MIN_PASSWORD:
+        flash("Password must be at least %d characters." % _MIN_PASSWORD)
+    else:
+        try:
+            db.set_user_password(name, auth.hash_password(pw))
+            _resume_cache.pop(name, None)          # the cached résumé was keyed to the old login
+            flash("Password reset for '%s'." % name)
+        except Exception as e:
+            flash("Couldn't reset that password — %s" % e)
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/user/disable", methods=["POST"])
+@admin_required
+def admin_user_disable():
+    name = (request.form.get("username") or "").strip()
+    on = (request.form.get("on") or "") in ("1", "true", "yes", "on")
+    bad = _admin_user_guard(name, "disable" if on else "enable")
+    if bad:
+        flash(bad)
+    else:
+        try:
+            db.set_user_disabled(name, on)
+            if on:
+                # Disabling without this leaves the extension token working, which is the
+                # larger of the two doors — it is CORS-open and needs no cookie.
+                db.bump_token_epoch(name)
+            _accounts(force=True)
+            flash("%s '%s'.%s" % ("Disabled" if on else "Re-enabled", name,
+                                  " Their session ends on their next request and their "
+                                  "extension token is revoked." if on else
+                                  " They'll need a new extension token from their profile."))
+        except Exception as e:
+            flash("Couldn't change that — has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/user/revoke_token", methods=["POST"])
+@admin_required
+def admin_user_revoke_token():
+    name = (request.form.get("username") or "").strip()
+    bad = _admin_user_guard(name, "revoke")
+    if bad:
+        flash(bad)
+    else:
+        try:
+            db.bump_token_epoch(name)
+            _accounts(force=True)
+            flash("Revoked '%s' extension tokens. They can copy a new one from their profile."
+                  % name)
+        except Exception as e:
+            flash("Couldn't revoke that — has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/user/delete", methods=["GET", "POST"])
+@admin_required
+def admin_user_delete():
+    """GET previews (counts only, nothing removed); POST applies and requires the username
+    typed back. Two routes' worth of behaviour on one rule, but the split that matters —
+    no GET can delete — is preserved: the GET branch never calls delete_user without dry_run.
+    """
+    name = (request.args.get("username") or request.form.get("username") or "").strip()
+    bad = _admin_user_guard(name, "delete")
+    if bad:
+        flash(bad)
+        return redirect(url_for("admin_users"))
+
+    try:
+        counts = db.delete_user(name, dry_run=True)
+    except Exception as e:
+        flash("Couldn't read what that would delete — %s" % e)
+        return redirect(url_for("admin_users"))
+
+    if request.method == "GET":
+        return render_template("admin_confirm.html", name=name, counts=counts,
+                               total=sum(counts.values()))
+
+    if (request.form.get("confirm") or "").strip() != name:
+        flash("Type the username exactly to confirm.")
+        return redirect(url_for("admin_user_delete", username=name))
+    try:
+        removed = db.delete_user(name)
+    except Exception as e:
+        flash("Delete failed partway — the account was left in place. (%s)" % e)
+        return redirect(url_for("admin_users"))
+    _accounts(force=True)
+    _resume_cache.pop(name, None)
+    _status_cache.pop(name, None)
+    _profile_cache.pop(name, None)
+    flash("Deleted '%s'. Rows removed: %s" % (
+        name, ", ".join("%s %d" % (t, n) for t, n in sorted(removed.items()) if n) or "none"))
+    return redirect(url_for("admin_users"))
+
+
+# ---- destructive data actions (/admin/data) ---------------------------------
+# Hard ceiling on one web-initiated delete. Above this the route refuses and points at
+# scripts/prune_stale.py, so even a bug in the preview cannot wipe the corpus from a browser.
+ADMIN_DELETE_MAX = int(os.environ.get("ADMIN_DELETE_MAX", "5000") or 5000)
+_PLAN_TTL = 15 * 60
+
+
+def _require_supabase():
+    """"" when it's safe to touch data, else the reason to refuse.
+
+    Every db.* function silently falls through to a local *_local.json / jobs.csv when
+    using_supabase() is false, and most of those files do not exist on the deployed box. So
+    with Supabase briefly unreachable a delete would walk an empty local file, report
+    "0 removed", and leave the real rows untouched. Reading that as "there was nothing to
+    delete" is precisely how you delete the wrong thing on the retry, so destructive actions
+    refuse rather than no-op. The count probe doubles as the liveness check.
+    """
+    if not db.using_supabase():
+        return ("No Supabase credentials are configured. Refusing to run against the local-file "
+                "fallback — nothing here would touch the real database.")
+    if db.table_count(db.TABLE) is None:
+        return ("Can't reach Supabase right now. Refusing to run a destructive action — "
+                "try again in a moment.")
+    return ""
+
+
+def _bust_job_caches():
+    """Everything derived from the job rows, after they change under us."""
+    get_jobs(force=True)
+    _score_cache.clear()
+    _rows_cache.clear()
+    _sponsor_cache.clear()
+    _admin_stats_cache["data"] = None
+    _admin_usage_cache["data"] = None
+    _admin_db_cache["data"] = None
+    _admin_health_cache["data"] = None
+
+
+def _build_plan(mode, company="", urls=()):
+    """What a delete would remove, computed fresh against the current corpus.
+
+    Flagged rows (liked / applied / hidden by anyone) are separated out and KEPT — that
+    protection is not overridable from the web UI at all. The escape hatch is
+    scripts/prune_stale.py --include-flagged, which needs shell access, and that is the right
+    amount of friction for "delete something a user is tracking".
+    """
+    jobs = get_jobs()
+    flagged = db.all_flagged_urls()
+    if mode == "company":
+        key = db.block_key(company)
+        match = [j for j in jobs if key and db.block_key(j.get("company") or "") == key]
+    else:
+        want = {u.strip() for u in urls if u.strip()}
+        match = [j for j in jobs if j.get("url") in want]
+    doomed = [j for j in match if j.get("url") not in flagged]
+    protected = [j for j in match if j.get("url") in flagged]
+    # One employer reaches us under several labels — the Workday case-sensitivity bug stored
+    # the same postings as both "Amat" and "Applied Materials". Offer every distinct string so
+    # a block covers the aliases too, rather than blocking one spelling and looking broken.
+    labels = collections.Counter((j.get("company") or "").strip() for j in match)
+    return {"mode": mode, "company": company,
+            "urls": [j.get("url") for j in doomed] if mode == "urls" else [],
+            "n": len(doomed), "protected": len(protected), "matched": len(match),
+            "labels": labels.most_common(),
+            "samples": [{"title": (j.get("title") or "")[:70],
+                         "company": (j.get("company") or "")[:40],
+                         "date": db.row_age_date(j) or "—",
+                         "url": j.get("url") or ""} for j in doomed[:20]],
+            "after": len(jobs) - len(doomed)}
+
+
+@app.route("/admin/jobs/preview", methods=["POST"])
+@admin_required
+def admin_jobs_preview():
+    """Compute and show what a delete would remove. Never deletes anything."""
+    bad = _require_supabase()
+    if bad:
+        flash(bad)
+        return redirect(url_for("admin_data"))
+    mode = "company" if (request.form.get("company") or "").strip() else "urls"
+    company = (request.form.get("company") or "").strip()
+    urls = [u for u in re.split(r"[\s,]+", request.form.get("urls") or "") if u.startswith("http")]
+    if mode == "urls" and not urls:
+        flash("Give a company name, or paste at least one job URL.")
+        return redirect(url_for("admin_data"))
+    plan = _build_plan(mode, company, urls[:ADMIN_DELETE_MAX])
+    if not plan["n"]:
+        flash("Nothing matched%s — %d row(s) matched but every one is liked/applied/hidden and "
+              "is protected." % (" '%s'" % company if company else "", plan["protected"])
+              if plan["matched"] else
+              "Nothing matched%s." % (" '%s'" % company if company else ""))
+        return redirect(url_for("admin_data"))
+    if plan["n"] > ADMIN_DELETE_MAX:
+        flash("That would delete %s rows, over the %s cap for a browser-initiated delete. "
+              "Use scripts/prune_stale.py for something that large."
+              % ("{:,}".format(plan["n"]), "{:,}".format(ADMIN_DELETE_MAX)))
+        return redirect(url_for("admin_data"))
+
+    # The plan lives in the signed session, not the database: it is ~200 bytes of filter (not
+    # the URL list), it is already scoped to this admin and unforgeable, and there is no row to
+    # clean up afterwards. Apply re-derives the actual URLs from the filter, so protection and
+    # counts are always evaluated against the corpus as it stands at that moment.
+    session["del_plan"] = {"mode": mode, "company": company, "urls": plan["urls"],
+                           "n": plan["n"], "at": int(time.time())}
+    confirm = company if mode == "company" else "DELETE %d JOBS" % plan["n"]
+    return render_template("admin_delete_confirm.html", plan=plan, confirm=confirm)
+
+
+@app.route("/admin/jobs/apply", methods=["POST"])
+@admin_required
+def admin_jobs_apply():
+    """Delete, and optionally block. Requires all four of: a valid CSRF token (enforced in
+    admin_required), an unexpired plan, the typed confirmation string, and a live Supabase."""
+    bad = _require_supabase()
+    if bad:
+        flash(bad)
+        return redirect(url_for("admin_data"))
+    plan = session.get("del_plan") or {}
+    if not plan or time.time() - (plan.get("at") or 0) > _PLAN_TTL:
+        flash("That confirmation expired — start again so the counts are current.")
+        return redirect(url_for("admin_data"))
+
+    fresh = _build_plan(plan["mode"], plan.get("company", ""), plan.get("urls") or [])
+    expected = plan.get("company") if plan["mode"] == "company" else "DELETE %d JOBS" % plan["n"]
+    if (request.form.get("confirm") or "").strip() != expected:
+        flash("Type the confirmation exactly as shown.")
+        return redirect(url_for("admin_data"))
+    # A scrape landing between preview and apply changes what you agreed to. Refuse rather
+    # than delete a different set than the one on the screen.
+    if fresh["n"] != plan["n"]:
+        session.pop("del_plan", None)
+        flash("The corpus changed since that preview (%d rows now, %d then) — nothing was "
+              "deleted. Preview again." % (fresh["n"], plan["n"]))
+        return redirect(url_for("admin_data"))
+
+    actor = session.get("user") or "?"
+    target = plan.get("company") or "%d urls" % plan["n"]
+    audit_id = db.audit_log(actor, "jobs.delete", target, 0,
+                            {"planned": plan["n"], "protected": fresh["protected"],
+                             "sample": [s["url"] for s in fresh["samples"][:10]]})
+    try:
+        removed = db.delete_urls(_plan_urls(fresh), remote_only=True)
+    except Exception as e:
+        db.audit_update(audit_id, 0, {"error": str(e)[:300]})
+        flash("Delete failed — %s" % e)
+        return redirect(url_for("admin_data"))
+    db.audit_update(audit_id, removed)
+
+    blocked_msg = ""
+    if (request.form.get("block") or "") in ("1", "true", "yes", "on"):
+        names = request.form.getlist("label") or ([plan["company"]] if plan.get("company") else [])
+        added = [n for n in names if n.strip() and db.add_blocked(n, "deleted from admin", actor)]
+        if added:
+            db.audit_log(actor, "company.block", ", ".join(added)[:200], len(added))
+            blocked_msg = (" Blocked %s from future scrapes." % ", ".join(added))
+    session.pop("del_plan", None)
+    _bust_job_caches()
+    flash("Deleted %s job%s.%s%s" % ("{:,}".format(removed), "" if removed == 1 else "s",
+                                     blocked_msg,
+                                     " %d protected row(s) were kept." % fresh["protected"]
+                                     if fresh["protected"] else ""))
+    return redirect(url_for("admin_data"))
+
+
+def _plan_urls(plan):
+    """The URL list a plan resolves to right now — re-derived, never carried over from the
+    preview, so flagged protection is re-evaluated against current data."""
+    jobs = get_jobs()
+    flagged = db.all_flagged_urls()
+    if plan["mode"] == "company":
+        key = db.block_key(plan.get("company") or "")
+        return [j["url"] for j in jobs
+                if j.get("url") and j["url"] not in flagged
+                and key and db.block_key(j.get("company") or "") == key]
+    want = set(plan.get("urls") or [])
+    return [u for u in want if u not in flagged]
+
+
+@app.route("/admin/block", methods=["POST"])
+@admin_required
+def admin_block():
+    """Add or remove a company blocklist entry without deleting anything."""
+    actor = session.get("user") or "?"
+    remove = (request.form.get("remove") or "").strip()
+    if remove:
+        db.remove_blocked(remove)
+        db.audit_log(actor, "company.unblock", remove, 1)
+        flash("Unblocked. It can be scraped again from the next run.")
+    else:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("Give a company name to block.")
+        elif db.add_blocked(name, (request.form.get("reason") or "").strip(), actor):
+            db.audit_log(actor, "company.block", name, 1)
+            flash("Blocked '%s'. Existing rows stay until you delete them; no new ones will be "
+                  "added." % name)
+        else:
+            flash("Couldn't save that — has SUPABASE_ADMIN_MIGRATION.sql been run?")
+    return redirect(url_for("admin_data"))
+
+
 @app.route("/action", methods=["POST"])
 @login_required
 def action():
     url = request.form.get("url", "")
     status = request.form.get("status", "")          # liked|hidden|applied|'' (clear)
+    user = session["user"]
     try:
-        db.set_user_status(session["user"], url, status)
-        _status_cache.pop(session["user"], None)     # reflect the change on the next feed render
+        prev = user_statuses(user).get(url, "")
+    except Exception:
+        prev = ""
+    try:
+        db.set_user_status(user, url, status)
+        _status_cache.pop(user, None)                # reflect the change on the next feed render
         if status == "applied":
-            _autolog_application(session["user"], url)
+            _autolog_application(user, url)
+        # via='form' is how this route earns its keep or gets deleted: nothing in app.js, any
+        # template, or the extension references it. Thirty days of zero and it can go.
+        _ev_action(user, url, prev, status, "form")
     except Exception:
         flash("Couldn't save that action — try again.")
     return redirect(request.referrer or url_for("feed"))
@@ -1909,23 +3360,94 @@ def application_resume():
 
 
 # ----------------------------- profile + Chrome-extension API -----------------------------
-def _ext_token(username):
-    """A stable per-user token for the browser extension (HMAC of the username with the
-    app secret). No DB storage needed; we re-derive + compare to validate."""
-    sig = hmac.new(str(app.secret_key).encode(), ("ext:" + username).encode(),
-                   hashlib.sha256).hexdigest()[:32]
+def _ext_token(username, epoch=None):
+    """A stable per-user token for the browser extension (HMAC of the username with the app
+    secret). No DB storage needed; we re-derive + compare to validate.
+
+    users.token_epoch is folded into the signed message so the token can be REVOKED — bumping
+    the epoch changes the message and every token issued at the old value stops verifying.
+    That is the only revocation available for a derived token.
+
+    Epoch 0 deliberately keeps the ORIGINAL message shape ("ext:<user>", no suffix), so
+    shipping this does not invalidate the tokens already pasted into installed extensions. The
+    first revocation moves that user to epoch 1 and their old tokens die then, not on deploy.
+    """
+    if epoch is None:
+        epoch = (_account_state(username) or {}).get("token_epoch") or 0
+    try:
+        epoch = int(epoch or 0)
+    except Exception:
+        epoch = 0
+    msg = "ext:%s" % username if not epoch else "ext:%s|%d" % (username, epoch)
+    sig = hmac.new(str(app.secret_key).encode(), msg.encode(), hashlib.sha256).hexdigest()[:32]
     return "%s:%s" % (username, sig)
 
 
 def _ext_user(token):
-    """Username for a valid extension token, else None."""
+    """Username for a valid extension token, else None.
+
+    The HMAC is verified FIRST and the account state only afterwards, so an unauthenticated
+    caller spraying tokens at the CORS-open /api/ext/* routes can never make us touch the
+    account cache — only a token that already proves knowledge of the secret gets that far.
+    """
     token = (token or "").strip()
     if ":" not in token:
         return None
     username = token.rsplit(":", 1)[0]
-    if username and hmac.compare_digest(_ext_token(username), token):
-        return username
-    return None
+    if not (username and hmac.compare_digest(_ext_token(username), token)):
+        return None
+    st = _account_state(username)
+    if st is None or st.get("disabled_at"):
+        return None
+    return username
+
+
+@app.route("/profile/tracking", methods=["POST"])
+@login_required
+def profile_tracking():
+    """The usage-tracking opt-out, on its own route rather than folded into the profile form.
+
+    /profile's POST rebuilds every text column from the submitted fields, so a small form that
+    only carried the checkbox would save empty strings over the user's name, email, address and
+    the rest. Separate route, separate payload, nothing else touched.
+    """
+    if not _check_csrf():
+        flash("That form expired — reload and try again.")
+        return redirect(url_for("profile"))
+    user = session["user"]
+    try:
+        extra = (db.get_profile(user) or {}).get("extra")
+        if isinstance(extra, str):
+            extra = json.loads(extra or "{}")
+        if not isinstance(extra, dict):
+            extra = {}
+    except Exception:
+        extra = {}
+    off = bool(request.form.get("ev_off"))
+    extra["ev_off"] = off
+    ok, msg = db.save_profile(user, {"extra": json.dumps(extra)})
+    analytics._optout["at"] = 0.0            # take effect now, not in five minutes
+    flash("Usage recording is now %s for your account." % ("off" if off else "on")
+          if ok else "Couldn't save that — " + msg[:120])
+    return redirect(url_for("profile"))
+
+
+@app.route("/profile/revoke_token", methods=["POST"])
+@login_required
+def profile_revoke_token():
+    """Let a user revoke their OWN extension tokens. Needing an admin to rotate a credential
+    you leaked yourself is the kind of friction that means it doesn't get done."""
+    if not _check_csrf():
+        flash("That form expired — reload and try again.")
+        return redirect(url_for("profile"))
+    try:
+        db.bump_token_epoch(session["user"])
+        _accounts(force=True)
+        flash("Old tokens revoked. Paste the new one below into the extension.")
+    except Exception:
+        flash("Couldn't revoke that token — the database may need "
+              "SUPABASE_ADMIN_MIGRATION.sql run first.")
+    return redirect(url_for("profile"))
 
 
 def _cors(resp):
@@ -1972,8 +3494,15 @@ def profile():
         prof = db.get_profile(user) or {}
     except Exception:
         prof = {}
+    extra = prof.get("extra")
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra or "{}")
+        except Exception:
+            extra = {}
     return render_template("profile.html", prof=prof, token=_ext_token(user),
                            timeline=core.visa_timeline(prof),
+                           ev_off=bool((extra or {}).get("ev_off")),
                            prefs=core.normalize_prefs(prof.get("search_prefs")))
 
 
@@ -2545,9 +4074,15 @@ def ext_bulk_jobs():
     except Exception:
         seen = set()
 
+    # The OTHER way jobs enter the table. Without the same blocklist check the scraper has, a
+    # blocked company walks straight back in through the extension and the block looks broken.
+    # Deliberately not pushed down into db.add_jobs(): that would put a blocklist read in every
+    # write path, including the scorer's score upserts.
+    blocked = db.blocked_company_keys()
+
     kept, scanned = [], 0
     # Tally WHY jobs were dropped — when an import adds 0, this is the diagnosis.
-    dropped = {"dup": 0, "title": 0, "us": 0, "bad": 0}
+    dropped = {"dup": 0, "title": 0, "us": 0, "bad": 0, "blocked": 0}
     # Already-imported jobs that still have NO stored description: re-running an import
     # returns them as needs_jd so the extension can backfill their JDs (a first import
     # may have failed mid-fetch, or predates JD support).
@@ -2583,8 +4118,11 @@ def ext_bulk_jobs():
         if not scraper.is_us_location(loc):                     # US-only (blank/unknown is kept)
             dropped["us"] += 1
             continue
-        seen.add(url)
         company = (j.get("company") or "").strip()[:200]
+        if blocked and db.block_key(company) in blocked:
+            dropped["blocked"] += 1
+            continue
+        seen.add(url)
         spons = "unknown"
         if sidx is not None and company:
             spons = "yes" if scraper.sponsors_h1b(company, sidx) else "no"

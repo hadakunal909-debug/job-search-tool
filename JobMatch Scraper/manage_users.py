@@ -39,8 +39,8 @@ def main(argv):
         if db.get_user(username):
             print("User '%s' already exists. Use 'passwd' to change the password." % username)
             return
-        db.create_user(username, auth.hash_password(password))
-        print("Created user '%s'. They can now log in." % username)
+        ok, msg = db.create_user(username, auth.hash_password(password))
+        print("Created user '%s'. They can now log in." % username if ok else msg)
 
     elif cmd == "passwd" and len(argv) == 3:
         username, password = argv[1], argv[2]
@@ -52,8 +52,9 @@ def main(argv):
 
     elif cmd == "remove" and len(argv) == 2:
         username = argv[1]
-        db.delete_user(username)
-        print("Removed user '%s' (and their saved jobs)." % username)
+        removed = db.delete_user(username)
+        print("Removed user '%s'. Rows deleted: %s"
+              % (username, ", ".join("%s=%d" % kv for kv in sorted(removed.items())) or "none"))
 
     elif cmd == "resume" and len(argv) == 3:
         username, path = argv[1], argv[2]

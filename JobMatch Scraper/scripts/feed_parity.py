@@ -583,10 +583,15 @@ def check_routes(rows, statuses, cases):
     still reporting a job count, and /api/group has to hand back exactly the rows a tile stands
     for. Walking every page and reassembling them is the only way to see that end to end.
     """
-    orig = (web.ranked_rows, web.user_statuses, web.current_profile)
+    orig = (web.ranked_rows, web.user_statuses, web.current_profile, web._accounts)
     web.ranked_rows = lambda u, r: rows
     web.user_statuses = lambda u: statuses
     web.current_profile = lambda: "parity harness profile"
+    # login_required re-checks that the signed-in account still exists and isn't disabled, so a
+    # synthetic "parity" user is now correctly bounced to /login and every route returns 302.
+    # That app behaviour is deliberate; the harness just has to present an account that exists,
+    # the same way it already presents rows and statuses.
+    web._accounts = lambda force=False: {"parity": {"username": "parity"}}
     fails = 0
     try:
         web.app.config["TESTING"] = True
@@ -665,7 +670,7 @@ def check_routes(rows, statuses, cases):
                           % (note, gk, len(rest), len(want_rest)))
                     fails += 1
     finally:
-        web.ranked_rows, web.user_statuses, web.current_profile = orig
+        web.ranked_rows, web.user_statuses, web.current_profile, web._accounts = orig
     print("routes:     %s" % ("/api/feed + /api/group agree with the units"
                               if not fails else "%d failure(s)" % fails))
     return fails

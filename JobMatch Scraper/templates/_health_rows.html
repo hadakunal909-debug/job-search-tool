@@ -1,0 +1,16 @@
+{# Server-rendered health rows. The JS in admin_data.html builds the same markup from
+   /admin/health.json, so a cached result and a freshly-run one look identical. #}
+<table class="adm-t">
+  <tbody>
+  {% for c in health %}
+    <tr>
+      <td style="width:1%"><span class="pill {{ 'ok' if c.state == 'pass' else ('run' if c.state == 'warn' else 'bad') }}">{{ c.state }}</span></td>
+      <td>
+        <b>{{ c.name }}</b><br>
+        <span class="muted">{{ c.detail }}</span>
+        {% if c.state != 'pass' and c.fix %}<br><span class="muted">Fix: {{ c.fix }}</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>

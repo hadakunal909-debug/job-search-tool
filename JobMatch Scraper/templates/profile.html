@@ -149,9 +149,39 @@
 {% endif %}
 
 <div class="tokbox">
+  <b>Usage data</b>
+  <p class="dim">
+    So the app can be improved, it records what you do in it: which pages you open, which jobs
+    are shown to you and which ones you open, save, apply to or hide, the match score each one
+    had, and which filters you set. It is recorded <b>against your username</b> — this is not
+    anonymous — and kept for 90 days, after which only daily totals remain.
+  </p>
+  <p class="dim">
+    It does <b>not</b> record your IP address, your browser, your location, your résumé or
+    profile details, your application notes, or any of your answers to the voluntary
+    demographic questions. Searches are only stored when they returned no results, because
+    that tells us what the job feed is missing.
+  </p>
+  <form method="post" action="{{ url_for('profile_tracking') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label class="blockrow">
+      <input type="checkbox" name="ev_off" value="1" {{ 'checked' if ev_off }}>
+      <span>Don't record my usage</span>
+    </label>
+    <button class="btn sm" type="submit" style="margin-top:8px">Save preference</button>
+  </form>
+</div>
+
+<div class="tokbox">
   <b>Browser extension</b>
   <p class="dim">Install the JobMatch Helper extension to <b>tailor your résumé and auto-fill applications</b> with one click — on Greenhouse, Lever, Ashby, and more. Paste this token into the extension; it links the extension to your account, so keep it private:</p>
   <div class="tok">{{ token }}</div>
   <p class="dim">Install: get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code> → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in <code>extension/README.md</code>.</p>
+  <form method="post" action="{{ url_for('profile_revoke_token') }}" class="inline">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <button class="btn sm danger" type="submit">Revoke this token</button>
+  </form>
+  <p class="dim">If you've pasted this somewhere you shouldn't have, revoking makes it stop
+  working immediately. A new token appears here straight away — paste that into the extension.</p>
 </div>
 {% endblock %}
