@@ -1580,12 +1580,19 @@ INCLUDE = (
     # --- Product ---
     "product manager", "associate product manager", "product owner",
     "product analyst", "product coordinator", "product operations",
+    # "product management" as well as "product manager" — the matcher is whole-word, so the
+    # two are different strings, and project/program above already list both forms. Without
+    # it, "Product Management - Technical (Ads)" and every "<Level>, Product Management"
+    # title missed entirely. NOT "product development": measured, it pulls hardware
+    # ("Product Development Engineer, Annapurna Labs Silicon").
+    "product management",
     # product strategy family (PM-adjacent; product-scoped so it avoids the
     # marketing "brand/content/media strategist" noise that bare "strategist" pulls).
     "product strategist", "product strategy",
     # --- Coordination / operations / analyst (related domain) ---
     "operations coordinator", "operations manager", "operations analyst",
     "operations specialist", "operations associate", "business operations",
+    "operations management",
     "business analyst", "data analyst",
     "implementation", "implementation manager", "implementation specialist",
     "delivery manager", "engagement manager",
@@ -1602,6 +1609,11 @@ INCLUDE = (
     # can't drag a Mechanical Engineering Intern in through the side door.
     "software engineer", "software developer", "software engineering", "software development",
     "software development engineer", "sde", "swe", "programmer", "programmer analyst",
+    # Amazon writes it ABBREVIATED — "Software Dev Engineer II" — which matches neither
+    # "software development engineer" nor the acronym. Whole-word matching meant 178 SDE
+    # postings on one board were being dropped as "no matching role keyword", i.e. the
+    # single most on-target software title at the employer with the most openings.
+    "software dev engineer", "software dev",
     "application engineer", "applications engineer", "application developer",
     "applications developer", "systems analyst", "computer science",
     # web / front-end / back-end / full-stack / mobile
@@ -1626,7 +1638,7 @@ INCLUDE = (
     "machine learning engineer", "machine learning", "ml engineer", "mlops",
     "ai engineer", "ai/ml engineer", "ai developer", "artificial intelligence",
     "deep learning", "nlp engineer", "computer vision", "prompt engineer",
-    "data scientist", "applied scientist", "machine learning scientist",
+    "data scientist", "data science", "applied scientist", "machine learning scientist",
     "data engineer", "data engineering", "analytics engineer", "big data",
     "etl engineer", "business intelligence", "bi analyst",
     "database administrator", "dba", "database engineer", "database developer",
@@ -1651,11 +1663,31 @@ INCLUDE = (
     "summer analyst", "summer associate",
 )
 # ...but drop it if the title ALSO matches any of these.
+# Seniority markers, deliberately NOT part of EXCLUDE any more (2026-08-08).
+#
+# They say "wrong LEVEL", which is a different claim from the rest of EXCLUDE's "wrong
+# FIELD" — and because the exclude check runs FIRST and vetoes unconditionally, a single
+# seniority word used to override a perfectly on-target role. "Principal Product Manager
+# Tech, eShop" at Amazon was dropped on the word "Principal" despite "product manager"
+# being one of the résumé's own search terms.
+#
+# Dropping the veto is safe because the keep rule already requires an INCLUDE match, so a
+# genuinely off-target senior title still fails on its own: "Chief Financial Officer"
+# matches no role keyword, and "Principal Mechanical Engineer" is still caught by
+# "mechanical" below. Measured on Amazon's 4,064 postings: 163 titles were vetoed by a
+# seniority word, and only 66 of those become keeps — +2.6% against 2,513 already kept.
+#
+# The right place to express "too senior for me" is the FEED's experience filter, which
+# reads years-required out of the JD and can be changed without a re-scrape. This gate is
+# permanent: a title dropped here is never stored, so it can never be reconsidered.
+# Re-adding this tuple to EXCLUDE restores the old behaviour exactly.
+EXCLUDE_SENIORITY = ("principal", "head", "director", "vp", "vice president", "chief",
+                     "iv", "expert")
+
 EXCLUDE = (
-    # Seniority markers — only CLEARLY senior ones now. The wider net intentionally KEEPS
-    # mid-level roles, so "senior", "sr", "lead", "staff", "ii", "iii" were dropped from here
-    # (a "Senior Analyst" / "Analyst II" now passes). Add them back to re-tighten to junior-only.
-    "principal", "head", "director", "vp", "vice president", "chief", "iv", "expert", "architect",
+    # "architect" stays here rather than in EXCLUDE_SENIORITY: it names a different JOB
+    # (solutions/enterprise architect), not a level of the target ones.
+    "architect",
     # Clearly off-target functions. NOTE (2026-08-01): "engineer", "developer" and
     # "scientist" USED to be here — they were removed when the software-engineering
     # block was added to INCLUDE, since a bare "engineer" drops "Software Engineer"
@@ -4303,7 +4335,7 @@ def title_verdict(title):
     shows exactly why each title survived or was dropped — makes tuning easy."""
     bad = _EXCLUDE_RE.search(title)
     if bad:
-        return False, "looks senior/off-target ('%s')" % bad.group(0)
+        return False, "off-target function ('%s')" % bad.group(0)
     good = _INCLUDE_RE.search(title)
     if good:
         return True, "matched '%s'" % good.group(0)
@@ -4794,7 +4826,7 @@ def main():
     _progress(len(sources), len(sources), len(scraped), phase="saving", force=True)
 
     kept = []
-    tally = {"already known": 0, "senior/off-target title": 0,
+    tally = {"already known": 0, "off-target function title": 0,
              "no matching role keyword": 0, "non-US location": 0,
              "posted over %d days ago" % MAX_AGE_DAYS: 0}
     age_cutoff = ((datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS)).isoformat()
@@ -4806,7 +4838,7 @@ def main():
             continue                       # already in jobs.csv from a past run
         keep, why = title_verdict(j["title"])
         if not keep:
-            tally["senior/off-target title" if why.startswith("looks senior")
+            tally["off-target function title" if why.startswith("off-target")
                   else "no matching role keyword"] += 1
         elif US_ONLY and not is_us_location(j.get("location", "")):
             keep, why = False, "non-US location (%s)" % (j.get("location") or "n/a")
