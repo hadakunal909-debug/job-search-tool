@@ -5,29 +5,32 @@ name: Scrape jobs
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
 #
-# SCHEDULE: 2 feed updates per WEEKDAY — 10am and 2pm ET — and nothing on Sat/Sun.
-# That's 2 x ~22 = ~44 scheduled runs a month, down from the previous 3-a-day-every-day
-# (~90), so it sits well inside the free 2,000 Actions-minutes/month.
+# SCHEDULE: 2 feed updates per WEEKDAY — 12pm and 4pm ET — and nothing on Sat/Sun.
+# That's 2 x ~22 = ~44 scheduled runs a month, so it sits well inside the free
+# 2,000 Actions-minutes/month.
 #
 # GitHub cron is UTC and does NOT track DST, so these two fixed UTC times are exactly
-# 10am/2pm ET during EDT (Mar-Nov) and land an hour earlier — 9am/1pm ET — under EST.
-# Accepted drift: a job feed does not care, and the alternative (extra cron entries at
-# 15/19 UTC gated by the Eastern hour) burns billed minutes on no-op runs to buy an hour.
+# 12pm/4pm ET during EDT (Mar-Nov) and land an hour earlier — 11am/3pm ET — under EST.
+# Accepted drift: a job feed does not care, and the alternative (extra cron entries gated
+# by the Eastern hour) burns billed minutes on no-op runs to buy back that hour.
 # Both times stay on the same UTC calendar day as the ET day, so 1-5 really is Mon-Fri
 # either side of the DST switch — no run leaks onto Saturday or Sunday.
 #
 # Day-of-week is written 1-5 rather than MON-FRI purely because the numeric form is
 # unambiguous in every cron parser. Sunday is 0.
 #
-# The heavy score/verify/email pass runs on the morning run each weekday, PLUS the Friday
-# afternoon run so a Friday PM batch is scored and emailed before the weekend instead of
-# waiting until Monday. That's ~26 heavy passes a month. The gate step below decides, keyed
-# off the Eastern hour and weekday rather than the cron line. Manual dispatch always does
-# the full pass. Nothing at all runs Sat/Sun, so the digest is weekdays only.
+# The heavy verify/email pass runs on the midday run each weekday, PLUS the Friday
+# afternoon run so a Friday PM batch is emailed before the weekend instead of waiting
+# until Monday. That's ~26 heavy passes a month. The gate step below decides, keyed off
+# the Eastern hour and weekday rather than the cron line. Manual dispatch always does the
+# full pass. Nothing at all runs Sat/Sun, so the digest is weekdays only.
+#
+# (Scoring is NOT part of that split — it runs on both, because an unscored job is
+# invisible to the match filter. Only the second run scores in cheap new-only mode.)
 on:
   schedule:
-    - cron: "0 14 * * 1-5"      # 10am ET Mon-Fri (9am under EST) — the heavy pass runs here
-    - cron: "0 18 * * 1-5"      #  2pm ET Mon-Fri (1pm under EST) — feed refresh only
+    - cron: "0 16 * * 1-5"      # 12pm ET Mon-Fri (11am under EST) — the heavy pass runs here
+    - cron: "0 20 * * 1-5"      #  4pm ET Mon-Fri ( 3pm under EST) — feed refresh + new-only scoring
   workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
@@ -39,9 +42,12 @@ jobs:
     runs-on: ubuntu-latest          # Linux = 1x minute billing (Windows is 2x, macOS 10x)
     timeout-minutes: 45             # hard cap so a stuck run can never silently drain the budget
     steps:
-      - uses: actions/checkout@v4
+      # v5/v6 rather than v4/v5: the older majors ship a Node 20 entrypoint, which the
+      # runners now force onto Node 24 with a deprecation warning and will eventually stop
+      # running at all. These majors target Node 24 natively; nothing else about them changed.
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip                                        # reuse the pip download cache
@@ -54,16 +60,21 @@ jobs:
           D=$(TZ=America/New_York date +%u)           # Eastern day of week, 1=Mon .. 7=Sun
           RUN=yes; HEAVY=no
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            # "Before noon Eastern" == the morning run, which does the once-a-day heavy pass.
-            # Deliberately a noon boundary rather than an exact hour: the 14:00 UTC cron lands
-            # at 10am ET under EDT and 9am under EST, and the 18:00 UTC one at 2pm/1pm, so this
-            # test picks the right run of the day without caring which side of DST we are on.
-            if [ "$H" -lt 12 ]; then HEAVY=yes; fi
+            # 2pm Eastern splits the day's two runs. Deliberately a boundary BETWEEN them
+            # rather than an exact hour, because the cron times are fixed UTC and the ET hour
+            # they land on shifts with DST: the 16:00 UTC run is 12pm ET under EDT and 11am
+            # under EST, and the 20:00 UTC one is 4pm/3pm. Every one of those four hours falls
+            # on the correct side of 14, so this picks the right run without caring about DST.
+            #
+            # NOTE the boundary must sit strictly between the two — an earlier version tested
+            # `-lt 12`, which was correct only while the first run was at 10am. Moving that run
+            # to 12pm would have put it exactly ON the boundary and quietly turned the daily
+            # heavy pass off. If the cron times change again, move this number too.
+            if [ "$H" -lt 14 ]; then HEAVY=yes; fi
             # ...plus Friday afternoon. There is no weekend run, so without this anything the
-            # Friday PM scrape finds sits unscored — score_pending on the card, invisible to the
-            # match filter, and absent from the digest — until Monday morning. One extra heavy
-            # pass a week buys a scored, emailed Friday batch.
-            if [ "$D" = "5" ] && [ "$H" -ge 12 ]; then HEAVY=yes; fi
+            # Friday PM scrape finds goes un-verified and unemailed until Monday. One extra
+            # heavy pass a week buys a digested Friday batch.
+            if [ "$D" = "5" ] && [ "$H" -ge 14 ]; then HEAVY=yes; fi
           else
             HEAVY=yes                                   # manual / app-button run: full pass
           fi
@@ -73,10 +84,19 @@ jobs:
 
       - name: Install dependencies
         if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 6
         run: pip install -r requirements.txt
 
+      # Every step below carries its OWN timeout-minutes as well as a budget passed to the
+      # script. The job-level cap alone was not enough: when a step overran, the runner
+      # killed the whole JOB, so the log said only "exceeded the maximum execution time"
+      # with no indication of which step was responsible, and — worse — the steps that had
+      # not run yet were simply lost. A per-step cap fails the step that actually misbehaved
+      # and lets the rest of the pipeline continue.
       - name: Scrape new jobs into Supabase
+        id: scrape
         if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 26
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -95,26 +115,101 @@ jobs:
           # ~90s — negligible against the scrape, and it compounds every weekday. The window
           # rotates by day-of-year, which is what makes it work on a stateless runner.
           DISCOVER_LIMIT: "60"
+          # Board sweep sizing. MEASURED 2026-08-08 over the full 1,266-board list: 16.0 min
+          # at 16 workers (Workday is two thirds of the cost, ~30s a board across 240
+          # boards). The budget is therefore slack rather than a throttle — roughly a third
+          # of headroom over the measured time. It binds only once auto-discovery has grown
+          # the list enough to need it, and when it binds it says so in the log and still
+          # saves every board fetched up to that point.
+          #
+          # If it starts binding regularly, raise SCRAPE_BUDGET_MIN and this step's
+          # timeout-minutes together, and check the job still fits in 45 overall.
+          SCRAPE_WORKERS: "16"
+          SCRAPE_BUDGET_MIN: "22"
         run: python -m scraper
 
-      - name: Score + verify dates + alerts (once a day / on manual run)
-        if: steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+      # Split into three steps, from one. They used to be three `python -m` lines in a
+      # single step, which meant the digest was hostage to the two passes in front of it:
+      # verify_dates ran past the job cap, the runner killed the job, and `notify` — the
+      # only step that produces something the user actually sees — never ran at all. As
+      # separate steps each one is timed and reported on its own, and the digest still goes
+      # out when an upstream pass fails or runs out of budget.
+      # Runs on EVERY scrape, not just the heavy pass. A job with no fetched JD scores 0 and
+      # renders as "JD pending" (core._MIN_JD_CHARS -> web._build_row's score_pending), which
+      # means it is invisible to the match-score filter and worthless in the digest. Scoring
+      # only in the morning therefore left everything the afternoon scrape found sitting
+      # unusable until the next day — the Friday-afternoon special case in the gate above
+      # exists solely to patch the worst instance of that, over the weekend.
+      #
+      # The fetch cap is what makes this affordable twice a day: the heavy run still grinds
+      # the standing backlog, while the afternoon run takes a small bite, which is enough to
+      # cover the postings that run just found. JDs persist in chunks as they are fetched, so
+      # neither pass has to finish to make progress.
+      - name: Score jobs
+        if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 14
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}    # for the JD backfill on Adzuna ads
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
-          # Safety valve: fetch at most this many missing JDs per run so the pass always
-          # finishes inside the timeout. JDs persist incrementally, so a large backlog just
-          # drains over a few days instead of a timed-out run banking nothing.
-          SCORE_MAX_FETCH: "3000"
+          SCORE_MAX_FETCH: ${{ steps.gate.outputs.heavy == 'yes' && '3000' || '800' }}
+          # Wall-clock stop for the JD fetch, for the same reason verify_dates has one: the
+          # count cap does not bound the clock. A measured pass tried 2,640 detail fetches and
+          # got 8 usable JDs back — the other 2,632 were dead or blocked URLs that each still
+          # cost a timeout, so "3,000 fetches" can mean almost any duration. JDs persist in
+          # chunks as they arrive, so stopping early always keeps what it got.
+          SCORE_BUDGET_MIN: ${{ steps.gate.outputs.heavy == 'yes' && '9' || '5' }}
+          # The midday run re-analyzes the whole corpus, which is also what picks up any
+          # résumé edit since yesterday. The 4pm run scores only what it just pulled — same
+          # IDF, same result for those jobs, without re-deriving ~20k rows and upserting
+          # every score to bank a few hundred changes.
+          # 'no'/'yes' rather than '0'/'1' on purpose. GitHub's `a && b || c` is not a real
+          # ternary — it returns the first truthy operand — so a true-branch value that casts
+          # to false silently yields the FALSE branch instead. '0' is exactly the value where
+          # that is arguable, and getting it wrong here would invert the modes and quietly
+          # retire the daily full re-score. Two plainly non-empty strings can't misbehave;
+          # the Python side treats only 1/true/yes as on.
+          SCORE_NEW_ONLY: ${{ steps.gate.outputs.heavy == 'yes' && 'no' || 'yes' }}
+        run: python -m scraper.score_jobs
+
+      # Real posting dates -> posted_verified. The lookup service allows 60 requests a
+      # minute per IP and the script paces itself just under that, so throughput is ~54/min
+      # NO MATTER how many workers are used and the only question is how many rows are
+      # queued. At ~7.6k queued that is over two hours of calls, which is how this step came
+      # to eat a 45-minute job whole. It now stops at VERIFY_BUDGET_MIN and banks its work;
+      # the queue shrinks every run because a row the service cannot date is recorded as
+      # such instead of being asked about again forever.
+      #
+      # continue-on-error: a date backfill is an enhancement to rows that already display
+      # fine. It must never be the reason the digest below doesn't send.
+      - name: Verify posting dates (budgeted)
+        if: steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          VERIFY_BUDGET_MIN: "8"
+        run: python -m scraper.verify_dates --workers 24
+
+      # Naming a status function (!cancelled()) is what stops GitHub applying its default
+      # "skip if any earlier step failed" — which is the behaviour that has to go, since a
+      # stumble in scoring or date-verification should not silently cost the user their
+      # email. The scrape's own outcome is then checked explicitly: the digest describes
+      # THIS run's new jobs, so if the sweep didn't finish there is nothing honest to send.
+      - name: Email the digest (once a day / on manual run)
+        if: >-
+          steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+          && steps.scrape.outcome == 'success' && !cancelled()
+        timeout-minutes: 6
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
-        run: |
-          python -m scraper.score_jobs
-          python -m scraper.verify_dates --workers 24   # real posting dates -> posted_verified
-          python -m scraper.notify
+        run: python -m scraper.notify

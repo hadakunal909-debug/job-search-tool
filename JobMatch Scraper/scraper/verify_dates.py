@@ -14,20 +14,38 @@ posting date of exactly those jobs and writes it to a SEPARATE column, `posted_v
 so the original `found_date` and the "New" (pulled-today) badge are left untouched. The
 web feed prefers `posted_verified` when present and falls back to `found_date`.
 
-INCREMENTAL / RESUMABLE: only jobs that are derived/fallback AND not already verified are
+INCREMENTAL / RESUMABLE: only jobs that are derived/fallback AND not already ANSWERED are
 checked, so re-running (e.g. as the 3rd step after `scraper` + `score_jobs`) just picks up
 the new ones.
 
+"Answered" means answered EITHER WAY. A row the service dated is skipped because
+posted_verified is set; a row it looked at and could not date confidently is skipped
+because posted_confidence records that verdict. Recording only the wins is what let this
+step run forever: an undatable URL came back into the candidate list on every single run,
+and since the answer for a given URL never changes, those calls could only ever be spent
+again to be thrown away again. With ~7.6k candidates against the rate ceiling below that
+is ~2.4 HOURS of calls inside a 45-minute CI job — the step never returned, so the digest
+that runs after it never sent. Pass --all to re-ask anyway.
+
 Each lookup is latency-bound (~3-5s — the service fetches the live ATS page), so we run
 several in PARALLEL but let only one START every SPACING seconds: global throughput stays
-~54/min, safely under the service's 60 req/min/IP cap, regardless of worker count.
+~54/min, safely under the service's 60 req/min/IP cap, regardless of worker count. That
+ceiling is the reason this step needs a WALL-CLOCK BUDGET rather than trusting the backlog
+to be small: throughput is fixed, so the only thing that decides whether it finishes is how
+many rows are waiting. --budget-min stops cleanly and banks everything checked so far.
+
+Candidates are ordered NEWEST FIRST. Under a budget the tail is what gets dropped, and a
+stale row is both the least useful to date (nobody is applying to it) and the most likely
+to be pruned out of the table before the next run reaches it anyway.
 
     python -m scraper.verify_dates                # backfill derived/fallback dates
     python -m scraper.verify_dates --limit 20     # cap calls this run (chunked backfill)
+    python -m scraper.verify_dates --budget-min 8 # stop after 8 minutes, bank what's done
     python -m scraper.verify_dates --workers 6    # parallel lookups (default 6)
     python -m scraper.verify_dates --dry-run -v   # call the API, print, write nothing
     python -m scraper.verify_dates --all          # re-check EVERY job (ignore the filter)
 """
+import os
 import re
 import sys
 import time
@@ -47,7 +65,26 @@ SPACING = 1.1                          # seconds between dispatches -> ~54/min (
 TIMEOUT = 120                          # the service recommends a 120s timeout
 BATCH = 50                             # flush DB writes every N accepted rows
 WORKERS = 6                            # parallel lookups; the gate below keeps the rate safe
+BUDGET_MIN = 0                         # 0 = no wall-clock limit; CI sets VERIFY_BUDGET_MIN
 _ISO = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+# Notes THIS FILE produces when the call itself failed, so we never got the service's
+# opinion. Those rows stay candidates and are retried next run; anything else is the service
+# having ANSWERED, and its answer for a fixed URL is stable, so it gets recorded once and
+# never asked again.
+#
+# Matched exactly / by a punctuated prefix rather than by bare words, because the other
+# notes in this field are the service's own free-text `reason`. Testing for "http" or
+# "error" as loose prefixes would silently reclassify a reason like "error parsing the
+# posting" as transient — and a row wrongly called transient is retried on every run
+# forever, which is the exact failure this whole mechanism exists to stop.
+_TRANSIENT_EXACT = {"rate_limited", "bad-json", "budget"}
+_TRANSIENT_PREFIX = ("error:", "http:")
+
+
+def _is_transient(note):
+    note = note or ""
+    return note in _TRANSIENT_EXACT or note.startswith(_TRANSIENT_PREFIX)
 
 # Global dispatch gate: only one request may START per SPACING seconds, across all threads,
 # so the in-flight parallelism hides per-call latency without ever exceeding the 60/min cap.
@@ -84,14 +121,28 @@ def _is_clean_api_date(found_date):
 
 
 def _candidates(rows, do_all):
+    """Rows still worth a lookup, NEWEST FIRST.
+
+    Two resumable skips, and the second one is what keeps the backlog finite: a row the
+    service already answered "can't date this" for carries that verdict in
+    posted_confidence, and asking again would spend a rate-limited call to receive the
+    same answer. --all ignores that and re-asks. Rows we DID date are skipped either way.
+    """
     out = []
     for r in rows:
         if not r.get("url"):
             continue
-        if (r.get("posted_verified") or "").strip():     # already verified -> resumable skip
+        if (r.get("posted_verified") or "").strip():     # already dated -> resumable skip
             continue
+        if not do_all and (r.get("posted_confidence") or "").strip():
+            continue                                     # already answered, unusably -> skip
         if do_all or not _is_clean_api_date(r.get("found_date")):
             out.append(r)
+    # Newest first. found_date is ISO-prefixed in both shapes we store ('YYYY-MM-DD' and
+    # 'YYYY-MM-DD HH:MM'), so a plain string sort is a date sort. Matters because --limit
+    # and --budget-min both drop the TAIL: spend the run's calls on the postings someone
+    # might actually apply to, not on rows the 30-day prune is about to delete.
+    out.sort(key=lambda r: (r.get("found_date") or ""), reverse=True)
     return out
 
 
@@ -136,8 +187,22 @@ def check(url):
     return "", "", "rate_limited"
 
 
+_deadline = [0.0]                      # 0 = unlimited; set from --budget-min / env
+
+
+def _out_of_time():
+    return bool(_deadline[0]) and time.time() >= _deadline[0]
+
+
 def _work(r):
-    """Pool task: wait for a dispatch slot, then look the job up. -> (row, date, conf, note)."""
+    """Pool task: wait for a dispatch slot, then look the job up. -> (row, date, conf, note).
+
+    The budget is checked BEFORE the dispatch gate, so once time is up the rest of the
+    queue drains instantly instead of each task sleeping its way to the front. 'budget'
+    is a transient note: nothing is recorded, and the row is a candidate again next run.
+    """
+    if _out_of_time():
+        return r, "", "", "budget"
     _gate()
     return (r,) + check(r["url"])
 
@@ -161,24 +226,46 @@ def main():
         except (ValueError, IndexError):
             print("--workers needs an integer, e.g. --workers 6")
             return
+    # Wall-clock budget. Throughput here is FIXED by the rate gate (~54/min), so a backlog
+    # of any size translates directly into minutes and there is no amount of tuning that
+    # makes a big one fit. CI passes a budget so this step returns on time and the notify
+    # step after it actually runs; the rest of the backlog drains next run.
+    budget_min = BUDGET_MIN
+    try:
+        budget_min = float(os.environ.get("VERIFY_BUDGET_MIN") or BUDGET_MIN)
+    except ValueError:
+        budget_min = BUDGET_MIN
+    if "--budget-min" in argv:
+        try:
+            budget_min = float(argv[argv.index("--budget-min") + 1])
+        except (ValueError, IndexError):
+            print("--budget-min needs a number of minutes, e.g. --budget-min 8")
+            return
+    _deadline[0] = (time.time() + budget_min * 60) if budget_min > 0 else 0.0
 
     if not dry:
         _ensure_columns()
 
     rows = db.load_jobs(include_jd=False)
     cands = _candidates(rows, do_all)
+    queued = len(cands)                           # backlog BEFORE --limit trims it
     if limit is not None:
         cands = cands[:limit]
     n = len(cands)
     where = "Supabase" if db.using_supabase() else "jobs.csv"
-    print("%d jobs total; %d to verify (%s)%s, %d workers -> %s"
+    budget = ("%g min budget" % budget_min) if budget_min > 0 else "no budget"
+    print("%d jobs total; %d to verify (%s)%s, %d workers, %s -> %s"
           % (len(rows), n, "--all" if do_all else "derived/fallback",
-             " [DRY RUN]" if dry else "", workers, where))
+             " [DRY RUN]" if dry else "", workers, budget, where))
+    # The rate gate makes this arithmetic, not an estimate — worth printing every run so a
+    # backlog that has grown past the budget is visible in the log before it is a problem.
+    print("  backlog %d row(s); at the ~%.0f/min ceiling the whole queue is %.0f min of calls."
+          % (queued, 60.0 / SPACING, queued / (60.0 / SPACING)))
     if not cands:
         print("Nothing to verify.")
         return
 
-    pending, accepted, skipped, errors = [], 0, 0, 0
+    pending, accepted, skipped, errors, unspent = [], 0, 0, 0, 0
     t0 = time.time()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
@@ -189,10 +276,20 @@ def main():
                 accepted += 1
                 if verbose:
                     print("  OK   %-6s %s  %s" % (conf, date, url))
+            elif note == "budget":
+                unspent += 1                      # never dispatched; still a candidate next run
+                continue                          # (no progress line — these drain in bulk)
             else:
                 skipped += 1
-                if note.startswith(("error", "http", "rate", "bad")):
-                    errors += 1
+                if _is_transient(note):
+                    errors += 1                   # the CALL failed -> retry next run
+                else:
+                    # The service answered and its answer is unusable ('low' confidence, or
+                    # no date at all). That verdict is a property of the URL, so record it
+                    # and stop paying for it every run. `or "none"` because a bare skip can
+                    # come back with an empty confidence, and an empty string would read as
+                    # "never asked" and put the row straight back in the queue.
+                    pending.append({"url": url, "posted_confidence": conf or "none"})
                 if verbose:
                     print("  skip %-6s %-12s %s" % (conf or "-", note or "no-date", url))
 
@@ -210,8 +307,12 @@ def main():
         db.update_job_fields(pending)
 
     verb = "would verify" if dry else "verified"
-    print("Done. %s %d, skipped %d (%d errors) -> %s."
-          % (verb, accepted, skipped, errors, where))
+    print("Done in %.1f min. %s %d, skipped %d (%d transient errors, retried next run) -> %s."
+          % ((time.time() - t0) / 60, verb, accepted, skipped, errors, where))
+    if unspent:
+        print("  Budget reached: %d of %d left unchecked. They stay queued — next run starts "
+              "there, and it is a SHORTER list because this one recorded its answers."
+              % (unspent, n))
 
 
 if __name__ == "__main__":

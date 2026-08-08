@@ -290,7 +290,13 @@ def _save_actions(a):
 _FEED_COLS_CORE = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
 _FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
                   "salary_min", "salary_max", "salary_period",
-                  "is_active", "last_seen", "miss_count", "first_seen")
+                  "is_active", "last_seen", "miss_count", "first_seen",
+                  # The feed never shows this one; verify_dates reads it through
+                  # load_jobs() to skip URLs the dating service already gave up on.
+                  # Last in the tuple = first dropped by the fallback below, and losing
+                  # it only costs that skip (the step re-asks), so it is the safest
+                  # column to add here.
+                  "posted_confidence")
 _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 

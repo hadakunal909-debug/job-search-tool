@@ -19,6 +19,7 @@ import time
 import random
 import socket
 import ipaddress
+import threading
 import concurrent.futures
 import re
 import datetime
@@ -1781,7 +1782,13 @@ def _make_session():
                   allowed_methods=frozenset({"GET", "POST", "HEAD"}),
                   respect_retry_after_header=True)
     s = requests.Session()
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=16, pool_maxsize=16)
+    # Sized for the scrape's worker count, not below it. pool_connections is how many
+    # per-HOST pools stay cached — the board list spans ~1,200 hosts, so a small number
+    # evicts pools constantly and pays a fresh TLS handshake per board. pool_maxsize is
+    # connections WITHIN one host's pool, and it has to cover the workers that can land on
+    # the same host at once: 408 of the boards are on job-boards.greenhouse.io alone, and a
+    # too-small pool there logs "Connection pool is full" and discards live connections.
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=64, pool_maxsize=32)
     s.mount("https://", adapter)
     s.mount("http://", adapter)
     return s
@@ -2992,6 +2999,15 @@ def scrape_ultipro(board_url):
 
 # ---- SAP SuccessFactors Career Site Builder (jobs.<co>.com style sites) ----
 CSB_MAX_ROWS = 2000
+# The sitemap fallback needs a MUCH tighter cap than the table path, because the two cost
+# wildly different amounts for the same number of rows: the results table returns 25 rows
+# per request (2,000 rows = 80 requests), while the sitemap has to open one page PER
+# POSTING (2,000 rows = 2,000 requests, plus a politeness sleep between each). At ~0.5s a
+# page that is a board that occupies a worker for twenty-plus minutes on its own — long
+# enough to outlast the scrape's whole budget, since a board already in flight is left to
+# finish. These sites are also the rare ones, so the cap costs coverage on few boards.
+CSB_SITEMAP_MAX_ROWS = 400
+CSB_SITEMAP_MAX_SEC = 180              # ...and stop after this long regardless
 
 
 def _csb_date(s):
@@ -3040,7 +3056,13 @@ def _csb_sitemap_rows(base):
     else:
         cands = locs
     rows = []
-    for u in cands[:CSB_MAX_ROWS]:
+    window = cands[:CSB_SITEMAP_MAX_ROWS]
+    stop_at = time.monotonic() + CSB_SITEMAP_MAX_SEC
+    for u in window:
+        if time.monotonic() >= stop_at:
+            note_truncation(base, len(rows), CSB_SITEMAP_MAX_ROWS, len(cands),
+                            detail="sitemap crawl hit its %ds time cap" % CSB_SITEMAP_MAX_SEC)
+            return rows
         try:
             jr = _safe_get(u, timeout=20)
         except Exception:
@@ -3081,6 +3103,9 @@ def _csb_sitemap_rows(base):
                 pass
         rows.append(row)
         time.sleep(random.uniform(0.1, 0.3))
+    if len(cands) > len(window):        # the row cap, not the clock, is what stopped us
+        note_truncation(base, len(rows), CSB_SITEMAP_MAX_ROWS, len(cands),
+                        detail="sitemap crawl (one request per posting)")
     return rows
 
 
@@ -4424,7 +4449,67 @@ def append_jobs(rows, path=OUTPUT_CSV):
 # ORCHESTRATOR  — the scraper itself
 # ============================================================
 
-def scrape_all(sources, workers=8, progress=None, board_results=None):
+def _env_num(name, default, cast=float):
+    """Numeric env override that can't take the whole module down. These are read at IMPORT
+    time, so a typo in a CI variable would otherwise raise before anything runs — including
+    the web app, which imports this module just to list boards."""
+    try:
+        return cast(os.environ.get(name) or default)
+    except (TypeError, ValueError):
+        print("  (ignoring bad %s=%r, using %s)" % (name, os.environ.get(name), default))
+        return cast(default)
+
+
+# Concurrent board fetches. These are independent hosts and the work is almost entirely
+# waiting on the network, so this is the cheapest knob there is.
+#
+# MEASURED 2026-08-08, full 1,266-board sweep: 16.0 min at 16 workers. Note that the sum of
+# per-board times is ~10,100 worker-seconds, which divides out to 10.6 min — the extra five
+# are packing loss, and they are not recoverable by adding workers. The sweep ends with a
+# long straggler (one Avature board alone runs 335s) and a worker that picks one up near the
+# end holds the whole sweep open while the others idle. So treat throughput as sublinear in
+# this number: 8 -> 16 was a real win, 16 -> 32 mostly would not be.
+SCRAPE_WORKERS = _env_num("SCRAPE_WORKERS", 16, int)
+# Wall-clock safety net for the whole board sweep, in minutes. 0 = unlimited.
+#
+# This is NOT the throttle that decides how long a run takes — at the default worker count
+# the sweep lands well inside it and the budget never binds. It exists because the board
+# list GROWS on its own (auto-discovery adds employers every weekday), so "fits today" is
+# not a property that stays true, and the failure mode when it stops being true is the
+# worst one available: the CI job is killed at its hard timeout, mid-sweep, having saved
+# nothing and having skipped the scoring and email steps that run afterwards.
+#
+# Binding this budget instead costs a slice of one run's board coverage and says so in the
+# log. Keep it comfortably under the job's timeout-minutes so the steps AFTER the scrape
+# still have room to run.
+SCRAPE_BUDGET_MIN = _env_num("SCRAPE_BUDGET_MIN", 22)
+# Concurrent fetches allowed against any ONE host. Worker count alone is the wrong control
+# here because boards are not evenly spread across hosts: 408 of them are on
+# job-boards.greenhouse.io, 128 on jobs.smartrecruiters.com, 113 on jobs.ashbyhq.com, and
+# every Adzuna entry is the same rate-limited API key against api.adzuna.com. Raising
+# workers without this would raise the peak load on exactly those few hosts.
+#
+# It costs the sweep nothing: the shared-host boards are the FAST ones (greenhouse ~0.5s),
+# so even 400 of them at 4-wide is under a minute, and the critical path is Workday, which
+# gives every tenant its own subdomain and so is never gated by this at all.
+SCRAPE_PER_HOST = _env_num("SCRAPE_PER_HOST", 4, int)
+
+
+def _host_key(url, ats_type):
+    """Which rate-limited thing this board actually talks to.
+
+    Usually the URL's host. The Adzuna entries are not URLs — they are selectors like
+    'adzuna:Tesla' — so they fall back to the ATS name, with the '-search' variant folded
+    in because 'adzuna' and 'adzuna-search' are two ways of querying ONE API key.
+    """
+    try:
+        host = urlparse(url or "").netloc.lower()
+    except Exception:
+        host = ""
+    return host or (ats_type or "").lower().replace("-search", "")
+
+
+def scrape_all(sources, workers=None, progress=None, board_results=None, budget_min=None):
     """Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes
     a few minutes, not ~30. One bad source never stops the run. `progress(done, total,
     found)` is called after each board finishes (used to drive the in-page progress bar).
@@ -4432,15 +4517,36 @@ def scrape_all(sources, workers=8, progress=None, board_results=None):
     Pass `board_results` (a list) to also collect per-board outcomes as dicts
     {entry, ok, urls} — reconcile_closed() needs to know which board a URL came from and
     whether that board's fetch actually succeeded.
+
+    Stops STARTING boards once `budget_min` is spent and returns what it has. Boards
+    already in flight are left to finish; they are bounded by their own request timeouts.
     """
+    workers = workers or SCRAPE_WORKERS
+    budget = SCRAPE_BUDGET_MIN if budget_min is None else budget_min
+    deadline = (time.monotonic() + budget * 60) if budget and budget > 0 else 0
+    gates, gates_lock = {}, threading.Lock()
+
+    def _gate_for(key):
+        with gates_lock:
+            g = gates.get(key)
+            if g is None:
+                g = gates[key] = threading.Semaphore(max(1, SCRAPE_PER_HOST))
+            return g
+
     def _one(entry):
         url, ats_type, company = entry
+        # Out of time: return without touching the network. A skipped board reports ok=False
+        # below, which is what we want — it was not fetched, so the closed-posting check must
+        # not read its silence as "these postings are gone".
+        if deadline and time.monotonic() >= deadline:
+            return entry, company, None, None
         fn = SCRAPERS.get(ats_type)
         if fn is None:
             return entry, company, None, "unknown ats_type '%s'" % ats_type
         try:
-            time.sleep(random.uniform(0, 1.0))          # small stagger so we don't burst one API
-            rows = fn(url)
+            with _gate_for(_host_key(url, ats_type)):   # cap the load on any one host
+                time.sleep(random.uniform(0, 1.0))      # small stagger so we don't burst one API
+                rows = fn(url)
             for r in rows:
                 r.setdefault("company", company)        # keep a per-row company if the scraper set
                                                          # one (aggregator search spans many firms)
@@ -4450,14 +4556,15 @@ def scrape_all(sources, workers=8, progress=None, board_results=None):
 
     all_jobs = []
     total = len(sources) if hasattr(sources, "__len__") else 0
-    done = 0
+    done = out_of_time = 0
+    t0 = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         for entry, company, rows, err in ex.map(_one, sources):  # results come back in source order
             done += 1
             if err is not None:
                 print(f"  FAIL {company:<26} {err}")
             elif rows is None:
-                print(f"  SKIP {company:<26}")
+                out_of_time += 1                         # budget spent; not fetched, not failed
             else:
                 all_jobs.extend(rows)
                 print(f"  OK   {company:<26} {len(rows):>3} postings")
@@ -4470,6 +4577,15 @@ def scrape_all(sources, workers=8, progress=None, board_results=None):
                     progress(done, total, len(all_jobs))
                 except Exception:
                     pass
+    mins = (time.monotonic() - t0) / 60
+    if out_of_time:
+        print("\n  !! %d of %d board(s) SKIPPED — the %g-minute scrape budget ran out at %.1f min."
+              % (out_of_time, total, budget, mins))
+        print("     Everything fetched before that is saved as usual, and the skipped boards are"
+              " read again next run.\n     Raise SCRAPE_BUDGET_MIN or SCRAPE_WORKERS if this keeps"
+              " happening — it means the board list has outgrown the run.")
+    else:
+        print("\n  Swept %d board(s) in %.1f min with %d workers." % (total, mins, workers))
     return all_jobs
 
 
