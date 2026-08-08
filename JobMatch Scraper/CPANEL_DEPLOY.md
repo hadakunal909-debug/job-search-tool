@@ -4,7 +4,12 @@ This runs the app as a **Flask web app** under cPanel **"Setup Python App"**, wi
 **scraper on a cron job**. Data stays in **Supabase**. Your Streamlit/Render version
 keeps working separately — these don't interfere.
 
-App URL: **stemjobs.astrochakra.co** · Python app root: **`stemjobs`**
+App URL: **stemjobs1.astrochakra.co** · Python app root: **`stemjobs`**
+
+> The original **stemjobs**.astrochakra.co account was suspended around 2026-07-21 and the
+> app moved to **stemjobs1** under a different cPanel user. `.cpanel.yml` now derives the
+> target from `$HOME`, so it follows whichever account owns the repo and won't need editing
+> if this happens again — only the folder name (`stemjobs`) is hardcoded.
 
 ---
 
@@ -14,8 +19,12 @@ App URL: **stemjobs.astrochakra.co** · Python app root: **`stemjobs`**
 `stemjobs` → Extract.
 
 The `stemjobs` folder must contain: `passenger_wsgi.py`, `web.py`, `core.py`, `db.py`,
-`auth.py`, `scraper/` (the whole package — includes `score_jobs.py`, `notify.py`), `templates/`, `static/`, `requirements-cpanel.txt`,
+`auth.py`, `analytics.py`, `scraper/` (the whole package — includes `score_jobs.py`, `notify.py`), `templates/`, `static/`, `requirements-cpanel.txt`,
 `idf.json`, `careers_us.md`, `sponsors.txt`, `resume.txt`.
+
+(`analytics.py` is imported by `web.py`. The import is defensive, so a bundle missing it
+loses usage tracking rather than the whole site — but it should be there. Both `.cpanel.yml`
+and `scripts/build_deploy_zip.py` list it.)
 
 ## 2. Create `.env` (credentials)
 In File Manager, inside `stemjobs`, make a file named **`.env`**:
