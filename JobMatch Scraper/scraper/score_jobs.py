@@ -646,6 +646,9 @@ def main():
     row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
     row_date = {r["url"]: (r.get("found_date") or "") for r in rows if r.get("url")}
     row_loc = {r["url"]: (r.get("location") or "") for r in rows if r.get("url")}
+    # When the row entered OUR database, which is not found_date — that one is the
+    # employer's posting date and can be weeks old on a job we first saw an hour ago.
+    row_seen = {r["url"]: (r.get("first_seen") or "") for r in rows if r.get("url")}
     missing = {u for u, jd in row_jd.items() if not jd or full}
     stored = len(row_jd) - len(missing)
 
@@ -681,8 +684,26 @@ def main():
                 cap = int(_a.split("=", 1)[1])
             except Exception:
                 pass
-    if cap and len(missing) > cap:
-        missing = set(sorted(missing)[:cap])
+    # NEWEST FIRST, and this ordering is the whole point rather than a nicety.
+    #
+    # Both the cap below and the time budget above cut the TAIL off this list, and the list
+    # used to be sorted by URL — so what survived was whatever happened to sort early, and
+    # the fetch budget was spent alphabetically from abbott.wd5.myworkdayjobs.com onward.
+    # With ~3.6k missing against a 3,000 cap that left ~646 URLs with no attempt at all,
+    # chosen by hostname, while jobs scraped an hour earlier waited behind a backlog of old
+    # ones. A failed fetch also records nothing, so a URL we can never read (closed posting,
+    # bot-walled host) re-enters this queue every single run — one measured pass attempted
+    # 2,640 and got 8 usable JDs back. Ordering by recency is what stops that backlog
+    # starving today's postings: the dead weight sinks to the tail, where the budget cuts it.
+    #
+    # There is deliberately no "give up on this URL" flag, which would need a new column and
+    # a manual migration. It isn't needed: the 30-day prune evicts these rows anyway, so the
+    # graveyard is self-limiting, and the time budget bounds what it can cost meanwhile.
+    order = sorted(missing, key=lambda u: (row_seen.get(u) or "", row_date.get(u) or ""),
+                   reverse=True)
+    if cap and len(order) > cap:
+        order = order[:cap]
+    missing = set(order)
     print("%d jobs: %d JDs stored, %d to fetch this run%s%s."
           % (len(row_jd), stored, len(missing), " (--full refetch)" if full else "",
              " (capped)" if cap else ""))
@@ -754,8 +775,13 @@ def main():
                     return u, "", ""
                 return detail_jd(u)
 
+            # Newest first here too. The cap decides WHICH urls are in play; this decides the
+            # order they are attempted in, and the time budget can stop the run part-way
+            # through — so alphabetical order would hand the same starvation back at a
+            # different stage. `order` is already recency-sorted; re-filter rather than
+            # re-sort so the bulk phase's hits drop out.
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                for u, jd, date in ex.map(_detail, sorted(missing)):
+                for u, jd, date in ex.map(_detail, [u for u in order if u in missing]):
                     if jd:                  # a failed fetch must never blank a stored JD
                         fetched[u] = jd
                         buf[u] = jd
