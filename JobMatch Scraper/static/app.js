@@ -733,7 +733,11 @@
     var wasOpen = "0";
     try { wasOpen = localStorage.getItem("jm_fpanel") || "0"; } catch (err) { wasOpen = "0"; }
     setPanel(wasOpen === "1");
-    fmoreBtn.addEventListener("click", function () { setPanel(!rail.classList.contains("open")); });
+    fmoreBtn.addEventListener("click", function () {
+      var opening = !rail.classList.contains("open");
+      EV("filter_panel", { open: opening });
+      setPanel(opening);
+    });
   }
 
   // ---- collapse the whole rail to a strip (desktop) ----
@@ -750,8 +754,12 @@
     var railWas = "0";
     try { railWas = localStorage.getItem("jm_railcollapsed") || "0"; } catch (err) { railWas = "0"; }
     setRail(railWas === "1");
-    if (railCollapseBtn) railCollapseBtn.addEventListener("click", function () { setRail(true); });
+    if (railCollapseBtn) railCollapseBtn.addEventListener("click", function () {
+      EV("rail", { open: false });
+      setRail(true);
+    });
     if (railExpandBtn) railExpandBtn.addEventListener("click", function () {
+      EV("rail", { open: true });
       setRail(false);
       var f = document.getElementById("q");        // land focus somewhere useful on reopen
       if (f) f.focus({ preventScroll: true });
@@ -761,6 +769,10 @@
   // ---- "Clear" — reset every NARROWING filter, leaving search text and track alone ----
   var clearBtn = document.getElementById("clearfilters");
   if (clearBtn) clearBtn.addEventListener("click", function () {
+    // Captured BEFORE the resets: how many filters were stacked when someone gave up is the
+    // interesting number. A high value means people over-filter into an empty feed, which
+    // argues for a "no results — loosen these?" affordance rather than more filters.
+    EV("clear_filters", { n: activeFilterCount() });
     if (minR) { minR.value = 0; minVal = 0; setFill(); }
     if (locInp) locInp.value = "";
     if (minSalSel) minSalSel.value = "";
@@ -850,6 +862,10 @@
     if (lnk) {                                                    // Apply/Tailor links open normally
       if (lnk.hasAttribute("data-apply")) {                      // clicking Apply auto-logs it
         var ac = lnk.closest(".card"), aj = ac && byUrl[ac.getAttribute("data-url")];
+        // Recorded on EVERY click, not only the first. doAction below fires only when the job
+        // isn't already applied, so without this a second visit to the same posting is
+        // invisible and outbound clicks are undercounted.
+        if (aj) EV("apply_click", { co: aj.company, sc: aj.score, where: "card" });
         if (aj && aj.status !== "applied")
           doAction(aj.url, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); aj.status = "applied"; afterAction(aj); } });
       }
@@ -931,6 +947,10 @@
     });
     $("m-apply").addEventListener("click", function () {
       var j = byUrl[mUrl];
+      // where:"modal" vs "card" answers whether the detail panel is where people decide, or
+      // just a reference they read past. If nobody ever applies from here, its action buttons
+      // are dead weight; if nobody opens it at all, /api/job and the JD storage aren't earning.
+      if (j) EV("apply_click", { co: j.company, sc: j.score, where: "modal" });
       if (j && j.status !== "applied")
         doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); j.status = "applied"; syncModal("applied"); afterAction(j); } });
     });

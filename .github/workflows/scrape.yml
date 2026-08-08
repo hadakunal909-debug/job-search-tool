@@ -198,6 +198,23 @@ jobs:
       # stumble in scoring or date-verification should not silently cost the user their
       # email. The scrape's own outcome is then checked explicitly: the digest describes
       # THIS run's new jobs, so if the sweep didn't finish there is nothing honest to send.
+      # Rolls analytics events into daily counts and prunes raw rows past 90 days (and stale
+      # tailored_cache entries while it's there). Once a weekday is plenty — the rollup
+      # recomputes the last few days and REPLACES those rows, so a skipped run self-heals and a
+      # double run cannot double-count.
+      #
+      # continue-on-error and a tight timeout on purpose: this is housekeeping, and it must
+      # never be the reason the digest below doesn't send. It also no-ops cleanly when the
+      # events table hasn't been created yet.
+      - name: Roll up + prune analytics events
+        if: steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/ev_maintain.py --apply
+
       - name: Email the digest (once a day / on manual run)
         if: >-
           steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'

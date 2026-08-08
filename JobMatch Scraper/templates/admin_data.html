@@ -1,0 +1,247 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}Data &amp; health{% endblock %}
+{% block admin_tools %}
+    <a class="btn" href="{{ url_for('admin_data', refresh=1) }}">Re-read DB</a>
+{% endblock %}
+
+{% block admin %}
+{# ---- storage against the free-tier cap ---- #}
+{% if dbi.have_rpc %}
+<div class="tiles">
+  <div class="tile{{ ' warn' if dbi.pct > 70 }}">
+    <span class="tile-n">{{ dbi.pretty }}</span>
+    <span class="tile-l">Database size</span>
+    <span class="tile-s">{{ '%.1f'|format(dbi.pct) }}% of the {{ dbi.cap_mb }} MB free tier</span>
+    <span class="hist-bar" style="margin-top:8px"><i style="width:{{ '%.1f'|format(dbi.pct if dbi.pct < 100 else 100) }}%"></i></span>
+  </div>
+  <div class="tile{{ ' warn' if dbi.projection.state == 'growing' and dbi.projection.days_left < 90 }}">
+    <span class="tile-n" style="font-size:17px;line-height:1.35">{{ dbi.projection.verdict }}</span>
+    <span class="tile-l">Growth</span>
+    <span class="tile-s">{{ dbi.history|length }} daily sample{{ '' if dbi.history|length == 1 else 's' }} on record</span>
+  </div>
+  {% if dbi.tables %}
+  <div class="tile">
+    <span class="tile-n">{{ dbi.tables[0].pretty }}</span>
+    <span class="tile-l">Biggest table — {{ dbi.tables[0].name }}</span>
+    <span class="tile-s">{{ dbi.tables[0].toast|filesizeformat }} of that is TOAST (overflow text)</span>
+  </div>
+  {% endif %}
+</div>
+<p class="muted" style="margin:-8px 0 18px">
+  <code>pg_database_size</code> is a floor on what Supabase bills — its cap counts the whole
+  instance, including the auth and storage schemas and write-ahead logs.
+</p>
+
+<section class="panel">
+  <h2>Tables</h2>
+  <p class="muted">
+    Rows are exact (counted without downloading them). <b>Est.</b> is autovacuum's estimate — a
+    wide gap between the two means statistics are stale, not that a count is wrong.
+  </p>
+  <table class="adm-t">
+    <thead><tr>
+      <th>Table</th><th class="num">Rows</th><th class="num">Est.</th>
+      <th class="num">Total</th><th class="num">Data</th><th class="num">Indexes</th><th class="num">TOAST</th>
+    </tr></thead>
+    <tbody>
+    {% for t in dbi.tables %}
+      <tr>
+        <td>{{ t.name }}</td>
+        <td class="num">{{ '{:,}'.format(t.rows) if t.rows is not none else '—' }}</td>
+        <td class="num muted">{{ '{:,}'.format(t.est_rows) if t.est_rows >= 0 else '—' }}</td>
+        <td class="num">{{ t.pretty }}</td>
+        <td class="num muted">{{ t.table|filesizeformat }}</td>
+        <td class="num muted">{{ t.index|filesizeformat }}</td>
+        <td class="num muted">{{ t.toast|filesizeformat }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<div class="banner">
+  <b>Size reporting needs one Postgres function.</b> PostgREST can't run arbitrary SQL, so
+  <code>pg_database_size</code> is only reachable through a stored function. Paste this into
+  Supabase → SQL Editor → Run, then reload this page. Row counts below work without it.
+</div>
+<section class="panel">
+  <h2>Run this once</h2>
+  <pre class="sqlblock">{{ dbi.sql }}</pre>
+</section>
+<section class="panel">
+  <h2>Row counts</h2>
+  <table class="adm-t">
+    <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
+    <tbody>
+    {% for name, n in dbi.counts.items() %}
+      <tr><td>{{ name }}</td><td class="num">{{ '{:,}'.format(n) if n is not none else '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{# ---- health checks, on demand ---- #}
+<section class="panel">
+  <div class="feedrow" style="margin-bottom:6px">
+    <h2 style="margin:0">Health checks</h2>
+    <button id="runchecks" class="btn sm" type="button">Run checks</button>
+  </div>
+  <p class="muted">
+    Not run on page load — these cost about eight round trips and a full walk of the corpus.
+  </p>
+  <div id="checks">
+    {% if health %}{% include "_health_rows.html" %}
+    {% else %}<p class="muted">Not run yet.</p>{% endif %}
+  </div>
+</section>
+
+{# ---- destructive actions ---- #}
+<section class="panel">
+  <h2>Remove jobs</h2>
+  <p class="muted">
+    Nothing is deleted from this form — it shows you exactly what would go, and the delete
+    happens on the next screen after you type a confirmation. Rows anyone has liked, applied to
+    or hidden are always kept. Maximum {{ '{:,}'.format(delete_max) }} rows per action.
+  </p>
+  <form method="post" action="{{ url_for('admin_jobs_preview') }}" class="delform">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label>By company
+      <input name="company" placeholder="e.g. Actalent" autocomplete="off">
+    </label>
+    <label>…or paste job URLs, one per line
+      <textarea name="urls" rows="3" placeholder="https://…"></textarea>
+    </label>
+    <button class="btn" type="submit">Preview</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Blocked companies</h2>
+  <p class="muted">
+    The scraper and the extension's bulk import both skip these. Blocking does not remove rows
+    that are already stored — it stops new ones arriving, which is what makes a delete stick.
+  </p>
+  {% if blocked %}
+  <table class="adm-t">
+    <thead><tr><th>Company</th><th>Reason</th><th>Blocked</th><th></th></tr></thead>
+    <tbody>
+    {% for b in blocked %}
+      <tr>
+        <td>{{ b.name }}</td>
+        <td class="muted">{{ b.reason or '—' }}</td>
+        <td class="muted">{{ (b.created_at or '')[:10] }}{% if b.added_by %} by {{ b.added_by }}{% endif %}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_block') }}" class="inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input type="hidden" name="remove" value="{{ b.name_key }}">
+            <button class="btn sm" type="submit">Unblock</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Nothing blocked.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin_block') }}" class="newuser" style="margin-top:14px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="name" placeholder="Company to block" autocomplete="off" required>
+    <input name="reason" placeholder="Why (optional)" autocomplete="off">
+    <button class="btn" type="submit">Block</button>
+  </form>
+</section>
+
+{% if audit %}
+<section class="panel">
+  <h2>Recent admin actions</h2>
+  <table class="adm-t">
+    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th class="num">Rows</th></tr></thead>
+    <tbody>
+    {% for a in audit %}
+      <tr>
+        <td class="muted">{{ (a.at or '')[:16]|replace('T', ' ') }}</td>
+        <td>{{ a.actor }}</td>
+        <td><code>{{ a.action }}</code></td>
+        <td class="muted">{{ a.target }}</td>
+        <td class="num">{{ '{:,}'.format(a.count or 0) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{# ---- board freshness: the panel that catches a silently-dead scraper ---- #}
+<section class="panel">
+  <h2>Sources by size</h2>
+  <p class="muted">
+    A source with plenty of rows but <b>0 fresh</b> is the one to check — it means that board
+    still returns postings but nothing new, which is what a quietly-broken scraper looks like.
+  </p>
+  <table class="adm-t">
+    <thead><tr><th>Host</th><th class="num">Jobs</th><th class="num">Last 7 days</th><th></th></tr></thead>
+    <tbody>
+    {% for s in stats.sources %}
+      <tr>
+        <td>{{ s.host }}</td>
+        <td class="num">{{ '{:,}'.format(s.n) }}</td>
+        <td class="num">{{ '{:,}'.format(s.fresh) }}</td>
+        <td>{% if s.fresh == 0 %}<span class="pill bad">stale</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Biggest employers</h2>
+  <table class="adm-t">
+    <tbody>
+    {% for name, n in stats.companies %}
+      <tr><td>{{ name }}</td><td class="num">{{ '{:,}'.format(n) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var btn = document.getElementById("runchecks"), box = document.getElementById("checks");
+  if (!btn || !box) return;
+  btn.addEventListener("click", function () {
+    btn.disabled = true;
+    btn.textContent = "Running…";
+    fetch("{{ url_for('admin_health') }}", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { box.innerHTML = rows(d.checks || []); })
+      .catch(function () { box.innerHTML = '<p class="muted">Couldn\'t run the checks.</p>'; })
+      .then(function () { btn.disabled = false; btn.textContent = "Run again"; });
+  });
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  // Mirrors templates/_health_rows.html so a server-rendered and a fetched result look identical.
+  function rows(cs) {
+    if (!cs.length) return '<p class="muted">No checks returned.</p>';
+    var h = '<table class="adm-t"><tbody>';
+    for (var i = 0; i < cs.length; i++) {
+      var c = cs[i];
+      var pill = c.state === "pass" ? "ok" : (c.state === "warn" ? "run" : "bad");
+      h += '<tr><td style="width:1%"><span class="pill ' + pill + '">' + esc(c.state) + "</span></td>"
+         + "<td><b>" + esc(c.name) + "</b><br><span class=\"muted\">" + esc(c.detail) + "</span>"
+         + (c.state !== "pass" && c.fix
+              ? '<br><span class="muted">Fix: ' + esc(c.fix) + "</span>" : "")
+         + "</td></tr>";
+    }
+    return h + "</tbody></table>";
+  }
+})();
+</script>
+{% endblock %}

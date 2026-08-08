@@ -1,0 +1,95 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}Confirm delete{% endblock %}
+
+{% block admin %}
+<div class="banner">
+  <b>This removes {{ '{:,}'.format(plan.n) }} job row{{ '' if plan.n == 1 else 's' }} and cannot be undone.</b>
+  {% if not plan.company %}Deleting jobs does not stop them coming back — if the same postings
+  are still on the board, the next scrape re-adds them.{% endif %}
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <span class="tile-n">{{ '{:,}'.format(plan.n) }}</span>
+    <span class="tile-l">Will be deleted</span>
+    <span class="tile-s">of {{ '{:,}'.format(plan.matched) }} matched</span>
+  </div>
+  {% if plan.protected %}
+  <div class="tile warn">
+    <span class="tile-n">{{ '{:,}'.format(plan.protected) }}</span>
+    <span class="tile-l">Protected — kept</span>
+    <span class="tile-s">liked, applied to, or hidden by someone</span>
+  </div>
+  {% endif %}
+  <div class="tile">
+    <span class="tile-n">{{ '{:,}'.format(plan.after) }}</span>
+    <span class="tile-l">Jobs left afterwards</span>
+    <span class="tile-s">corpus size once this runs</span>
+  </div>
+</div>
+
+{% if plan.protected %}
+<p class="muted" style="margin:-8px 0 18px">
+  Rows someone has liked, applied to or hidden are never deleted from here, and that isn't
+  overridable in the browser — <code>scripts/prune_stale.py --include-flagged</code> needs
+  shell access, which is the right amount of friction for removing something a user is tracking.
+</p>
+{% endif %}
+
+<section class="panel">
+  <h2>A sample of what goes</h2>
+  <table class="adm-t">
+    <thead><tr><th>Title</th><th>Company</th><th>Date</th></tr></thead>
+    <tbody>
+    {% for s in plan.samples %}
+      <tr><td>{{ s.title }}</td><td class="muted">{{ s.company }}</td><td class="muted">{{ s.date }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if plan.n > plan.samples|length %}
+  <p class="muted" style="margin-top:10px">…and {{ '{:,}'.format(plan.n - plan.samples|length) }} more.</p>
+  {% endif %}
+</section>
+
+<form method="post" action="{{ url_for('admin_jobs_apply') }}">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+
+  {% if plan.company %}
+  <section class="panel">
+    <h2>Also block from future scrapes</h2>
+    <p class="muted">
+      Strongly recommended. The scraper runs twice every weekday — without a block, these rows
+      are back within a day and the delete looks like it silently failed. Blocking is
+      reversible from the Data page.
+    </p>
+    <label class="blockrow">
+      <input type="checkbox" name="block" value="1" checked>
+      <span>Block these companies so the scraper stops collecting them</span>
+    </label>
+    <p class="muted" style="margin:12px 0 6px">
+      One employer often appears under more than one label — all of them are selected so a
+      block covers the aliases too.
+    </p>
+    {% for label, n in plan.labels %}
+    <label class="blockrow">
+      <input type="checkbox" name="label" value="{{ label }}" checked>
+      <span>{{ label }} <span class="muted">— {{ '{:,}'.format(n) }} row{{ '' if n == 1 else 's' }}</span></span>
+    </label>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Confirm</h2>
+    <div class="confirmform">
+      <label for="confirm">Type <code>{{ confirm }}</code> to confirm:</label>
+      <input id="confirm" name="confirm" autocomplete="off" autocapitalize="off"
+             spellcheck="false" required>
+      <div class="confirmrow">
+        <button class="btn danger" type="submit">Delete {{ '{:,}'.format(plan.n) }} job{{ '' if plan.n == 1 else 's' }}</button>
+        <a class="btn" href="{{ url_for('admin_data') }}">Cancel</a>
+      </div>
+    </div>
+  </section>
+</form>
+{% endblock %}

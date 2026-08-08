@@ -494,9 +494,87 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .rb .kb-item{border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin:8px 0;background:var(--surface)}
 .rb summary.addnew{color:var(--brand);font-weight:600}
 
+/* ---- admin dashboard ---- */
+.adm-head{margin:0 0 16px}
+.adm-nav{display:flex;gap:2px;margin:0 0 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.adm-nav a{padding:9px 15px;font-size:14px;font-weight:600;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.adm-nav a:hover{color:var(--ink)}
+.adm-nav a.on{color:var(--brand);border-bottom-color:var(--brand)}
+/* auto-fit + minmax rather than a fixed column count: the tile row reflows from 5 across on a
+   desktop down to 1 on a phone without a single media query, and adding a sixth tile later
+   needs no CSS change. */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:0 0 18px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:3px}
+.tile.warn{border-color:var(--warn-line);background:var(--warn-bg)}
+.tile-n{font-size:26px;font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums}
+.tile-l{font-size:13.5px;font-weight:600;color:var(--ink)}
+.tile-s{font-size:12.5px;color:var(--muted)}
+.adm-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.adm-cols>.panel{margin:0 0 18px}
+.panel h2{font-size:16px;margin:0 0 4px}
+.panel h2+.muted{margin:0 0 14px}
+.adm-t{width:100%;border-collapse:collapse;font-size:13.5px}
+.adm-t th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;padding:0 8px 7px 0;border-bottom:1px solid var(--line)}
+.adm-t td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.adm-t tr:last-child td{border-bottom:0}
+.adm-t .num{text-align:right;font-variant-numeric:tabular-nums}
+.adm-t code{font-size:12.5px;background:var(--surface2);padding:1px 6px;border-radius:5px}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:12px;text-transform:uppercase;letter-spacing:.03em}
+.pill.ok{background:var(--brand-soft);color:var(--brand-ink)}
+.pill.bad{background:var(--danger-soft);color:var(--danger)}
+.pill.run{background:var(--warn-bg);color:var(--warn-ink,var(--ink))}
+.hist{display:flex;flex-direction:column;gap:7px}
+.hist-row{display:grid;grid-template-columns:56px 1fr 56px;align-items:center;gap:10px;font-size:13px}
+.hist-k{color:var(--muted);font-variant-numeric:tabular-nums}
+.hist-bar{background:var(--surface2);border-radius:5px;height:16px;overflow:hidden}
+/* min-width so a non-zero bucket is never invisible next to a much larger one — a bar of 0px
+   reads as "no jobs here", which is a different fact from "few jobs here". */
+.hist-bar i{display:block;height:100%;min-width:3px;border-radius:5px;background:linear-gradient(90deg,var(--brand),var(--brand-d))}
+.hist-v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.sqlblock{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:12.5px;line-height:1.5;overflow-x:auto;white-space:pre;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.tile .hist-bar{display:block;width:100%}
+/* Supply-vs-demand: two bars per bucket on one row. Grey is what the scraper collected, colour
+   is what someone actually wanted, so the eye compares them without reading the numbers. */
+.hist-row.sd{grid-template-columns:56px 1fr 42px 1fr 42px}
+.hist-bar i.sup{background:var(--line-strong)}
+.panel h3{color:var(--ink)}
+/* account rows: the per-user buttons wrap instead of forcing the table wider */
+.userops{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.userops form{margin:0}
+.pwreset{display:inline-block}
+.pwreset summary{list-style:none;display:inline-flex}
+.pwreset summary::-webkit-details-marker{display:none}
+/* NOTE the explicit width:auto in each of these. The base rule at the top of this file gives
+   every input width:100%, which inside a flex row puts each control on its own line — the
+   create form rendered three rows tall before this. Anything laying inputs out horizontally
+   has to opt back out. */
+.pwform{display:flex;gap:6px;margin-top:6px}
+.pwform input{width:auto;flex:1 1 150px;padding:6px 10px;border-radius:8px;font-size:13px}
+.newuser{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.newuser input{width:auto;flex:1 1 200px;max-width:280px;padding:8px 12px;font-size:14px}
+.confirmform label{display:block;font-size:14px;margin-bottom:8px}
+.confirmform input{width:100%;max-width:360px;padding:9px 12px;font-size:14px}
+.confirmrow{display:flex;gap:8px;margin-top:14px}
+.delform{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.delform label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);flex:1 1 260px}
+.delform input,.delform textarea{width:100%;font-size:14px;padding:8px 12px}
+.delform textarea{min-height:44px}
+.blockrow{display:flex;gap:9px;align-items:baseline;padding:5px 0;font-size:14px;cursor:pointer}
+.blockrow input{width:auto;flex:0 0 auto;margin:0}
+.btn.danger:hover{background:var(--danger-soft)}
+
 /* responsive */
 @media (max-width:900px){
   .rb .grid2{grid-template-columns:1fr}
+  .adm-cols{grid-template-columns:1fr;gap:0}
+  /* Five columns (label + two bars + two numbers) don't fit a phone: the fixed tracks eat the
+     row and both 1fr bars collapse to 0px, which renders as two invisible bars rather than a
+     comparison. Stack supply over demand instead — the numbers still read side by side. */
+  .hist-row.sd{grid-template-columns:56px 1fr 42px;row-gap:3px}
+  .hist-row.sd .hist-bar{grid-column:2}
+  .hist-row.sd .hist-k{grid-row:span 2;align-self:center}
+  /* Wide tables (per-table sizes, per-user actions) scroll rather than squeeze to nothing. */
+  .panel{overflow-x:auto}
   /* The rail becomes a normal full-width card above the results, and the eight narrowing filters
      collapse behind the toggle. Search + the career track stay visible — they START a search. */
   .feedlayout{grid-template-columns:1fr;gap:0}

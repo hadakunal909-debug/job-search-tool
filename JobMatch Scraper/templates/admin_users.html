@@ -1,0 +1,108 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}Users{% endblock %}
+
+{% block admin %}
+{% if not can_disable %}
+<div class="banner">
+  <b>Disable isn't available yet.</b> It needs two columns on the <code>users</code> table —
+  run <code>SUPABASE_ADMIN_MIGRATION.sql</code> in Supabase → SQL Editor. Until then you can
+  create accounts, reset passwords and delete accounts, but not suspend one or revoke an
+  extension token.
+</div>
+{% endif %}
+
+<section class="panel">
+  <h2>Accounts</h2>
+  <table class="adm-t">
+    <thead><tr>
+      <th>User</th><th>Created</th><th>Status</th><th class="num">Token</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><b>{{ u.username }}</b>
+            {% if u.is_admin %}<span class="pill ok">admin</span>{% endif %}
+            {% if u.is_you %}<span class="muted">(you)</span>{% endif %}</td>
+        <td class="muted">{{ u.created_at }}</td>
+        <td>{% if u.disabled_at %}<span class="pill bad">disabled</span>
+              <span class="muted">{{ u.disabled_at }}</span>
+            {% else %}<span class="pill ok">active</span>{% endif %}</td>
+        <td class="num muted">epoch {{ u.epoch }}</td>
+        <td>
+          <div class="userops">
+            {% if can_disable %}
+            <form method="post" action="{{ url_for('admin_user_disable') }}" class="inline">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="username" value="{{ u.username }}">
+              <input type="hidden" name="on" value="{{ '0' if u.disabled_at else '1' }}">
+              <button class="btn sm" type="submit" {{ 'disabled' if u.is_you }}>
+                {{ 'Enable' if u.disabled_at else 'Disable' }}</button>
+            </form>
+            <form method="post" action="{{ url_for('admin_user_revoke_token') }}" class="inline">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="username" value="{{ u.username }}">
+              <button class="btn sm" type="submit">Revoke token</button>
+            </form>
+            {% endif %}
+            <details class="pwreset">
+              <summary class="btn sm">Reset password</summary>
+              <form method="post" action="{{ url_for('admin_user_password') }}" class="pwform">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <input type="hidden" name="username" value="{{ u.username }}">
+                <input type="password" name="password" placeholder="New password"
+                       minlength="{{ min_password }}" required autocomplete="new-password">
+                <button class="btn sm primary" type="submit">Set</button>
+              </form>
+            </details>
+            {% if not u.is_you %}
+            <a class="btn sm danger" href="{{ url_for('admin_user_delete', username=u.username) }}">Delete</a>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:12px">
+    Admin access is decided by <b>{{ admin_mode }}</b>.
+    {% if admin_mode == 'sole-account' %}You're the only account, so you're the admin — create a
+    second one and this page locks to nobody until you set <code>ADMIN_USERS</code> in the
+    environment.{% else %}Set by the <code>ADMIN_USERS</code> environment variable; it isn't a
+    database column, so it can't be changed from here.{% endif %}
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Create an account</h2>
+  <p class="muted">
+    There's no public sign-up — accounts only exist because someone made them here or with
+    <code>manage_users.py</code>.
+  </p>
+  <form method="post" action="{{ url_for('admin_user_create') }}" class="newuser">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="username" placeholder="username" required pattern="[A-Za-z0-9._\-]{2,40}"
+           title="2-40 characters: letters, digits, dot, dash, underscore" autocomplete="off">
+    <input type="password" name="password" placeholder="password ({{ min_password }}+ characters)"
+           required minlength="{{ min_password }}" autocomplete="new-password">
+    <button class="btn primary" type="submit">Create</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>What disable and delete actually do</h2>
+  <table class="adm-t">
+    <tbody>
+      <tr><td><b>Disable</b></td>
+          <td>Ends their session on the next request they make, blocks a fresh sign-in, and
+              revokes their extension token. Reversible.</td></tr>
+      <tr><td><b>Revoke token</b></td>
+          <td>Invalidates every browser-extension token that account holds. Their web session is
+              untouched; they copy a new token from their profile page.</td></tr>
+      <tr><td><b>Delete</b></td>
+          <td>Removes the account and every row keyed to it — saved jobs, profile, applications,
+              résumés and learned answers. Not reversible, and there is no backup beyond
+              Supabase's own point-in-time recovery.</td></tr>
+    </tbody>
+  </table>
+</section>
+{% endblock %}

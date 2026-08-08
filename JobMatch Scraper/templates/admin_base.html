@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{# Shared chrome for the admin sub-pages. They are separate ROUTES rather than tabs on one page
+   so each only runs its own queries — /admin/data costs an RPC plus a handful of counts, and
+   /admin/usage walks the whole corpus, and neither should be paid for by someone who just wanted
+   to press Update jobs. #}
+{% block content %}
+<div class="feedrow adm-head">
+  <h1>{% block admin_title %}Admin{% endblock %}</h1>
+  <div class="feedtools">{% block admin_tools %}{% endblock %}</div>
+</div>
+
+{% set ep = request.endpoint or '' %}
+<nav class="adm-nav">
+  <a href="{{ url_for('admin') }}" class="{{ 'on' if ep == 'admin' }}">Overview</a>
+  <a href="{{ url_for('admin_users') }}" class="{{ 'on' if ep.startswith('admin_user') }}">Users</a>
+  <a href="{{ url_for('admin_data') }}" class="{{ 'on' if ep == 'admin_data' }}">Data &amp; health</a>
+  <a href="{{ url_for('admin_usage') }}" class="{{ 'on' if ep == 'admin_usage' }}">Usage</a>
+</nav>
+
+{% block admin %}{% endblock %}
+{% endblock %}
