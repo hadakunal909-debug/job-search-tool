@@ -540,16 +540,24 @@ def _norm_cmp(key, val):
     return str(val)
 
 
-def _persist_derived(row_loc, row_jd):
+def _persist_derived(row_loc, row_jd, current_rows=None):
     """Derive each job's state/metro/remote flag and pay range, and write them to the jobs
     table. Only rows whose values actually CHANGED are sent, so the daily run costs one small
     upsert instead of re-writing the whole corpus.
+
+    `current_rows` is the caller's already-loaded corpus, used purely to diff against. Pass
+    it: this used to re-fetch every row INCLUDING the `jd` column, which is ~20 MB over the
+    wire and made the scoring pass load the whole corpus twice for no benefit. The columns
+    being compared here (loc_state/loc_metro/remote/salary_*) are not written by anything
+    earlier in the run, so rows read at the start are still current at this point.
 
     Never raises: the columns don't exist until someone runs db.JOBS_DERIVED_SQL once, and a
     missing column must not throw away a completed scoring pass.
     """
     try:
-        current = {r["url"]: r for r in db.load_jobs() if r.get("url")}
+        if current_rows is None:
+            current_rows = db.load_jobs()
+        current = {r["url"]: r for r in current_rows if r.get("url")}
     except Exception as e:
         print("  (derived fields skipped, could not reload jobs: %s)" % str(e)[:90])
         return
@@ -587,8 +595,39 @@ def _persist_derived(row_loc, row_jd):
         print(db.JOBS_DERIVED_SQL)
 
 
+# Breadcrumb the scraper writes with THIS run's new postings (same file notify.py reads).
+NEW_JOBS_FILE = "last_new_jobs.json"
+
+
+def _new_only_targets(row_jd, fetched):
+    """URLs worth (re)scoring when we're not doing the whole corpus.
+
+    A stored job's score can only move for three reasons: its JD changed, the résumé
+    changed, or IDF drifted as the corpus turned over. The first is exactly what this
+    catches — the postings this run added, plus any job whose JD only just arrived. The
+    other two are corpus-wide and belong to the full pass, which still runs daily.
+    """
+    targets = set(fetched)                        # JDs that landed this run
+    try:                                          # ...plus the postings this run added
+        with open(NEW_JOBS_FILE, encoding="utf-8") as fh:
+            targets.update(j.get("url") for j in (json.load(fh) or []) if j.get("url"))
+    except Exception:
+        pass                                      # no breadcrumb (manual run) -> just the JDs
+    return targets & set(row_jd)                  # never score a URL we hold no row for
+
+
 def main():
     full = "--full" in sys.argv
+    # Score only what this run actually pulled, instead of re-deriving all ~20k rows. The
+    # full pass is not wasted work — it re-scores against the CURRENT résumé and a freshly
+    # built IDF — but it is a per-job regex/keyword analysis plus a whole-corpus upsert, and
+    # paying that on the second scrape of the day buys almost nothing. So: full pass once a
+    # day, new-only on the other run.
+    new_only = ("--new-only" in sys.argv
+                or (os.environ.get("SCORE_NEW_ONLY") or "").strip().lower()
+                in ("1", "true", "yes"))
+    if full and new_only:                         # --full is the explicit "redo everything"
+        new_only = False                          # so it wins over the cheap mode
     resume = open("resume.txt", encoding="utf-8").read() if os.path.exists("resume.txt") else ""
     if not resume:
         print("No resume.txt found — scores would all be 0. Aborting.")
@@ -618,6 +657,24 @@ def main():
         cap = int(os.environ.get("SCORE_MAX_FETCH") or 0)
     except Exception:
         cap = 0
+    # ...and a per-run TIME budget, because the cap alone does not bound the clock. A capped
+    # count says nothing about how long those fetches take, and the answer turned out to be
+    # "much longer than it looks": a measured pass attempted 2,640 detail fetches and only 8
+    # returned a usable JD — the rest were dead or blocked URLs that each still cost a
+    # timeout. So the cap governs how much of the backlog we bite off, and this governs how
+    # long we are willing to chew. 0 = unlimited (manual backfill).
+    budget_min = 0.0
+    try:
+        budget_min = float(os.environ.get("SCORE_BUDGET_MIN") or 0)
+    except ValueError:
+        budget_min = 0.0
+    for _a in sys.argv:
+        if _a.startswith("--budget-min="):
+            try:
+                budget_min = float(_a.split("=", 1)[1])
+            except ValueError:
+                pass
+    deadline = (time.time() + budget_min * 60) if budget_min > 0 else 0
     for _a in sys.argv:
         if _a.startswith("--max="):
             try:
@@ -661,6 +718,8 @@ def main():
 
             def _one(entry):
                 board_url, ats, company = entry
+                if deadline and time.time() >= deadline:
+                    return company, {}, None      # out of time: skip, retry next run
                 try:
                     time.sleep(random.uniform(0, 0.8))
                     return company, jd_map_for(board_url, ats), None
@@ -682,34 +741,58 @@ def main():
         #    parallel, since each is an independent host round-trip. Flush every CHUNK so a
         #    timeout mid-phase still banks the JDs fetched so far.
         if missing:
-            print("Detail-fetching %d remaining JD(s)..." % len(missing))
-            CHUNK, buf = 150, {}
+            print("Detail-fetching %d remaining JD(s)%s..."
+                  % (len(missing),
+                     "" if not deadline else " (%g min budget)" % budget_min))
+            CHUNK, buf, unspent = 150, {}, 0
+
+            def _detail(u):
+                # Budget checked before the request, so once time is up the remaining queue
+                # drains without touching the network. These URLs stay in `missing` and are
+                # simply retried next run — nothing is recorded either way.
+                if deadline and time.time() >= deadline:
+                    return u, "", ""
+                return detail_jd(u)
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                for u, jd, date in ex.map(detail_jd, sorted(missing)):
+                for u, jd, date in ex.map(_detail, sorted(missing)):
                     if jd:                  # a failed fetch must never blank a stored JD
                         fetched[u] = jd
                         buf[u] = jd
                         if len(buf) >= CHUNK:
                             _persist_jds(buf)
                             buf = {}
+                    elif deadline and time.time() >= deadline:
+                        unspent += 1
                     if date and not (row_date.get(u) or "").strip():
                         dates[u] = date     # the page carried a posting date the list omitted
             _persist_jds(buf)
+            if unspent:
+                print("  JD budget reached — ~%d left for next run (they stay queued)." % unspent)
         row_jd.update(fetched)
 
-    # 4) Build IDF over the whole JD corpus (so common terms count less), then score
-    #    EVERY job — scoring is cheap and picks up résumé edits since last run.
+    # 4) Build IDF over the whole JD corpus (so common terms count less), then score.
+    #    IDF is always built from EVERY JD even in new-only mode — it is a property of the
+    #    corpus, and weighting a new job against a partial one would score it differently
+    #    than the same job scored yesterday.
     idf = core.build_idf([j for j in row_jd.values() if j])
     core.save_idf(idf)
-    print("Scoring %d jobs with IDF weighting (%d terms in corpus)..."
-          % (len(row_jd), len(idf)))
+    # Which jobs get re-analyzed. The full pass does all of them (and so also picks up résumé
+    # edits since last run); new-only does just what this run pulled.
+    todo = _new_only_targets(row_jd, fetched) if new_only else set(row_jd)
+    print("Scoring %d of %d jobs with IDF weighting (%d terms in corpus)%s..."
+          % (len(todo), len(row_jd), len(idf), " [NEW ONLY]" if new_only else ""))
     # Compute each job's résumé-INDEPENDENT analysis ONCE, reuse it for the score, AND persist
     # it to jdmeta.json so the web app never recomputes it at request time (kills cold-load
     # regex/keyword work). score_against(resume, analyzed) == the old skill_match(resume, jd).
     resume_low = resume.lower()
-    jdmeta, scores = {}, {}
-    for u, jd in row_jd.items():
-        m = core.job_meta(jd, idf)
+    # In new-only mode start from what's already on disk and MERGE, because this map is the
+    # web app's precomputed cache for the whole corpus — writing back only the handful of
+    # jobs we just scored would blank the other ~20k and push that work back to request time.
+    jdmeta = (core.load_jdmeta() or {}) if new_only else {}
+    scores = {}
+    for u in todo:
+        m = core.job_meta(row_jd[u], idf)
         jdmeta[u] = m
         # A too-thin/truncated JD can't be scored honestly (it's what produced the fake ~100%s):
         # store 0 so it sorts/filters low and the feed shows it as "JD pending" (the web layer
@@ -727,7 +810,10 @@ def main():
     # 6) Derived fields the FEED filters on. These live in real columns rather than jdmeta.json
     #    because jdmeta.json is gitignored and never deployed — a column reaches the live site
     #    through Supabase with no file deploy, the same way match_score already does.
-    _persist_derived(row_loc, row_jd)
+    #    Narrowed to the same set in new-only mode: these are parsed from a row's own location
+    #    and JD, so a row nobody touched this run can only re-derive to what it already holds.
+    _persist_derived({u: row_loc[u] for u in todo if u in row_loc} if new_only else row_loc,
+                     row_jd, current_rows=rows)
     if scores:
         vals = list(scores.values())
         where = "Supabase" if db.using_supabase() else "jobs.csv"
