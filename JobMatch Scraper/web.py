@@ -858,34 +858,10 @@ def _row_date(r):
     return r.get("date") or r.get("first_seen") or ""
 
 
-# Ordering for sort=sponsor, LOWEST FIRST — the answer to "show me the jobs I can actually take"
-# without hiding anything.
-#
-# Filtering on sponsorship is the obvious move and it is wrong. Measured on this corpus
-# 2026-08-09: visatags=h1b would hide 442 of the 1,346 jobs above the default match floor, and 88
-# of those are employers with NO federal record at all — 41 Northrop Grumman postings and 4 at
-# Penn State, a CAP-EXEMPT university, i.e. the single best H-1B route there is. Absence from a
-# DOL file means "not in this dataset", never "does not sponsor". Ranking says the same thing
-# without ever making that mistake: every row stays reachable, the best ones lead.
-#
-# `visa` is already narrowed per posting by core.visa_tags_for_posting, so a JD demanding
-# citizenship has had its employer tags stripped before it gets here.
-# app.js mirrors this as sponsorRank(); scripts/feed_parity.py checks the mirror.
-def _row_sponsor_rank(r):
-    visa = r.get("visa") or ()
-    if "h1b" in visa and "stem_opt" in visa:
-        tier = 0                    # E-Verify AND files LCAs: STEM OPT now, H-1B later
-    elif "h1b" in visa:
-        tier = 1                    # files LCAs
-    elif "stem_opt" in visa:
-        tier = 2                    # E-Verify only — clears the STEM OPT gate, no H-1B evidence
-    elif r.get("sponsor_jd") == "blocked":
-        tier = 4                    # the JD itself rules you out; last, but still reachable
-    else:
-        tier = 3                    # no record either way
-    # Then USCIS approval volume, then match score — both descending, so a bigger sponsor and a
-    # better fit float up inside a tier.
-    return (tier, -(r.get("strength_n") or 0), -(r.get("score") or 0))
+# Ordering for sort=sponsor. core.sponsor_rank is the single definition — the email digest applies
+# the same ladder and cannot import this module, so the rule lives one level down.
+# app.js mirrors it as sponsorRank(); scripts/feed_parity.py checks that mirror.
+_row_sponsor_rank = core.sponsor_rank
 
 
 def _filter_rows(rows, statuses, p):
