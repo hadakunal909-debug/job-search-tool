@@ -1290,6 +1290,58 @@ def role_track(title):
 
 
 # ------------------------------------------------------------
+# POSTING IDENTITY
+#
+# `jobs` is keyed on url, so one posting reachable at two URLs is two rows. canonical_url()
+# bridges the cases where the two strings describe the same address; it cannot bridge the case
+# where an employer hosts a job on Greenhouse AND an aggregator relists it on its own domain,
+# because those are genuinely different addresses.
+#
+# This is the second identity, used for exactly that case. It lives here rather than in web.py
+# because the feed applies it at render time and the scraper applies it before insert, and the
+# two must not drift — the same reason scripts/feed_parity.py exists for the filter twins.
+# ------------------------------------------------------------
+AGGREGATOR_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
+
+_HOST_RE = re.compile(r"^[a-z]+://([^/?#]+)", re.I)
+
+
+def url_host(url):
+    """Host of a URL, lowercased, or "" — cheap and never raises, unlike urlparse on junk."""
+    m = _HOST_RE.match(url or "")
+    return (m.group(1) if m else "").lower()
+
+
+def is_aggregator_url(url):
+    """True when the URL belongs to a job board rather than to the employer that is hiring."""
+    host = url_host(url)
+    return any(h in host for h in AGGREGATOR_HOSTS)
+
+
+def posting_key(title, company, location, require_location=False):
+    """Identity of a POSTING rather than of a URL: title + company + full location.
+
+    Location is the RAW string, not just the state. Using the state collapsed 4,770 rows in
+    this corpus, but almost all of them were real, distinct openings — Amazon genuinely lists
+    431 "Operations Manager" roles and Walmart 144 store-level pharmacy internships. Those are
+    inventory, not duplicates.
+
+    Returns None when the key would be too weak to trust. `require_location` adds a blank
+    location to that list: ("pm", "acme", "") collides with every unplaced Acme PM row. That is
+    tolerable at render time, where nothing is deleted and the user still sees a card, but not
+    ahead of an insert that would drop the posting for good.
+    """
+    t = re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+    c = re.sub(r"[^a-z0-9]+", " ", (company or "").lower()).strip()
+    if not (t and c):
+        return None
+    loc = re.sub(r"[^a-z0-9]+", " ", (location or "").lower()).strip()
+    if require_location and not loc:
+        return None
+    return (t, c, loc)
+
+
+# ------------------------------------------------------------
 # SAVED SEARCH PREFERENCES
 #
 # The feed shipped ten controls that all reset to their defaults on every visit, so a student

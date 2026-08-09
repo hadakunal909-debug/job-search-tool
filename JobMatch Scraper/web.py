@@ -701,29 +701,22 @@ def _build_row(j, score):
             "initial": c[:1].upper() if c else "?"}
 
 
-_AGGREGATOR_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
-_HOST_RE = re.compile(r"^[a-z]+://([^/?#]+)", re.I)
+_AGGREGATOR_HOSTS = core.AGGREGATOR_HOSTS
 
 
 def _dupe_key(r):
     """Identity of a POSTING rather than of a URL: title + company + full location.
 
-    Location is the RAW string, not just the state. Using the state collapsed 4,770 rows in
-    this corpus, but almost all of them were real, distinct openings — Amazon genuinely lists
-    431 "Operations Manager" roles and Walmart 144 store-level pharmacy internships. Those are
-    inventory, not duplicates.
+    core.posting_key is the single definition — the scraper applies the same key before insert,
+    and if the two ever drift the feed would hide a posting the scraper kept (or the reverse).
+    Render-time keeps the permissive variant: a blank location still yields a key here, because
+    nothing is deleted and the worst case is one collapsed card.
     """
-    t = re.sub(r"[^a-z0-9]+", " ", (r.get("title") or "").lower()).strip()
-    c = re.sub(r"[^a-z0-9]+", " ", (r.get("company") or "").lower()).strip()
-    if not (t and c):
-        return None
-    loc = re.sub(r"[^a-z0-9]+", " ", (r.get("location") or "").lower()).strip()
-    return (t, c, loc)
+    return core.posting_key(r.get("title"), r.get("company"), r.get("location"))
 
 
 def _host(r):
-    m = _HOST_RE.match(r.get("url") or "")
-    return (m.group(1) if m else "").lower()
+    return core.url_host(r.get("url"))
 
 
 def _dupe_rank(r):
