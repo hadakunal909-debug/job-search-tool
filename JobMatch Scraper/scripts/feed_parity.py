@@ -44,7 +44,11 @@ APP_JS = os.path.join(ROOT, "static", "app.js")
 # The pure predicate functions app.js and web.py mirror. Order matters only for readability —
 # node hoists function declarations. Lifted from app.js BY SOURCE TEXT, so a name that no longer
 # exists there is a hard SystemExit from js_function(), not a silent skip.
-JS_FUNCS = ["locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches"]
+JS_FUNCS = ["locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches",
+            # The sort comparator, lifted rather than re-typed. It used to be hand-copied into
+            # DRIVER_MAIN below, which meant a third implementation nobody remembered to update
+            # — exactly the drift this harness exists to catch, sitting inside the harness.
+            "sponsorRank", "sortCmp"]
 
 # _row() must emit exactly these. A field that _build_row produces but _row() forgets makes
 # the parity run pass VACUOUSLY — the server sees None, JS sees undefined, both filter the
@@ -55,6 +59,10 @@ ROW_KEYS = {
     "score_pending", "date", "date_verified", "first_seen", "sponsor_jd",
     "sponsors_h1b", "everify", "visa", "agency", "cap_exempt", "intern", "track",
     "exp_years", "exp_level",
+    # Read only by the sponsor sort. Without them here the sponsor case would pass VACUOUSLY:
+    # strength_n is None server-side and undefined in JS, both rank everything identically, and
+    # the diff is empty however badly the two disagree.
+    "strength", "strength_n",
 }
 
 
@@ -95,6 +103,10 @@ def _row(rng, n, title, company, state, **over):
         # its posting date and never reaches the fallback.
         "first_seen": "",
         "sponsors_h1b": "",
+        # USCIS approval volume, the sponsor sort's second key. Coarse and tie-heavy on purpose,
+        # with 0 well represented: a tie inside a tier is where a stable-sort disagreement
+        # between the two implementations surfaces, and 0 is the no-record case.
+        "strength_n": rng.choice([0, 0, 0, 3, 90, 90, 240, 1100, 15542]),
         "agency": False, "cap_exempt": False, "intern": False,
         # Classified from the title exactly as _build_row does, so the track filter is
         # exercised against the real partition rather than a hand-written label.
@@ -115,6 +127,10 @@ def _row(rng, n, title, company, state, **over):
     # so a failing case is reproducible.
     r["visa"] = _visa_for(n, sj, reason)
     r["everify"] = "stem_opt" in r["visa"]
+    # Derived from strength_n by the same thresholds core.sponsor_strength uses, so the tier and
+    # the count can never disagree the way two independent rng picks would.
+    n_ = r["strength_n"]
+    r["strength"] = "high" if n_ >= 1000 else "medium" if n_ >= 100 else "low" if n_ >= 1 else ""
     r.update(over)
     return r
 
@@ -260,6 +276,18 @@ def build_cases():
         ("show closed", {"showclosed": "1"}),
         ("show agencies", {"hideagency": ""}),
         ("sort newest", {"sort": "newest"}),
+        # The sponsor ladder is a 3-key sort (tier, then USCIS volume, then score), so it has
+        # far more ways to disagree across the two implementations than the other two modes.
+        # Run it wide open and against several filtered subsets.
+        ("sort sponsor", {"sort": "sponsor"}),
+        ("sort sponsor, min 0", {"sort": "sponsor", "min": "0"}),
+        ("sort sponsor, min 0, any date", {"sort": "sponsor", "min": "0", "date": "any"}),
+        # With hidenospon on, tier 4 is filtered out entirely — so this checks the ladder still
+        # agrees when its bottom rung is absent.
+        ("sort sponsor + hide blocked", {"sort": "sponsor", "hidenospon": "1", "min": "0"}),
+        # Agencies carry sponsorship tags too, so unhiding them widens the tier spread.
+        ("sort sponsor + agencies", {"sort": "sponsor", "hideagency": "", "min": "0",
+                                     "date": "any"}),
         ("date any", {"date": "any"}),
         ("date 7d", {"date": "7"}),
         ("date 1d", {"date": "1"}),
@@ -414,10 +442,9 @@ IN.cases.forEach(function (cs) {
   // UTC (toISOString) while _date_cutoff reads the local date, so feeding one value in keeps
   // this a test of the FILTER, not of a timezone. dateCutoff() is compared separately below.
   var matched = IN.rows.filter(function (j) { return matches(j, cs.cut); });
-  matched.sort(function (a, b) {
-    if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
-    return (b.score || 0) - (a.score || 0);
-  });
+  // sortCmp is lifted from app.js by JS_FUNCS, not re-typed here. It used to be copied inline,
+  // which made the parity harness itself carry a third implementation of the comparator.
+  matched.sort(function (a, b) { return sortCmp(a, b, sortBy); });
   out.push({ name: cs.name, urls: matched.map(function (j) { return j.url; }) });
 });
 process.stdout.write(JSON.stringify(out));

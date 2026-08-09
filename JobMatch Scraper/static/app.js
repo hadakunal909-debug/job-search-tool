@@ -288,6 +288,31 @@
   // first_seen so a job whose employer publishes no posting date (Tesla) is judged on when it
   // reached us rather than escaping every date filter. feed_parity.py checks this twin.
   function rowDate(j) { return j.date || j.first_seen || ""; }
+  // Mirror of web.py _row_sponsor_rank(): lowest first. Ranking rather than filtering, because
+  // hiding rows with no federal record would bin 41 Northrop Grumman postings and 4 at Penn
+  // State (cap-exempt, the best H-1B route there is) — absence from a DOL file is "no data",
+  // not "no sponsorship". j.visa is already narrowed per posting server-side.
+  function sponsorRank(j) {
+    var v = j.visa || [], h1b = v.indexOf("h1b") >= 0, ev = v.indexOf("stem_opt") >= 0, tier;
+    if (h1b && ev) tier = 0;
+    else if (h1b) tier = 1;
+    else if (ev) tier = 2;
+    else if (j.sponsor_jd === "blocked") tier = 4;
+    else tier = 3;
+    return [tier, -(j.strength_n || 0), -(j.score || 0)];
+  }
+  // The one comparator, so the server twin has exactly one thing to match. Lifted by name into
+  // scripts/feed_parity.py (JS_FUNCS) rather than re-typed there — a hand-copied third version
+  // is how these drift.
+  function sortCmp(a, b, sortBy) {
+    if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
+    if (sortBy === "sponsor") {
+      var ra = sponsorRank(a), rb = sponsorRank(b);
+      for (var i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
+      return 0;
+    }
+    return (b.score || 0) - (a.score || 0);
+  }
   var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
   function annualize(amount, period) {
     var n = parseInt(amount, 10) || 0;
@@ -371,10 +396,7 @@
     if (reset) limit = PAGE;
     var cut = dateCutoff(), matched = [];
     for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
-    matched.sort(function (a, b) {
-      if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
-      return (b.score || 0) - (a.score || 0);
-    });
+    matched.sort(function (a, b) { return sortCmp(a, b, sortBy); });
     // One row = one card, so `limit` paginates jobs directly.
     var slice = matched.slice(0, limit), html = "";
     for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
