@@ -4700,6 +4700,59 @@ SCRAPE_BUDGET_MIN = _env_num("SCRAPE_BUDGET_MIN", 22)
 # gives every tenant its own subdomain and so is never gated by this at all.
 SCRAPE_PER_HOST = _env_num("SCRAPE_PER_HOST", 4, int)
 
+# Per-board wall-clock ceiling in seconds, keyed by ats_type. An ats_type absent from this map
+# has no ceiling, which is the historical behaviour for every board here.
+#
+# Every scraper in this file reaches the network through SESSION, whose per-request timeout and
+# Retry policy bound it — so until now nothing could hang forever and no ceiling was needed.
+# JobSpy breaks that: it ships its own HTTP stack (tls-client), sets no request timeout, and
+# fans out over an unbounded ThreadPoolExecutor internally.
+#
+# A hang costs far more than a failure. db.add_jobs runs AFTER scrape_all returns, so a run
+# killed at the CI step timeout saves nothing AND skips scoring, date verification and the
+# digest, because only the digest step names a status function.
+#
+# Deliberately NOT a global default: the slowest honest board measured is an Avature tenant at
+# 335s, so a global ceiling would have to sit above ~360s to avoid failing real boards, and a
+# 6-minute ceiling guards nothing worth guarding.
+SCRAPE_BOARD_TIMEOUT = {"jobspy": _env_num("JOBSPY_BOARD_TIMEOUT_SEC", 90, int)}
+
+
+def _run_with_timeout(fn, url, secs):
+    """fn(url), but stop WAITING on it after `secs` and raise instead.
+
+    Python cannot kill a thread, so the abandoned worker runs to completion in the background
+    and its result is discarded. This bounds how long the sweep waits on one board, not how
+    long that board runs — which is the part that matters, since the cost being avoided is one
+    stuck board holding the whole run past its step timeout.
+
+    The worker is a daemon thread rather than a pooled one on purpose: concurrent.futures joins
+    its workers at interpreter exit, so a pooled hang would still block the process from
+    exiting after main() had finished its work.
+    """
+    box = {}
+
+    def _run():
+        try:
+            box["rows"] = fn(url)
+        except BaseException as e:                       # re-raised on the caller's thread
+            box["err"] = e
+
+    t = threading.Thread(target=_run, daemon=True, name="board-timeout")
+    t.start()
+    t.join(secs)
+    if t.is_alive():
+        raise TimeoutError("no response after %ss (abandoned, still running)" % secs)
+    if "err" in box:
+        raise box["err"]
+    return box.get("rows") or []
+
+
+# Hosts needing a tighter gate than SCRAPE_PER_HOST. LinkedIn rate-limits an unauthenticated IP
+# within a few hundred results and Glassdoor runs real bot management, so those two get one
+# in-flight request at a time — being slow there is much cheaper than being blocked there.
+_PER_HOST_OVERRIDE = {"jobspy:linkedin": 1, "jobspy:glassdoor": 1}
+
 
 def _host_key(url, ats_type):
     """Which rate-limited thing this board actually talks to.
@@ -4725,7 +4778,8 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
     whether that board's fetch actually succeeded.
 
     Stops STARTING boards once `budget_min` is spent and returns what it has. Boards
-    already in flight are left to finish; they are bounded by their own request timeouts.
+    already in flight are left to finish; they are bounded by their own request timeouts,
+    or by SCRAPE_BOARD_TIMEOUT for the ats_types that bring their own HTTP stack.
     """
     workers = workers or SCRAPE_WORKERS
     budget = SCRAPE_BUDGET_MIN if budget_min is None else budget_min
@@ -4750,9 +4804,10 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
         if fn is None:
             return entry, company, None, "unknown ats_type '%s'" % ats_type
         try:
+            secs = SCRAPE_BOARD_TIMEOUT.get(ats_type)
             with _gate_for(_host_key(url, ats_type)):   # cap the load on any one host
                 time.sleep(random.uniform(0, 1.0))      # small stagger so we don't burst one API
-                rows = fn(url)
+                rows = _run_with_timeout(fn, url, secs) if secs else fn(url)
             for r in rows:
                 r.setdefault("company", company)        # keep a per-row company if the scraper set
                                                          # one (aggregator search spans many firms)
