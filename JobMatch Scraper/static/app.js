@@ -178,7 +178,7 @@
     var newFlag = (relTime(j.date) === "Today") ? '<span class="newflag">New</span>' : '';
     var badges = "";
     if (j.intern)
-      badges += '<span class="intl" title="Internship / co-op — OPT &amp; STEM-OPT eligible">Internship</span>';
+      badges += '<span class="intl" title="OPT &amp; STEM-OPT eligible">Internship</span>';
     // Visa routes this employer has actually filed for (DOL LCA + PERM + E-Verify). Capped at
     // three chips: a big sponsor carries all five, and with Internship / No-lottery / Agency /
     // experience / pay / Remote alongside them one card could otherwise show a dozen.
@@ -206,23 +206,24 @@
         (VISA.needsLottery ? ", so this route does not depend on the March registration you're waiting on" : "") +
         '. Verify.">No lottery</span>';
     if (j.agency)
-      badges += '<span class="agency" title="Staffing agency / consultancy — postings are placement or bench roles, not a direct employer\'s own team. Kept for their H-1B sponsorship, flagged so you can skip if you prefer direct employers.">Agency</span>';
+      badges += '<span class="agency" title="Placement or bench role, not a direct employer\'s own team. Kept for the H-1B sponsorship.">Agency</span>';
+    // No title on this one: the chip already reads "5+ yrs".
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
-      badges += '<span class="exp ' + ec + '" title="The description asks for about ' + H(j.exp_years) +
-        '+ years of experience">' + H(j.exp_years) + '+ yrs</span>';
+      badges += '<span class="exp ' + ec + '">' + H(j.exp_years) + '+ yrs</span>';
     }
     if (j.sponsor_jd === 'blocked')
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
     else if (j.sponsor_jd === 'open')
       badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
+    // Pay needs no tooltip — the chip shows the range. Remote keeps the "per the posting" hedge,
+    // which is the single place that caveat now lives (the rail checkbox dropped its copy).
     if (j.salary_label)
-      badges += '<span class="pay" title="Pay range stated in the job description">' +
-        H(j.salary_label) + '</span>';
+      badges += '<span class="pay">' + H(j.salary_label) + '</span>';
     if (j.remote)
-      badges += '<span class="rem" title="Remote or remote-friendly per the posting">Remote</span>';
+      badges += '<span class="rem" title="Remote per the posting">Remote</span>';
     if (j.closed)
-      badges += '<span class="closed" title="This posting has disappeared from the company\'s job board across several checks, so it is probably filled or expired.">Closed</span>';
+      badges += '<span class="closed" title="Gone from the company\'s job board across several checks — probably filled.">Closed</span>';
     // Some employers publish no posting date anywhere, so the card falls back to when the job
     // reached us. It carries data-added so formatDates() labels it "Added …" and styles it
     // apart — an approximate arrival date must never read as a posting date. The text starts
@@ -251,10 +252,12 @@
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>' +
         '<a class="btn sm" href="/brain?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
         '<span class="spacer"></span>' +
+        // No title= here: each button's visible text already IS the tooltip, and this block
+        // renders once per card, so the duplication was three tooltips on every row of the feed.
         '<span class="acts">' +
-          '<button class="ico" data-act="liked" title="Save">' + (st === 'liked' ? 'Saved' : 'Save') + '</button>' +
-          '<button class="ico" data-act="applied" title="Mark applied">' + (st === 'applied' ? 'Applied' : 'Mark applied') + '</button>' +
-          '<button class="ico" data-act="hidden" title="Hide">' + (st === 'hidden' ? 'Hidden' : 'Hide') + '</button>' +
+          '<button class="ico" data-act="liked">' + (st === 'liked' ? 'Saved' : 'Save') + '</button>' +
+          '<button class="ico" data-act="applied">' + (st === 'applied' ? 'Applied' : 'Mark applied') + '</button>' +
+          '<button class="ico" data-act="hidden">' + (st === 'hidden' ? 'Hidden' : 'Hide') + '</button>' +
         '</span>' +
       '</div>' +
     '</article>';

@@ -48,8 +48,7 @@
        just overhead, so this buys the grid a fourth card column. It carries the active-filter
        badge so a collapsed rail can never hide that filters are on. Desktop only — below 900px
        the rail is already a collapsible block. #}
-    <button type="button" id="railexpand" class="railstrip" aria-label="Show filters"
-            title="Show filters">
+    <button type="button" id="railexpand" class="railstrip" aria-label="Show filters">
       <span class="rs-chev" aria-hidden="true">›</span>
       <span class="fbadge" hidden>0</span>
       <span class="rs-txt">Filters</span>
@@ -64,12 +63,14 @@
          segmented control stays pure presentation. #}
       <input type="hidden" id="track" value="{{ prefs.track or 'any' }}">
       <div class="seg" id="trackseg" role="group" aria-label="Career track">
-        {% for v, lab, tip in [
-             ('any',  'All roles',        'Every job in the feed — software and management together.'),
-             ('dev',  'Software & Data',  'Engineering, data, ML/AI, DevOps, QA and DBA roles — the people who build.'),
-             ('mgmt', 'Management',       'Project, program, product, operations and analyst roles.')] %}
+        {# Tooltips name what each track CONTAINS, which the two labels don't tell you. "All roles"
+         gets none — the label is the whole story. #}
+      {% for v, lab, tip in [
+             ('any',  'All roles',        ''),
+             ('dev',  'Software & Data',  'Engineering, data, ML/AI, DevOps, QA, DBA'),
+             ('mgmt', 'Management',       'Project, program, product, operations, analyst')] %}
         <button type="button" class="segb{{ ' on' if (prefs.track or 'any') == v else '' }}"
-                data-track="{{ v }}" title="{{ tip }}"
+                data-track="{{ v }}"{% if tip %} title="{{ tip }}"{% endif %}
                 aria-pressed="{{ 'true' if (prefs.track or 'any') == v else 'false' }}">{{ lab }}</button>
         {% endfor %}
       </div>
@@ -82,8 +83,8 @@
               aria-controls="railbody" aria-label="Show filters">
         <span class="railtoggle-t">Show</span><span class="fcaret" aria-hidden="true">▾</span>
       </button>
-      <button type="button" id="railcollapse" class="railcollapsebtn" aria-label="Collapse filters"
-              title="Collapse the filter rail — gives the feed a fourth column">‹</button>
+      <button type="button" id="railcollapse" class="railcollapsebtn"
+              aria-label="Collapse filters" title="Collapse filters">‹</button>
     </div>
 
     <div class="railbody" id="railbody">
@@ -111,8 +112,10 @@
           <input type="checkbox" id="visa-{{ key }}" data-vt="{{ key }}"
                  {{ ' checked' if key in prefs.visatags.split(',') else '' }}> {{ label }}</label>
         {% endfor %}
-        <p class="fnote">Matches any ticked route. Based on the employer's past federal filings — a
-          route not shown just means we have no record of it.</p>
+        {# Load-bearing: without the second sentence a missing chip reads as "won't sponsor".
+           core.py documents that as a design invariant — shorten it, never drop it. #}
+        <p class="fnote">Any ticked route matches. From past federal filings — a route not shown
+          means no record, not a refusal.</p>
         <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
           <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
       </div>
@@ -121,29 +124,33 @@
         <h3 class="flab" id="lab-loc">Location</h3>
         <input id="loc" class="locin" list="locs" placeholder="City, metro or state" autocomplete="off"
                value="{{ prefs.loc }}" aria-labelledby="lab-loc"
-               title="Filter by where the job is. Type a metro (Boston), a 2-letter state code (MA), or 'remote'.">
+               {# Only the part the placeholder doesn't already say. #}
+               title="Also accepts a state code (MA) or 'remote'.">
         <datalist id="locs">
           <option value="Remote">
           {% for m in metros %}<option value="{{ m }}">{% endfor %}
           {% for s in states %}<option value="{{ s }}">{% endfor %}
         </datalist>
-        <label class="ck" title="Show only roles the posting says are remote or remote-friendly.">
+        {# No tooltip: the label says it. The "per the posting" hedge lives on the card's own
+           Remote badge (app.js), where it applies to a specific job. #}
+        <label class="ck">
           <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote only</label>
       </div>
 
       <div class="fgroup">
         <h3 class="flab" id="lab-pay">Pay &amp; experience</h3>
-        <select id="minsal" class="sel" aria-labelledby="lab-pay" title="Minimum pay, read from the range stated in the job description. Only about a third of postings state one, so picking a minimum hides the rest — leave it on 'Any pay' to see everything.">
+        {# The "only a third state one" clause stays: without it this control looks broken. #}
+        <select id="minsal" class="sel" aria-labelledby="lab-pay" title="Read from the pay range in the description. Only about a third of postings state one, so any minimum hides the rest.">
           {% for v, lab in [(0, 'Any pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
           <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
           {% endfor %}
         </select>
-        <select id="exp" class="sel" title="Filter by the years of experience the job description asks for (jobs that don't state a number are always kept)">
+        <select id="exp" class="sel" title="Years the description asks for. Jobs that don't state a number are always kept.">
           {% for v, lab in [('any', 'Any experience'), ('2', 'Entry · ≤2 yrs'), ('5', '≤5 yrs'), ('senior', 'Hide 6+ yrs')] %}
           <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
           {% endfor %}
         </select>
-        <select id="intern" class="sel" title="Internships and co-ops are OPT / STEM-OPT eligible. Show them alongside full-time roles, only them, or exclude them.">
+        <select id="intern" class="sel" title="Internships and co-ops are OPT / STEM-OPT eligible.">
           {% for v, lab in [('any', 'Intern + full-time'), ('only', 'Internships & co-ops only'), ('no', 'Exclude internships')] %}
           <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
           {% endfor %}
@@ -152,7 +159,7 @@
 
       <div class="fgroup">
         <h3 class="flab" id="lab-date">Date posted</h3>
-        <select id="date" class="sel" aria-labelledby="lab-date" title="Posted within">
+        <select id="date" class="sel" aria-labelledby="lab-date">
           {% for v, lab in [('any', 'Any time'), ('1', 'Past 24 hours'), ('7', 'Past 7 days'), ('30', 'Past 30 days'), ('90', 'Past 90 days')] %}
           <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
           {% endfor %}
@@ -161,17 +168,19 @@
 
       <div class="fgroup" role="group" aria-labelledby="lab-other">
         <h3 class="flab" id="lab-other">Other</h3>
-        <label class="ck" title="Staffing agencies and bench consultancies post placement roles rather than their own team's. Hidden by default; uncheck to see them.">
+        {# Both keep their explanation: one is pre-checked (a filter that's already on has to say
+           why), the other describes a heuristic with an exception you can't see. #}
+        <label class="ck" title="Agencies post placement roles, not their own team's. Hidden by default.">
           <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide staffing agencies</label>
-        <label class="ck" title="Postings that have vanished from the company's own job board across several checks are hidden as probably filled. Saved and Applied jobs always stay visible.">
+        <label class="ck" title="Hidden once a posting vanishes from the company's board across several checks. Saved and Applied always stay visible.">
           <input type="checkbox" id="showclosed"> Show closed postings</label>
       </div>
 
       <div class="railfoot">
         <button id="clearfilters" class="btn sm ghost" type="button"
-                title="Reset every narrowing filter to wide open. Your search text and career track stay as they are.">Clear</button>
+                title="Resets the filters. Your search text and career track stay.">Clear</button>
         <button id="saveprefs" class="btn sm" type="button"
-                title="Remember these filters as your default search, and use them to pick what goes in your email digest.">Save as default</button>
+                title="Remembers these filters as your default search — and picks what goes in your email digest.">Save as default</button>
       </div>
     </div>
   </aside>
@@ -189,7 +198,7 @@
            accounted for — #grouped says how many cards those jobs are drawn as when they differ.
            " of N jobs" must stay OUTSIDE #count: app.js parses the span back out as an integer. -->
       <div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs<span id="grouped"></span></div>
-      <select id="sort" class="sel" title="Sort by">
+      <select id="sort" class="sel">
         <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
         <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
       </select>
@@ -206,7 +215,7 @@
     </div>
     <script id="feeddata" type="application/json">{{ feed_rows|tojson }}</script>
     <noscript><p style="padding:16px">This jobs feed needs JavaScript enabled to display.</p></noscript>
-    <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Match</b>, clear search, or switch tabs.</div>
+    <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Match</b> or clear your search.</div>
     <div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
   </div>
 </div>

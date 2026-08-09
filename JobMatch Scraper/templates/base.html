@@ -29,8 +29,10 @@
     {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
   <div class="acct">
-    <button id="themetoggle" class="iconbtn" title="Toggle dark mode" aria-label="Toggle theme">Dark</button>
-    <a class="who" href="{{ url_for('profile') }}" title="Your profile">{{ current_user }}</a>
+    {# No title= on either: the button's own text is Dark/Light, and the link is your username.
+       aria-label stays on the toggle because its text changes. #}
+    <button id="themetoggle" class="iconbtn" aria-label="Toggle theme">Dark</button>
+    <a class="who" href="{{ url_for('profile') }}">{{ current_user }}</a>
     <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
   </div>
 </header>

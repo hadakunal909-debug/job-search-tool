@@ -1,8 +1,11 @@
 {% extends "base.html" %}
+{# `options` takes plain strings, where the stored value doubles as the label, OR (value, label)
+   pairs for when the two differ — opt_type stores 'opt'/'stem' (matched on by core.py's visa
+   timeline) but has to READ as prose, which is what removed the legend under that control. #}
 {% macro sel(name, value, options) %}
   <select name="{{ name }}">
     <option value=""></option>
-    {% for o in options %}<option value="{{ o }}"{{ ' selected' if value == o else '' }}>{{ o }}</option>{% endfor %}
+    {% for o in options %}{% set v = o if o is string else o[0] %}{% set lab = o if o is string else o[1] %}<option value="{{ v }}"{{ ' selected' if value == v else '' }}>{{ lab }}</option>{% endfor %}
   </select>
 {% endmacro %}
 {% macro yn(name, value) %}{{ sel(name, value, ['Yes', 'No']) }}{% endmacro %}
@@ -34,7 +37,9 @@
 [data-theme=dark] .tlrow{border-color:#222b36}
 </style>
 <h1>Profile</h1>
-<p class="sub">Powers one-click <b>Tailor &amp; fill</b> from the browser extension: these answers auto-fill application forms, and your default résumé feeds the tracker. Private to your account. EEO fields are always optional — leave blank or pick “Decline”.</p>
+{# "Private to your account" dropped — the usage-data section below covers privacy properly, and
+   the EEO note moved onto the EEO heading where it applies. #}
+<p class="sub">These answers auto-fill application forms via the browser extension.</p>
 <form method="post">
   <div class="pgrid">
     <label class="full">Default résumé file name <span class="dim">— auto-filled into your tracker each time you apply</span>
@@ -59,7 +64,9 @@
     <label>State / Province<input name="state" value="{{ prof.state or '' }}"></label>
     <label>ZIP / Postal code<input name="postal_code" value="{{ prof.postal_code or '' }}"></label>
     <label>Country<input name="country" value="{{ prof.country or '' }}"></label>
-    <label class="full">Location (city, state) <span class="dim">— legacy, used by the feed</span><input name="location" value="{{ prof.location or '' }}"></label>
+    {# Was "— legacy, used by the feed". "Legacy" is our vocabulary, not the user's, and there is
+       nothing they can do about it. The field still feeds the feed's location filter. #}
+    <label class="full">Location (city, state)<input name="location" value="{{ prof.location or '' }}"></label>
 
     <div class="psec">Work authorization</div>
     <label>Authorized to work in the US?{{ yn('work_authorized', prof.work_authorized) }}</label>
@@ -68,17 +75,21 @@
     <label>Require sponsorship in the future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
 
     <div class="psec">Work-authorization timeline <span class="dim">— optional; powers deadline reminders. Nothing here is sent to employers.</span></div>
+    {# Liability copy. The "these are just dates and the reminders are arithmetic" opener went —
+       it restated the heading — but the disclaimer itself stays intact. Don't trim further. #}
     <label class="full dim" style="font-size:12px;line-height:1.5">
-      These are just dates you type in, and the reminders below are simple arithmetic on them.
-      They are <b>not immigration advice</b> and confirm nothing about your eligibility — always
-      check with your school's international-student office (DSO) and
-      <a href="https://www.uscis.gov" target="_blank" rel="noopener">uscis.gov</a>, since the
-      rules and the exact H-1B dates change every year.
+      <b>Not immigration advice</b> — these reminders confirm nothing about your eligibility.
+      Check with your school's international-student office (DSO) and
+      <a href="https://www.uscis.gov" target="_blank" rel="noopener">uscis.gov</a>; the rules and
+      the exact H-1B dates change every year.
     </label>
     <label>Program end date <span class="dim">(graduation)</span>
       <input name="program_end_date" type="date" value="{{ prof.program_end_date or '' }}"></label>
-    <label>Current status{{ sel('opt_type', prof.opt_type, ['opt', 'stem']) }}
-      <span class="dim">opt = post-completion OPT · stem = 24-month STEM extension</span></label>
+    {# The legend under this control existed only because the two options read "opt" and "stem".
+       Self-describing labels delete the need for it. The VALUES are unchanged — core.py and the
+       visa timeline still match on 'opt' / 'stem'; sel() renders value/label separately. #}
+    <label>Current status{{ sel('opt_type', prof.opt_type, [('opt', 'Post-completion OPT'),
+                                                            ('stem', 'STEM extension (24-month)')]) }}</label>
     <label>OPT start date <span class="dim">(EAD "valid from")</span>
       <input name="opt_start_date" type="date" value="{{ prof.opt_start_date or '' }}"></label>
     <label>OPT end date <span class="dim">(EAD "valid to")</span>
@@ -94,13 +105,16 @@
         <option value="off"{{ ' selected' if prefs.alerts != 'daily' else '' }}>Off</option>
         <option value="daily"{{ ' selected' if prefs.alerts == 'daily' else '' }}>Daily digest</option>
       </select>
-      <span class="dim">Sent to the email above. Off unless you turn it on.</span></label>
+      {# "Off unless you turn it on" dropped — the select's own default option reads Off. #}
+      <span class="dim">Sent to the email above.</span></label>
     <label>Only include matches at or above
       <input name="alert_min" type="number" min="0" max="100" value="{{ prefs.alert_min or '' }}"
              placeholder="uses your {{ prefs.min }}% search floor">
-      <span class="dim">Leave blank to reuse your saved search's match floor.</span></label>
+      {# Dropped: the placeholder already says "uses your N% search floor". #}
+      </label>
+    {# Kept — the digest↔default-search coupling is invisible anywhere else. #}
     <label class="full dim" style="font-size:12px">
-      Which jobs qualify comes from your <b>default search</b> — set that with “Save as default”
+      Which jobs qualify comes from your <b>default search</b> — set with “Save as default”
       on the <a href="{{ url_for('feed') }}">jobs feed</a>. Currently:
       {{ prefs.loc or 'anywhere' }}, {{ prefs.min }}%+ match{% if prefs.remote %}, remote only{% endif %}{% if prefs.hideagency %}, no staffing agencies{% endif %}{% if prefs.everify %}, E-Verify only{% endif %}.
     </label>
@@ -117,7 +131,7 @@
     <label>Currency<input name="salary_currency" value="{{ prof.salary_currency or 'USD' }}"></label>
     <label>Available start date<input name="available_start_date" value="{{ prof.available_start_date or '' }}" placeholder="e.g. Immediately or 2026-08-01"></label>
     <label>Willing to relocate?{{ yn('willing_to_relocate', prof.willing_to_relocate) }}</label>
-    <label class="full">How did you hear about us? <span class="dim">(default answer for that common question)</span><input name="how_did_you_hear" value="{{ prof.how_did_you_hear or '' }}" placeholder="e.g. Company website"></label>
+    <label class="full">How did you hear about us?<input name="how_did_you_hear" value="{{ prof.how_did_you_hear or '' }}" placeholder="e.g. Company website"></label>
 
     <label class="full">Notes<textarea name="notes" rows="2">{{ prof.notes or '' }}</textarea></label>
   </div>
@@ -150,18 +164,20 @@
 
 <div class="tokbox">
   <b>Usage data</b>
+  {# Consent copy sitting next to an opt-out, so every actual commitment survives: what's
+     recorded, that it's per-username, the 90-day window, what is NOT recorded, and the
+     no-results-searches exception. Only the connective prose went. Details collapses the
+     exclusion list, which is the half nobody reads twice. #}
   <p class="dim">
-    So the app can be improved, it records what you do in it: which pages you open, which jobs
-    are shown to you and which ones you open, save, apply to or hide, the match score each one
-    had, and which filters you set. It is recorded <b>against your username</b> — this is not
-    anonymous — and kept for 90 days, after which only daily totals remain.
+    Pages you open, jobs shown/opened/saved/applied/hidden, their match score, and your filters —
+    recorded <b>against your username</b> (not anonymous), kept 90 days, then daily totals only.
   </p>
-  <p class="dim">
-    It does <b>not</b> record your IP address, your browser, your location, your résumé or
-    profile details, your application notes, or any of your answers to the voluntary
-    demographic questions. Searches are only stored when they returned no results, because
-    that tells us what the job feed is missing.
-  </p>
+  <details class="dim">
+    <summary>What it never records</summary>
+    <p>Your IP address, browser, location, résumé or profile details, application notes, or your
+    answers to the demographic questions. Searches are stored only when they returned no
+    results — that shows what the feed is missing.</p>
+  </details>
   <form method="post" action="{{ url_for('profile_tracking') }}">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label class="blockrow">
@@ -174,14 +190,21 @@
 
 <div class="tokbox">
   <b>Browser extension</b>
-  <p class="dim">Install the JobMatch Helper extension to <b>tailor your résumé and auto-fill applications</b> with one click — on Greenhouse, Lever, Ashby, and more. Paste this token into the extension; it links the extension to your account, so keep it private:</p>
+  {# "keep it private" stays — it's the only warning on a live credential. The Chrome walkthrough
+     moves behind a disclosure rather than going, since the README it points at repeats it. #}
+  <p class="dim">Paste this token into the JobMatch Helper extension to tailor and auto-fill
+  applications. Keep it private:</p>
   <div class="tok">{{ token }}</div>
-  <p class="dim">Install: get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code> → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in <code>extension/README.md</code>.</p>
+  <details class="dim">
+    <summary>How to install</summary>
+    <p>Get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code>
+    → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in
+    <code>extension/README.md</code>.</p>
+  </details>
   <form method="post" action="{{ url_for('profile_revoke_token') }}" class="inline">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <button class="btn sm danger" type="submit">Revoke this token</button>
   </form>
-  <p class="dim">If you've pasted this somewhere you shouldn't have, revoking makes it stop
-  working immediately. A new token appears here straight away — paste that into the extension.</p>
+  <p class="dim">Revoking kills the old token immediately and shows a new one here.</p>
 </div>
 {% endblock %}
