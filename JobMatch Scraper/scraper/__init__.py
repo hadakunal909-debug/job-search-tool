@@ -4678,7 +4678,9 @@ def reconcile_closed(board_results, apply=False):
     would otherwise retire its entire inventory in one pass.
     """
     try:
-        rows = db.load_jobs(include_jd=False)
+        # Only url/is_active/miss_count/last_seen are read below, and this runs on every scrape
+        # — 4.4 MB a call instead of 11.6 MB at 19k rows.
+        rows = db.load_jobs(cols=db.COLS_RECONCILE)
     except Exception as e:
         print("  (closed-posting check skipped, could not load jobs: %s)" % str(e)[:90])
         return 0, 0

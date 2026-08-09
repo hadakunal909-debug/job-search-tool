@@ -368,12 +368,42 @@ _FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
 _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
-def load_jobs(include_jd=True):
-    """All jobs. The web FEED passes include_jd=False to skip the large `jd` text column
-    (~12 KB × ~2,600 rows) — the feed never shows it; the detail panel fetches one JD on
-    demand via get_job_jd(). That drops the feed fetch from ~20 MB to ~1 MB. The scraper,
-    scorer, and notifier keep the default (jd included) since they need the description."""
+# Narrow column sets for the consumers that DON'T render feed cards. Measured at 19,268 rows:
+# the full _FEED_COLS select is 601 B/row (11.6 MB a call), and these run 226-267 B/row
+# (~4.4-5.1 MB). Each one is the EXACT set its consumer reads — audited at the call site rather
+# than guessed, because a narrowed select turns a column the code forgot it needed into a
+# MISSING KEY rather than an empty string, and `r.get("x") or ""` hides that perfectly.
+COLS_RECONCILE = "url,is_active,miss_count,last_seen"
+"""scraper.reconcile_closed — reads exactly these four (scraper/__init__.py:4715-4730)."""
+
+COLS_VERIFY = "url,posted_verified,posted_confidence,found_date"
+"""scraper.verify_dates._candidates — reads exactly these four (verify_dates.py:132-145)."""
+
+COLS_SCORE = ("url,found_date,location,first_seen,"
+              "loc_state,loc_metro,remote,salary_min,salary_max,salary_period")
+"""scraper.score_jobs in new-only mode. The first four are read directly; the last six exist
+because the same `rows` are passed to _persist_derived(current_rows=...), which diffs against
+them to decide what to re-write (score_jobs.py:566-582). Drop those and every run would think
+every derived field had changed and re-upsert the whole corpus."""
+
+
+def load_jobs(include_jd=True, cols=None):
+    """All jobs. The web FEED passes include_jd=False to skip the large `jd` text column — the
+    feed never shows it; the detail panel fetches one JD on demand via get_job_jd(). Measured at
+    19,268 rows that is the difference between ~128 MB and ~11.6 MB. The scorer's FULL pass keeps
+    the default (jd included) because it builds IDF over every description.
+
+    `cols` narrows further for consumers that need only a few fields — see COLS_* above. It is
+    best-effort: if that select fails (a column not migrated yet), it falls back to the normal
+    include_jd=False path rather than raising, because reading more than necessary is a cost and
+    failing here would take down a scrape.
+    """
     if using_supabase():
+        if cols:
+            try:
+                return _fetch_all(TABLE, {"select": cols})
+            except Exception:
+                pass                     # fall through to the wider, always-supported select
         sel = "*" if include_jd else _FEED_COLS
         try:
             return _fetch_all(TABLE, {"select": sel})
@@ -461,9 +491,31 @@ def load_jobs_by_urls(urls, include_jd=True):
     return rows
 
 
+def urls_missing_jd():
+    """Set of job URLs that have NO stored JD — the complement of urls_with_jd(), and much
+    cheaper when most rows already have one: measured 2,940 rows against 16,328, so 5.6x fewer
+    to page. Prefer this whenever the caller wants the backlog rather than the coverage.
+
+    Matches on NULL *or* empty string: a row can hold '' rather than NULL (the CSV backend and
+    some early writes), and `if not jd` treated those as missing — so filtering on NULL alone
+    would quietly drop them from the fetch queue forever. Empty set on error, which a caller
+    must read as "no backlog known" and not as "everything has a JD".
+    """
+    if using_supabase():
+        try:
+            return {r["url"] for r in _fetch_all(TABLE, {"select": "url",
+                                                         "or": "(jd.is.null,jd.eq.)"})
+                    if r.get("url")}
+        except Exception:
+            return set()
+    return {r["url"] for r in _read_csv() if not (r.get("jd") or "").strip()}
+
+
 def urls_with_jd():
     """Set of job URLs that have a stored JD — for 'has a description?' checks without
-    pulling the JD text. Cheap (urls only). Empty set on error."""
+    pulling the JD text. Cheap (urls only). Empty set on error.
+
+    For the inverse question prefer urls_missing_jd(), which pages ~5.6x fewer rows."""
     if using_supabase():
         try:
             return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "not.is.null"})
