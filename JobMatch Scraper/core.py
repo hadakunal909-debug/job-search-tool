@@ -1318,6 +1318,38 @@ def is_aggregator_url(url):
     return any(h in host for h in AGGREGATOR_HOSTS)
 
 
+def sponsor_rank(row):
+    """Ordering for sort=sponsor, LOWEST FIRST — "show me the jobs I can actually take".
+
+    Lives in core because THREE surfaces need it: the feed (web._row_sponsor_rank), the client
+    (app.js sponsorRank), and the email digest (scraper.notify). notify cannot import web — that
+    would pull Flask into the scraper — so without this the digest would carry a fourth copy of
+    a rule that is already mirrored twice.
+
+    Ranking rather than filtering, deliberately. Measured 2026-08-09: filtering on sponsorship
+    hides 442 of the 1,346 jobs above the default match floor, and 88 of those are employers with
+    NO federal record at all — 41 Northrop Grumman postings and 4 at Penn State, a CAP-EXEMPT
+    university and therefore the best H-1B route available. Absence from a DOL file means "not in
+    this dataset", never "does not sponsor".
+
+    `visa` must already be narrowed per posting by visa_tags_for_posting, which both _build_row
+    and digest_row do, so a JD demanding citizenship has had its employer tags stripped first.
+    """
+    visa = row.get("visa") or ()
+    if "h1b" in visa and "stem_opt" in visa:
+        tier = 0                    # E-Verify AND files LCAs: STEM OPT now, H-1B later
+    elif "h1b" in visa:
+        tier = 1                    # files LCAs
+    elif "stem_opt" in visa:
+        tier = 2                    # E-Verify only — clears the STEM OPT gate, no H-1B evidence
+    elif row.get("sponsor_jd") == "blocked":
+        tier = 4                    # the JD itself rules you out; last, but still reachable
+    else:
+        tier = 3                    # no record either way
+    # Then USCIS approval volume, then match score — both descending.
+    return (tier, -(row.get("strength_n") or 0), -(row.get("score") or 0))
+
+
 def posting_key(title, company, location, require_location=False):
     """Identity of a POSTING rather than of a URL: title + company + full location.
 
@@ -1519,7 +1551,7 @@ def location_matches(row, needle):
     return needle in hay
 
 
-def digest_row(job, score, everify_index=None, visa_index=None):
+def digest_row(job, score, everify_index=None, visa_index=None, counts_index=None):
     """The row shape prefs_match wants, built from a RAW db job row.
 
     The email path has no access to web.py's _build_row (importing Flask into the scraper
@@ -1538,6 +1570,7 @@ def digest_row(job, score, everify_index=None, visa_index=None):
     # Same narrowing the feed applies, so the email never claims a route the JD rules out.
     vtags = visa_tags_for_posting(visa_tags(company, visa_index) if visa_index else (),
                                   _sv, _sreason)
+    _st, _sn = sponsor_strength(company, counts_index) if counts_index else ("", 0)
     return {
         "visa": vtags,
         "title": job.get("title") or "", "company": company,
@@ -1550,6 +1583,11 @@ def digest_row(job, score, everify_index=None, visa_index=None):
         "salary_label": salary_label(sal["min"], sal["max"], sal["period"]),
         "sponsors_h1b": job.get("sponsors_h1b") or "",
         "sponsor_jd": _sv,
+        # USCIS approval volume — read only by sponsor_rank, so the digest can order by the same
+        # ladder the feed does. Passed in rather than loaded here: this runs once per job per
+        # recipient, and sponsor_counts.json is ~2.9 MB. Absent index -> ("", 0), which ranks the
+        # employer as "no record" rather than erroring.
+        "strength": _st, "strength_n": _sn,
         "agency": is_agency(company), "cap_exempt": is_cap_exempt(company),
         # stem_opt IS the E-Verify fact, now sourced from the visa index; fall back to the
         # old everify.txt path for anyone who built that file.

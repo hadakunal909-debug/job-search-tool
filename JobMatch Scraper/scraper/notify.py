@@ -204,6 +204,10 @@ def main():
     idf = core.load_idf()
     everify = core.load_everify()
     visa_idx = core.load_visa_tags()
+    # Loaded once for the whole run, not per row: ~2.9 MB, and digest_row is called for every
+    # job for every recipient. Only sort=sponsor reads what it produces, but building it
+    # unconditionally keeps one code path — the cost is a single file read per run.
+    counts_idx = core.load_sponsor_counts()
 
     people = recipients()
     if not people:
@@ -233,10 +237,17 @@ def main():
             except (TypeError, ValueError):
                 base = 0
             score = _score_for(text_low, job, idf, base)
-            row = core.digest_row(job, score, everify, visa_idx)
+            row = core.digest_row(job, score, everify, visa_idx, counts_idx)
             if core.prefs_match(row, prefs):
                 rows.append(row)
-        rows.sort(key=lambda r: -r["score"])
+        # Honour the saved sort, which until now the digest ignored. Only "sponsor" is meaningful
+        # here besides score: "newest" says nothing when every candidate is new by definition.
+        # core.sponsor_rank is the same ladder the feed and app.js use — the digest is the third
+        # surface, and the reason that function lives in core rather than web.
+        if prefs.get("sort") == "sponsor":
+            rows.sort(key=core.sponsor_rank)
+        else:
+            rows.sort(key=lambda r: -r["score"])
         rows = rows[:MAX_ROWS_PER_EMAIL]
 
         who = username or email
