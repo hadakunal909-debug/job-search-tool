@@ -151,6 +151,50 @@ textarea{resize:vertical}
    (main's padding), so this only binds above a 1612px viewport — below that it's a no-op, and
    above it the extra width goes to the card grid instead of to gutters. */
 .feedwrap{max-width:1880px;margin:0 auto}
+
+/* ---- company page ---- */
+/* The header mirrors a card's logo + meta stack, so the page reads as "one card, expanded". */
+.backlink{display:inline-block;color:var(--muted);font-size:13px;text-decoration:none;margin:2px 0 12px}
+.backlink:hover{color:var(--brand)}
+.cohead{display:flex;gap:16px;align-items:flex-start;margin:0 0 6px}
+.cohead .logo{width:56px;height:56px;font-size:23px;border-radius:13px}
+.cohead-main{min-width:0;flex:1}
+.cohead h1{margin:0;line-height:1.2}
+.cosub{color:var(--muted);font-size:13.5px;margin-top:4px}
+.cochips{margin:11px 0 2px}
+.cosearch{flex:1;min-width:150px;max-width:320px;padding:7px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px}
+.cosearch:focus{outline:none;border-color:var(--brand)}
+#cobtn{margin-top:10px}
+/* "More about this employer" panel. Reuses .modal / .modal-head / .sechdr / .kw wholesale —
+   only the pieces the job panel has no equivalent of are defined here. */
+.costats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:8px 0 12px}
+.costat{background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:11px 12px}
+.costat b{display:block;font-size:21px;font-weight:700;line-height:1.15;color:var(--ink)}
+.costat span{display:block;margin-top:3px;font-size:11.5px;color:var(--muted);line-height:1.35}
+/* H-1B approvals by fiscal year. Bars are sized server-side (one % per year), so this needs no
+   JS and no chart library — and it prints and scales with the panel. align-items:flex-end is
+   what makes them grow from the axis rather than hang from the top. */
+.cochart{display:flex;align-items:flex-end;gap:4px;height:104px;margin:10px 0 6px;
+         padding:0 2px 18px;border-bottom:1px solid var(--line);position:relative}
+.cobar{flex:1;min-width:0;height:100%;display:flex;align-items:flex-end;position:relative}
+/* NO min-height. _company_profile already floors a non-zero year at 2%, so the only bar that
+   can be 0 here is a year with genuinely no approvals — and that one has to render as nothing.
+   A min-height drew it as a 2px stub identical to a 1-approval year, which is the one thing
+   this chart must not say. */
+.cobar-fill{width:100%;background:var(--brand);border-radius:3px 3px 0 0;
+            opacity:.85;transition:opacity .15s}
+.cobar:hover .cobar-fill{opacity:1}
+/* The year label sits below the axis line, so a tall bar never collides with it. */
+.cobar-y{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:10px;
+         color:var(--muted);font-variant-numeric:tabular-nums}
+.coprose{font-size:14px;line-height:1.6;color:var(--ink);margin:0 0 10px}
+.coprose.small{font-size:13px;color:var(--muted)}
+.colist{margin:0 0 12px;padding-left:20px;font-size:13.5px;line-height:1.55;color:var(--ink)}
+.colist li{margin:0 0 5px}
+/* The card's company name is a link now. Underlining every one of them turns the feed into a
+   wall of rules, so it reads as plain emphasis until you point at it. */
+.cmeta a{font-weight:600;text-decoration:none}
+.cmeta a:hover{text-decoration:underline;text-decoration-color:var(--brand)}
 /* align-items:start is load-bearing twice over: a grid item defaults to stretch, which leaves
    position:sticky no room to slide (it would silently never stick), and a short rail would
    otherwise draw as a full-height empty card. */
@@ -377,16 +421,6 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .ico:hover{background:var(--surface2);color:var(--ink)}
 .ico:active{opacity:.7}
 .ico:disabled{opacity:.4}
-/* "+N more at <company>" — one employer's run of near-identical postings, collapsed. It's a grid
-   cell like a card (so the grid stays even) but dashed and quiet, so it reads as an affordance
-   rather than as a job. Cards revealed by opening it get a left accent tying them to the group. */
-.grpmore{background:var(--surface2);border:1px dashed var(--line-strong);border-radius:var(--r-lg);padding:16px 17px;display:flex;flex-direction:column;justify-content:center;gap:8px;text-align:center;min-height:118px}
-.grpsub{font-size:12.5px;font-weight:600;color:var(--muted);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.grpbtn{background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);font-size:13.5px;font-weight:650;padding:8px 14px;border-radius:9px;cursor:pointer;transition:border-color .18s,background .18s}
-.grpbtn:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink)}
-.grpbtn:disabled{opacity:.55;cursor:default}
-.grpnote{font-size:11.5px;color:var(--muted);line-height:1.45}
-.card.in-group{border-left:3px solid var(--brand-soft)}
 .empty{background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-lg);padding:44px 26px;text-align:center;color:var(--muted);grid-column:1/-1}
 .empty h3{color:var(--ink);margin:0 0 6px}
 .empty .btn{margin-top:14px}
@@ -405,11 +439,32 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .modal h2{margin:0;font-size:19px;letter-spacing:-.01em}
 .modal-body{padding:6px 24px 4px}
 .kw{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px}
+/* The badge chips carry their own margin-left:6px so they space out inside the card's inline
+   .cmeta run. Inside .kw's flex gap that becomes a double gap plus an indent on the first chip. */
+.kw > *{margin-left:0}
 .tag{font-size:12.5px;padding:4px 10px;border-radius:13px;font-weight:500}
 .tag.miss{background:var(--danger-soft);color:var(--danger)}
 .tag.have{background:var(--brand-soft);color:var(--brand-ink)}
 .sechdr{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 7px}
-.jd{white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--ink);max-height:42vh;overflow:auto;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+/* Job description. app.js jdHTML() emits real blocks (headings / <ul> / <p>) instead of one
+   pre-wrapped blob, so it reads like a document rather than a paste.
+
+   It keeps its own scroll container. Letting the whole modal grow instead was tried and is
+   worse: these run to 7,000 characters, so the panel became several screens tall and the
+   title, score and Apply button scrolled away above the text you were reading. Bounded here,
+   the description scrolls under a header that stays put. overscroll-behavior stops a flick at
+   the bottom of the JD from carrying on and scrolling the page behind the modal. */
+.jd{font-size:14.5px;line-height:1.65;color:var(--ink);max-height:46vh;overflow:auto;
+    overscroll-behavior:contain;background:var(--surface2);border:1px solid var(--line);
+    border-radius:var(--r);padding:14px 16px}
+.jd p{margin:0 0 11px}
+/* Matched to .sechdr above on purpose: the JD's own section titles should read as siblings of
+   the "Job description" header, not compete with it. */
+.jd h4.jdh{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 7px}
+.jd ul{margin:0 0 12px;padding-left:22px}
+.jd li{margin:0 0 5px}
+.jd > :first-child{margin-top:0}
+.jd > :last-child{margin-bottom:0}
 .modal-foot{display:flex;gap:8px;align-items:center;padding:14px 24px 20px;border-top:1px solid var(--line);margin-top:12px;position:sticky;bottom:0;background:var(--surface)}
 
 /* toasts */

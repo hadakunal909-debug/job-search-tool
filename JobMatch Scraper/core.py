@@ -415,8 +415,10 @@ def job_meta(jd_text, idf=None):
     """One job's résumé-INDEPENDENT, JSON-serializable metadata. Used BOTH by the cron scorer
     (to build jdmeta.json) and by the web app on a cache miss — same function, so persisted
     values and any live-computed ones always agree."""
+    # exp_years is the HIGHEST requirement stated (experience_years, not the old lenient
+    # experience_min_years) — the key name is unchanged so every consumer keeps working.
     return {"analyzed": analyze_jd(jd_text, idf),
-            "exp_years": experience_min_years(jd_text),
+            "exp_years": experience_years(jd_text),
             "exp_level": experience_level(jd_text),
             "sponsor_jd": list(sponsorship_from_jd(jd_text))}
 
@@ -437,6 +439,62 @@ def save_jdmeta(meta, path=JDMETA_PATH):
         json.dump(meta, open(path, "w", encoding="utf-8"))
     except Exception:
         pass
+
+
+# ---- the wire form of analyze_jd(), for the jobs.jd_terms column --------------------------
+# WHY THIS EXISTS: score_against() needs a job's keyword weights to score it against ANY résumé,
+# and the feed has to do that for every row on every render. jdmeta.json holds them, but it is
+# ~30 MB, gitignored, and built on an ephemeral GitHub Actions runner — so it never reached the
+# live site, and every signed-in user was silently shown the stored match_score baseline (the
+# repo's own resume.txt) instead of a score against their own profile. A column reaches
+# production through Supabase with no file deploy.
+#
+# The packed form drops two of analyze_jd's four keys because both are derivable: `terms` is
+# `weight`'s key order (analyze_jd builds weight from terms, one entry each), and `total` is the
+# sum of the weights. That, plus rounding, is ~600 B/row against ~1,290 B for the raw dict —
+# measured at 19,314 rows, and ~3.8 MB for the whole corpus once gzipped on the wire.
+_ANALYZED_ROUND = 3          # weights only ever feed a ratio; 3 dp is far below a visible 1%
+
+
+def pack_analyzed(analyzed):
+    """analyze_jd() output -> the compact JSON STRING stored in jobs.jd_terms, or "" when there
+    is nothing to store. A string (and a text column) rather than an object, so the value
+    round-trips byte for byte — see the jd_terms note in db.JOBS_DERIVED_SQL."""
+    w = (analyzed or {}).get("weight") or {}
+    if not w:
+        return ""
+    return json.dumps({"w": {t: round(v, _ANALYZED_ROUND) for t, v in w.items()},
+                       "n": 1 if (analyzed or {}).get("thin") else 0},
+                      separators=(",", ":"))
+
+
+def unpack_analyzed(packed, intern=None):
+    """The inverse, rebuilding `terms` and `total`. Shaped exactly like analyze_jd's return so
+    score_against can't tell the difference. Never raises — a malformed value scores as 0 rather
+    than 500-ing the feed.
+
+    `intern` is an optional {term: term} map the caller can pass to share one string object per
+    term across the whole corpus — the vocabulary is ~44k distinct terms against ~640k (row,
+    term) pairs, so interning is most of what keeps the rebuilt index affordable in memory.
+    """
+    empty = {"terms": [], "weight": {}, "total": 0.0, "thin": True}
+    if not packed:
+        return empty
+    try:
+        d = json.loads(packed) if isinstance(packed, str) else packed
+        src = d.get("w") or {}
+        if not src:
+            return empty
+        if intern is None:
+            weight = dict(src)
+        else:
+            weight = {intern.setdefault(t, t): float(v) for t, v in src.items()}
+        # dict order == the order pack_analyzed saw == analyze_jd's frozen term order, which is
+        # the tie-break between equal-weight terms in score_against's have/missing lists.
+        return {"terms": list(weight), "weight": weight,
+                "total": float(sum(weight.values())), "thin": bool(d.get("n"))}
+    except Exception:
+        return empty
 
 
 # ------------------------------------------------------------
@@ -547,6 +605,54 @@ def load_sponsor_counts(path="sponsor_counts.json"):
         return json.load(open(path, encoding="utf-8")) or {}
     except Exception:
         return {}
+
+
+def load_sponsor_years(path="sponsor_years.json"):
+    """Optional {normalized_company: {fiscal_year: approvals}} — the per-year H-1B history
+    behind the company panel's chart, built by scraper.build_sponsor_counts from the USCIS
+    Data Hub bulk CSVs. Returns {} when the file is absent (the chart just isn't drawn).
+
+    Small on purpose (~0.2 MB / ~1,600 employers): it covers only names in our own universe,
+    because the panel can only be opened for an employer that is in the corpus. sponsor_counts
+    stays the wide index, since the tier lookup has to resolve any spelling.
+    """
+    if not os.path.exists(path):
+        return {}
+    try:
+        return json.load(open(path, encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def _sponsor_key(company):
+    """The lookup key both sponsor_counts.json and sponsor_years.json are written under."""
+    try:
+        import scraper                      # lazy: scraper imports core (avoid circular at load)
+        return scraper._norm_name(company)
+    except Exception:
+        return re.sub(r"[^a-z0-9 ]+", " ", (company or "").lower()).strip()
+
+
+def sponsor_history(company, years_index):
+    """[(fiscal_year, approvals), ...] ascending, or [] when we have no history.
+
+    GAPS ARE FILLED WITH ZERO between the first and last year on record. Garmin filed in 2009,
+    2011 and 2013 but not 2010, 2012 or 2015; plotting only the years present would draw those
+    as adjacent bars and imply continuous filing. A zero year is a fact about the employer, and
+    the shape of the run is the whole reason to show a history rather than a total.
+    """
+    if not years_index or not company:
+        return []
+    hist = years_index.get(_sponsor_key(company)) or years_index.get((company or "").lower())
+    if not hist:
+        return []
+    try:
+        pairs = {int(y): int(n) for y, n in hist.items() if int(n) >= 0}
+    except (TypeError, ValueError):
+        return []
+    if not pairs:
+        return []
+    return [(y, pairs.get(y, 0)) for y in range(min(pairs), max(pairs) + 1)]
 
 
 def sponsor_strength(company, counts):
@@ -1315,6 +1421,8 @@ def prefs_match(row, prefs):
         return False
     exp = p.get("exp") or "any"
     if exp != "any":
+        # The HIGHEST year count the JD states (core.experience_years). A JD that states none
+        # is always kept — same rule as web._filter_rows and app.js matches().
         ev = row.get("exp_years")
         if ev not in ("", None):
             try:
@@ -1392,7 +1500,9 @@ def digest_row(job, score, everify_index=None, visa_index=None):
         # old everify.txt path for anyone who built that file.
         "everify": ("stem_opt" in vtags) or bool(
             everify_index and is_everify(company, everify_index)),
-        "exp_years": experience_min_years(jd) if jd else "",
+        # The HIGHEST year count stated, matching what the feed filters on — the digest and
+        # the feed must not disagree about which jobs are "entry level".
+        "exp_years": experience_years(jd) if jd else "",
         "intern": bool(re.search(r"\b(intern|internship|co-?op)\b", job.get("title") or "", re.I)),
         "closed": active is False or str(active).strip().lower() == "false",
     }
@@ -1591,33 +1701,54 @@ def _experience_floors(text):
     return out
 
 
+def experience_years(text):
+    """The HIGHEST experience requirement the text states, or None when it states none.
+
+    STRICT on purpose, and this is the one the FEED reads. "8+ years of engineering
+    experience; 2 years of SQL preferred" has floors [8, 2] — it is an 8-year job, and
+    reading the floor instead let a senior req hide behind its most junior line item, so
+    "Entry · <=2 yrs" returned eight-year roles. A JD that states no year count at all
+    returns None and is always KEPT by the filter (many genuine entry-level posts state none).
+    """
+    fl = _experience_floors(text)
+    return max(fl) if fl else None
+
+
 def required_years(text):
     """The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to
     hard-drop roles demanding more than MAX_YEARS where it has the JD (e.g. Amazon)."""
-    fl = _experience_floors(text)
-    return max(fl) if fl else 0
+    return experience_years(text) or 0
 
 
 def experience_min_years(text):
     """The LOWEST experience requirement stated — i.e. the years you need to QUALIFY
-    ('3-5 years' -> 3, '5+ years' -> 5). None when the JD never states one (many genuine
-    entry-level posts don't). Powers the feed's experience filter / badge, so it leans
-    lenient: it answers 'what's the floor to be considered', not 'the most they'd want'."""
+    ('3-5 years' -> 3, '5+ years' -> 5). The LENIENT reading: 'what's the floor to be
+    considered', not 'the most they'd want'. Deliberately NOT what the feed filters on any
+    more — see experience_years — but kept because it answers a real, different question."""
     fl = _experience_floors(text)
     return min(fl) if fl else None
 
 
-def experience_level(text):
-    """Coarse bucket for the feed filter: 'entry' (<=2 yrs or unstated-but-short),
-    'mid' (3-5), 'senior' (6+), or '' when the JD never states years."""
-    y = experience_min_years(text)
-    if y is None:
+def exp_level_for(years):
+    """Coarse bucket from a year COUNT rather than from text, so web._build_row can label a
+    stored column without re-reading the JD. Mirrored client-side in app.js's detail modal."""
+    if years is None or years == "":
+        return ""
+    try:
+        y = int(years)
+    except (TypeError, ValueError):
         return ""
     if y <= 2:
         return "entry"
     if y <= 5:
         return "mid"
     return "senior"
+
+
+def experience_level(text):
+    """Coarse bucket for the feed filter: 'entry' (<=2 yrs), 'mid' (3-5), 'senior' (6+),
+    or '' when the JD never states years."""
+    return exp_level_for(experience_years(text))
 
 
 # ------------------------------------------------------------

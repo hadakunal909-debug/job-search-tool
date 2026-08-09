@@ -16,7 +16,14 @@ Run from the app directory:
     python -m scraper.build_sponsor_counts "path/to/raw_csv_fy2009-2023" --years 2019-2023
 
 Writes, next to sponsors.txt:
-    sponsor_counts.json           {normalized_name: approvals}
+    sponsor_counts.json           {normalized_name: approvals}   every USCIS spelling
+    sponsor_years.json            {normalized_name: {fy: approvals}}   our companies only
+
+    The second one drives the company panel's year-by-year history. It is restricted to names
+    in our universe because the full per-year map over ~118k USCIS spellings is tens of MB,
+    and the panel can only ever be opened for an employer that is in our corpus. Its totals
+    reconcile with sponsor_counts.json over the same window, since both are summed from one
+    pass of the same rows.
 
 NO PER-STATE FILE, AND DON'T ADD ONE
     The Hub's State/City columns are the PETITIONER's mailing address, not the worksite.
@@ -55,6 +62,10 @@ if hasattr(sys.stdout, "reconfigure"):      # absent under Passenger / some cron
 from scraper import _norm_name                       # the exact key sponsor_strength looks up
 
 OUT = "sponsor_counts.json"
+# {our_normalized_name: {fiscal_year: approvals}} — the history behind the company panel's
+# year-by-year chart. Separate from OUT because it covers only the names we can actually be
+# asked about, while OUT keeps every USCIS spelling so the tier lookup can fall back on one.
+OUT_YEARS = "sponsor_years.json"
 
 DEFAULT_DIRS = [
     os.path.join("..", "USCIS H-1B Data Hub", "raw_csv_fy2009-2023"),
@@ -125,19 +136,23 @@ def _col(cols, prefix):
 
 
 def read_hub_csvs(directory, years):
-    """Aggregate approvals per USCIS employer spelling. Returns (totals, seen_years).
+    """Aggregate approvals per USCIS employer spelling.
+
+    Returns (totals, by_year, seen_years), where `totals` covers only the `years` window (it
+    feeds the tier, whose thresholds were calibrated on FY2019-23) and `by_year` is
+    {key: {fy: approvals}} across EVERY fiscal year in the folder. The per-year map is what the
+    company panel draws a history from, and a history has to be longer than the window the tier
+    happens to use — so every file is read regardless, and `totals` is summed out of `by_year`
+    at the end rather than by skipping rows on the way in. Same arithmetic, one pass.
 
     Counts Initial + Continuing APPROVALS only. Denials are read but not summed: a denial
     is not evidence of willingness to sponsor, and mixing them would inflate the tier.
     """
-    totals = collections.Counter()
+    by_year = collections.defaultdict(collections.Counter)
     seen_years, files, skipped_blank = set(), 0, 0
 
     for name in sorted(os.listdir(directory)):
         if not name.lower().endswith(".csv"):
-            continue
-        m = re.search(r"(20\d\d)", name)
-        if m and years and int(m.group(1)) not in years:
             continue
         path = os.path.join(directory, name)
         files += 1
@@ -158,20 +173,23 @@ def read_hub_csvs(directory, years):
                       % (name, ", ".join(sorted(cols))[:120]))
                 continue
 
+            # Fall back to the year in the filename (h1b_2019.csv) when a row's own Fiscal Year
+            # cell is blank or unparseable, so a stray row can't land in an "unknown" bucket.
+            fm = re.search(r"(20\d\d)", name)
+            file_fy = int(fm.group(1)) if fm else 0
+
             for row in reader:
                 emp = (row.get(emp_c) or "").strip()
                 if not emp:
                     skipped_blank += 1          # the Hub files carry blank-employer rows
                     continue
-                if fy_c and years:
+                fy = 0
+                if fy_c:
                     try:
                         fy = int(float(row.get(fy_c) or 0))
                     except ValueError:
                         fy = 0
-                    if fy and fy not in years:
-                        continue
-                    if fy:
-                        seen_years.add(fy)
+                fy = fy or file_fy
                 n = 0
                 for c in (ia_c, ca_c):
                     if not c:
@@ -185,12 +203,20 @@ def read_hub_csvs(directory, years):
                 key = _norm_name(emp)
                 if not key:
                     continue
-                totals[key] += n
+                if fy:
+                    seen_years.add(fy)
+                    by_year[key][fy] += n
 
-        print("  read %-16s (%d employers so far)" % (name, len(totals)))
+        print("  read %-16s (%d employers so far)" % (name, len(by_year)))
 
     print("  %d file(s); %d blank-employer rows skipped" % (files, skipped_blank))
-    return totals, seen_years
+    # The tier window, summed out of the full history so both numbers come from one pass.
+    totals = collections.Counter()
+    for key, yrs in by_year.items():
+        t = sum(n for fy, n in yrs.items() if not years or fy in years)
+        if t:
+            totals[key] = t
+    return totals, by_year, seen_years
 
 
 def our_universe():
@@ -233,7 +259,7 @@ def our_universe():
     return names
 
 
-def resolve(names, totals):
+def resolve(names, totals, by_year=None):
     """Map our company spellings onto the USCIS aggregates.
 
     For each of our names we gather EVERY USCIS entry that belongs to it and sum them:
@@ -256,7 +282,7 @@ def resolve(names, totals):
         head = name.split(" ", 1)[0]
         return [k for k in prefix_index.get(head, ()) if k == name or k.startswith(name + " ")]
 
-    extra = {}
+    extra, extra_years = {}, {}
     report = collections.Counter()
     examples = collections.defaultdict(list)
 
@@ -306,13 +332,24 @@ def resolve(names, totals):
 
         total = sum(totals[k] for k in matches)
         extra[key] = max(extra.get(key, 0), total)
+        # The same matched USCIS spellings, kept apart by fiscal year. Written ONLY for names in
+        # our universe: the full per-year map over all ~118k USCIS spellings would be tens of
+        # megabytes, and the panel can only ever ask about an employer that is in our corpus.
+        if by_year is not None:
+            hist = collections.Counter()
+            for k in matches:
+                hist.update(by_year.get(k) or {})
+            if hist:
+                prev = extra_years.get(key)
+                if prev is None or sum(hist.values()) > sum(prev.values()):
+                    extra_years[key] = dict(hist)
 
         tag = "+".join(how)
         report[tag if tag in ("exact", "prefix", "exact+prefix") else "alias"] += 1
         if len(examples["resolved"]) < 12 and total >= 500:
             examples["resolved"].append("%-28s -> %-24s %8s  via %d USCIS name(s) [%s]"
                                         % (raw, key, format(total, ","), len(matches), tag))
-    return extra, report, examples
+    return extra, extra_years, report, examples
 
 
 def main():
@@ -331,17 +368,18 @@ def main():
                  "    python -m scraper.build_sponsor_counts \"<folder of h1b_YYYY.csv>\"")
 
     years = parse_years(args.years)
-    print("Reading USCIS Hub CSVs from %s (FY %s)" % (directory, args.years))
-    totals, seen = read_hub_csvs(directory, years)
+    print("Reading USCIS Hub CSVs from %s (tier window FY %s; history keeps every year)"
+          % (directory, args.years))
+    totals, by_year, seen = read_hub_csvs(directory, years)
     if not totals:
         sys.exit("  No approvals parsed — check the folder and column names.")
-    print("  %d USCIS employer spellings, %s total approvals, years seen: %s"
+    print("  %d USCIS employer spellings, %s approvals in the window, years seen: %s"
           % (len(totals), format(sum(totals.values()), ","),
              ", ".join(str(y) for y in sorted(seen)) or "n/a"))
 
     print("\nResolving our company names onto those aggregates...")
     names = our_universe()
-    extra, report, examples = resolve(names, totals)
+    extra, extra_years, report, examples = resolve(names, totals, by_year)
     print("  resolved: exact %d · prefix %d · exact+prefix %d · via alias %d"
           % (report["exact"], report["prefix"], report["exact+prefix"], report["alias"]))
     print("  unresolved: no filings found %d · too generic to guess %d"
@@ -367,8 +405,17 @@ def main():
           % (OUT, len(out), os.path.getsize(OUT) / 1e6))
     print("Tiers as core.sponsor_strength will read them: high %d · medium %d · low %d"
           % (tiers["high"], tiers["medium"], tiers["low"]))
-    print("\nNOTE: add sponsor_counts.json to the .cpanel.yml copy list or the live "
-          "feed still won't show tiers.")
+
+    # Per-year history, resolved names only — see the note in resolve().
+    with open(OUT_YEARS, "w", encoding="utf-8") as f:
+        json.dump(extra_years, f, separators=(",", ":"), sort_keys=True)
+    span = sorted({int(y) for h in extra_years.values() for y in h})
+    print("Wrote %s (%d employers, FY%s-%s, %.1f MB)."
+          % (OUT_YEARS, len(extra_years), span[0] if span else "?", span[-1] if span else "?",
+             os.path.getsize(OUT_YEARS) / 1e6))
+
+    print("\nNOTE: add sponsor_counts.json and sponsor_years.json to the .cpanel.yml copy "
+          "list (and scripts/build_deploy_zip.py) or the live feed still won't show tiers.")
 
 
 if __name__ == "__main__":

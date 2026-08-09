@@ -281,13 +281,6 @@ _SCORE_CACHE_MAX = 64        # cap so a long-lived process doesn't grow unbounde
 # size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
 _FEED_INLINE_MAX = int(os.environ.get("FEED_INLINE_MAX", "4000"))
 _FEED_TOPN = int(os.environ.get("FEED_TOPN", "400"))      # how many top-match jobs to inline when paged
-# Feed grouping: how many cards one (title, company) run gets before the rest collapse into a
-# "+N more at <company>" tile. 0 turns grouping off entirely (an env-only kill switch — the value
-# is handed to app.js via the template so both sides read the same number). _GROUP_MIN is derived
-# rather than configured: a group only collapses if the tile hides at least TWO postings, so we
-# never trade a card for a tile that reveals a single row.
-_GROUP_LEAD = int(os.environ.get("FEED_GROUP_LEAD", "2"))
-_GROUP_MIN = _GROUP_LEAD + 2
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
                               # jdmeta.json (built by the cron scorer) so cold renders skip recompute
@@ -295,6 +288,61 @@ _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_
 # The feed list no longer carries JD text, so such a job simply shows no JD-derived badges and
 # its baseline match_score until the next cron run refreshes jdmeta.json.
 _EMPTY_META = {"analyzed": {}, "exp_years": None, "exp_level": "", "sponsor_jd": ("", "")}
+
+def job_analysis(j):
+    """One row's résumé-independent keyword analysis (analyze_jd's shape), or {} when we have
+    none — callers must treat {} as "not scoreable" and fall back to match_score.
+
+    THIS is what makes the feed's match score personal. score_against needs a job's keyword
+    weights to score it against any résumé; those live in jdmeta.json, which is ~30 MB,
+    gitignored, and built on an ephemeral GitHub Actions runner — so it never reached the live
+    site. With it missing, user_scores had nothing to score against and fell back to the stored
+    match_score: the baseline the cron computed against the repo's own resume.txt. Every signed
+    -in user was shown the OWNER's percentages. The jd_terms column carries the same data
+    through Supabase with no file deploy.
+
+    jdmeta.json is still preferred where it exists, because a dev machine that just ran the
+    scorer can be fresher than the last published run.
+
+    Unpacked per call rather than held in an index on purpose. Measured over the 19,314-row
+    corpus: streaming unpack-and-score costs 1.05 s for a whole feed, while an index of the same
+    data costs 1.5 s to build AND 47 MB resident for as long as the corpus stands. Both callers
+    that walk every row (user_scores, ranked_rows) already cache their own result per user, so
+    the CPU is paid once per corpus change — and shared hosting is far tighter on memory than
+    on that.
+    """
+    m = (_jdmeta.get(j.get("url") or "") or {}).get("analyzed")
+    if m and m.get("terms"):
+        return m
+    return core.unpack_analyzed(j.get("jd_terms")) if j.get("jd_terms") else {}
+
+
+def _jd_fields(j):
+    """The JD-derived fields for one job, from the ONE source both the card and the detail
+    panel read. Returns (exp_years, exp_level, sponsor_verdict, sponsor_reason).
+
+    Ladder, per field independently: real Supabase COLUMN -> jdmeta.json -> nothing. Only the
+    column reaches the live site — jdmeta.json is gitignored and never deployed, and the
+    scraper that builds it runs on an ephemeral GitHub Actions runner. That is why the
+    experience and "hide no-sponsorship" filters were silent no-ops in production while the
+    detail panel, which recomputed the same fields from the JD at request time, confidently
+    showed "8+ yrs" on a job the "<=2 yrs" filter had just let through.
+
+    jdmeta stays as the fallback so a developer's machine, where the file DOES exist and can be
+    fresher than the last scoring run, doesn't regress. Per-field rather than all-or-nothing
+    because a JD can state a sponsorship verdict and no year count, or the reverse.
+    """
+    meta = _jdmeta.get(j.get("url")) or _EMPTY_META
+    m_sv, m_sr = meta.get("sponsor_jd") or ("", "")
+    # `is not None` not truthiness: '' is a real stored verdict meaning "the JD says nothing",
+    # and it must win over a stale jdmeta entry rather than fall through to it.
+    c_sv = j.get("sponsor_jd")
+    sv, sreason = ((c_sv, j.get("sponsor_reason") or "") if c_sv is not None else (m_sv, m_sr))
+    c_exp = j.get("exp_max_years")
+    exp_y = c_exp if c_exp is not None else meta.get("exp_years")
+    # exp_level is DERIVED, never stored: two columns that can disagree is a bug generator,
+    # and the level is one comparison away from the number.
+    return exp_y, core.exp_level_for(exp_y), sv, sreason
 _EVERIFY_INDEX = core.load_everify()              # None until everify.txt is built; tiny file
 
 # sponsor_counts.json parses to ~118k keys / ~11 MB of Python objects. Loading that at import
@@ -312,6 +360,22 @@ def sponsor_counts():
         except Exception:
             _sponsor_counts_cache = {}      # a bad/huge file must not 500 the feed
     return _sponsor_counts_cache
+
+
+# Per-year H-1B history, read only by the company panel. Deferred like sponsor_counts above,
+# though this one is small (~0.2 MB) — the feed never touches it, so there is no reason for it
+# to be on the import path at all.
+_sponsor_years_cache = None
+
+
+def sponsor_years():
+    global _sponsor_years_cache
+    if _sponsor_years_cache is None:
+        try:
+            _sponsor_years_cache = core.load_sponsor_years()
+        except Exception:
+            _sponsor_years_cache = {}
+    return _sponsor_years_cache
 
 
 # visa_tags.json is ~1.8 MB / ~77k keys — same cold-start reasoning as sponsor_counts above,
@@ -539,13 +603,16 @@ def user_scores(username, resume):
         u = j.get("url")
         if not u:
             continue
-        # Score live against the precomputed JD analysis (jdmeta.json) when present — the feed
-        # rows no longer carry JD text, and the analysis is JD-only so it needs no text here.
-        # Jobs not yet in jdmeta (added since the last cron run) fall back to the baseline.
-        meta = _jdmeta.get(u)
-        if resume and meta:
+        # Score THIS user's profile against the job's precomputed keyword analysis. The feed
+        # rows carry no JD text, but the analysis is résumé-independent, so no text is needed
+        # here — see job_analysis(). A job with no stored analysis (added since the last cron
+        # run, or never had a readable JD) falls back to the baseline match_score, which is
+        # scored against the repo's resume.txt and is therefore NOT this user's number. That
+        # fallback used to be every row on the live site.
+        analyzed = job_analysis(j)
+        if resume and analyzed.get("terms"):
             try:
-                scores[u] = int(core.score_against(resume_low, meta["analyzed"])[0])
+                scores[u] = int(core.score_against(resume_low, analyzed)[0])
             except Exception:
                 scores[u] = 0
         else:
@@ -572,17 +639,16 @@ def _build_row(j, score):
     the same shape app.js renders. Built once per (profile) and cached in _rows_cache."""
     c = j.get("company") or ""
     u = j.get("url")
-    meta = _jdmeta.get(u) or _EMPTY_META
-    sv, sreason = meta.get("sponsor_jd") or ("", "")
+    exp_y, exp_lvl, sv, sreason = _jd_fields(j)
     strength, scount = core.sponsor_strength(c, sponsor_counts())
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
     # sponsorship must not carry sponsorship badges (see core.visa_tags_for_posting).
     vtags = core.visa_tags_for_posting(core.visa_tags(c, visa_index()), sv, sreason)
-    exp_y = meta.get("exp_years")
     # A too-thin/truncated JD can't be scored honestly (see core.analyze_jd) — surface it as
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
-    # rather than sitting at a fake ~100% on top of the feed.
-    pending = bool((meta.get("analyzed") or {}).get("thin"))
+    # rather than sitting at a fake ~100% on top of the feed. Read from the same analysis
+    # user_scores scored against, so a card can't show a percentage AND call itself pending.
+    pending = bool(job_analysis(j).get("thin"))
     # Location: prefer the columns score_jobs derived (it had the JD, so its `remote` is
     # better informed), but fall back to parsing the raw string here so the "where" filter
     # works even before db.JOBS_DERIVED_SQL has been run. parse_location is memoized over
@@ -625,7 +691,7 @@ def _build_row(j, score):
             # stem_opt IS the E-Verify fact; the everify.txt path stays as a fallback for
             # anyone who built that file (it has never existed in this repo).
             "everify": ("stem_opt" in vtags) or core.is_everify(c, _EVERIFY_INDEX),
-            "exp_years": exp_y if exp_y is not None else "", "exp_level": meta.get("exp_level") or "",
+            "exp_years": exp_y if exp_y is not None else "", "exp_level": exp_lvl,
             "strength": strength, "strength_n": scount,
             "intern": bool(_INTERN_RE.search(j.get("title") or "")),
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
@@ -869,6 +935,10 @@ def _filter_rows(rows, statuses, p):
         if track != "any" and r.get("track") != track:
             continue
         if exp != "any":
+            # exp_years is the HIGHEST year count the JD states (core.experience_years), so
+            # "8+ years required; 2 years of SQL preferred" is an 8-year job and "<=2 yrs"
+            # drops it. A JD that states no number is ALWAYS kept — many genuine entry-level
+            # posts state none. Mirrored in app.js matches() and core.prefs_match().
             ev = r["exp_years"]
             if ev != "" and ev is not None:
                 try:
@@ -885,106 +955,6 @@ def _filter_rows(rows, statuses, p):
     if (p.get("sort") or "score") == "newest":
         out.sort(key=lambda rs: _row_date(rs[0]), reverse=True)
     return out                                  # else already in score order (rows pre-sorted)
-
-
-# ----------------------------- feed grouping -----------------------------
-# Some employers list one role hundreds of times, once per site or store. Measured on the live
-# corpus (16,416 rows): Actalent 527 "Project Manager", Amazon 431 "Operations Manager", Walmart
-# 150 "Pharmacy Pre-Grad Intern - WM" — 403 such runs of 4+ covering 32% of every row we have.
-# They are DISTINCT openings with their own job ids, so _dedupe_rows must not touch them (keying
-# on title+company+state once collapsed 4,770 real postings). The problem isn't duplication, it's
-# that one employer eats a screen. So we group for DISPLAY instead: a run of rows sharing
-# (normalized title, company) shows its best one or two cards plus a "+N more at <company>"
-# tile that expands the rest in place. Nothing is dropped — fully expanding a tile gets every
-# posting back, and scripts/feed_parity.py asserts that.
-#
-# Grouping runs AFTER filtering, never before, so "+N more" always counts what the user's own
-# filters left behind — a stale count would be a lie the moment they typed a location.
-_NONALNUM_RE = re.compile(r"[^a-z0-9]+")
-
-
-def _group_key(r):
-    """Identity of a (title, company) run, or "" for a row that must never be grouped.
-
-    Normalization is the same shape _dupe_key uses, so "Operations Manager" and
-    "operations  manager" land together. The two halves are joined with "|", which is
-    collision-free because normalization has already stripped every non-alphanumeric
-    character from both. Mirrored in app.js groupKey().
-    """
-    t = _NONALNUM_RE.sub(" ", (r.get("title") or "").lower()).strip()
-    c = _NONALNUM_RE.sub(" ", (r.get("company") or "").lower()).strip()
-    if not (t and c):
-        return ""
-    return c + "|" + t
-
-
-def _pick_leaders(members, lead):
-    """The cards that represent a collapsed group, in their original rank order.
-
-    `members` is already in display order, so the first one is the best under whichever sort is
-    active. The second is the best row in a DIFFERENT state where one exists — two Amazon
-    "Operations Manager" cards are worth far more when they're in two different places than when
-    they're the top two rows of the same warehouse town. Falls back to plain rank order when the
-    group has too few distinct states. Mirrored in app.js pickLeaders().
-    """
-    if len(members) <= lead:
-        return list(members)
-    picked, seen = [], set()
-    for i, m in enumerate(members):
-        s = (m[0].get("loc_state") or "").upper()
-        if s not in seen:
-            seen.add(s)
-            picked.append(i)
-            if len(picked) == lead:
-                break
-    for i in range(len(members)):               # not enough distinct states — fill by rank
-        if len(picked) >= lead:
-            break
-        if i not in picked:
-            picked.append(i)
-    picked.sort()                               # keep the leaders in their original order
-    return [members[i] for i in picked]
-
-
-def _group_units(pairs):
-    """[(row, status)] -> [(row, status, hidden_count, group_key)] display units.
-
-    A group is anchored at the position of its FIRST member, so the active sort still drives the
-    feed's order; the tile is attached to the group's LAST leader (hidden_count > 0 there, 0 on
-    every other unit) so it renders directly beneath the cards it belongs to.
-    """
-    order, groups = [], {}
-    for pr in pairs:
-        k = _group_key(pr[0])
-        if not k:
-            order.append(("", pr))              # no title or company: never group blindly
-            continue
-        if k not in groups:
-            groups[k] = []
-            order.append((k, None))             # placeholder holding this group's slot
-        groups[k].append(pr)
-
-    out = []
-    for k, pr in order:
-        if not k:
-            out.append((pr[0], pr[1], 0, ""))
-            continue
-        members = groups[k]
-        if len(members) < _GROUP_MIN:            # too short to be noise — show every card
-            out.extend((m[0], m[1], 0, "") for m in members)
-            continue
-        leaders = _pick_leaders(members, _GROUP_LEAD)
-        hidden = len(members) - len(leaders)
-        for i, m in enumerate(leaders):
-            last = i == len(leaders) - 1
-            out.append((m[0], m[1], hidden if last else 0, k if last else ""))
-    return out
-
-
-def _grouping_on(p):
-    """Group the Recommended feed only. Liked/Applied/Hidden are the user's own shortlists —
-    collapsing rows they deliberately saved would hide their tracker from them."""
-    return _GROUP_LEAD > 0 and (p.get("tab") or "recommended") not in ("liked", "applied", "hidden")
 
 
 def login_required(f):
@@ -1191,11 +1161,239 @@ def feed():
         visa, visa_ctx = None, {}
     return render_template("feed.html", feed_rows=feed_rows, has_resume=bool(resume),
                            total=total, default_total=default_total, counts=counts,
-                           default_min=default_min, paged=paged, scraping=False,
-                           group_lead=_GROUP_LEAD,
+                           default_min=default_min, paged=paged,
                            metros=_feed_metros(rows), states=_feed_states(rows),
                            visa_tag_controls=_VISA_TAG_CONTROLS,
                            visa=visa, visa_ctx=visa_ctx, prefs=prefs)
+
+
+# Words that carry no signal in a "what does this employer hire for" list: they appear in
+# almost every posting, so ranking by weight surfaces them above the actual tools.
+_SKILL_STOP = frozenset("""
+communication teamwork leadership collaboration interpersonal verbal written organizational
+problem solving detail oriented time management customer service work experience team player
+fast paced self starter multi task english degree bachelor master responsibilities requirements
+qualifications preferred required ability able strong excellent knowledge understanding
+""".split())
+
+
+def _clean_research_list(items, lo=2, hi=48, cap=14, no_digits=False):
+    """Filter a scraped list (values / initiatives / tech_stack) down to what is readable.
+
+    The research crawler takes what a careers page gives it, and marketing pages give it junk:
+    BYD's stored "values" include "{{sonItem.btnText}}" and "2.9 L/100km Fuel Consumption at Low
+    SOC". Rather than show a fuel-economy figure as a company's ethics, drop template syntax,
+    symbol-heavy strings, and lengths no human label has.
+
+    `no_digits` is for the VALUES list only. A stated value never contains a number, while an
+    initiative ("carbon neutral by 2030") and a tech stack ("HTML5", "Python 3") often do — so
+    the strictest rule can't be the shared default.
+    """
+    out = []
+    for s in (items or []):
+        s = re.sub(r"\s+", " ", str(s or "")).strip(" .;,-")
+        if not (lo <= len(s) <= hi) or "{{" in s or "}}" in s:
+            continue
+        if no_digits and any(c.isdigit() for c in s):
+            continue
+        letters = sum(c.isalpha() for c in s)
+        if letters < len(s) * 0.6:            # mostly digits/symbols -> a spec, not a value
+            continue
+        if s.lower() not in (o.lower() for o in out):
+            out.append(s)
+        if len(out) >= cap:
+            break
+    return out
+
+
+_research_cache = {"at": 0.0, "by_name": None}
+_RESEARCH_TTL = 300
+
+
+def _research_for(display):
+    """The Resume Brain research record for an employer, or {}.
+
+    Exact domain first — that is how the KB is keyed. Failing that, match on the record's own
+    `name`, because logodomain() guesses a domain from the feed's spelling and the two rarely
+    agree: the corpus says "BYD America" (-> bydamerica.com) where the crawler filed "BYD" under
+    byd.com. The name index is cached, since the miss path is the common one until the KB fills
+    up and it would otherwise re-read the table on every company page view.
+    """
+    try:
+        rec = db.get_brain_company(logodomain(display))
+        if rec:
+            return rec
+    except Exception:
+        pass
+    idx = _research_cache["by_name"]
+    if idx is None or time.time() - _research_cache["at"] > _RESEARCH_TTL:
+        try:
+            idx = {}
+            for dom, rec in (db.list_brain_companies() or {}).items():
+                for label in ((rec or {}).get("name"), (dom or "").rsplit(".", 1)[0]):
+                    k = db.block_key(label or "")
+                    if k:
+                        idx.setdefault(k, rec)
+            _research_cache.update({"by_name": idx, "at": time.time()})
+        except Exception:
+            idx = _research_cache["by_name"] or {}
+    key = db.block_key(display)
+    if key in idx:
+        return idx[key]
+    # "BYD America" / "Amazon.com Services LLC": the KB name is a prefix of the feed's spelling.
+    for k, rec in idx.items():
+        if len(k) >= 3 and (key.startswith(k + " ") or key == k):
+            return rec
+    return {}
+
+
+def _company_profile(display, key, rows, open_rows):
+    """Everything the "More about this employer" panel shows.
+
+    Two sources, deliberately labelled apart in the template so the reader knows which is which:
+
+      * The Resume Brain research KB (what they do, mission, values, tech stack, initiatives).
+        Written by the crawler the first time anyone tailors for that employer, so it is absent
+        for most companies — the panel says so instead of pretending.
+
+      * THEIR OWN POSTINGS, which we always have. Aggregating jd_terms across every opening
+        gives the tools and skills this employer actually hires for, which is a better answer to
+        "what do they use" than a marketing page is, and it exists for every employer.
+
+    On sponsorship the panel carries three different things, and they are NOT interchangeable:
+    the FY2009-23 approvals history from the USCIS Data Hub (real per-year counts), the routes
+    this employer has filed under from the DOL LCA/PERM files (which carry no counts and no
+    dates at all), and what their own live postings say right now. Only the first has years.
+    """
+    try:
+        research = _research_for(display) or {}
+    except Exception:
+        research = {}
+
+    # ---- what they hire for, from their own ads ----
+    skills, seen_urls = collections.Counter(), {r["url"] for r in open_rows}
+    for j in get_jobs():
+        if j.get("url") not in seen_urls:
+            continue
+        a = job_analysis(j)
+        for t, w in (a.get("weight") or {}).items():
+            if t in _SKILL_STOP or len(t) < 2:
+                continue
+            skills[t] += w
+    tracks = collections.Counter(r.get("track") or "other" for r in open_rows)
+    states = collections.Counter(r["loc_state"] for r in open_rows if r.get("loc_state"))
+    levels = collections.Counter()
+    for r in open_rows:
+        lv = r.get("exp_level")
+        if lv:
+            levels[lv] += 1
+    pays = [r["salary_min"] for r in open_rows if r.get("salary_min")]
+    highs = [r["salary_max"] for r in open_rows if r.get("salary_max")]
+    today = datetime.date.today()
+    d30 = (today - datetime.timedelta(days=30)).isoformat()
+    d7 = (today - datetime.timedelta(days=7)).isoformat()
+
+    # Per-year approvals, scaled here rather than in the template so the bars are one number
+    # each. Height is a percentage of the tallest year, floored at 2% so a year with a single
+    # approval still draws a mark instead of vanishing into the axis.
+    hist = core.sponsor_history(display, sponsor_years())
+    peak = max([n for _y, n in hist] or [0])
+    bars = [{"year": y, "n": n, "pct": (2 + int(96.0 * n / peak)) if (peak and n) else 0}
+            for y, n in hist]
+
+    return {
+        "research": research,
+        "researched": bool(research.get("what_they_do") or research.get("about")
+                           or research.get("mission")),
+        "bars": bars,
+        "hist_total": sum(n for _y, n in hist),
+        "hist_from": hist[0][0] if hist else None,
+        "hist_to": hist[-1][0] if hist else None,
+        # The most recent year is a partial-ish figure in the Hub export and always reads low;
+        # the 5-year window is the honest "are they sponsoring lately" number.
+        "hist_recent": sum(n for y, n in hist if y >= (hist[-1][0] - 4)) if hist else 0,
+        # NOT "values": Jinja resolves `about.values` to dict.values() and hands the template a
+        # bound method, which then fails to iterate. Renamed rather than reached for with
+        # about['values'], so the trap can't be walked into again from a different template.
+        "company_values": _clean_research_list(research.get("values"), no_digits=True),
+        "initiatives": _clean_research_list(research.get("initiatives"), hi=160, cap=6),
+        "tech_stack": _clean_research_list(research.get("tech_stack"), hi=28, cap=18),
+        # Top weighted terms across every open posting = the stack they hire for.
+        "skills": [t for t, _w in skills.most_common(24)],
+        "tracks": {"dev": tracks.get("dev", 0), "mgmt": tracks.get("mgmt", 0),
+                   "other": tracks.get("other", 0)},
+        "levels": {"entry": levels.get("entry", 0), "mid": levels.get("mid", 0),
+                   "senior": levels.get("senior", 0),
+                   "unstated": len(open_rows) - sum(levels.values())},
+        "states": states.most_common(6),
+        "remote": sum(1 for r in open_rows if r.get("remote")),
+        "pay_lo": min(pays) if pays else None,
+        "pay_hi": max(highs) if highs else None,
+        "pay_n": len(pays),
+        "fresh30": sum(1 for r in open_rows if (r.get("date") or "") >= d30),
+        "fresh7": sum(1 for r in open_rows if (r.get("date") or "") >= d7),
+        # The live sponsorship picture, from what these postings themselves say.
+        "jd_blocked": sum(1 for r in rows if r.get("sponsor_jd") == "blocked"),
+        "jd_open": sum(1 for r in rows if r.get("sponsor_jd") == "open"),
+        "jd_silent": sum(1 for r in rows if not r.get("sponsor_jd")),
+    }
+
+
+@app.route("/company")
+@login_required
+def company():
+    """Every opening at one employer, plus what we know about how they sponsor.
+
+    Reuses the feed's pipeline end to end — ranked_rows for the personalized score and the
+    same-posting-two-hosts dedupe, db.block_key for company identity (the key the admin bulk
+    delete already matches on), and /api/feed + app.js for the cards themselves.
+
+    The name travels as ?c= rather than in the path. Company names in this corpus contain
+    slashes ("Kennedy/Jenks Consultants", "RE/SPEC Inc"), and on cPanel/Passenger behind Apache
+    a %2F inside a path segment is 404'd before Flask ever sees it (AllowEncodedSlashes defaults
+    to Off). Every other identifier in this file already travels in request.args for its own
+    reasons, so this matches the house style too.
+
+    Always server-paged: an employer with 527 openings must cost one small fetch, not a ~700 KB
+    inline payload.
+    """
+    name = (request.args.get("c") or "").strip()
+    key = db.block_key(name)
+    if not key:
+        return redirect(url_for("feed"))
+    user = session["user"]
+    rows = [r for r in ranked_rows(user, current_profile())
+            if db.block_key(r["company"]) == key]
+    # One employer reaches us under several spellings (a Workday casing bug once stored the
+    # same postings under both "Amat" and "Applied Materials"), so show the label the corpus
+    # uses most rather than whatever the link happened to carry.
+    display = (collections.Counter(r["company"] for r in rows).most_common(1)[0][0]
+               if rows else name)
+    statuses = user_statuses(user)
+    # What the page will actually list: /api/feed sends no saved prefs, so the only rows the
+    # header must not count are the ones _filter_rows drops unconditionally.
+    open_rows = [r for r in rows
+                 if not r.get("closed") and statuses.get(r["url"]) != "hidden"]
+    strength, scount = core.sponsor_strength(display, sponsor_counts())
+    info = {
+        "name": display, "n": len(open_rows), "n_all": len(rows),
+        "remote": sum(1 for r in open_rows if r.get("remote")),
+        "states": len({r.get("loc_state") for r in open_rows if r.get("loc_state")}),
+        # EMPLOYER-level routes, deliberately NOT narrowed by any one JD: _build_row narrows
+        # per posting via visa_tags_for_posting, which is a fact about that posting. Here the
+        # question is what this company has filed for, ever.
+        "visa": list(core.visa_tags(display, visa_index())),
+        "agency": core.is_agency(display), "cap_exempt": core.is_cap_exempt(display),
+        "strength": strength, "strength_n": scount,
+        "logo_domain": logodomain(display), "logo_color": logocolor(display),
+        "initial": display[:1].upper() if display else "?",
+    }
+    analytics.emit(user, getattr(g, "sid", ""), "page_view", page="company",
+                   company=display, n=len(open_rows))
+    return render_template("company.html", info=info, company_arg=display,
+                           about=_company_profile(display, key, rows, open_rows),
+                           visa_labels=core.VISA_TAG_LABELS,
+                           visa_tips=core.VISA_TAG_TIPS)
 
 
 def _page_args(p, default_limit=60):
@@ -1236,29 +1434,32 @@ def api_feed():
     """Server-side search/filter/sort/paging over the FULL corpus, for the large-dataset feed.
     Mirrors app.js's client filters; returns a compact page of card rows in the same shape.
 
-    Paging counts DISPLAY UNITS (a collapsed group is one unit), while `total` stays the number
-    of matching JOBS so the header's "N of M jobs" keeps meaning jobs. `units` is what the
-    Load-more button has to count against — the two differ whenever a group collapsed.
+    One row = one card, so `total` is both the "N of M jobs" count and what Load-more pages
+    against. (This used to page over DISPLAY UNITS, because a run of identical postings from one
+    employer collapsed into a single "+N more" tile.)
+
+    `company` narrows to one employer for /company. It is applied to the INPUT rather than
+    inside _filter_rows, because that function is the declared twin of app.js's matches() and
+    scripts/feed_parity.py diffs the two row for row — a server-only clause in there would
+    either break parity or force a db.block_key mirror in JS.
     """
     user = session["user"]
     resume = current_profile()
     rows = ranked_rows(user, resume)
+    ckey = db.block_key(request.args.get("company") or "")
+    if ckey:
+        rows = [r for r in rows if db.block_key(r["company"]) == ckey]
     statuses = user_statuses(user)
     matched = _filter_rows(rows, statuses, request.args)
-    if _grouping_on(request.args):
-        units = _group_units(matched)
-    else:
-        units = [(r, st, 0, "") for (r, st) in matched]
     offset, limit = _page_args(request.args)
-    page = units[offset:offset + limit]
-    out_rows = [dict(r, status=st, group_more=more, group_key=gk)      # status on a copy
-                for (r, st, more, gk) in page]
-    _ev_feed_view(user, request.args, out_rows, len(matched), len(units), offset)
-    return {"rows": out_rows, "total": len(matched), "units": len(units),
-            "has_more": offset + limit < len(units)}
+    page = matched[offset:offset + limit]
+    out_rows = [dict(r, status=st) for (r, st) in page]                # status on a copy
+    _ev_feed_view(user, request.args, out_rows, len(matched), offset)
+    return {"rows": out_rows, "total": len(matched),
+            "has_more": offset + limit < len(matched)}
 
 
-def _ev_feed_view(user, args, rows, total, units, offset):
+def _ev_feed_view(user, args, rows, total, offset):
     """The workhorse event. app.js already serialises the entire toolbar into this request's
     query string (filterParams), so every filter change, search, sort and page arrives here for
     free — no client instrumentation, and nothing that can slow the feed down.
@@ -1278,7 +1479,7 @@ def _ev_feed_view(user, args, rows, total, units, offset):
             if str(raw) != str(default) and not (str(default) == "False" and raw in ("0", "")):
                 f[k] = str(raw)[:40]
         q = (args.get("q") or "").strip()
-        props = {"tab": (args.get("tab") or "recommended")[:20], "n": total, "units": units,
+        props = {"tab": (args.get("tab") or "recommended")[:20], "n": total,
                  "off": offset, "shown": len(rows), "qn": len(q), "f": f}
         # A 5-bucket histogram of what was actually ON SCREEN. This is the impression
         # denominator for score calibration; per-job impressions would be ~60 rows a render.
@@ -1299,37 +1500,6 @@ def _ev_feed_view(user, args, rows, total, units, offset):
         pass
 
 
-@app.route("/api/group")
-@login_required
-def api_group():
-    """The postings a "+N more at <company>" tile hides, for expanding it in place.
-
-    Same filters as /api/feed (the client resends them) narrowed to one (title, company) group,
-    minus the leader cards already on screen, and paged — expanding Amazon's Operations Manager
-    run must not ship 431 cards at once.
-    """
-    gk = request.args.get("gk") or ""
-    if not gk:
-        return {"rows": [], "total": 0, "has_more": False}
-    user = session["user"]
-    rows = ranked_rows(user, current_profile())
-    statuses = user_statuses(user)
-    members = [p for p in _filter_rows(rows, statuses, request.args) if _group_key(p[0]) == gk]
-    # Recompute the leaders the same way the feed did, so expanding shows exactly the rows the
-    # tile was standing in for — no repeats of what's already rendered, nothing skipped.
-    if _grouping_on(request.args) and len(members) >= _GROUP_MIN:
-        leaders = {m[0]["url"] for m in _pick_leaders(members, _GROUP_LEAD)}
-        rest = [p for p in members if p[0]["url"] not in leaders]
-    else:
-        rest = members
-    offset, limit = _page_args(request.args)
-    page = rest[offset:offset + limit]
-    analytics.emit(user, getattr(g, "sid", ""), "group_expand",
-                   company=(page[0][0].get("company") if page else ""), n=len(rest), off=offset)
-    return {"rows": [dict(r, status=st) for (r, st) in page],
-            "total": len(rest), "has_more": offset + limit < len(rest)}
-
-
 @app.route("/api/job")
 @login_required
 def api_job():
@@ -1340,18 +1510,27 @@ def api_job():
         return {"ok": False}, 404
     resume = current_profile()           # whole-profile match, consistent with the feed
     jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
-    meta = jd_meta({"url": url, "jd": jd}, core.load_idf())
-    if resume and jd:
-        score, have, missing = core.score_against(resume.lower(), meta["analyzed"])
+    # The card's OWN analysis wherever we have it, so the ring in this panel is the same number
+    # the card showed and "Add these to your résumé" is drawn from the same terms that produced
+    # it. Only a job the scorer has never reached falls back to analyzing the JD we just
+    # fetched — better information than nothing, and the card shows match_score meanwhile.
+    analyzed = job_analysis(job)
+    if not analyzed.get("terms"):
+        analyzed = jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"]
+    if resume and analyzed.get("terms"):
+        score, have, missing = core.score_against(resume.lower(), analyzed)
     else:
         try:
             score = int(job.get("match_score") or 0)
         except Exception:
             score = 0
         have, missing = [], []
-    sv, sreason = meta["sponsor_jd"]
-    exp_y = meta["exp_years"]
-    pending = bool((meta.get("analyzed") or {}).get("thin"))
+    # Read the SAME stored fields the card does, so the panel and the card can never disagree.
+    # They used to: the card read jdmeta.json (empty in production) while this route re-parsed
+    # the JD per request, which is why a "<=2 yrs" filter would let a job through and then its
+    # detail panel would announce "8+ yrs".
+    exp_y, _exp_lvl, sv, sreason = _jd_fields(job)
+    pending = bool(analyzed.get("thin"))
     # company/source/score are stamped on the event rather than looked up later: the 30-day
     # pruner deletes this row, and match_score is rewritten every scoring run.
     analytics.emit(session["user"], getattr(g, "sid", ""), "job_open", job_url=url,
@@ -1472,30 +1651,6 @@ def _trigger_github_action():
         return (False, "GitHub returned %s: %s" % (r.status_code, r.text[:160]))
     except Exception as e:
         return (False, str(e))
-
-
-@app.route("/scrape", methods=["POST"])
-@login_required
-def scrape_now():
-    """Trigger the scrape on GitHub Actions (workflow_dispatch) — runs on GitHub's servers.
-    Needs GH_TOKEN in .env (a fine-grained PAT with Actions: read+write). Returns JSON so the
-    feed page can start polling /api/scrape_status and draw the live progress bar."""
-    gh = _trigger_github_action()
-    if gh is None:
-        return {"ok": False, "msg": "To enable this, add GH_TOKEN to .env (a GitHub token with "
-                "Actions read+write). You can also run the scrape from the repo's Actions tab."}
-    if not gh[0]:
-        return {"ok": False, "msg": "Couldn't start the scrape — " + gh[1]}
-    # Optimistic 'queued' status so the bar appears the instant you click — the scraper overwrites
-    # it with real progress once the Action spins up on GitHub's servers.
-    try:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        db.set_scrape_status({"phase": "queued", "done": 0, "total": 0, "found": 0,
-                              "started_at": now, "run": now})
-    except Exception:
-        pass
-    analytics.emit(session["user"], getattr(g, "sid", ""), "scrape_click")
-    return {"ok": True, "msg": "Scrape started on GitHub Actions."}
 
 
 @app.route("/api/ev", methods=["POST"])
@@ -1656,6 +1811,41 @@ def admin_required(f):
             return redirect(url_for("admin_users"))
         return f(*a, **k)
     return wrap
+
+
+@app.route("/scrape", methods=["POST"])
+@admin_required
+def scrape_now():
+    """Trigger the scrape on GitHub Actions (workflow_dispatch) — runs on GitHub's servers.
+    Needs GH_TOKEN in .env (a fine-grained PAT with Actions: read+write). Returns JSON so the
+    admin page can start polling /api/scrape_status and draw the live progress bar.
+
+    ADMIN-ONLY, and defined down HERE rather than beside the other feed routes for a concrete
+    reason: decorators evaluate at import, and admin_required is defined immediately above.
+    Move this back up beside /reload and Passenger dies on a NameError at cold start — a dead
+    site, not a failed request.
+
+    Why admin: every press burns from a shared, finite pool of GitHub Actions free minutes
+    (~2,000/month, a run capped at 45). Under @login_required any account could drain it, and
+    nothing about creating an account prompted anyone to notice. admin_required also brings the
+    CSRF check this route never had.
+    """
+    gh = _trigger_github_action()
+    if gh is None:
+        return {"ok": False, "msg": "To enable this, add GH_TOKEN to .env (a GitHub token with "
+                "Actions read+write). You can also run the scrape from the repo's Actions tab."}
+    if not gh[0]:
+        return {"ok": False, "msg": "Couldn't start the scrape — " + gh[1]}
+    # Optimistic 'queued' status so the bar appears the instant you click — the scraper overwrites
+    # it with real progress once the Action spins up on GitHub's servers.
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        db.set_scrape_status({"phase": "queued", "done": 0, "total": 0, "found": 0,
+                              "started_at": now, "run": now})
+    except Exception:
+        pass
+    analytics.emit(session["user"], getattr(g, "sid", ""), "scrape_click")
+    return {"ok": True, "msg": "Scrape started on GitHub Actions."}
 
 
 def _gh_runs(limit=8):
@@ -3845,6 +4035,13 @@ _FILLABLE_HOSTS = (
 # feed reaches employers with no public board; the apply link there belongs to someone else.)
 _QUEUE_SKIP_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
 
+# Most openings ONE employer may contribute to a batch queue. Some employers list a single role
+# hundreds of times, once per site or store — Actalent 527 "Project Manager", Amazon 431
+# "Operations Manager" — so without this a 50-slot queue can be one company's warehouse network.
+# The FEED deliberately shows every one of those postings its own card; a runner is different,
+# because there you spend a finite number of applications rather than scroll past rows.
+_QUEUE_PER_COMPANY = 3
+
 
 def _queue_fillable(url, wide=False):
     """Is this a page the filler should open? Known ATS always; with `wide`, any employer-hosted
@@ -3875,10 +4072,14 @@ def ext_apply_queue():
     Built from the feed's own pipeline rather than re-derived from the raw table, so the queue
     can't disagree with the app: `ranked_rows` gives the personalized match score and collapses
     the same-posting-two-hosts duplicates, the user's SAVED SEARCH decides what qualifies (match
-    floor, visa routes, location, pay, dev/mgmt track, staffing agencies, posting age), closed
-    postings are dropped, and employer runs are collapsed exactly the way the feed collapses them
-    — without that last step "fill my latest matches" spends a whole queue on 50 copies of one
-    Amazon opening.
+    floor, visa routes, location, pay, dev/mgmt track, staffing agencies, posting age), and
+    closed postings are dropped.
+
+    One thing here is deliberately NOT the feed's behaviour: the queue caps how many openings a
+    single employer may contribute. The feed used to collapse employer runs into a "+N more"
+    tile and this route reused that; the feed now shows every posting its own card, but a RUNNER
+    is different from a list — without a cap "fill my latest matches" spends all 50 slots on 50
+    copies of one Amazon opening. Hence the local cap below, which is not mirrored anywhere.
 
     Query args: `limit` (<=200), `sort=newest|score` (default newest — the runner wants the
     freshest postings), `all=1` to include employer career domains beyond the tuned ATS list.
@@ -3908,12 +4109,19 @@ def ext_apply_queue():
         matched = _filter_rows(ranked_rows(user, resume), statuses, params)
     except Exception:
         matched = []
-    jobs = []
-    for r, st, _hidden, _gk in _group_units(matched):
+    jobs, per_company = [], collections.Counter()
+    for r, st in matched:
         url = r.get("url") or ""
         # Already applied stays out of the queue: _filter_rows only drops `hidden` on this tab.
         if st == "applied" or not _queue_fillable(url, wide):
             continue
+        # One employer must not eat the whole queue — see the docstring. Blank company names
+        # are exempt rather than lumped together, since "" is missing data, not an employer.
+        ck = (r.get("company") or "").strip().lower()
+        if ck:
+            per_company[ck] += 1
+            if per_company[ck] > _QUEUE_PER_COMPANY:
+                continue
         jobs.append({"url": url, "title": r.get("title", ""), "company": r.get("company", ""),
                      "score": int(r.get("score") or 0), "liked": st == "liked",
                      "location": r.get("location", ""), "remote": bool(r.get("remote")),
@@ -4320,7 +4528,11 @@ def ext_jds():
         get_jobs(force=True)                     # re-pull rows so the new data is visible…
         _score_cache.clear()                     # …and per-user scores recompute with JDs
         _sponsor_cache.clear()
-        for _u in list(clean) + removed:         # only these JDs changed -> drop their stale meta
+        # Only these JDs changed -> drop their stale meta. Nothing to invalidate on the column
+        # side: job_analysis reads jd_terms straight off the row each time, and get_jobs(force)
+        # above already re-pulled those. Their analysis stays as the last scoring run left it,
+        # which is the same lag the score itself has.
+        for _u in list(clean) + removed:
             _jdmeta.pop(_u, None)
     return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches),
                           "removed_nonus": len(removed)}))

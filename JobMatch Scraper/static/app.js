@@ -51,10 +51,14 @@
       railExpandBtn = document.getElementById("railexpand"),
       locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
       minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
-      showClosed = document.getElementById("showclosed"), groupedEl = document.getElementById("grouped"),
+      showClosed = document.getElementById("showclosed"),
       tabBtns = document.querySelectorAll(".tab");
-  // The viewer's own work-authorization situation, so the E-Verify / cap-exempt badges can say
-  // what they mean FOR THEM rather than reciting a general rule. Absent = generic wording.
+  // The viewer's own work-authorization situation (web._visa_badge_context), which used to
+  // personalize the cap-exempt badge's tooltip.
+  // CURRENTLY UNREAD: that tooltip went with the rest of the card's hover prose. Kept — along
+  // with the data-visa attribute and the server side that fills it — because it is the plumbing
+  // any "what this route means for YOU" wording would need, and deleting it is a separate
+  // decision from de-noising the cards.
   var VISA = {};
   try { VISA = JSON.parse(feed.getAttribute("data-visa") || "{}") || {}; } catch (e) { VISA = {}; }
   var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
@@ -64,15 +68,9 @@
   // empty and everything stays client-side (instant) exactly as before.
   var PAGED = feed.getAttribute("data-paged") === "1";
   var shown = 0, _seq = 0, _deb;
-  // Feed grouping — see the "feed grouping" block in web.py. Both numbers come from the server
-  // so one env var (FEED_GROUP_LEAD) moves the client and the server together; 0 disables it.
-  var GROUP_LEAD = parseInt(feed.getAttribute("data-group-lead"), 10);
-  if (isNaN(GROUP_LEAD)) GROUP_LEAD = 0;
-  var GROUP_MIN = GROUP_LEAD + 2;
-  // Which groups the user has opened, and how many of their hidden rows are revealed:
-  // {groupKey: count}. Only the non-paged path reads it (it re-renders wholesale); the paged
-  // path inserts the extra cards into the DOM instead. Cleared whenever the filters change.
-  var expanded = Object.create(null);
+  // Set on the per-company page: every /api/feed request is pinned to that one employer,
+  // server-side and before the filters run. Empty string on the main feed.
+  var COMPANY = feed.getAttribute("data-company") || "";
 
   // textContent escape (safe in element text)
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
@@ -127,8 +125,10 @@
     if (days < 365) return Math.floor(days / 30) + "mo ago";
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   }
-  function formatDates() {
-    var ps = feed.querySelectorAll(".posted");
+  // `root` defaults to the card grid; the detail panel passes its own header so the same
+  // relative-date rendering (and the same tooltips) apply there too.
+  function formatDates(root) {
+    var ps = (root || feed).querySelectorAll(".posted");
     for (var i = 0; i < ps.length; i++) {
       var s = ps[i].getAttribute("data-d");
       if (s) {
@@ -164,10 +164,22 @@
     for (var i = 0; i < imgs.length; i++) wireLogoFallback(imgs[i]);
   }
 
+  // Company name -> a link to that employer's page. Plain text when we're already ON that page
+  // (a link to here is just a dead end) or when the row has no company.
+  //
+  // Escaping is not weakened by the anchor: encodeURIComponent runs FIRST, so it has already
+  // percent-encoded &, ", ', < and > before H() ever sees the value, and esc() still owns the
+  // visible label. No click handler is needed either — the feed's delegated handler bails on any
+  // <a> before it reaches openModal, so this navigates instead of opening the job panel. Don't
+  // "fix" that with a stopPropagation: the same branch is what auto-logs an Apply click.
+  function companyLink(name) {
+    if (!name) return esc("Unknown company");
+    if (COMPANY) return esc(name);
+    return '<a href="/company?c=' + H(encodeURIComponent(name)) + '">' + esc(name) + '</a>';
+  }
+
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
-  // `xg` (optional) tags the card as one revealed by expanding that group's "+N more" tile,
-  // so collapsing the tile again knows exactly which cards to take back out.
-  function cardHTML(j, xg) {
+  function cardHTML(j) {
     var st = j.status || "";
     // "New" mirrors the card's own date label: show it iff the displayed date renders as "Today".
     // relTime() is the same fn that renders .posted, so the badge and the date can never disagree,
@@ -182,31 +194,29 @@
     // Visa routes this employer has actually filed for (DOL LCA + PERM + E-Verify). Capped at
     // three chips: a big sponsor carries all five, and with Internship / No-lottery / Agency /
     // experience / pay / Remote alongside them one card could otherwise show a dozen.
+    //
+    // NO tooltips on these. "H-1B" and "Green Card" say what they are, and a paragraph of
+    // caveats on every chip of every card was a wall of hover text. The caveats didn't go away:
+    // the detail panel still shows every route WITH its VISA_TIPS sentence, which is the right
+    // home for them — one view, read once, instead of forty times down a feed.
     var vt = (j.visa || []);
     for (var vi = 0; vi < vt.length && vi < 3; vi++) {
-      var vk = vt[vi], vtip = VISA_TIPS[vk] || "";
-      if (vk === "h1b" && j.strength)
-        vtip += " ~" + (j.strength_n || 0) + " USCIS approvals FY2019-23.";
-      badges += '<span class="vt vt-' + H(vk) + '" title="' + H(vtip) + '">' +
-        esc(VISA_LABELS[vk] || vk) + (vk === "h1b" && j.strength === "high" ? " ★" : "") + '</span>';
+      var vk = vt[vi];
+      badges += '<span class="vt vt-' + H(vk) + '">' + esc(VISA_LABELS[vk] || vk) +
+        (vk === "h1b" && j.strength === "high" ? " · top sponsor" : "") + '</span>';
     }
+    // This one KEEPS its tooltip: the chip reads "+2", so it is the only place the remaining
+    // routes are named. That's data, not prose.
     if (vt.length > 3)
       badges += '<span class="vt vt-more" title="' + H(vt.map(function (k) {
         return VISA_LABELS[k] || k; }).join(", ")) + '">+' + (vt.length - 3) + '</span>';
     // Fallback for when visa_tags.json hasn't been built: the old name-list H-1B flag.
-    if (!vt.length && j.sponsors_h1b === "yes") {
-      var h1bTip = "Company has sponsored H-1B before";
-      if (j.strength) h1bTip += " · ~" + (j.strength_n || 0) + " approvals FY2019-23";
-      h1bTip += ". USCIS H-1B Data Hub; past filings, not a promise.";
-      badges += '<span class="h1b" title="' + H(h1bTip) + '">H1B' +
-        (j.strength === 'high' ? ' (top sponsor)' : '') + '</span>';
-    }
+    if (!vt.length && j.sponsors_h1b === "yes")
+      badges += '<span class="h1b">H1B' + (j.strength === 'high' ? ' (top sponsor)' : '') + '</span>';
     if (j.cap_exempt)
-      badges += '<span class="cx" title="Likely H-1B cap-exempt (university / nonprofit hospital / research) — no H-1B lottery' +
-        (VISA.needsLottery ? ", so this route does not depend on the March registration you're waiting on" : "") +
-        '. Verify.">No lottery</span>';
+      badges += '<span class="cx">No lottery</span>';
     if (j.agency)
-      badges += '<span class="agency" title="Placement or bench role, not a direct employer\'s own team. Kept for the H-1B sponsorship.">Agency</span>';
+      badges += '<span class="agency">Agency</span>';
     // No title on this one: the chip already reads "5+ yrs".
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
@@ -223,7 +233,7 @@
     if (j.remote)
       badges += '<span class="rem" title="Remote per the posting">Remote</span>';
     if (j.closed)
-      badges += '<span class="closed" title="Gone from the company\'s job board across several checks — probably filled.">Closed</span>';
+      badges += '<span class="closed">Closed</span>';
     // Some employers publish no posting date anywhere, so the card falls back to when the job
     // reached us. It carries data-added so formatDates() labels it "Added …" and styles it
     // apart — an approximate arrival date must never read as a posting date. The text starts
@@ -237,8 +247,8 @@
         '" data-added="1">Added ' + H(j.first_seen) + '</span>';
     }
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
-    var cls = "card" + (j.closed ? " is-closed" : "") + (xg ? " in-group" : "");
-    return '<article class="' + cls + '"' + (xg ? ' data-xg="' + H(xg) + '"' : '') +
+    var cls = "card" + (j.closed ? " is-closed" : "");
+    return '<article class="' + cls + '"' +
       ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
@@ -247,7 +257,7 @@
         scoreCell(j) +
       '</div>' +
       '<div class="ctitle">' + esc(j.title) + '</div>' +
-      '<div class="cmeta">' + esc(j.company) + ' · ' + esc(j.location || 'n/a') + posted + badges + '</div>' +
+      '<div class="cmeta">' + companyLink(j.company) + ' · ' + esc(j.location || 'n/a') + posted + badges + '</div>' +
       '<div class="cardact">' +
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>' +
         '<a class="btn sm" href="/brain?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
@@ -261,90 +271,6 @@
         '</span>' +
       '</div>' +
     '</article>';
-  }
-
-  // ---- feed grouping (mirror of the "feed grouping" block in web.py) ----
-  // Mirror of web.py _group_key(): "" means never group this row.
-  function groupKey(j) {
-    var t = (j.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    var c = (j.company || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (!t || !c) return "";
-    return c + "|" + t;
-  }
-  // Mirror of web.py _pick_leaders(): best row, then the best one in a different state.
-  function pickLeaders(mem, lead) {
-    if (mem.length <= lead) return mem.slice();
-    var picked = [], seen = Object.create(null), i, s;
-    for (i = 0; i < mem.length; i++) {
-      s = (mem[i].loc_state || "").toUpperCase();
-      if (!seen[s]) { seen[s] = 1; picked.push(i); if (picked.length === lead) break; }
-    }
-    for (i = 0; i < mem.length && picked.length < lead; i++)
-      if (picked.indexOf(i) === -1) picked.push(i);
-    picked.sort(function (a, b) { return a - b; });
-    var out = [];
-    for (i = 0; i < picked.length; i++) out.push(mem[picked[i]]);
-    return out;
-  }
-  // Mirror of web.py _group_units(). A unit is {row, key, more, rest}. `key` and `more` are set
-  // on exactly one unit per collapsed group — its LAST leader, the one the tile hangs off — and
-  // are empty/0 everywhere else, so "has a key" and "renders a tile" mean the same thing on both
-  // sides of the wire. `rest` is the hidden rows, which the non-paged path reveals without a
-  // round-trip (the paged path fetches them from /api/group instead).
-  function groupUnits(list) {
-    var order = [], groups = Object.create(null), i, k;
-    for (i = 0; i < list.length; i++) {
-      k = groupKey(list[i]);
-      if (!k) { order.push({ row: list[i], key: "", more: 0, rest: [] }); continue; }
-      if (!groups[k]) { groups[k] = []; order.push({ key: k }); }
-      groups[k].push(list[i]);
-    }
-    var out = [];
-    for (i = 0; i < order.length; i++) {
-      if (!order[i].key) { out.push(order[i]); continue; }
-      var mem = groups[order[i].key];
-      var m;
-      if (mem.length < GROUP_MIN) {              // too short to be noise — show every card
-        for (m = 0; m < mem.length; m++) out.push({ row: mem[m], key: "", more: 0, rest: [] });
-        continue;
-      }
-      var leaders = pickLeaders(mem, GROUP_LEAD), lset = Object.create(null);
-      for (m = 0; m < leaders.length; m++) lset[leaders[m].url] = 1;
-      var rest = [];
-      for (m = 0; m < mem.length; m++) if (!lset[mem[m].url]) rest.push(mem[m]);
-      for (m = 0; m < leaders.length; m++) {
-        var last = m === leaders.length - 1;
-        out.push({ row: leaders[m], key: last ? order[i].key : "", rest: rest,
-                   more: last ? rest.length : 0 });
-      }
-    }
-    return out;
-  }
-  function flatUnits(list) {
-    var out = [];
-    for (var i = 0; i < list.length; i++) out.push({ row: list[i], key: "", more: 0, rest: [] });
-    return out;
-  }
-  // Mirror of web.py _grouping_on(): Recommended only — never collapse the user's own shortlists.
-  function groupingOn() { return GROUP_LEAD > 0 && tab !== "liked" && tab !== "applied" && tab !== "hidden"; }
-
-  // The "+N more at <company>" tile. Sits in the grid right after its group's leader cards and
-  // carries its own state: data-more = how many rows it stands for, data-shown = how many of
-  // those are currently revealed below it.
-  function groupTileHTML(row, key, more, shownN) {
-    var left = more - (shownN || 0);
-    var label = left > 0 ? "+" + left + " more at " + row.company : "Show less";
-    return '<div class="grpmore" data-gk="' + H(key) + '" data-more="' + more +
-        '" data-shown="' + (shownN || 0) + '" data-company="' + H(row.company) + '">' +
-      '<div class="grpsub">' + esc(row.title) + '</div>' +
-      '<button type="button" class="grpbtn">' + esc(label) + '</button>' +
-      '<div class="grpnote">' + esc(row.company + " lists this role " + (more + GROUP_LEAD) +
-        " times in your current results — collapsed so one employer can't fill the feed.") + '</div>' +
-    '</div>';
-  }
-  function setGroupedNote(jobs, cards) {
-    if (!groupedEl) return;
-    groupedEl.textContent = (cards && cards < jobs) ? " · grouped into " + cards + " cards" : "";
   }
 
   function dateCutoff() {
@@ -425,7 +351,10 @@
     // Career track: "dev" (software/data/infra) vs "mgmt" (project/product/ops). Every row
     // carries exactly one, so the two settings partition the feed — see core.role_track.
     if (ok && trackSel && trackSel.value !== "any" && j.track !== trackSel.value) ok = false;
-    // Experience filter: a job whose JD states no year count (exp_years "") is ALWAYS kept.
+    // Experience filter. exp_years is the HIGHEST year count the JD states (core.
+    // experience_years), so "8+ years required; 2 years of SQL preferred" is an 8-year job and
+    // "<=2 yrs" drops it. A job whose JD states no year count (exp_years "") is ALWAYS kept.
+    // Mirrors web._filter_rows — scripts/feed_parity.py diffs the two.
     if (ok && expSel && expSel.value !== "any") {
       var ev = j.exp_years;
       if (ev !== "" && ev != null) {
@@ -439,33 +368,23 @@
     return ok;
   }
   function renderLocal(reset) {
-    if (reset) { limit = PAGE; expanded = Object.create(null); }
+    if (reset) limit = PAGE;
     var cut = dateCutoff(), matched = [];
     for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
     matched.sort(function (a, b) {
       if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
       return (b.score || 0) - (a.score || 0);
     });
-    // `limit` paginates DISPLAY UNITS, so a collapsed group costs one slot rather than 431.
-    // Rows revealed by an open tile are extra: they're inside their group, not on the page's tail.
-    var units = groupingOn() ? groupUnits(matched) : flatUnits(matched);
-    var slice = units.slice(0, limit), html = "";
-    for (var k = 0; k < slice.length; k++) {
-      var u = slice[k];
-      html += cardHTML(u.row);
-      if (!u.more) continue;
-      var xn = Math.min(expanded[u.key] || 0, u.rest.length);
-      for (var x = 0; x < xn; x++) html += cardHTML(u.rest[x], u.key);
-      html += groupTileHTML(u.row, u.key, u.more, xn);
-    }
+    // One row = one card, so `limit` paginates jobs directly.
+    var slice = matched.slice(0, limit), html = "";
+    for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
     feed.innerHTML = html;
     formatDates(); wireLogos();
-    if (countEl) countEl.textContent = matched.length;          // JOBS matched, not cards drawn
-    setGroupedNote(matched.length, units.length);
+    if (countEl) countEl.textContent = matched.length;
     if (emptyEl) emptyEl.style.display = matched.length ? "none" : "";
     if (moreBtn) {
-      moreBtn.style.display = (units.length > limit) ? "" : "none";
-      if (units.length > limit) moreBtn.textContent = "Load more (" + (units.length - limit) + " more)";
+      moreBtn.style.display = (matched.length > limit) ? "" : "none";
+      if (matched.length > limit) moreBtn.textContent = "Load more (" + (matched.length - limit) + " more)";
     }
   }
 
@@ -524,11 +443,13 @@
   // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.
   function render(reset) { markFilters(); if (PAGED) renderServer(reset); else renderLocal(reset); }
 
-  // Every filter control as query params, with NO paging — /api/group reuses this so an
-  // expansion is scoped to exactly the results the tile was summarising.
+  // Every filter control as query params, with NO paging — buildParams adds that.
   function filterParams() {
     var ps = ["tab=" + encodeURIComponent(tab), "min=" + (minVal || 0),
               "sort=" + encodeURIComponent(sortBy)];
+    // Pins the request to one employer on the /company page. Server-side and applied before
+    // the filters, so matches() has no company clause to mirror.
+    if (COMPANY) ps.push("company=" + encodeURIComponent(COMPANY));
     if (q && q.value.trim()) ps.push("q=" + encodeURIComponent(q.value.trim()));
     if (dateSel && dateSel.value !== "any") ps.push("date=" + encodeURIComponent(dateSel.value));
     if (expSel && expSel.value !== "any") ps.push("exp=" + encodeURIComponent(expSel.value));
@@ -548,75 +469,23 @@
     return filterParams() + "&offset=" + offset + "&limit=" + PAGE;
   }
   function renderServer(reset) {
-    if (reset) { shown = 0; expanded = Object.create(null); feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
+    if (reset) { shown = 0; feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
     var mySeq = ++_seq;                                   // ignore out-of-order responses
     fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) { return r.json(); }).then(function (d) {
       if (mySeq !== _seq) return;
       var rows = (d && d.rows) || [], htmlc = "";
       for (var i = 0; i < rows.length; i++) byUrl[rows[i].url] = rows[i];
-      for (var k = 0; k < rows.length; k++) {
-        htmlc += cardHTML(rows[k]);
-        if (rows[k].group_more)
-          htmlc += groupTileHTML(rows[k], rows[k].group_key, rows[k].group_more, 0);
-      }
+      for (var k = 0; k < rows.length; k++) htmlc += cardHTML(rows[k]);
       if (reset) feed.innerHTML = htmlc; else feed.insertAdjacentHTML("beforeend", htmlc);
-      // `rows` is a page of DISPLAY UNITS, so `shown` counts units and lines up with `d.units`.
-      shown += rows.length;
+      shown += rows.length;                               // one row = one card
       formatDates(); wireLogos();
-      var jobs = (d && d.total) || 0, units = (d && d.units) || 0;
-      if (countEl) countEl.textContent = jobs;             // JOBS matched, not cards drawn
-      setGroupedNote(jobs, units);
+      var jobs = (d && d.total) || 0;
+      if (countEl) countEl.textContent = jobs;
       if (emptyEl) emptyEl.style.display = jobs ? "none" : "";
-      if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + (units - shown) + " more)"; }
+      if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + (jobs - shown) + " more)"; }
     }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">Couldn\'t load jobs — try again.</div>'; });
   }
 
-  // ---- expanding / collapsing a "+N more at <company>" tile ----
-  // Non-paged: record how many rows are open and re-render (every row is already local).
-  // Paged: fetch the group's next slice from /api/group and splice the cards in just above the
-  // tile, so the rest of the feed and its paging are untouched.
-  function expandGroup(tile) {
-    var gk = tile.getAttribute("data-gk"), have = parseInt(tile.getAttribute("data-shown"), 10) || 0;
-    var total = parseInt(tile.getAttribute("data-more"), 10) || 0;
-    if (!PAGED) { expanded[gk] = have + PAGE; renderLocal(false); return; }
-    var btn = tile.querySelector(".grpbtn");
-    if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
-    fetch("/api/group?gk=" + encodeURIComponent(gk) + "&offset=" + have + "&limit=" + PAGE +
-          "&" + filterParams())
-      .then(function (r) { return r.json(); }).then(function (d) {
-        // The user may have changed a filter mid-flight, which re-rendered the feed and threw
-        // this tile away. Inserting relative to a detached node throws, so just drop the page.
-        if (!tile.parentNode) return;
-        var rows = (d && d.rows) || [], html = "";
-        for (var i = 0; i < rows.length; i++) { byUrl[rows[i].url] = rows[i]; html += cardHTML(rows[i], gk); }
-        tile.insertAdjacentHTML("beforebegin", html);
-        formatDates(); wireLogos();
-        setTileState(tile, have + rows.length, total);
-        if (btn) btn.disabled = false;
-      }).catch(function () {
-        if (!tile.parentNode) return;
-        if (btn) { btn.disabled = false; }
-        setTileState(tile, have, total);
-        toast("Couldn't load the rest — try again.");
-      });
-  }
-  function collapseGroup(tile) {
-    var gk = tile.getAttribute("data-gk"), total = parseInt(tile.getAttribute("data-more"), 10) || 0;
-    if (!PAGED) { delete expanded[gk]; renderLocal(false); return; }
-    var xs = feed.querySelectorAll(".card[data-xg]");
-    for (var i = 0; i < xs.length; i++)
-      if (xs[i].getAttribute("data-xg") === gk && xs[i].parentNode) xs[i].parentNode.removeChild(xs[i]);
-    setTileState(tile, 0, total);
-  }
-  // The tile's label IS its state: "+N more" while rows remain, "Show less" once they're all out.
-  function setTileState(tile, shownN, total) {
-    tile.setAttribute("data-shown", shownN);
-    var btn = tile.querySelector(".grpbtn");
-    if (!btn) return;
-    var left = total - shownN;
-    btn.textContent = left > 0 ? "+" + left + " more at " + (tile.getAttribute("data-company") || "this employer")
-                               : "Show less";
-  }
   function debouncedRender() { if (_deb) clearTimeout(_deb); _deb = setTimeout(function () { render(true); }, 250); }
   function cardEl(url) { var cs = feed.querySelectorAll(".card"); for (var i = 0; i < cs.length; i++) if (cs[i].getAttribute("data-url") === url) return cs[i]; return null; }
   // After an action: small corpus re-renders locally; paged updates just the touched card in place
@@ -624,9 +493,7 @@
   function afterAction(j) {
     if (!PAGED) { render(false); return; }
     var el = cardEl(j.url);
-    // Keep the data-xg marker: a re-rendered card that came from an expanded group must still be
-    // one, or "Show less" would leave it stranded in the grid.
-    if (matches(j, dateCutoff())) { if (el) el.outerHTML = cardHTML(j, el.getAttribute("data-xg")); }
+    if (matches(j, dateCutoff())) { if (el) el.outerHTML = cardHTML(j); }
     else if (el) { if (el.parentNode) el.parentNode.removeChild(el); if (countEl) { var n = parseInt(countEl.textContent, 10); if (!isNaN(n) && n > 0) countEl.textContent = n - 1; } }
   }
 
@@ -822,18 +689,8 @@
   });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
-  // feed clicks: group tile, action buttons, Apply auto-log, or open modal
+  // feed clicks: action buttons, Apply auto-log, company link, or open modal
   feed.addEventListener("click", function (e) {
-    // Checked first: the tile is not a .card, so it must not fall through to the detail modal.
-    var gb = e.target.closest ? e.target.closest(".grpbtn") : null;
-    if (gb) {
-      e.preventDefault();
-      var tile = gb.closest(".grpmore"); if (!tile) return;
-      var have = parseInt(tile.getAttribute("data-shown"), 10) || 0;
-      var tot = parseInt(tile.getAttribute("data-more"), 10) || 0;
-      if (have >= tot) collapseGroup(tile); else expandGroup(tile);
-      return;
-    }
     var btn = e.target.closest ? e.target.closest("button[data-act]") : null;
     if (btn) {
       e.preventDefault();
@@ -881,6 +738,223 @@
   // ---- job detail modal ----
   var modal = document.getElementById("jobmodal"), mUrl = "";
   function $(id) { return document.getElementById(id); }
+
+  // The panel header, BUILT from the row rather than copied out of the card.
+  //
+  // It used to be `$("m-meta").textContent = card.querySelector(".cmeta").textContent`, which
+  // flattened the badge <span>s into one unbroken run — "Irving, TX3d agoH-1BGreen CardE-3
+  // $120k-$150k" — because their only separator was a CSS margin that .textContent discards.
+  // Three FACTS live here; every badge belongs in the chip row below, which already lays them
+  // out with a real flex gap (and was rendering the visa routes a second time regardless).
+  function metaHTML(j) {
+    if (!j) return "";
+    var parts = [companyLink(j.company), esc(j.location || "Location not stated")];
+    // The card's own markup, so formatDates() renders it identically here — "3d ago" with the
+    // posted/verified tooltip, or the italic "Added <date>" for employers who publish none.
+    if (j.date)
+      parts.push('<span class="posted" data-d="' + H(j.date) + '"' +
+                 (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>');
+    else if (j.first_seen)
+      parts.push('<span class="posted added" data-d="' + H(j.first_seen) +
+                 '" data-added="1">Added ' + H(j.first_seen) + '</span>');
+    return parts.join(" · ");
+  }
+
+  // ---- job description: plain text -> a readable document ----
+  // /api/job returns the JD verbatim (db.get_job_jd, truncated at 7,000 chars) and this is its
+  // only consumer, so the shaping lives here beside every other bit of card/modal markup.
+  //
+  // SAFETY: every fragment goes through esc() BEFORE it is placed inside a tag, and no substring
+  // of the JD is ever concatenated into innerHTML unescaped — esc() is the only door in. If URL
+  // linkification is ever added it must run on the ALREADY-ESCAPED string; getting that order
+  // backwards is the one way this function becomes an XSS hole.
+  var JD_BULLET = /^\s*(?:[•·▪●◦‣⁃*–—-]|\(?\d{1,2}[.)])\s+/;
+  var JD_HEAD = /^(?:about|responsibilit|qualificat|requirement|what you|who you|the role|your role|benefit|perks|compensation|skills|experience|education|duties|essential|preferred|minimum|basic|nice to have|equal (?:employment )?opportunity|eeo|how to apply|why join|our team|job (?:summary|description|details))/i;
+
+  function isJdHeading(t) {
+    if (!t || t.length > 70 || JD_BULLET.test(t)) return false;
+    var letters = t.replace(/[^A-Za-z]/g, "");
+    if (letters.length >= 3 && t === t.toUpperCase()) return true;   // short ALL-CAPS line
+    if (/:$/.test(t) && t.split(/\s+/).length <= 8) return true;     // "Requirements:"
+    // A known section name with no colon. Digits and $ disqualify, or "Salary: $120,000" —
+    // which matches /^salary/ — would be promoted from a fact to a heading.
+    return JD_HEAD.test(t) && t.split(/\s+/).length <= 8 &&
+           !/[.;,]$/.test(t) && !/[\d$]/.test(t);
+  }
+
+  // ---- splitting a description that arrives as ONE unbroken run of text ----
+  // Measured on the live corpus: 5 of 6 sampled descriptions contain ZERO newlines. Workday,
+  // iCIMS and Amazon all hand us the whole posting as a single ~4,000-character string, so the
+  // line-based pass below has nothing to work with and emitted one enormous paragraph. These
+  // split that run the only two ways its own text allows: on the section names every ATS
+  // template repeats, then on sentence boundaries.
+  //
+  // Two tiers, because precision matters more than recall here — a false heading mid-sentence
+  // is far uglier than a missed one. STRONG names are unambiguous enough to match on a colon OR
+  // a following capital ("Overview This is a hybrid role" is how iCIMS writes it). WEAK ones
+  // are ordinary words that appear constantly in prose ("5 years of experience"), so they need
+  // an explicit colon before they count as a heading.
+  var JD_SECTION_STRONG = "job description|position purpose|position summary|role summary|" +
+    "essential (?:functions?|duties)|basic qualifications|minimum qualifications|" +
+    "preferred qualifications|additional qualifications|key responsibilities|" +
+    "primary responsibilities|what you(?:'|\u2019)ll (?:do|bring)|what you will do|" +
+    "what you bring|what we(?:'|\u2019)re looking for|what we offer|who you are|" +
+    "about (?:us|the role|the team|the company|the job|this role)|required skills|" +
+    "day in the life|nice to have|how to apply|why join(?: us)?|our team|" +
+    "equal (?:employment )?opportunity(?: employer)?|eeo statement|" +
+    "pay range|salary range|compensation range|overview";
+  var JD_SECTION_WEAK = "summary|responsibilities|requirements|qualifications|benefits|perks|" +
+    "compensation|education|experience|skills|duties";
+  var JD_SECTION = new RegExp(
+    "\\b(" + JD_SECTION_STRONG + ")\\b(?::\\s+|\\s+(?=[A-Z]))" +
+    "|\\b(" + JD_SECTION_WEAK + ")\\b:\\s+", "gi");
+  var JD_PARA_MAX = 360;          // chars; above this a run is split on sentence boundaries
+
+  // ---- lists that lost their bullets AND their punctuation ----
+  // The iCIMS/Workday "Essential Functions" idiom: a dozen requirement lines concatenated with
+  // no bullet, no newline and no full stop — "…algorithmic solutions Demonstrated ability to
+  // serve as a lead software engineer Ability to decompose functional requirements…". Measured:
+  // 5,748 of 17,004 descriptions over 800 chars (34%) carry fewer than 6 sentence stops per
+  // 1,000 characters, which is that shape.
+  //
+  // The boundary is a capital following a lowercase word — but splitting on ANY capital would
+  // wreck real prose, because the most frequent capitals in that position across the corpus are
+  // proper nouns: Boeing (2,164), Capital (2,037), Company, Engineering, One, States. So we
+  // split only before words that actually START a requirement, and only inside a run that has
+  // already failed the punctuation test. Deliberately excluded despite being common bullet
+  // openers: Lead, Support, Design, Manage, Build, Drive, Track — each is an ordinary noun that
+  // shows up capitalised mid-title ("team Lead Engineer"), and a false cut reads far worse than
+  // a missed one.
+  var JD_ITEM_START =
+    "Demonstrated|Demonstrates|Ability|Abilities|Proven|Proficien(?:cy|t|cies)|Familiarity|" +
+    "Knowledge|Understanding|Excellent|Strong|Solid|Exceptional|Experience|Expertise|" +
+    "Bachelor'?s?|Master'?s?|Minimum|Preferred|Required|Must|Should|Responsible|Working|" +
+    "Assists?|Develops?|Ensures?|Maintains?|Performs?|Provides?|Coordinates?|Participates?|" +
+    "Collaborates?|Implements?|Analyzes?|Prepares?|Monitors?|Reviews?|Conducts?|Evaluates?|" +
+    "Recommends?|Identifies|Identify|Communicates?|Translates?|Oversees?|Establishes?|" +
+    "Contributes?|Executes?|Delivers?|Partners?|Serves?|Troubleshoots?|Utilizes?";
+  // Keep the matched preceding character and mark the cut with a control char, rather than
+  // using a lookbehind: Safari only shipped those recently and this file is ES5 throughout.
+  // U+0001 cannot occur in a description, so splitting on it is unambiguous.
+  var JD_ITEM_RE = new RegExp("([a-z)\\]])\\s+(?=(?:" + JD_ITEM_START + ")\\b)", "g");
+  var JD_CUT = "";
+  var JD_ITEM_MIN = 25;           // a real requirement line is long; a short piece means a bad cut
+  // A cut is wrong if the text before it ends on a word that cannot end a sentence. Measured
+  // over 600 real descriptions, this is the whole of the remaining false-positive class:
+  // "a Bachelor's degree in Engineering" cut after "of a", and "NDAs, SOWs, and Master Service
+  // Agreements" cut after "and" — both because Bachelor/Master legitimately start a bullet too.
+  // Cheaper and more general than dropping those words, which would lose the real cuts.
+  var JD_DANGLING = /\b(?:a|an|the|and|or|of|with|to|for|in|on|at|by|from|as|plus|per|our|your|their|its|this|that|these|those|is|are|be|been|has|have|had|will|shall|may|any|all|each|other|including|includes|include)$/i;
+
+  function jdFlatList(t) {
+    // Punctuation gate first: prose that already has sentences must go to the sentence splitter.
+    var stops = (t.match(/[.!?]/g) || []).length;
+    if (stops / (t.length / 1000) >= 6) return null;
+    var raw = t.replace(JD_ITEM_RE, "$1" + JD_CUT).split(JD_CUT);
+    // Heal the bad cuts by gluing a dangling piece back onto the one after it, rather than
+    // throwing the whole split away — one wrong boundary shouldn't cost the other eleven.
+    var parts = [];
+    for (var i = 0; i < raw.length; i++) {
+      var piece = raw[i].trim();
+      if (!piece) continue;
+      while (JD_DANGLING.test(piece) && i + 1 < raw.length) piece += " " + raw[++i].trim();
+      parts.push(piece);
+    }
+    if (parts.length < 4) return null;                 // a lead-in plus at least 3 items
+    // From 1, not 0: parts[0] is whatever preceded the first item, not an item itself, and it
+    // is routinely a stub — Garmin's list opens mid-phrase on "0 as a general rule)". Holding
+    // the lead-in to the item length threw away the whole list for a fragment that is simply
+    // the tail of the sentence above it.
+    for (var j = 1; j < parts.length; j++)
+      if (parts[j].length < JD_ITEM_MIN) return null;  // cut mid-sentence — abandon it
+    return parts;
+  }
+
+  // One run of prose -> one or more blocks. Never emits a paragraph much longer than
+  // JD_PARA_MAX unless a single sentence is.
+  function jdChunk(t) {
+    t = (t || "").trim();
+    if (!t) return "";
+    // Some boards flatten a real <ul> into "• a • b • c" on one line. Two or more bullets is a
+    // list; a single one is just a stray glyph inside a sentence.
+    if ((t.match(/\u2022/g) || []).length >= 2) {
+      var parts = t.split(/\s*\u2022\s*/), lead = "", items = "";
+      if (parts.length && parts[0].trim() && t.charAt(0) !== "\u2022")
+        lead = "<p>" + esc(parts.shift().trim()) + "</p>";
+      for (var b = 0; b < parts.length; b++)
+        if (parts[b].trim()) items += "<li>" + esc(parts[b].trim()) + "</li>";
+      return lead + (items ? "<ul>" + items + "</ul>" : "");
+    }
+    if (t.length <= JD_PARA_MAX) return "<p>" + esc(t) + "</p>";
+    // A requirements list that lost its bullets AND its full stops. Rendered as a real <ul>,
+    // because that is what it is \u2014 the first piece is the lead-in sentence before the list.
+    var flat = jdFlatList(t);
+    if (flat) {
+      var head = "<p>" + esc(flat.shift().trim()) + "</p>", li = "";
+      for (var f = 0; f < flat.length; f++) li += "<li>" + esc(flat[f].trim()) + "</li>";
+      return head + "<ul>" + li + "</ul>";
+    }
+    var sent = t.match(/[^.!?]+(?:[.!?]+["'\u2019)\]]*|$)/g) || [t];
+    var out = "", buf = "";
+    for (var i = 0; i < sent.length; i++) {
+      var s = sent[i].trim();
+      if (!s) continue;
+      if (buf && buf.length + s.length > JD_PARA_MAX) { out += "<p>" + esc(buf) + "</p>"; buf = ""; }
+      buf = buf ? buf + " " + s : s;
+    }
+    return out + (buf ? "<p>" + esc(buf) + "</p>" : "");
+  }
+
+  function jdParagraphs(text) {
+    var t = String(text || "").trim();
+    if (!t) return "";
+    var out = "", last = 0, m;
+    JD_SECTION.lastIndex = 0;        // module-level regex carrying /g: its state is shared
+    while ((m = JD_SECTION.exec(t)) !== null) {
+      if (m.index === JD_SECTION.lastIndex) { JD_SECTION.lastIndex++; continue; }  // no progress
+      // Not a heading if it is finishing the sentence in front of it — "Cintas Corporation is
+      // proud to be an" / "Equal Opportunity Employer" is one sentence, and lifting the tail
+      // out of it leaves a paragraph dangling on "an".
+      if (JD_DANGLING.test(t.slice(last, m.index).trim())) continue;
+      out += jdChunk(t.slice(last, m.index));
+      out += '<h4 class="jdh">' + esc(m[1] || m[2]) + "</h4>";
+      last = JD_SECTION.lastIndex;
+    }
+    return out + jdChunk(t.slice(last));
+  }
+
+  function jdHTML(text) {
+    var src = String(text == null ? "" : text).replace(/\r\n?/g, "\n").replace(/ /g, " ");
+    var lines = src.split("\n"), out = [], para = [], list = null;
+    // jdParagraphs, not a bare <p>: on most boards a "line" here is the ENTIRE posting.
+    function flushPara() { if (para.length) out.push(jdParagraphs(para.join(" "))); para = []; }
+    function flushList() { if (list && list.length) out.push("<ul>" + list.join("") + "</ul>"); list = null; }
+    for (var i = 0; i < lines.length; i++) {
+      var t = lines[i].trim();
+      if (!t) { flushPara(); flushList(); continue; }   // a blank ends the block; runs of them vanish
+      var bm = t.match(JD_BULLET);
+      if (bm) {
+        flushPara();
+        if (!list) list = [];
+        list.push("<li>" + esc(t.slice(bm[0].length).trim()) + "</li>");
+        continue;
+      }
+      if (isJdHeading(t)) {
+        flushPara(); flushList();
+        out.push('<h4 class="jdh">' + esc(t.replace(/:$/, "")) + "</h4>");
+        continue;
+      }
+      flushList();
+      // Hard-wrapped prose: a long previous line that doesn't end a sentence is mid-paragraph,
+      // so join onto it. Otherwise start a new <p>, so separate one-line statements — which is
+      // how most bullet-less JDs are written — don't get glued into a wall.
+      var prev = para.length ? para[para.length - 1] : "";
+      if (prev && !(prev.length > 62 && !/[.:;!?]$/.test(prev))) flushPara();
+      para.push(t);
+    }
+    flushPara(); flushList();
+    return out.join("");
+  }
   function openModal(card) {
     if (!modal) return;
     mUrl = card.getAttribute("data-url");
@@ -889,7 +963,9 @@
     var mlImg = $("m-logo").querySelector(".logo-img");
     if (mlImg) { mlImg.removeAttribute("data-fb-wired"); wireLogoFallback(mlImg); }
     $("m-title").textContent = card.querySelector(".ctitle") ? card.querySelector(".ctitle").textContent : "";
-    $("m-meta").textContent = card.querySelector(".cmeta") ? card.querySelector(".cmeta").textContent : "";
+    var mm = $("m-meta");
+    mm.innerHTML = metaHTML(byUrl[mUrl]);
+    formatDates(mm);
     $("m-chip").innerHTML = '<span class="skel skel-chip"></span>';
     $("m-skills").innerHTML = '<div class="skel-row"><span class="skel skel-tag"></span><span class="skel skel-tag"></span><span class="skel skel-tag" style="width:88px"></span></div>' +
       '<span class="skel skel-bar w75"></span><span class="skel skel-bar w55"></span>';
@@ -904,32 +980,73 @@
       var sk = "";
       if (j.missing && j.missing.length) sk += '<div class="sechdr">Add these to your résumé</div><div class="kw">' + j.missing.map(function (k) { return '<span class="tag miss">' + esc(k) + '</span>'; }).join("") + '</div>';
       if (j.have && j.have.length) sk += '<div class="sechdr">Skills you already match</div><div class="kw">' + j.have.map(function (k) { return '<span class="tag have">' + esc(k) + '</span>'; }).join("") + '</div>';
+      // Every badge lives in this ONE row — the header above carries facts only, so nothing is
+      // rendered twice. Pay, Remote, Internship and Closed ride on the feed row rather than the
+      // /api/job payload, which doesn't carry them; before this they reached the panel only via
+      // the broken .textContent header copy, so pay would have vanished with it.
+      var row = byUrl[mUrl] || {};
       var spn = "";
+      if (row.salary_label) spn += '<span class="pay">' + H(row.salary_label) + '</span>';
+      if (row.remote) spn += '<span class="rem">Remote</span>';
+      if (row.intern) spn += '<span class="intl">Internship</span>';
       if (j.exp_years !== "" && j.exp_years != null) {
         var ey = parseInt(j.exp_years, 10);
         var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
         spn += '<span class="exp ' + ec + '">' + ey + '+ yrs experience</span>';
       }
-      // The modal has room, so it shows every route rather than the card's top three.
+      // The modal has room, so it shows every route rather than the card's top three — and it
+      // is where the "past filings, not a promise" caveat now lives, since the card's chips
+      // dropped their tooltips.
       var mvt = j.visa || [];
       for (var mi = 0; mi < mvt.length; mi++)
         spn += '<span class="vt vt-' + H(mvt[mi]) + '" title="' + H(VISA_TIPS[mvt[mi]] || "") +
           '">' + esc(VISA_LABELS[mvt[mi]] || mvt[mi]) + '</span>';
       if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt — no H-1B lottery</span>';
-      if (j.agency) spn += '<span class="agency" title="Staffing agency / consultancy — not a direct employer">Agency</span>';
-      if (j.sponsor_jd === "blocked") spn += '<span class="nospon">' + esc(j.sponsor_reason || "Likely no sponsorship") + '</span>';
-      else if (j.sponsor_jd === "open") spn += '<span class="spon">' + esc(j.sponsor_reason || "Offers sponsorship") + '</span>';
+      if (j.agency) spn += '<span class="agency">Agency</span>';
+      // Fixed label, specific reason in the tooltip — the same shape cardHTML uses, so the card
+      // and the panel can never word this differently. The label is decided HERE rather than by
+      // editing core._SPONSOR_BLOCK's messages, because those strings are substring-matched by
+      // core._BLOCKS_EVERYONE to decide whether a blocked posting keeps STEM-OPT or loses every
+      // route — rewording them would quietly put "H-1B · Green Card" back on citizens-only
+      // roles. Fixing it at the render layer is also the only fix that is correct for the
+      // reasons ALREADY stored in the sponsor_reason column.
+      if (j.sponsor_jd === "blocked")
+        spn += '<span class="nospon" title="' + H(j.sponsor_reason || "") + '">No sponsorship</span>';
+      else if (j.sponsor_jd === "open")
+        spn += '<span class="spon" title="' + H(j.sponsor_reason || "") + '">Sponsors</span>';
+      if (row.closed) spn += '<span class="closed">Closed</span>';
       if (spn) sk = '<div class="kw" style="margin-bottom:10px">' + spn + '</div>' + sk;
       var skEl = $("m-skills"), jdEl = $("m-jd");
       skEl.style.opacity = "0"; jdEl.style.opacity = "0";
       skEl.innerHTML = sk;
-      jdEl.textContent = j.jd || "No description stored — click Apply to read it on the company site.";
+      jdEl.innerHTML = jdHTML(j.jd) ||
+        "<p>" + esc("No description stored — click Apply to read it on the company site.") + "</p>";
       requestAnimationFrame(function () {
         skEl.style.transition = "opacity .25s"; skEl.style.opacity = "1";
         jdEl.style.transition = "opacity .25s"; jdEl.style.opacity = "1";
       });
     }).catch(function () { $("m-jd").textContent = "Couldn't load details."; });
   }
+  // ---- "More about this employer" panel (company page only) ----
+  // Server-rendered and static, so this is just a show/hide — no fetch, no template in JS.
+  // Every reference is guarded: the feed has no such button and must not throw.
+  var coModal = document.getElementById("comodal"), coBtn = document.getElementById("cobtn");
+  if (coModal && coBtn) {
+    var coOpen = function () { coModal.classList.add("open"); document.body.style.overflow = "hidden"; };
+    var coShut = function () { coModal.classList.remove("open"); document.body.style.overflow = ""; };
+    coBtn.addEventListener("click", coOpen);
+    for (var ci = 0, cx = ["coclose", "coclose2"]; ci < cx.length; ci++) {
+      var cel = document.getElementById(cx[ci]);
+      if (cel) cel.addEventListener("click", coShut);
+    }
+    coModal.addEventListener("click", function (e) { if (e.target === coModal) coShut(); });
+    // Own Escape handler rather than sharing the job panel's: both can be open in principle,
+    // and closing whichever is on top is what a reader expects.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && coModal.classList.contains("open")) coShut();
+    });
+  }
+
   function closeModal() { if (modal) { modal.classList.remove("open"); document.body.style.overflow = ""; } }
   function syncModal(status) {
     var l = $("m-like"), h = $("m-hide");
