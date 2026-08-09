@@ -1365,7 +1365,10 @@ DEFAULT_PREFS = {
     "intern": "any",      # any | only | no
     "track": "any",       # any | dev (software/data) | mgmt (project/product/ops) — see role_track
     "date": "30",         # any | 1 | 7 | 30 | 90
-    "sort": "score",      # score | newest
+    # score | newest | sponsor. "sponsor" ranks by how sponsorable a posting is (see
+    # web._row_sponsor_rank) rather than filtering on it — filtering would hide employers the
+    # federal files simply don't list, e.g. cap-exempt universities.
+    "sort": "score",
     "alerts": "off",      # off | daily  — email digest of new matches
     "alert_min": 0,       # extra match floor for the email only; 0 = use `min`
 }
@@ -1374,7 +1377,7 @@ _PREF_CHOICES = {
     "intern": ("any", "only", "no"),
     "track": ("any", "dev", "mgmt"),
     "date": ("any", "1", "7", "30", "90"),
-    "sort": ("score", "newest"),
+    "sort": ("score", "newest", "sponsor"),
     "alerts": ("off", "daily"),
 }
 # Keys whose value is a comma-separated subset of a fixed vocabulary. Validated separately
