@@ -63,21 +63,17 @@
     {% endfor %}
     </tbody>
   </table>
+  {# The sole-account branch stays: creating a second user silently locks this page, which is a
+     trap worth one sentence. The other branch just says where the setting lives. #}
   <p class="muted" style="margin-top:12px">
-    Admin access is decided by <b>{{ admin_mode }}</b>.
-    {% if admin_mode == 'sole-account' %}You're the only account, so you're the admin — create a
-    second one and this page locks to nobody until you set <code>ADMIN_USERS</code> in the
-    environment.{% else %}Set by the <code>ADMIN_USERS</code> environment variable; it isn't a
-    database column, so it can't be changed from here.{% endif %}
+    Admin access: <b>{{ admin_mode }}</b>.
+    {% if admin_mode == 'sole-account' %}Creating a second account locks this page until you set
+    <code>ADMIN_USERS</code>.{% else %}Set via <code>ADMIN_USERS</code>, not from here.{% endif %}
   </p>
 </section>
 
 <section class="panel">
   <h2>Create an account</h2>
-  <p class="muted">
-    There's no public sign-up — accounts only exist because someone made them here or with
-    <code>manage_users.py</code>.
-  </p>
   <form method="post" action="{{ url_for('admin_user_create') }}" class="newuser">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input name="username" placeholder="username" required pattern="[A-Za-z0-9._\-]{2,40}"

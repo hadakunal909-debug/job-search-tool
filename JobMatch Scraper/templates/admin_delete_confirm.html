@@ -29,10 +29,10 @@
 </div>
 
 {% if plan.protected %}
+{# Guardrail on the irreversible screen — kept, trimmed. #}
 <p class="muted" style="margin:-8px 0 18px">
-  Rows someone has liked, applied to or hidden are never deleted from here, and that isn't
-  overridable in the browser — <code>scripts/prune_stale.py --include-flagged</code> needs
-  shell access, which is the right amount of friction for removing something a user is tracking.
+  Liked, applied and hidden rows are never deleted here. Overriding that needs shell access
+  (<code>scripts/prune_stale.py --include-flagged</code>).
 </p>
 {% endif %}
 
@@ -57,18 +57,18 @@
   {% if plan.company %}
   <section class="panel">
     <h2>Also block from future scrapes</h2>
+    {# The "delete looks like it silently failed" consequence is the whole reason this checkbox
+       exists — that clause stays. #}
     <p class="muted">
-      Strongly recommended. The scraper runs twice every weekday — without a block, these rows
-      are back within a day and the delete looks like it silently failed. Blocking is
-      reversible from the Data page.
+      Recommended: without a block these rows are back within a day and the delete looks like it
+      failed. Reversible from the Data page.
     </p>
     <label class="blockrow">
       <input type="checkbox" name="block" value="1" checked>
       <span>Block these companies so the scraper stops collecting them</span>
     </label>
     <p class="muted" style="margin:12px 0 6px">
-      One employer often appears under more than one label — all of them are selected so a
-      block covers the aliases too.
+      All aliases selected — one employer often posts under several labels.
     </p>
     {% for label, n in plan.labels %}
     <label class="blockrow">

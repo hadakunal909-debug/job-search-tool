@@ -28,15 +28,13 @@
   {% endif %}
 </div>
 <p class="muted" style="margin:-8px 0 18px">
-  <code>pg_database_size</code> is a floor on what Supabase bills — its cap counts the whole
-  instance, including the auth and storage schemas and write-ahead logs.
+  A floor, not the billed figure — Supabase counts the whole instance.
 </p>
 
 <section class="panel">
   <h2>Tables</h2>
   <p class="muted">
-    Rows are exact (counted without downloading them). <b>Est.</b> is autovacuum's estimate — a
-    wide gap between the two means statistics are stale, not that a count is wrong.
+    A wide Rows/<b>Est.</b> gap means stale statistics, not a bad count.
   </p>
   <table class="adm-t">
     <thead><tr>
@@ -87,9 +85,7 @@
     <h2 style="margin:0">Health checks</h2>
     <button id="runchecks" class="btn sm" type="button">Run checks</button>
   </div>
-  <p class="muted">
-    Not run on page load — these cost about eight round trips and a full walk of the corpus.
-  </p>
+  <p class="muted">Not run on page load — expensive.</p>
   <div id="checks">
     {% if health %}{% include "_health_rows.html" %}
     {% else %}<p class="muted">Not run yet.</p>{% endif %}
@@ -99,10 +95,10 @@
 {# ---- destructive actions ---- #}
 <section class="panel">
   <h2>Remove jobs</h2>
+  {# Guardrail on a delete form — kept. Trimmed, not cut. #}
   <p class="muted">
-    Nothing is deleted from this form — it shows you exactly what would go, and the delete
-    happens on the next screen after you type a confirmation. Rows anyone has liked, applied to
-    or hidden are always kept. Maximum {{ '{:,}'.format(delete_max) }} rows per action.
+    Previews only; the delete is on the next screen. Liked, applied and hidden rows are always
+    kept. Max {{ '{:,}'.format(delete_max) }} rows.
   </p>
   <form method="post" action="{{ url_for('admin_jobs_preview') }}" class="delform">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
@@ -119,8 +115,7 @@
 <section class="panel">
   <h2>Blocked companies</h2>
   <p class="muted">
-    The scraper and the extension's bulk import both skip these. Blocking does not remove rows
-    that are already stored — it stops new ones arriving, which is what makes a delete stick.
+    Stops new rows arriving; doesn't remove stored ones. That's what makes a delete stick.
   </p>
   {% if blocked %}
   <table class="adm-t">
@@ -176,10 +171,8 @@
 {# ---- board freshness: the panel that catches a silently-dead scraper ---- #}
 <section class="panel">
   <h2>Sources by size</h2>
-  <p class="muted">
-    A source with plenty of rows but <b>0 fresh</b> is the one to check — it means that board
-    still returns postings but nothing new, which is what a quietly-broken scraper looks like.
-  </p>
+  {# The diagnostic itself is the value here — this is how a broken board gets noticed. #}
+  <p class="muted">Plenty of rows but <b>0 fresh</b> = a quietly-broken board.</p>
   <table class="adm-t">
     <thead><tr><th>Host</th><th class="num">Jobs</th><th class="num">Last 7 days</th><th></th></tr></thead>
     <tbody>

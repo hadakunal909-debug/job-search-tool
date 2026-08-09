@@ -1430,7 +1430,7 @@ def reload_jobs():
     _jdmeta.clear()
     _jdmeta.update(core.load_jdmeta())       # re-pull the cron's latest precompute from disk
     core._reset_idf_cache()
-    flash("Reloaded jobs from the database.")
+    flash("Jobs reloaded.")
     return redirect(url_for("feed"))
 
 
@@ -1794,7 +1794,7 @@ def admin():
         get_jobs(force=True)
         _admin_stats_cache["data"] = None
         _accounts(force=True)
-        flash("Re-read jobs from the database.")
+        flash("Jobs reloaded.")
         return redirect(url_for("admin"))
     try:
         users = db.list_users() or []
@@ -2055,7 +2055,7 @@ def admin_data():
         _admin_stats_cache["data"] = None
         _admin_db_cache["data"] = None
         _admin_health_cache["data"] = None
-        flash("Re-read the database.")
+        flash("Jobs reloaded.")
         return redirect(url_for("admin_data"))
     return render_template("admin_data.html", dbi=_admin_db(), stats=_admin_stats(),
                            health=_admin_health_cache["data"], blocked=db.list_blocked(),
@@ -2348,7 +2348,7 @@ def admin_usage():
         get_jobs(force=True)
         _admin_usage_cache["data"] = None
         _admin_ev_cache["data"] = None
-        flash("Re-read the database.")
+        flash("Jobs reloaded.")
         return redirect(url_for("admin_usage"))
     return render_template("admin_usage.html", u=_admin_usage(), ev=_admin_ev(),
                            evstats=analytics.stats())
@@ -2816,7 +2816,7 @@ def resume():
             db.set_user_resume(session["user"], txt)
             _resume_cache[session["user"]] = (txt, time.time())   # not the cookie (size cap)
             _score_cache.clear()
-            flash("Saved. Your match scores now reflect this résumé.")
+            flash("Saved — your match scores now include it.")
         except Exception:
             flash("Couldn't save — try again.")
         return redirect(url_for("resume"))
@@ -3120,7 +3120,7 @@ def brain_resume_save():
                           "name": (request.form.get("name") or "Untitled résumé").strip(),
                           "content": request.form.get("content", "")})
     _bust_profile(user)
-    flash("Résumé saved — your feed match scores now include it.")
+    flash("Résumé saved — your match scores now include it.")
     return redirect(url_for("brain_teach"))
 
 
@@ -3144,7 +3144,7 @@ def brain_story_save():
                          "skills": _csvf(request.form.get("skills")),
                          "text": request.form.get("text", "")})
     _bust_profile(user)
-    flash("Story saved — it now counts toward your feed match scores.")
+    flash("Story saved — your match scores now include it.")
     return redirect(url_for("brain_teach"))
 
 
