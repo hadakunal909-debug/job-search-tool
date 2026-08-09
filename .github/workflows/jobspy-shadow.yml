@@ -1,0 +1,98 @@
+name: JobSpy shadow report
+
+# Measures what the JobSpy source WOULD add, from a GitHub runner, writing nothing.
+#
+# WHY THIS EXISTS SEPARATELY FROM scrape.yml
+# The same probe run from a laptop and from a runner can give completely different answers, and
+# that difference IS the finding. Actions egresses from Azure ranges that Cloudflare and the job
+# boards' bot management pre-flag as datacenter traffic, so a site that answers a home IP may
+# refuse a runner. Since the scraper only ever runs here, this is the environment whose answer
+# actually decides whether a site is worth enabling.
+#
+# It is a separate file, not a step in scrape.yml, for three reasons: the production scrape path
+# stays untouched; this can never fire on a schedule; and a bad shadow run cannot take a real
+# scrape down with it.
+#
+# WRITES NOTHING. scripts/jobspy_shadow.py has no --apply flag at all, deliberately — it reads
+# the corpus, queries the aggregators, prints, and exits. The Supabase key is passed because the
+# script needs to read the corpus to compute overlap; nothing in its code path writes.
+#
+# This does NOT enable the feature. JOBSPY_SITES is read by scraper/__init__.py to build
+# JOBSPY_BOARDS; it is set here only as a CLI argument to the shadow script, and scrape.yml does
+# not set it at all. Enabling the real source is a separate, deliberate edit to scrape.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: "JobSpy sites (comma-separated). Start with one."
+        required: true
+        default: "indeed"
+      phrases:
+        description: "Pipe-separated search phrases. Blank = the scraper's default set."
+        required: false
+        default: ""
+      results:
+        description: "results_wanted per query. Keep it small while smoke-testing."
+        required: true
+        default: "25"
+
+defaults:
+  run:
+    working-directory: JobMatch Scraper
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest          # Linux = 1x minute billing, and it matches the scrape job
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          # Must match scrape.yml. python-jobspy 1.1.82 pins numpy==1.26.3 EXACTLY, and that
+          # numpy has no wheels past cp312 — on a newer interpreter pip tries to compile it from
+          # source and fails. Bumping this without first bumping python-jobspy will break the
+          # install, not just this workflow.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: "JobMatch Scraper/requirements.txt"
+
+      - name: Install dependencies
+        timeout-minutes: 8          # 2 more than scrape.yml: this is the run that may pay the
+                                    # cold pandas/numpy install if the cache is empty
+        run: pip install -r requirements.txt
+
+      - name: Shadow report
+        timeout-minutes: 10
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # Inputs go through the environment rather than being interpolated into the script
+          # body. A ${{ }} expansion is substituted as raw text BEFORE the shell parses the
+          # line, so a phrase containing a quote or a semicolon would run as a command; read as
+          # "$VAR" it is only ever data. Standard Actions script-injection mitigation.
+          IN_SITES: ${{ inputs.sites }}
+          IN_PHRASES: ${{ inputs.phrases }}
+          IN_RESULTS: ${{ inputs.results }}
+        run: |
+          set -euo pipefail
+          echo "Runner egress IP — datacenter reputation is the whole point of this run:"
+          curl -s --max-time 10 https://api.ipify.org || echo "(lookup failed, not fatal)"
+          echo
+          if [ -n "$IN_PHRASES" ]; then
+            python scripts/jobspy_shadow.py --sites "$IN_SITES" --results "$IN_RESULTS" \
+              --phrases "$IN_PHRASES" 2>&1 | tee shadow-report.txt
+          else
+            python scripts/jobspy_shadow.py --sites "$IN_SITES" --results "$IN_RESULTS" \
+              2>&1 | tee shadow-report.txt
+          fi
+
+      # Kept so a runner result can be diffed against the same probe run locally — comparing the
+      # two is the reason this workflow exists.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobspy-shadow-${{ github.run_id }}
+          path: JobMatch Scraper/shadow-report.txt
+          retention-days: 30
