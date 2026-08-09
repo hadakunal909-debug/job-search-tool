@@ -237,6 +237,38 @@ def test_adapter_maps_rows_without_pandas():
     assert scraper.JOBSPY_ROWS[0] == rows0 + len(records)
 
 
+def test_pandas_nan_never_becomes_the_string_nan():
+    # NaN is TRUTHY, so `str(v or "")` yields "nan". Measured on the first live run: 9 rows were
+    # stored with company="nan", and "nan" MATCHED the federal sponsor data — a false
+    # "h1b, green_card, 71 approvals" badge on real postings.
+    nan = float("nan")
+    assert scraper._text(nan) == ""
+    assert scraper._text(None) == ""
+    assert scraper._text("  Acme  ") == "Acme"
+    assert scraper._text(123) == "123"
+    assert scraper._jobspy_location({"city": "Austin", "state": nan}) == "Austin"
+
+
+def test_adapter_drops_a_row_with_no_employer():
+    # A nameless row means no sponsor lookup, no company page and a blank card. The NaN case
+    # above is how they arise, so the two guards are tested together.
+    records = [
+        {"title": "Project Manager", "company": float("nan"), "location": "Durham, NC",
+         "job_url": "https://www.indeed.com/viewjob?jk=nan1"},
+        {"title": "PM II", "company": "", "location": "Mosinee, WI",
+         "job_url": "https://www.indeed.com/viewjob?jk=nan2"},
+        {"title": "Real One", "company": "Acme", "location": "Boston, MA",
+         "job_url": "https://www.indeed.com/viewjob?jk=ok", "date_posted": float("nan")},
+    ]
+    sys.modules["jobspy"] = _with_stub_jobspy(records)
+    try:
+        out = scraper.scrape_jobspy("jobspy:indeed|project manager|United States")
+    finally:
+        del sys.modules["jobspy"]
+    assert [r["company"] for r in out] == ["Acme"], out
+    assert "found_date" not in out[0], "a NaN date must not become the string 'nan'"
+
+
 def test_adapter_reports_an_empty_result_rather_than_swallowing_it():
     # Google has returned 0 and ZipRecruiter 403 since Sept 2025 (JobSpy #302), and a datacenter
     # IP gets refused where a laptop is served. A silent 0 must not look like a quiet day.
