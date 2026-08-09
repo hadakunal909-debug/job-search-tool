@@ -189,8 +189,14 @@ def main():
         return
 
     # Full rows (with jd) for scoring; last_new_jobs.json only carries the 6 scraped fields.
+    # Fetched BY URL rather than by walking the table: `new` is this run's finds — a few hundred
+    # rows at most — and load_jobs() pulled all ~20k WITH their descriptions (~52 MB gzipped,
+    # ~129 MB raw) just to index them by url, once per heavy run. Measured at 20,350 rows.
+    # A URL not in the table yet simply isn't in by_url, and falls back to the scraped row.
     try:
-        by_url = {j.get("url"): j for j in (db.load_jobs() or []) if j.get("url")}
+        by_url = {j.get("url"): j
+                  for j in db.load_jobs_by_urls([r.get("url") for r in new])
+                  if j.get("url")}
     except Exception as e:
         print("Could not load jobs: %s" % str(e)[:120])
         return

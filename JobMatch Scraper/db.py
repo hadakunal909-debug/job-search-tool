@@ -239,6 +239,40 @@ def table_count(table, params=None):
         return None
 
 
+def jobs_fingerprint():
+    """(row_count, newest_first_seen) — a near-free "has the corpus changed?" probe.
+
+    Neither half returns rows: the count rides the HEAD in table_count(), and the date is a
+    one-row ordered select. Together they let a caller revalidate a cache instead of re-reading
+    it — the difference between ~0 bytes and the ~10.7 MB a full feed read costs at 19k rows.
+
+    `first_seen` (the date a row entered THIS database), not `last_seen`: last_seen is NULL on
+    every row in the live table — measured 0 of 19,268 non-null — so it fingerprints nothing.
+    first_seen is populated on all of them and advances whenever a job is inserted, while the
+    count moves on inserts and on the 30-day prune. A prune and an insert of the same size
+    therefore still register, because the new rows carry a newer first_seen.
+
+    Returns (None, "") when unavailable. Callers MUST read that as "don't know" and refetch,
+    never as "unchanged" — a probe that fails while the DB is briefly unreachable would
+    otherwise pin a stale feed in place indefinitely.
+    """
+    if not using_supabase():
+        return (None, "")
+    n = table_count(TABLE)
+    if n is None:
+        return (None, "")
+    try:
+        r = _http.get(_rest(TABLE), headers=_headers(),
+                      params={"select": "first_seen", "order": "first_seen.desc.nullslast",
+                              "limit": 1}, timeout=15)
+        if r.status_code >= 400:
+            return (None, "")
+        rows = r.json() or []
+        return (n, (rows[0].get("first_seen") or "") if rows else "")
+    except Exception:
+        return (None, "")
+
+
 def _upsert(rows, chunk=200):
     """Insert/merge rows on the `url` primary key (PostgREST upsert), in chunks with a soft retry.
     A single huge merge-upsert (a full re-score, or a big backlog of new jobs after the scheduled
@@ -381,6 +415,50 @@ def get_job_jd(url):
         if r.get("url") == url:
             return r.get("jd", "") or ""
     return ""
+
+
+def load_jobs_by_urls(urls, include_jd=True):
+    """The stored rows for a SPECIFIC set of job URLs.
+
+    The digest and the scorer each need full rows for a handful of jobs — the ones a run just
+    found, or the ones it is about to re-score. Both used to call load_jobs(), which walks the
+    whole table: at ~20k rows with ~14.5k stored JDs that is ~70 MB over the wire to keep a few
+    hundred rows, once per run, which is most of a free-tier egress budget. This asks for exactly
+    the URLs wanted, batched by query-string length the same way delete_urls does (the limit is
+    on operand length, not row count — see _DELETE_QS_BUDGET).
+
+    Rows come back in no particular order, and a URL with no stored row is simply absent, so
+    callers must keep their own fallback for jobs not in the table yet. A failed batch is skipped
+    rather than raised: degrading to "no stored row" costs the caller a baseline score, whereas
+    raising takes down a digest or a scoring run.
+    """
+    urls = [u for u in dict.fromkeys(urls) if u]      # de-dup, preserve order, drop blanks
+    if not urls:
+        return []
+    if using_supabase():
+        sel = "*" if include_jd else _FEED_COLS
+        rows = []
+        for batch in _url_batches(urls):
+            try:
+                rows.extend(_fetch_all(TABLE, {"select": sel, "url": _in_list(batch)}))
+            except Exception:
+                # Same un-migrated-column case load_jobs() guards: a select naming an optional
+                # column 400s until its ALTER has run ("*" never names one, so it can't hit
+                # this). Retry the batch on the core set instead of losing those rows.
+                if include_jd:
+                    continue
+                try:
+                    rows.extend(_fetch_all(TABLE, {"select": _FEED_COLS_CORE,
+                                                   "url": _in_list(batch)}))
+                except Exception:
+                    continue
+        return rows
+    want = set(urls)
+    rows = [r for r in _read_csv() if r.get("url") in want]
+    actions = _load_actions()
+    for r in rows:                       # fold like/hide/applied in, as load_jobs does
+        r["status"] = actions.get(r["url"], r.get("status", ""))
+    return rows
 
 
 def urls_with_jd():
@@ -717,11 +795,20 @@ def create_user(username, password_hash, resume=""):
     return (True, "")
 
 
-def get_user(username):
-    """Return {username, password_hash, resume, ...} or None."""
+def get_user(username, cols=None):
+    """Return {username, password_hash, resume, ...} or None.
+
+    `cols` is a PostgREST select list for callers that need one or two fields. It matters
+    because the default `*` drags along BOTH the full résumé text and the `brain_kb` jsonb
+    (a user's whole self-training model), and this is called on nearly every request behind
+    only a 60 s cache — so the wide select was re-downloading a résumé and a TF-IDF model to
+    answer questions like "what is this user's token_epoch?". None keeps the old `*` so
+    existing callers are unaffected; the local-file path ignores it and returns everything.
+    """
     if using_supabase():
         r = _http.get(_rest(USERS_TABLE), headers=_headers(),
-                         params={"username": "eq.%s" % username, "select": "*", "limit": 1},
+                         params={"username": "eq.%s" % username,
+                                 "select": cols or "*", "limit": 1},
                          timeout=30)
         r.raise_for_status()
         rows = r.json()
@@ -795,7 +882,7 @@ def bump_token_epoch(username):
     and a lost update here costs nothing worse than one extra click to revoke again."""
     cur = 0
     try:
-        cur = int((get_user(username) or {}).get("token_epoch") or 0)
+        cur = int((get_user(username, "token_epoch") or {}).get("token_epoch") or 0)
     except Exception:
         pass
     _patch_user(username, {"token_epoch": cur + 1})
@@ -1350,7 +1437,7 @@ def get_brain_kb(username):
     if username:
         try:
             if using_supabase():
-                kb = (get_user(username) or {}).get("brain_kb")
+                kb = (get_user(username, "brain_kb") or {}).get("brain_kb")
                 if kb is None:                              # column missing/empty -> local backup
                     kb = _load_json(BRAIN_KB_FILE).get(username)
             else:

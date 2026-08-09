@@ -16,6 +16,10 @@ user_jobs_local.json
 jds.json
 boards.json
 jdmeta.json
+# Written by the running web app to share the feed rows across Passenger workers. Runtime
+# state, regenerated on demand — must never be deployed or committed.
+jobs_snapshot.json.gz
+jobs_snapshot.json.gz.*.tmp
 brain_kb_local.json
 brain_companies_local.json
 resumes_local.json

@@ -350,7 +350,7 @@ def current_resume():
     if hit and time.time() - hit[1] < _RESUME_TTL:
         return hit[0]
     try:
-        txt = (db.get_user(user) or {}).get("resume", "") or ""
+        txt = (db.get_user(user, "resume") or {}).get("resume", "") or ""
     except Exception:
         return hit[0] if hit else ""     # transient DB failure -> stale value over nothing
     _resume_cache[user] = (txt, time.time())
@@ -366,7 +366,7 @@ def _ensure_resume_migrated(user):
     try:
         if db.list_resumes(user):
             return
-        legacy = (db.get_user(user) or {}).get("resume", "") or ""
+        legacy = (db.get_user(user, "resume") or {}).get("resume", "") or ""
         if legacy.strip():
             db.save_resume(user, {"name": "My résumé", "content": legacy})
     except Exception:
@@ -412,19 +412,84 @@ def sponsor_signal(job):
 
 _JOBS_TTL = 3600             # jobs change only on the daily scrape; force-refresh paths exist
 
+# Snapshot of the feed rows, SHARED BY EVERY PASSENGER WORKER.
+#
+# _jobs_cache above is per-process. Passenger runs several workers and recycles them freely, so
+# the 1 h TTL alone still meant a full feed read per worker per recycle — measured at ~10.7 MB
+# decoded (19,268 rows x ~601 bytes), which made this the largest single consumer of the
+# free-tier egress budget, well ahead of the scraper. A worker that starts cold now reads this
+# file instead of the network. Overridable so a read-only deploy can point it at a temp dir;
+# every read and write is best-effort, so if the path isn't writable the app simply degrades to
+# the old per-worker behaviour rather than failing a request.
+_JOBS_SNAPSHOT = os.environ.get("JOBS_SNAPSHOT") or os.path.join(_APP_DIR, "jobs_snapshot.json.gz")
+
+
+def _snapshot_read(max_age):
+    """(rows, fingerprint) from the shared snapshot if it exists and is younger than max_age
+    seconds, else (None, None)."""
+    try:
+        if time.time() - os.path.getmtime(_JOBS_SNAPSHOT) > max_age:
+            return None, None
+        with _gzip.open(_JOBS_SNAPSHOT, "rt", encoding="utf-8") as fh:
+            blob = json.load(fh)
+        rows = blob.get("rows") or None
+        return rows, tuple(blob.get("fingerprint") or ())
+    except Exception:
+        return None, None            # missing, half-written, or corrupt -> just re-read
+
+
+def _snapshot_write(rows, fingerprint):
+    """Replace the shared snapshot atomically. Written to a pid-suffixed temp file and renamed,
+    because two workers can refresh at once and a reader must never see a partial file."""
+    try:
+        tmp = "%s.%d.tmp" % (_JOBS_SNAPSHOT, os.getpid())
+        with _gzip.open(tmp, "wt", encoding="utf-8") as fh:
+            json.dump({"rows": rows, "fingerprint": list(fingerprint or ())}, fh)
+        os.replace(tmp, _JOBS_SNAPSHOT)
+    except Exception:
+        pass                          # an optimization only; never fail a request over it
+
 
 def get_jobs(force=False):
-    """All jobs from Supabase, cached ~1 h (or force-reloaded). Jobs only change on the daily
-    cron scrape; /reload, add-board, and the extension endpoints force-refresh, so a long TTL
-    just avoids needless full-table re-fetches between scrapes."""
-    if force or _jobs_cache["rows"] is None or time.time() - _jobs_cache["at"] > _JOBS_TTL:
-        try:
-            # include_jd=False: the feed never shows the JD; the detail panel fetches one JD on
-            # demand (db.get_job_jd), so we skip pulling ~20 MB of description text into memory.
-            _jobs_cache["rows"] = db.load_jobs(include_jd=False) or []
-        except Exception:
-            _jobs_cache["rows"] = _jobs_cache["rows"] or []
-        _jobs_cache["at"] = time.time()
+    """All jobs, from a three-level cache: this worker's memory, then the snapshot file shared
+    across workers, then Supabase.
+
+    Jobs only change on the cron scrape, so the network is touched only when a fingerprint probe
+    (db.jobs_fingerprint — a HEAD plus a one-row select, ~0 bytes) says the corpus actually
+    moved. /reload, add-board and the extension endpoints pass force=True, which always re-reads
+    and rewrites the snapshot.
+    """
+    if not force and _jobs_cache["rows"] is not None \
+            and time.time() - _jobs_cache["at"] <= _JOBS_TTL:
+        return _jobs_cache["rows"]
+
+    if not force:
+        # Another worker may already have paid for this read.
+        rows, fp = _snapshot_read(_JOBS_TTL)
+        if rows:
+            _jobs_cache["rows"], _jobs_cache["fp"] = rows, fp
+            _jobs_cache["at"] = time.time()
+            return rows
+        # Past the TTL but possibly unchanged. The probe costs ~nothing against the full read it
+        # can avoid; an unavailable probe returns (None, "") and falls through to the re-read.
+        if _jobs_cache["rows"] is not None:
+            fp = db.jobs_fingerprint()
+            if fp[0] is not None and fp == _jobs_cache.get("fp"):
+                _jobs_cache["at"] = time.time()
+                _snapshot_write(_jobs_cache["rows"], fp)   # refresh mtime for the other workers
+                return _jobs_cache["rows"]
+
+    try:
+        # include_jd=False: the feed never shows the JD; the detail panel fetches one JD on
+        # demand (db.get_job_jd), so we skip pulling the description text into memory. At 19k
+        # rows that column is the difference between ~10.7 MB and ~122 MB.
+        rows = db.load_jobs(include_jd=False) or []
+        fp = db.jobs_fingerprint()
+        _jobs_cache["rows"], _jobs_cache["fp"] = rows, fp
+        _snapshot_write(rows, fp)
+    except Exception:
+        _jobs_cache["rows"] = _jobs_cache["rows"] or []
+    _jobs_cache["at"] = time.time()
     return _jobs_cache["rows"]
 
 
