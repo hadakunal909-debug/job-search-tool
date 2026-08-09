@@ -599,13 +599,16 @@ def _persist_derived(row_loc, row_jd, current_rows=None):
 NEW_JOBS_FILE = "last_new_jobs.json"
 
 
-def _new_only_targets(row_jd, fetched):
+def _new_only_targets(known_urls, fetched):
     """URLs worth (re)scoring when we're not doing the whole corpus.
 
     A stored job's score can only move for three reasons: its JD changed, the résumé
     changed, or IDF drifted as the corpus turned over. The first is exactly what this
     catches — the postings this run added, plus any job whose JD only just arrived. The
     other two are corpus-wide and belong to the full pass, which still runs daily.
+
+    `known_urls` is every url we hold a row for. It used to be the JD map, which is no longer
+    loaded in new-only mode — the set of urls is all this ever needed from it.
     """
     targets = set(fetched)                        # JDs that landed this run
     try:                                          # ...plus the postings this run added
@@ -613,7 +616,7 @@ def _new_only_targets(row_jd, fetched):
             targets.update(j.get("url") for j in (json.load(fh) or []) if j.get("url"))
     except Exception:
         pass                                      # no breadcrumb (manual run) -> just the JDs
-    return targets & set(row_jd)                  # never score a URL we hold no row for
+    return targets & set(known_urls)              # never score a URL we hold no row for
 
 
 def main():
@@ -642,15 +645,29 @@ def main():
                           "started_at": _started, "run": _prev.get("run", "")})
 
     # 1) What do we already have? Stored JDs are reused (incremental); --full refetches.
-    rows = db.load_jobs()
-    row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
+    #
+    # The `jd` column is pulled ONLY when this pass will use all of it — that is, a full
+    # re-score, which builds IDF over every JD and re-analyzes every row. In new-only mode
+    # neither holds, and reading it anyway cost a whole-corpus fetch WITH descriptions
+    # (~52 MB gzipped / ~129 MB raw at 20,350 rows) on all three scrapes a day to use a few
+    # hundred rows of it. So: cheap columns always, JD text on demand further down.
+    rows = db.load_jobs(include_jd=not new_only)
     row_date = {r["url"]: (r.get("found_date") or "") for r in rows if r.get("url")}
     row_loc = {r["url"]: (r.get("location") or "") for r in rows if r.get("url")}
     # When the row entered OUR database, which is not found_date — that one is the
     # employer's posting date and can be weeks old on a job we first saw an hour ago.
     row_seen = {r["url"]: (r.get("first_seen") or "") for r in rows if r.get("url")}
-    missing = {u for u, jd in row_jd.items() if not jd or full}
-    stored = len(row_jd) - len(missing)
+    all_urls = {r["url"] for r in rows if r.get("url")}
+    if new_only:
+        # "Which rows already have a description?" was the only thing the JD text was needed
+        # for here, and urls_with_jd() answers it with a urls-only select.
+        row_jd = {}
+        stored_urls = db.urls_with_jd() & all_urls
+    else:
+        row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
+        stored_urls = {u for u, jd in row_jd.items() if jd}
+    missing = set(all_urls) if full else (all_urls - stored_urls)
+    stored = len(all_urls) - len(missing)
 
     # Per-run fetch cap: a scheduled CI run does BOUNDED work so it always finishes inside
     # the Actions timeout; the rest of the backlog drains on the next runs. 0 / unset = no
@@ -705,7 +722,7 @@ def main():
         order = order[:cap]
     missing = set(order)
     print("%d jobs: %d JDs stored, %d to fetch this run%s%s."
-          % (len(row_jd), stored, len(missing), " (--full refetch)" if full else "",
+          % (len(all_urls), stored, len(missing), " (--full refetch)" if full else "",
              " (capped)" if cap else ""))
 
     fetched, dates = {}, {}
@@ -797,17 +814,35 @@ def main():
                 print("  JD budget reached — ~%d left for next run (they stay queued)." % unspent)
         row_jd.update(fetched)
 
-    # 4) Build IDF over the whole JD corpus (so common terms count less), then score.
-    #    IDF is always built from EVERY JD even in new-only mode — it is a property of the
-    #    corpus, and weighting a new job against a partial one would score it differently
-    #    than the same job scored yesterday.
-    idf = core.build_idf([j for j in row_jd.values() if j])
-    core.save_idf(idf)
+    # 4) IDF over the whole JD corpus (so common terms count less), then score.
+    #    The FULL pass rebuilds it from every JD — it is a property of the corpus, and
+    #    weighting a new job against a partial one would score it differently than the same
+    #    job scored yesterday. New-only mode therefore REUSES the last full pass's idf.json
+    #    rather than rebuilding: hours-stale is still corpus-wide, a subset is not. Same
+    #    reasoning as the jdmeta merge below, and it is what lets new-only skip the jd column.
+    idf = core.load_idf() if new_only else {}
+    if not idf:
+        if new_only:
+            # Cold start: no idf.json to reuse (fresh checkout, or it was never written).
+            # Building from this run's handful of JDs would mis-weight every score, so pay
+            # for the one full read and let the next run reuse what we save here.
+            print("No idf.json to reuse — reading the full JD corpus once to build it.")
+            row_jd = {r["url"]: (r.get("jd") or "")
+                      for r in (db.load_jobs() or []) if r.get("url")}
+        idf = core.build_idf([j for j in row_jd.values() if j])
+        core.save_idf(idf)
     # Which jobs get re-analyzed. The full pass does all of them (and so also picks up résumé
     # edits since last run); new-only does just what this run pulled.
-    todo = _new_only_targets(row_jd, fetched) if new_only else set(row_jd)
+    todo = _new_only_targets(all_urls, fetched) if new_only else set(row_jd)
+    # New-only mode never read the jd column, so pull the text for just these rows. JDs this
+    # run fetched itself are already in row_jd from the phase above.
+    if new_only:
+        need = [u for u in todo if u not in row_jd]
+        if need:
+            row_jd.update({r["url"]: (r.get("jd") or "")
+                           for r in db.load_jobs_by_urls(need) if r.get("url")})
     print("Scoring %d of %d jobs with IDF weighting (%d terms in corpus)%s..."
-          % (len(todo), len(row_jd), len(idf), " [NEW ONLY]" if new_only else ""))
+          % (len(todo), len(all_urls), len(idf), " [NEW ONLY]" if new_only else ""))
     # Compute each job's résumé-INDEPENDENT analysis ONCE, reuse it for the score, AND persist
     # it to jdmeta.json so the web app never recomputes it at request time (kills cold-load
     # regex/keyword work). score_against(resume, analyzed) == the old skill_match(resume, jd).
@@ -818,7 +853,13 @@ def main():
     jdmeta = (core.load_jdmeta() or {}) if new_only else {}
     scores = {}
     for u in todo:
-        m = core.job_meta(row_jd[u], idf)
+        jd = row_jd.get(u)
+        # An absent KEY means the by-url lookup above failed or the row vanished mid-run —
+        # skip it and leave the stored score alone. An empty STRING is different and must
+        # still be scored: that is a real row with no JD yet, and it scores 0 by design.
+        if jd is None:
+            continue
+        m = core.job_meta(jd, idf)
         jdmeta[u] = m
         # A too-thin/truncated JD can't be scored honestly (it's what produced the fake ~100%s):
         # store 0 so it sorts/filters low and the feed shows it as "JD pending" (the web layer
