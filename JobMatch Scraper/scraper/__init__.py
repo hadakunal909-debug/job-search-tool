@@ -2663,9 +2663,15 @@ def scrape_amazon(board_url):
                     "url": "https://www.amazon.jobs" + (j.get("job_path") or ""),
                     "location": j.get("normalized_location") or j.get("location") or "",
                 }
-                try:                             # the real posting date from the JD
+                try:
+                    # Amazon publishes a REAL posting date ("June 13, 2026"), so store it in the
+                    # bare ISO shape that marks a date as trustworthy. It used to be written as
+                    # "%Y-%m-%d %H:%M", which appended " 00:00" and made every one of these look
+                    # like a derived guess to verify_dates._is_clean_api_date() — 1,315 rows,
+                    # 18% of the whole verification backlog, queued for a rate-limited lookup
+                    # that could only ever confirm the date we already had.
                     row["found_date"] = datetime.datetime.strptime(
-                        j.get("posted_date", ""), "%B %d, %Y").strftime("%Y-%m-%d %H:%M")
+                        j.get("posted_date", ""), "%B %d, %Y").strftime("%Y-%m-%d")
                 except Exception:
                     pass
                 rows.append(row)
