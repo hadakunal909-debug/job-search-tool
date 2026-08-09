@@ -2291,15 +2291,31 @@ WORKDAY_QUERIES = (
 
 
 def _workday_date(posted_on):
-    """Workday gives 'Posted 5 Days Ago' / 'Posted Today' -> turn into a date."""
+    """Workday gives 'Posted 5 Days Ago' / 'Posted Today' -> turn into a date.
+
+    'Posted 30+ Days Ago' is a LOWER BOUND, not an age, and reading the 30 out of it as an exact
+    age was the single biggest source of stale jobs in the corpus. The cutoff in main() rejects a
+    posting only when `posted < age_cutoff`, and age_cutoff is exactly MAX_AGE_DAYS ago — so a
+    posting stamped exactly 30 days old is not "over 30 days" and squeaked through. Measured on a
+    full run 2026-08-09: 1,943 of 3,858 newly added rows carried found_date 2026-07-10, precisely
+    MAX_AGE_DAYS ago, half of everything the run added. Those postings can be any age at all; '30+'
+    is all Workday will say.
+
+    So a trailing '+' means "at least this many days", and the age recorded is n+1 — still a guess,
+    but on the correct side of the boundary, which lets the cutoff do what it was written to do.
+    Returning '' instead would BACKFIRE: the gate skips a blank date (`if posted and ...`), so
+    every one of them would be kept.
+    """
     s = (posted_on or "").lower()
     if "today" in s:
         days = 0
     elif "yesterday" in s:
         days = 1
     else:
-        m = re.search(r"(\d+)", s)
+        m = re.search(r"(\d+)\s*(\+)?", s)
         days = int(m.group(1)) if m else 0
+        if m and m.group(2):
+            days += 1                      # '30+' -> older than 30, so the cutoff can refuse it
     return (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M")
 
 
