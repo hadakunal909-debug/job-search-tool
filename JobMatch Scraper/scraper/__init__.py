@@ -2861,12 +2861,28 @@ def _jobspy_best_url(row):
     return (row.get("job_url") or "").strip()
 
 
+def _text(v):
+    """One DataFrame cell as a clean string, treating a missing value as empty.
+
+    pandas fills missing cells with float NaN, and NaN is TRUTHY — so `str(v or "")` sails
+    straight past it and yields the literal string "nan". That is not a cosmetic bug: a row
+    whose company became "nan" renders as a company called nan, groups with every other such
+    row under core.posting_key, and — measured on the first live run — MATCHED the federal
+    sponsor data, putting a false "h1b, green_card, 71 approvals" badge on 9 postings.
+
+    `v != v` is true only for NaN, and needs no pandas import to say so.
+    """
+    if v is None or v != v:
+        return ""
+    return str(v).strip()
+
+
 def _jobspy_location(row):
     """JobSpy splits location across city/state/country; the corpus stores one string."""
     loc = row.get("location")
     if isinstance(loc, str):
         return loc.strip()
-    parts = [str(row.get(k) or "").strip() for k in ("city", "state")]
+    parts = [_text(row.get(k)) for k in ("city", "state")]
     return ", ".join(p for p in parts if p)
 
 
@@ -2925,19 +2941,24 @@ def scrape_jobspy(board_url):
         if canon in seen:                 # same posting twice within one query
             continue
         seen.add(canon)
-        posted = r.get("date_posted")
-        row = {"title": str(r.get("title") or "").strip(),
+        company = _text(r.get("company"))
+        if not company:
+            # No employer name means no sponsor lookup, no company page, and a card that reads
+            # blank. Cheaper to drop it here than to store a row nothing downstream can use.
+            continue
+        row = {"title": _text(r.get("title")),
                "url": url,
-               "company": str(r.get("company") or "").strip(),
+               "company": company,
                "location": _jobspy_location(r)}
+        posted = _text(r.get("date_posted"))
         if posted:
             # A missing date is fine and deliberate: the row is kept and ages by first_seen,
             # exactly as every dateless board's rows do.
-            row["found_date"] = str(posted)[:10]
+            row["found_date"] = posted[:10]
         rows.append(row)
-        jd = r.get("description")
-        if jd and isinstance(jd, str) and jd.strip():
-            JOBSPY_JDS[canon] = jd.strip()
+        jd = _text(r.get("description"))
+        if jd:
+            JOBSPY_JDS[canon] = jd
 
     if len(records) >= JOBSPY_RESULTS:
         note_truncation("jobspy:%s|%s" % (site, phrase), len(rows), JOBSPY_RESULTS,
