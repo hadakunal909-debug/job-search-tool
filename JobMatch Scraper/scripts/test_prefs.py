@@ -82,6 +82,11 @@ for i, override in enumerate(grid):
     # (prefs_match deliberately has no date filter — every digest candidate is brand new).
     params = web._prefs_as_params(prefs)
     params["date"] = "any"
+    # Same reason as `date` above, and the same treatment: verifiedonly is FEED-ONLY. Every
+    # digest candidate is a job we just discovered, so its date has not been confirmed yet —
+    # applying this to the email would silently empty it rather than filter it. Neutralised
+    # here so the grid still compares the filters the two sides genuinely share.
+    params["verifiedonly"] = ""
     feed_set = {r["url"] for r, _st in web._filter_rows(rows, {}, params)}
     mail_set = {r["url"] for r in rows if core.prefs_match(r, prefs)}
     diff = feed_set ^ mail_set

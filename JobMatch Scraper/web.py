@@ -520,8 +520,9 @@ def get_jobs(force=False):
 
     Jobs only change on the cron scrape, so the network is touched only when a fingerprint probe
     (db.jobs_fingerprint — a HEAD plus a one-row select, ~0 bytes) says the corpus actually
-    moved. /reload, add-board and the extension endpoints pass force=True, which always re-reads
-    and rewrites the snapshot.
+    moved. /reload, add-board and the admin refresh links pass force=True, which always re-reads
+    and rewrites the snapshot. Endpoints that change rows but render nothing call
+    _invalidate_jobs() instead — see there for why.
     """
     if not force and _jobs_cache["rows"] is not None \
             and time.time() - _jobs_cache["at"] <= _JOBS_TTL:
@@ -555,6 +556,36 @@ def get_jobs(force=False):
         _jobs_cache["rows"] = _jobs_cache["rows"] or []
     _jobs_cache["at"] = time.time()
     return _jobs_cache["rows"]
+
+
+def _invalidate_jobs():
+    """Mark the feed rows stale WITHOUT paying for the re-read here.
+
+    get_jobs(force=True) re-reads the whole corpus on the spot — ~12 MB at 20k rows. That is
+    the right trade for a request that goes on to RENDER the feed (/reload, the admin
+    ?refresh=1 links, the delete-plan apply all redirect into a page that calls get_jobs), since
+    the render would have paid for it a moment later anyway. It is the wrong trade for a JSON
+    endpoint that renders nothing: the extension posts /api/ext/bulk_jobs and then /api/ext/jds
+    for every board it scans, so a ten-board session bought twenty full reads nobody ever
+    looked at. Against a 5 GB/month free-tier egress cap that is ~5% of the month in one
+    sitting. Deferring collapses those twenty into the one read the next feed render does.
+
+    All three lines matter:
+      * at=0 alone would not work — the next get_jobs() falls through to the snapshot file,
+        whose mtime is fresh, and serves back exactly the rows we just invalidated.
+      * fp=None is what makes a PATCH visible. jobs_fingerprint() is (row count, max
+        first_seen) and update_job_fields moves neither, so the probe would report "unchanged"
+        and keep the stale rows indefinitely. None can never compare equal to a real
+        fingerprint, so the probe falls through to the re-read.
+      * dropping the snapshot is best-effort like every other write to it; the first worker
+        past here re-reads and writes it back for the others.
+    """
+    _jobs_cache["at"] = 0
+    _jobs_cache["fp"] = None
+    try:
+        os.remove(_JOBS_SNAPSHOT)
+    except Exception:
+        pass
 
 
 def user_statuses(user):
@@ -678,6 +709,11 @@ def _build_row(j, score):
             # The "New" badge is derived client-side from this date (it shows iff it reads "Today").
             "date": ((j.get("posted_verified") or j.get("found_date")) or "")[:10],
             "date_verified": bool(j.get("posted_verified")),
+            # Broader than date_verified: "somebody STATED this date" rather than "the lookup
+            # service confirmed it". core.is_trusted_date is the one definition; the feed's
+            # verifiedonly filter reads this, and app.js just checks the flag rather than
+            # re-deriving the string-shape rule.
+            "date_trusted": core.is_trusted_date(j.get("found_date"), j.get("posted_verified")),
             # Some employers publish no posting date at all (Tesla's careers API has no date
             # field anywhere), so this is when the job first entered OUR database. Rendered as
             # "Added <x>", never as a posting date. "" until the migration has been run.
@@ -807,6 +843,7 @@ def _prefs_as_params(prefs):
         "hideagency": "1" if prefs.get("hideagency") else "",
         "visatags": prefs.get("visatags") or "",
         "hidenospon": "1" if prefs.get("hidenospon") else "",
+        "verifiedonly": "1" if prefs.get("verifiedonly") else "",
     }
 
 
@@ -877,6 +914,7 @@ def _filter_rows(rows, statuses, p):
     cut = _date_cutoff(p.get("date"))
     want_visa = core.parse_visa_pref(p.get("visatags"))
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
+    verified_only = (p.get("verifiedonly") or "") in ("1", "true", "yes", "on")
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
     track = p.get("track") or "any"        # any | dev (software/data) | mgmt (project/product/ops)
@@ -908,6 +946,8 @@ def _filter_rows(rows, statuses, p):
             if rdate and rdate < cut:
                 continue
         if hide_no and r["sponsor_jd"] == "blocked":
+            continue
+        if verified_only and not r.get("date_trusted"):
             continue
         if not core.visa_tags_match(r.get("visa"), want_visa):
             continue
@@ -4419,7 +4459,7 @@ def ext_bulk_jobs():
             db.add_jobs(kept)
         except Exception as e:
             return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
-        get_jobs(force=True)                     # imported jobs show on the next feed load
+        _invalidate_jobs()                       # imported jobs show on the next feed load
     # added_urls lets the extension follow up with JDs for the new jobs;
     # needs_jd asks it to also backfill known jobs whose JD is still missing.
     return _cors(jsonify({"ok": True, "added": len(kept), "scanned": scanned,
@@ -4532,12 +4572,12 @@ def ext_jds():
     except Exception as e:
         return _cors(jsonify({"ok": False, "error": str(e)[:160]})), 500
     if clean or patches or removed:
-        get_jobs(force=True)                     # re-pull rows so the new data is visible…
+        _invalidate_jobs()                       # next feed load re-pulls the changed rows…
         _score_cache.clear()                     # …and per-user scores recompute with JDs
         _sponsor_cache.clear()
         # Only these JDs changed -> drop their stale meta. Nothing to invalidate on the column
-        # side: job_analysis reads jd_terms straight off the row each time, and get_jobs(force)
-        # above already re-pulled those. Their analysis stays as the last scoring run left it,
+        # side: job_analysis reads jd_terms straight off the row each time, and the next
+        # get_jobs() re-pulls those. Their analysis stays as the last scoring run left it,
         # which is the same lag the score itself has.
         for _u in list(clean) + removed:
             _jdmeta.pop(_u, None)

@@ -163,6 +163,11 @@
           <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
           {% endfor %}
         </select>
+        {# Sits under "Date posted" because it qualifies that filter rather than standing alone:
+           a date the scraper guessed makes "Past 7 days" mean less than it looks. The title says
+           what the alternative IS, since "confirmed" alone invites the reading "verified job". #}
+        <label class="ck" title="Keep only postings whose date the employer's own board stated, or that we independently confirmed. Excludes dates the scraper had to estimate from 'Posted 30+ days ago', and postings with no date at all.">
+          <input type="checkbox" id="verifiedonly"{{ ' checked' if prefs.verifiedonly else '' }}> Confirmed posting date</label>
       </div>
 
       <div class="fgroup" role="group" aria-labelledby="lab-other">

@@ -31,6 +31,7 @@
       dateSel = document.getElementById("date"), countEl = document.getElementById("count"),
       emptyEl = document.getElementById("empty"), moreBtn = document.getElementById("loadmore"),
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
+      verifiedOnly = document.getElementById("verifiedonly"),
       expSel = document.getElementById("exp"),
       // Visa-route filter. Same hidden-input trick as trackSel below: the five checkboxes only
       // write into this, and every filter path reads its `.value`, so the parity harness can
@@ -81,8 +82,8 @@
     // feed.html, which is the discriminator. #sort IS shared: that one is a global preference.
     return { q: (rail ? q : null), min: minR, sort: sortSel, date: dateSel, exp: expSel,
              intern: internSel, minsal: minSalSel, loc: locInp, visatags: visaSel,
-             track: trackSel, hidenospon: hideNo, remoteonly: remoteOnly,
-             hideagency: hideAgency, showclosed: showClosed };
+             track: trackSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
+             remoteonly: remoteOnly, hideagency: hideAgency, showclosed: showClosed };
   }
   function _readStore() {
     // A stored blob from an older shape is discarded whole rather than half-applied — see the
@@ -424,6 +425,9 @@
         .toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
     if (ok && cut) { var dt = rowDate(j); if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
+    // date_trusted is computed server-side by core.is_trusted_date, so this reads a flag
+    // rather than re-deriving the "bare ISO means a publisher stated it" rule in JS.
+    if (ok && verifiedOnly && verifiedOnly.checked && !j.date_trusted) ok = false;
     if (ok && !visaHit(j, visaWanted())) ok = false;
     if (ok && locInp && locInp.value.trim()) ok = locHit(j, locInp.value.trim().toLowerCase());
     if (ok && remoteOnly && remoteOnly.checked && !j.remote) ok = false;
@@ -493,6 +497,7 @@
     if (minSalSel && minSalSel.value) n++;
     if (visaWanted().length) n++;      // the whole visa group counts as ONE filter, not five
     if (hideNo && hideNo.checked) n++;
+    if (verifiedOnly && verifiedOnly.checked) n++;
     if (remoteOnly && remoteOnly.checked) n++;
     if (hideAgency && hideAgency.checked) n++;
     if (showClosed && showClosed.checked) n++;
@@ -507,6 +512,7 @@
     for (var vb = 0; vb < vbox.length; vb++)
       setFlag(vbox[vb].closest(".ck"), vbox[vb].checked);
     setFlag(hideNo && hideNo.closest(".ck"), hideNo && hideNo.checked);
+    setFlag(verifiedOnly && verifiedOnly.closest(".ck"), verifiedOnly && verifiedOnly.checked);
     setFlag(remoteOnly && remoteOnly.closest(".ck"), remoteOnly && remoteOnly.checked);
     setFlag(minSalSel, minSalSel && minSalSel.value);
     setFlag(locInp, locInp && locInp.value.trim());
@@ -547,6 +553,7 @@
     var vw = visaWanted();
     if (vw.length) ps.push("visatags=" + encodeURIComponent(vw.join(",")));
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
+    if (verifiedOnly && verifiedOnly.checked) ps.push("verifiedonly=1");
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
     if (trackSel && trackSel.value !== "any") ps.push("track=" + encodeURIComponent(trackSel.value));
     if (locInp && locInp.value.trim()) ps.push("loc=" + encodeURIComponent(locInp.value.trim()));
@@ -654,6 +661,7 @@
     syncVisa(); render(true);
   });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
+  if (verifiedOnly) verifiedOnly.addEventListener("change", function () { render(true); });
   // Location is free text, so debounce it like the search box rather than firing per keystroke.
   if (locInp) locInp.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
   if (remoteOnly) remoteOnly.addEventListener("change", function () { render(true); });
@@ -744,6 +752,7 @@
     for (var vc = 0; vc < vclr.length; vc++) vclr[vc].checked = false;
     if (visaSel) visaSel.value = "";
     if (hideNo) hideNo.checked = false;
+    if (verifiedOnly) verifiedOnly.checked = false;
     if (remoteOnly) remoteOnly.checked = false;
     if (hideAgency) hideAgency.checked = false;
     if (showClosed) showClosed.checked = false;
@@ -761,6 +770,7 @@
       hideagency: !!(hideAgency && hideAgency.checked),
       visatags: visaWanted().join(","),
       hidenospon: !!(hideNo && hideNo.checked),
+      verifiedonly: !!(verifiedOnly && verifiedOnly.checked),
       exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
       track: trackSel ? trackSel.value : "any",
       date: dateSel ? dateSel.value : "any", sort: sortBy

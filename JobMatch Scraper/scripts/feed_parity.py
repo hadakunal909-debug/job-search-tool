@@ -56,7 +56,7 @@ JS_FUNCS = ["locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches"
 ROW_KEYS = {
     "title", "company", "location", "loc_state", "loc_metro", "remote",
     "salary_min", "salary_max", "salary_period", "closed", "url", "score",
-    "score_pending", "date", "date_verified", "first_seen", "sponsor_jd",
+    "score_pending", "date", "date_verified", "date_trusted", "first_seen", "sponsor_jd",
     "sponsors_h1b", "everify", "visa", "agency", "cap_exempt", "intern", "track",
     "exp_years", "exp_level",
     # Read only by the sponsor sort. Without them here the sponsor case would pass VACUOUSLY:
@@ -98,7 +98,8 @@ def _row(rng, n, title, company, state, **over):
         "score_pending": False,
         "date": (datetime.date.today() - datetime.timedelta(
             days=rng.choice([0, 1, 3, 9, 20, 29, 31, 64, 140]))).isoformat(),
-        "date_verified": False,
+        "date_verified": False,          # both overwritten below, derived together
+        "date_trusted": True,
         # Empty for every row except the undated cohort below — a normal row is filtered on
         # its posting date and never reaches the fallback.
         "first_seen": "",
@@ -131,6 +132,12 @@ def _row(rng, n, title, company, state, **over):
     # the count can never disagree the way two independent rng picks would.
     n_ = r["strength_n"]
     r["strength"] = "high" if n_ >= 1000 else "medium" if n_ >= 100 else "low" if n_ >= 1 else ""
+    # date_verified was hardcoded False, which would have made the verifiedonly case match zero
+    # rows — caught by the anti-vacuity check, but only after the fact. Roughly the live split
+    # (~60% trusted before the Amazon/Workday fixes land, ~10% service-verified), and verified
+    # IMPLIES trusted, which is the invariant core.is_trusted_date guarantees.
+    r["date_trusted"] = rng.random() < 0.6
+    r["date_verified"] = r["date_trusted"] and rng.random() < 0.17
     r.update(over)
     return r
 
@@ -279,6 +286,14 @@ def build_cases():
         # The sponsor ladder is a 3-key sort (tier, then USCIS volume, then score), so it has
         # far more ways to disagree across the two implementations than the other two modes.
         # Run it wide open and against several filtered subsets.
+        ("verified dates only", {"verifiedonly": "1"}),
+        ("verified only + any date", {"verifiedonly": "1", "date": "any", "min": "0"}),
+        # Paired with the date window it qualifies: "Past 7 days" means something different
+        # once rows whose date was estimated are gone, and that interaction is the whole point
+        # of the filter sitting in that group.
+        ("verified only + 7d", {"verifiedonly": "1", "date": "7", "min": "0"}),
+        ("verified only + visa + agencies", {"verifiedonly": "1", "visatags": "h1b",
+                                             "hideagency": "", "min": "0", "date": "any"}),
         ("sort sponsor", {"sort": "sponsor"}),
         ("sort sponsor, min 0", {"sort": "sponsor", "min": "0"}),
         ("sort sponsor, min 0, any date", {"sort": "sponsor", "min": "0", "date": "any"}),
@@ -412,7 +427,7 @@ function chk(v) { return { checked: !!v }; }
 var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any"),
     trackSel = ctl("any"),
     locInp = ctl(""), minSalSel = ctl(""), sortSel = ctl("score"),
-    hideNo = chk(false), visaSel = ctl(""), remoteOnly = chk(false),
+    hideNo = chk(false), verifiedOnly = chk(false), visaSel = ctl(""), remoteOnly = chk(false),
     hideAgency = chk(false), showClosed = chk(false);
 var VISA_TAGS = %(visa_tags)s;
 """
@@ -433,6 +448,7 @@ IN.cases.forEach(function (cs) {
   locInp.value = p.loc || "";
   minSalSel.value = p.minsal || "";
   hideNo.checked = p.hidenospon === "1";
+  verifiedOnly.checked = p.verifiedonly === "1";
   visaSel.value = p.visatags || "";
   remoteOnly.checked = p.remote === "1";
   hideAgency.checked = p.hideagency === "1";

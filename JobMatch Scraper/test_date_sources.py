@@ -86,6 +86,38 @@ def test_an_empty_new_date_never_overwrites_anything():
         assert not beats(None, stored)
 
 
+# --- what the feed's "Confirmed posting date" filter actually means --------------------
+def test_trusted_means_somebody_stated_it():
+    import core
+    assert core.is_trusted_date("2026-08-07")                      # publisher field
+    assert core.is_trusted_date("", "2026-08-07")                  # service confirmed it
+    assert core.is_trusted_date("2026-07-09 00:00", "2026-08-07")  # verified beats a guess
+    assert not core.is_trusted_date("2026-07-09 00:00")            # the scrape stamp
+    assert not core.is_trusted_date(scraper._workday_date("Posted 30+ Days Ago"))
+    assert not core.is_trusted_date("")                            # aged by first_seen only
+    assert not core.is_trusted_date(None)
+
+
+def test_trusted_agrees_with_what_verify_dates_queues():
+    # The two read the same string-shape contract from opposite ends: a row is queued for
+    # verification precisely when nobody has stated its date. If these ever disagree, the feed
+    # would call a date confirmed while the verifier still considered it a guess.
+    import core
+    for s in ("2026-08-07", "2026-08-07 00:00", "2026-08-07 14:31", "", "  ", "nonsense"):
+        assert core.is_trusted_date(s) == clean(s), s
+
+
+def test_verifiedonly_is_a_real_pref_and_defaults_off():
+    import core
+    assert core.DEFAULT_PREFS["verifiedonly"] is False
+    assert core.normalize_prefs({"verifiedonly": "1"})["verifiedonly"] is True
+    assert core.normalize_prefs({"verifiedonly": "junk"})["verifiedonly"] is False
+    # FEED ONLY. prefs_match drives the email, and every digest candidate is a job we just
+    # found — applying this there would empty the digest rather than filter it.
+    import inspect
+    assert "verifiedonly" not in inspect.getsource(core.prefs_match)
+
+
 # --- the Workday plumbing -------------------------------------------------------------
 def test_wd_detail_jd_returns_a_pair_and_detail_jd_forwards_it():
     import inspect

@@ -59,7 +59,7 @@ var PAGE = IN.page;                       // "feed" | "company"
 
 // Controls present on this page. company.html renders only #q and #sort.
 var q, minR, sortSel, dateSel, expSel, internSel, minSalSel, locInp, visaSel, trackSel,
-    hideNo, remoteOnly, hideAgency, showClosed, rail, tabBtns, tab;
+    hideNo, verifiedOnly, remoteOnly, hideAgency, showClosed, rail, tabBtns, tab;
 var VISABOXES = [];
 function reset(page, vals) {
   q = ctl(vals.q || "");
@@ -71,7 +71,8 @@ function reset(page, vals) {
     internSel = ctl(vals.intern || "any"); minSalSel = ctl(vals.minsal || "");
     locInp = ctl(vals.loc || ""); visaSel = ctl(vals.visatags || "");
     trackSel = ctl(vals.track || "any");
-    hideNo = box(vals.hidenospon); remoteOnly = box(vals.remoteonly);
+    hideNo = box(vals.hidenospon); verifiedOnly = box(vals.verifiedonly);
+    remoteOnly = box(vals.remoteonly);
     hideAgency = box(vals.hideagency); showClosed = box(vals.showclosed);
     tabBtns = [{}, {}, {}, {}]; tab = vals.tab || "recommended";
     VISABOXES = ["h1b", "green_card", "stem_opt", "e3", "h1b1"].map(function (t) {
@@ -79,7 +80,8 @@ function reset(page, vals) {
     });
   } else {
     rail = null; minR = dateSel = expSel = internSel = minSalSel = null;
-    locInp = visaSel = trackSel = hideNo = remoteOnly = hideAgency = showClosed = null;
+    locInp = visaSel = trackSel = hideNo = verifiedOnly = null;
+    remoteOnly = hideAgency = showClosed = null;
     tabBtns = []; tab = "recommended"; VISABOXES = [];
   }
 }
@@ -104,6 +106,7 @@ else {
               min: minR && minR.value, date: dateSel && dateSel.value,
               loc: locInp && locInp.value, visatags: visaSel && visaSel.value,
               hideagency: hideAgency && hideAgency.checked,
+              verifiedonly: verifiedOnly && verifiedOnly.checked,
               showclosed: showClosed && showClosed.checked };
   out.visaboxes = VISABOXES.map(function (b) { return b.checked; });
 }
@@ -133,7 +136,8 @@ def run(page, action, set_vals=None, store=None):
 print("saving from the feed")
 got = run("feed", "save", {"min": "45", "date": "7", "loc": "Boston", "hideagency": True,
                            "visatags": "h1b,stem_opt", "sort": "sponsor", "tab": "liked",
-                           "q": "analyst"})["stored"]
+                           "q": "analyst", "verifiedonly": True})["stored"]
+check("verified-date filter captured", got.get("verifiedonly") is True)
 check("every control captured", got.get("min") == "45" and got.get("date") == "7"
       and got.get("loc") == "Boston" and got.get("sort") == "sponsor")
 check("checkboxes captured as booleans", got.get("hideagency") is True)
@@ -147,6 +151,7 @@ check("min restored", got["dom"]["min"] == "45")
 check("sort restored", got["dom"]["sort"] == "sponsor")
 check("location restored", got["dom"]["loc"] == "Boston")
 check("checkbox restored", got["dom"]["hideagency"] is True)
+check("verified-date filter restored", got["dom"]["verifiedonly"] is True)
 check("visa hidden input restored", got["dom"]["visatags"] == "h1b,stem_opt")
 check("the five visa checkboxes re-ticked to match",
       got["visaboxes"] == [True, False, True, False, False], str(got["visaboxes"]))
