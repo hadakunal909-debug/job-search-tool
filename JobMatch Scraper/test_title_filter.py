@@ -69,6 +69,34 @@ def test_on_target_titles_still_pass():
         assert verdict(t) == "keep", t
 
 
+def test_zero_value_early_career_markers_are_gone():
+    # Measured 2026-08-09: five markers admitted 1,015 rows between them and NOT ONE cleared the
+    # 45% floor. 'trainee' alone (425 rows) was the source of the retail-management noise -- the
+    # "Store Manager Trainee" postings at Safeway / Sephora / Town Pump all entered through it.
+    for t in ("Store Manager Trainee", "Management Trainee", "Entry Level Dental Assistant",
+              "Entry-Level Technician", "Driver Apprentice", "Graduate Nurse"):
+        assert verdict(t) != "keep", t
+
+
+def test_internship_markers_are_KEPT():
+    # These look weak on the same metric (661/188/59 rows, only 4/3/1 clearing) and must NOT be
+    # removed for that reason: they feed the feed's "Internships & co-ops only" filter, internships
+    # are OPT/STEM-OPT eligible, and an internship scoring low against a senior PM résumé is
+    # expected rather than proof it is junk.
+    for t in ("Software Engineer Intern", "Product Management Internship",
+              "Co-op - Project Management", "Early Career Program Manager"):
+        assert verdict(t) == "keep", t
+
+
+def test_pharma_project_roles_are_kept():
+    # Clinical/pharma titles are NOT filtered out: they match on the project/programme words and
+    # are real project management at large H-1B sponsors (Abbott, Amgen). Whether the user wants
+    # that industry is a feed-filter preference, not a title-filter defect.
+    for t in ("Senior Project Manager Clinical Research", "Associate Clinical Project Manager",
+              "Clinical Project Coordinator"):
+        assert verdict(t) == "keep", t
+
+
 def test_known_retail_floor_titles_still_blocked():
     for t in ("Sales Associate", "Retail Associate", "Store Associate", "Cashier"):
         assert verdict(t) == "drop-exclude", t
