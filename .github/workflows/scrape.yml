@@ -147,6 +147,48 @@ jobs:
           # timeout-minutes together, and check the job still fits in 45 overall.
           SCRAPE_WORKERS: "16"
           SCRAPE_BUDGET_MIN: "22"
+          # JOBSPY — the market-side sweep. Every other source here is employer-side: a job is
+          # only visible if its company is already in SOURCES. This queries Indeed by role
+          # phrase, so it surfaces employers we have never heard of.
+          #
+          # MEASURED before enabling (scripts/jobspy_shadow.py, from a home IP, 2026-08-09):
+          # 124 rows over 5 phrases at 25 results each, in 8.1s. 81% arrived carrying the
+          # EMPLOYER's own direct link rather than an indeed.com URL, which is what lets them
+          # merge with the direct scrapers for free instead of becoming a second row. 50.8% were
+          # net-new after the full filter chain, and 0 were provable false merges. 90 of the 101
+          # direct-link rows were on hosts we do not scrape at all — recruitics, jobvite, apploi,
+          # rippling, isolvedhire, Boeing, Abbott — which is the gap this is here to close.
+          #
+          # INDEED ONLY, deliberately. It is the one site JobSpy itself calls reliable, the one
+          # that populates job_url_direct without an extra request per job, and it is unaffected
+          # by upstream issue #302 (Google returns 0 rows, ZipRecruiter 403s). Widen one site at
+          # a time, and read the net-new ratio from the shadow report each time before doing so.
+          #
+          # MIDDAY RUN ONLY. Same ternary as SCORE_MAX_FETCH below: on the afternoon pass this
+          # resolves to "", which leaves JOBSPY_BOARDS empty, keeps every jobspy entry out of
+          # SOURCES, and never imports the library. One aggregator sweep a day is plenty when
+          # hours_old is 72.
+          #
+          # ROLLBACK is deleting this one line. The rows it already stored come out with
+          # `python scripts/prune_by_host.py --host indeed.com --apply`.
+          #
+          # NOT SET, on purpose: JOBSPY_FINGERPRINT_ENFORCE. The posting-fingerprint check that
+          # catches an aggregator relisting a job we already hold runs in LOG-ONLY mode until a
+          # real run has been compared against the shadow report's prediction — main() prints
+          # what it would have suppressed, broken down by host, and stores the row anyway. Read
+          # that breakdown before switching it on: the check keys off "is this an aggregator
+          # row", not "did jobspy fetch it", so enforcing it also starts dropping Adzuna
+          # relists, which is a wider blast radius than this feature.
+          JOBSPY_SITES: ${{ steps.gate.outputs.heavy == 'yes' && 'indeed' || '' }}
+          # 100 rather than the ~1000 the endpoint allows. Two identical consecutive Adzuna calls
+          # overlapped on only 6 of 50 URLs, so the top of a date-sorted aggregator feed turns
+          # over almost completely between runs: depth buys much less than breadth, while every
+          # extra page is another request against a site that can decide to stop answering.
+          JOBSPY_RESULTS: "100"
+          # 72h rather than 24h, so a skipped or failed run does not lose that day's postings
+          # permanently — the same reasoning as ADZUNA_MAX_DAYS_SEARCH=7. Re-seeing a posting is
+          # free, because the url key drops it.
+          JOBSPY_HOURS_OLD: "72"
         run: python -m scraper
 
       # Split into three steps, from one. They used to be three `python -m` lines in a
