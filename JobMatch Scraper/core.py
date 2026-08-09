@@ -1318,6 +1318,31 @@ def is_aggregator_url(url):
     return any(h in host for h in AGGREGATOR_HOSTS)
 
 
+_BARE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def is_trusted_date(found_date, posted_verified=""):
+    """Did anyone actually STATE this posting's date, or did we guess it?
+
+    True when the lookup service confirmed it, or when found_date is a bare ISO date — the
+    shape a publisher field lands in (Greenhouse first_published, Adzuna created, Lever
+    createdAt, Amazon posted_date, Workday's CXS startDate).
+
+    False for "YYYY-MM-DD HH:MM", which is this codebase's marker for a DERIVED value: either
+    the scrape stamp or _workday_date() reading "Posted 30+ Days Ago" off a list view, where
+    "30+" is a ceiling clamped to MAX_AGE_DAYS+1 rather than a measurement. Also false for a
+    blank date, where the row is only aged by when WE first saw it.
+
+    Deliberately broader than `date_verified`, which means the lookup service specifically and
+    covers ~10% of the corpus — a filter on that alone would hide nearly everything. This is
+    the honest reading of "show me jobs with a real posting date", and the same string-shape
+    contract verify_dates._is_clean_api_date() uses to decide what to queue.
+    """
+    if posted_verified:
+        return True
+    return bool(_BARE_ISO_RE.match((found_date or "").strip()))
+
+
 def sponsor_rank(row):
     """Ordering for sort=sponsor, LOWEST FIRST — "show me the jobs I can actually take".
 
@@ -1393,6 +1418,11 @@ DEFAULT_PREFS = {
     "everify": False,
     "visatags": "",       # csv subset of VISA_TAGS, e.g. "h1b,green_card"; "" = no filter
     "hidenospon": False,
+    # Only postings whose date somebody STATED — see is_trusted_date. FEED ONLY: prefs_match
+    # deliberately ignores it, for the same reason it ignores `date`. Every digest candidate is
+    # a job we just discovered and therefore not yet verified, so applying this to the email
+    # would silently empty it.
+    "verifiedonly": False,
     "exp": "any",         # any | 2 | 5 | senior
     "intern": "any",      # any | only | no
     "track": "any",       # any | dev (software/data) | mgmt (project/product/ops) — see role_track
