@@ -161,8 +161,26 @@ jobs:
           #
           # INDEED ONLY, deliberately. It is the one site JobSpy itself calls reliable, the one
           # that populates job_url_direct without an extra request per job, and it is unaffected
-          # by upstream issue #302 (Google returns 0 rows, ZipRecruiter 403s). Widen one site at
-          # a time, and read the net-new ratio from the shadow report each time before doing so.
+          # by upstream issue #302 (Google returns 0 rows, ZipRecruiter 403s).
+          #
+          # INDEED IS THE FINAL SCOPE, not step one of a rollout — decided 2026-08-09 after the
+          # sponsorship audit, and worth stating because the staged plan this shipped under said
+          # "widen one site at a time" and someone will otherwise pick that up as an instruction.
+          #
+          # The other four were evaluated and refused. Glassdoor and ZipRecruiter NEVER populate
+          # job_url_direct, so every row from them is aggregator-hosted — a second primary key for
+          # a job we may already hold, ranked last by web._dupe_rank and refused outright by the
+          # autoapply queue. LinkedIn needs linkedin_fetch_description=True to yield a direct URL,
+          # which is one extra HTTP request per job and, per JobSpy's own docs, needs proxies to
+          # survive from a datacenter IP. Google is the one genuinely worth revisiting: its
+          # job_url IS the employer's original link, so it is Class A by construction — gated only
+          # on #302 being fixed.
+          #
+          # The deciding measurement was sponsorship, not volume. JobSpy rows sit below the corpus
+          # baseline on every measure that matters here (net H-1B viable 49% vs 67%, STEM OPT 3%
+          # vs 11%, no federal record 41% vs 10%), because a keyword sweep returns the long tail
+          # of small US employers and that is the population that never sponsors. Widening adds
+          # more of exactly that. Re-run scripts/jobspy_shadow.py before revisiting.
           #
           # MIDDAY RUN ONLY. Same ternary as SCORE_MAX_FETCH below: on the afternoon pass this
           # resolves to "", which leaves JOBSPY_BOARDS empty, keeps every jobspy entry out of
