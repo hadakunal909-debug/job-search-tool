@@ -57,6 +57,21 @@ ATS_BOARDS = [
     # The trailing number is roughly how many it had then; it changes daily.
     # All are well-known H1B sponsors. Prune any company you're not interested in.
     # ---- Greenhouse ----
+    # SPECULATIVE — currently yields NOTHING, unlike every other entry here.
+    #
+    # The best of probe_everify_xlsx's 2026-08-09 sweep: of 26k E-Verify employers, 537 cleared
+    # the >=500-staff bar, 8 had a scrapeable board, and this was the only one both filing LCAs
+    # (242 USCIS approvals; h1b + green_card + stem_opt) and free of a retail flood — Dollar
+    # General's board is 88,948 postings.
+    #
+    # But measured the day it was added: 55 postings, 24 pass the title filter, ZERO US-located.
+    # The board is Germany/Singapore/UK/Vietnam; only 5 USA roles exist and none match (two
+    # Client Partners, Business Development, Field Marketing, and a "Consultant Developer" the
+    # filter has no phrase for). That misses the >=3-US-matches bar stated at the top of this
+    # list, so it is kept on the employer's merits rather than on measured yield: a real sponsor
+    # with US operations whose board may carry matching roles later, at ~0.5s a run to find out.
+    # Drop it if a later sweep still shows zero.
+    ("https://job-boards.greenhouse.io/thoughtworks", "greenhouse", "ThoughtWorks"),  # 0 US
     ("https://job-boards.greenhouse.io/samsara",     "greenhouse", "Samsara"),      # ~29
     ("https://job-boards.greenhouse.io/stripe",      "greenhouse", "Stripe"),       # ~20
     ("https://job-boards.greenhouse.io/verkada",     "greenhouse", "Verkada"),      # ~17
