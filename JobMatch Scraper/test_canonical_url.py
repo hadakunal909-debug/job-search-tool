@@ -94,6 +94,71 @@ def test_adzuna_se_rule_is_host_scoped():
     assert "se=KEEPME" in cu("https://boards.greenhouse.io/acme/jobs/123?gh_jid=123&se=KEEPME")
 
 
+# --- Indeed: the one host with an ALLOW-list, because its session tail keeps growing ---
+def test_indeed_session_tail_dropped_so_one_ad_is_one_row():
+    # The same posting arrives with a different referral tail depending on where it was found.
+    # Only jk names the posting.
+    a = cu("https://www.indeed.com/viewjob?jk=abc123&from=serp&tk=1h9qk&vjs=3")
+    b = cu("https://www.indeed.com/viewjob?jk=abc123&from=rss&advn=99&acatk=xyz&xpse=q")
+    assert a == b == "https://www.indeed.com/viewjob?jk=abc123", (a, b)
+
+
+# --- MUST NOT MERGE: jk is the posting id, the same way gh_jid is on a company board ---
+def test_indeed_two_jk_values_stay_two_rows():
+    a = cu("https://www.indeed.com/viewjob?jk=1111111111111111")
+    b = cu("https://www.indeed.com/viewjob?jk=2222222222222222")
+    assert a != b, "the allow-list must keep jk — dropping it merges every Indeed posting"
+
+
+def test_indeed_vjk_is_the_id_when_jk_is_absent():
+    # On a search-results page the highlighted posting is named by vjk, not jk.
+    got = cu("https://www.indeed.com/jobs?q=project+manager&vjk=deadbeef&from=web")
+    assert got == "https://www.indeed.com/jobs?vjk=deadbeef", got
+    # ...but when both are present, jk is the posting and vjk is just what was highlighted.
+    both = cu("https://www.indeed.com/viewjob?jk=real&vjk=other")
+    assert both == "https://www.indeed.com/viewjob?jk=real", both
+
+
+def test_indeed_allowlist_only_fires_when_an_id_param_is_present():
+    # A company listing page or a saved search carries no jk/vjk. Stripping its whole query
+    # would merge unrelated URLs, so the rule stands down and the ordinary deny-list applies.
+    raw = "https://www.indeed.com/cmp/Acme/jobs?q=project+manager"
+    assert cu(raw) == raw
+    assert "utm_source" not in cu(raw + "&utm_source=email")
+
+
+def test_indeed_allowlist_is_host_scoped():
+    # `from` and `tk` are ordinary params on any other board — only Indeed treats them as noise.
+    assert cu("https://jobs.example.com/viewjob?jk=abc&from=serp") == \
+        "https://jobs.example.com/viewjob?jk=abc&from=serp"
+
+
+# --- LinkedIn -------------------------------------------------------------------------
+def test_linkedin_tracking_dropped():
+    got = cu("https://www.linkedin.com/jobs/view/4012345678"
+             "?refId=abc&trackingId=xyz%3D&position=3&pageNum=0&trk=public_jobs")
+    assert got == "https://www.linkedin.com/jobs/view/4012345678", got
+
+
+# --- MUST NOT MERGE: currentJobId is the posting on a /jobs/search/ URL ----------------
+def test_linkedin_currentjobid_is_load_bearing():
+    a = cu("https://www.linkedin.com/jobs/search/?currentJobId=4011111111&refId=a")
+    b = cu("https://www.linkedin.com/jobs/search/?currentJobId=4022222222&refId=b")
+    assert a != b, "dropping currentJobId merges every LinkedIn search-page posting into one"
+    assert "currentJobId=4011111111" in a and "refId" not in a
+
+
+# --- the payoff: an aggregator's direct link lands on the row we already have ----------
+def test_jobspy_direct_url_merges_with_the_direct_scraper():
+    # JobSpy hands back job_url_direct — the employer's own ATS link, usually tagged with the
+    # aggregator as the referral source. Canonicalized it must equal what scrape_greenhouse
+    # produced for the same posting, or the url-keyed table holds the job twice.
+    from_aggregator = cu("https://boards.greenhouse.io/acme/jobs/123"
+                         "?gh_jid=123&utm_source=indeed&gh_src=abc")
+    from_direct_scraper = cu("https://job-boards.greenhouse.io/acme/jobs/123")
+    assert from_aggregator == from_direct_scraper, (from_aggregator, from_direct_scraper)
+
+
 def test_query_untouched_when_nothing_is_dropped():
     # No param removed -> the query string is passed through verbatim, so re-encoding
     # can never rewrite a URL we meant to leave alone.
@@ -117,7 +182,11 @@ def test_idempotent():
               "https://stripe.com/jobs/search?gh_jid=7061338",
               "https://www1.jobdiva.com/portal/?a=tok#/jobs/1",
               "https://jobs.sap.com/job/x/1/",
-              "https://ex.com/job?id=42&utm_source=li"):
+              "https://ex.com/job?id=42&utm_source=li",
+              "https://www.indeed.com/viewjob?jk=abc123&from=serp&tk=1h9qk",
+              "https://www.indeed.com/jobs?q=pm&vjk=deadbeef",
+              "https://www.linkedin.com/jobs/view/4012345678?refId=abc&position=3",
+              "https://www.linkedin.com/jobs/search/?currentJobId=401&trk=x"):
         assert cu(cu(u)) == cu(u), u
 
 

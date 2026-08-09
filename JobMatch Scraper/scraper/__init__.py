@@ -2019,6 +2019,32 @@ _GH_HOSTS = frozenset(("boards.greenhouse.io", "job-boards.greenhouse.io"))
 _ADZUNA_HOSTS = frozenset(("adzuna.com", "www.adzuna.com"))
 _ADZUNA_VOLATILE_PARAMS = frozenset(("se",))
 
+# Indeed is the one host where we ALLOW-list rather than deny-list, and that inversion needs
+# justifying because everywhere else in this file the rule is "drop only what provably cannot
+# identify a posting".
+#
+# An Indeed posting URL carries exactly ONE identifying param — jk (or vjk on a search-results
+# page). Everything else is session/presentation state, and the set of those changes without
+# notice: from, tk, vjs, advn, adid, sjdu, xkcb, xpse, acatk, pub, rgtk, hidesmb, jsa, alid, mo
+# have all been observed. A deny-list has to be edited every time Indeed adds one, and the cost
+# of missing one is the Adzuna `se=` incident above — 1,293 surplus rows off a single param.
+#
+# The blast radius is bounded two ways: the rule is host-scoped, and it only fires when the URL
+# actually carries jk or vjk. An indeed.com URL with neither (a company listing page, a saved
+# search) is not a posting, so it falls through to the ordinary tracking deny-list untouched
+# rather than having its whole query stripped.
+_INDEED_ID_PARAMS = ("jk", "vjk")
+
+# LinkedIn's own params. currentJobId is deliberately KEPT: on /jobs/search/?currentJobId=<id>
+# it is the only thing naming the posting, exactly as gh_jid is on a company-hosted Greenhouse
+# board. The rest say where a click came from.
+#
+# These rules earn their place even though LinkedIn is not a scrape source: the browser
+# extension imports LinkedIn URLs into the corpus, which is why web._AGGREGATOR_HOSTS lists it.
+_LINKEDIN_DROP_PARAMS = frozenset((
+    "refid", "trackingid", "trk", "position", "pagenum", "ebp", "originalsubdomain",
+))
+
 
 def canonical_url(url):
     """One posting -> one URL string, so the url-keyed `jobs` table can't hold it twice.
@@ -2048,6 +2074,8 @@ def canonical_url(url):
         if not host or ":" in host:
             return url                       # no host, or an IPv6 literal — urlsplit drops
                                              # the [brackets] and we'd rebuild it malformed
+        hostname = host                      # port-free, and stable across the host rewrite
+                                             # below — the suffix rules match on this
         if s.port:
             host = "%s:%d" % (host, s.port)
         path, query = s.path, s.query
@@ -2061,6 +2089,16 @@ def canonical_url(url):
         if host in _ADZUNA_HOSTS:
             keep = [(k, v) for k, v in keep
                     if k.lower() not in _ADZUNA_VOLATILE_PARAMS]
+        if hostname == "indeed.com" or hostname.endswith(".indeed.com"):
+            # jk wins outright; vjk only names the posting when there is no jk. Nothing else
+            # on this host identifies anything — see _INDEED_ID_PARAMS.
+            present = {k.lower() for k, _ in keep} & set(_INDEED_ID_PARAMS)
+            if present:
+                wanted = "jk" if "jk" in present else "vjk"
+                keep = [(k, v) for k, v in keep if k.lower() == wanted]
+        if hostname == "linkedin.com" or hostname.endswith(".linkedin.com"):
+            keep = [(k, v) for k, v in keep
+                    if k.lower() not in _LINKEDIN_DROP_PARAMS]
         keep = [(k, v) for k, v in keep if k.lower() not in _TRACKING_PARAMS]
         if len(keep) != len(pairs):
             query = urlencode(keep)
