@@ -533,7 +533,7 @@ def _norm_cmp(key, val):
         return None
     if key == "remote":
         return str(val).strip().lower() in ("1", "true", "t", "yes")
-    if key in ("salary_min", "salary_max"):
+    if key in ("salary_min", "salary_max", "exp_max_years"):
         try:
             return int(val)
         except (TypeError, ValueError):
@@ -541,16 +541,23 @@ def _norm_cmp(key, val):
     return str(val)
 
 
-def _persist_derived(row_loc, row_jd, current_rows=None):
-    """Derive each job's state/metro/remote flag and pay range, and write them to the jobs
-    table. Only rows whose values actually CHANGED are sent, so the daily run costs one small
-    upsert instead of re-writing the whole corpus.
+def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
+    """Derive each job's state/metro/remote flag, pay range and JD signals, and write them to
+    the jobs table. Only rows whose values actually CHANGED are sent, so the daily run costs
+    one small upsert instead of re-writing the whole corpus.
 
     `current_rows` is the caller's already-loaded corpus, used purely to diff against. Pass
     it: this used to re-fetch every row INCLUDING the `jd` column, which is ~20 MB over the
     wire and made the scoring pass load the whole corpus twice for no benefit. The columns
-    being compared here (loc_state/loc_metro/remote/salary_*) are not written by anything
-    earlier in the run, so rows read at the start are still current at this point.
+    being compared here are not written by anything earlier in the run, so rows read at the
+    start are still current at this point. Whatever set is diffed MUST also be in the caller's
+    `cols=` select (db.COLS_SCORE) — a column missing from `have` reads as None forever and
+    marks every row changed on every run.
+
+    `jdmeta` is the {url: core.job_meta} map the scoring loop already built. Reusing it saves
+    re-running the sponsorship scan over ~16k descriptions, and — more importantly — means the
+    exp/sponsor COLUMNS and jdmeta.json come from one core.job_meta call and are structurally
+    incapable of disagreeing.
 
     Never raises: the columns don't exist until someone runs db.JOBS_DERIVED_SQL once, and a
     missing column must not throw away a completed scoring pass.
@@ -563,7 +570,8 @@ def _persist_derived(row_loc, row_jd, current_rows=None):
         print("  (derived fields skipped, could not reload jobs: %s)" % str(e)[:90])
         return
 
-    payload, stats = [], {"state": 0, "remote": 0, "salary": 0}
+    payload, jd_payload = [], []
+    stats = {"state": 0, "remote": 0, "salary": 0, "exp": 0, "spon": 0, "terms": 0}
     for u, loc in row_loc.items():
         p = core.parse_location(loc, row_jd.get(u) or "")
         s = core.parse_salary(row_jd.get(u) or "")
@@ -582,16 +590,60 @@ def _persist_derived(row_loc, row_jd, current_rows=None):
         if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want.items()):
             payload.append(dict(want, url=u))
 
+        # JD-derived, and ONLY for rows we actually hold the description for. A row whose JD
+        # we couldn't read this run must keep whatever an earlier run derived — writing an
+        # empty verdict over a real one is worse than writing nothing.
+        m = (jdmeta or {}).get(u)
+        if m is None:
+            jd = row_jd.get(u) or ""
+            if not jd:
+                continue
+            # The SAME idf the scoring loop used. Analyzing with idf=None would silently give
+            # every term weight 1.0, so this row's score would not be comparable with any other.
+            m = core.job_meta(jd, idf)
+        exp_y, (sv, sreason) = m.get("exp_years"), (m.get("sponsor_jd") or ("", ""))
+        # The keyword weights the FEED scores every résumé against — see core.pack_analyzed.
+        terms = core.pack_analyzed(m.get("analyzed") or {})
+        want_jd = {"exp_max_years": exp_y, "sponsor_jd": sv, "sponsor_reason": sreason,
+                   "jd_terms": terms or None}
+        if exp_y is not None:
+            stats["exp"] += 1
+        if sv:
+            stats["spon"] += 1
+        if terms:
+            stats["terms"] += 1
+        # NOTE on the diff: jd_terms is deliberately NOT in db.COLS_SCORE, so in new-only mode
+        # `have` never carries it and every row here writes. That is correct rather than
+        # wasteful — new-only narrows row_loc to `todo` (a few hundred rows it just analyzed),
+        # and putting an 11 MB column into that read to save writing them would cost far more
+        # than it saves. The daily FULL pass reads select=* and diffs it properly, so the
+        # steady state is still ~0 writes.
+        if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want_jd.items()):
+            jd_payload.append(dict(want_jd, url=u))
+
+    # TWO writes, not one combined payload. db._upsert normalizes each chunk to the UNION of
+    # its rows' keys and fills the gaps with None, so a row that skipped the JD block above
+    # would be sent with an explicit exp_max_years: null and ERASE a value an earlier run
+    # derived. Separate calls mean separate key unions.
+    _send_derived(payload, "Derived fields",
+                  "%d state, %d remote, %d with pay"
+                  % (stats["state"], stats["remote"], stats["salary"]))
+    _send_derived(jd_payload, "JD fields",
+                  "%d with an experience floor, %d with a sponsorship verdict, %d scoreable"
+                  % (stats["exp"], stats["spon"], stats["terms"]))
+
+
+def _send_derived(payload, label, summary):
+    """One diffed payload -> the jobs table, or a self-serve migration hint if the columns
+    aren't there yet. Split out so the location/pay and JD groups can be written separately."""
     if not payload:
-        print("Derived fields already current (%d state, %d remote, %d with pay)."
-              % (stats["state"], stats["remote"], stats["salary"]))
+        print("%s already current (%s)." % (label, summary))
         return
     try:
         db.update_job_fields(payload)
-        print("Derived fields: updated %d job(s) — %d state, %d remote, %d with pay."
-              % (len(payload), stats["state"], stats["remote"], stats["salary"]))
+        print("%s: updated %d job(s) — %s." % (label, len(payload), summary))
     except Exception as e:
-        print("  (derived-field write failed: %s)" % str(e)[:160])
+        print("  (%s write failed: %s)" % (label.lower(), str(e)[:160]))
         print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
         print(db.JOBS_DERIVED_SQL)
 
@@ -951,13 +1003,18 @@ def main():
     if dates:                       # fill in real posting dates the list view omitted (e.g. SAP)
         db.update_job_fields([{"url": u, "found_date": d} for u, d in dates.items()])
 
-    # 6) Derived fields the FEED filters on. These live in real columns rather than jdmeta.json
-    #    because jdmeta.json is gitignored and never deployed — a column reaches the live site
-    #    through Supabase with no file deploy, the same way match_score already does.
+    # 6) Derived fields the FEED filters on — location, pay, AND the JD signals (experience
+    #    floor, sponsorship verdict). These live in real columns rather than jdmeta.json
+    #    because jdmeta.json is gitignored and never deployed: it is built HERE, on an
+    #    ephemeral GitHub Actions runner whose filesystem is discarded when the run ends, so
+    #    there is no host holding a fresh copy to ship. A column reaches the live site through
+    #    Supabase with no file deploy, the same way match_score already does. Until the JD
+    #    group moved into columns, the live feed's experience and no-sponsorship filters were
+    #    silent no-ops — every row read as "states nothing", which both filters keep.
     #    Narrowed to the same set in new-only mode: these are parsed from a row's own location
     #    and JD, so a row nobody touched this run can only re-derive to what it already holds.
     _persist_derived({u: row_loc[u] for u in todo if u in row_loc} if new_only else row_loc,
-                     row_jd, current_rows=rows)
+                     row_jd, current_rows=rows, jdmeta=jdmeta, idf=idf)
     if scores:
         vals = list(scores.values())
         where = "Supabase" if db.using_supabase() else "jobs.csv"

@@ -43,8 +43,10 @@ _COALESCE_MAX = 200          # entries kept in the dedupe map
 
 # Only these event names are ever written. An unknown name is dropped silently rather than
 # trusted — /api/ev is a browser writing into the database, so the allowlist is the boundary.
+# ("group_expand" was dropped when the feed stopped collapsing employer runs into "+N more"
+# tiles. This list gates INGEST only, so historical rows carrying that name are unaffected.)
 EVENTS = frozenset((
-    "page_view", "feed_view", "job_open", "action", "group_expand", "prefs_save",
+    "page_view", "feed_view", "job_open", "action", "prefs_save",
     "scrape_click", "login", "logout", "apply_click", "rail", "filter_panel",
     "clear_filters", "page_leave",
 ))

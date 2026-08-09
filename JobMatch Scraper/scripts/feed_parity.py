@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Filter + grouping parity between the server feed and the client feed.
+"""Filter + sort parity between the server feed and the client feed.
 
-web.py's `_filter_rows`/`_group_units` and app.js's `matches()`/`groupUnits()` are deliberate
-twins: below FEED_INLINE_MAX the browser filters the whole corpus itself, above it the server
-does, and the two paths have to agree row for row or the feed silently changes behaviour at
-4,000 jobs. Nothing but a test keeps them in step.
+web.py's `_filter_rows` and app.js's `matches()` are deliberate twins: below FEED_INLINE_MAX the
+browser filters the whole corpus itself, above it the server does, and the two paths have to
+agree row for row or the feed silently changes behaviour at 4,000 jobs. Nothing but a test keeps
+them in step.
 
 This runs both implementations over one synthetic corpus (shaped like the real one — Amazon's
 431 identical "Operations Manager" rows, Walmart's per-store pharmacy internships, an agency's
-runs, plus the awkward singletons) across a matrix of filter settings, and diffs:
+runs, plus the awkward singletons) across a matrix of filter settings, and diffs which rows
+survive, in which order.
 
-  1. which rows survive the filters      (_filter_rows  vs matches)
-  2. the display units grouping produces (_group_units  vs groupUnits)
+Those employer floods are kept even though the feed no longer collapses them into "+N more"
+tiles: hundreds of rows tied on score is the best stable-sort-divergence probe in the file, and
+it is exactly the shape that broke paging before.
 
 The JS side runs in node. app.js is a DOM-bound IIFE, so rather than restructure it into modules
 this extracts the pure functions by source text and evaluates them against stub controls — the
@@ -39,10 +41,10 @@ import web                                             # noqa: E402  (needs ROOT
 
 APP_JS = os.path.join(ROOT, "static", "app.js")
 
-# The pure predicate/grouping functions app.js and web.py mirror. Order matters only for
-# readability — node hoists function declarations.
-JS_FUNCS = ["groupKey", "pickLeaders", "groupUnits", "flatUnits", "groupingOn",
-            "locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches"]
+# The pure predicate functions app.js and web.py mirror. Order matters only for readability —
+# node hoists function declarations. Lifted from app.js BY SOURCE TEXT, so a name that no longer
+# exists there is a hard SystemExit from js_function(), not a silent skip.
+JS_FUNCS = ["locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches"]
 
 # _row() must emit exactly these. A field that _build_row produces but _row() forgets makes
 # the parity run pass VACUOUSLY — the server sees None, JS sees undefined, both filter the
@@ -118,7 +120,12 @@ def _row(rng, n, title, company, state, **over):
 
 
 def build_corpus():
-    """Synthetic but shaped like the live corpus, including the runs that motivated grouping."""
+    """Synthetic but shaped like the live corpus, employer floods and all.
+
+    The floods are the point even now that the feed draws every posting its own card: hundreds
+    of rows tied on score are the sharpest test of whether the two sorts stay stable together,
+    and they are the shape that makes a paging off-by-one visible.
+    """
     rng = random.Random(20260729)              # fixed: the whole point is a reproducible diff
     rows, n = [], 0
 
@@ -139,18 +146,17 @@ def build_corpus():
     for i in range(35):
         add("Environmental Project Manager", "Actalent", "NY", agency=True)
 
-    # Group sizes straddling _GROUP_MIN, so the "don't collapse a tile that hides one row"
-    # boundary is exercised from both sides.
+    # Runs of every small size, so a page boundary can land inside one.
     for size in (1, 2, 3, 4, 5):
         for i in range(size):
             add("Data Analyst %d" % size, "Boundary Co", STATES[i % len(STATES)])
 
-    # Titles that differ ONLY by punctuation/case/spacing must land in one group...
+    # Titles differing only by punctuation/case/spacing — the search filter lowercases both
+    # sides, so these must all answer to a q= of "software engineer".
     add("Software Engineer", "Normalize Inc", "CA")
     add("software  engineer", "Normalize Inc", "WA")
     add("Software-Engineer", "Normalize Inc", "NY")
     add("SOFTWARE ENGINEER!", "Normalize Inc", "MA")
-    # ...while a genuinely different level must not.
     add("Software Engineer II", "Normalize Inc", "CA")
     add("Software Engineer III", "Normalize Inc", "CA")
 
@@ -168,14 +174,14 @@ def build_corpus():
     for i in range(4):
         add("Mystery Role %d" % i, "No Dates Inc", "TX", date="", first_seen="")
 
-    # A run where every member shares one state: the leader picker must fall back to rank order.
+    # A run entirely in one state, and one with no state at all — both have to survive the
+    # location filter's two very different paths.
     for i in range(9):
         add("Store Manager", "OneState LLC", "OH")
-    # A run whose state is blank throughout ("" is a state like any other to the picker).
     for i in range(6):
         add("Field Technician", "NoState Corp", "")
 
-    # Rows that must never group: missing title or company.
+    # Missing title or company: nothing may crash on either.
     add("", "Ghost Co", "TX")
     add("Analyst", "", "TX")
     for i in range(5):
@@ -369,10 +375,10 @@ def js_json(src, name):
 
 DRIVER_PREAMBLE = """\
 // Generated by scripts/feed_parity.py — do not edit.
-// Stubs standing in for app.js's DOM controls, so the real predicate/grouping functions can run
-// under node exactly as the browser runs them.
-var GROUP_LEAD = %(group_lead)d, GROUP_MIN = %(group_min)d, HOURS_PER_YEAR = %(hours)d;
-var tab = "recommended", minVal = 0, sortBy = "score";
+// Stubs standing in for app.js's DOM controls, so the real predicate functions can run under
+// node exactly as the browser runs them.
+var HOURS_PER_YEAR = %(hours)d;
+var tab = "recommended", minVal = 0, sortBy = "score", COMPANY = "";
 function ctl(v) { return { value: v }; }
 function chk(v) { return { checked: !!v }; }
 var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any"),
@@ -412,12 +418,7 @@ IN.cases.forEach(function (cs) {
     if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
     return (b.score || 0) - (a.score || 0);
   });
-  var units = groupingOn() ? groupUnits(matched) : flatUnits(matched);
-  out.push({
-    name: cs.name,
-    urls: matched.map(function (j) { return j.url; }),
-    units: units.map(function (u) { return [u.row.url, u.more || 0, u.key || ""]; })
-  });
+  out.push({ name: cs.name, urls: matched.map(function (j) { return j.url; }) });
 });
 process.stdout.write(JSON.stringify(out));
 """
@@ -440,8 +441,7 @@ def run_js(rows, cases, cuts, scratch):
     if js_labels != dict(web.core.VISA_TAG_LABELS):
         raise SystemExit("feed_parity: VISA_LABELS differs between app.js and core.py:\n  js=%r\n  py=%r"
                          % (js_labels, dict(web.core.VISA_TAG_LABELS)))
-    driver = DRIVER_PREAMBLE % {"group_lead": web._GROUP_LEAD, "group_min": web._GROUP_MIN,
-                                "hours": hours, "visa_tags": json.dumps(js_tags)}
+    driver = DRIVER_PREAMBLE % {"hours": hours, "visa_tags": json.dumps(js_tags)}
     for fn in JS_FUNCS:
         driver += "\n" + js_function(src, fn) + "\n"
     driver += DRIVER_MAIN
@@ -510,78 +510,14 @@ def check_not_vacuous(rows, statuses, cases):
     return fails
 
 
-# ----------------------------- invariants -----------------------------
-def check_invariants(rows, statuses, cases):
-    """Properties grouping must hold regardless of what the client does.
-
-    The first is the one the feed header depends on: every matching job is either drawn as a card
-    or counted by a tile, so "N of M jobs" keeps meaning jobs even though fewer cards are drawn.
-    """
-    fails = 0
-    for name, params in cases:
-        matched = web._filter_rows(rows, statuses, params)
-        if not web._grouping_on(params):
-            continue
-        units = web._group_units(matched)
-        note = "invariant %-30s" % name
-
-        # 1. Nothing lost, nothing double-counted: cards drawn + rows the tiles stand for
-        #    equals the jobs that matched.
-        drawn, hidden = len(units), sum(more for _, _, more, _ in units)
-        if drawn + hidden != len(matched):
-            print("FAIL %s cards %d + hidden %d != %d matched" % (note, drawn, hidden, len(matched)))
-            fails += 1
-
-        # 2. No row is rendered twice.
-        seen = [r["url"] for r, _, _, _ in units]
-        if len(set(seen)) != len(seen):
-            print("FAIL %s a row is rendered more than once" % note)
-            fails += 1
-
-        # 3. A tile exists iff its group was big enough, and it accounts for its whole group.
-        by_key = {}
-        for pr in matched:
-            k = web._group_key(pr[0])
-            if k:
-                by_key.setdefault(k, []).append(pr)
-        tiles = {gk: more for _, _, more, gk in units if gk}
-        for k, members in by_key.items():
-            want_tile = len(members) >= web._GROUP_MIN
-            if want_tile != (k in tiles):
-                print("FAIL %s group %r size %d: tile=%s expected=%s"
-                      % (note, k, len(members), k in tiles, want_tile))
-                fails += 1
-                continue
-            if not want_tile:
-                continue
-            leaders = web._pick_leaders(members, web._GROUP_LEAD)
-            lead_urls = {m[0]["url"] for m in leaders}
-            rest = [p for p in members if p[0]["url"] not in lead_urls]
-            if len(lead_urls) != len(leaders):
-                print("FAIL %s group %r picked the same leader twice" % (note, k))
-                fails += 1
-            if tiles[k] != len(rest):
-                print("FAIL %s group %r tile says %d, expansion has %d"
-                      % (note, k, tiles[k], len(rest)))
-                fails += 1
-            # 4. Leaders should come from different states whenever the group offers them.
-            states = {(m[0].get("loc_state") or "").upper() for m in members}
-            lstates = [(m[0].get("loc_state") or "").upper() for m in leaders]
-            if len(states) >= len(leaders) and len(set(lstates)) != len(leaders):
-                print("FAIL %s group %r has %d states but leaders are %r"
-                      % (note, k, len(states), lstates))
-                fails += 1
-    print("invariants: %s" % ("all hold" if not fails else "%d violation(s)" % fails))
-    return fails
-
-
 # ----------------------------- the real routes -----------------------------
 def check_routes(rows, statuses, cases):
-    """Drive /api/feed and /api/group through Flask, with the DB-backed providers stubbed.
+    """Drive /api/feed through Flask, with the DB-backed providers stubbed.
 
-    Paging is where grouping could quietly break: /api/feed now pages over display units while
-    still reporting a job count, and /api/group has to hand back exactly the rows a tile stands
-    for. Walking every page and reassembling them is the only way to see that end to end.
+    Paging is where the feed could quietly break, so this walks every page and reassembles them
+    rather than trusting one. It also covers /api/feed's `company` narrowing, which the row diff
+    above deliberately cannot see: that clause is server-only (it runs before _filter_rows, so
+    matches() has no twin to compare against), which means nothing else in this file tests it.
     """
     orig = (web.ranked_rows, web.user_statuses, web.current_profile, web._accounts)
     web.ranked_rows = lambda u, r: rows
@@ -600,12 +536,10 @@ def check_routes(rows, statuses, cases):
             s["user"] = "parity"
         for name, params in cases:
             matched = web._filter_rows(rows, statuses, params)
-            expect = web._group_units(matched) if web._grouping_on(params) \
-                else [(r, st, 0, "") for r, st in matched]
             qs = "&".join(["%s=%s" % (k, v) for k, v in params.items() if v != ""])
             note = "route     %-30s" % name
 
-            # Walk /api/feed page by page and rebuild the whole unit list.
+            # Walk /api/feed page by page and rebuild the whole list.
             got, offset, guard = [], 0, 0
             while True:
                 guard += 1
@@ -619,59 +553,44 @@ def check_routes(rows, statuses, cases):
                     fails += 1
                     break
                 d = res.get_json()
-                got.extend((r["url"], r.get("group_more") or 0, r.get("group_key") or "")
-                           for r in d["rows"])
+                got.extend(r["url"] for r in d["rows"])
                 if d["total"] != len(matched):
                     print("FAIL %s total %d is not the matching JOB count %d"
                           % (note, d["total"], len(matched)))
                     fails += 1
-                if d["units"] != len(expect):
-                    print("FAIL %s units %d != %d" % (note, d["units"], len(expect)))
-                    fails += 1
                 if not d["has_more"]:
                     break
                 offset += 25
-            want = [(r["url"], more, gk) for r, _, more, gk in expect]
+            want = [r["url"] for r, _ in matched]
             if got != want:
-                print("FAIL %s reassembled pages differ (%d vs %d units)" % (note, len(got), len(want)))
+                print("FAIL %s reassembled pages differ (%d vs %d rows)" % (note, len(got), len(want)))
+                fails += 1
+            # Paging must never repeat a row — the property the old grouping invariants covered.
+            if len(set(got)) != len(got):
+                print("FAIL %s a row is rendered more than once across pages" % note)
                 fails += 1
 
-            # Every tile's expansion must be exactly the rows it hides — in order, once each.
-            for _, _, more, gk in expect:
-                if not gk:
-                    continue
-                rest, offset, guard = [], 0, 0
-                while True:
-                    guard += 1
-                    if guard > 400:
-                        print("FAIL %s /api/group paging did not terminate" % note)
-                        fails += 1
-                        break
-                    res = client.get("/api/group?%s&gk=%s&offset=%d&limit=25"
-                                     % (qs, quote(gk, safe=""), offset))
-                    if res.status_code != 200:
-                        print("FAIL %s /api/group -> HTTP %d" % (note, res.status_code))
-                        fails += 1
-                        break
-                    d = res.get_json()
-                    rest.extend(r["url"] for r in d["rows"])
-                    if d["total"] != more:
-                        print("FAIL %s /api/group total %d != tile's %d" % (note, d["total"], more))
-                        fails += 1
-                    if not d["has_more"]:
-                        break
-                    offset += 25
-                members = [p for p in web._filter_rows(rows, statuses, params)
-                           if web._group_key(p[0]) == gk]
-                leaders = {m[0]["url"] for m in web._pick_leaders(members, web._GROUP_LEAD)}
-                want_rest = [p[0]["url"] for p in members if p[0]["url"] not in leaders]
-                if rest != want_rest:
-                    print("FAIL %s expansion of %r differs (%d vs %d)"
-                          % (note, gk, len(rest), len(want_rest)))
-                    fails += 1
+        # The /company narrowing. Server-only by design (see the docstring), so assert it
+        # directly rather than adding a `company` case above, which the JS diff would fail on.
+        co = "Actalent"
+        ckey = web.db.block_key(co)
+        res = client.get("/api/feed?tab=recommended&min=0&company=%s&offset=0&limit=25"
+                         % quote(co, safe=""))
+        if res.status_code != 200:
+            print("FAIL route     company narrowing -> HTTP %d" % res.status_code)
+            fails += 1
+        else:
+            d = res.get_json()
+            stray = [r["company"] for r in d["rows"] if web.db.block_key(r["company"]) != ckey]
+            if stray:
+                print("FAIL route     /api/feed?company= leaked %r" % stray[:3])
+                fails += 1
+            elif not d["rows"]:
+                print("FAIL route     /api/feed?company=%s matched nothing (vacuous)" % co)
+                fails += 1
     finally:
         web.ranked_rows, web.user_statuses, web.current_profile, web._accounts = orig
-    print("routes:     %s" % ("/api/feed + /api/group agree with the units"
+    print("routes:     %s" % ("/api/feed pages + company narrowing agree"
                               if not fails else "%d failure(s)" % fails))
     return fails
 
@@ -682,13 +601,8 @@ def main():
     cases = build_cases()
     pairs = [(r, statuses.get(r["url"], "")) for r in rows]
 
-    print("corpus: %d rows, %d with a status, %d filter cases"
+    print("corpus: %d rows, %d with a status, %d filter cases\n"
           % (len(rows), len(statuses), len(cases)))
-    if web._GROUP_LEAD > 0:
-        print("grouping: FEED_GROUP_LEAD=%d (collapse a (title, company) run at %d+)\n"
-              % (web._GROUP_LEAD, web._GROUP_MIN))
-    else:
-        print("grouping: FEED_GROUP_LEAD=0 — grouping disabled, every row gets a card\n")
 
     cuts = {name: web._date_cutoff(p.get("date")) for name, p in cases}
     scratch = os.environ.get("TEMP") or os.environ.get("TMPDIR") or "."
@@ -698,33 +612,19 @@ def main():
     for name, params in cases:
         matched = web._filter_rows(rows, statuses, params)
         py_urls = [r["url"] for r, _ in matched]
-        if web._grouping_on(params):
-            units = web._group_units(matched)
-        else:
-            units = [(r, st, 0, "") for r, st in matched]
-        py_units = [[r["url"], more, gk] for r, _, more, gk in units]
 
         got = js.get(name)
         if got is None:
             print("FAIL %-38s client produced no result" % name)
             fails += 1
             continue
-        ok_f = py_urls == got["urls"]
-        ok_g = py_units == got["units"]
-        if ok_f and ok_g:
-            collapsed = len(py_urls) - len(py_units)
-            print("ok   %-38s %5d jobs -> %5d cards%s"
-                  % (name, len(py_urls), len(py_units),
-                     ("  (%d collapsed)" % collapsed) if collapsed else ""))
+        if py_urls == got["urls"]:
+            print("ok   %-38s %5d jobs" % (name, len(py_urls)))
             continue
         fails += 1
         print("FAIL %-38s" % name)
-        if not ok_f:
-            print("       filters: %d vs %d rows — %s"
-                  % (len(py_urls), len(got["urls"]), first_diff(py_urls, got["urls"])))
-        if not ok_g:
-            print("       grouping: %d vs %d units — %s"
-                  % (len(py_units), len(got["units"]), first_diff(py_units, got["units"])))
+        print("       filters: %d vs %d rows — %s"
+              % (len(py_urls), len(got["urls"]), first_diff(py_urls, got["urls"])))
 
     # dateCutoff() used to build its cutoff from toISOString() (UTC) while web.py's
     # _date_cutoff uses the local date, so for the hours when those two dates differ the client
@@ -740,10 +640,9 @@ def main():
               "\n         local date — the 'posted within' cutoff will disagree by a day for part"
               "\n         of each day. Format local date parts instead.")
 
-    print("\n%d/%d filter+grouping cases agree." % (len(cases) - fails, len(cases)))
+    print("\n%d/%d filter cases agree." % (len(cases) - fails, len(cases)))
     fails += 1 if date_regression else 0
     fails += check_not_vacuous(rows, statuses, cases)
-    fails += check_invariants(rows, statuses, cases)
     fails += check_routes(rows, statuses, cases)
     return 1 if fails else 0
 

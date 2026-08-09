@@ -87,6 +87,8 @@ FIELDS = ["found_date", "title", "company", "location", "url",
           "loc_state", "loc_metro", "remote",
           "salary_min", "salary_max", "salary_period",
           "last_seen", "is_active", "miss_count",
+          # --- derived from the JD, same reason: see JOBS_DERIVED_SQL below ---
+          "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms",
           # Written by the DATABASE (default + triggers), never by us — see add_jobs(). Listed
           # here so the CSV path round-trips it and dedupe_urls carries it across a URL move.
           "first_seen"]
@@ -122,7 +124,48 @@ JOBS_DERIVED_SQL = (
     "update public.jobs set first_seen = current_date where first_seen is null;\n"
     "-- Default LAST. `add column ... default current_date` as ONE statement would have rewritten\n"
     "-- every existing row with today, which is the lie this column exists to avoid.\n"
-    "alter table public.jobs alter column first_seen set default current_date;\n")
+    "alter table public.jobs alter column first_seen set default current_date;\n"
+    "\n"
+    "-- JD-derived signals the FEED filters on. Same reasoning as the location/pay block above,\n"
+    "-- and the same reason match_score is a column: jdmeta.json is gitignored, is not in the\n"
+    "-- cPanel file list, and scripts/build_deploy_zip.py excludes it. It is also NOT regenerated\n"
+    "-- on the web host -- the scraper runs on an ephemeral GitHub Actions runner whose disk is\n"
+    "-- discarded when the run ends. So live, web._jdmeta was empty, every row fell back to\n"
+    "-- _EMPTY_META, and the experience and 'hide no-sponsorship' filters were silent no-ops.\n"
+    "-- A column reaches the live site through Supabase with no file deploy.\n"
+    "--\n"
+    "-- exp_max_years is the HIGHEST year count the JD states, not the lowest: '8+ years of\n"
+    "-- engineering experience; 2 years of SQL preferred' is an 8-year job, and reading the floor\n"
+    "-- let a senior req hide behind its most junior line item. NULL means the JD states no\n"
+    "-- number at all, which the filter must KEEP.\n"
+    "alter table public.jobs add column if not exists exp_max_years integer;\n"
+    "-- '' = no signal, 'blocked' = the JD rules a visa candidate out, 'open' = it sponsors.\n"
+    "alter table public.jobs add column if not exists sponsor_jd text;\n"
+    "-- LOAD-BEARING, not display copy: core.visa_tags_for_posting substring-matches this against\n"
+    "-- core._BLOCKS_EVERYONE to decide whether a blocked posting keeps STEM-OPT or loses every\n"
+    "-- route. The user-visible wording is fixed in static/app.js; this stays machine-readable.\n"
+    "alter table public.jobs add column if not exists sponsor_reason text;\n"
+    "-- No index on any of these: the feed loads the corpus and filters it in Python, which\n"
+    "-- is also why jobs_loc_state_idx above goes unused.\n"
+    "\n"
+    "-- The JD's keyword weights (core.pack_analyzed), which is what lets the feed score a job\n"
+    "-- against ANY resume. Without it web.user_scores has nothing to score with and falls back\n"
+    "-- to match_score -- the baseline the cron computed against the repo's own resume.txt --\n"
+    "-- so EVERY signed-in user saw the owner's match percentages instead of their own.\n"
+    "-- ~600 B/row packed, ~3.8 MB gzipped across the corpus, read once per scrape.\n"
+    "--\n"
+    "-- TEXT, deliberately NOT jsonb. jsonb normalizes an object and does not preserve key\n"
+    "-- order, which would break this twice over: score_jobs diffs the stored value against the\n"
+    "-- one it just built to decide whether to write (a reordered read would re-upsert the whole\n"
+    "-- corpus on every run), and the key order IS analyze_jd's frozen term order, which breaks\n"
+    "-- ties between equal-weight terms in the panel's skill lists. Nothing ever queries inside\n"
+    "-- this column, so jsonb buys nothing to pay for that with. Postgres TOASTs it out of the\n"
+    "-- main row either way, so the columns above stay cheap to read on their own.\n"
+    "alter table public.jobs add column if not exists jd_terms text;\n"
+    "\n"
+    "-- LAST. Without this PostgREST answers from its cached schema and every column added above\n"
+    "-- reads as missing until it happens to reload.\n"
+    "notify pgrst, 'reload schema';\n")
 
 _creds_cache = None
 
@@ -361,10 +404,19 @@ _FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
                   "is_active", "last_seen", "miss_count", "first_seen",
                   # The feed never shows this one; verify_dates reads it through
                   # load_jobs() to skip URLs the dating service already gave up on.
-                  # Last in the tuple = first dropped by the fallback below, and losing
-                  # it only costs that skip (the step re-asks), so it is the safest
-                  # column to add here.
-                  "posted_confidence")
+                  # Losing it only costs that skip (the step re-asks), so it was the
+                  # safest column to add here.
+                  "posted_confidence",
+                  # JD-derived, added last on purpose: the fallback below pops from the
+                  # END, so an un-migrated database drops exactly these and keeps
+                  # posted_confidence. Put them any earlier and the fallback would give up
+                  # a column verify_dates needs before it reached the real problem.
+                  #
+                  # jd_terms is last of all, and it is the one real payload here (~600 B/row
+                  # against ~600 B for every other column combined). It is also the most
+                  # degradable: without it the feed still renders, it just falls back to the
+                  # baseline match_score instead of scoring against the viewer's own profile.
+                  "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms")
 _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
@@ -380,11 +432,16 @@ COLS_VERIFY = "url,posted_verified,posted_confidence,found_date"
 """scraper.verify_dates._candidates — reads exactly these four (verify_dates.py:132-145)."""
 
 COLS_SCORE = ("url,found_date,location,first_seen,"
-              "loc_state,loc_metro,remote,salary_min,salary_max,salary_period")
-"""scraper.score_jobs in new-only mode. The first four are read directly; the last six exist
+              "loc_state,loc_metro,remote,salary_min,salary_max,salary_period,"
+              "exp_max_years,sponsor_jd,sponsor_reason")
+"""scraper.score_jobs in new-only mode. The first four are read directly; the last NINE exist
 because the same `rows` are passed to _persist_derived(current_rows=...), which diffs against
 them to decide what to re-write (score_jobs.py:566-582). Drop those and every run would think
-every derived field had changed and re-upsert the whole corpus."""
+every derived field had changed and re-upsert the whole corpus.
+
+That applies to the three JD-derived columns exactly as it does to the six location/pay ones:
+omit them and `have.get(k)` is None on every row forever, so every row carrying any experience
+or sponsorship signal diffs as changed on every one of the ~3 runs a day, permanently."""
 
 
 def load_jobs(include_jd=True, cols=None):

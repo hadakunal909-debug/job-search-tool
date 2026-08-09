@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{# One employer's openings. Shares the card grid and the detail panel with feed.html via the two
+   partials below, so app.js's DOM contract lives in exactly one place.
+
+   Deliberately NOT feed.html behind an {% if %}: that page carries the 280px filter rail, the
+   four status tabs and the visa-deadline strip, none of which belong here, and gating five
+   regions of it would turn the file into a maze. What this page keeps is a search box and a
+   sort, because "which of these 400 roles" is the only question left once the employer is
+   fixed. Both ids (#q, #sort) are ones app.js already wires up and null-guards. #}
+{% block content %}
+<div class="feedwrap">
+  <a class="backlink" href="{{ url_for('feed') }}">← All jobs</a>
+
+  <div class="cohead">
+    <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
+      <img class="logo-img" src="https://www.google.com/s2/favicons?domain={{ info.logo_domain }}&sz=64"
+           alt="" loading="lazy"></div>
+    <div class="cohead-main">
+      <h1>{{ info.name }}</h1>
+      <div class="cosub">
+        {{ info.n }} open role{{ '' if info.n == 1 else 's' }} in your feed
+        {%- if info.states %} · {{ info.states }} state{{ '' if info.states == 1 else 's' }}{% endif %}
+        {%- if info.remote %} · {{ info.remote }} remote{% endif %}
+      </div>
+      {% if info.visa or info.cap_exempt or info.agency or info.strength == 'high' %}
+      <div class="kw cochips">
+        {% for k in info.visa %}<span class="vt vt-{{ k }}">{{ visa_labels[k] }}</span>{% endfor %}
+        {% if info.strength == 'high' %}<span class="vt vt-h1b">~{{ '{:,}'.format(info.strength_n) }} H-1B approvals FY2019-23</span>{% endif %}
+        {% if info.cap_exempt %}<span class="cx">Likely cap-exempt — no H-1B lottery</span>{% endif %}
+        {% if info.agency %}<span class="agency">Staffing agency</span>{% endif %}
+      </div>
+      {# Load-bearing, same invariant core.py documents for the rail note on the feed: without
+         the second clause a missing route reads as "this employer refused", which it isn't. #}
+      <p class="fnote">From past federal filings — a route not shown means no record, not a refusal.</p>
+      {% endif %}
+      <button type="button" id="cobtn" class="btn sm">More about this employer</button>
+    </div>
+  </div>
+
+{# ---- the "More about this employer" panel ---------------------------------------------
+   Two sources, kept visibly apart. Everything under "hires for" is derived from THIS
+   employer's own live postings, so it exists for every company; everything under the
+   research headings comes from the Resume Brain crawler and is missing until someone
+   tailors for them. Saying which is which matters more than filling the space. #}
+<div class="modal-overlay" id="comodal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cotitle">
+    <div class="modal-head">
+      <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}</div>
+      <div style="flex:1;min-width:0">
+        <h2 id="cotitle">{{ info.name }}</h2>
+        <div class="cmeta">{{ info.n }} open role{{ '' if info.n == 1 else 's' }} in your feed</div>
+      </div>
+      <button class="modal-x" id="coclose" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      {% if about.researched %}
+      <div class="sechdr">What they do</div>
+      <p class="coprose">{{ about.research.what_they_do or about.research.about }}</p>
+      {% if about.research.mission %}
+      <div class="sechdr">Mission</div>
+      <p class="coprose">{{ about.research.mission }}</p>
+      {% endif %}
+      {% endif %}
+
+      <div class="sechdr">Sponsorship history</div>
+      <div class="costats">
+        <div class="costat">
+          <b>{{ '{:,}'.format(info.strength_n) if info.strength_n else '—' }}</b>
+          <span>H-1B approvals<br>FY2019-23</span></div>
+        <div class="costat"><b>{{ about.jd_open }}</b><span>current roles that<br>offer sponsorship</span></div>
+        <div class="costat"><b>{{ about.jd_blocked }}</b><span>current roles that<br>rule it out</span></div>
+        <div class="costat"><b>{{ about.jd_silent }}</b><span>that say<br>nothing either way</span></div>
+      </div>
+      {% if info.visa %}
+      <div class="kw">
+        {% for k in info.visa %}<span class="vt vt-{{ k }}" title="{{ visa_tips[k] }}">{{ visa_labels[k] }}</span>{% endfor %}
+        {% if info.cap_exempt %}<span class="cx">Likely cap-exempt — no H-1B lottery</span>{% endif %}
+      </div>
+      {% endif %}
+      {% if about.bars %}
+      <div class="cochart" role="img"
+           aria-label="H-1B approvals by fiscal year, {{ about.hist_from }} to {{ about.hist_to }}">
+        {% for b in about.bars %}
+        <div class="cobar" title="FY{{ b.year }} — {{ '{:,}'.format(b.n) }} approval{{ '' if b.n == 1 else 's' }}">
+          <div class="cobar-fill" style="height:{{ b.pct }}%"></div>
+          <span class="cobar-y">{{ b.year % 100 }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="fnote">{{ '{:,}'.format(about.hist_total) }} approvals across
+        FY{{ about.hist_from }}–{{ about.hist_to }}, {{ '{:,}'.format(about.hist_recent) }} of them
+        in the last five. Initial plus continuing approvals from the USCIS H-1B Employer Data Hub;
+        denials are excluded, because a denial is not evidence of unwillingness to sponsor. A zero
+        year means no approvals on record, not missing data. Hover a bar for its exact count.</p>
+      {% endif %}
+      {# The three route facts come from different files with different shapes, so the panel
+         says which is which rather than letting a reader assume the chart covers all of it. #}
+      <p class="fnote">Route chips above come from DOL LCA and PERM disclosure files, which record
+        no counts and no dates — a chip means "has filed", never "how often". The three current
+        figures are read from these postings' own text and are the freshest signal here.</p>
+
+      <div class="sechdr">What they hire for</div>
+      <div class="costats">
+        <div class="costat"><b>{{ about.tracks.dev }}</b><span>software<br>&amp; data</span></div>
+        <div class="costat"><b>{{ about.tracks.mgmt }}</b><span>project<br>&amp; product</span></div>
+        <div class="costat"><b>{{ about.levels.entry }}</b><span>ask for<br>≤2 yrs</span></div>
+        <div class="costat"><b>{{ about.fresh30 }}</b><span>posted in<br>the last 30 days</span></div>
+      </div>
+      <p class="coprose small">
+        {%- if about.states %}Mostly {{ about.states | map(attribute=0) | join(', ') }}.{% endif %}
+        {% if about.remote %}{{ about.remote }} remote.{% endif %}
+        {% if about.pay_lo and about.pay_hi %}Stated pay runs
+          ${{ '{:,}'.format(about.pay_lo) }}–${{ '{:,}'.format(about.pay_hi) }}
+          across the {{ about.pay_n }} posting{{ '' if about.pay_n == 1 else 's' }} that name a range.{% endif %}
+      </p>
+
+      {% if about.skills %}
+      <div class="sechdr">Tools &amp; skills across their postings</div>
+      <div class="kw">{% for s in about.skills %}<span class="tag have">{{ s }}</span>{% endfor %}</div>
+      <p class="fnote">Ranked by how heavily this employer's own descriptions weight them.</p>
+      {% endif %}
+
+      {% if about.tech_stack %}
+      <div class="sechdr">Tech named on their site</div>
+      <div class="kw">{% for s in about.tech_stack %}<span class="tag miss">{{ s }}</span>{% endfor %}</div>
+      {% endif %}
+
+      {% if about.company_values %}
+      <div class="sechdr">Stated values</div>
+      <div class="kw">{% for s in about.company_values %}<span class="tag">{{ s }}</span>{% endfor %}</div>
+      {% endif %}
+
+      {% if about.initiatives %}
+      <div class="sechdr">Projects &amp; initiatives</div>
+      <ul class="colist">{% for s in about.initiatives %}<li>{{ s }}</li>{% endfor %}</ul>
+      {% endif %}
+
+      {% if not about.researched %}
+      <div class="sechdr">Company research</div>
+      <p class="coprose">Nothing researched for this employer yet — what they do, their mission,
+        values and initiatives come from Resume Brain, which crawls a company's own site the
+        first time you tailor a résumé for them.
+        <a href="{{ url_for('brain_home') }}">Tailor for {{ info.name }}</a> and it lands here.
+        Everything above is read from their live postings and needs no research.</p>
+      {% endif %}
+    </div>
+
+    <div class="modal-foot">
+      {% if about.research.pages %}
+      <a class="btn" href="{{ about.research.pages[0] }}" target="_blank" rel="noopener nofollow">Their site ↗</a>
+      {% endif %}
+      <span class="spacer"></span>
+      {% if about.research.fetched_at %}<span class="muted small">Researched {{ about.research.fetched_at }}</span>{% endif %}
+      <button class="btn" id="coclose2">Close</button>
+    </div>
+  </div>
+</div>
+
+  <div class="countrow">
+    <!-- " of N openings" must stay OUTSIDE #count: app.js parses the span back out as an
+         integer when a card is hidden. -->
+    <div class="count"><span id="count">{{ info.n }}</span> of {{ info.n_all }} openings</div>
+    <input id="q" class="cosearch" placeholder="Filter these roles" autocomplete="off"
+           aria-label="Filter this employer's roles">
+    <select id="sort" class="sel">
+      <option value="score">Sort: Best match</option>
+      <option value="newest">Sort: Newest</option>
+    </select>
+  </div>
+
+  {# Always paged: one /api/feed fetch on load, pinned to this employer server-side. #}
+  {% set paged = True %}
+  {% set feed_rows = [] %}
+  {% set empty_note = "No open roles at this employer right now." %}
+  {% include "_feedgrid.html" %}
+  {% include "_jobmodal.html" %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_v('app.js') }}"></script>
+{% endblock %}

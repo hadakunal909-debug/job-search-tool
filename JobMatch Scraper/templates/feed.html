@@ -6,12 +6,11 @@
     <h1>Jobs feed</h1>
     <div class="feedtools">
       <a class="btn" href="{{ url_for('reload_jobs') }}">Reload</a>
-      <form id="scrapeform" method="post" action="{{ url_for('scrape_now') }}" class="inline">
-        <button id="updatejobs" class="btn" type="submit" {{ 'disabled' if scraping else '' }}>Update jobs</button>
-      </form>
+      {# Update jobs lives on /admin ONLY. Every press starts a real GitHub Actions run out of a
+         finite monthly free-minute pool, so it is not a control to hand to everyone who signs
+         in — /scrape is @admin_required to match. #}
     </div>
   </div>
-  {% if scraping %}<div class="banner">A scrape is running — hit Reload in a few minutes for new jobs.</div>{% endif %}
   {% if not has_resume %}
   <div class="banner">Showing baseline scores. <a href="{{ url_for('brain_home') }}">Build your profile in Resume Brain</a> for personalized matches.</div>
   {% endif %}
@@ -34,10 +33,10 @@
   {% endif %}
 </div>
 
-<div id="scrapebar" class="scrapebar" style="display:none" role="status" aria-live="polite">
-  <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
-  <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
-</div>
+{# The scrape progress bar went with the button — it lives on /admin (admin.html carries its
+   own copy and its own polling JS). Leaving #scrapebar here would make app.js's sBar non-null
+   while sForm is null, and its "resume a running scrape" probe would then fire an
+   /api/scrape_status request on every feed load, for every user, for a bar nobody can start. #}
 
 {# Two columns: everything that NARROWS the list on the left, everything about VIEWING it on the
    right. Nothing else may sit directly inside .feedlayout — a stray child becomes a grid item and
@@ -194,57 +193,21 @@
     </div>
 
     <div class="countrow">
-      <!-- The count stays in JOBS. Grouping only collapses cards, so every matching job is still
-           accounted for — #grouped says how many cards those jobs are drawn as when they differ.
-           " of N jobs" must stay OUTSIDE #count: app.js parses the span back out as an integer. -->
-      <div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs<span id="grouped"></span></div>
+      <!-- " of N jobs" must stay OUTSIDE #count: app.js parses the span back out as an integer
+           (afterAction decrements it), and scripts/test_saved_search.py matches this markup. -->
+      <div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs</div>
       <select id="sort" class="sel">
         <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
         <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
       </select>
     </div>
 
-    <div id="feed" class="feedgrid" data-paged="{{ '1' if paged else '' }}" data-total="{{ total }}" data-default-total="{{ default_total }}" data-visa="{{ visa_ctx|tojson|forceescape }}" data-group-lead="{{ group_lead }}">
-      {% for _ in range(8) %}
-      <div class="skel" aria-hidden="true">
-        <div class="skel-logo"></div>
-        <div class="skel-lines"><span class="skel-bar w70"></span><span class="skel-bar w40"></span><span class="skel-bar w55"></span></div>
-        <div class="skel-chip"></div>
-      </div>
-      {% endfor %}
-    </div>
-    <script id="feeddata" type="application/json">{{ feed_rows|tojson }}</script>
-    <noscript><p style="padding:16px">This jobs feed needs JavaScript enabled to display.</p></noscript>
-    <div class="empty" id="empty" style="display:none">No jobs match. Lower <b>Match</b> or clear your search.</div>
-    <div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
+    {% set empty_note = "No jobs match. Lower Match or clear your search." %}
+    {% include "_feedgrid.html" %}
   </div>
 </div>
 
-<div class="modal-overlay" id="jobmodal">
-  <div class="modal" role="dialog" aria-modal="true">
-    <div class="modal-head">
-      <div class="logo" id="m-logo"></div>
-      <div style="flex:1;min-width:0">
-        <h2 id="m-title"></h2>
-        <div class="cmeta" id="m-meta"></div>
-      </div>
-      <div id="m-chip"></div>
-      <button class="modal-x" id="m-close" aria-label="Close">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div id="m-skills"></div>
-      <div class="sechdr">Job description</div>
-      <div class="jd" id="m-jd">Loading…</div>
-    </div>
-    <div class="modal-foot">
-      <a class="btn primary" id="m-apply" target="_blank" rel="noopener">Apply ↗</a>
-      <a class="btn" id="m-tailor">Tailor view</a>
-      <span class="spacer"></span>
-      <button class="btn" id="m-like">Save</button>
-      <button class="btn" id="m-hide">Hide</button>
-    </div>
-  </div>
-</div>
+{% include "_jobmodal.html" %}
 </div>
 {% endblock %}
 

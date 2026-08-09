@@ -5,7 +5,12 @@
 {% block admin_title %}Overview{% endblock %}
 {% block admin_tools %}
     <a class="btn" href="{{ url_for('admin', refresh=1) }}">Re-read DB</a>
+    {# /scrape is @admin_required, which enforces CSRF on non-GET. This hidden field covers the
+       no-JS submit; the fetch below sends no body, so it carries the token as a header instead.
+       Without BOTH, the check fails, admin_required redirects, and the fetch's .json() throws
+       "Couldn't start the scrape" with nothing to say why. #}
     <form id="scrapeform" method="post" action="{{ url_for('scrape_now') }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <button id="updatejobs" class="btn primary" type="submit">Update jobs</button>
     </form>
 {% endblock %}
@@ -205,7 +210,11 @@
     label.textContent = "Starting…";
     meta.textContent = "";
     fill.classList.add("indet");
-    fetch(form.action, { method: "POST", headers: { "X-Requested-With": "fetch" } })
+    // No body, so the form's hidden _csrf never gets sent — _check_csrf reads this header as
+    // the other accepted source. Safe to inline: the token is secrets.token_urlsafe, i.e.
+    // [A-Za-z0-9_-] only, so it cannot terminate the string literal.
+    fetch(form.action, { method: "POST", headers: { "X-Requested-With": "fetch",
+                                                    "X-CSRF-Token": "{{ csrf_token() }}" } })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d.ok) { label.textContent = d.msg || "Couldn't start the scrape."; fill.classList.remove("indet"); if (btn) btn.disabled = false; return; }
