@@ -428,6 +428,14 @@ _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 COLS_RECONCILE = "url,is_active,miss_count,last_seen"
 """scraper.reconcile_closed — reads exactly these four (scraper/__init__.py:4715-4730)."""
 
+COLS_DEDUPE = "url,title,company,location"
+"""scraper.main's dedupe index when an aggregator source is enabled. It needs the posting
+fingerprint (core.posting_key) as well as the url, and existing_urls() returns only urls.
+
+Taken as ONE widened read rather than existing_urls() plus a second call: ~3 MB against ~1.2 MB
+at 20k rows, so +1.8 MB per run, once. main() only asks for it when JOBSPY_BOARDS is non-empty —
+with the feature dormant it keeps the narrow existing_urls() path and costs nothing."""
+
 COLS_VERIFY = "url,posted_verified,posted_confidence,found_date"
 """scraper.verify_dates._candidates — reads exactly these four (verify_dates.py:132-145)."""
 

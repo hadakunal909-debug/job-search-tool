@@ -1,6 +1,7 @@
 # --- scraper + Flask web app ---
 # The app is Flask (see web.py / passenger_wsgi.py); the old Streamlit app is retired.
-# cPanel installs requirements-cpanel.txt; this mirrors it for local/dev + the scraper.
+# cPanel installs requirements-cpanel.txt; this mirrors it for local/dev + the scraper,
+# EXCEPT for python-jobspy at the bottom — see the note there.
 flask
 requests
 beautifulsoup4
@@ -20,3 +21,18 @@ python-docx
 # Optional — build sponsors.txt from DOL Excel data (build_sponsors.py):
 #     pip install openpyxl
 python-dotenv
+
+# Aggregator sweep (LinkedIn/Indeed/Glassdoor/Google/ZipRecruiter) — scraper.scrape_jobspy.
+#
+# PINNED, unlike everything above it. This library scrapes hostile targets, so its selectors and
+# its output columns change whenever those sites change; an unpinned upgrade mid-run is a silent
+# corpus problem, not a build failure. Re-pin deliberately after reading the changelog.
+#
+# NOT in requirements-cpanel.txt and must not be: it drags in pandas + numpy (~30 MB), which the
+# web host has no use for. scraper.scrape_jobspy imports it lazily for exactly this reason —
+# web.py imports the scraper module to serve /add, and that import must keep working without it.
+#
+# Installed but DORMANT: with JOBSPY_SITES unset, SOURCES holds no jobspy entries and the library
+# is never imported. Installing it here rather than by hand is what makes enabling the feature one
+# env var, instead of one env var plus a requirements edit that busts the pip cache.
+python-jobspy==1.1.82
