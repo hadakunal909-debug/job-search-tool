@@ -165,8 +165,8 @@
            aria-label="Filter this employer's roles">
     <select id="sort" class="sel">
       <option value="score">Sort: Best match</option>
-      <option value="newest">Sort: Newest</option>
-      <option value="sponsor">Sort: Sponsorship</option>
+      <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
+      <option value="sponsor"{{ ' selected' if prefs.sort == 'sponsor' else '' }}>Sort: Sponsorship</option>
     </select>
   </div>
 
