@@ -246,7 +246,9 @@ def main():
     if not dry:
         _ensure_columns()
 
-    rows = db.load_jobs(include_jd=False)
+    # _candidates reads only url/posted_verified/posted_confidence/found_date, and _work below
+    # takes r["url"] — 4.4 MB a call instead of 11.6 MB at 19k rows.
+    rows = db.load_jobs(cols=db.COLS_VERIFY)
     cands = _candidates(rows, do_all)
     queued = len(cands)                           # backlog BEFORE --limit trims it
     if limit is not None:

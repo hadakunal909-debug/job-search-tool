@@ -87,6 +87,27 @@ jobs:
         timeout-minutes: 6
         run: pip install -r requirements.txt
 
+      # The stored job DESCRIPTIONS, carried between runs.
+      #
+      # The heavy pass has to have every JD (it builds IDF over the whole corpus and re-analyzes
+      # every row), but a stored JD never changes — the scheduled pass only fetches rows that
+      # have none. Re-downloading all ~16k of them from Supabase daily measured ~128 MB and was
+      # the single largest item on the free-tier egress bill. With this cache a run pulls only
+      # the descriptions added since the last one.
+      #
+      # The key must be unique per run or the save is a no-op (cache entries are immutable), so
+      # this is the standard rolling-key + restore-keys prefix pattern. A miss is safe:
+      # score_jobs falls back to one full read and repopulates. ~40 MB against a 10 GB repo
+      # allowance, touched daily so it never hits the 7-day eviction window.
+      - name: Restore the JD corpus cache
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/cache@v4
+        with:
+          path: JobMatch Scraper/jd_cache.json.gz
+          key: jd-corpus-${{ github.run_id }}
+          restore-keys: |
+            jd-corpus-
+
       # Every step below carries its OWN timeout-minutes as well as a budget passed to the
       # script. The job-level cap alone was not enough: when a step overran, the runner
       # killed the whole JOB, so the log said only "exceeded the maximum execution time"

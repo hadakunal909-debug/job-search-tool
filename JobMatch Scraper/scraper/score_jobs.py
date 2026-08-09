@@ -18,6 +18,7 @@ Run it after you scrape new jobs or edit resume.txt:
 import os
 import csv
 import re
+import gzip
 import html
 import json
 import time
@@ -599,6 +600,63 @@ def _persist_derived(row_loc, row_jd, current_rows=None):
 NEW_JOBS_FILE = "last_new_jobs.json"
 
 
+JD_CACHE_FILE = "jd_cache.json.gz"       # {url: jd}; restored by CI from actions/cache
+
+
+def _load_jd_cache():
+    try:
+        with gzip.open(JD_CACHE_FILE, "rt", encoding="utf-8") as fh:
+            return {u: v for u, v in (json.load(fh) or {}).items() if u and v}
+    except Exception:
+        return {}                        # absent, corrupt, or half-written -> just re-read
+
+
+def _save_jd_cache(cache):
+    try:
+        tmp = JD_CACHE_FILE + ".tmp"
+        with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+            json.dump(cache, fh)
+        os.replace(tmp, JD_CACHE_FILE)
+    except Exception as e:
+        print("  (jd cache not saved: %s)" % str(e)[:80])
+
+
+def _jd_corpus(all_urls, full):
+    """(row_jd, missing) for a pass that needs EVERY stored description.
+
+    build_idf runs over the whole corpus and every row gets re-analyzed, so this pass genuinely
+    needs all ~16k JDs — but it does NOT need to re-download them. A stored JD never changes:
+    the scheduled pass only fetches rows that have none (`missing` below), and _persist_jds only
+    ever writes newly-fetched text. So the corpus is cached on disk and CI restores it from
+    actions/cache; a normal run then pulls only the JDs added since the last one.
+
+    This is the single biggest item on the egress bill — the full read measured ~128 MB at
+    19,268 rows, daily. A cold or evicted cache falls back to exactly that read, so the worst
+    case is today's cost and every subsequent run is near-free.
+    """
+    cache = _load_jd_cache()
+    before = len(cache)
+    cache = {u: jd for u, jd in cache.items() if u in all_urls}   # forget pruned rows
+    dropped = before - len(cache)
+    have_jd = all_urls - db.urls_missing_jd()
+    need = have_jd - set(cache)
+    print("JD corpus: %d cached, %d dropped as pruned, %d to pull."
+          % (len(cache), dropped, len(need)))
+    if len(need) > 5000:
+        # Cold cache. One paged walk beats ~%d by-url round-trips, so pay for the full read
+        # once and let the next run reuse it.
+        print("  cold cache — one full corpus read (~128 MB); later runs reuse the cache.")
+        cache.update({r["url"]: (r.get("jd") or "")
+                      for r in (db.load_jobs() or []) if r.get("url")})
+    elif need:
+        cache.update({r["url"]: (r.get("jd") or "")
+                      for r in db.load_jobs_by_urls(sorted(need)) if r.get("url")})
+    cache = {u: jd for u, jd in cache.items() if jd}
+    # `missing` keeps its original meaning: rows with no stored description (or every row on
+    # --full, which deliberately refetches the lot from the boards).
+    return dict(cache), (set(all_urls) if full else all_urls - set(cache))
+
+
 def _new_only_targets(known_urls, fetched):
     """URLs worth (re)scoring when we're not doing the whole corpus.
 
@@ -651,7 +709,11 @@ def main():
     # neither holds, and reading it anyway cost a whole-corpus fetch WITH descriptions
     # (~52 MB gzipped / ~129 MB raw at 20,350 rows) on all three scrapes a day to use a few
     # hundred rows of it. So: cheap columns always, JD text on demand further down.
-    rows = db.load_jobs(include_jd=not new_only)
+    # The `jd` column is never read wholesale any more. Both modes take the cheap columns; the
+    # descriptions come from the on-disk corpus cache (heavy pass) or by url (new-only). At
+    # 19,268 rows this select is ~5.1 MB against the ~128 MB the jd column used to cost, and it
+    # ran on all three scrapes a day.
+    rows = db.load_jobs(cols=db.COLS_SCORE)
     row_date = {r["url"]: (r.get("found_date") or "") for r in rows if r.get("url")}
     row_loc = {r["url"]: (r.get("location") or "") for r in rows if r.get("url")}
     # When the row entered OUR database, which is not found_date — that one is the
@@ -659,14 +721,13 @@ def main():
     row_seen = {r["url"]: (r.get("first_seen") or "") for r in rows if r.get("url")}
     all_urls = {r["url"] for r in rows if r.get("url")}
     if new_only:
-        # "Which rows already have a description?" was the only thing the JD text was needed
-        # for here, and urls_with_jd() answers it with a urls-only select.
+        # "Which rows still need a description?" was the only thing the JD text was needed for
+        # here. urls_missing_jd() answers it directly with a urls-only select over just the
+        # backlog — 2,940 rows rather than the 16,328 that already have one.
         row_jd = {}
-        stored_urls = db.urls_with_jd() & all_urls
+        missing = db.urls_missing_jd() & all_urls
     else:
-        row_jd = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
-        stored_urls = {u for u, jd in row_jd.items() if jd}
-    missing = set(all_urls) if full else (all_urls - stored_urls)
+        row_jd, missing = _jd_corpus(all_urls, full)
     stored = len(all_urls) - len(missing)
 
     # Per-run fetch cap: a scheduled CI run does BOUNDED work so it always finishes inside
@@ -814,6 +875,17 @@ def main():
                 print("  JD budget reached — ~%d left for next run (they stay queued)." % unspent)
         row_jd.update(fetched)
 
+    # Bank the descriptions on disk so the next heavy pass doesn't re-download them. New-only
+    # mode has to MERGE — its row_jd holds only the rows it scored, so writing that back would
+    # throw the corpus away — while the heavy pass already holds the whole thing.
+    if new_only:
+        if fetched:
+            bank = _load_jd_cache()
+            bank.update({u: jd for u, jd in fetched.items() if jd})
+            _save_jd_cache(bank)
+    else:
+        _save_jd_cache({u: jd for u, jd in row_jd.items() if jd})
+
     # 4) IDF over the whole JD corpus (so common terms count less), then score.
     #    The FULL pass rebuilds it from every JD — it is a property of the corpus, and
     #    weighting a new job against a partial one would score it differently than the same
@@ -835,9 +907,14 @@ def main():
     # edits since last run); new-only does just what this run pulled.
     todo = _new_only_targets(all_urls, fetched) if new_only else set(row_jd)
     # New-only mode never read the jd column, so pull the text for just these rows. JDs this
-    # run fetched itself are already in row_jd from the phase above.
+    # run fetched itself are already in row_jd from the phase above; the on-disk corpus covers
+    # most of the rest, so only genuinely-unseen rows cost a request.
     if new_only:
         need = [u for u in todo if u not in row_jd]
+        if need:
+            bank = _load_jd_cache()
+            row_jd.update({u: bank[u] for u in need if u in bank})
+            need = [u for u in need if u not in row_jd]
         if need:
             row_jd.update({r["url"]: (r.get("jd") or "")
                            for r in db.load_jobs_by_urls(need) if r.get("url")})
