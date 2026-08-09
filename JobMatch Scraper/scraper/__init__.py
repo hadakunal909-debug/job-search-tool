@@ -1426,6 +1426,31 @@ JIBE_BOARDS = [
 # — we search that name and keep only exact-employer matches. DORMANT until you set a free
 # Adzuna key (no credit card): https://developer.adzuna.com  ->  ADZUNA_APP_ID / ADZUNA_APP_KEY
 # (export them as env vars, or add them as GitHub Actions secrets for the scheduled run).
+# Freshness controls shared by BOTH Adzuna paths.
+#
+# sort_by=date is the important one. Without it Adzuna returns its RELEVANCE ordering, and since
+# the free tier caps a pull at 250 results, a large employer's newest postings never appear on the
+# pages we fetch at all. Measured 2026-08-08 against Deloitte (15,167 matching US postings):
+# unsorted, the 50 rows on page 1 were 14-69 days old with NOTHING from the previous three days;
+# with sort_by=date every one of the 50 was posted that day. `count` is identical either way, so
+# this changes WHICH 250 rows we get, not how many exist. sort_direction is not needed — date
+# already comes back newest-first (verified).
+ADZUNA_SORT = "date"
+
+# The window is deliberately DIFFERENT for the two paths, because they answer different questions.
+#
+# Phrase searches ask "what was posted recently anywhere?" — there are ~162k US matches for
+# "project manager" alone, so a tight window costs nothing and keeps the newest work at the front.
+# 7 rather than 1 so a missed run (Actions minute cap, a timeout) doesn't lose that day for good;
+# re-seeing a few days is free because add_jobs dedupes on url.
+ADZUNA_MAX_DAYS_SEARCH = int(os.environ.get("ADZUNA_MAX_DAYS_SEARCH") or 7)
+# Company pulls ask "what is THIS employer advertising?", and a tight window starves the small
+# ones — measured 2026-08-08, Fortanix's phrase pull returns 54 postings all-time but only 1
+# within 7 days. Those niche sponsors are exactly the ones worth keeping for a visa-led search, so
+# this window is wide and sort_by=date does the freshness work: we still take their NEWEST first.
+# 30 matches the prune horizon, so nothing is fetched that is about to be deleted anyway.
+ADZUNA_MAX_DAYS_COMPANY = int(os.environ.get("ADZUNA_MAX_DAYS_COMPANY") or 30)
+
 ADZUNA_BOARDS = [
     ("adzuna:Tesla", "adzuna", "Tesla"),
     # Google: their careers site's robots.txt explicitly Disallows the jobs-results
@@ -2493,9 +2518,21 @@ def scrape_adzuna(board_url):
                 data = _get_json(
                     "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
                     params=dict({"app_id": app_id, "app_key": app_key, "what_or": what_or,
-                                 "results_per_page": 50, "content-type": "application/json"},
+                                 "results_per_page": 50,
+                                 # Newest-first. Before this the pull had NO date controls at
+                                 # all, so it returned Adzuna's RELEVANCE ordering and a big
+                                 # employer's newest postings fell outside the 250-result cap
+                                 # entirely — Deloitte's page 1 was 14-69 days old.
+                                 "sort_by": ADZUNA_SORT,
+                                 "max_days_old": ADZUNA_MAX_DAYS_COMPANY,
+                                 "content-type": "application/json"},
                                 **selector))
-            except Exception:
+            except Exception as e:
+                # Say so. Adzuna's free tier is ~250 calls/day and the full board set can ask for
+                # ~300 in one sweep, so a quota rejection is a live possibility — and a silent
+                # `break` here is indistinguishable from "no more results", which would look like
+                # thin coverage rather than a spent quota.
+                print("  ! adzuna %s p%d failed: %s" % (company, page, str(e)[:90]))
                 break
             results = data.get("results", [])
             if not results:
@@ -2560,9 +2597,14 @@ def scrape_adzuna_search(board_url):
                 "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
                 params={"app_id": app_id, "app_key": app_key,
                         "what_phrase": query,         # exact phrase keeps results on-role
-                        "results_per_page": 50, "max_days_old": 30,
+                        "results_per_page": 50,
+                        # was max_days_old=30 with NO sort, which left ~20 of every 50 rows
+                        # outside the last three days
+                        "sort_by": ADZUNA_SORT,
+                        "max_days_old": ADZUNA_MAX_DAYS_SEARCH,
                         "content-type": "application/json"})
-        except Exception:
+        except Exception as e:
+            print("  ! adzuna-search '%s' p%d failed: %s" % (query, page, str(e)[:90]))
             break
         results = data.get("results", [])
         if not results:
