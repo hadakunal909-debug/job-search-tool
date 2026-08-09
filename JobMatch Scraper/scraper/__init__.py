@@ -1426,6 +1426,31 @@ JIBE_BOARDS = [
 # — we search that name and keep only exact-employer matches. DORMANT until you set a free
 # Adzuna key (no credit card): https://developer.adzuna.com  ->  ADZUNA_APP_ID / ADZUNA_APP_KEY
 # (export them as env vars, or add them as GitHub Actions secrets for the scheduled run).
+# Adzuna calls made this process, and the set of urls we already hold.
+#
+# Adzuna publishes NO quota headers (verified 2026-08-09: no X-RateLimit-*, no Retry-After,
+# nothing) and documents no limits on developer.adzuna.com, so the "~250/day" figure in the
+# comments below is folklore — the only way to learn the ceiling is to be rejected by it. Since
+# the number is unknowable, don't tune to it: make the call count proportional to NEW jobs, and
+# print what was actually spent so it stops being a guess. Same lesson as the egress bug.
+ADZUNA_CALLS = [0]
+
+# A "stop paging once a page holds nothing new" early exit was built here and REMOVED after
+# measuring, because its premise is false. Two identical consecutive calls to the same query
+# overlapped on only 6 of 50 urls: Adzuna's corpus is large enough, and moving fast enough, that
+# page 1 carries ~44 postings we have never seen every single time. So later runs in the day are
+# not re-reading the same jobs, and there is no wasted call to reclaim — every call is productive.
+# Don't rebuild it. The only real lever on Adzuna spend is the deliberate one: pages x boards x
+# runs per day, which is a budget decision rather than a bug.
+
+
+def _adzuna_fail(label, page, exc):
+    """Report a failed Adzuna call, naming quota rejection explicitly when that's what it is."""
+    code = getattr(getattr(exc, "response", None), "status_code", None)
+    why = " (quota/rate limit?)" if code in (403, 429) else ""
+    print("  ! adzuna %s p%d failed: %s%s" % (label, page, str(exc)[:90], why))
+
+
 # Freshness controls shared by BOTH Adzuna paths.
 #
 # sort_by=date is the important one. Without it Adzuna returns its RELEVANCE ordering, and since
@@ -1949,6 +1974,18 @@ _TRACKING_PARAMS = frozenset((
 # (which is keyed on url alone).
 _GH_HOSTS = frozenset(("boards.greenhouse.io", "job-boards.greenhouse.io"))
 
+# Adzuna mints a FRESH `se=` token on every API response, so the identical advert arrives with a
+# different url each run and the url-keyed table stores it again. Measured against the live corpus
+# 2026-08-09: 473 ad ids held more than one row, 1,293 surplus rows in all, one ad stored SEVEN
+# times — same id, same v=, same title/company, same found_date, differing only in `se=`.
+#
+# Scoped to the Adzuna hosts rather than added to _TRACKING_PARAMS, because "se" is two letters and
+# could plausibly identify a posting on some other board; the same reasoning that keeps gh_jid
+# host-scoped. `v=` is deliberately KEPT — it was identical across all seven copies, so it isn't
+# what splits them, and this file's rule is to drop only what provably cannot identify a posting.
+_ADZUNA_HOSTS = frozenset(("adzuna.com", "www.adzuna.com"))
+_ADZUNA_VOLATILE_PARAMS = frozenset(("se",))
+
 
 def canonical_url(url):
     """One posting -> one URL string, so the url-keyed `jobs` table can't hold it twice.
@@ -1988,6 +2025,9 @@ def canonical_url(url):
             job_id = path.rstrip("/").rsplit("/", 1)[-1]
             keep = [(k, v) for k, v in keep
                     if not (k.lower() == "gh_jid" and v == job_id)]
+        if host in _ADZUNA_HOSTS:
+            keep = [(k, v) for k, v in keep
+                    if k.lower() not in _ADZUNA_VOLATILE_PARAMS]
         keep = [(k, v) for k, v in keep if k.lower() not in _TRACKING_PARAMS]
         if len(keep) != len(pairs):
             query = urlencode(keep)
@@ -2527,12 +2567,12 @@ def scrape_adzuna(board_url):
                                  "max_days_old": ADZUNA_MAX_DAYS_COMPANY,
                                  "content-type": "application/json"},
                                 **selector))
+                ADZUNA_CALLS[0] += 1
             except Exception as e:
-                # Say so. Adzuna's free tier is ~250 calls/day and the full board set can ask for
-                # ~300 in one sweep, so a quota rejection is a live possibility — and a silent
-                # `break` here is indistinguishable from "no more results", which would look like
-                # thin coverage rather than a spent quota.
-                print("  ! adzuna %s p%d failed: %s" % (company, page, str(e)[:90]))
+                # Say so. A silent `break` here is indistinguishable from "no more results", so a
+                # spent quota used to look like thin coverage.
+                ADZUNA_CALLS[0] += 1
+                _adzuna_fail(company, page, e)
                 break
             results = data.get("results", [])
             if not results:
@@ -2543,9 +2583,11 @@ def scrape_adzuna(board_url):
                 if not con or not (con == target or con.startswith(target + " ")):
                     continue                          # skip recruiters / unrelated keyword hits
                 url = j.get("redirect_url") or ""
-                if not url or url in seen:
+                # Keyed on the CANONICAL url: Adzuna can return the same advert twice in one
+                # pull under two different `se=` tokens, and the raw strings differ.
+                if not url or canonical_url(url) in seen:
                     continue
-                seen.add(url)
+                seen.add(canonical_url(url))
                 rows.append({
                     "title": (j.get("title") or "").strip(),
                     "url": url,
@@ -2603,17 +2645,20 @@ def scrape_adzuna_search(board_url):
                         "sort_by": ADZUNA_SORT,
                         "max_days_old": ADZUNA_MAX_DAYS_SEARCH,
                         "content-type": "application/json"})
+            ADZUNA_CALLS[0] += 1
         except Exception as e:
-            print("  ! adzuna-search '%s' p%d failed: %s" % (query, page, str(e)[:90]))
+            ADZUNA_CALLS[0] += 1
+            _adzuna_fail("search '%s'" % query, page, e)
             break
         results = data.get("results", [])
         if not results:
             break
         for j in results:
             url = j.get("redirect_url") or ""
-            if not url or url in seen:
+            # Canonical, for the same reason as scrape_adzuna above.
+            if not url or canonical_url(url) in seen:
                 continue
-            seen.add(url)
+            seen.add(canonical_url(url))
             rows.append({
                 "title": (j.get("title") or "").strip(),
                 "url": url,
@@ -4681,7 +4726,12 @@ RECONCILE_MIN_ROWS = 3
 RECONCILE_MIN_RATIO = 0.5
 # Search aggregators return a QUERY's results, not a board's full inventory — absence from
 # one run means nothing, so they can never close a row.
-RECONCILE_SKIP_ATS = {"adzuna"}
+# "adzuna-search" belongs here as much as "adzuna" does: reconcile_closed's whole premise is that
+# a board IS an employer's own listing, so absence from it means the posting is gone. An aggregator
+# phrase search is neither — its url prefix (adzuna.com/land/ad/...) spans every Adzuna row we
+# hold, so one query for "project manager" would be judged against the entire aggregator corpus.
+# The MIN_RATIO guard happens to reject that today, which is luck rather than intent.
+RECONCILE_SKIP_ATS = {"adzuna", "adzuna-search"}
 
 
 def _url_prefix(urls):
@@ -4875,6 +4925,10 @@ def main():
     board_results = []          # per-board outcome, for the closed-posting check below
     scraped = scrape_all(sources, progress=_progress, board_results=board_results)
     _progress(len(sources), len(sources), len(scraped), phase="saving", force=True)
+    # Adzuna's quota is undocumented and it returns no usage headers, so the only way to know what
+    # a run costs is to count. Print it every run: a number in the log beats the guess in a comment.
+    if ADZUNA_CALLS[0]:
+        print("Adzuna: %d API call(s) this run." % ADZUNA_CALLS[0])
 
     kept = []
     tally = {"already known": 0, "off-target function title": 0,

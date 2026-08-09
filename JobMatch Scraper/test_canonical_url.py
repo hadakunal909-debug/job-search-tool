@@ -74,6 +74,26 @@ def test_tracking_params_dropped_but_real_ones_kept():
     assert "utm_" not in got and "gh_src" not in got
 
 
+def test_adzuna_se_token_dropped_so_one_ad_is_one_row():
+    # Adzuna mints a fresh `se=` on every API response, so the SAME advert arrived with a new url
+    # each run and the url-keyed table stored it again. Measured on the live corpus 2026-08-09:
+    # 473 ad ids held more than one row, 1,293 surplus rows, one ad stored seven times — identical
+    # id, v=, title, company and found_date, differing only in `se=`.
+    a = cu("https://www.adzuna.com/land/ad/5817622855?se=1h3UxlOT8RGWPoJqQXFPnw&v=B4F232F8")
+    b = cu("https://www.adzuna.com/land/ad/5817622855?se=zs7XSXqS8RG9ks23jnlnsA&v=B4F232F8")
+    assert a == b, (a, b)
+    # v= is NOT dropped: it was identical across all seven copies, so it isn't what split them,
+    # and this module only removes what provably cannot identify a posting.
+    assert "v=B4F232F8" in a
+
+
+def test_adzuna_se_rule_is_host_scoped():
+    # "se" is two letters and could identify a posting on some other board, so the rule is scoped
+    # to Adzuna's hosts rather than added to _TRACKING_PARAMS — same reasoning as gh_jid.
+    assert "se=KEEPME" in cu("https://jobs.example.com/apply?se=KEEPME&id=7")
+    assert "se=KEEPME" in cu("https://boards.greenhouse.io/acme/jobs/123?gh_jid=123&se=KEEPME")
+
+
 def test_query_untouched_when_nothing_is_dropped():
     # No param removed -> the query string is passed through verbatim, so re-encoding
     # can never rewrite a URL we meant to leave alone.
