@@ -1394,6 +1394,11 @@ def company():
                    company=display, n=len(open_rows))
     return render_template("company.html", info=info, company_arg=display,
                            about=_company_profile(display, key, rows, open_rows),
+                           # Seeds the sort control, which used to hardcode "Best match" here —
+                           # so a user whose saved sort was Newest or Sponsorship silently got
+                           # score order on this page only. app.js's filter memory covers the
+                           # feed -> company path; this covers a cold load straight to /company.
+                           prefs=_user_prefs(user),
                            visa_labels=core.VISA_TAG_LABELS,
                            visa_tips=core.VISA_TAG_TIPS)
 

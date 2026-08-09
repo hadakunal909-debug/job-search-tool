@@ -61,8 +61,74 @@
   // decision from de-noising the cards.
   var VISA = {};
   try { VISA = JSON.parse(feed.getAttribute("data-visa") || "{}") || {}; } catch (e) { VISA = {}; }
-  var tab = "recommended", PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
+  // ---- filter memory ------------------------------------------------------------------
+  // Every nav in this app is a full page load, and the toolbar's only store was the DOM — so
+  // walking to a company page and back silently threw away whatever you had set. "Save as
+  // default" persisted, but that is a deliberate, cross-device baseline, not a scratchpad.
+  //
+  // Kept CLIENT-SIDE on purpose. Auto-saving to the server would fire save_prefs on every
+  // keystroke, and that route calls _rows_cache.clear() — which is process-wide, not per-user,
+  // so one person dragging the Match slider would rebuild the scored corpus for everybody.
+  // localStorage is also already the pattern here (jm_fpanel, jm_railcollapsed, theme).
+  //
+  // Written from markFilters() rather than from the ~15 change listeners: every one of them
+  // already routes through render() -> markFilters(), so there is no listener to forget.
+  var FILTER_KEY = "jm_filters", FILTER_V = 1;
+  function _ctlMap() {
+    // #q is deliberately excluded off the main feed. Both pages have one, but they mean
+    // different things — "search every job" vs company.html's "filter these roles" — so sharing
+    // it would leak an employer-page filter back into the feed. #filterrail exists only on
+    // feed.html, which is the discriminator. #sort IS shared: that one is a global preference.
+    return { q: (rail ? q : null), min: minR, sort: sortSel, date: dateSel, exp: expSel,
+             intern: internSel, minsal: minSalSel, loc: locInp, visatags: visaSel,
+             track: trackSel, hidenospon: hideNo, remoteonly: remoteOnly,
+             hideagency: hideAgency, showclosed: showClosed };
+  }
+  function _readStore() {
+    // A stored blob from an older shape is discarded whole rather than half-applied — see the
+    // jm_fpanel hazard note further down, where a stale value once hid the entire rail.
+    try {
+      var o = JSON.parse(localStorage.getItem(FILTER_KEY) || "null");
+      return (o && typeof o === "object" && o.v === FILTER_V) ? o : {};
+    } catch (e) { return {}; }
+  }
+  function saveFilterState() {
+    // MERGE over what is stored, and only for controls that exist on THIS page. company.html
+    // renders just #q and #sort; a wholesale overwrite from there would wipe the feed's other
+    // twelve filters.
+    var s = _readStore(), m = _ctlMap(), k;
+    for (k in m) if (m[k]) s[k] = (m[k].type === "checkbox") ? !!m[k].checked : m[k].value;
+    if (tabBtns.length) s.tab = tab;
+    s.v = FILTER_V;
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify(s)); } catch (e) { /* private mode */ }
+  }
+  function applyFilterState() {
+    var s = _readStore(), m = _ctlMap(), k;
+    for (k in m) {
+      if (!m[k] || !(k in s)) continue;
+      if (m[k].type === "checkbox") m[k].checked = !!s[k];
+      else m[k].value = s[k] == null ? "" : String(s[k]);
+    }
+    // The five visa checkboxes are the UI for the hidden #visatags input, so re-tick them to
+    // match the value we just restored or the group would read as empty.
+    if (visaSel && "visatags" in s) {
+      var want = String(s.visatags || "").split(","),
+          boxes = document.querySelectorAll(".visack input[data-vt]");
+      for (var i = 0; i < boxes.length; i++)
+        boxes[i].checked = want.indexOf(boxes[i].getAttribute("data-vt")) >= 0;
+    }
+    return s;
+  }
+  // Runs BEFORE sortBy/minVal/tab are read below, so those pick up the restored values rather
+  // than the server-rendered ones. Cards come from feed_rows|tojson and are drawn by JS, so
+  // only the controls repaint — there is no card flash.
+  var SAVED = applyFilterState();
+  var _savedTab = SAVED.tab && document.querySelector('.tab[data-tab="' + SAVED.tab + '"]')
+                  ? SAVED.tab : "recommended";
+  var tab = _savedTab, PAGE = 60, limit = PAGE, sortBy = sortSel ? sortSel.value : "score";
   var minVal = minR ? (parseInt(minR.value, 10) || 0) : 0;
+  for (var _t0 = 0; _t0 < tabBtns.length; _t0++)
+    tabBtns[_t0].classList.toggle("on", tabBtns[_t0].getAttribute("data-tab") === tab);
   // Large corpus: the server inlines only the top-N matches and we fetch the rest (search/filter/
   // paging) from /api/feed, so the payload stays small at any scale. Small corpus: data-paged is
   // empty and everything stays client-side (instant) exactly as before.
@@ -459,6 +525,9 @@
         bs[i].setAttribute("aria-pressed", on ? "true" : "false");
       }
     }
+    // The one place filter state is persisted. Every change listener reaches here via render(),
+    // so nothing can change a filter without this running.
+    saveFilterState();
   }
 
   // Dispatcher: small corpus renders locally from the inline DATA (instant); large corpus
