@@ -167,16 +167,35 @@ def sr_detail_jd(url):
 def wd_detail_jd(url):
     """Workday list has no JD; fetch the posting detail (CXS) for this one job.
     Handles both URL formats ({tenant}.{dc}.myworkdayjobs.com and
-    {dc}.myworkdaysite.com/recruiting/{tenant}/{site})."""
+    {dc}.myworkdaysite.com/recruiting/{tenant}/{site}).
+
+    Returns (jd, date). The date is the free half of this request: the same response already
+    being fetched for the JD carries jobPostingInfo.startDate as a bare ISO date, and it was
+    being thrown away while the stored date came from parsing "Posted 30+ Days Ago" off the
+    LIST view.
+
+    That matters because "30+" is a CEILING, not a measurement. Checked against 11 tenants
+    2026-08-09: startDate agreed exactly with the postedOn-derived date on all 8 rows showing a
+    real "Posted N Days Ago", and disagreed on all 3 showing "30+" — by 30, 37 and 77 days, in
+    every case because the derived value had been clamped to MAX_AGE_DAYS+1. Zero startDates
+    were in the future, which is what would give away an employment start date rather than a
+    posting date. So this is not a second opinion; it is the accurate one.
+
+    This is also the fix for the damage recorded in scraper._workday_date's docstring — 1,943 of
+    3,858 newly added rows carrying a found_date of exactly MAX_AGE_DAYS ago, all of them the
+    clamp. Expect the correction to age some rows past the freshness window on first application.
+    """
     from urllib.parse import urlparse
     try:
         host, tenant, site = scraper._workday_parts(url)
         segs = [x for x in urlparse(url).path.split("/") if x]
         jobpath = "/".join(segs[segs.index("job"):]) if "job" in segs else (segs[-1] if segs else "")
         d = scraper._get_json("https://%s/wday/cxs/%s/%s/%s" % (host, tenant, site, jobpath))
-        return _text(d.get("jobPostingInfo", {}).get("jobDescription", ""))
+        info = d.get("jobPostingInfo") or {}
+        date = _parse_date_any(str(info.get("startDate") or ""))
+        return _text(info.get("jobDescription", "")), (date or "")
     except Exception:
-        return ""
+        return "", ""
 
 
 def _board_has_missing(board_url, ats, missing_urls):
@@ -359,6 +378,29 @@ def rippling_detail_jd(url):
 import datetime
 
 
+def _date_beats_stored(new, stored):
+    """Should a date read off the detail page replace what the scrape stored?
+
+    Yes when the stored value is blank, and yes when it carries a time ("YYYY-MM-DD HH:MM") —
+    that shape is this codebase's marker for a DERIVED date, either the scrape stamp or
+    _workday_date()'s reading of "Posted N Days Ago". A date the ATS states outright beats both,
+    and beats "30+ Days Ago" by a lot: that string is a ceiling clamped to MAX_AGE_DAYS+1, and
+    three sampled tenants were really 30, 37 and 77 days old.
+
+    No when the stored value is already a bare ISO date. That came from a publisher field
+    (Greenhouse first_published, Adzuna created, Lever createdAt) and is not ours to churn —
+    scripts/audit_dates.py exists to question those separately.
+
+    posted_verified is deliberately not consulted: only found_date is written here, and every
+    consumer (web._build_row, db.row_age_date) already prefers posted_verified over it.
+    """
+    new = (new or "").strip()
+    if not new:
+        return False
+    s = (stored or "").strip()
+    return (not s) or (" " in s)
+
+
 def _parse_date_any(s):
     """Best-effort 'whatever the page says' -> 'YYYY-MM-DD' ('' if unparseable).
     Handles ISO, 'Jun 13, 2026', 'June 13, 2026', '06/13/2026', '13 Jun 2026', and
@@ -501,7 +543,7 @@ def detail_jd(url):
     if not jd and "smartrecruiters.com" in url:
         jd = sr_detail_jd(url)
     if not jd and ("myworkdayjobs.com" in url or "myworkdaysite.com" in url):
-        jd = wd_detail_jd(url)
+        jd, date = wd_detail_jd(url)      # the CXS response carries the posting date too
     if not jd and "oraclecloud.com" in url:
         jd = oracle_detail_jd(url)
     if not jd and "apply.workable.com" in url and "/j/" in url:
@@ -920,8 +962,8 @@ def main():
                             buf = {}
                     elif deadline and time.time() >= deadline:
                         unspent += 1
-                    if date and not (row_date.get(u) or "").strip():
-                        dates[u] = date     # the page carried a posting date the list omitted
+                    if date and _date_beats_stored(date, row_date.get(u)):
+                        dates[u] = date     # the detail page dated it better than the list did
             _persist_jds(buf)
             if unspent:
                 print("  JD budget reached — ~%d left for next run (they stay queued)." % unspent)
