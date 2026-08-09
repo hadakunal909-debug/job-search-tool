@@ -2054,6 +2054,12 @@ _TRACKING_PARAMS = frozenset((
     # posting, so without this the same job stores twice — once as we scraped it, once as the
     # user pasted it.
     "jr_id",
+    # lever-source names where an applicant came from. Global rather than host-scoped because
+    # the param name is already namespaced to one ATS, so it can't collide the way "se" could.
+    # Measured 2026-08-09: all 180 stored Lever rows are bare, while an aggregator hands out
+    # jobs.lever.co/<co>/<uuid>?lever-source=Indeed for the SAME posting — the uuid is the
+    # identity, so without this every relisted Lever job would store a second time.
+    "lever-source",
 ))
 
 # Greenhouse serves every board under two interchangeable hostnames, and the API's
@@ -2100,6 +2106,19 @@ _INDEED_ID_PARAMS = ("jk", "vjk")
 _LINKEDIN_DROP_PARAMS = frozenset((
     "refid", "trackingid", "trk", "position", "pagenum", "ebp", "originalsubdomain",
 ))
+
+# Workday serves one posting at both /<site>/job/... and /<locale>/<site>/job/..., and which one
+# you get depends on how you arrived. Measured against the live corpus 2026-08-09: of 7,941
+# Workday rows, 7,910 are bare and 31 carry /en-US/ (Bloomberg, MSD) — so BOTH forms are already
+# stored, and this is a duplicate waiting to happen independently of any aggregator. An
+# aggregator makes it near-certain: Indeed's direct links to Salesforce and Expedia both arrive
+# with /en-US/ while our own Workday scraper emits the bare form.
+#
+# This is the second PATH rewrite in this file, after the Greenhouse host swap, so it is kept
+# deliberately tight: the segment must be exactly xx-XX, and only as the FIRST path segment on a
+# myworkdayjobs.com host. Workday site names in the corpus (External_Career_Site, abbottcareers,
+# SearchJobs, Bloombergindustrygroup_External_Career_Site) cannot match that shape.
+_WORKDAY_LOCALE_RE = re.compile(r"^/[a-z]{2}-[a-z]{2}(?=/)", re.I)
 
 
 def canonical_url(url):
@@ -2155,6 +2174,8 @@ def canonical_url(url):
         if hostname == "linkedin.com" or hostname.endswith(".linkedin.com"):
             keep = [(k, v) for k, v in keep
                     if k.lower() not in _LINKEDIN_DROP_PARAMS]
+        if hostname.endswith(".myworkdayjobs.com"):
+            path = _WORKDAY_LOCALE_RE.sub("", path, count=1)
         keep = [(k, v) for k, v in keep if k.lower() not in _TRACKING_PARAMS]
         if len(keep) != len(pairs):
             query = urlencode(keep)

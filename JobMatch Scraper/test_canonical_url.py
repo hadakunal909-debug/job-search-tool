@@ -148,6 +148,47 @@ def test_linkedin_currentjobid_is_load_bearing():
     assert "currentJobId=4011111111" in a and "refId" not in a
 
 
+# --- Workday's optional locale segment -------------------------------------------------
+def test_workday_locale_prefix_dropped_so_one_posting_is_one_row():
+    # Found by probing Indeed's direct links against the corpus 2026-08-09: our Workday scraper
+    # emits the bare form, aggregators hand out the /en-US/ form, and 31 of 7,941 stored Workday
+    # rows already carry a locale — so both shapes were in the table before any aggregator.
+    bare = "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/CA---SF/PM_123"
+    loc = "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/CA---SF/PM_123"
+    assert cu(loc) == cu(bare) == bare, (cu(loc), cu(bare))
+    assert cu("https://msd.wd5.myworkdayjobs.com/en-GB/SearchJobs/job/Kansas/PM_9") == \
+        "https://msd.wd5.myworkdayjobs.com/SearchJobs/job/Kansas/PM_9"
+
+
+def test_workday_locale_rule_does_not_eat_a_real_site_name():
+    # Only an exact xx-XX FIRST segment goes. A site name is never that shape, and two different
+    # Workday sites must stay two different URLs.
+    keep = "https://acme.wd1.myworkdayjobs.com/abbottcareers/job/US/PM_1"
+    assert cu(keep) == keep
+    a = cu("https://acme.wd1.myworkdayjobs.com/External/job/US/PM_1")
+    b = cu("https://acme.wd1.myworkdayjobs.com/Internal/job/US/PM_1")
+    assert a != b
+    # ...and the rule is host-scoped: an xx-XX segment elsewhere is left alone.
+    other = "https://jobs.example.com/en-US/job/123"
+    assert cu(other) == other
+
+
+# --- MUST NOT MERGE: two Workday postings differing only in job id ---------------------
+def test_workday_two_postings_stay_two_rows():
+    base = "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/CA---SF/%s"
+    assert cu(base % "PM_123") != cu(base % "PM_456")
+
+
+def test_lever_source_param_dropped():
+    # jobs.lever.co/<co>/<uuid> — the uuid is the identity; lever-source names the referral.
+    # All 180 stored Lever rows are bare while an aggregator hands out ?lever-source=Indeed.
+    bare = "https://jobs.lever.co/qualdoc/75b2e180-876a-45dd-ac40-d83a3bf2224a"
+    assert cu(bare + "?lever-source=Indeed") == bare
+    # two different postings still stay apart
+    assert cu("https://jobs.lever.co/acme/aaa?lever-source=x") != \
+        cu("https://jobs.lever.co/acme/bbb?lever-source=x")
+
+
 # --- the payoff: an aggregator's direct link lands on the row we already have ----------
 def test_jobspy_direct_url_merges_with_the_direct_scraper():
     # JobSpy hands back job_url_direct — the employer's own ATS link, usually tagged with the
@@ -186,7 +227,9 @@ def test_idempotent():
               "https://www.indeed.com/viewjob?jk=abc123&from=serp&tk=1h9qk",
               "https://www.indeed.com/jobs?q=pm&vjk=deadbeef",
               "https://www.linkedin.com/jobs/view/4012345678?refId=abc&position=3",
-              "https://www.linkedin.com/jobs/search/?currentJobId=401&trk=x"):
+              "https://www.linkedin.com/jobs/search/?currentJobId=401&trk=x",
+              "https://x.wd1.myworkdayjobs.com/en-US/Site/job/US/PM_1",
+              "https://jobs.lever.co/acme/uuid-1?lever-source=Indeed"):
         assert cu(cu(u)) == cu(u), u
 
 
