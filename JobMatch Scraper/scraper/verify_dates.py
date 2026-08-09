@@ -138,11 +138,22 @@ def _candidates(rows, do_all):
             continue                                     # already answered, unusably -> skip
         if do_all or not _is_clean_api_date(r.get("found_date")):
             out.append(r)
-    # Newest first. found_date is ISO-prefixed in both shapes we store ('YYYY-MM-DD' and
-    # 'YYYY-MM-DD HH:MM'), so a plain string sort is a date sort. Matters because --limit
-    # and --budget-min both drop the TAIL: spend the run's calls on the postings someone
-    # might actually apply to, not on rows the 30-day prune is about to delete.
-    out.sort(key=lambda r: (r.get("found_date") or ""), reverse=True)
+    # DATELESS ROWS FIRST, then newest first among the rest.
+    #
+    # The blank-date group has to lead, and sorting on found_date alone put it dead last: an empty
+    # string is the smallest value there is, so descending order buried it. Measured 2026-08-09 on
+    # a queue of 8,259 rows — the 661 rows with no date at all occupied positions 7,598 to 8,258,
+    # and --budget-min reaches roughly 432 rows a run. They were not being processed slowly, they
+    # were never being processed at all, and they are exactly the rows that need this most: with no
+    # date the feed falls back to first_seen and the card reads "Added today", which is what made a
+    # SAP posting from 3 August look like it had appeared that morning.
+    #
+    # Everything else keeps the old ordering, for the old reason: --limit and --budget-min drop the
+    # TAIL, so spend the remaining calls on postings someone might actually apply to rather than on
+    # rows the 30-day prune is about to delete. found_date is ISO-prefixed in both shapes we store
+    # ('YYYY-MM-DD' and 'YYYY-MM-DD HH:MM'), so a plain string sort is a date sort.
+    out.sort(key=lambda r: (0 if (r.get("found_date") or "").strip() else 1,
+                            r.get("found_date") or ""), reverse=True)
     return out
 
 
