@@ -134,6 +134,42 @@ def test_company_and_title_normalization_is_punctuation_insensitive():
     assert fdupe(job, idx) == GH
 
 
+# --- the sponsor-record gate ------------------------------------------------------------
+def test_adapter_tags_its_rows_so_the_gate_can_find_them():
+    records = [{"title": "PM", "company": "Acme", "location": "Boston, MA",
+                "job_url": "https://www.indeed.com/viewjob?jk=a"}]
+    sys.modules["jobspy"] = _with_stub_jobspy(records)
+    try:
+        out = scraper.scrape_jobspy("jobspy:indeed|pm|United States")
+    finally:
+        del sys.modules["jobspy"]
+    assert out[0]["_src"] == "jobspy"
+    # ...and the tag never reaches storage
+    assert "_src" not in scraper.FIELDNAMES
+
+
+def test_gate_keeps_an_employer_with_a_federal_record():
+    vt = {"acme": 1}                       # h1b bit
+    assert core.visa_tags("Acme Inc.", vt)
+    assert core.visa_tags("Acme Inc.", vt) or core.sponsor_strength("Acme Inc.", {})[0]
+
+
+def test_gate_drops_an_employer_with_no_record_anywhere():
+    assert not core.visa_tags("Johnny on the Spot Environmental", {})
+    assert not core.sponsor_strength("Johnny on the Spot Environmental", {})[0]
+
+
+def test_a_uscis_record_alone_is_enough():
+    # visa_tags is built from DOL files; USCIS approvals are a separate source. An employer in
+    # only one of them is still evidence, so either passes.
+    assert core.sponsor_strength("Acme", {"acme": 5})[0] == "low"
+    assert core.sponsor_strength("Acme", {"acme": 1500})[0] == "high"
+
+
+def test_gate_is_opt_out_but_defaults_on():
+    assert scraper.JOBSPY_REQUIRE_VISA_RECORD is True
+
+
 # --- wiring -----------------------------------------------------------------------------
 def test_jobspy_is_registered_and_exempt_from_the_closed_posting_check():
     assert scraper.SCRAPERS.get("jobspy") is scraper.scrape_jobspy
