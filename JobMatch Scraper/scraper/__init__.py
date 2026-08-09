@@ -1641,8 +1641,15 @@ INCLUDE = (
     "product strategist", "product strategy",
     # --- Coordination / operations / analyst (related domain) ---
     "operations coordinator", "operations manager", "operations analyst",
-    "operations specialist", "operations associate", "business operations",
+    "operations specialist", "business operations",
     "operations management",
+    # "operations associate" was REMOVED 2026-08-09 after measuring it. At retail and
+    # self-storage chains it means shop-floor shift work, not coordination, and it was the sole
+    # reason 306 rows were kept: Sephora 112, CubeSmart 111 — 73% of them — with exactly ONE of
+    # the 306 clearing the feed's 45% default match floor (median 24). Only 9 rows carrying the
+    # phrase also match another keyword, so they survive without it. The near-twin
+    # "operations specialist" was measured too and kept: 212 rows, median 27, at Mayo Clinic and
+    # Kinder Morgan rather than shop floors. Re-add only with numbers.
     "business analyst", "data analyst",
     "implementation", "implementation manager", "implementation specialist",
     "delivery manager", "engagement manager",
@@ -1761,6 +1768,16 @@ EXCLUDE = (
     "courtesy clerk", "grocery", "deli", "bakery", "cake decorator",
     "produce", "meat", "seafood", "stocker", "bagger", "checker", "store associate",
     "retail associate", "sales associate", "sales representative", "merchandiser",
+    # Employment-type markers, which catch retail-floor postings whatever the title says —
+    # Sephora's "Operations Associate - Part Time" arrived under an on-target-looking phrase.
+    # Measured 2026-08-09: 128 rows carry part-time (81 of them Sephora), median score 22, and
+    # NOT ONE clears the 45% floor. Both spellings are listed because the matcher escapes each
+    # term literally, so "part time" would not catch "Part-Time".
+    # DELIBERATELY NOT here, both measured and both earning their place: "flex" (38 rows but 3
+    # clear the floor — Amazon's "US Flex Business Optimization" and Engie's "Renewables Flex"
+    # are real programme names) and "full time" (63 rows, and Cisco's "Operations Analyst II
+    # (Full-Time)" scores 53).
+    "part time", "part-time", "seasonal",
     "stock clerk", "pharmacy graduate", "pharmacy intern", "warehouse associate",
     # Retail-floor / wireless / loss-prevention / clinical-bedside / academic-lab roles —
     # NOT a PM/analyst/ops/STEM track. These flooded in under the wide net (T-Mobile
