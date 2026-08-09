@@ -1708,9 +1708,25 @@ INCLUDE = (
     "test engineer", "qa engineer", "qa analyst", "quality assurance engineer",
     "sdet", "software test", "software quality",
     "security engineer", "application security", "kubernetes",
-    # --- Early-career / new-grad markers (program-style roles; low noise) ---
-    "entry level", "entry-level", "graduate", "new grad", "early career",
-    "rotation program", "rotational program", "trainee", "apprentice",
+    # --- Early-career / new-grad markers ---
+    # This block used to say "low noise". Measured 2026-08-09 and that was wrong: FIVE of these
+    # admitted 1,015 rows between them and NOT ONE of those rows cleared the feed's 45% default
+    # match floor. Removed, with what they were actually dragging in:
+    #   trainee      425 rows, median 20 — Cintas 125, Red Bull 64, and the "Store Manager
+    #                Trainee" postings at Safeway / Sephora / Town Pump that read as floor
+    #                management. This one keyword was the source of the retail-management noise.
+    #   entry level  315 rows, median 13 — Aspen Dental 167, i.e. dental assistants
+    #   apprentice   175 rows, median 19 — FedEx Freight 62 (driver apprenticeships)
+    #   graduate      59 rows, median 17 — PMG, Mayo Clinic; matches "Graduate Nurse"
+    #   entry-level   41 rows, median  0 — Actalent 18, Boeing 7
+    # Kept below: the four low-volume program markers (42 rows all told, so they cost nothing and
+    # a real "Early Career Program Manager" would want them), plus intern / internship / co-op.
+    # Those three look weak on the same metric (661/188/59 rows, 4/3/1 clearing) but they stay
+    # DELIBERATELY: they feed the feed's "Internships & co-ops only" filter, internships are
+    # OPT/STEM-OPT eligible, and an internship scoring low against a senior PM résumé is expected
+    # rather than evidence it is junk.
+    "new grad", "early career",
+    "rotation program", "rotational program",
     # Internships & co-ops — OPT/STEM-OPT lets the user do these. The matcher is
     # whole-word, so plurals/variants are listed explicitly. The EXCLUDE block still
     # drops eng/clinical/retail/trades interns (incl. the eng/research-intern phrases
