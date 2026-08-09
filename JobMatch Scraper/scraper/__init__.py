@@ -1575,6 +1575,62 @@ ADZUNA_SEARCH_BOARDS = [
     ("adzuna-search:software engineering intern", "adzuna-search", "Adzuna"),
 ]
 
+# ---- JobSpy: the market-side sweep (LinkedIn / Indeed / Glassdoor / Google / ZipRecruiter) ----
+# Every other source here is EMPLOYER-side: we only see a job if its company is already in
+# SOURCES. JobSpy queries the big aggregators by role phrase, so it surfaces employers we have
+# never heard of. That is the whole reason it earns its keep.
+#
+# The cost is that it hands back URLs in two namespaces, and only one of them can be merged with
+# what we already hold:
+#
+#   * ORIGINAL-SOURCE urls merge for free. Google's job_url IS the employer's greenhouse/workday
+#     link; Indeed's job_url_direct is the employer's own ATS link. canonical_url() plus main()'s
+#     `seen` set already collapse these against the direct scrapers, at zero cost.
+#   * AGGREGATOR-NATIVE urls cannot be merged by anything. indeed.com/viewjob?jk=... and
+#     job-boards.greenhouse.io/acme/jobs/1 are different strings, so they are different primary
+#     keys for one job. Glassdoor and ZipRecruiter NEVER supply a direct link, so every row from
+#     them is one of these.
+#
+# _jobspy_best_url() is the first line of defence (prefer the direct link); main()'s posting
+# fingerprint is the second. scripts/jobspy_shadow.py measures both before anything is enabled.
+JOBSPY_CALLS = [0]        # selectors actually executed — printed each run, same as ADZUNA_CALLS
+JOBSPY_ROWS = [0]         # raw rows returned, before any of main()'s filters
+JOBSPY_JDS = {}           # canonical url -> description, harvested for free; see main()
+
+# Empty by default: with JOBSPY_SITES unset there are no jobspy entries in SOURCES, the library
+# is never imported, and the run is byte-for-byte what it is today. Enabling is one env var, and
+# so is rolling back.
+JOBSPY_SITES = [s for s in
+                (os.environ.get("JOBSPY_SITES") or "").replace(",", " ").lower().split() if s]
+JOBSPY_LOCATION = os.environ.get("JOBSPY_LOCATION") or "United States"
+# 100, not the ~1000 the API allows. Measured on Adzuna 2026-08-09: two identical consecutive
+# calls overlapped on only 6 of 50 URLs, i.e. the top of a date-sorted aggregator feed turns over
+# almost completely between runs. Depth buys far less than breadth here, and every extra page is
+# another request against the site most likely to start refusing them.
+JOBSPY_RESULTS = int(os.environ.get("JOBSPY_RESULTS") or 100)
+# 72h, not 24h: a skipped or failed run would otherwise lose that day's postings permanently.
+# Same reasoning as ADZUNA_MAX_DAYS_SEARCH=7. Re-seeing a posting is free — the url key drops it.
+JOBSPY_HOURS_OLD = int(os.environ.get("JOBSPY_HOURS_OLD") or 72)
+# One extra HTTP request PER JOB, which is both the slowest thing the library does and the
+# fastest way to earn a block. Off until the shadow report says what it would buy in direct-URL
+# coverage on LinkedIn.
+JOBSPY_LINKEDIN_JD = (os.environ.get("JOBSPY_LINKEDIN_JD") or "").lower() in ("1", "true", "yes")
+
+# A SUBSET of the Adzuna phrases rather than a new list — those were tuned against this exact
+# title filter, so reusing them keeps the two aggregators comparable. Start narrow: each phrase
+# is a separate burst against one IP, and 5 sites x 5 phrases is already 25 selectors.
+JOBSPY_PHRASES = [p.strip() for p in (
+    os.environ.get("JOBSPY_PHRASES")
+    or "project manager|program manager|business analyst|product manager|software engineer"
+).split("|") if p.strip()]
+
+# One site per entry, never site_name=["indeed","linkedin"] in a single call: JobSpy collects its
+# per-site futures with an unwrapped future.result(), so one site raising takes down the whole
+# call and discards the other sites' rows. Split this way, scrape_all's existing per-board
+# try/except turns each site failure into one FAIL line and everything else still lands.
+JOBSPY_BOARDS = [("jobspy:%s|%s|%s" % (site, phrase, JOBSPY_LOCATION), "jobspy", "JobSpy")
+                 for site in JOBSPY_SITES for phrase in JOBSPY_PHRASES]
+
 # Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
 # we trust for it — Meta's careers site is a Facebook Relay/GraphQL app, so it's scraped
 # by driving a headless browser (Playwright). Kept in its own list because, unlike every
@@ -1604,7 +1660,7 @@ PAYLOCITY_BOARDS = [
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS + ADZUNA_BOARDS
-           + ADZUNA_SEARCH_BOARDS + METACAREERS_BOARDS)
+           + ADZUNA_SEARCH_BOARDS + JOBSPY_BOARDS + METACAREERS_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -2759,6 +2815,112 @@ def scrape_adzuna_search(board_url):
     else:
         note_truncation("adzuna-search:" + query, len(seen), 200, data.get("count"),
                         detail="(Adzuna free-tier budget)")
+    return rows
+
+
+# ---- JobSpy: one aggregator query per selector. Config and JOBSPY_BOARDS live up by SOURCES ----
+
+
+def _jobspy_best_url(row):
+    """The employer's own link when the aggregator gives us one, else the aggregator's page.
+
+    The single highest-leverage line in this adapter. A direct URL lands in the SAME namespace
+    as the ~1,220 boards we already scrape, so canonical_url() and main()'s `seen` set merge it
+    with the row we already hold and it costs nothing. An aggregator URL cannot be merged with
+    anything, and it is second-class in our own app besides — web._dupe_rank ranks those hosts
+    last and the autoapply queue refuses them outright.
+
+    Guarded twice: the direct link must be a usable http(s) URL, and it must not point straight
+    back at an aggregator. Indeed returns indeed.com/applystart?... in that field often enough
+    that taking it at face value would quietly undo the whole point.
+    """
+    direct = (row.get("job_url_direct") or "").strip()
+    if direct and is_http_url(direct) and not core.is_aggregator_url(direct):
+        return direct
+    return (row.get("job_url") or "").strip()
+
+
+def _jobspy_location(row):
+    """JobSpy splits location across city/state/country; the corpus stores one string."""
+    loc = row.get("location")
+    if isinstance(loc, str):
+        return loc.strip()
+    parts = [str(row.get(k) or "").strip() for k in ("city", "state")]
+    return ", ".join(p for p in parts if p)
+
+
+def scrape_jobspy(board_url):
+    """One aggregator query via the python-jobspy library. board_url is a selector,
+    'jobspy:<site>|<phrase>|<location>' — e.g. 'jobspy:indeed|project manager|United States'.
+
+    Each row carries its OWN employer (set here, so scrape_all won't clobber it), and its
+    description is stashed in JOBSPY_JDS for main() to persist — the aggregator hands us the JD
+    for free, and without it these rows would fall to score_jobs' per-URL fetch, which mostly
+    403s against indeed.com while spending the scoring budget.
+
+    DORMANT without the library installed, the same contract scrape_adzuna has without a key.
+    The import is lazy on purpose: web.py imports this module to serve /add, and the cPanel host
+    installs from requirements-cpanel.txt, which does not (and must not) carry pandas.
+    """
+    try:
+        from jobspy import scrape_jobs
+    except ImportError:
+        print("  note: python-jobspy not installed; jobspy boards skipped")
+        return []
+
+    sel = board_url.split(":", 1)[1] if ":" in board_url else board_url
+    parts = [p.strip() for p in sel.split("|")]
+    site = (parts[0] if parts else "").lower()
+    phrase = parts[1] if len(parts) > 1 else ""
+    location = parts[2] if len(parts) > 2 else JOBSPY_LOCATION
+    if not (site and phrase):
+        raise ValueError("bad jobspy selector %r (want jobspy:<site>|<phrase>|<location>)"
+                         % board_url)
+
+    JOBSPY_CALLS[0] += 1
+    df = scrape_jobs(site_name=[site], search_term=phrase, location=location,
+                     results_wanted=JOBSPY_RESULTS, hours_old=JOBSPY_HOURS_OLD,
+                     country_indeed="usa", description_format="markdown",
+                     linkedin_fetch_description=JOBSPY_LINKEDIN_JD, verbose=0)
+    # to_dict immediately: nothing downstream should touch a DataFrame, and the mapping below
+    # stays unit-testable without pandas installed.
+    records = df.to_dict("records") if df is not None and not df.empty else []
+    JOBSPY_ROWS[0] += len(records)
+
+    if not records:
+        # A silent zero is NOT the same as a quiet day, and the two look identical in the log
+        # otherwise. Google has returned 0 and ZipRecruiter 403 since Sept 2025 (JobSpy #302),
+        # and datacenter IPs get refused where a laptop is served — say so explicitly.
+        print("  note: jobspy %s returned 0 rows for '%s' (blocked, or genuinely nothing new?)"
+              % (site, phrase))
+        return []
+
+    rows, seen = [], set()
+    for r in records:
+        url = _jobspy_best_url(r)
+        if not url or not is_http_url(url):
+            continue
+        canon = canonical_url(url)
+        if canon in seen:                 # same posting twice within one query
+            continue
+        seen.add(canon)
+        posted = r.get("date_posted")
+        row = {"title": str(r.get("title") or "").strip(),
+               "url": url,
+               "company": str(r.get("company") or "").strip(),
+               "location": _jobspy_location(r)}
+        if posted:
+            # A missing date is fine and deliberate: the row is kept and ages by first_seen,
+            # exactly as every dateless board's rows do.
+            row["found_date"] = str(posted)[:10]
+        rows.append(row)
+        jd = r.get("description")
+        if jd and isinstance(jd, str) and jd.strip():
+            JOBSPY_JDS[canon] = jd.strip()
+
+    if len(records) >= JOBSPY_RESULTS:
+        note_truncation("jobspy:%s|%s" % (site, phrase), len(rows), JOBSPY_RESULTS,
+                        detail="(results_wanted ceiling)")
     return rows
 
 
@@ -3973,6 +4135,7 @@ SCRAPERS = {
     "jsonld": scrape_jsonld,
     "adzuna": scrape_adzuna,
     "adzuna-search": scrape_adzuna_search,
+    "jobspy": scrape_jobspy,
     "phenom": scrape_phenom,
     "oracle": scrape_oracle,
     "workable": scrape_workable,
@@ -4760,11 +4923,18 @@ def _host_key(url, ats_type):
     Usually the URL's host. The Adzuna entries are not URLs — they are selectors like
     'adzuna:Tesla' — so they fall back to the ATS name, with the '-search' variant folded
     in because 'adzuna' and 'adzuna-search' are two ways of querying ONE API key.
+
+    JobSpy selectors get one key PER SITE ('jobspy:indeed'), because unlike Adzuna's two entry
+    points these are five unrelated hosts with five separate reputation budgets — throttling
+    LinkedIn should not throttle Indeed.
     """
     try:
         host = urlparse(url or "").netloc.lower()
     except Exception:
         host = ""
+    if not host and (ats_type or "").lower() == "jobspy":
+        site = (url or "").split(":", 1)[-1].split("|", 1)[0].strip().lower()
+        return "jobspy:" + site if site else "jobspy"
     return host or (ats_type or "").lower().replace("-search", "")
 
 
@@ -4790,7 +4960,8 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
         with gates_lock:
             g = gates.get(key)
             if g is None:
-                g = gates[key] = threading.Semaphore(max(1, SCRAPE_PER_HOST))
+                n = _PER_HOST_OVERRIDE.get(key, SCRAPE_PER_HOST)
+                g = gates[key] = threading.Semaphore(max(1, n))
             return g
 
     def _one(entry):
@@ -4873,7 +5044,59 @@ RECONCILE_MIN_RATIO = 0.5
 # phrase search is neither — its url prefix (adzuna.com/land/ad/...) spans every Adzuna row we
 # hold, so one query for "project manager" would be judged against the entire aggregator corpus.
 # The MIN_RATIO guard happens to reject that today, which is luck rather than intent.
-RECONCILE_SKIP_ATS = {"adzuna", "adzuna-search"}
+# Log-only until a real run has been checked against the shadow report's prediction. With this
+# off, main() PRINTS what it would have suppressed and stores the row anyway — the same dry-run
+# posture reconcile_closed uses, and the only safe way to calibrate a filter whose mistakes are
+# invisible. Turn it on once "provable false merges" has been read and found to be ~0.
+JOBSPY_FINGERPRINT_ENFORCE = (
+    (os.environ.get("JOBSPY_FINGERPRINT_ENFORCE") or "").lower() in ("1", "true", "yes"))
+
+
+def fingerprint_duplicate(job, fingerprints):
+    """The stored URL this posting is an aggregator's copy of, or None.
+
+    Catches the one duplicate class a url-keyed table cannot: a job we already hold from the
+    employer's own board, relisted by an aggregator under its own domain. Those are genuinely
+    different strings, so they are different primary keys, and canonical_url cannot bridge them.
+
+    Three guards keep it to exactly that case:
+      1. the CANDIDATE must be on an aggregator host. An employer-hosted row is ground truth and
+         is never suppressed — which is also what makes a wrong call self-healing, since the real
+         posting still arrives from its own board on the next sweep.
+      2. the INCUMBENT must be on a DIFFERENT host. Within one host, two rows that look alike are
+         two separate reqs with separate ids — Amazon really does list 431 "Operations Manager"
+         roles. This is the same constraint web._dedupe_rows applies at render time.
+      3. the incumbent must not itself be an aggregator row. Two aggregator copies of one job are
+         a plain url duplicate, which the `seen` set already handles.
+
+    The "keep it if it carries a NEW employer-direct link" tiebreak is not implemented here
+    because it cannot fire: _jobspy_best_url already promotes a usable direct link into job["url"],
+    so any row still holding an aggregator URL at this point had no direct link to offer, and
+    guard 1 is what enforces that.
+
+    require_location=True is the one place the key is stricter than the feed's: ("pm","acme","")
+    would collide with every unplaced Acme PM row, which is survivable when it merges two cards
+    and not survivable when it drops a row before insert.
+    """
+    url = job.get("url") or ""
+    if not fingerprints or not core.is_aggregator_url(url):
+        return None                                        # guard 1
+    key = core.posting_key(job.get("title"), job.get("company"), job.get("location"),
+                           require_location=True)
+    if not key:
+        return None
+    host = core.url_host(url)
+    for other in fingerprints.get(key, ()):
+        other_host = core.url_host(other)
+        if not other_host or other_host == host:
+            continue                                       # guard 2
+        if core.is_aggregator_url(other):
+            continue                                       # guard 3
+        return other
+    return None
+
+
+RECONCILE_SKIP_ATS = {"adzuna", "adzuna-search", "jobspy"}
 
 
 def _url_prefix(urls):
@@ -5025,7 +5248,25 @@ def main():
     # different strings the same 79 postings were stored twice, under two different company
     # labels ("Amat" and "Applied Materials"), and rendered as duplicate cards. Two genuinely
     # distinct postings whose URLs differ only by letter case don't occur in practice.
-    seen = {canonical_url(u).lower() for u in db.existing_urls()}
+    #
+    # With an aggregator source on we also need the POSTING fingerprint (title+company+location),
+    # because those sources return a second URL for a job we may already hold and no url rule can
+    # merge the two. That needs three more columns, taken as ONE widened read rather than a second
+    # call: ~3 MB against existing_urls()' ~1.2 MB at 20k rows. Dormant means dormant — with
+    # JOBSPY_BOARDS empty this stays on the narrow path and the run costs exactly what it does now.
+    fingerprints = {}
+    if JOBSPY_BOARDS:
+        corpus = db.load_jobs(include_jd=False, cols=db.COLS_DEDUPE)
+        seen = {canonical_url(r.get("url") or "").lower() for r in corpus}
+        seen.discard("")
+        for r in corpus:
+            k = core.posting_key(r.get("title"), r.get("company"), r.get("location"),
+                                 require_location=True)
+            if k:
+                fingerprints.setdefault(k, []).append(r.get("url") or "")
+        print("Dedupe index: %d url(s), %d posting fingerprint(s)." % (len(seen), len(fingerprints)))
+    else:
+        seen = {canonical_url(u).lower() for u in db.existing_urls()}
 
     # Companies an admin blocked from /admin/data. Loaded once per run, next to `seen`, because
     # the keep loop below consults it per posting. Returns an empty set on ANY failure — a
@@ -5071,11 +5312,18 @@ def main():
     # a run costs is to count. Print it every run: a number in the log beats the guess in a comment.
     if ADZUNA_CALLS[0]:
         print("Adzuna: %d API call(s) this run." % ADZUNA_CALLS[0])
+    # Same reasoning, same reason to print it: these sites publish no quota and the only honest
+    # way to know what a run spends against them is to count it.
+    if JOBSPY_CALLS[0]:
+        print("JobSpy: %d quer%s, %d raw row(s)."
+              % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))
 
     kept = []
+    fp_seen = []            # aggregator relists caught by the fingerprint, for the run summary
     tally = {"already known": 0, "off-target function title": 0,
              "no matching role keyword": 0, "non-US location": 0,
              "blocked company": 0,
+             "aggregator copy of a job we hold": 0,
              "posted over %d days ago" % MAX_AGE_DAYS: 0}
     age_cutoff = ((datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS)).isoformat()
                   if MAX_AGE_DAYS > 0 else "")
@@ -5119,6 +5367,20 @@ def main():
             j["sponsors_h1b"] = "yes" if sponsored else "no"
         else:
             j["sponsors_h1b"] = "unknown"
+        # DEAD LAST in the chain, on purpose. This is the only drop here that can be wrong in the
+        # "lost a real job" direction, so it sees only rows that already cleared every other gate
+        # — which is what lets the line below name exactly what was suppressed and against which
+        # stored posting. It is also the most expensive check, so it should see the fewest rows.
+        dupe_of = fingerprint_duplicate(j, fingerprints)
+        if dupe_of:
+            fp_seen.append((j["title"], j["url"], dupe_of))
+            if VERBOSE or not JOBSPY_FINGERPRINT_ENFORCE:
+                print("  %s %-44s\n        we already hold %s"
+                      % ("dupe " if JOBSPY_FINGERPRINT_ENFORCE else "dupe?",
+                         j["title"][:44], dupe_of[:96]))
+            if JOBSPY_FINGERPRINT_ENFORCE:
+                tally["aggregator copy of a job we hold"] += 1
+                continue
         j.setdefault("found_date", stamp)        # keep the JD's posting date if set
         seen.add(j["url"].lower())               # two boards in ONE run can serve the same
                                                  # posting (e.g. both Greenhouse hosts)
@@ -5128,8 +5390,35 @@ def main():
         json.dump(kept, open("last_new_jobs.json", "w", encoding="utf-8"))
     except Exception:
         pass
+    if fp_seen:
+        # Broken out by host on purpose. The check keys off "is this an aggregator row", not
+        # "did jobspy fetch it", so switching an aggregator source on also starts catching
+        # Adzuna relists — the same duplicate class, but a wider blast radius than the feature
+        # that prompted it. Read this breakdown before setting JOBSPY_FINGERPRINT_ENFORCE.
+        print("Posting fingerprint: %d aggregator relist(s) of jobs we already hold%s."
+              % (len(fp_seen), "" if JOBSPY_FINGERPRINT_ENFORCE
+                 else " — LOG ONLY, all stored anyway"))
+        by_host = {}
+        for _t, u, _o in fp_seen:
+            h = core.url_host(u) or "?"
+            by_host[h] = by_host.get(h, 0) + 1
+        for h, n in sorted(by_host.items(), key=lambda kv: -kv[1]):
+            print("   %-38s %6d" % (h[:38], n))
     if kept:
         db.add_jobs(kept)               # (also the breadcrumb notify.py reads for this run's alerts)
+
+    # JobSpy returns the description WITH the row, so store it for the jobs we kept. Without this
+    # they fall to score_jobs' per-URL detail fetch, which mostly 403s against the aggregators
+    # while spending the scoring budget — the rows would score 0, render as "JD pending", and
+    # never reach the match filter or the digest.
+    if JOBSPY_JDS and kept:
+        jds = {r["url"]: JOBSPY_JDS[r["url"]] for r in kept if r.get("url") in JOBSPY_JDS}
+        if jds:
+            try:
+                db.update_jds(jds)
+                print("JobSpy: stored %d description(s) fetched with the listing." % len(jds))
+            except Exception as e:
+                print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
 
     # Corpus pruning. This is the OTHER HALF of the freshness policy and defaults to the same
     # window as MAX_AGE_DAYS, deliberately: the gate above refuses stale postings on the way
