@@ -1631,6 +1631,30 @@ JOBSPY_PHRASES = [p.strip() for p in (
 JOBSPY_BOARDS = [("jobspy:%s|%s|%s" % (site, phrase, JOBSPY_LOCATION), "jobspy", "JobSpy")
                  for site in JOBSPY_SITES for phrase in JOBSPY_PHRASES]
 
+# Refuse a JobSpy row whose employer appears in NO federal file. Measured on the first live run
+# (2026-08-09), against the corpus baseline in brackets:
+#
+#     no federal record      41%  [10%]
+#     h1b (certified LCA)    55%  [80%]
+#     E-Verify / STEM OPT     3%  [12%]
+#     net H-1B viable        49%  [67%]
+#
+# Of 44 employers it introduced, 32 had no record: Amigo Construction, Diablo Roofing, Johnny on
+# the Spot Environmental, Jones Mobile Home Service. That is structural rather than bad luck — an
+# Indeed keyword search returns the long tail of small US employers, and that is exactly the
+# population that never files an LCA or enrols in E-Verify. On a tool whose point is sponsorship,
+# that dilutes the corpus without adding anything reachable.
+#
+# SCOPED TO JOBSPY ONLY. The ~1,220 direct boards are employers chosen deliberately, and several
+# are cap-exempt universities and hospitals that this test would wrongly drop. Only rows from a
+# keyword sweep — where nobody vetted the employer — have to earn their place.
+#
+# "No record" is NOT "will not sponsor": it means absent from the DOL LCA/PERM, USCIS Data Hub
+# and E-Verify files, and a real sponsor can be missing from all three. This deliberately trades
+# some genuine sponsors away to stop the long tail flooding the feed. Set to 0 to take everything.
+JOBSPY_REQUIRE_VISA_RECORD = (
+    (os.environ.get("JOBSPY_REQUIRE_VISA_RECORD") or "1").lower() not in ("0", "false", "no"))
+
 # Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
 # we trust for it — Meta's careers site is a Facebook Relay/GraphQL app, so it's scraped
 # by driving a headless browser (Playwright). Kept in its own list because, unlike every
@@ -2949,7 +2973,11 @@ def scrape_jobspy(board_url):
         row = {"title": _text(r.get("title")),
                "url": url,
                "company": company,
-               "location": _jobspy_location(r)}
+               "location": _jobspy_location(r),
+               # Tags the row's origin so main() can apply the sponsor-record gate to THESE rows
+               # and not to the direct boards. Dropped on the way to storage — FIELDNAMES does
+               # not list it — so it never reaches the table.
+               "_src": "jobspy"}
         posted = _text(r.get("date_posted"))
         if posted:
             # A missing date is fine and deliberate: the row is kept and ages by first_seen,
@@ -5310,6 +5338,22 @@ def main():
     else:
         seen = {canonical_url(u).lower() for u in db.existing_urls()}
 
+    # Federal sponsorship records, loaded once, for the JobSpy gate below. Two files: visa_tags
+    # (DOL LCA + PERM + the E-Verify employer list) and sponsor_counts (USCIS H-1B Data Hub).
+    # Only read when an aggregator sweep is actually on — together they are ~5 MB resident.
+    visa_index = sponsor_counts = None
+    if JOBSPY_BOARDS and JOBSPY_REQUIRE_VISA_RECORD:
+        try:
+            visa_index = core.load_visa_tags()
+            sponsor_counts = core.load_sponsor_counts()
+            print("Sponsor records: %d employer(s) with a visa tag, %d with USCIS approvals."
+                  % (len(visa_index or {}), len(sponsor_counts or {})))
+        except Exception as e:
+            # A missing data file must not take a scrape down; without it the gate simply
+            # does not fire and every row is kept, which is the pre-gate behaviour.
+            print("  note: sponsor records unavailable (%s); JobSpy gate off" % str(e)[:70])
+            visa_index = sponsor_counts = None
+
     # Companies an admin blocked from /admin/data. Loaded once per run, next to `seen`, because
     # the keep loop below consults it per posting. Returns an empty set on ANY failure — a
     # blocklist read must never be the reason a scrape aborts; worst case it behaves as it did
@@ -5366,6 +5410,7 @@ def main():
              "no matching role keyword": 0, "non-US location": 0,
              "blocked company": 0,
              "aggregator copy of a job we hold": 0,
+             "no federal sponsor record (aggregator)": 0,
              "posted over %d days ago" % MAX_AGE_DAYS: 0}
     age_cutoff = ((datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS)).isoformat()
                   if MAX_AGE_DAYS > 0 else "")
@@ -5409,6 +5454,19 @@ def main():
             j["sponsors_h1b"] = "yes" if sponsored else "no"
         else:
             j["sponsors_h1b"] = "unknown"
+        # Sponsor-record gate, JOBSPY ROWS ONLY. A keyword sweep of Indeed returns the long tail
+        # of small US employers — roofers, local contractors, mobile-home services — and 41% of
+        # the ones it found had no record in ANY federal file, against 10% for the corpus. The
+        # direct boards are exempt because those employers were chosen deliberately, and several
+        # are cap-exempt universities and hospitals this test would wrongly drop.
+        if visa_index is not None and j.get("_src") == "jobspy":
+            co = j.get("company") or ""
+            if not core.visa_tags(co, visa_index) and not core.sponsor_strength(
+                    co, sponsor_counts)[0]:
+                tally["no federal sponsor record (aggregator)"] += 1
+                if VERBOSE:
+                    print("  drop  %-52s no LCA/PERM/E-Verify/USCIS record" % co[:52])
+                continue
         # DEAD LAST in the chain, on purpose. This is the only drop here that can be wrong in the
         # "lost a real job" direction, so it sees only rows that already cleared every other gate
         # — which is what lets the line below name exactly what was suppressed and against which
