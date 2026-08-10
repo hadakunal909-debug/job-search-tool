@@ -1267,3 +1267,9 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
   .fpop{position:fixed;left:var(--space-150);right:var(--space-150);
     max-width:none;min-width:0;max-height:70vh;overflow:auto}
 }
+
+/* The empty state stops guessing. web._relax_suggestions works out which single filter, if
+   dropped, brings back the most jobs, so this names a VALUE and offers to undo it rather than
+   naming a control and leaving the reader to go and look at what it was set to. */
+.empty-h{font-size:var(--text-md);font-weight:var(--weight-medium);color:var(--text-primary);margin:0 0 var(--space-100)}
+.empty-acts{display:flex;flex-wrap:wrap;gap:var(--space-100);justify-content:center;margin-top:var(--space-200)}
