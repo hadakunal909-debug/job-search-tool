@@ -34,18 +34,24 @@
        than a second giant textarea competing with it, and skipping is a plain button in the
        footer. The old screen gave upload and paste equal weight, which made it look like twice
        the work it actually is. #}
-    <label class="dropzone" for="resume_file">
-      <span class="dz-main">Choose a file, or drop one here</span>
-      <span class="dz-sub">PDF, Word, or plain text</span>
-      <input type="file" id="resume_file" name="resume_file" accept=".pdf,.docx,.txt,.md">
-    </label>
-    <details class="pastebox">
-      <summary>Or paste the text instead</summary>
-      <textarea name="resume" rows="12" aria-label="Paste your résumé"
-                placeholder="Paste the whole thing. Plain text is fine."></textarea>
-    </details>
-    <p class="dim">We read the words out and don't keep the file. A scanned or photographed PDF
-      has no text in it, so paste the text instead. You can change any of this later.</p>
+    {# Everything inside #resume-island is the NO-JS fallback. It is a complete, working
+       upload form on its own. If welcome.tsx mounts it replaces these children with the
+       enhanced version, whose only real addition is the parse echo; if the bundle fails to
+       load, this is what the user gets and onboarding still completes. #}
+    <div id="resume-island">
+      <label class="dropzone" for="resume_file">
+        <span class="dz-main">Choose a file, or drop one here</span>
+        <span class="dz-sub">PDF, Word, or plain text</span>
+        <input type="file" id="resume_file" name="resume_file" accept=".pdf,.docx,.txt,.md">
+      </label>
+      <details class="pastebox">
+        <summary>Or paste the text instead</summary>
+        <textarea name="resume" rows="12" aria-label="Paste your résumé"
+                  placeholder="Paste the whole thing. Plain text is fine."></textarea>
+      </details>
+      <p class="dim">We read the words out and don't keep the file. A scanned or photographed
+        PDF has no text in it, so paste the text instead. You can change any of this later.</p>
+    </div>
 
   {% elif step == 2 %}
     <h1 class="qtitle">What kind of work?</h1>
@@ -111,5 +117,15 @@
 {# Search, the six-pick cap and the live counter. The picker WORKS without it, since the
    checkboxes post themselves, so a load failure costs polish rather than the answer. #}
 <script src="{{ static_v('rolepick.js') }}"></script>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if step == 1 and entry %}
+  {# JSON, not an executable global: CSP does not govern a non-executable script block. #}
+  <script type="application/json" id="page-props">{{ props | tojson }}</script>
+  {% for dep in vite_preloads('src/entries/welcome.tsx') %}
+  <link rel="modulepreload" href="{{ dep }}">
+  {% endfor %}
+  <script type="module" src="{{ entry }}"></script>
 {% endif %}
 {% endblock %}

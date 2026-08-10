@@ -28,11 +28,17 @@ export default defineConfig({
     modulePreload: { polyfill: false },
     rollupOptions: {
       input: {
-        // One entry per migrated page. Phase 3 adds welcome, Phase 4 adds feed.
+        // One entry per migrated page. Phase 4 adds feed.
         harness: resolve(__dirname, "src/entries/harness.tsx"),
+        welcome: resolve(__dirname, "src/entries/welcome.tsx"),
       },
       output: {
-        // No code splitting until the base path is proven in production.
+        // No MANUAL chunking, and no route-level lazy imports: a dynamic-import chunk
+        // 404s only on the routes that lazy-load, which passes local testing and fails in
+        // production. Rollup still hoists the shared runtime across entries into one chunk,
+        // which is different and wanted: it is a STATIC import, so a base-path mistake breaks
+        // immediately and visibly rather than latently, and React then caches once for every
+        // migrated page. web.vite_preloads() emits the modulepreload that keeps it parallel.
         manualChunks: undefined,
         // Everything in dist/ must be content hashed. _security_headers stamps
         // "immutable, max-age=604800" on all of /static/, so a non-hashed file there would be

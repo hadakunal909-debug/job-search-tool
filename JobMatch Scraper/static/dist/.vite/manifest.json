@@ -1,8 +1,24 @@
 {
+  "_api-q3fgL-8-.js": {
+    "file": "assets/api-q3fgL-8-.js",
+    "name": "api"
+  },
   "src/entries/harness.tsx": {
-    "file": "assets/harness-CC13j8-q.js",
+    "file": "assets/harness-B86-Oyo0.js",
     "name": "harness",
     "src": "src/entries/harness.tsx",
-    "isEntry": true
+    "isEntry": true,
+    "imports": [
+      "_api-q3fgL-8-.js"
+    ]
+  },
+  "src/entries/welcome.tsx": {
+    "file": "assets/welcome-DeMegL0B.js",
+    "name": "welcome",
+    "src": "src/entries/welcome.tsx",
+    "isEntry": true,
+    "imports": [
+      "_api-q3fgL-8-.js"
+    ]
   }
 }
