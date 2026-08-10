@@ -13,8 +13,11 @@
 
   <div class="cohead">
     <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
-      <img class="logo-img" src="https://www.google.com/s2/favicons?domain={{ info.logo_domain }}&sz=64"
-           alt="" loading="lazy"></div>
+      {# Straight to gstatic, not through www.google.com/s2/favicons, which only 301-redirects
+         here and whose redirect caches for 30 minutes while the image caches for 7 days.
+         Mirrors LOGO_BASE in static/app.js; the reasoning is written up there. #}
+      <img class="logo-img" alt="" loading="lazy"
+           src="https://t0.gstatic.com/faviconV2?client=SOCIAL&amp;type=FAVICON&amp;fallback_opts=TYPE,SIZE,URL&amp;size=64&amp;url=http://{{ info.logo_domain }}"></div>
     <div class="cohead-main">
       <h1>{{ info.name }}</h1>
       <div class="cosub">

@@ -173,16 +173,20 @@ def _csp_nonce():
 
 
 # Resources the UI legitimately loads from off-site, kept here so the CSP stays readable:
-# Google Fonts (CSS from googleapis, font files from gstatic) + company logos (Google's
-# favicon service at www.google.com/s2/favicons, which 301-REDIRECTS to tN.gstatic.com —
-# CSP checks every hop of a redirect, so the gstatic wildcard must be allowed too).
+# Google Fonts (CSS from googleapis, font files from gstatic) + company logos from
+# tN.gstatic.com.
+#
+# www.google.com is NO LONGER in img-src. The logos used to be requested from
+# www.google.com/s2/favicons, which 301-redirects to gstatic, so the wildcard had to be
+# allowed for the second hop as well. They now request gstatic directly (see LOGO_BASE in
+# static/app.js for why), which means one fewer origin the page may load images from.
 # Everything else is same-origin ('self').
 _CSP_TEMPLATE = (
     "default-src 'self'; "
     "script-src 'self' 'nonce-%s'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
-    "img-src 'self' data: https://www.google.com https://*.gstatic.com; "
+    "img-src 'self' data: https://*.gstatic.com; "
     "connect-src 'self'; "
     "form-action 'self'; "
     "object-src 'none'; "

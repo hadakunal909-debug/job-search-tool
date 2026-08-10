@@ -245,6 +245,22 @@
   // Company-logo fallback: if the favicon fails to load, hide the broken <img> so the
   // colored letter-avatar behind it shows. In JS (not inline onerror=) so the CSP can
   // forbid inline handlers.
+  // Company logos, fetched from gstatic DIRECTLY rather than through
+  // www.google.com/s2/favicons, which 301-redirects here anyway.
+  //
+  // Measured 2026-08-09 against the live service. The redirect costs a second TLS connection
+  // and a second round trip (0.140s vs 0.074s), but the real problem is caching: the 301
+  // carries max-age=1800, so every logo was re-requested every 30 minutes, while the image it
+  // points at carries max-age=604800. A feed page fires one of these per card, which is why a
+  // capture showed a dozen 301s at ~500ms each returning 0.0 kB.
+  //
+  // The shard number in the Location header varies per domain (t1, t2, t3), but any shard
+  // serves any domain: t0 and t1 both returned the identical 658-byte PNG for amazon.com. One
+  // host is also better than four over HTTP/2, which multiplexes on a single connection.
+  //
+  // Mirrored in templates/company.html for the employer page. Keep the two in step.
+  var LOGO_BASE = "https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&size=64&url=http://";
+
   function wireLogoFallback(img) {
     if (!img || img.getAttribute("data-fb-wired")) return;
     img.setAttribute("data-fb-wired", "1");
@@ -353,8 +369,8 @@
       ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
-          '<img class="logo-img" src="https://www.google.com/s2/favicons?domain=' + H(j.logo_domain) +
-          '&sz=64" alt="" loading="lazy"></div>' +
+          '<img class="logo-img" src="' + LOGO_BASE + H(j.logo_domain) +
+          '" alt="" loading="lazy"></div>' +
         scoreCell(j) +
       '</div>' +
       '<div class="ctitle">' + esc(j.title) + '</div>' +
