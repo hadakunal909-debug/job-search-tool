@@ -168,15 +168,15 @@ async function jmProcessOne(item, cfg) {
     }
 
     const res = await fillPass();
-    if (res.login) return { status: "needs_you", reason: "login / account wall — open the tab to finish" };
+    if (res.login) return { status: "needs_you", reason: "login or account wall. Open the tab to finish" };
     if (!res.found) return { status: "skipped", reason: "no supported form on page" };
 
     // Filled what we could. Show the review panel and leave the tab open for the user.
     keepTab = true;
     await jmInjectReview(tab, cfg, item, res);
     const left = (res.unfilled && res.unfilled.length) ? (" · " + res.unfilled.length + " for you") : "";
-    if (res.captcha) return { status: "needs_you", reason: "filled — CAPTCHA on page; solve it, upload résumé & submit" + left };
-    return { status: "ready", reason: "filled " + res.filled + "/" + res.total + " — upload résumé & submit" + left };
+    if (res.captcha) return { status: "needs_you", reason: "filled, but there is a CAPTCHA on the page. Solve it, upload your résumé and submit" + left };
+    return { status: "ready", reason: "filled " + res.filled + "/" + res.total + ". Upload your résumé and submit" + left };
   } catch (e) {
     if (JM_Q.stop) return { status: "stopped", reason: "stopped" };   // tab was killed by hard-stop
     return { status: "error", reason: String((e && e.message) || e).slice(0, 140) };

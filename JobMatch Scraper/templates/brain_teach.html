@@ -23,7 +23,7 @@
   <form id="add-resume" class="addbox" method="post" enctype="multipart/form-data"
         action="{{ url_for('brain_resume_save') }}">
     <label>Name <input type="text" name="name" placeholder="e.g. PM-focused résumé"></label>
-    <label>Upload a file <span class="muted">(PDF, .docx, .txt — the text is extracted and the
+    <label>Upload a file <span class="muted">(PDF, Word or plain text. The text is extracted and the
       file itself is not stored)</span>
       <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md"></label>
     <label>…or paste the content <span class="muted">(plain text)</span>
@@ -56,7 +56,7 @@
       </form>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No résumés yet. Click <strong>Add a résumé</strong> to paste your first —
+    <div class="empty sm">No résumés yet. Click <strong>Add a résumé</strong> to paste your first.
       it powers your feed match scores and every tailored draft.</div>
   {% endif %}
 </section>
@@ -67,7 +67,7 @@
     <h2>Stories <span class="count-pill">{{ stories|length }}</span></h2>
     <button type="button" class="btn primary lg add-toggle" data-target="add-story">Write a story</button>
   </div>
-  <p class="muted small" style="margin:-6px 0 12px">One experience each. The brain picks the most
+  <p class="muted small u-subnote">One experience each. The brain picks the most
     relevant stories per job and weaves them into your tailored résumé.</p>
 
   <form id="add-story" class="addbox" method="post" action="{{ url_for('brain_story_save') }}">
@@ -109,7 +109,7 @@
       </form>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No stories yet. Click <strong>Write a story</strong> to add your first —
+    <div class="empty sm">No stories yet. Click <strong>Write a story</strong> to add your first.
       stories are what let the brain tailor beyond a single résumé.</div>
   {% endif %}
 </section>
@@ -120,7 +120,7 @@
     <h2>Lessons <span class="count-pill">{{ lessons|length }}</span></h2>
     <button type="button" class="btn primary lg add-toggle" data-target="add-lesson">Teach a lesson</button>
   </div>
-  <p class="muted small" style="margin:-6px 0 12px">Rules the brain follows. It also learns these
+  <p class="muted small u-subnote">Rules the brain follows. It also learns these
     automatically from your feedback on the Tailor page.</p>
 
   <form id="add-lesson" class="addbox" method="post" action="{{ url_for('brain_lesson_save') }}">

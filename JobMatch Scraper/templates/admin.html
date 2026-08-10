@@ -24,7 +24,7 @@
 </div>
 {% endif %}
 
-<div id="scrapebar" class="scrapebar" style="display:none" role="status" aria-live="polite">
+<div id="scrapebar" class="scrapebar u-hide" role="status" aria-live="polite">
   <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
   <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
 </div>
@@ -62,7 +62,7 @@
   {# ---- score distribution ---- #}
   <section class="panel">
     <h2>Match-score spread</h2>
-    <p class="muted">Scored jobs only — JD-pending rows sit at 0 and are excluded.</p>
+    <p class="muted">Scored jobs only. JD-pending rows sit at 0 and are excluded.</p>
     <div class="hist">
       {% for b in stats.buckets %}
       <div class="hist-row">
@@ -91,7 +91,7 @@
               <span class="muted">{{ r.event }}</span></td>
           <td><span class="pill {{ 'ok' if r.conclusion == 'success' else ('bad' if r.conclusion in ('failure','timed_out','cancelled') else 'run') }}">{{ r.conclusion }}</span></td>
           <td>{{ r.started }}</td>
-          <td>{{ r.mins or '—' }}</td>
+          <td>{{ r.mins or 'None' }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -113,7 +113,7 @@
       {% endfor %}
       </tbody>
     </table>
-    <p class="muted" style="margin-top:10px">
+    <p class="muted u-mt-150">
       Admin access: <b>{{ admin_mode }}</b> · <a href="{{ url_for('admin_users') }}">Users</a>
     </p>
   </section>

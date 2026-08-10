@@ -14,7 +14,7 @@
   {% if not form_post %}<input type="hidden" id="roles" value="{{ chosen|join(',') }}">{% endif %}
 
   <div class="rolesearch">
-    <input type="search" id="rolefind" placeholder="Search roles — try “data”, “manager”, “sde”"
+    <input type="search" id="rolefind" placeholder="Search roles, for example data, manager, or sde"
            autocomplete="off" aria-label="Search role types">
     <span class="rolecount"><b id="rolen">{{ chosen|length }}</b> of {{ role_max or 6 }}</span>
   </div>
@@ -42,8 +42,8 @@
     {% endfor %}
   </div>
 
-  <p class="rolenone" id="rolenone" hidden>Nothing matches that. Clear the search to see all
-    {{ role_counts|length }} roles.</p>
-  <p class="rolehint">Pick up to {{ role_max or 6 }} — or leave it empty to see everything.
-    The number on each is how many are live right now.</p>
+  <p class="rolenone" id="rolenone" hidden>No roles match that search. Clear it to see all
+    {{ role_counts|length }}.</p>
+  <p class="rolehint">Pick up to {{ role_max or 6 }}, or leave it empty to see every role.
+    The number on each one is how many jobs are open now.</p>
 </div>

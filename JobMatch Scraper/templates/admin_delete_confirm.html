@@ -4,7 +4,7 @@
 {% block admin %}
 <div class="banner">
   <b>This removes {{ '{:,}'.format(plan.n) }} job row{{ '' if plan.n == 1 else 's' }} and cannot be undone.</b>
-  {% if not plan.company %}Deleting jobs does not stop them coming back — if the same postings
+  {% if not plan.company %}Deleting jobs does not stop them coming back. If the same postings
   are still on the board, the next scrape re-adds them.{% endif %}
 </div>
 
@@ -17,7 +17,7 @@
   {% if plan.protected %}
   <div class="tile warn">
     <span class="tile-n">{{ '{:,}'.format(plan.protected) }}</span>
-    <span class="tile-l">Protected — kept</span>
+    <span class="tile-l">Protected and kept</span>
     <span class="tile-s">liked, applied to, or hidden by someone</span>
   </div>
   {% endif %}
@@ -30,7 +30,7 @@
 
 {% if plan.protected %}
 {# Guardrail on the irreversible screen — kept, trimmed. #}
-<p class="muted" style="margin:-8px 0 18px">
+<p class="muted u-subnote">
   Liked, applied and hidden rows are never deleted here. Overriding that needs shell access
   (<code>scripts/prune_stale.py --include-flagged</code>).
 </p>
@@ -47,7 +47,7 @@
     </tbody>
   </table>
   {% if plan.n > plan.samples|length %}
-  <p class="muted" style="margin-top:10px">…and {{ '{:,}'.format(plan.n - plan.samples|length) }} more.</p>
+  <p class="muted u-mt-150">…and {{ '{:,}'.format(plan.n - plan.samples|length) }} more.</p>
   {% endif %}
 </section>
 
@@ -67,13 +67,13 @@
       <input type="checkbox" name="block" value="1" checked>
       <span>Block these companies so the scraper stops collecting them</span>
     </label>
-    <p class="muted" style="margin:12px 0 6px">
-      All aliases selected — one employer often posts under several labels.
+    <p class="muted u-sechead">
+      All aliases selected, because one employer often posts under several labels.
     </p>
     {% for label, n in plan.labels %}
     <label class="blockrow">
       <input type="checkbox" name="label" value="{{ label }}" checked>
-      <span>{{ label }} <span class="muted">— {{ '{:,}'.format(n) }} row{{ '' if n == 1 else 's' }}</span></span>
+      <span>{{ label }} <span class="muted">{{ '{:,}'.format(n) }} row{{ '' if n == 1 else 's' }}</span></span>
     </label>
     {% endfor %}
   </section>

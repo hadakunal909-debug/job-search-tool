@@ -1,47 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-.sub{color:#667;margin:-4px 0 16px;font-size:14px}
-.appstats{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
-.appstats span{font-size:13px;color:#333}
-.appstats .pill{background:#eef2f7;border-radius:20px;padding:3px 11px;font-weight:600;text-transform:capitalize}
-.addapp{border:1px solid #e3e8ef;border-radius:12px;padding:10px 15px;margin-bottom:18px;background:#fafbfc}
-.addapp>summary{cursor:pointer;font-weight:700}
-.appform{margin-top:12px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.appform label{display:flex;flex-direction:column;font-size:12px;gap:4px;color:#555;margin-bottom:10px}
-.appform input,.appform select,.appform textarea{padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#111;font-family:inherit}
-.applist{display:flex;flex-direction:column;gap:12px}
-.appcard{border:1px solid #e3e8ef;border-radius:12px;padding:13px 15px;background:#fff}
-.apphead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.appco{font-weight:700;font-size:15px}
-.apptitle{font-size:14px;margin-top:1px}
-.apptitle a{color:#0e8a5f;text-decoration:none}
-.appmeta{font-size:12px;color:#778;margin-top:3px}
-.appmeta a{color:#0e8a5f}
-.stbadge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:capitalize;white-space:nowrap}
-.st-saved{background:#eef2f7;color:#475569}.st-applied{background:#e7f0ff;color:#1d4ed8}
-.st-assessment{background:#fef3e2;color:#b8730a}.st-interview{background:#e6f7ee;color:#0b7a52}
-.st-offer{background:#dcfce7;color:#15803d}.st-rejected{background:#fdeaea;color:#c0392b}
-.approw{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:11px}
-.appedit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:1;margin:0}
-.appedit select,.appedit input{padding:6px 8px;border:1px solid #cbd5e1;border-radius:7px;font-size:13px;background:#fff;color:#111}
-.appedit .appnotes{flex:1;min-width:160px}
-.dform{margin:0}
-.empty2{color:#778;padding:18px;border:1px dashed #cbd5e1;border-radius:12px;text-align:center}
-.setup{margin-top:22px;font-size:13px;color:#667}
-.setup pre{background:#0d1117;color:#e6edf3;padding:12px;border-radius:9px;overflow:auto;font-size:12px}
-.danger{color:#c0392b;border-color:#f0c0c0}
-[data-theme=dark] .sub,[data-theme=dark] .appstats span,[data-theme=dark] .appmeta{color:#9aa7b4}
-[data-theme=dark] .addapp,[data-theme=dark] .appcard{background:#13181f;border-color:#2a3340}
-[data-theme=dark] .appstats .pill{background:#1c2530;color:#cdd9e5}
-[data-theme=dark] .appform input,[data-theme=dark] .appform select,[data-theme=dark] .appform textarea,
-[data-theme=dark] .appedit select,[data-theme=dark] .appedit input{background:#0d1117;border-color:#2a3340;color:#e6edf3}
-[data-theme=dark] .appco{color:#e6edf3}
-</style>
 
 <h1>Applications</h1>
-<p class="sub">Every job you've applied to — from here or any other site. Private to your account. Marking a job “Applied” in the feed logs it here automatically (with the résumé you have on file).</p>
+<p class="sub">Every job you've applied to, from here or any other site. Private to your account. Marking a job “Applied” in the feed logs it here automatically (with the résumé you have on file).</p>
 
 <div class="appstats">
   <span><b>{{ total }}</b> total</span>
@@ -82,9 +43,9 @@
   <div class="appcard">
     <div class="apphead">
       <div>
-        <div class="appco">{{ a.company or '—' }}</div>
+        <div class="appco">{{ a.company or 'None' }}</div>
         <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View posting' }} ↗</a>{% else %}{{ a.title or '' }}{% endif %}</div>
-        <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}—{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
+        <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}Not recorded{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
     </div>
@@ -95,7 +56,7 @@
         <input type="hidden" name="title" value="{{ a.title or '' }}">
         <input type="hidden" name="url" value="{{ a.url or '' }}">
         <select name="status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == a.status else '' }}>{{ s }}</option>{% endfor %}</select>
-        <input name="resume_name" list="rnames" value="{{ a.resume_name or '' }}" placeholder="résumé file" style="max-width:170px">
+        <input class="u-max-170" name="resume_name" list="rnames" value="{{ a.resume_name or '' }}" placeholder="résumé file">
         <input type="date" name="applied_date" value="{{ a.applied_date[:10] if a.applied_date else '' }}">
         <input name="notes" value="{{ a.notes or '' }}" placeholder="notes" class="appnotes">
         <button class="btn sm" type="submit">Save</button>

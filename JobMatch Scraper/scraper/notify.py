@@ -167,7 +167,7 @@ def recipients():
         if prefs.get("alerts") != "daily":
             continue
         if not email or "@" not in email:
-            print("  %s opted in but has no email on their profile — skipped." % name)
+            print("  %s opted in but has no email on their profile, so it was skipped." % name)
             continue
         out.append((name, email, prefs))
     return out
@@ -185,7 +185,7 @@ def main():
     except Exception:
         new = []
     if not new:
-        print("No new jobs this run — nothing to send.")
+        print("No new jobs this run, so there is nothing to send.")
         return
 
     # Full rows (with jd) for scoring; last_new_jobs.json only carries the 6 scraped fields.
@@ -252,7 +252,7 @@ def main():
 
         who = username or email
         if not rows:
-            print("  %-16s 0 of %d matched their search — no email." % (who, len(jobs)))
+            print("  %-16s 0 of %d matched their search, so no email." % (who, len(jobs)))
             continue
         html = render_digest(rows, prefs)
         subject = "%d new match%s for your job search" % (len(rows), "" if len(rows) == 1 else "es")
@@ -272,7 +272,7 @@ def main():
             print("  %-16s SEND FAILED (%s)" % (who, str(e)[:120]))
 
     if dry:
-        print("DRY RUN — no mail was sent.")
+        print("DRY RUN. No mail was sent.")
     else:
         print("Done. %d email(s) sent." % sent)
 

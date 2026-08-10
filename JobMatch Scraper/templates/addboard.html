@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Add a job board</h1>
-<p class="sub">Paste a company's careers link. Works for Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle Cloud, Phenom, iCIMS/Jibe, SuccessFactors, UKG/UltiPro, BambooHR, Pinpoint, Rippling, Workable, Recruitee, Breezy, Personio — plus many pages with embedded job data. It joins the next scrape.</p>
+<p class="sub">Paste a company's careers link. Works for Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle Cloud, Phenom, iCIMS/Jibe, SuccessFactors, UKG/UltiPro, BambooHR, Pinpoint, Rippling, Workable, Recruitee, Breezy, Personio, plus many pages with embedded job data. It joins the next scrape.</p>
 {% if result %}
   <div class="result {{ result[0] }}">
     {% if result[0]=='sql' %}
@@ -19,7 +19,7 @@
 <h3>Boards you've added</h3>
 {% for b in boards %}
 <div class="brow">
-  <div><b>{{ b.company or '—' }}</b><br><span class="muted">{{ b.url }}</span></div>
+  <div><b>{{ b.company or 'None' }}</b><br><span class="muted">{{ b.url }}</span></div>
   <span class="muted">{{ b.ats_type }}</span>
   <form method="post" action="{{ url_for('board_delete') }}" class="inline">
     <input type="hidden" name="url" value="{{ b.url }}"><button class="btn" type="submit">Remove</button>

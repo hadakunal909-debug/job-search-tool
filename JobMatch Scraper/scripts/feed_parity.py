@@ -37,6 +37,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
+# Set BEFORE importing web: analytics reads EV_OFF once, at import, into a module constant.
+# Without this a single parity run writes ~7,500 feed_view rows into the production events
+# table under the username "parity". Measured 2026-08-09: those runs were 98.8% of all
+# recorded feed_views, which made every "which filter does anyone use" number meaningless.
+os.environ["EV_OFF"] = "1"
+
 import web                                             # noqa: E402  (needs ROOT on sys.path)
 
 APP_JS = os.path.join(ROOT, "static", "app.js")

@@ -122,7 +122,7 @@ def run_tailor(username, jd_text="", job_url="", company_name="", company_url=""
     if not jd and job_url:
         jd = research.fetch_jd_url(job_url)
         if not jd:
-            notes.append("Couldn't read that job link — paste the description text instead.")
+            notes.append("Couldn't read that job link. Paste the description text instead.")
 
     analysis = analyze.analyze(jd, idf) if jd else None
 
@@ -136,7 +136,7 @@ def run_tailor(username, jd_text="", job_url="", company_name="", company_url=""
             company["domain"] = domain
             db.put_brain_company(domain, company)
         else:
-            notes.append("Couldn't reach the company site — tailoring from the job text only.")
+            notes.append("Couldn't reach the company site, so this is tailored from the job text only.")
 
     resumes = db.list_resumes(username)
     stories = kb.get("stories", [])
@@ -174,7 +174,7 @@ def run_tailor(username, jd_text="", job_url="", company_name="", company_url=""
             "jd_terms": analysis["terms"][:18],
         }
     elif jd == "":
-        notes.append("Add the job description — paste it or pick a job from the feed — then tailor.")
+        notes.append("Add the job description, either by pasting it or picking a job from the feed, then tailor.")
 
     return {"jd": jd, "domain": domain, "company": company, "company_name": company_name,
             "notes": notes, "result": result,

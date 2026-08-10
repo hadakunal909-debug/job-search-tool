@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Sponsor career links</h1>
-<p class="sub">H1B / green-card sponsors (DOL data) with direct apply links — for companies the scraper can't reach (banks, pharma, universities, Oracle/Taleo portals).</p>
+<p class="sub">H-1B and green card sponsors from DOL data, with direct apply links, for companies the scraper can't reach (banks, pharma, universities, Oracle/Taleo portals).</p>
 <form class="filters" method="get">
   <input name="q" value="{{ q }}" placeholder="Filter companies (e.g. university, bank)">
   <button class="btn" type="submit">Search</button>
 </form>
 <div class="careers">
-  {{ body|safe if body else '<p>careers_us.md is missing — run <code>python make_careers.py</code>.</p>' }}
+  {{ body|safe if body else '<p>careers_us.md is missing. Run <code>python make_careers.py</code>.</p>' }}
 </div>
 {% endblock %}

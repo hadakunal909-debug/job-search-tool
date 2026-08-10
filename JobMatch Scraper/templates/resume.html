@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>My résumé</h1>
-<p class="sub">Paste your résumé as plain text. Each job's match % is how many of its key skills your résumé covers — keep it current. Only you can see it. <em>(To label which résumé file you sent on each application, set a default on the <a href="{{ url_for('profile') }}">Profile</a> page.)</em></p>
+<p class="sub">Paste your résumé as plain text. Each job's match % is how many of its key skills your résumé covers, so keep it current. Only you can see it. <em>(To label which résumé file you sent on each application, set a default on the <a href="{{ url_for('profile') }}">Profile</a> page.)</em></p>
 <form method="post">
   <textarea name="resume" rows="22" placeholder="Paste your résumé here…">{{ resume }}</textarea>
   <button class="btn primary" type="submit">Save résumé</button>

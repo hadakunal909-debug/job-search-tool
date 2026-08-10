@@ -767,7 +767,7 @@ VISA_TAG_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "STEM-
 VISA_TAG_TIPS = {
     "h1b": "This employer has certified H-1B labor condition applications. Past filings, "
            "not a promise.",
-    "green_card": "This employer has certified PERM (green card) applications — they sponsor "
+    "green_card": "This employer has certified PERM (green card) applications, so they sponsor "
                   "permanent residency, not just temporary work visas.",
     "stem_opt": "Listed as an enrolled E-Verify employer, which is required for the STEM-OPT "
                 "24-month extension. Confirm at e-verify.gov before relying on it.",
@@ -2088,14 +2088,14 @@ def resume_text_from_upload(filename, data):
     if not data:
         return "", "That file was empty."
     if len(data) > RESUME_UPLOAD_MAX_BYTES:
-        return "", ("That file is %.1f MB — the limit is %d MB."
+        return "", ("That file is %.1f MB. The limit is %d MB."
                     % (len(data) / 1048576.0, RESUME_UPLOAD_MAX_BYTES // 1048576))
     ext = os.path.splitext(name)[1]
     if ext == ".doc":
-        return "", ("Old-style .doc isn't supported — re-save it as .docx or PDF, "
+        return "", ("Old-style .doc isn't supported. Re-save it as .docx or PDF, "
                     "or paste the text below.")
     if ext not in RESUME_UPLOAD_EXTS:
-        return "", "Upload a PDF, .docx, .txt or .md file — or paste the text below."
+        return "", "Upload a PDF, Word or plain text file, or paste the text below."
     try:
         if ext == ".pdf":
             text = _pdf_to_text(data)
@@ -2104,17 +2104,17 @@ def resume_text_from_upload(filename, data):
         else:
             text = data.decode("utf-8", "replace")
     except ImportError:
-        return "", ("This server can't read %s files yet (missing library) — "
+        return "", ("This server can't read %s files yet (missing library). "
                     "paste the text below instead." % ext)
     except Exception:
         # Malformed, encrypted, or not really the format its extension claims.
-        return "", ("Couldn't read that %s — it may be password-protected or corrupted. "
+        return "", ("Couldn't read that %s. It may be password-protected or corrupted. "
                     "Try paste instead." % ext)
     text = re.sub(r"[ \t]+\n", "\n", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if len(text) < 40:
         return "", ("That file had almost no readable text. A scanned or image-only PDF has "
-                    "none to extract — paste the text below instead.")
+                    "none to extract, so paste the text below instead.")
     return text, ""
 
 

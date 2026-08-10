@@ -20,7 +20,7 @@
     }
 
     function show() {
-      var label = "⏱ JobMatch speed — " + location.pathname;
+      var label = "⏱ JobMatch speed: " + location.pathname;
       try {
         if (console.groupCollapsed) console.groupCollapsed(label); else console.log(label);
         if (console.table) console.table(rows); else console.log(rows);

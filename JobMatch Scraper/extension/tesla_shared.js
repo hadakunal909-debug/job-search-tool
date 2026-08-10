@@ -121,7 +121,7 @@ function jmParseTeslaState(d) {
       } catch (e) { return "?"; }
     }
     return { error: "Tesla location lookup failed for " + unresolved + "/" + out.length +
-                    " jobs — not importing to avoid non-US junk. DIAG listing keys=[" +
+                    " jobs, so it is not importing to avoid non-US junk. DIAG listing keys=[" +
                     Object.keys(sample).slice(0, 12).join(",") + "] sample loc=" +
                     JSON.stringify(pick(sample, ["l", "loc", "location", "city", "locations"])).slice(0, 40) +
                     " | lookup " + nodeSample(d.lookup) + " | geo " + nodeSample(d.geo) };
@@ -331,7 +331,7 @@ async function jmRunTeslaImport(opts) {
   const base = jmApiBase(cfg.apibase);
   const last = cfg.tesla_last || {};
   if (trigger !== "manual" && last.ok && Date.now() - (last.at || 0) < JM_THROTTLE_MS) {
-    return { ok: true, note: "ran recently — skipped" };
+    return { ok: true, note: "ran recently, so it was skipped" };
   }
   const finish = async (res) => { res.at = Date.now(); res.trigger = trigger; await jmSet({ tesla_last: res }); return res; };
 
@@ -342,7 +342,7 @@ async function jmRunTeslaImport(opts) {
                           { headers: { Accept: "application/json" }, credentials: "include" });
     if (r.ok) state = await r.json();
     else if (!canTabs) return finish({ ok: false, note: "Tesla returned HTTP " + r.status +
-      " — open tesla.com/careers/search once and it will import automatically." });
+      ". Open tesla.com/careers/search once and it will import automatically." });
   } catch (e) {
     if (!canTabs) return finish({ ok: false, note: "fetch failed: " + e.message });
   }
@@ -352,7 +352,7 @@ async function jmRunTeslaImport(opts) {
       const pr = await jmInTab(viaTab.tabId, jmPageFetchState);
       if (pr && pr.state) state = pr.state;
       else return finish({ ok: false, note: "blocked even via a Tesla tab (" +
-        ((pr && pr.error) || "no data") + ") — browse tesla.com/careers once." });
+        ((pr && pr.error) || "no data") + "). Browse tesla.com/careers once." });
     } catch (e) {
       return finish({ ok: false, note: "tab fallback failed: " + e.message });
     }
@@ -420,7 +420,7 @@ async function jmRunTeslaImport(opts) {
   // dropped tally (new servers send it) makes a 0-added run self-explanatory
   const d = bulk.dropped || {};
   const dropNote = bulk.dropped
-    ? " — dropped: " + (d.title || 0) + " off-target, " + (d.dup || 0) + " already known, " + (d.us || 0) + " non-US"
+    ? ". Dropped: " + (d.title || 0) + " off-target, " + (d.dup || 0) + " already known, " + (d.us || 0) + " non-US"
     : "";
   return finish({ ok: true, added: bulk.added, scanned: bulk.scanned, jds: jdsStored,
                   note: (bulk.added === 0 ? "0 new" + dropNote + " | first parsed: " + sample

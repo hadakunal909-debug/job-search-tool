@@ -3,15 +3,15 @@
 <div class="rb">
 <div class="card">
   <h1>Companies the brain has researched</h1>
-  <p class="muted small">Built automatically when anyone tailors for a company — shared across the
+  <p class="muted small">Built automatically when anyone tailors for a company, and shared across the
     team. Re-research with the “Re-research company” box on the <a href="{{ url_for('brain_home') }}">Tailor</a> page.</p>
 </div>
 
-{% if not companies %}<div class="card muted">Nothing yet — tailor for a company and its research lands here.</div>{% endif %}
+{% if not companies %}<div class="card muted">Nothing yet. Tailor for a company and its research lands here.</div>{% endif %}
 
 {% for c in companies %}
 <details class="card">
-  <summary><strong>{{ c.name or c.domain }}</strong> <span class="muted small">— {{ c.domain }} · {{ c.fetched_at }}</span></summary>
+  <summary><strong>{{ c.name or c.domain }}</strong> <span class="muted small">{{ c.domain }} · {{ c.fetched_at }}</span></summary>
   {% if c.what_they_do %}<p><strong>What they do:</strong> {{ c.what_they_do }}</p>{% endif %}
   {% if c.mission %}<p><strong>Mission:</strong> {{ c.mission }}</p>{% endif %}
   {% if c.about %}<p>{{ c.about }}</p>{% endif %}

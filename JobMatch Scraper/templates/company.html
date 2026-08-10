@@ -26,12 +26,12 @@
       <div class="kw cochips">
         {% for k in info.visa %}<span class="vt vt-{{ k }}">{{ visa_labels[k] }}</span>{% endfor %}
         {% if info.strength == 'high' %}<span class="vt vt-h1b">~{{ '{:,}'.format(info.strength_n) }} H-1B approvals FY2019-23</span>{% endif %}
-        {% if info.cap_exempt %}<span class="cx">Likely cap-exempt — no H-1B lottery</span>{% endif %}
+        {% if info.cap_exempt %}<span class="cx">Likely cap-exempt, no H-1B lottery</span>{% endif %}
         {% if info.agency %}<span class="agency">Staffing agency</span>{% endif %}
       </div>
       {# Load-bearing, same invariant core.py documents for the rail note on the feed: without
          the second clause a missing route reads as "this employer refused", which it isn't. #}
-      <p class="fnote">From past federal filings — a route not shown means no record, not a refusal.</p>
+      <p class="fnote">These come from past federal filings. If a route is not shown there is no record of it, which is not a refusal.</p>
       {% endif %}
       <button type="button" id="cobtn" class="btn sm">More about this employer</button>
     </div>
@@ -46,7 +46,7 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cotitle">
     <div class="modal-head">
       <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}</div>
-      <div style="flex:1;min-width:0">
+      <div class="u-grow-min">
         <h2 id="cotitle">{{ info.name }}</h2>
         <div class="cmeta">{{ info.n }} open role{{ '' if info.n == 1 else 's' }} in your feed</div>
       </div>
@@ -66,7 +66,7 @@
       <div class="sechdr">Sponsorship history</div>
       <div class="costats">
         <div class="costat">
-          <b>{{ '{:,}'.format(info.strength_n) if info.strength_n else '—' }}</b>
+          <b>{{ '{:,}'.format(info.strength_n) if info.strength_n else 'None' }}</b>
           <span>H-1B approvals<br>FY2019-23</span></div>
         <div class="costat"><b>{{ about.jd_open }}</b><span>current roles that<br>offer sponsorship</span></div>
         <div class="costat"><b>{{ about.jd_blocked }}</b><span>current roles that<br>rule it out</span></div>
@@ -75,14 +75,14 @@
       {% if info.visa %}
       <div class="kw">
         {% for k in info.visa %}<span class="vt vt-{{ k }}" title="{{ visa_tips[k] }}">{{ visa_labels[k] }}</span>{% endfor %}
-        {% if info.cap_exempt %}<span class="cx">Likely cap-exempt — no H-1B lottery</span>{% endif %}
+        {% if info.cap_exempt %}<span class="cx">Likely cap-exempt, no H-1B lottery</span>{% endif %}
       </div>
       {% endif %}
       {% if about.bars %}
       <div class="cochart" role="img"
            aria-label="H-1B approvals by fiscal year, {{ about.hist_from }} to {{ about.hist_to }}">
         {% for b in about.bars %}
-        <div class="cobar" title="FY{{ b.year }} — {{ '{:,}'.format(b.n) }} approval{{ '' if b.n == 1 else 's' }}">
+        <div class="cobar" title="FY{{ b.year }}, {{ '{:,}'.format(b.n) }} approval{{ '' if b.n == 1 else 's' }}">
           <div class="cobar-fill" style="height:{{ b.pct }}%"></div>
           <span class="cobar-y">{{ b.year % 100 }}</span>
         </div>
@@ -97,7 +97,7 @@
       {# The three route facts come from different files with different shapes, so the panel
          says which is which rather than letting a reader assume the chart covers all of it. #}
       <p class="fnote">Route chips above come from DOL LCA and PERM disclosure files, which record
-        no counts and no dates — a chip means "has filed", never "how often". The three current
+        no counts and no dates. A chip means "has filed", never "how often". The three current
         figures are read from these postings' own text and are the freshest signal here.</p>
 
       <div class="sechdr">What they hire for</div>
@@ -138,7 +138,7 @@
 
       {% if not about.researched %}
       <div class="sechdr">Company research</div>
-      <p class="coprose">Nothing researched for this employer yet — what they do, their mission,
+      <p class="coprose">Nothing researched for this employer yet. What they do, their mission,
         values and initiatives come from Resume Brain, which crawls a company's own site the
         first time you tailor a résumé for them.
         <a href="{{ url_for('brain_home') }}">Tailor for {{ info.name }}</a> and it lands here.

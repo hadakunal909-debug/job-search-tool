@@ -20,7 +20,7 @@
                      "e3": "E-3", "h1b1": "H-1B1"};
   var VISA_TIPS = {
     "h1b": "Has certified H-1B labor condition applications. Past filings, not a promise.",
-    "green_card": "Has certified PERM applications — sponsors permanent residency, not just temporary visas.",
+    "green_card": "Has certified PERM applications, so they sponsor permanent residency, not just temporary visas.",
     "stem_opt": "Enrolled E-Verify employer, required for the STEM-OPT 24-month extension. Confirm at e-verify.gov.",
     "e3": "Has filed E-3 applications (Australian nationals).",
     "h1b1": "Has filed H-1B1 applications (Chile / Singapore nationals)."
@@ -172,9 +172,9 @@
     // 62-64% rings derived from somebody else's CV, drawn identically to a real match. A
     // number that looks personalised and isn't is worse than no number.
     if (!HAS_RESUME)
-      return '<span class="score-none" title="Add your résumé to see how well each job matches you — until then there is nothing to compare against.">–</span>';
+      return '<span class="score-none" title="Add your résumé to see how well each job matches you. Until then there is nothing to compare against.">·</span>';
     if (j && j.score_pending)
-      return '<span class="score-pending" title="This description is too short to score reliably yet — it\'ll get a match score once the full job description is fetched.">JD pending</span>';
+      return '<span class="score-pending" title="This description is too short to score reliably yet. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);
   }
   function toast(msg, undoFn) {
@@ -618,7 +618,7 @@
       if (countEl) countEl.textContent = jobs;
       if (emptyEl) emptyEl.style.display = jobs ? "none" : "";
       if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + (jobs - shown) + " more)"; }
-    }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">Couldn\'t load jobs — try again.</div>'; });
+    }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">We couldn\'t load jobs. Try again.</div>'; });
   }
 
   function debouncedRender() { if (_deb) clearTimeout(_deb); _deb = setTimeout(function () { render(true); }, 250); }
@@ -635,7 +635,7 @@
   function doAction(url, next) {
     return fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next }) })
       .then(function (r) { return r.json(); }).then(function (j) {
-        if (!j || !j.ok) { toast("Couldn't save — try again."); return false; }
+        if (!j || !j.ok) { toast("Couldn't save. Try again."); return false; }
         return true;
       }).catch(function () { toast("Network error."); return false; });
   }
@@ -831,7 +831,7 @@
       body: JSON.stringify(body)
     }).then(function (r) { return r.json(); }).then(function (d) {
       savePrefsBtn.disabled = false;
-      if (d && d.ok) toast(d.note ? "Saved — " + d.note : "Saved as your default search.");
+      if (d && d.ok) toast(d.note ? "Saved. " + d.note : "Saved. This is now your default search and your daily email.");
       else toast("Couldn't save: " + ((d && d.error) || "unknown error"));
     }).catch(function () {
       savePrefsBtn.disabled = false;
@@ -858,7 +858,7 @@
           collapseCard(card, function () { afterAction(j); });
           toast("Hidden", function () {
             doAction(j.url, cur).then(function (ok2) {
-              if (!ok2) { toast("Couldn't undo — try again."); return; }
+              if (!ok2) { toast("Couldn't undo. Try again."); return; }
               j.status = cur; render(true);
             });
           });
@@ -1117,9 +1117,9 @@
     var mm = $("m-meta");
     mm.innerHTML = metaHTML(byUrl[mUrl]);
     formatDates(mm);
-    $("m-chip").innerHTML = '<span class="skel skel-chip"></span>';
-    $("m-skills").innerHTML = '<div class="skel-row"><span class="skel skel-tag"></span><span class="skel skel-tag"></span><span class="skel skel-tag" style="width:88px"></span></div>' +
-      '<span class="skel skel-bar w75"></span><span class="skel skel-bar w55"></span>';
+    $("m-chip").innerHTML = '<span class="shim shim-chip"></span>';
+    $("m-skills").innerHTML = '<div class="shim-row"><span class="shim shim-tag"></span><span class="shim shim-tag"></span><span class="shim shim-tag" style="width:88px"></span></div>' +
+      '<span class="shim shim-bar w75"></span><span class="shim shim-bar w55"></span>';
     $("m-jd").innerHTML = '<div class="loading-jd"><span class="spin"></span>Loading description…</div>';
     $("m-apply").href = /^https?:\/\//i.test(mUrl) ? mUrl : "#";
     $("m-tailor").href = "/brain?job=" + encodeURIComponent(mUrl);
@@ -1152,7 +1152,7 @@
       for (var mi = 0; mi < mvt.length; mi++)
         spn += '<span class="vt vt-' + H(mvt[mi]) + '" title="' + H(VISA_TIPS[mvt[mi]] || "") +
           '">' + esc(VISA_LABELS[mvt[mi]] || mvt[mi]) + '</span>';
-      if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt — no H-1B lottery</span>';
+      if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt, no H-1B lottery</span>';
       if (j.agency) spn += '<span class="agency">Agency</span>';
       // Fixed label, specific reason in the tooltip — the same shape cardHTML uses, so the card
       // and the panel can never word this differently. The label is decided HERE rather than by
@@ -1171,7 +1171,7 @@
       skEl.style.opacity = "0"; jdEl.style.opacity = "0";
       skEl.innerHTML = sk;
       jdEl.innerHTML = jdHTML(j.jd) ||
-        "<p>" + esc("No description stored — click Apply to read it on the company site.") + "</p>";
+        "<p>" + esc("No description stored. Click Apply to read it on the company site.") + "</p>";
       requestAnimationFrame(function () {
         skEl.style.transition = "opacity .25s"; skEl.style.opacity = "1";
         jdEl.style.transition = "opacity .25s"; jdEl.style.opacity = "1";
@@ -1249,13 +1249,13 @@
     if (ph === "queued") { indet(true); sLabel.textContent = "Starting the scrape on GitHub…"; sMeta.textContent = el; }
     else if (ph === "scraping") {
       indet(false); sFill.style.width = (pct != null ? pct : 5) + "%";
-      sLabel.textContent = "Scraping job boards" + (pct != null ? " — " + pct + "%" : "…");
+      sLabel.textContent = "Scraping job boards" + (pct != null ? ", " + pct + "%" : "…");
       var eta = (pct && elapsed && done > 0) ? " · ~" + fmtClock(elapsed * (total - done) / done) + " left" : "";
       sMeta.textContent = (total ? done + "/" + total + " boards · " : "") + found + " jobs" + (el ? " · " + el : "") + eta;
     }
     else if (ph === "saving") { indet(true); sLabel.textContent = "Saving " + found + " postings…"; sMeta.textContent = el; }
     else if (ph === "scoring") { indet(true); sLabel.textContent = "Scoring jobs to your profile…"; sMeta.textContent = (st.new ? st.new + " new · " : "") + el; }
-    else if (ph === "done") { indet(false); sFill.style.width = "100%"; sLabel.textContent = "Done — " + (st.new || 0) + " new job" + ((st.new || 0) === 1 ? "" : "s") + " added."; sMeta.textContent = "Refreshing…"; return "done"; }
+    else if (ph === "done") { indet(false); sFill.style.width = "100%"; sLabel.textContent = "Done. " + (st.new || 0) + " new job" + ((st.new || 0) === 1 ? "" : "s") + " added."; sMeta.textContent = "Refreshing…"; return "done"; }
     return true;
   }
   function refreshFeedAfterScrape() {
