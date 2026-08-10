@@ -825,16 +825,25 @@
       track: trackSel ? trackSel.value : "any",
       date: dateSel ? dateSel.value : "any", sort: sortBy
     };
+    function doneSaving() {
+      savePrefsBtn.disabled = false;
+      savePrefsBtn.classList.remove("is-loading");
+      savePrefsBtn.removeAttribute("aria-busy");
+    }
+    // Loading, not just disabled. A disabled button and a dead button look identical, and
+    // this one posts the whole toolbar, so on a slow connection it read as broken.
     savePrefsBtn.disabled = true;
+    savePrefsBtn.classList.add("is-loading");
+    savePrefsBtn.setAttribute("aria-busy", "true");
     fetch("/prefs", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }).then(function (r) { return r.json(); }).then(function (d) {
-      savePrefsBtn.disabled = false;
+      doneSaving();
       if (d && d.ok) toast(d.note ? "Saved. " + d.note : "Saved. This is now your default search and your daily email.");
       else toast("Couldn't save: " + ((d && d.error) || "unknown error"));
     }).catch(function () {
-      savePrefsBtn.disabled = false;
+      doneSaving();
       toast("Couldn't save your default search.");
     });
   });

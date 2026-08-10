@@ -56,6 +56,10 @@ TEXT_PAIRS = [
     # The match ramp is read as a value ramp, so only the ends carry meaning as text.
     ("--match-strong", "--bg-surface"),
     ("--match-good", "--bg-surface"),
+    # The tooltip is an INVERTED bubble: it paints --text-primary as its background and
+    # --bg-surface as its text, so the pair has to be checked in that order or the one
+    # surface in the app that reverses the ramp goes unchecked.
+    ("--bg-surface", "--text-primary"),
 ]
 
 # Boundaries of real controls: inputs, buttons, the focus ring's companion border.

@@ -51,12 +51,12 @@
     <div class="psec">Work-authorization timeline <span class="dim">optional, and it powers deadline reminders. Nothing here is sent to employers.</span></div>
     {# Liability copy. The "these are just dates and the reminders are arithmetic" opener went —
        it restated the heading — but the disclaimer itself stays intact. Don't trim further. #}
-    <label class="full dim u-text-2xs">
+    <div class="full callout legal">
       <b>Not immigration advice.</b> These reminders confirm nothing about your eligibility.
       Check with your school's international-student office (DSO) and
       <a href="https://www.uscis.gov" target="_blank" rel="noopener">uscis.gov</a>; the rules and
       the exact H-1B dates change every year.
-    </label>
+    </div>
     <label>Program end date <span class="dim">(graduation)</span>
       <input name="program_end_date" type="date" value="{{ prof.program_end_date or '' }}"></label>
     {# The legend under this control existed only because the two options read "opt" and "stem".
