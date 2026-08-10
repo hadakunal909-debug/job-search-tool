@@ -1291,77 +1291,92 @@ _DEV_TITLE_RE = re.compile(r"""\b(?:
 # A title may match several families on purpose — a "Technical Program Manager" is both, and
 # someone who ticked either should see it. Matching is whole-phrase and case-insensitive, so
 # "Project Management" does not make everything a Project Manager.
+# Sections, so 22 options read as four short lists instead of one long one. Order is the order
+# they render in.
+ROLE_GROUPS = [("deliver", "Product, Program & Delivery"),
+               ("eng", "Engineering"),
+               ("data", "Data & AI"),
+               ("biz", "Business & Operations")]
 ROLE_FAMILIES = [
-    ("swe",        "Software Engineer",        # 2144 + 444 + 75 + 63 + 122 + 70 + 44
+    ("pm",         "Project Manager",       "deliver",   # 954 + 169 + 43
+     ("project manager", "project management", "construction project manager",
+      "technical project manager", "project lead", "project controls")),
+    ("program",    "Program Manager",       "deliver",   # 518 + 347 + 50
+     ("program manager", "technical program manager", "program management", "tpm")),
+    ("product",    "Product Manager",       "deliver",   # 905 + 57 + 52
+     ("product manager", "technical product manager", "product owner",
+      "associate product manager", "product management")),
+    ("coordinator", "Project / Program Coordinator", "deliver",   # 126 + 50
+     ("project coordinator", "program coordinator", "operations coordinator",
+      "project administrator")),
+    ("scrum",      "Scrum Master / Agile",  "deliver",
+     ("scrum master", "agile coach", "release train engineer")),
+    ("consultant", "Implementation / Solutions Consultant", "deliver",
+     ("implementation consultant", "implementation specialist", "implementation manager",
+      "solutions consultant", "solutions architect", "technical consultant")),
+
+    ("swe",        "Software Engineer",     "eng",       # 2144 + 444 + 75 + 63 + 122 + 70 + 44
      ("software engineer", "software developer", "software development engineer",
       "software dev engineer", "sde", "full stack developer", "fullstack developer",
       "backend engineer", "back end engineer", "frontend engineer", "front end engineer",
       "embedded software engineer", "platform software engineer", "application developer",
       "web developer")),
-    ("pm",         "Project Manager",          # 954 + 169 + 43
-     ("project manager", "project management", "construction project manager",
-      "technical project manager", "project lead", "project controls")),
-    ("product",    "Product Manager",          # 905 + 57 + 52
-     ("product manager", "technical product manager", "product owner",
-      "associate product manager", "product management")),
-    ("program",    "Program Manager",          # 518 + 347 + 50
-     ("program manager", "technical program manager", "program management", "tpm")),
-    ("coordinator", "Project / Program Coordinator",   # 126 + 50
-     ("project coordinator", "program coordinator", "operations coordinator",
-      "project administrator")),
-    ("ops",        "Operations Manager",       # 381 + 70
-     ("operations manager", "operations lead", "branch operations", "business operations",
-      "operations supervisor")),
-    ("dataeng",    "Data Engineer",            # 282
+    ("devops",     "DevOps / SRE",          "eng",       # 114 + 129 + 41 + 41
+     ("devops engineer", "site reliability engineer", "sre", "platform engineer",
+      "infrastructure engineer", "cloud engineer", "devsecops engineer")),
+    ("qa",         "QA / Test Engineer",    "eng",       # 130 + 88
+     ("qa engineer", "test engineer", "quality assurance engineer", "automation engineer",
+      "test automation engineer", "sdet")),
+    ("security",   "Security Engineer",     "eng",       # 78
+     ("security engineer", "application security", "information security analyst",
+      "cybersecurity analyst", "security analyst")),
+    ("systems",    "Systems Engineer",      "eng",       # 373
+     ("systems engineer", "system engineer", "systems analyst", "solutions engineer")),
+    ("network",    "Network Engineer",      "eng",       # 76
+     ("network engineer", "network administrator", "systems administrator")),
+    ("apps",       "Applications Engineer", "eng",       # 44
+     ("applications engineer", "application engineer", "field applications engineer")),
+    ("engmgr",     "Engineering Manager",   "eng",       # 50
+     ("engineering manager", "software engineering manager", "development manager",
+      "technical lead", "tech lead")),
+
+    ("dataeng",    "Data Engineer",         "data",      # 282
      ("data engineer", "analytics engineer", "etl developer", "data platform engineer")),
-    ("datasci",    "Data Scientist",           # 238 + 101
+    ("datasci",    "Data Scientist",        "data",      # 238 + 101
      ("data scientist", "applied scientist", "research scientist", "data science")),
-    ("dataanalyst", "Data Analyst",            # 86
+    ("dataanalyst", "Data Analyst",         "data",      # 86
      ("data analyst", "analytics analyst", "reporting analyst", "bi analyst",
       "business intelligence analyst")),
-    ("ml",         "Machine Learning / AI Engineer",   # 169 + 73 + 60
+    ("ml",         "Machine Learning / AI", "data",      # 169 + 73 + 60
      ("machine learning engineer", "ml engineer", "ai engineer", "deep learning engineer",
       "computer vision engineer", "nlp engineer", "mlops engineer",
       "artificial intelligence engineer")),
-    ("ba",         "Business Analyst",         # 198
+
+    ("ba",         "Business Analyst",      "biz",       # 198
      ("business analyst", "business systems analyst", "business process analyst")),
-    ("finance",    "Financial Analyst",        # 328
+    ("ops",        "Operations Manager",    "biz",       # 381 + 70
+     ("operations manager", "operations lead", "branch operations", "business operations",
+      "operations supervisor")),
+    ("finance",    "Financial Analyst",     "biz",       # 328
      ("financial analyst", "finance analyst", "fp&a analyst", "budget analyst")),
-    ("systems",    "Systems Engineer",         # 373
-     ("systems engineer", "system engineer", "systems analyst", "solutions engineer")),
-    ("devops",     "DevOps / SRE",             # 114 + 129 + 41 + 41
-     ("devops engineer", "site reliability engineer", "sre", "platform engineer",
-      "infrastructure engineer", "cloud engineer", "devsecops engineer")),
-    ("qa",         "QA / Test Engineer",       # 130 + 88
-     ("qa engineer", "test engineer", "quality assurance engineer", "automation engineer",
-      "test automation engineer", "sdet")),
-    ("security",   "Security Engineer",        # 78
-     ("security engineer", "application security", "information security analyst",
-      "cybersecurity analyst", "security analyst")),
-    ("network",    "Network Engineer",         # 76
-     ("network engineer", "network administrator", "systems administrator")),
-    ("engmgr",     "Engineering Manager",      # 50
-     ("engineering manager", "software engineering manager", "development manager",
-      "technical lead", "tech lead")),
-    ("apps",       "Applications Engineer",    # 44
-     ("applications engineer", "application engineer", "field applications engineer")),
-    ("supply",     "Supply Chain / Logistics", # 54
+    ("supply",     "Supply Chain / Logistics", "biz",    # 54
      ("supply chain manager", "supply chain analyst", "logistics manager",
       "procurement analyst", "supply chain")),
-    ("scrum",      "Scrum Master / Agile",
-     ("scrum master", "agile coach", "release train engineer")),
-    ("consultant", "Implementation / Solutions Consultant",
-     ("implementation consultant", "implementation specialist", "implementation manager",
-      "solutions consultant", "solutions architect", "technical consultant")),
 ]
-ROLE_KEYS = tuple(k for k, _lab, _p in ROLE_FAMILIES)
-ROLE_LABELS = {k: lab for k, lab, _p in ROLE_FAMILIES}
+ROLE_KEYS = tuple(k for k, _l, _g, _p in ROLE_FAMILIES)
+ROLE_LABELS = {k: lab for k, lab, _g, _p in ROLE_FAMILIES}
 # One whole-phrase regex per family, alternatives longest-first so the most specific wins the
 # match position. Built once: this runs over every row of the corpus on a feed render.
 _ROLE_RES = {k: re.compile(r"\b(?:%s)\b" % "|".join(
     re.escape(p) for p in sorted(phr, key=len, reverse=True)), re.I)
-    for k, _lab, phr in ROLE_FAMILIES}
+    for k, _lab, _g, phr in ROLE_FAMILIES}
 _role_cache = {}
+
+
+def role_families_grouped():
+    """[(group_key, group_label, [(key, label, phrases), ...]), ...] in render order."""
+    return [(g, lab, [(k, l, p) for k, l, gg, p in ROLE_FAMILIES if gg == g])
+            for g, lab in ROLE_GROUPS]
 
 
 def roles_for_title(title):

@@ -541,7 +541,6 @@
       setFlag(vbox[vb].closest(".ck"), vbox[vb].checked);
     setFlag(hideNo && hideNo.closest(".ck"), hideNo && hideNo.checked);
     setFlag(verifiedOnly && verifiedOnly.closest(".ck"), verifiedOnly && verifiedOnly.checked);
-    if (typeof syncRoles === "function") syncRoles();   // keeps the rail button label honest
     setFlag(remoteOnly && remoteOnly.closest(".ck"), remoteOnly && remoteOnly.checked);
     setFlag(minSalSel, minSalSel && minSalSel.value);
     setFlag(locInp, locInp && locInp.value.trim());
@@ -694,115 +693,12 @@
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   if (verifiedOnly) verifiedOnly.addEventListener("change", function () { render(true); });
 
-  // ---- role picker -------------------------------------------------------------------
-  // Shared by the feed's modal and onboarding step 3 (templates/_rolepicker.html), so this
-  // runs on both pages. On the wizard there is no modal and no rail button — every lookup
-  // below is guarded, and the hidden #roles input is submitted with the form instead.
-  var rolePick = document.querySelector(".rolepick"),
-      roleList = document.getElementById("rolelist"),
-      roleFind = document.getElementById("rolefind"),
-      roleNone = document.getElementById("rolenone"),
-      roleNEl = document.getElementById("rolen"),
-      roleBtnT = document.getElementById("rolebtn-t"),
-      roleBadge = document.getElementById("rolebadge"),
-      roleModal = document.getElementById("rolemodal"),
-      ROLE_MAX = rolePick ? (parseInt(rolePick.getAttribute("data-max"), 10) || 6) : 6;
-
-  function roleBoxes() {
-    return rolePick ? rolePick.querySelectorAll(".roleopt") : [];
-  }
-  function syncRoles() {
-    if (!rolePick || !rolesSel) return;
-    var on = [], boxes = roleBoxes();
-    for (var i = 0; i < boxes.length; i++) {
-      var cb = boxes[i].querySelector("input");
-      boxes[i].classList.toggle("on", cb.checked);
-      if (cb.checked) on.push(boxes[i].getAttribute("data-role"));
-    }
-    rolesSel.value = on.join(",");
-    // At the cap the unticked options go quiet rather than vanishing, so the limit reads as a
-    // state instead of options mysteriously disappearing.
-    rolePick.classList.toggle("full", on.length >= ROLE_MAX);
-    for (var k = 0; k < boxes.length; k++) {
-      var b = boxes[k].querySelector("input");
-      b.disabled = !b.checked && on.length >= ROLE_MAX;
-    }
-    if (roleNEl) roleNEl.textContent = on.length;
-    // The rail button reads as the CURRENT SELECTION, so the rail says what is on without
-    // anyone opening the dialog.
-    if (roleBtnT) {
-      var labs = [];
-      for (var m = 0; m < boxes.length; m++)
-        if (boxes[m].querySelector("input").checked)
-          labs.push(boxes[m].querySelector(".rolelab").textContent.trim());
-      roleBtnT.textContent = !labs.length ? "All roles"
-        : (labs.length <= 2 ? labs.join(", ") : labs[0] + " +" + (labs.length - 1) + " more");
-    }
-    if (roleBadge) { roleBadge.textContent = on.length; roleBadge.hidden = !on.length; }
-    var ob = document.getElementById("roleopen");
-    if (ob) ob.classList.toggle("fset", !!on.length);
-  }
-  if (roleList) roleList.addEventListener("change", function (e) {
-    if (!e.target || e.target.type !== "checkbox") return;
-    syncRoles();
-    if (roleModal) return;              // in the modal, apply on "Show these roles"
-    if (typeof render === "function") render(true);   // the wizard has no feed to re-render
-  });
-  if (roleFind) roleFind.addEventListener("input", function () {
-    var q = roleFind.value.trim().toLowerCase(), boxes = roleBoxes(), shown = 0;
-    for (var i = 0; i < boxes.length; i++) {
-      // data-find carries the family's phrases as well as its label, so "sde" or "tpm" finds
-      // the right row even though neither word is in the visible text.
-      var hit = !q || (boxes[i].getAttribute("data-find") || "").indexOf(q) >= 0;
-      boxes[i].hidden = !hit;
-      if (hit) shown++;
-    }
-    if (roleNone) roleNone.hidden = !!shown;
-  });
-  // Mark families with nothing live, without hiding them: "0" is the useful answer.
-  (function () {
-    var boxes = roleBoxes();
-    for (var i = 0; i < boxes.length; i++) {
-      var n = boxes[i].querySelector(".rolen");
-      if (n && n.textContent.trim() === "0") boxes[i].classList.add("empty");
-    }
-    syncRoles();
-  })();
-
-  function openRoles() {
-    if (!roleModal) return;
-    roleModal.classList.add("open");
-    document.body.style.overflow = "hidden";
-    if (roleFind) roleFind.focus();
-  }
-  function closeRoles() {
-    if (!roleModal) return;
-    roleModal.classList.remove("open");
-    document.body.style.overflow = "";
-  }
-  var roleOpenBtn = document.getElementById("roleopen");
-  if (roleOpenBtn) roleOpenBtn.addEventListener("click", openRoles);
-  var roleCloseBtn = document.getElementById("roleclose");
-  if (roleCloseBtn) roleCloseBtn.addEventListener("click", closeRoles);
-  var roleDoneBtn = document.getElementById("roledone");
-  if (roleDoneBtn) roleDoneBtn.addEventListener("click", function () {
-    closeRoles(); EV("roles_set", { n: rolesWanted().length }); render(true);
-  });
-  var roleClearBtn = document.getElementById("roleclear");
-  if (roleClearBtn) roleClearBtn.addEventListener("click", function () {
-    var boxes = roleBoxes();
-    for (var i = 0; i < boxes.length; i++) boxes[i].querySelector("input").checked = false;
-    if (roleFind) { roleFind.value = ""; for (var k = 0; k < boxes.length; k++) boxes[k].hidden = false; }
-    if (roleNone) roleNone.hidden = true;
-    syncRoles();
-  });
-  if (roleModal) roleModal.addEventListener("click", function (e) {
-    if (e.target === roleModal) { closeRoles(); render(true); }
-  });
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && roleModal && roleModal.classList.contains("open")) {
-      closeRoles(); render(true);
-    }
+  // The picker itself lives in static/rolepick.js, because it renders on the onboarding wizard
+  // too and this file is only loaded on the feed. It owns #roles and tells us when it changed;
+  // we only ever read the value. Neither file needs the other to exist.
+  document.addEventListener("roles:change", function (e) {
+    EV("roles_set", { n: ((e.detail && e.detail.roles) || []).length });
+    render(true);
   });
   // Location is free text, so debounce it like the search box rather than firing per keystroke.
   if (locInp) locInp.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
@@ -895,12 +791,10 @@
     if (visaSel) visaSel.value = "";
     if (hideNo) hideNo.checked = false;
     if (verifiedOnly) verifiedOnly.checked = false;
-    if (rolesSel) {
-      var rclr = document.querySelectorAll(".roleopt input");
-      for (var rc = 0; rc < rclr.length; rc++) rclr[rc].checked = false;
-      rolesSel.value = "";
-      if (typeof syncRoles === "function") syncRoles();
-    }
+    // Roles are owned by rolepick.js; clicking its own Clear keeps the tiles, the counter and
+    // the rail button in step, which reaching in here from the outside would not.
+    var rclr = document.getElementById("roleclear");
+    if (rclr) rclr.click();
     if (remoteOnly) remoteOnly.checked = false;
     if (hideAgency) hideAgency.checked = false;
     if (showClosed) showClosed.checked = false;

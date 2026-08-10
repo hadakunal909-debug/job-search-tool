@@ -114,8 +114,16 @@ def test_verifiedonly_is_a_real_pref_and_defaults_off():
     assert core.normalize_prefs({"verifiedonly": "junk"})["verifiedonly"] is False
     # FEED ONLY. prefs_match drives the email, and every digest candidate is a job we just
     # found — applying this there would empty the digest rather than filter it.
+    #
+    # Asserts the pref is never READ, not that the word is absent: the roles clause added later
+    # names verifiedonly in a comment explaining why roles, unlike this, DO belong in the
+    # digest — and a test that can't tell code from prose fails on a comment.
     import inspect
-    assert "verifiedonly" not in inspect.getsource(core.prefs_match)
+    src = inspect.getsource(core.prefs_match)
+    assert 'p.get("verifiedonly")' not in src and "p.get('verifiedonly')" not in src
+    # ...and prove the filter genuinely doesn't apply there, rather than trusting the grep.
+    row = {"score": 99, "visa": (), "date_trusted": False, "roles": ["pm"], "title": "PM"}
+    assert core.prefs_match(row, core.normalize_prefs({"min": 0, "verifiedonly": "1"})) is True
 
 
 # --- the Workday plumbing -------------------------------------------------------------

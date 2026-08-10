@@ -91,8 +91,10 @@
     <p class="sub">Tick everything that fits. This shapes what the feed puts in front of you —
       it never hides the rest.</p>
     {# The same picker the feed uses, so what you choose here is editable later from exactly
-       one place and there is no second list to keep in step. #}
-    {% include "_rolepicker.html" %}
+       one place and there is no second list to keep in step. form_post makes the checkboxes
+       submit themselves — this page has no app.js, and relying on JS to fill a hidden input
+       was what made the first version save nothing. #}
+    {% with form_post = True %}{% include "_rolepicker.html" %}{% endwith %}
 
   {% elif step == 4 %}
     <h1>Any companies in mind?</h1>
@@ -135,4 +137,7 @@
       {{ 'Finish' if step == steps else 'Continue' }}</button>
   </div>
 </form>
+{# Search, the six-pick cap and the live counter. The picker WORKS without it — the checkboxes
+   post themselves — so a load failure costs polish, not the answer. #}
+<script src="{{ static_v('rolepick.js') }}"></script>
 {% endblock %}

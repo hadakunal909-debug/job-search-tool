@@ -101,11 +101,21 @@ for step, marker in [(1, "First name"), (2, "Work authorization"), (3, "What are
     body = c.get("/welcome?step=%d" % step).data.decode("utf-8", "replace")
     check("step %d" % step, marker in body)
     if step == 3:
-        check("  ...renders the shared role picker",
-              'class="rolepick"' in body and 'id="roles"' in body)
-        check("  ...with live corpus counts beside each family", 'class="rolen"' in body)
-        check("  ...and every family from core", all(
+        check("  ...renders the shared role picker", 'class="rolepick' in body)
+        # THE bug this replaced: the picker relied on JS to copy ticked boxes into a hidden
+        # input, but app.js only loads on the feed. On the wizard nothing synced, the counter
+        # read "0 of 6" with four boxes ticked, and the submitted roles were empty. The
+        # checkboxes must post themselves.
+        check("  ...checkboxes POST themselves, no JS required",
+              'name="roles"' in body and 'type="checkbox"' in body)
+        check("  ...and there is no hidden #roles to go stale", 'id="roles"' not in body)
+        check("  ...with live corpus counts on each tile", 'class="rolen"' in body)
+        check("  ...every family from core", all(
             ('data-role="%s"' % k) in body for k in core.ROLE_KEYS))
+        check("  ...grouped into sections", all(
+            ('data-group="%s"' % g) in body for g, _lab in core.ROLE_GROUPS))
+        check("  ...and loads the picker script for search and the cap",
+              "rolepick.js" in body)
     if step == 2:
         check("  ...carries the not-advice wording", "Not immigration advice" in body)
         check("  ...and points at the DSO and uscis.gov", "DSO" in body and "uscis.gov" in body)
