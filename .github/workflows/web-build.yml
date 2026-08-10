@@ -48,8 +48,11 @@ jobs:
       # Types first: a type error should fail before a bundle is written, not after.
       - run: npm run build
 
+      # --if-present guards a MISSING script, not an empty suite. This script exists, so vitest
+      # ran on a workspace with no test files and exited 1, which failed the first CI run of
+      # this workflow. The --passWithNoTests flag in package.json is the actual guard.
       - name: unit tests
-        run: npm test --if-present
+        run: npm test
 
       # THE point of this workflow. A committed bundle that does not match its source is a
       # deploy that ships something nobody reviewed.
