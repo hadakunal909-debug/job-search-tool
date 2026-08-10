@@ -1,0 +1,77 @@
+name: web build
+
+# Verifies the React island bundle. It NEVER commits anything.
+#
+# The bundle is committed to the repo by hand, because cPanel deploys on push and runs no build
+# step: the template that references a hashed filename and the file itself have to arrive in the
+# same commit, or every front-end deploy serves a white screen for the minute or two until CI
+# catches up.
+#
+# The trade is that a stale bundle could be committed by mistake. The `git diff --exit-code`
+# step below closes exactly that hole: it rebuilds from source and fails if the result differs
+# from what was committed. Same guarantee as building in CI, without the deploy race.
+#
+# Deliberately its own workflow rather than a job in scrape.yml, which runs on a metered cron
+# budget (see jobmatch-scrape-run-budget: the free Actions minutes have been hit before).
+
+on:
+  push:
+    paths:
+      - 'JobMatch Scraper/web/**'
+      - 'JobMatch Scraper/static/dist/**'
+      - '.github/workflows/web-build.yml'
+  pull_request:
+    paths:
+      - 'JobMatch Scraper/web/**'
+      - 'JobMatch Scraper/static/dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 'JobMatch Scraper/web'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'JobMatch Scraper/web/.nvmrc'
+          cache: npm
+          cache-dependency-path: 'JobMatch Scraper/web/package-lock.json'
+
+      - run: npm ci
+
+      # Types first: a type error should fail before a bundle is written, not after.
+      - run: npm run build
+
+      - name: unit tests
+        run: npm test --if-present
+
+      # THE point of this workflow. A committed bundle that does not match its source is a
+      # deploy that ships something nobody reviewed.
+      - name: committed bundle matches source
+        working-directory: .
+        run: |
+          if ! git diff --exit-code -- "JobMatch Scraper/static/dist"; then
+            echo "::error::static/dist is stale. Run 'npm run build' in JobMatch Scraper/web and commit the result."
+            exit 1
+          fi
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: install
+        working-directory: 'JobMatch Scraper'
+        run: pip install -r requirements-cpanel.txt
+      # No secrets: these two read no database and are safe on a fork PR.
+      - name: contrast gate
+        working-directory: 'JobMatch Scraper'
+        run: python scripts/test_contrast.py
