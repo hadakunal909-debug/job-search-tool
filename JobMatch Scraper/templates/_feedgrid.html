@@ -15,6 +15,9 @@
 <div id="feed" class="feedgrid"
      data-paged="{{ '1' if paged else '' }}"
      data-visa="{{ (visa_ctx or {})|tojson|forceescape }}"
+     {# Namespaces the remembered filters. localStorage is per BROWSER, so without this the
+        next person to log in on this machine inherits the last one's toolbar. #}
+     data-user="{{ current_user or '' }}"
      {%- if company_arg %} data-company="{{ company_arg }}"{% endif %}>
   {% for _ in range(8) %}
   <div class="skel" aria-hidden="true">

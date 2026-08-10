@@ -74,7 +74,12 @@
   //
   // Written from markFilters() rather than from the ~15 change listeners: every one of them
   // already routes through render() -> markFilters(), so there is no listener to forget.
-  var FILTER_KEY = "jm_filters", FILTER_V = 1;
+  // PER USER, not just per browser. localStorage belongs to the machine, so an unnamespaced key
+  // hands the next person to log in here the previous one's filters — surprising on a shared
+  // computer, and it quietly says what they were searching for. Caught while testing a second
+  // account: their fresh feed came up carrying the first account's saved sort.
+  var FILTER_KEY = "jm_filters:" + (feed.getAttribute("data-user") || ""), FILTER_V = 1;
+  try { localStorage.removeItem("jm_filters"); } catch (e) { /* the pre-namespace key */ }
   function _ctlMap() {
     // #q is deliberately excluded off the main feed. Both pages have one, but they mean
     // different things — "search every job" vs company.html's "filter these roles" — so sharing
