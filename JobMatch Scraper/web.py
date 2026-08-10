@@ -651,11 +651,22 @@ def user_scores(username, resume):
                 scores[u] = int(core.score_against(resume_low, analyzed)[0])
             except Exception:
                 scores[u] = 0
-        else:
+        elif resume:
+            # This user HAS a résumé but we have no analysis for this row yet (scraped since the
+            # last scoring run, or never had a readable JD). The stored match_score is scored
+            # against the repo's resume.txt, so it is somebody else's number — but for a user
+            # with a profile it is a reasonable placeholder until scoring catches up.
             try:
                 scores[u] = int(j.get("match_score") or 0)
             except Exception:
                 scores[u] = 0
+        else:
+            # NO RÉSUMÉ: no score. This used to fall through to match_score for every row, so a
+            # brand-new account saw a feed of confident 62-64% rings computed against the
+            # scraper's own resume.txt — someone else's CV, rendered identically to a real
+            # personalised match. A number that looks personalised and isn't is worse than no
+            # number, because it teaches the user to distrust every other one on the card.
+            scores[u] = 0
     if len(_score_cache) >= _SCORE_CACHE_MAX:
         _score_cache.pop(next(iter(_score_cache)), None)   # drop oldest; bounds memory growth
     _score_cache[key] = scores
@@ -1201,7 +1212,11 @@ def feed():
     # No résumé means no meaningful score, so the match floor drops to 0 regardless.
     prefs = _user_prefs(user)
     if not resume:
-        prefs = dict(prefs, min=0)
+        # ...and "Best match" means nothing when every score is suppressed, so fall back to
+        # newest. Done by rewriting the PREF rather than special-casing the sort, so the
+        # rendered control, _prefs_as_params and app.js all see the same value and the
+        # server/client twins cannot disagree.
+        prefs = dict(prefs, min=0, sort="newest")
     default_min = prefs["min"]
     paged = total > _FEED_INLINE_MAX
     inline = rows[:_FEED_TOPN] if paged else rows
@@ -1454,6 +1469,10 @@ def company():
                    company=display, n=len(open_rows))
     return render_template("company.html", info=info, company_arg=display,
                            about=_company_profile(display, key, rows, open_rows),
+                           # _feedgrid.html reads this to decide whether to draw a % ring.
+                           # Omit it and every card here would suppress its score, including
+                           # for users who do have a résumé.
+                           has_resume=bool(current_profile()),
                            # Seeds the sort control, which used to hardcode "Best match" here —
                            # so a user whose saved sort was Newest or Sponsorship silently got
                            # score order on this page only. app.js's filter memory covers the

@@ -8,11 +8,13 @@ EEO answers, the notes and the salary expectation — and nothing would say so.
 
     python scripts/test_onboarding.py
 """
+import inspect
 import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, APP_DIR)
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -271,6 +273,39 @@ try:
     check("an empty submit saves nothing", not RESUMES)
 except ImportError:
     print("  (skipped — python-docx not installed)")
+
+print("\n" + "=" * 74)
+print("no résumé, no score — never somebody else's number")
+print("=" * 74)
+# user_scores used to fall through to the stored match_score for every row when the viewer had
+# no résumé. That column is computed against the SCRAPER's resume.txt, so a brand-new account
+# saw a feed of confident 62-64% rings derived from another person's CV, drawn identically to a
+# real personalised match.
+web.current_profile = lambda: ""
+web._score_cache.clear()
+jobs = web.get_jobs()
+scored = web.user_scores("nobody", "")
+nonzero = [u for u, s in scored.items() if s]
+check("every score is suppressed with no résumé", not nonzero,
+      "%d rows still scored" % len(nonzero))
+baseline = sum(1 for j in jobs if int(j.get("match_score") or 0) > 0)
+check("...and the corpus really does carry baselines it could have leaked",
+      baseline > 100, "%d rows have a stored match_score" % baseline)
+
+web._score_cache.clear()
+with_resume = web.user_scores("nobody", "project manager with six years of delivery experience")
+check("a user WITH a résumé still gets scores", any(with_resume.values()))
+web._score_cache.clear()
+
+src = open(os.path.join(APP_DIR, "static", "app.js"), encoding="utf-8").read()
+check("the card renders no percentage without a résumé",
+      "if (!HAS_RESUME)" in src and 'class="score-none"' in src)
+check("...and reads the flag the server sets",
+      'data-hasresume' in open(os.path.join(APP_DIR, "templates", "_feedgrid.html"),
+                               encoding="utf-8").read())
+check("both pages that embed the grid pass has_resume",
+      all("has_resume=" in s for s in [
+          inspect.getsource(web.feed), inspect.getsource(web.company)]))
 
 print("\n" + ("ALL ONBOARDING CHECKS PASS" if not fails else "FAILED: %s" % fails))
 sys.exit(1 if fails else 0)

@@ -50,7 +50,17 @@ print()
 print("=" * 78)
 print("prefs_match vs _filter_rows over the real corpus")
 print("=" * 78)
-rows = web.ranked_rows("prefs-test", "")
+# A RÉSUMÉ, not "". user_scores now suppresses every score when the viewer has none — a feed of
+# confident percentages computed against the scraper's own resume.txt was somebody else's
+# number. But an all-zero corpus would make the min=30/45/60 cases below match nothing on both
+# sides and pass VACUOUSLY, which is the one way this grid can lie.
+RESUME = ("Project manager and business analyst. Six years running software delivery, "
+          "stakeholder reporting, agile ceremonies, SQL and Python data analysis, "
+          "vendor management, process improvement, budgets and roadmaps.")
+rows = web.ranked_rows("prefs-test", RESUME)
+scored = sum(1 for r in rows if r.get("score"))
+check("the corpus is actually scored (else every min case below is vacuous)",
+      scored > 100, "%d of %d rows scored" % (scored, len(rows)))
 print("  corpus rows: %d" % len(rows))
 
 grid = []
@@ -126,7 +136,9 @@ print()
 print("=" * 78)
 print("prefs_match specifics the feed can't express")
 print("=" * 78)
-sample = next(r for r in rows if r.get("score"))
+# Any row will do — every check below overrides score= explicitly. Don't require a scored one:
+# that made this line raise StopIteration the moment scores could legitimately all be zero.
+sample = next((r for r in rows if r.get("score")), rows[0])
 p = core.normalize_prefs({"min": 10, "alert_min": 90})
 check("alert_min overrides min for email",
       core.prefs_match(dict(sample, score=50), p) is False)
