@@ -3897,7 +3897,50 @@ def _cors(resp):
 # everything it doesn't contain. db.save_profile itself is safe with a partial dict — it filters
 # to the keys you passed — so these steps write straight through it.
 # ------------------------------------------------------------------
-ONBOARD_STEPS = 5
+ONBOARD_STEPS = 4
+
+# The question set, promoted out of the route so tests and the React entry can both assert
+# against ONE definition instead of re-deriving it from rendered HTML.
+#
+# Why these four and nothing else. The organising question is "does this input change the
+# feed?", and only four things do. The résumé is what every match score is computed against.
+# Roles are the largest single cut on a 25k corpus. Sponsorship decides which signals surface.
+# Location is the second most used filter in any job product.
+#
+# What was cut, and where it went. Eight contact fields (first/last name, email, phone,
+# LinkedIn, GitHub, portfolio) exist to autofill application forms through the extension:
+# nothing in the feed changes because you typed a GitHub URL, and to someone who has not
+# installed the extension yet the promise is not just unpersuasive, it is meaningless. They
+# move to /profile and are asked at the moment of obvious need, the first Apply click.
+# The four OPT date fields drive deadline reminders, not ranking; asking a new user for four
+# immigration dates before they have seen a single job asks for trust the product has not
+# earned. Target companies only lift ranking and never filter.
+#
+# Order matters: the résumé moved from LAST to FIRST. It is the only skip that costs something
+# irreversible, and at position five it sat behind sixteen low-value fields at exactly the point
+# where the flow has spent four screens teaching the user that Skip is harmless.
+ONBOARD_QUESTIONS = (
+    {"n": 1, "key": "resume",      "title": "Add your résumé."},
+    {"n": 2, "key": "roles",       "title": "What kind of work?"},
+    {"n": 3, "key": "sponsorship", "title": "Do you need visa sponsorship?"},
+    {"n": 4, "key": "location",    "title": "Where do you want to work?"},
+)
+# Profile columns each question is allowed to write. A step must never post a key outside its
+# own list: POST /profile rebuilds all 39 text keys, so a partial form blanks everything it
+# does not contain, and that is the single hazard this whole flow has to respect.
+ONBOARD_STEP_FIELDS = {
+    1: (),                                    # résumé is its own table, not a profile column
+    2: (),                                    # roles are a search pref, not a profile column
+    3: ("needs_sponsorship", "requires_sponsorship_future"),
+    4: ("location",),
+}
+# The three answers that actually drive the feed, and what each one means for the profile.
+# work_auth_status with its seven options is autofill, so it is not asked here.
+SPONSORSHIP_ANSWERS = {
+    "now":    {"needs_sponsorship": "Yes", "requires_sponsorship_future": "Yes"},
+    "future": {"needs_sponsorship": "No",  "requires_sponsorship_future": "Yes"},
+    "no":     {"needs_sponsorship": "No",  "requires_sponsorship_future": "No"},
+}
 # How many role families someone may target at once. A cap is a feature, not a limit: an
 # unbounded pick is the same as no pick, and the filter stops meaning anything.
 ROLE_PICK_MAX = 6
@@ -3987,6 +4030,27 @@ def _needs_onboarding(user):
         return False                             # never block the feed on a lookup failure
 
 
+def _onboard_rows():
+    """Rows behind the location suggestions. Same source the feed uses, so the box on question
+    four offers exactly what the feed's own location filter will accept."""
+    try:
+        return get_jobs()
+    except Exception:
+        return []                              # suggestions are a nicety, never a blocker
+
+
+def _onboard_advance(user, step):
+    """Move to the next question, or finish. onboarded is set ONLY past the last question.
+
+    That is the whole fix to Skip: previously any skip wrote onboarded=True, so the flag meant
+    "stopped" rather than "reached the end", and there was no way back in.
+    """
+    if step >= ONBOARD_STEPS:
+        _save_extra(user, {"onboarded": True})
+        return redirect(url_for("feed", welcome=1))
+    return redirect(url_for("welcome", step=step + 1))
+
+
 @app.route("/welcome", methods=["GET", "POST"])
 @login_required
 def welcome():
@@ -4004,40 +4068,19 @@ def welcome():
         except ValueError:
             step = 1
 
+        # Skip advances ONE question. It used to write onboarded=True from any step, so a
+        # single click on screen one ended setup permanently, including the résumé prompt,
+        # while the button said "Skip for now". That label promised a second chance the code
+        # never gave. Unanswered questions are recorded so the feed can offer to finish.
         if f.get("action") == "skip":
-            _save_extra(user, {"onboarded": True, "onboarding_skipped_at_step": step})
-            flash("You can finish your profile any time from the link with your name.")
-            return redirect(url_for("feed"))
+            un = [n for n in (e.get("onboarding_unanswered") or []) if n != step]
+            _save_extra(user, {"onboarding_unanswered": sorted(un + [step])})
+            return _onboard_advance(user, step)
 
-        # Only the fields this step actually renders, so nothing else can be blanked.
-        FIELDS = {
-            1: ("first_name", "last_name", "email", "phone", "location",
-                "linkedin", "github", "portfolio"),
-            2: ("work_auth_status", "needs_sponsorship", "requires_sponsorship_future",
-                "program_end_date", "opt_type", "opt_start_date", "opt_end_date",
-                "stem_eligible"),
-        }
-        if step in FIELDS:
-            payload = {k: (f.get(k) or "").strip() for k in FIELDS[step] if k in f}
-            if payload:
-                ok, msg = db.save_profile(user, payload)
-                if not ok:
-                    flash("Couldn't save: " + msg[:120])
-        elif step == 3:
-            # Roles are a saved-search PREF, not profile extra: they filter the feed and the
-            # digest, so they have to live where every other filter lives and go through
-            # normalize_prefs. Merged over the stored prefs the same way POST /profile merges
-            # the alert settings, or saving here would reset the rest of the search.
-            picked = ",".join(core.parse_roles_pref(f.getlist("roles") or f.get("roles")))
-            db.save_profile(user, {"search_prefs": core.normalize_prefs(
-                dict(_user_prefs(user), roles=picked))})
-            _rows_cache.clear()                # the first-paint count is derived from prefs
-        elif step == 4:
-            cos = [s.strip() for s in (f.get("companies") or "").split(",") if s.strip()]
-            _save_extra(user, {"target_companies": cos[:40]})
-        elif step == 5:
-            # An upload wins if it produced text; otherwise fall through to whatever was pasted,
-            # so a failed parse never costs the user what they typed.
+        answered = True
+        if step == 1:
+            # An upload wins if it produced text; otherwise fall through to whatever was
+            # pasted, so a failed parse never costs the user what they typed.
             text, err = _uploaded_resume_text()
             if err:
                 flash(err)
@@ -4051,22 +4094,59 @@ def welcome():
                     _bust_profile(user)
                 except Exception as ex:
                     flash("Couldn't save that résumé: " + str(ex)[:120])
+            else:
+                answered = bool(current_profile())
+        elif step == 2:
+            # Roles are a saved-search PREF, not profile extra: they filter the feed and the
+            # digest, so they have to live where every other filter lives and go through
+            # normalize_prefs. Merged over the stored prefs the same way POST /profile merges
+            # the alert settings, or saving here would reset the rest of the search.
+            picked = ",".join(core.parse_roles_pref(f.getlist("roles") or f.get("roles")))
+            db.save_profile(user, {"search_prefs": core.normalize_prefs(
+                dict(_user_prefs(user), roles=picked))})
+            _rows_cache.clear()                # the first-paint count is derived from prefs
+            answered = bool(picked) or f.get("all_roles") == "1"
+        elif step == 3:
+            payload = dict(SPONSORSHIP_ANSWERS.get(f.get("sponsorship") or "", {}))
+            if payload:
+                ok, msg = db.save_profile(user, payload)
+                if not ok:
+                    flash("Couldn't save: " + msg[:120])
+            answered = bool(payload)
+        elif step == 4:
+            loc = "" if f.get("anywhere") == "1" else (f.get("location") or "").strip()
+            if loc or f.get("anywhere") == "1":
+                ok, msg = db.save_profile(user, {"location": loc[:120]})
+                if not ok:
+                    flash("Couldn't save: " + msg[:120])
+            answered = bool(loc) or f.get("anywhere") == "1"
 
-        if step >= ONBOARD_STEPS:
-            _save_extra(user, {"onboarded": True})
-            flash("You're set up. Matches are scored against your résumé from here.")
-            return redirect(url_for("feed"))
-        return redirect(url_for("welcome", step=step + 1))
+        un = [n for n in (e.get("onboarding_unanswered") or []) if n != step]
+        if not answered:
+            un = sorted(un + [step])
+        _save_extra(user, {"onboarding_unanswered": sorted(set(un))})
+        return _onboard_advance(user, step)
 
     try:
         step = max(1, min(ONBOARD_STEPS, int(request.args.get("step") or 1)))
     except ValueError:
         step = 1
+    cur = (prof.get("needs_sponsorship") or "").strip().lower()
+    fut = (prof.get("requires_sponsorship_future") or "").strip().lower()
+    sponsorship = ""
+    for key, want in SPONSORSHIP_ANSWERS.items():
+        if (want["needs_sponsorship"].lower() == cur
+                and want["requires_sponsorship_future"].lower() == fut):
+            sponsorship = key
+            break
     return render_template("welcome.html", step=step, steps=ONBOARD_STEPS, prof=prof,
+                           questions=ONBOARD_QUESTIONS,
                            role_groups=core.role_families_grouped(), role_counts=role_counts(),
                            role_max=ROLE_PICK_MAX,
                            chosen=core.parse_roles_pref(_user_prefs(user).get("roles")),
-                           companies=", ".join(e.get("target_companies") or []),
+                           sponsorship=sponsorship,
+                           metros=_feed_metros(_onboard_rows()),
+                           states=_feed_states(_onboard_rows()),
                            has_resume=bool(current_profile()))
 
 

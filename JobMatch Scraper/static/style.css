@@ -1116,3 +1116,60 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
   transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
 .tip.on{opacity:1;transform:translateY(0)}
 @media (prefers-reduced-motion:reduce){.tip{transition:none}}
+
+/* ==================================================================
+   ONBOARDING. One question per screen, so the type carries the hierarchy
+   rather than a box around every field. Added 2026-08-09 with the four
+   question rewrite.
+   ================================================================== */
+.wizard{max-width:var(--layout-form-max)}
+/* The display step. h1 was 24px against a 15px body, a 1.6x ratio, and that timidity is most
+   of why these pages read as a form rather than as a designed product. */
+.qtitle{font-size:var(--text-2xl);line-height:var(--leading-2xl);letter-spacing:var(--tracking-tight);
+  font-weight:var(--weight-medium);margin:0 0 var(--space-150)}
+.qsub{font-size:var(--text-base);line-height:var(--leading-base);color:var(--text-secondary);
+  max-width:46ch;margin:0 0 var(--space-400)}
+.qfield input{width:100%}
+
+/* The résumé drop target. Large and primary, because upload is the path we want; the dashed
+   border says "put something here" without competing with a real control's solid edge. */
+.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:var(--space-050);text-align:center;padding:var(--space-500) var(--space-200);
+  border:1px dashed var(--border-default);border-radius:var(--radius-md);
+  background:var(--bg-surface);cursor:pointer;
+  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+.dropzone:hover,.dropzone:focus-within{border-color:var(--accent);background:var(--accent-bg)}
+.dz-main{font-size:var(--text-base);font-weight:var(--weight-medium);color:var(--text-primary)}
+.dz-sub{font-size:var(--text-xs);color:var(--text-secondary)}
+/* The input still has to be reachable by keyboard and by a screen reader, so it is moved
+   off-screen rather than display:none, which would drop it from the tab order entirely. */
+/* Chrome enforces an intrinsic minimum on file inputs, so width:1px alone does not shrink it
+   to nothing. clip-path is the modern companion to clip and, unlike clip, it also removes the
+   leftover box from hit testing. The label above is what opens the picker either way. */
+.dropzone input[type=file]{position:absolute;width:1px;height:1px;opacity:0;padding:0;border:0;
+  margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+
+/* Paste is a disclosure, not a second giant field competing with the drop zone. */
+.pastebox{margin:var(--space-200) 0 0}
+.pastebox>summary{cursor:pointer;font-size:var(--text-sm);color:var(--accent-text);
+  width:fit-content}
+.pastebox textarea{width:100%;margin-top:var(--space-150)}
+
+/* One decision per screen: big targets, the label doing the work, no radio dot to aim at. */
+.choices{display:flex;flex-direction:column;gap:var(--space-150);margin:0 0 var(--space-300)}
+.choice{display:grid;grid-template-columns:auto 1fr;gap:0 var(--space-150);align-items:start;
+  padding:var(--space-200);border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+  background:var(--bg-surface);cursor:pointer;
+  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+.choice:hover{border-color:var(--border-default);background:var(--bg-hover)}
+.choice:focus-within{border-color:var(--accent);box-shadow:var(--focus-ring)}
+.choice input{width:auto;margin-top:2px;accent-color:var(--accent)}
+.choice-b{font-size:var(--text-base);font-weight:var(--weight-medium);color:var(--text-primary)}
+.choice-h{grid-column:2;font-size:var(--text-xs);color:var(--text-secondary);margin-top:2px}
+.choice.on{border-color:var(--accent);background:var(--accent-bg)}
+.choice.on .choice-b{color:var(--accent-text)}
+
+@media (max-width:560px){
+  .qtitle{font-size:var(--text-xl);line-height:var(--leading-xl)}
+  .dropzone{padding:var(--space-400) var(--space-150)}
+}

@@ -98,16 +98,31 @@ print("every step renders")
 print("=" * 74)
 STORE.clear()
 c = client()
-for step, marker in [(1, "First name"), (2, "Work authorization"), (3, "What are you targeting"),
-                     (4, "companies in mind"), (5, "Add your r")]:
-    body = c.get("/welcome?step=%d" % step).data.decode("utf-8", "replace")
-    check("step %d" % step, marker in body)
-    if step == 3:
+# Asserted against web.ONBOARD_QUESTIONS rather than a hardcoded list, so adding or reordering
+# a question updates the test by construction instead of leaving it asserting a stale flow.
+check("the flow is four questions", web.ONBOARD_STEPS == 4, str(web.ONBOARD_STEPS))
+check("...and the question table agrees", len(web.ONBOARD_QUESTIONS) == web.ONBOARD_STEPS)
+for q in web.ONBOARD_QUESTIONS:
+    body = c.get("/welcome?step=%d" % q["n"]).data.decode("utf-8", "replace")
+    check("question %d renders (%s)" % (q["n"], q["key"]), q["title"] in body)
+    check("  ...and counts questions, not screens",
+          ("Question %d of %d" % (q["n"], web.ONBOARD_STEPS)) in body)
+
+    if q["key"] == "resume":
+        # The résumé moved from LAST to FIRST: it is the only skip that costs something
+        # irreversible, and at position five it sat behind sixteen low-value fields.
+        check("  ...résumé is question 1", q["n"] == 1)
+        check("  ...offers a file upload", 'type="file"' in body and 'name="resume_file"' in body)
+        check("  ...is multipart, or the file never arrives",
+              'enctype="multipart/form-data"' in body)
+        check("  ...still offers paste, since a scanned PDF has no text to extract",
+              'name="resume"' in body and "scanned" in body)
+        check("  ...says the file itself isn't kept", "don't keep the file" in body)
+
+    if q["key"] == "roles":
         check("  ...renders the shared role picker", 'class="rolepick' in body)
         # THE bug this replaced: the picker relied on JS to copy ticked boxes into a hidden
-        # input, but app.js only loads on the feed. On the wizard nothing synced, the counter
-        # read "0 of 6" with four boxes ticked, and the submitted roles were empty. The
-        # checkboxes must post themselves.
+        # input, but app.js only loads on the feed. The checkboxes must post themselves.
         check("  ...checkboxes POST themselves, no JS required",
               'name="roles"' in body and 'type="checkbox"' in body)
         check("  ...and there is no hidden #roles to go stale", 'id="roles"' not in body)
@@ -116,19 +131,44 @@ for step, marker in [(1, "First name"), (2, "Work authorization"), (3, "What are
             ('data-role="%s"' % k) in body for k in core.ROLE_KEYS))
         check("  ...grouped into sections", all(
             ('data-group="%s"' % g) in body for g, _lab in core.ROLE_GROUPS))
-        check("  ...and loads the picker script for search and the cap",
-              "rolepick.js" in body)
-    if step == 2:
+        check("  ...and loads the picker script for search and the cap", "rolepick.js" in body)
+        check("  ...offers 'everything' as a real button, not a footnote",
+              'name="all_roles"' in body)
+
+    if q["key"] == "sponsorship":
+        # Eight fields collapsed to one question. Only these three answers drive the feed.
+        check("  ...offers exactly the three answers that change the feed",
+              all(('value="%s"' % k) in body for k in web.SPONSORSHIP_ANSWERS))
         check("  ...carries the not-advice wording", "Not immigration advice" in body)
         check("  ...and points at the DSO and uscis.gov", "DSO" in body and "uscis.gov" in body)
-    if step == 5:
-        check("  ...offers a file upload", 'type="file"' in body and 'name="resume_file"' in body)
-        check("  ...is multipart, or the file never arrives",
-              'enctype="multipart/form-data"' in body)
-        check("  ...still offers paste, since a scanned PDF has no text to extract",
-              'name="resume"' in body and "scanned" in body)
-        check("  ...says the file itself isn't kept", "don't keep the file" in body)
+        # It has a component of its own so it cannot be quietly restyled into a generic note.
+        check("  ...in the legal callout, not a generic note", 'class="callout legal"' in body)
+        check("  ...and does NOT ask for immigration dates here",
+              'name="opt_start_date"' not in body and 'name="program_end_date"' not in body)
 
+    if q["key"] == "location":
+        check("  ...reuses the feed's own location suggestions", 'list="locs"' in body)
+        check("  ...and offers anywhere as one click", 'name="anywhere"' in body)
+
+print()
+print("the eight contact fields are GONE from onboarding")
+# They exist to autofill application forms: nothing in the feed changes because you typed a
+# GitHub URL, and the promise is meaningless to someone without the extension installed.
+allbody = "".join(c.get("/welcome?step=%d" % n).data.decode("utf-8", "replace")
+                  for n in range(1, web.ONBOARD_STEPS + 1))
+for gone in ("first_name", "last_name", "phone", "linkedin", "github", "portfolio",
+             "companies", "opt_end_date", "work_auth_status"):
+    check("  no %s field anywhere in the flow" % gone, ('name="%s"' % gone) not in allbody)
+
+print()
+print("no step may write a profile key outside its own list")
+# POST /profile rebuilds all 39 text keys, so a partial form blanks what it does not carry.
+for n, fields in web.ONBOARD_STEP_FIELDS.items():
+    body = c.get("/welcome?step=%d" % n).data.decode("utf-8", "replace")
+    stray = [f for f in ("first_name", "email", "notes", "gender", "desired_salary")
+             if ('name="%s"' % f) in body and f not in fields]
+    check("  question %d posts only %s" % (n, list(fields) or "no profile keys"), not stray,
+          str(stray))
 print("\n" + "=" * 74)
 print("A STEP MUST NOT BLANK THE REST OF THE PROFILE")
 print("=" * 74)
@@ -137,9 +177,9 @@ STORE.clear()
 STORE.update({"notes": "keep me", "gender": "Prefer not to say", "desired_salary": "120000",
               "address_line1": "1 Main St", "how_did_you_hear": "a friend"})
 c = client()
-post(c, 1, first_name="Kunal", last_name="Singh", email="k@example.com")
-check("the step's own fields saved", STORE.get("first_name") == "Kunal"
-      and STORE.get("email") == "k@example.com")
+post(c, 4, location="Boston, MA")
+check("the step's own field saved", STORE.get("location") == "Boston, MA",
+      repr(STORE.get("location")))
 survived = {k: STORE.get(k) for k in
             ("notes", "gender", "desired_salary", "address_line1", "how_did_you_hear")}
 check("everything the step didn't render survived",
@@ -156,7 +196,7 @@ print("=" * 74)
 STORE.clear()
 STORE.update({"search_prefs": {"min": 60, "loc": "boston", "hideagency": True}})
 c = client()
-post(c, 3, roles=["pm", "dataeng"])
+post(c, 2, roles=["pm", "dataeng"])
 sp = STORE.get("search_prefs") or {}
 check("roles land in search_prefs", sp.get("roles") == "pm,dataeng", json.dumps(sp.get("roles")))
 check("the rest of the saved search survives",
@@ -171,11 +211,10 @@ print("=" * 74)
 STORE.clear()
 STORE.update({"extra": {"ev_off": True}})       # the analytics opt-out lives here too
 c = client()
-post(c, 4, companies="Stripe, Databricks ,, Northrop Grumman")
+c.post("/welcome", data={"_csrf": token(c), "step": "3", "action": "skip"})
 e = STORE.get("extra") or {}
-check("companies saved and blanks dropped",
-      e.get("target_companies") == ["Stripe", "Databricks", "Northrop Grumman"],
-      json.dumps(e.get("target_companies")))
+check("a skipped question is recorded", e.get("onboarding_unanswered") == [3],
+      json.dumps(e.get("onboarding_unanswered")))
 check("the analytics opt-out was NOT clobbered", e.get("ev_off") is True)
 
 print("\n" + "=" * 74)
@@ -183,12 +222,12 @@ print("junk in, nothing out")
 print("=" * 74)
 STORE.clear()
 c = client()
-post(c, 3, roles=["pm", "'; DROP TABLE jobs; --", "not_a_real_role"])
+post(c, 2, roles=["pm", "'; DROP TABLE jobs; --", "not_a_real_role"])
 check("only known role keys are accepted",
       (STORE.get("search_prefs") or {}).get("roles") == "pm",
       json.dumps((STORE.get("search_prefs") or {}).get("roles")))
 c = client()
-post(c, 3, roles=["dataeng", "pm"])
+post(c, 2, roles=["dataeng", "pm"])
 check("...and the stored order is canonical, not whatever was posted",
       (STORE.get("search_prefs") or {}).get("roles") == "pm,dataeng",
       json.dumps((STORE.get("search_prefs") or {}).get("roles")))
@@ -198,26 +237,34 @@ print("finishing, skipping, and CSRF")
 print("=" * 74)
 STORE.clear()
 c = client()
-r = post(c, 5, resume="Kunal Singh — project manager, 4 years, Boston.")
+r = post(c, 4, location="Boston, MA")
 check("the last step finishes and lands on the feed",
       (STORE.get("extra") or {}).get("onboarded") is True
       and (r.headers.get("Location") or "").rstrip("/").endswith(""))
-check("the résumé was saved", RESUMES and "project manager" in RESUMES[-1]["content"])
+c = client()
+post(c, 1, resume="Kunal Singh, project manager, 4 years, Boston.")
+check("the résumé saves on question 1", RESUMES and "project manager" in RESUMES[-1]["content"])
 
 STORE.clear()
 c = client()
-c.post("/welcome", data={"_csrf": token(c), "step": "2", "action": "skip"})
-check("skip marks it done so they aren't asked again",
-      (STORE.get("extra") or {}).get("onboarded") is True)
-check("and records where they gave up",
-      (STORE.get("extra") or {}).get("onboarding_skipped_at_step") == 2)
+r = c.post("/welcome", data={"_csrf": token(c), "step": "2", "action": "skip"})
+# THE fix: skip used to write onboarded=True from any step, so one click on the first screen
+# ended setup for good while the button said "Skip for now".
+check("skipping does NOT end setup",
+      (STORE.get("extra") or {}).get("onboarded") is not True,
+      repr((STORE.get("extra") or {}).get("onboarded")))
+check("...it advances to the next question",
+      "step=3" in (r.headers.get("Location") or ""), r.headers.get("Location"))
+check("...and records the question as unanswered",
+      (STORE.get("extra") or {}).get("onboarding_unanswered") == [2],
+      json.dumps((STORE.get("extra") or {}).get("onboarding_unanswered")))
 
 STORE.clear()
 c = client()
 token(c)
-c.post("/welcome", data={"step": "1", "action": "next", "first_name": "Nope"})
-check("a POST with no CSRF token saves nothing", not STORE.get("first_name"),
-      repr(STORE.get("first_name")))
+c.post("/welcome", data={"step": "4", "action": "next", "location": "Nope"})
+check("a POST with no CSRF token saves nothing", not STORE.get("location"),
+      repr(STORE.get("location")))
 
 print("\n" + "=" * 74)
 print("résumé upload reaches the route")
@@ -232,20 +279,21 @@ try:
     STORE.clear()
     RESUMES.clear()
     c = client()
-    c.post("/welcome", data={"_csrf": token(c), "step": "5", "action": "next",
-                             "resume_file": (io.BytesIO(doc), "kunal_cv.docx")},
-           content_type="multipart/form-data")
+    r = c.post("/welcome", data={"_csrf": token(c), "step": "1", "action": "next",
+                                 "resume_file": (io.BytesIO(doc), "kunal_cv.docx")},
+               content_type="multipart/form-data")
     check("an uploaded .docx is parsed and saved",
           RESUMES and "Program Manager, Globex" in RESUMES[-1]["content"],
           RESUMES[-1]["content"][:60] if RESUMES else "nothing saved")
-    check("and it still completes the wizard",
-          (STORE.get("extra") or {}).get("onboarded") is True)
+    # The résumé is question 1 now, so a successful upload ADVANCES rather than finishing.
+    check("and it moves on to the next question",
+          "step=2" in (r.headers.get("Location") or ""), r.headers.get("Location"))
 
     # An unreadable upload must not cost the user what they typed.
     STORE.clear()
     RESUMES.clear()
     c = client()
-    c.post("/welcome", data={"_csrf": token(c), "step": "5", "action": "next",
+    c.post("/welcome", data={"_csrf": token(c), "step": "1", "action": "next",
                              "resume": "pasted fallback text about project management",
                              "resume_file": (io.BytesIO(b"not a pdf at all"), "cv.pdf")},
            content_type="multipart/form-data")
