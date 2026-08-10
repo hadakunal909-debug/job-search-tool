@@ -4,7 +4,7 @@
 {% block admin %}
 {% if not can_disable %}
 <div class="banner">
-  <b>Disable isn't available yet.</b> It needs two columns on the <code>users</code> table —
+  <b>Disable isn't available yet.</b> It needs two columns on the <code>users</code> table,
   run <code>SUPABASE_ADMIN_MIGRATION.sql</code> in Supabase → SQL Editor. Until then you can
   create accounts, reset passwords and delete accounts, but not suspend one or revoke an
   extension token.
@@ -65,7 +65,7 @@
   </table>
   {# The sole-account branch stays: creating a second user silently locks this page, which is a
      trap worth one sentence. The other branch just says where the setting lives. #}
-  <p class="muted" style="margin-top:12px">
+  <p class="muted u-mt-150">
     Admin access: <b>{{ admin_mode }}</b>.
     {% if admin_mode == 'sole-account' %}Creating a second account locks this page until you set
     <code>ADMIN_USERS</code>.{% else %}Set via <code>ADMIN_USERS</code>, not from here.{% endif %}
@@ -95,7 +95,7 @@
           <td>Invalidates every browser-extension token that account holds. Their web session is
               untouched; they copy a new token from their profile page.</td></tr>
       <tr><td><b>Delete</b></td>
-          <td>Removes the account and every row keyed to it — saved jobs, profile, applications,
+          <td>Removes the account and every row keyed to it: saved jobs, profile, applications,
               résumés and learned answers. Not reversible, and there is no backup beyond
               Supabase's own point-in-time recovery.</td></tr>
     </tbody>

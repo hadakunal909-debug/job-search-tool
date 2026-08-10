@@ -9,7 +9,7 @@
 {% if not ev.have %}
 <div class="banner">
   <b>Usage tracking isn't switched on yet.</b> Run <code>{{ ev.sql_file }}</code> in Supabase →
-  SQL Editor. Everything below still works — it's derived from data the app already stores —
+  SQL Editor. Everything below still works, because it is derived from data the app already stores,
   but the funnel, filter adoption and dead-route detection need event history, and that
   <b>starts the day you run it</b>. It can't be backfilled.
   {% if evstats.off %}<br>Note: <code>EV_OFF</code> is also set, which disables recording entirely.{% endif %}
@@ -50,7 +50,7 @@
     {% for b in ev.by_score %}
       <tr><td>{{ b.band * 20 }}–{{ b.band * 20 + 19 }}</td>
           <td class="num">{{ b.opens }}</td><td class="num">{{ b.applies }}</td>
-          <td class="num">{{ '%.0f'|format(100 * b.applies / b.opens) if b.opens else '—' }}{{ '%' if b.opens }}</td></tr>
+          <td class="num">{{ '%.0f'|format(100 * b.applies / b.opens) if b.opens else 'None' }}{{ '%' if b.opens }}</td></tr>
     {% else %}
       <tr><td class="muted">No scored events yet.</td></tr>
     {% endfor %}
@@ -71,8 +71,8 @@
       </tbody>
     </table>
     {% if ev.unused_filters %}
-    <p class="muted" style="margin-top:10px">
-      <b>Untouched in {{ ev.days }} days:</b> {{ ev.unused_filters|join(', ') }} — candidates
+    <p class="muted u-mt-150">
+      <b>Untouched in {{ ev.days }} days:</b> {{ ev.unused_filters|join(', ') }}. Candidates
       for demoting into the collapsed rail, or removing.
     </p>
     {% endif %}
@@ -90,7 +90,7 @@
       </tbody>
     </table>
     {% if ev.cold_routes %}
-    <p class="muted" style="margin-top:10px">
+    <p class="muted u-mt-150">
       <b>No views in {{ ev.days }} days:</b> {{ ev.cold_routes|join(', ') }}. Each one is code,
       tests and CSP surface you're maintaining for nobody.
     </p>
@@ -102,7 +102,7 @@
 <section class="panel">
   <h2>Searches that found nothing</h2>
   <p class="muted">
-    The clearest list of what the corpus is missing — each row is a company or role someone
+    The clearest list of what the corpus is missing. Each row is a company or role someone
     looked for and the feed couldn't answer. Search text is stored <i>only</i> in this case.
   </p>
   <table class="adm-t">
@@ -118,7 +118,7 @@
 
 <div class="banner">
   <b>Two limits worth knowing before you read anything below.</b>
-  Saved actions carry <b>no timestamp</b> — the <code>user_jobs</code> table stores current state
+  Saved actions carry <b>no timestamp</b>. The <code>user_jobs</code> table stores current state
   only, so there is no history and an action that was later undone left no trace. And match scores
   are re-derived on every scoring run, so a score shown next to a like is <b>today's</b> score, not
   the score at the moment of the click. Both are fixed by event tracking (Phase 4), which starts
@@ -141,7 +141,7 @@
   {% for s in u.scores if s.n %}
   <div class="tile">
     <span class="tile-n">{{ '%.0f'|format(s.median) }}%</span>
-    <span class="tile-l">Median score — {{ s.status }}</span>
+    <span class="tile-l">Median score, {{ s.status }}</span>
     <span class="tile-s">{{ s.n }} scored {{ s.status }} job{{ '' if s.n == 1 else 's' }}</span>
   </div>
   {% endfor %}
@@ -151,14 +151,14 @@
 <section class="panel">
   <h2>Features nobody uses</h2>
   <p class="muted">
-    Derived from what is stored, not from click tracking — so this catches features that are
+    Derived from what is stored, not from click tracking, so this catches features that are
     never <i>completed</i>, not ones that are opened and abandoned. Phase 4 adds the latter.
   </p>
   <table class="adm-t">
     <tbody>
     {% for d in u.dead %}
       <tr>
-        <td style="width:1%"><span class="pill bad">unused</span></td>
+        <td class="u-tight"><span class="pill bad">unused</span></td>
         <td><b>{{ d.what }}</b><br>
             <span class="muted">{{ d.detail }}</span><br>
             <span class="muted">{{ d.sowhat }}</span></td>
@@ -174,7 +174,7 @@
   <h2>By user</h2>
   <table class="adm-t">
     <thead><tr>
-      <th>User</th><th class="num">Liked</th><th class="num">Applied</th><th class="num">Hidden</th>
+      <th>User</th><th class="num">Saved</th><th class="num">Applied</th><th class="num">Hidden</th>
       <th>Companies they act on most</th>
     </tr></thead>
     <tbody>
@@ -209,7 +209,7 @@
     </tbody>
   </table>
 
-  <h3 style="font-size:14px;margin:20px 0 4px">Corpus supply vs revealed demand</h3>
+  <h3 class="u-sechead-sm">Corpus supply vs revealed demand</h3>
   <p class="muted">
     What the scraper collects (grey) against what anyone liked or applied to (colour), both as a
     share of their own total. If demand sits far to the right of supply, the scraper is fetching
@@ -263,7 +263,7 @@
   {% if not u.totals.hidden %}
   <p class="muted">
     Nothing has ever been hidden, so there is no rejection signal to mine yet. These tables come
-    alive the moment anyone starts using Hide — that is what makes them worth keeping empty
+    alive the moment anyone starts using Hide, and that is what makes them worth keeping empty
     rather than deleting.
   </p>
   {% else %}
@@ -273,7 +273,7 @@
     is a filter or a scoring penalty waiting to be written.
   </p>
 
-  <h3 style="font-size:14px;margin:16px 0 6px">By company <span class="muted">(3+ actions)</span></h3>
+  <h3 class="u-sechead-sm">By company <span class="muted">(3+ actions)</span></h3>
   <table class="adm-t">
     <thead><tr><th>Company</th><th class="num">Actions</th><th class="num">Hidden</th><th class="num">Hide rate</th></tr></thead>
     <tbody>
@@ -286,7 +286,7 @@
     </tbody>
   </table>
 
-  <h3 style="font-size:14px;margin:20px 0 6px">By job board <span class="muted">(5+ actions)</span></h3>
+  <h3 class="u-sechead-sm">By job board <span class="muted">(5+ actions)</span></h3>
   <table class="adm-t">
     <thead><tr><th>Host</th><th class="num">Actions</th><th class="num">Hidden</th><th class="num">Hide rate</th></tr></thead>
     <tbody>
@@ -299,7 +299,7 @@
     </tbody>
   </table>
 
-  <h3 style="font-size:14px;margin:20px 0 6px">Title words over-represented in hidden jobs</h3>
+  <h3 class="u-sechead-sm">Title words over-represented in hidden jobs</h3>
   <table class="adm-t">
     <thead><tr><th>Word</th><th class="num">In hidden</th><th class="num">In corpus</th><th class="num">Lift</th></tr></thead>
     <tbody>
@@ -346,9 +346,9 @@
       {% endfor %}
       </tbody>
     </table>
-    <p class="muted" style="margin-top:10px">
+    <p class="muted u-mt-150">
       Interview rate by company or board is the truest signal of match quality this app can
-      measure — it is the only metric tied to a real-world result.
+      measure, because it is the only metric tied to a real-world result.
     </p>
   </section>
 
@@ -358,12 +358,12 @@
       <tbody>
       {% for d, n in u.by_dow %}
         <tr><td>{{ d }}</td>
-            <td style="width:70%"><span class="hist-bar"><i style="width:{{ '%.1f'|format(100 * n / u.by_dow_max) if u.by_dow_max else 0 }}%"></i></span></td>
+            <td class="u-w70"><span class="hist-bar"><i style="width:{{ '%.1f'|format(100 * n / u.by_dow_max) if u.by_dow_max else 0 }}%"></i></span></td>
             <td class="num">{{ n }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
-    <p class="muted" style="margin-top:10px">Decides when the daily digest should send.</p>
+    <p class="muted u-mt-150">Decides when the daily digest should send.</p>
   </section>
 </div>
 {% endblock %}

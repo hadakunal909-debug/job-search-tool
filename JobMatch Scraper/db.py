@@ -361,7 +361,7 @@ def _upsert(rows, chunk=200):
             if attempt < 3:
                 time.sleep(3 * (attempt + 1))
         else:
-            raise RuntimeError("Supabase upsert failed after retries — %s" % last)
+            raise RuntimeError("Supabase upsert failed after retries: %s" % last)
 
 
 # ---------------- local-file helpers (fallback) ----------------
@@ -723,7 +723,7 @@ def delete_urls(urls, progress=None, remote_only=False):
     if not urls:
         return 0
     if remote_only and not using_supabase():
-        raise RuntimeError("delete_urls(remote_only=True) with no Supabase credentials — "
+        raise RuntimeError("delete_urls(remote_only=True) with no Supabase credentials. "
                            "refusing to touch the local-file fallback.")
     if using_supabase():
         done = 0
@@ -839,7 +839,7 @@ def prune_old_jobs(days=60, dry_run=False, protect_flagged=True, progress=None):
 def import_from_files():
     """One-time migration: push local jobs.csv + user_jobs.json into Supabase."""
     if not using_supabase():
-        print("No Supabase credentials found — set them first (see SUPABASE_SETUP.md).")
+        print("No Supabase credentials found. Set them first (see SUPABASE_SETUP.md).")
         return
     rows = _read_csv()
     actions = _load_actions()

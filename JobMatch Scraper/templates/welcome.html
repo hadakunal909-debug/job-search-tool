@@ -10,32 +10,6 @@
 {% endmacro %}
 {% macro yn(name, value) %}{{ sel(name, value, ['Yes', 'No']) }}{% endmacro %}
 {% block content %}
-<style>
-/* Deliberately the same shapes profile.html uses, so the wizard and the page it feeds look
-   like one product. They live page-local there; duplicated rather than promoted so this change
-   can't restyle the profile page as a side effect. */
-.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px;max-width:680px}
-.pgrid label{display:flex;flex-direction:column;font-size:12px;gap:4px;color:#555}
-.pgrid input,.pgrid select,.pgrid textarea{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;background:#fff;color:#111;font-family:inherit}
-.full{grid-column:1 / -1}
-.psec{grid-column:1 / -1;margin:10px 0 0;font-size:13px;font-weight:700;color:#334;border-bottom:1px solid #e3e8ef;padding-bottom:4px}
-.dim{color:#778;font-size:13px}
-/* The stepper — the one genuinely new component. A row of segments rather than "Step 3 of 5"
-   alone, so the remaining effort is visible before you commit to the first field. */
-.steps{display:flex;gap:6px;max-width:680px;margin:0 0 6px}
-.stepseg{flex:1;height:4px;border-radius:99px;background:#e3e8ef}
-.stepseg.on{background:var(--brand)}
-.stepn{font-size:12px;color:#778;margin:0 0 18px}
-.wact{display:flex;align-items:center;gap:12px;margin-top:22px;max-width:680px}
-.wact .spacer{flex:1}
-.rolepick{max-width:680px}
-.wnote{max-width:680px;padding:11px 13px;border:1px solid #e3e8ef;border-radius:10px;background:#fafbfc;font-size:13px;color:#556;margin:0 0 14px}
-[data-theme=dark] .pgrid label{color:#9aa7b4}
-[data-theme=dark] .psec{color:#c7d2dd;border-color:#2a3340}
-[data-theme=dark] .pgrid input,[data-theme=dark] .pgrid select,[data-theme=dark] .pgrid textarea{background:#0d1117;border-color:#2a3340;color:#e6edf3}
-[data-theme=dark] .stepseg{background:#2a3340}
-[data-theme=dark] .wnote{background:#13181f;border-color:#2a3340;color:#9aa7b4}
-</style>
 
 <div class="steps" aria-hidden="true">
   {% for i in range(1, steps + 1) %}<div class="stepseg{{ ' on' if i <= step else '' }}"></div>{% endfor %}
@@ -49,9 +23,9 @@
   <input type="hidden" name="step" value="{{ step }}">
 
   {% if step == 1 %}
-    <h1>Welcome — let's set up your search</h1>
-    <p class="sub">These details auto-fill application forms through the browser extension.
-      Nothing here is shared with employers until you apply.</p>
+    <h1>Let's set up your feed.</h1>
+    <p class="sub">These details fill in application forms for you.
+      Nothing is sent to an employer until you apply.</p>
     <div class="pgrid">
       <label>First name<input name="first_name" value="{{ prof.first_name or '' }}" autofocus></label>
       <label>Last name<input name="last_name" value="{{ prof.last_name or '' }}"></label>
@@ -59,7 +33,7 @@
       <label>Phone<input name="phone" value="{{ prof.phone or '' }}"></label>
       {# Not just autofill: this one also feeds the feed's location filter. #}
       <label class="full">Where are you based?<input name="location" value="{{ prof.location or '' }}"
-             placeholder="City, State — also used to filter the feed"></label>
+             placeholder="City, State. This also filters your feed."></label>
       <label>LinkedIn<input name="linkedin" value="{{ prof.linkedin or '' }}" placeholder="linkedin.com/in/..."></label>
       <label>GitHub<input name="github" value="{{ prof.github or '' }}" placeholder="github.com/..."></label>
       <label class="full">Portfolio or website<input name="portfolio" value="{{ prof.portfolio or '' }}"></label>
@@ -72,14 +46,14 @@
     {# Same wording as profile.html, which marks it "Don't trim further." A tool that does date
        arithmetic near an immigration deadline has to say plainly that it is not advice. #}
     <div class="wnote"><strong>Not immigration advice.</strong> These are reminders calculated
-      from dates you type in — they assert nothing about your eligibility. Confirm anything that
+      from dates you type in. They assert nothing about your eligibility. Confirm anything that
       matters with your school's international-student office (DSO) and uscis.gov.</div>
     <div class="pgrid">
       <label>Current status{{ sel('work_auth_status', prof.work_auth_status, ['US Citizen', 'Green Card / Permanent Resident', 'H-1B', 'OPT / CPT (F-1)', 'TN', 'Other', 'Prefer not to say']) }}</label>
       <label>Need sponsorship now?{{ yn('needs_sponsorship', prof.needs_sponsorship) }}</label>
       <label>Will need it in future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
       <label>STEM-eligible degree?{{ yn('stem_eligible', prof.stem_eligible) }}</label>
-      <h3 class="psec">Dates <span class="dim">— optional; they drive the reminders only</span></h3>
+      <h3 class="psec">Dates <span class="dim">optional, and they only drive the reminders</span></h3>
       <label>Graduation / program end<input type="date" name="program_end_date" value="{{ prof.program_end_date or '' }}"></label>
       <label>Which OPT?{{ sel('opt_type', prof.opt_type, [('opt', 'Post-completion OPT'), ('stem', 'STEM extension (24-month)')]) }}</label>
       <label>OPT start <span class="dim">(EAD valid from)</span><input type="date" name="opt_start_date" value="{{ prof.opt_start_date or '' }}"></label>
@@ -88,8 +62,8 @@
 
   {% elif step == 3 %}
     <h1>What are you targeting?</h1>
-    <p class="sub">Tick everything that fits. This shapes what the feed puts in front of you —
-      it never hides the rest.</p>
+    <p class="sub">Pick everything that fits. This decides what the feed shows first.
+      Nothing gets hidden.</p>
     {# The same picker the feed uses, so what you choose here is editable later from exactly
        one place and there is no second list to keep in step. form_post makes the checkboxes
        submit themselves — this page has no app.js, and relying on JS to fill a hidden input
@@ -98,41 +72,41 @@
 
   {% elif step == 4 %}
     <h1>Any companies in mind?</h1>
-    <p class="sub">Employers you'd especially like to hear about. Leave it blank if you're open —
-      this only lifts them in your feed, it never filters anyone out.</p>
+    <p class="sub">Employers you'd especially like to hear about. Leaving this blank is fine.
+      Companies you add move up in your feed, and nothing gets filtered out.</p>
     <div class="pgrid">
       <label class="full">Target companies <span class="dim">comma-separated</span>
         <textarea name="companies" rows="4" placeholder="Stripe, Databricks, Northrop Grumman">{{ companies }}</textarea>
       </label>
     </div>
-    <div class="wnote">Worth knowing: an employer missing from the federal sponsorship data
-      isn't a non-sponsor — the files are incomplete. The feed ranks by sponsorship rather than
-      filtering on it, for exactly that reason.</div>
+    <div class="wnote">An employer missing from the federal sponsorship data isn't a
+      non-sponsor. The files are incomplete. That is why the feed ranks by sponsorship
+      rather than filtering on it.</div>
 
   {% elif step == 5 %}
     <h1>Add your résumé</h1>
-    <p class="sub">This is what every match score is calculated against. Without it the feed
-      can't rank anything for you — scores fall back to a flat baseline.</p>
+    <p class="sub">Every match score is calculated against your résumé.
+      Without it, every job scores the same.</p>
     {% if has_resume %}
-      <div class="wnote">You already have one saved. Paste over it here, or skip and keep it.</div>
+      <div class="wnote">You already have a résumé saved. Adding a new one replaces it.</div>
     {% endif %}
     <div class="pgrid">
       <label class="full">Upload it
         <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md">
       </label>
-      <label class="full">…or paste the text
-        <textarea name="resume" rows="12" placeholder="Paste the whole thing — plain text is fine."></textarea>
+      <label class="full">Or paste the text
+        <textarea name="resume" rows="12" placeholder="Paste the whole thing. Plain text is fine."></textarea>
       </label>
     </div>
-    <p class="dim">PDF, .docx, .txt or .md. We read the text out and don't keep the file. A
-      scanned or photographed PDF has no text to extract — paste it instead. You can edit any of
-      this later under Resume Brain.</p>
+    <p class="dim">PDF, Word, or plain text. We read the words out and don't keep the file.
+      A scanned or photographed PDF has no text in it, so paste the text instead. You can
+      change any of this later.</p>
   {% endif %}
 
   <div class="wact">
     {% if step > 1 %}<a class="btn ghost" href="{{ url_for('welcome', step=step - 1) }}">Back</a>{% endif %}
     <span class="spacer"></span>
-    <button class="btn ghost" type="submit" name="action" value="skip">Skip for now</button>
+    <button class="btn ghost" type="submit" name="action" value="skip">Skip this question</button>
     <button class="btn primary" type="submit" name="action" value="next">
       {{ 'Finish' if step == steps else 'Continue' }}</button>
   </div>

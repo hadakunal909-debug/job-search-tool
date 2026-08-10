@@ -184,10 +184,10 @@ def li(name):
 
 
 lines = [
-    "# US career-page links — H1B sponsor companies",
+    "# US career-page links for H-1B sponsor companies",
     "",
     "For each sponsor: its **native careers page** + a **United-States-filtered LinkedIn job "
-    "search** (the reliable way to see only US roles). Native links are best-effort — if one "
+    "search** (the reliable way to see only US roles). Native links are best-effort. If one "
     "redirects, use the LinkedIn link or search '<company> careers'.",
     "",
 ]
@@ -201,7 +201,7 @@ for raw in open("sponsors.txt", encoding="utf-8"):
         continue
     native = NATIVE.get(s)
     careers = "[Careers page](%s) &middot; " % native if native else ""
-    lines.append("- **%s** — %s[US jobs (LinkedIn) ↗](%s)" % (s, careers, li(s)))
+    lines.append("- **%s** &middot; %s[US jobs (LinkedIn) ↗](%s)" % (s, careers, li(s)))
     count += 1
 
 open("careers_us.md", "w", encoding="utf-8").write("\n".join(lines) + "\n")

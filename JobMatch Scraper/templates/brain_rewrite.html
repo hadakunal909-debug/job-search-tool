@@ -10,7 +10,7 @@
 {% if error %}<div class="card"><div class="note warn">Couldn't generate: {{ error }}</div></div>{% endif %}
 
 {% if out %}
-  {% if out.parse_warning %}<div class="card"><div class="note">The model didn't return clean JSON — showing its raw output; edit as needed.</div></div>{% endif %}
+  {% if out.parse_warning %}<div class="card"><div class="note">The model didn't return clean JSON, so this is its raw output. Edit as needed.</div></div>{% endif %}
   {% if out.notes %}<div class="card"><h2>Notes</h2><ul class="muted small">{% for n in out.notes %}<li>{{ n }}</li>{% endfor %}</ul></div>{% endif %}
 
   <div class="card">

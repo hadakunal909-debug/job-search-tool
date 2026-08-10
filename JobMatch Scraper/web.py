@@ -122,7 +122,7 @@ app.secret_key = (_explicit_secret
                       else _fallback_secret()))
 if not _explicit_secret and not _supabase_key:
     import sys as _sys
-    print("WARNING: no APP_SECRET or SUPABASE_KEY set — using a machine-local dev signing "
+    print("WARNING: no APP_SECRET or SUPABASE_KEY set. Using a machine-local dev signing "
           "key. Set APP_SECRET in production so sessions/tokens can't be forged.", file=_sys.stderr)
 
 app.permanent_session_lifetime = 60 * 60 * 24 * 30      # 30-day login
@@ -1562,8 +1562,17 @@ def _ev_feed_view(user, args, rows, total, offset):
             raw = args.get(k)
             if raw is None or raw == "":
                 continue
-            if str(raw) != str(default) and not (str(default) == "False" and raw in ("0", "")):
-                f[k] = str(raw)[:40]
+            # Booleans arrive on the wire as "1"/"0", never as "True"/"False", so comparing
+            # str(raw) to str(default) can NEVER match for a bool and every bool pref reads as
+            # "changed" on every view. That silently made hideagency (the one default-True pref)
+            # look like the most-used filter in the app at 80% of views, when it was only ever
+            # the default being logged. Compare booleans as booleans.
+            if isinstance(default, bool):
+                if (str(raw).strip().lower() in ("1", "true", "on", "yes")) == default:
+                    continue
+            elif str(raw) == str(default):
+                continue
+            f[k] = str(raw)[:40]
         q = (args.get("q") or "").strip()
         props = {"tab": (args.get("tab") or "recommended")[:20], "n": total,
                  "off": offset, "shown": len(rows), "qn": len(q), "f": f}
@@ -1893,7 +1902,7 @@ def admin_required(f):
             flash("That page is admin-only.")
             return redirect(url_for("feed"))
         if request.method not in ("GET", "HEAD", "OPTIONS") and not _check_csrf():
-            flash("That form expired — reload the page and try again.")
+            flash("That form expired. Reload the page and try again.")
             return redirect(url_for("admin_users"))
         return f(*a, **k)
     return wrap
@@ -1921,7 +1930,7 @@ def scrape_now():
         return {"ok": False, "msg": "To enable this, add GH_TOKEN to .env (a GitHub token with "
                 "Actions read+write). You can also run the scrape from the repo's Actions tab."}
     if not gh[0]:
-        return {"ok": False, "msg": "Couldn't start the scrape — " + gh[1]}
+        return {"ok": False, "msg": "Couldn't start the scrape: " + gh[1]}
     # Optimistic 'queued' status so the bar appears the instant you click — the scraper overwrites
     # it with real progress once the Action spins up on GitHub's servers.
     try:
@@ -2137,7 +2146,7 @@ def _size_projection(samples):
     pts = [(i, s.get("b") or 0) for i, s in enumerate(samples) if isinstance(s, dict)]
     if len(pts) < 3:
         need = 3 - len(pts)
-        return {"state": "cold", "verdict": "Collecting data — %d more daily sample%s needed."
+        return {"state": "cold", "verdict": "Collecting data. %d more daily sample%s needed."
                 % (need, "" if need == 1 else "s")}
     try:
         span = (datetime.date.fromisoformat(samples[-1]["d"])
@@ -2145,7 +2154,7 @@ def _size_projection(samples):
     except Exception:
         span = len(pts) - 1
     if span < 7:
-        return {"state": "cold", "verdict": "Collecting data — %d days so far, 7 needed for a "
+        return {"state": "cold", "verdict": "Collecting data. %d days so far, 7 needed for a "
                 "trend." % max(span, 1)}
     n = len(pts)
     mx = sum(p[0] for p in pts) / n
@@ -2156,7 +2165,7 @@ def _size_projection(samples):
     cur = pts[-1][1]
     if per_day <= 0:
         return {"state": "flat", "per_day_mb": per_day / 1048576.0,
-                "verdict": "Flat or shrinking — the %s-day prune is keeping up."
+                "verdict": "Flat or shrinking. The %s-day prune is keeping up."
                            % os.environ.get("PRUNE_DAYS", "30")}
     days_left = (_FREE_TIER_BYTES - cur) / per_day
     if days_left <= 0:
@@ -2230,14 +2239,14 @@ def _health_checks():
         out.append(_check("JD coverage", pct >= 60,
                           "%s of %s jobs have a stored description (%.0f%%)."
                           % ("{:,}".format(jd), "{:,}".format(total), pct),
-                          "Raise SCORE_MAX_FETCH / SCORE_BUDGET_MIN in scrape.yml — a job with "
+                          "Raise SCORE_MAX_FETCH or SCORE_BUDGET_MIN in scrape.yml. A job with "
                           "no JD scores 0 and is invisible to the match filter."))
 
     pend = stats["pending"]
     out.append(_check("Scored rows", total and (100.0 * pend / total) <= 30,
                       "%s of %s unscored (%.0f%%)." % ("{:,}".format(pend), "{:,}".format(total),
                                                        (100.0 * pend / total) if total else 0),
-                      "Same fix as JD coverage — unscored is almost always JD-pending."))
+                      "Same fix as JD coverage. Unscored is almost always JD-pending."))
 
     # Same posting reaching us from two hosts. _dupe_key is the feed's own identity function, so
     # this counts exactly what the feed already hides but the database still pays to store.
@@ -2273,7 +2282,7 @@ def _health_checks():
                        % (len(stale), len(stats["sources"]),
                           ", ".join("%s (%s rows)" % (s["host"], "{:,}".format(s["n"]))
                                     for s in stale[:4]))),
-                      "Those scrapers still return rows but find nothing new — check the parser."))
+                      "Those scrapers still return rows but find nothing new. Check the parser."))
 
     # Orphans: rows keyed to a username that no longer exists. db.delete_user() removed only
     # user_jobs + users, so every other table here can hold them.
@@ -2299,13 +2308,13 @@ def _health_checks():
                       "Needs an age-based prune; nothing deletes from it today.", warn=True))
 
     out.append(_check("brain_companies table", db.table_count("brain_companies") is not None,
-                      "Not present in Supabase — Resume Brain's company cache is local-file only, "
+                      "Not present in Supabase. Resume Brain's company cache is local-file only, "
                       "so it is empty on the deployed app and not shared between machines.",
                       "Run the create-table SQL in BRAIN_SETUP.md.", warn=True))
 
     out.append(_check("APP_SECRET", bool(os.environ.get("APP_SECRET")),
                       ("Set." if os.environ.get("APP_SECRET") else
-                       "Unset — the session key is derived from the Supabase key instead, so "
+                       "Unset. The session key is derived from the Supabase key instead, so "
                        "rotating that key silently logs everyone out and invalidates every "
                        "extension token."),
                       "Set APP_SECRET in the cPanel .env."))
@@ -2559,12 +2568,13 @@ def _admin_usage(force=False):
     acted = sum(totals.values())
     dead = []
     if acted and not totals["liked"]:
-        dead.append({"what": "Like / Save",
-                     "detail": "Never used. All %s saved actions are applies." % acted,
-                     "sowhat": "The Liked tab and its filter are dead weight, and the Applied "
-                               "rows all came from the Apply link auto-logging. Either the "
-                               "button is not discoverable or people apply straight from the "
-                               "card without wanting a shortlist."})
+        dead.append({"what": "Save",
+                     "detail": "Never used. All %s recorded actions are applies." % acted,
+                     "sowhat": "The card button said Save and the tab said Liked, so anyone "
+                               "who saved a job had no tab by that name to find it in. The "
+                               "tab was renamed to Saved on 2026-08-09. Watch this row for "
+                               "two weeks before deciding the feature is dead, because until "
+                               "now it has not had a fair test."})
     if acted and not totals["hidden"]:
         dead.append({"what": "Hide",
                      "detail": "Never used. No job has been hidden by anyone.",
@@ -2576,11 +2586,11 @@ def _admin_usage(force=False):
                      "detail": "All %s applications were auto-logged from the feed; none were "
                                "typed in." % len(apps),
                      "sowhat": "The add/edit form on /applications is unused. Good news for the "
-                               "feed — it means people really do apply from here."})
+                               "feed, because it means people really do apply from here."})
     advanced = sum(n for s, n in outcomes.items() if s not in ("applied", "saved"))
     if apps and not advanced:
         dead.append({"what": "Outcome tracking",
-                     "detail": "All %s applications are still at 'applied' — nothing has been "
+                     "detail": "All %s applications are still at 'applied'. Nothing has been "
                                "moved to assessment, interview, offer or rejected." % len(apps),
                      "sowhat": "The one metric that would measure real-world success is not "
                                "being fed. Worth a nudge in the digest, or dropping the "
@@ -2716,7 +2726,7 @@ def _admin_user_guard(target, action):
     if action == "delete" and len(_accounts() or {}) <= 1:
         # Zero accounts is unrecoverable: with none left, _sole_user() returns "" and — unless
         # ADMIN_USERS names someone who no longer exists — nobody can reach this page again.
-        return "That's the last account — deleting it would lock everyone out for good."
+        return "That's the last account. Deleting it would lock everyone out for good."
     return ""
 
 
@@ -2747,7 +2757,7 @@ def admin_user_create():
     elif auth.password_problem(pw):
         flash(auth.password_problem(pw))
     elif db.get_user(name):
-        flash("User '%s' already exists — use Reset password instead." % name)
+        flash("User '%s' already exists. Use Reset password instead." % name)
     else:
         ok, msg = db.create_user(name, auth.hash_password(pw))
         flash("Created '%s'. They can sign in now." % name if ok else msg)
@@ -2771,7 +2781,7 @@ def admin_user_password():
             _resume_cache.pop(name, None)          # the cached résumé was keyed to the old login
             flash("Password reset for '%s'." % name)
         except Exception as e:
-            flash("Couldn't reset that password — %s" % e)
+            flash("Couldn't reset that password: %s" % e)
     return redirect(url_for("admin_users"))
 
 
@@ -2796,7 +2806,7 @@ def admin_user_disable():
                                   "extension token is revoked." if on else
                                   " They'll need a new extension token from their profile."))
         except Exception as e:
-            flash("Couldn't change that — has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
+            flash("Couldn't change that. Has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
     return redirect(url_for("admin_users"))
 
 
@@ -2814,7 +2824,7 @@ def admin_user_revoke_token():
             flash("Revoked '%s' extension tokens. They can copy a new one from their profile."
                   % name)
         except Exception as e:
-            flash("Couldn't revoke that — has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
+            flash("Couldn't revoke that. Has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
     return redirect(url_for("admin_users"))
 
 
@@ -2834,7 +2844,7 @@ def admin_user_delete():
     try:
         counts = db.delete_user(name, dry_run=True)
     except Exception as e:
-        flash("Couldn't read what that would delete — %s" % e)
+        flash("Couldn't read what that would delete: %s" % e)
         return redirect(url_for("admin_users"))
 
     if request.method == "GET":
@@ -2847,7 +2857,7 @@ def admin_user_delete():
     try:
         removed = db.delete_user(name)
     except Exception as e:
-        flash("Delete failed partway — the account was left in place. (%s)" % e)
+        flash("Delete failed partway. The account was left in place. (%s)" % e)
         return redirect(url_for("admin_users"))
     _accounts(force=True)
     _resume_cache.pop(name, None)
@@ -2877,9 +2887,9 @@ def _require_supabase():
     """
     if not db.using_supabase():
         return ("No Supabase credentials are configured. Refusing to run against the local-file "
-                "fallback — nothing here would touch the real database.")
+                "fallback. Nothing here would touch the real database.")
     if db.table_count(db.TABLE) is None:
-        return ("Can't reach Supabase right now. Refusing to run a destructive action — "
+        return ("Can't reach Supabase right now. Refusing to run a destructive action. "
                 "try again in a moment.")
     return ""
 
@@ -2924,7 +2934,7 @@ def _build_plan(mode, company="", urls=()):
             "labels": labels.most_common(),
             "samples": [{"title": (j.get("title") or "")[:70],
                          "company": (j.get("company") or "")[:40],
-                         "date": db.row_age_date(j) or "—",
+                         "date": db.row_age_date(j) or "None",
                          "url": j.get("url") or ""} for j in doomed[:20]],
             "after": len(jobs) - len(doomed)}
 
@@ -2945,7 +2955,7 @@ def admin_jobs_preview():
         return redirect(url_for("admin_data"))
     plan = _build_plan(mode, company, urls[:ADMIN_DELETE_MAX])
     if not plan["n"]:
-        flash("Nothing matched%s — %d row(s) matched but every one is liked/applied/hidden and "
+        flash("Nothing matched%s. %d row(s) matched but every one is liked/applied/hidden and "
               "is protected." % (" '%s'" % company if company else "", plan["protected"])
               if plan["matched"] else
               "Nothing matched%s." % (" '%s'" % company if company else ""))
@@ -2977,7 +2987,7 @@ def admin_jobs_apply():
         return redirect(url_for("admin_data"))
     plan = session.get("del_plan") or {}
     if not plan or time.time() - (plan.get("at") or 0) > _PLAN_TTL:
-        flash("That confirmation expired — start again so the counts are current.")
+        flash("That confirmation expired. Start again so the counts are current.")
         return redirect(url_for("admin_data"))
 
     fresh = _build_plan(plan["mode"], plan.get("company", ""), plan.get("urls") or [])
@@ -2989,7 +2999,7 @@ def admin_jobs_apply():
     # than delete a different set than the one on the screen.
     if fresh["n"] != plan["n"]:
         session.pop("del_plan", None)
-        flash("The corpus changed since that preview (%d rows now, %d then) — nothing was "
+        flash("The corpus changed since that preview (%d rows now, %d then). Nothing was "
               "deleted. Preview again." % (fresh["n"], plan["n"]))
         return redirect(url_for("admin_data"))
 
@@ -3002,7 +3012,7 @@ def admin_jobs_apply():
         removed = db.delete_urls(_plan_urls(fresh), remote_only=True)
     except Exception as e:
         db.audit_update(audit_id, 0, {"error": str(e)[:300]})
-        flash("Delete failed — %s" % e)
+        flash("Delete failed: %s" % e)
         return redirect(url_for("admin_data"))
     db.audit_update(audit_id, removed)
 
@@ -3055,7 +3065,7 @@ def admin_block():
             flash("Blocked '%s'. Existing rows stay until you delete them; no new ones will be "
                   "added." % name)
         else:
-            flash("Couldn't save that — has SUPABASE_ADMIN_MIGRATION.sql been run?")
+            flash("Couldn't save that. Has SUPABASE_ADMIN_MIGRATION.sql been run?")
     return redirect(url_for("admin_data"))
 
 
@@ -3078,7 +3088,7 @@ def action():
         # template, or the extension references it. Thirty days of zero and it can go.
         _ev_action(user, url, prev, status, "form")
     except Exception:
-        flash("Couldn't save that action — try again.")
+        flash("Couldn't save that action. Try again.")
     return redirect(request.referrer or url_for("feed"))
 
 
@@ -3092,9 +3102,9 @@ def resume():
             db.set_user_resume(session["user"], txt)
             _resume_cache[session["user"]] = (txt, time.time())   # not the cookie (size cap)
             _score_cache.clear()
-            flash("Saved — your match scores now include it.")
+            flash("Saved. Your match scores now include it.")
         except Exception:
-            flash("Couldn't save — try again.")
+            flash("Couldn't save. Try again.")
         return redirect(url_for("resume"))
     return render_template("resume.html", resume=current_resume())
 
@@ -3160,7 +3170,7 @@ def tailor_ai():
     if not resume:
         ai_err = "Add your résumé first in Resume Brain, then tailor it here."
     elif not jd:
-        ai_err = "No job description stored for this role yet — open Apply to read it on the company site."
+        ai_err = "No job description stored for this role yet. Open Apply to read it on the company site."
     elif not key:
         ai_err = "Paste a Google Gemini API key below (or set GEMINI_API_KEY on the server) to enable AI tailoring."
     else:
@@ -3191,7 +3201,7 @@ def api_tailor():
     if not resume:
         return {"ok": False, "error": "Add your résumé first in Resume Brain, then tailor it here."}
     if not jd:
-        return {"ok": False, "error": "No job description is stored for this role yet — open Apply to read it on the company site."}
+        return {"ok": False, "error": "No job description is stored for this role yet. Open Apply to read it on the company site."}
     if not key:
         return {"ok": False, "error": "Add a Google Gemini API key (the field below, or GEMINI_API_KEY on the server)."}
     try:
@@ -3397,7 +3407,7 @@ def brain_resume_save():
         flash(err)
     content = uploaded or request.form.get("content", "")
     if not (content or "").strip():
-        flash(err or "Nothing to save — attach a file or paste the text.")
+        flash(err or "Nothing to save. Attach a file or paste the text.")
         return redirect(url_for("brain_teach"))
     name = (request.form.get("name") or "").strip()
     if not name and uploaded:
@@ -3409,7 +3419,7 @@ def brain_resume_save():
                           "name": name or "Untitled résumé",
                           "content": content})
     _bust_profile(user)
-    flash(("Read %d characters from that file — " % len(content) if uploaded else "")
+    flash(("Read %d characters from that file. " % len(content) if uploaded else "")
           + "résumé saved. Your match scores now include it.")
     return redirect(url_for("brain_teach"))
 
@@ -3434,7 +3444,7 @@ def brain_story_save():
                          "skills": _csvf(request.form.get("skills")),
                          "text": request.form.get("text", "")})
     _bust_profile(user)
-    flash("Story saved — your match scores now include it.")
+    flash("Story saved. Your match scores now include it.")
     return redirect(url_for("brain_teach"))
 
 
@@ -3557,7 +3567,7 @@ def add_board():
                           "Recruitee, Breezy, Personio, or a page with embedded job data). "
                           "Add the company to sponsors.txt instead.")
             elif det[0] in {u for u, _, _ in scraper.SOURCES}:
-                result = ("info", "%s is already a built-in source — nothing to add." % det[2])
+                result = ("info", "%s is already a built-in source, so there is nothing to add." % det[2])
             else:
                 burl, ats, guess = det
                 n = scraper.probe_board(burl, ats)
@@ -3658,11 +3668,11 @@ def application_save():
     rec["resume_name"] = f.get("resume_name", "").strip()    # just the résumé file name you used
     ok, msg = db.save_application(session["user"], rec)
     if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
-        flash("One-time setup needed — run the SQL at the bottom of this page in Supabase, then try again.")
+        flash("One-time setup needed. Run the SQL at the bottom of this page in Supabase, then try again.")
     elif ok:
         flash("Saved.")
     else:
-        flash("Couldn't save — " + msg[:120])
+        flash("Couldn't save: " + msg[:120])
     return redirect(url_for("applications"))
 
 
@@ -3673,7 +3683,7 @@ def application_delete():
         db.delete_application(session["user"], request.form.get("id", ""))
         flash("Deleted.")
     except Exception:
-        flash("Couldn't delete — try again.")
+        flash("Couldn't delete. Try again.")
     return redirect(url_for("applications"))
 
 
@@ -3767,7 +3777,7 @@ def profile_tracking():
     the rest. Separate route, separate payload, nothing else touched.
     """
     if not _check_csrf():
-        flash("That form expired — reload and try again.")
+        flash("That form expired. Reload and try again.")
         return redirect(url_for("profile"))
     user = session["user"]
     try:
@@ -3783,7 +3793,7 @@ def profile_tracking():
     ok, msg = db.save_profile(user, {"extra": json.dumps(extra)})
     analytics._optout["at"] = 0.0            # take effect now, not in five minutes
     flash("Usage recording is now %s for your account." % ("off" if off else "on")
-          if ok else "Couldn't save that — " + msg[:120])
+          if ok else "Couldn't save that: " + msg[:120])
     return redirect(url_for("profile"))
 
 
@@ -3793,14 +3803,14 @@ def profile_revoke_token():
     """Let a user revoke their OWN extension tokens. Needing an admin to rotate a credential
     you leaked yourself is the kind of friction that means it doesn't get done."""
     if not _check_csrf():
-        flash("That form expired — reload and try again.")
+        flash("That form expired. Reload and try again.")
         return redirect(url_for("profile"))
     try:
         db.bump_token_epoch(session["user"])
         _accounts(force=True)
         flash("Old tokens revoked. Paste the new one below into the extension.")
     except Exception:
-        flash("Couldn't revoke that token — the database may need "
+        flash("Couldn't revoke that token. The database may need "
               "SUPABASE_ADMIN_MIGRATION.sql run first.")
     return redirect(url_for("profile"))
 
@@ -3871,7 +3881,7 @@ def _uploaded_resume_text(field="resume_file"):
             return "", ""
         return core.resume_text_from_upload(f.filename, f.read())
     except Exception:
-        return "", "Couldn't read that upload — paste the text below instead."
+        return "", "Couldn't read that upload. Paste the text below instead."
 
 
 def _extra(user):
@@ -3926,7 +3936,7 @@ def welcome():
 
     if request.method == "POST":
         if not _check_csrf():
-            flash("That form expired — please try again.")
+            flash("That form expired. Please fill it in again.")
             return redirect(url_for("welcome"))
         f = request.form
         try:
@@ -3952,7 +3962,7 @@ def welcome():
             if payload:
                 ok, msg = db.save_profile(user, payload)
                 if not ok:
-                    flash("Couldn't save — " + msg[:120])
+                    flash("Couldn't save: " + msg[:120])
         elif step == 3:
             # Roles are a saved-search PREF, not profile extra: they filter the feed and the
             # digest, so they have to live where every other filter lives and go through
@@ -3980,7 +3990,7 @@ def welcome():
                     db.save_resume(user, {"name": "My résumé", "content": text[:60000]})
                     _bust_profile(user)
                 except Exception as ex:
-                    flash("Couldn't save that résumé — " + str(ex)[:120])
+                    flash("Couldn't save that résumé: " + str(ex)[:120])
 
         if step >= ONBOARD_STEPS:
             _save_extra(user, {"onboarded": True})
@@ -4031,7 +4041,7 @@ def profile():
                 _user_prefs(user),
                 alerts=f.get("alerts", ""), alert_min=f.get("alert_min", "") or 0))
         ok, msg = db.save_profile(user, payload)
-        flash("Saved." if ok else ("Couldn't save — " + msg[:120]))
+        flash("Saved." if ok else ("Couldn't save: " + msg[:120]))
         return redirect(url_for("profile"))
     try:
         prof = db.get_profile(user) or {}
@@ -4258,7 +4268,7 @@ def ext_tailor():
         out_resume = base_resume_text
     if not out_resume.strip():
         return _cors(jsonify({"ok": False,
-                              "error": "No résumé found — add one in Resume Brain first."})), 400
+                              "error": "No résumé found. Add one in Resume Brain first."})), 400
 
     # Build the file: pdf (LaTeX/Tectonic) -> docx -> text, degrading gracefully.
     full_name = prof["fields"]["full_name"] or user

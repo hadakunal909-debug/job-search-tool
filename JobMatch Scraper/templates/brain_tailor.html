@@ -5,7 +5,7 @@
 <div class="cta-banner">
   <div class="cta-text">
     <h2>Resume Brain</h2>
-    <p>Reads the job, researches the company, and matches both against your whole profile — then
+    <p>Reads the job, researches the company, and matches both against your whole profile, then
       tells you exactly how to tailor and learns from your feedback. The more you add in Teach,
       the smarter it gets.</p>
   </div>
@@ -14,10 +14,10 @@
 
 <form method="post" action="{{ url_for('brain_tailor') }}" id="tailorForm" class="card">
   <h2>Tailor to a job</h2>
-  <p class="muted small" style="margin-top:4px">Paste a job description or pick one from your feed below.</p>
+  <p class="muted small u-mt-050">Paste a job description or pick one from your feed below.</p>
 
   {% if not have_resumes %}
-    <div class="note warn">No résumés yet — <a href="{{ url_for('brain_teach') }}">add one in Teach</a> so the brain has material to match.</div>
+    <div class="note warn">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in Teach</a> so the brain has material to match.</div>
   {% endif %}
 
   <label>Find a job from the feed <span class="muted">(search title or company)</span>
@@ -33,7 +33,7 @@
       <input type="text" name="company_url" value="{{ inputs.company_url }}" placeholder="stripe.com">
     </label>
   </div>
-  <label>Job link <span class="muted">(optional — used only if the JD box is empty)</span>
+  <label>Job link <span class="muted">optional, and used only if the JD box is empty</span>
     <input type="text" name="job_url" value="{{ inputs.job_url }}" placeholder="https://…/jobs/123">
   </label>
   <label>Job description
@@ -58,7 +58,7 @@
         <div class="cov-arrow">→</div>
         <div class="cov-num"><span class="big up">{{ r.after }}%</span><span class="muted small">with the stories below</span></div>
       </div>
-    {% else %}<p class="muted">No résumés yet — add one in Teach.</p>{% endif %}
+    {% else %}<p class="muted">No résumés yet. Add one in Teach.</p>{% endif %}
     {% if r.missing %}<p class="muted small">Keywords to add (only if true):</p><div class="chips">{% for k in r.missing %}<span class="chip miss">{{ k }}</span>{% endfor %}</div>{% endif %}
     {% if r.mirror_terms %}<p class="muted small">Mirror this job's phrasing:</p><div class="chips">{% for k in r.mirror_terms %}<span class="chip">{{ k }}</span>{% endfor %}</div>{% endif %}
   </div>
@@ -78,8 +78,8 @@
             </li>
           {% endfor %}
         </ul>
-      {% else %}<p class="muted">No stories yet — add some in <a href="{{ url_for('brain_teach') }}">Teach</a>.</p>{% endif %}
-      <label>Teach the brain <span class="muted">(optional — becomes a lasting lesson)</span>
+      {% else %}<p class="muted">No stories yet. Add some in <a href="{{ url_for('brain_teach') }}">Teach</a>.</p>{% endif %}
+      <label>Teach the brain <span class="muted">optional, and it becomes a lasting lesson</span>
         <input type="text" name="feedback" placeholder="e.g. For fintech roles, lead with the automation project."></label>
       <div class="row"><button type="submit" class="btn primary">Save what I taught</button></div>
     </form>
@@ -122,7 +122,7 @@
 
   {% if data.company %}
   <details class="card">
-    <summary><strong>Company research</strong> <span class="muted small">— {{ data.domain }}</span></summary>
+    <summary><strong>Company research</strong> <span class="muted small">{{ data.domain }}</span></summary>
     {% if data.company.what_they_do %}<p><strong>What they do:</strong> {{ data.company.what_they_do }}</p>{% endif %}
     {% if data.company.mission %}<p><strong>Mission:</strong> {{ data.company.mission }}</p>{% endif %}
     {% if data.company['values'] %}<p><strong>Core values:</strong> {{ data.company['values'] | join(', ') }}</p>{% endif %}
@@ -152,7 +152,7 @@
       fetch('/brain/jobs.json?q='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
         box.innerHTML=(d.jobs||[]).map(function(j){
           return '<a href="/brain?job='+encodeURIComponent(j.url)+'">'+
-            (j.title||'')+' — <span class="muted">'+(j.company||'')+'</span></a>';
+            (j.title||'')+', <span class="muted">'+(j.company||'')+'</span></a>';
         }).join('')||'<div class="muted small">No matching jobs with a stored description.</div>';
       }).catch(function(){});
     },250);

@@ -12,23 +12,23 @@
     <span class="tile-n">{{ dbi.pretty }}</span>
     <span class="tile-l">Database size</span>
     <span class="tile-s">{{ '%.1f'|format(dbi.pct) }}% of the {{ dbi.cap_mb }} MB free tier</span>
-    <span class="hist-bar" style="margin-top:8px"><i style="width:{{ '%.1f'|format(dbi.pct if dbi.pct < 100 else 100) }}%"></i></span>
+    <span class="hist-bar u-mt-100"><i style="width:{{ '%.1f'|format(dbi.pct if dbi.pct < 100 else 100) }}%"></i></span>
   </div>
   <div class="tile{{ ' warn' if dbi.projection.state == 'growing' and dbi.projection.days_left < 90 }}">
-    <span class="tile-n" style="font-size:17px;line-height:1.35">{{ dbi.projection.verdict }}</span>
+    <span class="tile-n u-text-md">{{ dbi.projection.verdict }}</span>
     <span class="tile-l">Growth</span>
     <span class="tile-s">{{ dbi.history|length }} daily sample{{ '' if dbi.history|length == 1 else 's' }} on record</span>
   </div>
   {% if dbi.tables %}
   <div class="tile">
     <span class="tile-n">{{ dbi.tables[0].pretty }}</span>
-    <span class="tile-l">Biggest table — {{ dbi.tables[0].name }}</span>
+    <span class="tile-l">Biggest table, {{ dbi.tables[0].name }}</span>
     <span class="tile-s">{{ dbi.tables[0].toast|filesizeformat }} of that is TOAST (overflow text)</span>
   </div>
   {% endif %}
 </div>
-<p class="muted" style="margin:-8px 0 18px">
-  A floor, not the billed figure — Supabase counts the whole instance.
+<p class="muted u-subnote">
+  A floor, not the billed figure. Supabase counts the whole instance.
 </p>
 
 <section class="panel">
@@ -45,8 +45,8 @@
     {% for t in dbi.tables %}
       <tr>
         <td>{{ t.name }}</td>
-        <td class="num">{{ '{:,}'.format(t.rows) if t.rows is not none else '—' }}</td>
-        <td class="num muted">{{ '{:,}'.format(t.est_rows) if t.est_rows >= 0 else '—' }}</td>
+        <td class="num">{{ '{:,}'.format(t.rows) if t.rows is not none else 'None' }}</td>
+        <td class="num muted">{{ '{:,}'.format(t.est_rows) if t.est_rows >= 0 else 'None' }}</td>
         <td class="num">{{ t.pretty }}</td>
         <td class="num muted">{{ t.table|filesizeformat }}</td>
         <td class="num muted">{{ t.index|filesizeformat }}</td>
@@ -72,7 +72,7 @@
     <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
     <tbody>
     {% for name, n in dbi.counts.items() %}
-      <tr><td>{{ name }}</td><td class="num">{{ '{:,}'.format(n) if n is not none else '—' }}</td></tr>
+      <tr><td>{{ name }}</td><td class="num">{{ '{:,}'.format(n) if n is not none else 'None' }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -81,11 +81,11 @@
 
 {# ---- health checks, on demand ---- #}
 <section class="panel">
-  <div class="feedrow" style="margin-bottom:6px">
-    <h2 style="margin:0">Health checks</h2>
+  <div class="feedrow u-mb-100">
+    <h2 class="u-m0">Health checks</h2>
     <button id="runchecks" class="btn sm" type="button">Run checks</button>
   </div>
-  <p class="muted">Not run on page load — expensive.</p>
+  <p class="muted">Not run on page load, because it is expensive.</p>
   <div id="checks">
     {% if health %}{% include "_health_rows.html" %}
     {% else %}<p class="muted">Not run yet.</p>{% endif %}
@@ -124,7 +124,7 @@
     {% for b in blocked %}
       <tr>
         <td>{{ b.name }}</td>
-        <td class="muted">{{ b.reason or '—' }}</td>
+        <td class="muted">{{ b.reason or 'None' }}</td>
         <td class="muted">{{ (b.created_at or '')[:10] }}{% if b.added_by %} by {{ b.added_by }}{% endif %}</td>
         <td>
           <form method="post" action="{{ url_for('admin_block') }}" class="inline">
@@ -140,7 +140,7 @@
   {% else %}
   <p class="muted">Nothing blocked.</p>
   {% endif %}
-  <form method="post" action="{{ url_for('admin_block') }}" class="newuser" style="margin-top:14px">
+  <form method="post" action="{{ url_for('admin_block') }}" class="newuser u-mt-200">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input name="name" placeholder="Company to block" autocomplete="off" required>
     <input name="reason" placeholder="Why (optional)" autocomplete="off">
@@ -227,7 +227,7 @@
     for (var i = 0; i < cs.length; i++) {
       var c = cs[i];
       var pill = c.state === "pass" ? "ok" : (c.state === "warn" ? "run" : "bad");
-      h += '<tr><td style="width:1%"><span class="pill ' + pill + '">' + esc(c.state) + "</span></td>"
+      h += '<tr><td class="u-tight"><span class="pill ' + pill + '">' + esc(c.state) + "</span></td>"
          + "<td><b>" + esc(c.name) + "</b><br><span class=\"muted\">" + esc(c.detail) + "</span>"
          + (c.state !== "pass" && c.fix
               ? '<br><span class="muted">Fix: ' + esc(c.fix) + "</span>" : "")

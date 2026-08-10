@@ -65,14 +65,14 @@
       '.msg{font-size:12px;margin-top:8px;min-height:14px;color:#0b7a52}' +
       '</style>' +
       '<div class="card">' +
-      '<div class="hd"><span>JobMatch — review &amp; submit</span><span class="x" id="x">✕</span></div>' +
+      '<div class="hd"><span>JobMatch review &amp; submit</span><span class="x" id="x">✕</span></div>' +
       '<div class="bd">' +
       '<p class="stat">Filled ' + res.filled + ' of ' + res.total + ' fields</p>' +
-      '<div class="warn">📎 Upload your résumé yourself, then submit. This fills fields only — it never attaches files or auto-submits.</div>' +
-      (captcha ? '<div class="warn">A verification (CAPTCHA) is on this page — solve it yourself before submitting.</div>' : '') +
+      '<div class="warn">📎 Upload your résumé yourself, then submit. This fills fields only. It never attaches files and never submits for you.</div>' +
+      (captcha ? '<div class="warn">A verification (CAPTCHA) is on this page. Solve it yourself before submitting.</div>' : '') +
       (unfilled.length
         ? '<p class="dim" style="margin-top:8px">Still needs you (click to jump):</p><ul class="list" id="uf">' +
-          unfilled.map(function (u) { var up = (u.reason === "no file"); return '<li data-l="' + esc(u.label) + '">' + (up ? "📎 " : "✍️ ") + esc(u.label.slice(0, 70)) + (up ? " — upload" : "") + '</li>'; }).join("") + '</ul>'
+          unfilled.map(function (u) { var up = (u.reason === "no file"); return '<li data-l="' + esc(u.label) + '">' + (up ? "📎 " : "✍️ ") + esc(u.label.slice(0, 70)) + (up ? ", upload it yourself" : "") + '</li>'; }).join("") + '</ul>'
         : '<p class="dim" style="margin-top:8px;color:#0e8a5f">No fields left for the tool. Upload your résumé, then submit.</p>') +
       '<div class="btns"><button class="primary" id="submit">Submit application</button>' +
       '<button class="ghost" id="dismiss">Dismiss</button></div>' +
@@ -103,7 +103,7 @@
       if (unfilled.length && !confirmed) {
         confirmed = true;
         $("submit").textContent = "Submit anyway";
-        msg(unfilled.length + " required field(s) still empty — click again to submit anyway.", true);
+        msg(unfilled.length + " required field(s) still empty. Click again to submit anyway.", true);
         return;
       }
       // log to the tracker via the background (has backend host permission), then click native submit
@@ -117,10 +117,10 @@
       if (btn) {
         btn.scrollIntoView({ block: "center" });
         btn.click();
-        msg("Submitted ✓ — confirm on the page. Logged to your tracker.");
+        msg("Submitted ✓. Confirm on the page. Logged to your tracker.");
         setTimeout(function () { host.remove(); }, 2500);
       } else {
-        msg("Couldn't find the Submit button — please click it on the page.", true);
+        msg("Couldn't find the Submit button. Please click it on the page.", true);
       }
     };
   }

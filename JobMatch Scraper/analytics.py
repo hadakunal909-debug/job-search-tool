@@ -45,10 +45,17 @@ _COALESCE_MAX = 200          # entries kept in the dedupe map
 # trusted — /api/ev is a browser writing into the database, so the allowlist is the boundary.
 # ("group_expand" was dropped when the feed stopped collapsing employer runs into "+N more"
 # tiles. This list gates INGEST only, so historical rows carrying that name are unaffected.)
+# ("roles_set" was MISSING while app.js emitted it on every role-picker change, so every one
+# of those events was dropped here silently since launch. Role choice is the largest single
+# cut on the corpus and it had no telemetry at all. Added 2026-08-09.)
 EVENTS = frozenset((
     "page_view", "feed_view", "job_open", "action", "prefs_save",
     "scrape_click", "login", "logout", "apply_click", "rail", "filter_panel",
-    "clear_filters", "page_leave",
+    "clear_filters", "page_leave", "roles_set",
+    # Onboarding and autofill. onboard_step carries {q, action, ms}; resume_add carries
+    # {via, ok, chars} so a failed parse is visible; autofill_used is emitted by the
+    # extension and is the guardrail for moving contact fields out of onboarding.
+    "onboard_step", "resume_add", "autofill_used",
 ))
 
 _buf = collections.deque(maxlen=_BUF_MAX)

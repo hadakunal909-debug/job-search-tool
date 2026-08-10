@@ -73,9 +73,9 @@ function extractJob() {
 function bulkSiteLabel(url) {
   try {
     const h = new URL(url).hostname.replace(/^www\./, "");
-    if (/(^|\.)tesla\.com$/.test(h)) return "Tesla careers detected — import its US jobs into your feed.";
+    if (/(^|\.)tesla\.com$/.test(h)) return "Tesla careers detected. Import its US jobs into your feed.";
     if (/(^|\.)(linkedin|indeed|glassdoor)\./.test(h)) return "";   // ToS/account-risk sites: single-save only
-    return "Import the job listings on this page (best-effort — works on most career sites).";
+    return "Import the job listings on this page. This works on most career sites.";
   } catch (e) {}
   return "";
 }
@@ -159,7 +159,7 @@ async function grabPageJobs() {
         } catch (e) { return "?"; }
       }
       return { error: "Tesla location lookup failed for " + unresolved + "/" + out.length +
-                      " jobs — not importing to avoid non-US junk. DIAG listing keys=[" +
+                      " jobs, so it is not importing to avoid non-US junk. DIAG listing keys=[" +
                       Object.keys(sm).slice(0, 12).join(",") + "] sample loc=" +
                       JSON.stringify(pick(sm, ["l", "loc", "location", "city", "locations"])).slice(0, 40) +
                       " | lookup " + nodeSample(d.lookup) + " | geo " + nodeSample(d.geo) };
@@ -259,7 +259,7 @@ async function grabPageJobs() {
     const dom = fromDomLinks();
     if (dom.length > jobs.length) { jobs = dom; how = "visible job links"; }
   }
-  if (!jobs.length) return { error: "No job listings found on this page. Try the 🔍 board check below — if this site fronts a real job board, the daily scraper can take it from here." };
+  if (!jobs.length) return { error: "No job listings found on this page. Try the 🔍 board check below. If this site fronts a real job board, the daily scraper can take it from here." };
   return { jobs: jobs.slice(0, 500), how: how,
            sample: jobs[0].title + " @ " + (jobs[0].location || "?") };
 }
@@ -350,7 +350,7 @@ $("learnedload").onclick = async () => {
       return "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'><b>" +
         (it.label || it.key || "").replace(/</g, "&lt;") + "</b>: " + String(it.value || "").replace(/</g, "&lt;") +
         " <a href='#' data-jmdel='" + k + "' style='color:#c0392b'>✕</a></div>";
-    }).join("") || "<div style='color:#888'>No saved answers yet — use “Save my answers from this page”.</div>";
+    }).join("") || "<div style='color:#888'>No saved answers yet. Use “Save my answers from this page”.</div>";
   } catch (e) { $("learnedmsg").style.color = "#c0392b"; $("learnedmsg").textContent = "Network error."; }
 };
 $("learnedlist").addEventListener("click", async (e) => {
@@ -379,7 +379,7 @@ $("save").onclick = async () => {
     if (j.ok) { $("msg").textContent = j.dup ? "Already in your tracker ✓" : "Saved to JobMatch ✓"; }
     else { $("msg").style.color = "#c0392b"; $("msg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
-    $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error — check the App URL.";
+    $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error. Check the App URL.";
   }
 };
 
@@ -414,7 +414,7 @@ $("tailorfill").onclick = async () => {
   tm.style.color = "#0b7a52"; tm.textContent = "Filling the form…";
   try {
     const ctx = await (await fetch(cfg.apibase + "/api/ext/profile_fields?token=" + encodeURIComponent(cfg.token))).json();
-    if (!ctx || !ctx.fields) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't load your profile — check the App URL / token."; return; }
+    if (!ctx || !ctx.fields) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't load your profile. Check the App URL and token."; return; }
     const payload = { fields: ctx.fields, defaults: ctx.defaults || {} };   // no file: you upload the résumé
     async function fill() {
       const out = await chrome.scripting.executeScript({
@@ -452,7 +452,7 @@ $("tailorfill").onclick = async () => {
     }
     if (!res.found) {
       tm.style.color = "#c0392b";
-      tm.textContent = "No application form found — click Apply / I'm interested on the page, then try again.";
+      tm.textContent = "No application form found. Click Apply or I'm interested on the page, then try again.";
       return;
     }
     // Learned-answer pass for whatever's still empty (client-side, NO AI).
@@ -473,7 +473,7 @@ $("tailorfill").onclick = async () => {
       title: $("title").value.trim(), company: $("company").value.trim(), url: tab.url, fileName: "" } });
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["overlay.js"] });
     const left = (res.unfilled && res.unfilled.length) ? (" · " + res.unfilled.length + " left for you") : "";
-    tm.textContent = "Filled " + res.filled + "/" + res.total + " — upload your résumé & submit on the page" + left + ".";
+    tm.textContent = "Filled " + res.filled + "/" + res.total + ". Upload your résumé and submit on the page" + left + ".";
     setTimeout(() => window.close(), 1100);          // let the user upload + submit on the page
   } catch (e) {
     tm.style.color = "#c0392b"; tm.textContent = "Error: " + e.message;
@@ -491,7 +491,7 @@ $("learnpage").onclick = async () => {
       target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmCaptureFilled });
     let fields = [];
     (out || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
-    if (!fields.length) { tm.style.color = "#c0392b"; tm.textContent = "No filled fields found here — fill the form first, then save."; return; }
+    if (!fields.length) { tm.style.color = "#c0392b"; tm.textContent = "No filled fields found here. Fill the form first, then save."; return; }
     const r = await fetch(cfg.apibase + "/api/ext/learn", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: cfg.token, company: $("company").value.trim(), fields })
@@ -533,7 +533,7 @@ $("boardcheck").onclick = async () => {
       });
       const j = await r.json();
       if (j.ok && j.added) {
-        $("boardmsg").textContent = "✓ Added " + (j.name || "board") + " — it joins the next daily scrape (with full descriptions).";
+        $("boardmsg").textContent = "✓ Added " + (j.name || "board") + ". It joins the next daily scrape, with full descriptions.";
         $("boardcheck").style.display = "none";
       } else { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Couldn't add: " + (j.error || "try the ➕ Add board page."); }
     } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error."; }
@@ -552,12 +552,12 @@ $("boardcheck").onclick = async () => {
     });
     const j = await r.json();
     if (!j.ok) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = j.error || "Check failed."; return; }
-    if (!j.found) { $("boardmsg").textContent = "No scrapeable board behind this site — use the import button above instead."; return; }
+    if (!j.found) { $("boardmsg").textContent = "No scrapeable board behind this site. Use the import button above instead."; return; }
     if (j.builtin) { $("boardmsg").textContent = "✓ Already scraped daily (" + (j.name || j.ats) + ")."; return; }
     boardFound = { pageUrl: tab.url, candidates: candidates };
-    $("boardmsg").textContent = "✓ Found: " + (j.name || "?") + " — " + j.ats + " board, ~" + (j.count == null ? "?" : j.count) + " postings. Click again to add it to the daily scraper.";
+    $("boardmsg").textContent = "✓ Found: " + (j.name || "?") + ", " + j.ats + " board, ~" + (j.count == null ? "?" : j.count) + " postings. Click again to add it to the daily scraper.";
     $("boardcheck").textContent = "➕ Add " + (j.name || "this board") + " to the daily scraper";
-  } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error — check the App URL."; }
+  } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error. Check the App URL."; }
 };
 
 $("teslanow").onclick = () => {
@@ -566,10 +566,10 @@ $("teslanow").onclick = () => {
   chrome.runtime.sendMessage({ type: "run-tesla-now" }, (res) => {
     if (chrome.runtime.lastError || !res) {
       $("teslamsg").style.color = "#c0392b";
-      $("teslamsg").textContent = "Background import didn't respond — try from a tesla.com/careers tab.";
+      $("teslamsg").textContent = "Background import didn't respond. Try again from a tesla.com/careers tab.";
       return;
     }
-    if (res.ok) { $("teslamsg").textContent = "Done — " + (res.note || ("+" + (res.added || 0) + " new, " + (res.jds || 0) + " descriptions.")); }
+    if (res.ok) { $("teslamsg").textContent = "Done. " + (res.note || ("+" + (res.added || 0) + " new, " + (res.jds || 0) + " descriptions.")); }
     else { $("teslamsg").style.color = "#c0392b"; $("teslamsg").textContent = res.note || "Import failed."; }
     refreshAutoStat();
   });
@@ -606,7 +606,7 @@ $("bulk").onclick = async () => {
   if (!jobs.length) { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "No jobs found on this page."; return; }
   const co = $("company").value.trim();             // generic DOM links carry no company —
   jobs.forEach((j) => { if (!j.company && co) j.company = co; });   // use the detected one
-  $("bulkmsg").textContent = "Found " + jobs.length + (res.how ? " via " + res.how : "") + " — importing…";
+  $("bulkmsg").textContent = "Found " + jobs.length + (res.how ? " via " + res.how : "") + ", importing…";
   try {
     const r = await fetch(cfg.apibase + "/api/ext/bulk_jobs", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -651,7 +651,7 @@ $("bulk").onclick = async () => {
     }
     else { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
-    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Network error — check the App URL.";
+    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Network error. Check the App URL.";
   }
 };
 
@@ -704,7 +704,7 @@ async function fetchQueue() {
     if (!jobs.length) $("qmsg").style.color = "#c0392b";
     $("qmsg").textContent = jobs.length
       ? "Loaded " + jobs.length + " job(s) matching your saved search. Press Start."
-      : "Nothing matched your saved search — widen the filters on JobMatch, or tick the box above.";
+      : "Nothing matched your saved search. Widen the filters on JobMatch, or tick the box above.";
   } catch (e) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Network error."; }
 }
 $("qfetch").onclick = fetchQueue;
@@ -723,18 +723,18 @@ $("qstart").onclick = async () => {
   // Per-origin breaks when an apply page redirects to another host, so we ask for https://*/*.
   const granted = await new Promise((res) =>
     chrome.permissions.request({ origins: ["https://*/*"] }, (r) => { void chrome.runtime.lastError; res(r); }));
-  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied — needed to fill the pages."; return; }
+  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied. It is needed to fill the pages."; return; }
   // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
   chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, delayMs }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#0b7a52";
-  $("qmsg").textContent = "Filling " + items.length + " job(s) — each opens in a tab for you to upload your résumé & submit.";
+  $("qmsg").textContent = "Filling " + items.length + " job(s). Each opens in a tab for you to upload your résumé and submit.";
   pollQueue();
 };
 
 $("qstop").onclick = () => {
   chrome.runtime.sendMessage({ type: "jm_queue_stop" }, function () { void chrome.runtime.lastError; });
   $("qmsg").style.color = "#c0392b";
-  $("qmsg").textContent = "⏹ Stopped — halting the current job now.";
+  $("qmsg").textContent = "⏹ Stopped. Halting the current job now.";
 };
 
 let qPollTimer = null;
@@ -760,7 +760,7 @@ function pollQueue() {
     const done = (q.items || []).filter((it) => it.status !== "queued" && it.status !== "running").length;
     $("qmsg").style.color = "#0b7a52";
     $("qmsg").textContent = (q.running ? "Filling " : "Done ") + done + "/" + q.total +
-      " — 🟢" + (c.ready || 0) + " ⏸️" + (c.needs_you || 0) + " ⏭️" + (c.skipped || 0) + " ⚠️" + (c.error || 0);
+      " · 🟢" + (c.ready || 0) + " ⏸️" + (c.needs_you || 0) + " ⏭️" + (c.skipped || 0) + " ⚠️" + (c.error || 0);
     $("qresults").innerHTML = (q.items || []).map((it) => {
       const u = (it.url || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
       const head = (icon[it.status] || "·") + " <b>" + (it.company || "").replace(/</g, "&lt;") + "</b> " + (it.title || "").replace(/</g, "&lt;");

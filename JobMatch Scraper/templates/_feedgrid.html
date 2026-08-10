@@ -31,6 +31,6 @@
   {% endfor %}
 </div>
 <script id="feeddata" type="application/json">{{ feed_rows|tojson }}</script>
-<noscript><p style="padding:16px">This jobs feed needs JavaScript enabled to display.</p></noscript>
-<div class="empty" id="empty" style="display:none">{{ empty_note }}</div>
-<div class="morewrap"><button id="loadmore" class="btn" style="display:none">Load more</button></div>
+<noscript><p class="u-p-200">This jobs feed needs JavaScript enabled to display.</p></noscript>
+<div class="empty u-hide" id="empty">{{ empty_note }}</div>
+<div class="morewrap"><button id="loadmore" class="btn u-hide">Load more</button></div>

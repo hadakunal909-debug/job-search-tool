@@ -1,0 +1,184 @@
+"""WCAG contrast gate over the design tokens, in BOTH themes.
+
+Why this exists: the token set carries two full themes, and a colour pair can only be
+checked by eye on the one screen someone happened to look at. Every edit to style.css
+silently risks the other theme. This asserts the pairs programmatically so a regression
+fails a build instead of shipping.
+
+Thresholds, and the distinction that matters:
+  * TEXT on its background must clear 4.5:1 (WCAG 1.4.3 AA, normal-size text).
+  * INTERACTIVE boundaries must clear 3:1 (WCAG 1.4.11 non-text contrast).
+  * Decorative hairlines are EXEMPT. --border-subtle is a divider between rows of the
+    same surface, not the boundary of a control. Forcing 3:1 on it would mean a visibly
+    grey rule everywhere, which is the opposite of what the design calls for. It is
+    listed under EXEMPT below rather than left out, so the exemption is a decision on
+    the record rather than an omission.
+
+No dependencies. Parses the two token blocks out of static/style.css and resolves
+var() chains itself, so it runs anywhere Python does.
+
+    python scripts/test_contrast.py        # exit 0 = every checked pair passes
+"""
+import io
+import os
+import re
+import sys
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSS = os.path.join(ROOT, "static", "style.css")
+
+TEXT_MIN = 4.5
+UI_MIN = 3.0
+
+# (text token, background token). Checked in both themes.
+TEXT_PAIRS = [
+    ("--text-primary", "--bg-canvas"),
+    ("--text-primary", "--bg-surface"),
+    ("--text-primary", "--bg-raised"),
+    ("--text-primary", "--bg-sunken"),
+    ("--text-secondary", "--bg-canvas"),
+    ("--text-secondary", "--bg-surface"),
+    ("--text-secondary", "--bg-sunken"),
+    ("--text-tertiary", "--bg-surface"),
+    ("--text-on-accent", "--accent"),
+    ("--accent-text", "--accent-bg"),
+    ("--status-success-text", "--status-success-bg"),
+    ("--status-warn-text", "--status-warn-bg"),
+    ("--status-danger-text", "--status-danger-bg"),
+    ("--status-info-text", "--status-info-bg"),
+    ("--visa-h1b-text", "--visa-h1b-bg"),
+    ("--visa-gc-text", "--visa-gc-bg"),
+    ("--visa-stem-text", "--visa-stem-bg"),
+    ("--visa-blocked-text", "--visa-blocked-bg"),
+    ("--visa-unknown-text", "--visa-unknown-bg"),
+    ("--posting-agency-text", "--posting-agency-bg"),
+    # The match ramp is read as a value ramp, so only the ends carry meaning as text.
+    ("--match-strong", "--bg-surface"),
+    ("--match-good", "--bg-surface"),
+]
+
+# Boundaries of real controls: inputs, buttons, the focus ring's companion border.
+UI_PAIRS = [
+    ("--border-strong", "--bg-surface"),
+    ("--border-strong", "--bg-canvas"),
+    ("--accent", "--bg-surface"),
+]
+
+EXEMPT = {
+    "--border-subtle": "row divider on one surface, not a control boundary",
+    "--border-default": "field hairline, paired with a 3:1 --border-strong on focus",
+    "--match-weak": "quantitative ramp end, never used as body text",
+    "--match-none": "empty-track fill, never used as text",
+    "--match-track": "unfilled arc, never used as text",
+}
+
+
+def block(css, selector):
+    """The declaration body for `selector`, or ''. Brace-counted, not regex-matched."""
+    i = css.find(selector)
+    if i < 0:
+        return ""
+    i = css.find("{", i)
+    depth, j = 0, i
+    while j < len(css):
+        if css[j] == "{":
+            depth += 1
+        elif css[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return css[i + 1:j]
+        j += 1
+    return ""
+
+
+def tokens(body):
+    out = {}
+    for name, val in re.findall(r"(--[a-z0-9-]+)\s*:\s*([^;}]+)", body, re.I):
+        out[name] = val.strip()
+    return out
+
+
+def resolve(name, table, seen=None):
+    """Follow var() chains to a literal. None if it never reaches a colour."""
+    seen = seen or set()
+    if name in seen or name not in table:
+        return None
+    seen.add(name)
+    val = table[name]
+    m = re.match(r"^var\(\s*(--[a-z0-9-]+)\s*\)$", val, re.I)
+    if m:
+        return resolve(m.group(1), table, seen)
+    return val if val.startswith("#") else None
+
+
+def rgb(hex_str):
+    h = hex_str.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def luminance(c):
+    def chan(v):
+        v /= 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (chan(x) for x in c)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def ratio(fg, bg):
+    a, b = luminance(rgb(fg)), luminance(rgb(bg))
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def main():
+    css = io.open(CSS, encoding="utf-8").read()
+    light = tokens(block(css, ":root"))
+    dark = dict(light)
+    dark.update(tokens(block(css, '[data-theme="dark"]')))
+
+    fails, checked, skipped = [], 0, []
+    for theme, table in (("light", light), ("dark", dark)):
+        print("=" * 70)
+        print("%s theme" % theme)
+        print("=" * 70)
+        for pairs, floor, kind in ((TEXT_PAIRS, TEXT_MIN, "text"), (UI_PAIRS, UI_MIN, "ui")):
+            for fg_name, bg_name in pairs:
+                fg, bg = resolve(fg_name, table), resolve(bg_name, table)
+                if not fg or not bg:
+                    skipped.append("%s: %s on %s" % (theme, fg_name, bg_name))
+                    continue
+                checked += 1
+                r = ratio(fg, bg)
+                ok = r >= floor
+                if not ok:
+                    fails.append("%s %s on %s = %.2f:1 (needs %.1f)"
+                                 % (theme, fg_name, bg_name, r, floor))
+                print("  %s %-24s on %-22s %5.2f:1  (%s min %.1f)"
+                      % ("ok " if ok else "FAIL", fg_name, bg_name, r, kind, floor))
+        print()
+
+    print("=" * 70)
+    print("exempt by decision")
+    print("=" * 70)
+    for name, why in sorted(EXEMPT.items()):
+        print("  -   %-18s %s" % (name, why))
+
+    print()
+    if skipped:
+        print("UNRESOLVED (token missing or not a literal colour):")
+        for s in skipped:
+            print("   ", s)
+        print()
+    if fails:
+        print("CONTRAST FAILURES (%d):" % len(fails))
+        for f in fails:
+            print("   ", f)
+        raise SystemExit(1)
+    print("ALL %d CONTRAST PAIRS PASS in both themes." % checked)
+
+
+if __name__ == "__main__":
+    main()

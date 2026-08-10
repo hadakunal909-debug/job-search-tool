@@ -5,11 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JobMatch</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Ccircle cx='16' cy='16' r='3.6' fill='white'/%3E%3C/svg%3E">
+  {# Two fixes over the old font link. fonts.gstatic.com is where the font BINARY comes from
+     and it was never preconnected, so the expensive handshake was the one we weren't warming.
+     And this asks for the VARIABLE face (400..700) instead of five static weights, which is
+     one file rather than five. Weight 800 is gone because the type scale bans it. #}
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ static_v('style.css') }}">
-  <style>a.who{color:inherit;text-decoration:none;font-weight:600;cursor:pointer}a.who:hover{text-decoration:underline}</style>
-  <script nonce="{{ csp_nonce }}">try{var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  {# Pre-paint, so the page never flashes the wrong theme. Three states: an explicit 'light' or
+     'dark' wins, and 'system' (the default when nothing is stored) resolves against the OS.
+     The stored PREFERENCE and the resolved ATTRIBUTE are deliberately different things, which
+     is what lets "System" keep following the OS after the choice is made. #}
+  <script nonce="{{ csp_nonce }}">try{var p=localStorage.getItem('theme')||'system';
+  var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme:dark)').matches);
+  document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}</script>
 </head>
 {# data-sid carries the SERVER's session id to the client beacons, so events from both sides
    stitch into one session. Absent when logged out, which is ev.js's cue to do nothing. #}
@@ -57,10 +67,23 @@ if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__top
 <div id="toasts" class="toasts"></div>
 <div id="pgbar" class="page-progress"></div>
 <script nonce="{{ csp_nonce }}">
+/* Light -> Dark -> System. "System" is the default and it KEEPS following the OS, which the
+   old binary toggle could not express: once you had clicked either way you were pinned to that
+   choice forever. The label names the current preference, so the control says what it is set
+   to rather than what the next click would do. */
 (function(){var b=document.getElementById('themetoggle');if(!b)return;
-function set(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('theme',t);}catch(e){}b.textContent=t==='dark'?'Light':'Dark';}
-set(document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light');
-b.addEventListener('click',function(){set(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');});})();
+var ORDER=['light','dark','system'],LABEL={light:'Light',dark:'Dark',system:'System'};
+var mq=matchMedia('(prefers-color-scheme:dark)');
+function read(){try{var p=localStorage.getItem('theme');return LABEL[p]?p:'system';}catch(e){return 'system';}}
+function apply(p){var dark=p==='dark'||(p==='system'&&mq.matches);
+  document.documentElement.setAttribute('data-theme',dark?'dark':'light');
+  b.textContent=LABEL[p];b.setAttribute('aria-label','Theme: '+LABEL[p]+'. Click to change.');}
+function set(p){try{localStorage.setItem('theme',p);}catch(e){}apply(p);}
+apply(read());
+b.addEventListener('click',function(){set(ORDER[(ORDER.indexOf(read())+1)%ORDER.length]);});
+/* Only repaint on an OS change while the preference is actually 'system'. */
+var onmq=function(){if(read()==='system')apply('system');};
+if(mq.addEventListener)mq.addEventListener('change',onmq);else if(mq.addListener)mq.addListener(onmq);})();
 </script>
 <script nonce="{{ csp_nonce }}">
 (function(){

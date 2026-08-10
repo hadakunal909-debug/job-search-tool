@@ -20,14 +20,14 @@
       {%- if visa.key == 'unemployment' -%}
         {{ visa.label }}
       {%- elif visa.days < 0 -%}
-        {{ visa.label }} — {{ -visa.days }} days ago
+        {{ visa.label }}, {{ -visa.days }} days ago
       {%- elif visa.days == 0 -%}
-        {{ visa.label }} — today
+        {{ visa.label }}, today
       {%- else -%}
         {{ visa.label }} in {{ visa.days }} days
       {%- endif -%}
     </span>
-    <span class="vb-note">{{ visa.note }} Reminder only — confirm with your DSO.</span>
+    <span class="vb-note">{{ visa.note }} This is a reminder. Confirm the date with your DSO.</span>
     <a class="vb-link" href="{{ url_for('profile') }}">Your dates</a>
   </div>
   {% endif %}
@@ -113,9 +113,9 @@
         {% endfor %}
         {# Load-bearing: without the second sentence a missing chip reads as "won't sponsor".
            core.py documents that as a design invariant — shorten it, never drop it. #}
-        <p class="fnote">Any ticked route matches. From past federal filings — a route not shown
-          means no record, not a refusal.</p>
-        <label class="ck" title="Hide roles whose description rules out visa sponsorship (no sponsorship / citizenship / clearance / green-card)">
+        <p class="fnote">Any route you tick will match. These come from past federal filings.
+          If a route is not shown there is no record of it, which is not a refusal.</p>
+        <label class="ck" title="Hides roles whose description rules out visa sponsorship, including ones that ask for citizenship, a clearance, or a green card.">
           <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
       </div>
 
@@ -196,7 +196,7 @@
         <button id="clearfilters" class="btn sm ghost" type="button"
                 title="Resets the filters. Your search text and career track stay.">Clear</button>
         <button id="saveprefs" class="btn sm" type="button"
-                title="Remembers these filters as your default search — and picks what goes in your email digest.">Save as default</button>
+                title="Saves these filters as your default search. They also decide what goes in your daily email.">Save as default</button>
       </div>
     </div>
   </aside>
@@ -204,7 +204,10 @@
   <div class="results">
     <div class="tabs">
       <button class="tab on" data-tab="recommended">Recommended</button>
-      <button class="tab" data-tab="liked">Liked <span class="tabn">{{ counts.liked }}</span></button>
+      {# Label says Saved because the card button and actLabel() both say Save/Saved. It read
+         "Liked" until 2026-08-09, so anyone who saved a job found no tab by that name. The
+         data-tab key stays "liked": it is the stored status value, not a label. #}
+      <button class="tab" data-tab="liked">Saved <span class="tabn">{{ counts.liked }}</span></button>
       <button class="tab" data-tab="applied">Applied <span class="tabn">{{ counts.applied }}</span></button>
       <button class="tab" data-tab="hidden">Hidden <span class="tabn">{{ counts.hidden }}</span></button>
     </div>
@@ -231,11 +234,11 @@
    behave identically and there is no second dialog pattern to learn. #}
 <div class="modal-overlay" id="rolemodal" role="dialog" aria-modal="true"
      aria-labelledby="rolemodal-h">
-  <div class="modal" style="max-width:640px">
+  <div class="modal u-max-640">
     <div class="modal-head">
       <div>
-        <h2 id="rolemodal-h" style="margin:0;font-size:19px">What are you looking for?</h2>
-        <p class="sub" style="margin:4px 0 0">Pick the roles you want in your feed.</p>
+        <h2 class="u-m0 u-text-md" id="rolemodal-h">What are you looking for?</h2>
+        <p class="sub u-mt-050">Pick the roles you want in your feed.</p>
       </div>
       <button class="modal-x" type="button" id="roleclose" aria-label="Close">&times;</button>
     </div>
@@ -244,7 +247,7 @@
     </div>
     <div class="modal-foot">
       <button type="button" class="btn ghost sm" id="roleclear">Clear</button>
-      <span style="flex:1"></span>
+      <span class="u-grow"></span>
       <button type="button" class="btn primary" id="roledone">Show these roles</button>
     </div>
   </div>

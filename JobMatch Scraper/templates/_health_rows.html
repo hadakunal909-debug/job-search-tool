@@ -4,7 +4,7 @@
   <tbody>
   {% for c in health %}
     <tr>
-      <td style="width:1%"><span class="pill {{ 'ok' if c.state == 'pass' else ('run' if c.state == 'warn' else 'bad') }}">{{ c.state }}</span></td>
+      <td class="u-tight"><span class="pill {{ 'ok' if c.state == 'pass' else ('run' if c.state == 'warn' else 'bad') }}">{{ c.state }}</span></td>
       <td>
         <b>{{ c.name }}</b><br>
         <span class="muted">{{ c.detail }}</span>

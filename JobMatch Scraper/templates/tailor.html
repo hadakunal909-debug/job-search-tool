@@ -1,35 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-.aibox{margin-top:22px;padding:15px 17px;border:1px solid #e3e8ef;border-radius:12px;background:#fafbfc}
-.aibox h3{margin:0 0 8px}
-.aibox .muted{font-size:12px;color:#777;margin:0 0 8px}
-.muted2{font-size:12px;font-weight:600;color:#0e8a5f}
-.airesume{width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;padding:11px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#111;resize:vertical}
-.keyin{width:100%;max-width:430px;box-sizing:border-box;padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;margin:0 0 9px}
-.rowbtns{margin:9px 0}
-.aibar{position:relative;height:26px;border-radius:8px;background:#e9eef3;overflow:hidden;margin:12px 0}
-.aibar-fill{position:absolute;top:0;height:100%;width:40%;left:-40%;background:linear-gradient(90deg,#0e8a5f,#37b27e);animation:aimove 1.15s ease-in-out infinite}
-.aibar-txt{position:absolute;inset:0;line-height:26px;text-align:center;font-size:12px;color:#0a3d2a;font-weight:600}
-@keyframes aimove{0%{left:-40%}100%{left:100%}}
-[data-theme=dark] .aibox{background:#13181f;border-color:#2a3340}
-[data-theme=dark] .airesume,[data-theme=dark] .keyin{background:#0d1117;border-color:#2a3340;color:#e6edf3}
-[data-theme=dark] .aibar{background:#1c2530}
-[data-theme=dark] .aibar-txt{color:#bfe7d3}
-</style>
 <a class="back" href="{{ url_for('feed') }}">← Back to feed</a>
 <h1>{{ job.title }}</h1>
 <div class="cmeta">{{ job.company }} · {{ job.location or 'n/a' }}
   {% if job.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
 {% set ring_cls = 'ring-strong' if score>=55 else ('ring-good' if score>=42 else 'ring-low') %}
 {% set ring_off = (157.1 * (1 - score / 100))|round(1) %}
-<div style="display:inline-flex;align-items:center;gap:13px;margin:10px 0">
+<div class="u-inline-row">
   <svg class="score-ring {{ ring_cls }}" width="62" height="62" viewBox="0 0 62 62" aria-label="{{ score }}% ATS match">
     <circle cx="31" cy="31" r="25" fill="none" stroke="var(--ring-track)" stroke-width="5.5"/>
     <circle cx="31" cy="31" r="25" fill="none" stroke="var(--ring-color)" stroke-width="5.5" stroke-dasharray="157.1" stroke-dashoffset="{{ ring_off }}" stroke-linecap="round" transform="rotate(-90 31 31)"/>
     <text x="31" y="36" text-anchor="middle" font-size="13" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">{{ score }}%</text>
   </svg>
-  <div style="font-size:16px;font-weight:700;color:var(--ink)">ATS match</div>
+  <div class="u-strongline">ATS match</div>
 </div>
 {% if not has_resume %}
   <div class="banner"><a href="{{ url_for('resume') }}">Add your résumé</a> to see your keyword gaps.</div>
@@ -45,8 +28,8 @@
 <div class="aibox" id="aibox">
   <h3>AI résumé tailoring <span class="muted2">· Gemini Flash 3.5</span></h3>
   <div id="aimsg">{% if ai_err %}<div class="banner">{{ ai_err }}</div>{% endif %}</div>
-  <p class="muted">Rewrites your résumé to mirror this job — truthfully, nothing invented. It thinks a bit for a stronger result, so it takes ~10–30s.{% if not ai_ready %} Bring your own Google Gemini key — it's saved on this browser (~30 days), so you enter it once.{% endif %}</p>
-  <div id="aibar" class="aibar" style="display:none"><div class="aibar-fill"></div><span class="aibar-txt">Tailoring your résumé… ~10–30s</span></div>
+  <p class="muted">Rewrites your résumé to mirror this job, truthfully, with nothing invented. It thinks a bit for a stronger result, so it takes about 10 to 30 seconds.{% if not ai_ready %} Bring your own Google Gemini key. It's saved on this browser (~30 days), so you enter it once.{% endif %}</p>
+  <div id="aibar" class="aibar u-hide"><div class="aibar-fill"></div><span class="aibar-txt">Tailoring your résumé… ~10–30s</span></div>
   <div id="airesult">
     {% if tailored %}
       <textarea class="airesume" rows="18" id="aitext">{{ tailored }}</textarea>
@@ -56,11 +39,11 @@
   <form method="post" action="{{ url_for('tailor_ai') }}" id="aiform">
     <input type="hidden" name="url" value="{{ job.url }}">
     <div id="keysaved" class="muted" {% if not ai_ready %}style="display:none"{% endif %}>Gemini key saved on this browser · <a href="#" id="changekey">change</a></div>
-    <input class="keyin" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off"{% if ai_ready %} style="display:none"{% endif %}>
+    <input class="keyin u-hide" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off"{% if ai_ready %}{% endif %}>
     <button class="btn primary" type="submit" id="aibtn">{{ 'Re-tailor' if tailored else 'AI-tailor my résumé' }}</button>
   </form>
 </div>
-<p style="margin-top:18px"><a class="btn primary" href="{{ job.url }}" target="_blank" rel="noopener">Apply ↗</a></p>
+<p class="u-mt-250"><a class="btn primary" href="{{ job.url }}" target="_blank" rel="noopener">Apply ↗</a></p>
 {% endblock %}
 
 {% block scripts %}
@@ -95,7 +78,7 @@
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     }).then(function (r) { return r.json(); }).then(function (j) {
       bar.style.display = "none"; btn.disabled = false;
-      if (!j || !j.ok) { msg.innerHTML = '<div class="banner">' + ((j && j.error) || "Tailoring failed — try again.") + '</div>'; return; }
+      if (!j || !j.ok) { msg.innerHTML = '<div class="banner">' + ((j && j.error) || "Tailoring failed. Try again.") + '</div>'; return; }
       var ta = document.createElement("textarea");
       ta.className = "airesume"; ta.rows = 18; ta.id = "aitext"; ta.value = j.tailored;
       result.innerHTML = "";
@@ -109,7 +92,7 @@
       result.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }).catch(function () {
       bar.style.display = "none"; btn.disabled = false;
-      msg.innerHTML = '<div class="banner">Network error — try again.</div>';
+      msg.innerHTML = '<div class="banner">Network error. Try again.</div>';
     });
   });
 })();
