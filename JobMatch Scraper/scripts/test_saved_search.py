@@ -14,6 +14,13 @@ fails = []
 STORE = {}
 
 
+# The denominator moved into its own span so it can be hidden when it equals the numerator
+# (an unfiltered feed reading "24,918 of 24,918 jobs" is noise). This still pins what the test
+# actually cares about: the numerator alone in #count, because app.js parses it back out as an
+# integer, and the total beside it.
+COUNT_RE = r'<span id="count">(\d+)</span>(?:<span[^>]*>)? of (\d+)'
+
+
 def check(name, cond, extra=""):
     if not cond:
         fails.append(name)
@@ -40,7 +47,7 @@ check("min slider at 45", 'id="min"' in body and 'value="45"' in body)
 check("30-day window selected", '<option value="30" selected>Past 30 days' in body)
 check("agencies hidden by default", 'id="hideagency" checked' in body)
 check("Save-as-default button present", 'id="saveprefs"' in body)
-m = re.search(r'<span id="count">(\d+)</span> of (\d+)', body)
+m = re.search(COUNT_RE, body)
 base_count = int(m.group(1)) if m else -1
 print("     first-paint count:", m.groups() if m else "not found")
 
@@ -76,7 +83,7 @@ check("intern=no selected", '<option value="no" selected>Exclude internships' in
 check("sort=newest selected", '<option value="newest" selected>' in body)
 check("hidenospon checked", 'id="hidenospon" checked' in body)
 check("hideagency still checked", 'id="hideagency" checked' in body)
-m2 = re.search(r'<span id="count">(\d+)</span> of (\d+)', body)
+m2 = re.search(COUNT_RE, body)
 new_count = int(m2.group(1)) if m2 else -1
 print("     first-paint count:", m2.groups() if m2 else "not found")
 check("count reflects the saved search", new_count != base_count and new_count > 0,

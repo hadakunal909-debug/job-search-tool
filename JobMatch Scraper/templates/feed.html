@@ -237,11 +237,16 @@
     <div class="countrow">
       <!-- " of N jobs" must stay OUTSIDE #count: app.js parses the span back out as an integer
            (afterAction decrements it), and scripts/test_saved_search.py matches this markup. -->
-      <div class="count"><span id="count">{{ default_total }}</span> of {{ total }} jobs</div>
+      {# " of N" is wrapped so it can be hidden when it equals the numerator: an unfiltered feed
+         reading "24,918 of 24,918 jobs" is noise. app.js still parses #count back out as an
+         integer (afterAction decrements it), so the numerator stays alone in its own span. #}
+      <div class="count"><span id="count">{{ default_total }}</span><span id="counttot"> of {{ total }}</span> jobs</div>
       <select id="sort" class="sel">
         <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
         <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
-        <option value="sponsor"{{ ' selected' if prefs.sort == 'sponsor' else '' }}>Sort: Sponsorship</option>
+        {# "Sponsorship" did not say which direction. core.sponsor_rank sorts LOWEST first,
+           meaning "show me the jobs I can actually take", so the label says that. #}
+        <option value="sponsor"{{ ' selected' if prefs.sort == 'sponsor' else '' }}>Sort: Most likely to sponsor</option>
       </select>
     </div>
 

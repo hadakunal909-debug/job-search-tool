@@ -506,10 +506,11 @@
     for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
     feed.innerHTML = html;
     formatDates(); wireLogos();
-    if (countEl) countEl.textContent = matched.length;
-    if (emptyEl) emptyEl.style.display = matched.length ? "none" : "";
+    setCount(matched.length);
+    if (!matched.length) renderEmpty(null);
+    setShown(emptyEl, !matched.length);
     if (moreBtn) {
-      moreBtn.style.display = (matched.length > limit) ? "" : "none";
+      setShown(moreBtn, matched.length > limit);
       if (matched.length > limit) moreBtn.textContent = "Load more (" + (matched.length - limit) + " more)";
     }
   }
@@ -580,6 +581,30 @@
   var POPS = ["pop-roles", "pop-loc", "pop-spon", "pop-date", "pop-more"];
   var openPop = null;
 
+  // Show the denominator only when it differs from the numerator. "24,918 of 24,918 jobs" is
+  // noise; "1,284 of 24,918 jobs" is the useful form.
+  var countTot = document.getElementById("counttot");
+  var TOTAL_ALL = countTot ? (parseInt((countTot.textContent || "").replace(/[^0-9]/g, ""), 10) || 0) : 0;
+  function setCount(n) {
+    if (countEl) countEl.textContent = n;
+    if (countTot) countTot.hidden = !TOTAL_ALL || n === TOTAL_ALL;
+  }
+
+  // Visibility for elements that start hidden in the markup via .u-hide.
+  //
+  // THE BUG THIS FIXES: those elements used to carry style="display:none", and JS revealed them
+  // with style.display = "". When the inline styles became utility classes in the token pass,
+  // that stopped working in one direction only: an inline "none" still outranks the class, so
+  // hiding worked, but clearing the inline property just let .u-hide apply again. The empty
+  // state, Load more, the admin scrape bar and the tailor key field could all be hidden and
+  // never shown. Visibility is a class now, and the inline property is cleared so a leftover
+  // value from an older session cannot outrank it.
+  function setShown(el, on) {
+    if (!el) return;
+    el.classList.toggle("u-hide", !on);
+    if (el.style.display) el.style.display = "";
+  }
+
   function chipSet(id, on, value) {
     var chip = document.getElementById("chip-" + id);
     if (!chip) return;
@@ -617,6 +642,67 @@
     var pc = document.getElementById("popcount");
     if (pc && countEl) pc.textContent = countEl.textContent;
   }
+
+  // ---- the empty state ----
+  // The old one guessed and named a CONTROL: "No jobs match. Lower Match or clear your search."
+  // The server can simply know which single filter, dropped, brings back the most jobs (see
+  // web._relax_suggestions), so the dead end names a VALUE and offers to undo it. Preventing
+  // the empty result beats styling it.
+  var RELAX_CTL = {
+    min: function () { if (minR) { minR.value = 0; minVal = 0; setFill(); } },
+    loc: function () { if (locInp) locInp.value = ""; },
+    visatags: function () {
+      if (visaSel) visaSel.value = "";
+      // The five checkboxes are the UI for the hidden input, so untick them too or the group
+      // reads as still-on. Same pairing applyFilterState() has to do on restore.
+      var bx = document.querySelectorAll(".visack input[data-vt]");
+      for (var i = 0; i < bx.length; i++) bx[i].checked = false;
+    },
+    date: function () { if (dateSel) dateSel.value = "any"; },
+    minsal: function () { if (minSalSel) minSalSel.value = ""; },
+    exp: function () { if (expSel) expSel.value = "any"; },
+    intern: function () { if (internSel) internSel.value = "any"; },
+    remote: function () { if (remoteOnly) remoteOnly.checked = false; },
+    hidenospon: function () { if (hideNo) hideNo.checked = false; },
+    verifiedonly: function () { if (verifiedOnly) verifiedOnly.checked = false; },
+    hideagency: function () { if (hideAgency) hideAgency.checked = false; },
+    roles: function () {
+      if (rolesSel) rolesSel.value = "";
+      var rb = document.querySelectorAll(".rolepick input[data-role]");
+      for (var r = 0; r < rb.length; r++) rb[r].checked = false;
+      document.dispatchEvent(new CustomEvent("roles:sync"));   // let rolepick.js relabel
+    },
+    track: function () { if (trackSel) trackSel.value = "any"; }
+  };
+  function renderEmpty(relax) {
+    if (!emptyEl) return;
+    var h = '<p class="empty-h">No jobs match these filters.</p>';
+    if (relax && relax.length) {
+      h += "<p>";
+      for (var i = 0; i < relax.length; i++)
+        h += (i ? " " : "") + "Removing " + esc(relax[i].label) + " would show " +
+             relax[i].n.toLocaleString() + " job" + (relax[i].n === 1 ? "" : "s") + ".";
+      h += "</p><div class=\"empty-acts\">";
+      for (var k = 0; k < relax.length; k++)
+        h += '<button type="button" class="btn sm" data-relax="' + esc(relax[k].key) + '">Remove ' +
+             esc(relax[k].label) + "</button>";
+      h += '<button type="button" class="btn sm ghost" data-relax="*">Clear all filters</button></div>';
+    } else {
+      h += '<div class="empty-acts"><button type="button" class="btn sm ghost" data-relax="*">Clear all filters</button></div>';
+    }
+    emptyEl.innerHTML = h;
+  }
+  if (emptyEl) emptyEl.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-relax]");
+    if (!b) return;
+    var key = b.getAttribute("data-relax");
+    if (key === "*") { var cb = document.getElementById("clearfilters"); if (cb) cb.click(); return; }
+    // Same event the Clear button emits, with which affordance did the recovery work, so the
+    // two paths can be compared rather than guessed at.
+    EV("clear_filters", { n: activeFilterCount(), via: "empty_state" });
+    if (RELAX_CTL[key]) RELAX_CTL[key]();
+    render(true);
+  });
 
   function closePop() {
     if (!openPop) return;
@@ -720,9 +806,10 @@
       shown += rows.length;                               // one row = one card
       formatDates(); wireLogos();
       var jobs = (d && d.total) || 0;
-      if (countEl) countEl.textContent = jobs;
-      if (emptyEl) emptyEl.style.display = jobs ? "none" : "";
-      if (moreBtn) { var more = !!(d && d.has_more); moreBtn.style.display = more ? "" : "none"; if (more) moreBtn.textContent = "Load more (" + (jobs - shown) + " more)"; }
+      setCount(jobs);
+      if (!jobs) renderEmpty(d && d.relax);
+      setShown(emptyEl, !jobs);
+      if (moreBtn) { var more = !!(d && d.has_more); setShown(moreBtn, more); if (more) moreBtn.textContent = "Load more (" + (jobs - shown) + " more)"; }
     }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">We couldn\'t load jobs. Try again.</div>'; });
   }
 
@@ -1356,7 +1443,7 @@
   }
   function renderScrape(st) {
     if (!sBar || !st || !st.phase) return false;
-    sBar.style.display = "";
+    setShown(sBar, true);
     var ph = st.phase, done = st.done || 0, total = st.total || 0, found = st.found || 0;
     var pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : null;
     var elapsed = elapsedOf(st), el = elapsed != null ? fmtClock(elapsed) + " elapsed" : "";
@@ -1385,8 +1472,8 @@
       if (state === "done" || stale || (Date.now() - sPollStart > 45 * 60 * 1000)) {
         if (sPoll) { clearInterval(sPoll); sPoll = null; }
         if (sBtn) sBtn.disabled = false;
-        if (state === "done") { setTimeout(function () { refreshFeedAfterScrape(); setTimeout(function () { if (sBar) sBar.style.display = "none"; }, 4000); }, 1000); }
-        else if (stale && sBar) { if (sLabel) sLabel.textContent = "Scrape finished (or stopped)."; if (sMeta) sMeta.textContent = "Hit Reload if new jobs don't appear."; setTimeout(function () { sBar.style.display = "none"; }, 6000); }
+        if (state === "done") { setTimeout(function () { refreshFeedAfterScrape(); setTimeout(function () { setShown(sBar, false); }, 4000); }, 1000); }
+        else if (stale && sBar) { if (sLabel) sLabel.textContent = "Scrape finished (or stopped)."; if (sMeta) sMeta.textContent = "Hit Reload if new jobs don't appear."; setTimeout(function () { setShown(sBar, false); }, 6000); }
       }
     }).catch(function () {});
   }
@@ -1394,11 +1481,11 @@
   if (sForm) sForm.addEventListener("submit", function (e) {
     e.preventDefault();
     if (sBtn) sBtn.disabled = true;
-    if (sBar) { sBar.style.display = ""; indet(true); if (sLabel) sLabel.textContent = "Starting…"; if (sMeta) sMeta.textContent = ""; }
+    if (sBar) { setShown(sBar, true); indet(true); if (sLabel) sLabel.textContent = "Starting…"; if (sMeta) sMeta.textContent = ""; }
     fetch("/scrape", { method: "POST", headers: { "X-Requested-With": "fetch" } }).then(function (r) { return r.json(); }).then(function (j) {
-      if (!j || !j.ok) { toast((j && j.msg) || "Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; if (sBar) sBar.style.display = "none"; return; }
+      if (!j || !j.ok) { toast((j && j.msg) || "Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; setShown(sBar, false); return; }
       toast("Scrape started on GitHub Actions."); startScrapePolling();
-    }).catch(function () { toast("Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; if (sBar) sBar.style.display = "none"; });
+    }).catch(function () { toast("Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; setShown(sBar, false); });
   });
   // If a scrape is already running (daily cron, or started in another tab), show the bar on load.
   if (sBar) fetch("/api/scrape_status", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (st) {

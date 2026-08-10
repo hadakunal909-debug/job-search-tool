@@ -65,19 +65,19 @@
   wireCopy();
   if (changeKey) changeKey.addEventListener("click", function (e) {
     e.preventDefault();
-    if (keyField) { keyField.style.display = ""; keyField.focus(); }
+    if (keyField) { keyField.classList.remove("u-hide"); keyField.focus(); }
     if (keySaved) keySaved.style.display = "none";
   });
   form.addEventListener("submit", function (e) {
     if (!window.fetch) return;                 // old browser -> normal POST (full reload)
     e.preventDefault();
-    msg.innerHTML = ""; bar.style.display = ""; btn.disabled = true;
+    msg.innerHTML = ""; bar.classList.remove("u-hide"); btn.disabled = true;
     var fd = new FormData(form), body = { url: fd.get("url") };
     var k = fd.get("api_key"); if (k) body.api_key = k;
     fetch("{{ url_for('api_tailor') }}", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     }).then(function (r) { return r.json(); }).then(function (j) {
-      bar.style.display = "none"; btn.disabled = false;
+      bar.classList.add("u-hide"); btn.disabled = false;
       if (!j || !j.ok) { msg.innerHTML = '<div class="banner">' + ((j && j.error) || "Tailoring failed. Try again.") + '</div>'; return; }
       var ta = document.createElement("textarea");
       ta.className = "airesume"; ta.rows = 18; ta.id = "aitext"; ta.value = j.tailored;
@@ -87,11 +87,11 @@
       rb.innerHTML = '<button type="button" class="btn" id="aicopy">Copy</button>';
       result.appendChild(rb);
       btn.textContent = "Re-tailor"; wireCopy();
-      if (keyField) { keyField.value = ""; keyField.style.display = "none"; }   // remembered now
+      if (keyField) { keyField.value = ""; keyField.classList.add("u-hide"); }  // remembered now
       if (keySaved) keySaved.style.display = "";
       result.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }).catch(function () {
-      bar.style.display = "none"; btn.disabled = false;
+      bar.classList.add("u-hide"); btn.disabled = false;
       msg.innerHTML = '<div class="banner">Network error. Try again.</div>';
     });
   });

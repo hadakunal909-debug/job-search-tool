@@ -1620,8 +1620,61 @@ def api_feed():
     page = matched[offset:offset + limit]
     out_rows = [dict(r, status=st) for (r, st) in page]                # status on a copy
     _ev_feed_view(user, request.args, out_rows, len(matched), offset)
-    return {"rows": out_rows, "total": len(matched),
-            "has_more": offset + limit < len(matched)}
+    out = {"rows": out_rows, "total": len(matched),
+           "has_more": offset + limit < len(matched)}
+    if not matched:
+        out["relax"] = _relax_suggestions(rows, statuses, request.args)
+    return out
+
+
+# What each narrowing filter reverts TO, and how to name the thing being dropped. The label
+# describes the VALUE, not the control: "Removing Boston, MA" is actionable where "Removing the
+# location filter" makes the reader go and look at what it was set to.
+_RELAX = [
+    ("min",          "0",   lambda v: "the %s%% match minimum" % v),
+    ("loc",          "",    lambda v: v),
+    ("visatags",     "",    lambda v: "the visa route filter"),
+    ("date",         "any", lambda v: {"1": "Past 24 hours", "7": "Past 7 days",
+                                       "30": "Past 30 days", "90": "Past 90 days"}.get(v, v)),
+    ("minsal",       "",    lambda v: "the pay minimum"),
+    ("exp",          "any", lambda v: "the experience filter"),
+    ("intern",       "any", lambda v: "the internship filter"),
+    ("remote",       "0",   lambda v: "Remote only"),
+    ("hidenospon",   "0",   lambda v: "Hide no-sponsorship"),
+    ("verifiedonly", "0",   lambda v: "Confirmed posting date"),
+    ("hideagency",   "0",   lambda v: "Hide staffing agencies"),
+    ("roles",        "",    lambda v: "the role filter"),
+    ("track",        "any", lambda v: "the career track"),
+]
+
+
+def _relax_suggestions(rows, statuses, args, top=2):
+    """For an EMPTY result: which single filter, if dropped, brings back the most jobs.
+
+    The old empty state guessed ("Lower Match or clear your search") and named a control rather
+    than a value. The app can simply know: re-run the filter with one control reverted and count
+    what comes back. Preventing the dead end beats styling it.
+
+    Only ever runs when nothing matched, so the cost is a handful of extra passes on the one
+    render where the user is stuck and nothing is being shown anyway. Filters already at their
+    default are skipped, so a typical stuck search costs two or three passes, not thirteen.
+    """
+    base = {k: v for k, v in args.items(True)} if hasattr(args, "items") else dict(args)
+    out = []
+    for key, default, label in _RELAX:
+        cur = (base.get(key) or "").strip()
+        if not cur or cur == default:
+            continue                              # not set, so dropping it changes nothing
+        probe = dict(base)
+        probe[key] = default
+        try:
+            n = len(_filter_rows(rows, statuses, probe))
+        except Exception:
+            continue                              # a suggestion is a nicety, never a blocker
+        if n > 0:
+            out.append({"key": key, "value": default, "label": label(cur), "n": n})
+    out.sort(key=lambda d: -d["n"])
+    return out[:top]
 
 
 def _ev_feed_view(user, args, rows, total, offset):
