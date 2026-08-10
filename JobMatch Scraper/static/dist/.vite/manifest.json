@@ -1,0 +1,8 @@
+{
+  "src/entries/harness.tsx": {
+    "file": "assets/harness-CC13j8-q.js",
+    "name": "harness",
+    "src": "src/entries/harness.tsx",
+    "isEntry": true
+  }
+}

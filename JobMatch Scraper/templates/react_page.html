@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{# The shell every migrated route renders. Flask still owns the URL, so there is no history
+   takeover and no refresh 404. Reverting one screen is deleting one render_template argument.
+
+   Props go in a <script type="application/json">, NOT a <script nonce>window.__DATA__=...
+   block: JSON is not executable, so CSP does not govern it at all, and this is already the
+   house pattern in _feedgrid.html. #}
+{% block content %}<div id="root"></div>{% endblock %}
+{% block scripts %}
+  <script type="application/json" id="page-props">{{ props | tojson }}</script>
+  {% if entry %}<script type="module" src="{{ entry }}"></script>{% endif %}
+{% endblock %}

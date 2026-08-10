@@ -1,2 +1,5 @@
 .cpanel.yml text eol=lf
 *.yml text eol=lf
+# Committed build output. Marking it generated keeps a bundle change from drowning review;
+# the CI reproducibility gate is what actually establishes trust in it.
+"JobMatch Scraper/static/dist/**" linguist-generated=true -diff

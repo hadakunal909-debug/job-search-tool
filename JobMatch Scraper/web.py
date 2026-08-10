@@ -209,10 +209,23 @@ def _security_headers(resp):
                             "camera=(), microphone=(), geolocation=()")
     if request.is_secure or request.headers.get("X-Forwarded-Proto", "").lower() == "https":
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    # Static assets (style.css / app.js) are fingerprinted with a ?v= query (see base.html), so
-    # they can be cached hard — the browser stops re-requesting them on every page load.
+    # Static assets are fingerprinted, so they can be cached hard and the browser stops
+    # re-requesting them on every page load.
+    #
+    # This used to be setdefault(), which never fired: Flask's send_from_directory already
+    # sets "no-cache" (SEND_FILE_MAX_AGE_DEFAULT has defaulted to None since Flask 2.0, which
+    # switches it to ETag revalidation), so the header below was overridden before it was ever
+    # read. style.css and app.js have been revalidating on every single page load.
+    #
+    # Assignment, not setdefault, and only for a URL that is genuinely fingerprinted:
+    #   * /static/dist/**  is content hashed by Vite, so the name changes when the bytes do.
+    #   * ?v=<mtime>       is what static_v() stamps on everything else.
+    # An unfingerprinted /static/ URL keeps Flask's revalidation, because a week of immutable
+    # caching on a name that can be reused is unfixable from the server side.
     if request.path.startswith("/static/"):
-        resp.headers.setdefault("Cache-Control", "public, max-age=604800, immutable")
+        fingerprinted = request.path.startswith("/static/dist/") or request.args.get("v")
+        if fingerprinted:
+            resp.headers["Cache-Control"] = "public, max-age=604800, immutable"
     return resp
 
 
@@ -1108,6 +1121,42 @@ def static_v(filename):
         return "%s?v=%s" % (url, mt)
     except Exception:
         return url
+
+
+_vite_manifest = {}                # {} = not read yet, None = absent or unreadable
+
+
+def _read_vite_manifest():
+    """Vite's build manifest, read once per process. {} when there is no build.
+
+    Lazy on purpose, exactly like sponsor_counts() and visa_index(). Passenger cold start is
+    where shared-hosting memory and time are tightest, and this module is deliberately kept
+    thin on the import path; a file read at module scope here is a regression.
+    """
+    global _vite_manifest
+    if _vite_manifest != {}:
+        return _vite_manifest or {}
+    path = os.path.join(app.static_folder, "dist", ".vite", "manifest.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            _vite_manifest = json.load(fh) or None
+    except Exception:
+        _vite_manifest = None                    # no build, or a corrupt one
+    return _vite_manifest or {}
+
+
+@app.template_global()
+def vite_entry(src):
+    """URL for a built entry, or None when there is no build.
+
+    Returning None rather than raising is the whole safety story: react_page.html omits the
+    script tag, and a route that can't find its bundle must fall back to its Jinja template
+    instead of serving a blank page. Filenames are content hashed, so no ?v= is needed.
+    """
+    entry = _read_vite_manifest().get(src)
+    if not entry or not entry.get("file"):
+        return None
+    return url_for("static", filename="dist/" + entry["file"])
 
 
 # ----------------------------- auth -----------------------------
@@ -4845,6 +4894,23 @@ def ext_jds():
             _jdmeta.pop(_u, None)
     return _cors(jsonify({"ok": True, "stored": len(clean), "patched": len(patches),
                           "removed_nonus": len(removed)}))
+
+
+@app.route("/__react")
+@admin_required
+def react_harness():
+    """Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry.
+
+    Proves the chain nothing else can prove until a real screen depends on it: hashed asset in
+    static/dist, manifest lookup, module script under the app's own CSP, React mounting, props
+    crossing the boundary, and the design tokens applying to React markup. If vite_entry()
+    returns None the page still renders, which is the fallback every migrated route relies on.
+    """
+    entry = vite_entry("src/entries/harness.tsx")
+    return render_template("react_page.html", entry=entry,
+                           props={"user": session.get("user") or "",
+                                  "csrf": csrf_token(),
+                                  "builtFor": "/__react"})
 
 
 @app.route("/healthz")
