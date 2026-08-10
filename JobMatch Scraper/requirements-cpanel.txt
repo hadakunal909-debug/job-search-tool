@@ -6,6 +6,10 @@ beautifulsoup4
 lxml
 rapidfuzz
 python-docx
+# Reads an UPLOADED résumé PDF back into text (core.resume_text_from_upload). Pure Python,
+# ~294 KB, no compiled extensions — safe on shared cPanel. Imported lazily, so if this install
+# is skipped the upload says "paste the text instead" rather than 500ing.
+pypdf==6.15.0
 # AI résumé tailoring + form-answering: Claude when ANTHROPIC_API_KEY is set (preferred), else Gemini.
 # Both call their REST APIs via `requests` above — no SDK / extra package to install.
 # python-docx powers Resume Brain's .docx export (degrades to .txt if absent).
