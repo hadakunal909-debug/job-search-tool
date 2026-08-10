@@ -1,13 +1,31 @@
 #!/usr/bin/env python3
 """
-build_deploy_zip.py — pack the app for a manual cPanel upload.
+build_deploy_zip.py: pack the app for a manual cPanel upload.
 
-WHY THIS EXISTS: deploys are supposed to happen through cPanel Git Version Control
-running .cpanel.yml, but its DEPLOYPATH still points at /home/bnrqpozr/Stemjobs — the
-account suspended around 2026-07-21 — so a git deploy copies files into a home nobody
-serves and silently changes nothing. Until that path is fixed, uploading a zip is the
-way in. This packs EXACTLY the same file list .cpanel.yml deploys, so the two stay in
-step and switching back later changes nothing.
+WHY THIS EXISTS: pushing to GitHub does not deploy anything. cPanel Git Version Control
+runs .cpanel.yml when you push to the repository HOSTED ON CPANEL, and this project's
+origin is GitHub, so nothing on the server ever hears about a push. Uploading this zip
+is the way in.
+
+Verified 2026-08-09: main was pushed to GitHub with a full release on it, and five
+minutes of polling https://stemjobs1.astrochakra.co showed the served style.css version
+unchanged, the old login copy still in place, and no reference to the new tip.js. The
+git path had not run at all.
+
+An earlier version of this note blamed .cpanel.yml's DEPLOYPATH, which used to point at
+/home/bnrqpozr/Stemjobs, the account suspended around 2026-07-21. That was true once and
+is not the reason any more: DEPLOYPATH was since changed to $HOME/stemjobs, which
+resolves to whichever account owns the repo. The path is fine. Nothing invokes it.
+
+Two ways to make git deploys actually work, if that is ever worth doing:
+  * add the cPanel repository as a second remote and push to both, or
+  * point a GitHub webhook at cPanel so it pulls and runs the deploy task.
+Neither is set up today, so treat the zip as the deploy mechanism rather than a fallback.
+
+This packs EXACTLY the same file list .cpanel.yml deploys, so the two stay in step and
+switching to a working git deploy later changes nothing. That list now includes
+static/dist, the committed React bundle, which arrives for free because "static" is in
+DIRS and the walk is recursive.
 
     python scripts/build_deploy_zip.py            -> ../stemjobs1_deploy.zip
     python scripts/build_deploy_zip.py out.zip
