@@ -1,117 +1,115 @@
 {% extends "base.html" %}
-{# Same macros as profile.html: `options` takes plain strings, where the stored value doubles as
-   the label, OR (value, label) pairs for when the two differ — opt_type stores 'opt'/'stem'
-   (what core.visa_timeline matches on) but has to READ as prose. #}
-{% macro sel(name, value, options) %}
-  <select name="{{ name }}">
-    <option value=""></option>
-    {% for o in options %}{% set v = o if o is string else o[0] %}{% set lab = o if o is string else o[1] %}<option value="{{ v }}"{{ ' selected' if value == v else '' }}>{{ lab }}</option>{% endfor %}
-  </select>
-{% endmacro %}
-{% macro yn(name, value) %}{{ sel(name, value, ['Yes', 'No']) }}{% endmacro %}
+{# First-run setup. FOUR questions, one decision per screen.
+
+   Server rendered on purpose, and it works with JavaScript off. /welcome is the only path that
+   sets extra.onboarded, and feed() hard-redirects new accounts into it, so a client-side wizard
+   that failed to load would strand a brand new account in a loop with no way out. A working
+   no-JS baseline makes that failure structurally impossible rather than merely guarded against.
+
+   Every step posts ONLY its own fields. POST /profile rebuilds all 39 text keys, so a partial
+   form blanks everything it does not carry. ONBOARD_STEP_FIELDS in web.py is the single place
+   that says which keys a step is allowed to write. #}
 {% block content %}
 
+{# Progress counts QUESTIONS, not screens. A bar that reaches 100% while screens remain is the
+   classic trust break. #}
 <div class="steps" aria-hidden="true">
   {% for i in range(1, steps + 1) %}<div class="stepseg{{ ' on' if i <= step else '' }}"></div>{% endfor %}
 </div>
-<p class="stepn">Step {{ step }} of {{ steps }}</p>
+<p class="stepn">Question {{ step }} of {{ steps }}</p>
 
-{# multipart throughout: step 5 carries a file input, and switching enctype per step would be a
-   trap for whoever adds the next one. It costs the other steps nothing. #}
-<form method="post" enctype="multipart/form-data" action="{{ url_for('welcome') }}">
+{# multipart throughout: question 1 carries a file input, and switching enctype per step would
+   be a trap for whoever adds the next one. It costs the other questions nothing. #}
+<form method="post" enctype="multipart/form-data" action="{{ url_for('welcome') }}" class="wizard">
   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <input type="hidden" name="step" value="{{ step }}">
 
   {% if step == 1 %}
-    <h1>Let's set up your feed.</h1>
-    <p class="sub">These details fill in application forms for you.
-      Nothing is sent to an employer until you apply.</p>
-    <div class="pgrid">
-      <label>First name<input name="first_name" value="{{ prof.first_name or '' }}" autofocus></label>
-      <label>Last name<input name="last_name" value="{{ prof.last_name or '' }}"></label>
-      <label>Email<input name="email" type="email" value="{{ prof.email or '' }}"></label>
-      <label>Phone<input name="phone" value="{{ prof.phone or '' }}"></label>
-      {# Not just autofill: this one also feeds the feed's location filter. #}
-      <label class="full">Where are you based?<input name="location" value="{{ prof.location or '' }}"
-             placeholder="City, State. This also filters your feed."></label>
-      <label>LinkedIn<input name="linkedin" value="{{ prof.linkedin or '' }}" placeholder="linkedin.com/in/..."></label>
-      <label>GitHub<input name="github" value="{{ prof.github or '' }}" placeholder="github.com/..."></label>
-      <label class="full">Portfolio or website<input name="portfolio" value="{{ prof.portfolio or '' }}"></label>
-    </div>
-
-  {% elif step == 2 %}
-    <h1>Work authorization</h1>
-    <p class="sub">This decides which sponsorship signals the feed shows you, and powers the
-      deadline reminders. Every field is optional.</p>
-    {# Same wording as profile.html, which marks it "Don't trim further." A tool that does date
-       arithmetic near an immigration deadline has to say plainly that it is not advice. #}
-    <div class="callout legal"><strong>Not immigration advice.</strong> These are reminders calculated
-      from dates you type in. They assert nothing about your eligibility. Confirm anything that
-      matters with your school's international-student office (DSO) and uscis.gov.</div>
-    <div class="pgrid">
-      <label>Current status{{ sel('work_auth_status', prof.work_auth_status, ['US Citizen', 'Green Card / Permanent Resident', 'H-1B', 'OPT / CPT (F-1)', 'TN', 'Other', 'Prefer not to say']) }}</label>
-      <label>Need sponsorship now?{{ yn('needs_sponsorship', prof.needs_sponsorship) }}</label>
-      <label>Will need it in future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
-      <label>STEM-eligible degree?{{ yn('stem_eligible', prof.stem_eligible) }}</label>
-      <h3 class="psec">Dates <span class="dim">optional, and they only drive the reminders</span></h3>
-      <label>Graduation / program end<input type="date" name="program_end_date" value="{{ prof.program_end_date or '' }}"></label>
-      <label>Which OPT?{{ sel('opt_type', prof.opt_type, [('opt', 'Post-completion OPT'), ('stem', 'STEM extension (24-month)')]) }}</label>
-      <label>OPT start <span class="dim">(EAD valid from)</span><input type="date" name="opt_start_date" value="{{ prof.opt_start_date or '' }}"></label>
-      <label>OPT end <span class="dim">(EAD valid to)</span><input type="date" name="opt_end_date" value="{{ prof.opt_end_date or '' }}"></label>
-    </div>
-
-  {% elif step == 3 %}
-    <h1>What are you targeting?</h1>
-    <p class="sub">Pick everything that fits. This decides what the feed shows first.
-      Nothing gets hidden.</p>
-    {# The same picker the feed uses, so what you choose here is editable later from exactly
-       one place and there is no second list to keep in step. form_post makes the checkboxes
-       submit themselves — this page has no app.js, and relying on JS to fill a hidden input
-       was what made the first version save nothing. #}
-    {% with form_post = True %}{% include "_rolepicker.html" %}{% endwith %}
-
-  {% elif step == 4 %}
-    <h1>Any companies in mind?</h1>
-    <p class="sub">Employers you'd especially like to hear about. Leaving this blank is fine.
-      Companies you add move up in your feed, and nothing gets filtered out.</p>
-    <div class="pgrid">
-      <label class="full">Target companies <span class="dim">comma-separated</span>
-        <textarea name="companies" rows="4" placeholder="Stripe, Databricks, Northrop Grumman">{{ companies }}</textarea>
-      </label>
-    </div>
-    <div class="callout">An employer missing from the federal sponsorship data isn't a
-      non-sponsor. The files are incomplete. That is why the feed ranks by sponsorship
-      rather than filtering on it.</div>
-
-  {% elif step == 5 %}
-    <h1>Add your résumé</h1>
-    <p class="sub">Every match score is calculated against your résumé.
-      Without it, every job scores the same.</p>
+    <h1 class="qtitle">Add your résumé.</h1>
+    <p class="qsub">Every match score is calculated against it. Without it, every job scores the same.</p>
     {% if has_resume %}
       <div class="callout">You already have a résumé saved. Adding a new one replaces it.</div>
     {% endif %}
-    <div class="pgrid">
-      <label class="full">Upload it
-        <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md">
+    {# Three doors, weighted. Upload is the large primary target, paste is a disclosure rather
+       than a second giant textarea competing with it, and skipping is a plain button in the
+       footer. The old screen gave upload and paste equal weight, which made it look like twice
+       the work it actually is. #}
+    <label class="dropzone" for="resume_file">
+      <span class="dz-main">Choose a file, or drop one here</span>
+      <span class="dz-sub">PDF, Word, or plain text</span>
+      <input type="file" id="resume_file" name="resume_file" accept=".pdf,.docx,.txt,.md">
+    </label>
+    <details class="pastebox">
+      <summary>Or paste the text instead</summary>
+      <textarea name="resume" rows="12" aria-label="Paste your résumé"
+                placeholder="Paste the whole thing. Plain text is fine."></textarea>
+    </details>
+    <p class="dim">We read the words out and don't keep the file. A scanned or photographed PDF
+      has no text in it, so paste the text instead. You can change any of this later.</p>
+
+  {% elif step == 2 %}
+    <h1 class="qtitle">What kind of work?</h1>
+    <p class="qsub">Pick everything that fits. This decides what the feed shows first. Nothing gets hidden.</p>
+    {# The same picker the feed uses, so a choice made here is editable later from exactly one
+       place. form_post makes the checkboxes submit themselves: relying on JS to fill a hidden
+       input is what made the first version of this screen save nothing. #}
+    {% with form_post = True %}{% include "_rolepicker.html" %}{% endwith %}
+    {# Leaving it empty is a legitimate answer, so it looks like one instead of being the last
+       clause of a hint nobody reads. #}
+    <button class="btn" type="submit" name="all_roles" value="1">Show me everything</button>
+
+  {% elif step == 3 %}
+    <h1 class="qtitle">Do you need visa sponsorship?</h1>
+    <p class="qsub">This decides which sponsorship signals the feed puts in front of you.</p>
+    <div class="choices">
+      {% for val, label, hint in [
+           ('now',    'Yes, now',            'You need an employer to sponsor you before you can start.'),
+           ('future', 'Not now, but I will', 'You can work today, on OPT or similar, and will need sponsorship later.'),
+           ('no',     'No',                  'You are a citizen or a permanent resident.')] %}
+      <label class="choice{{ ' on' if sponsorship == val else '' }}">
+        <input type="radio" name="sponsorship" value="{{ val }}"{{ ' checked' if sponsorship == val else '' }}>
+        <span class="choice-b">{{ label }}</span>
+        <span class="choice-h">{{ hint }}</span>
       </label>
-      <label class="full">Or paste the text
-        <textarea name="resume" rows="12" placeholder="Paste the whole thing. Plain text is fine."></textarea>
-      </label>
+      {% endfor %}
     </div>
-    <p class="dim">PDF, Word, or plain text. We read the words out and don't keep the file.
-      A scanned or photographed PDF has no text in it, so paste the text instead. You can
-      change any of this later.</p>
+    {# Sits BELOW the options, not above: it is a consequence of answering rather than a
+       precondition for reading the question, and putting it first pushes the question itself
+       under the fold on a phone. The .legal variant exists so this cannot be quietly restyled
+       into a decorative info box. Its wording is exempt from the house copy rules. #}
+    <div class="callout legal"><strong>Not immigration advice.</strong> Anything this app
+      works out from dates you type in asserts nothing about your eligibility. Confirm anything
+      that matters with your school's international-student office (DSO) and uscis.gov.</div>
+
+  {% elif step == 4 %}
+    <h1 class="qtitle">Where do you want to work?</h1>
+    <p class="qsub">A city, a metro, or a state. Remote counts as a place.</p>
+    <label class="qfield">
+      <input name="location" list="locs" value="{{ prof.location or '' }}"
+             autocomplete="off" aria-label="Where do you want to work"
+             placeholder="Boston, MA">
+    </label>
+    <datalist id="locs">
+      <option value="Remote">
+      {% for m in metros %}<option value="{{ m }}">{% endfor %}
+      {% for s in states %}<option value="{{ s }}">{% endfor %}
+    </datalist>
+    <button class="btn" type="submit" name="anywhere" value="1">Anywhere in the US</button>
   {% endif %}
 
   <div class="wact">
     {% if step > 1 %}<a class="btn ghost" href="{{ url_for('welcome', step=step - 1) }}">Back</a>{% endif %}
     <span class="spacer"></span>
+    {# "Skip this question", not "Skip for now". The old label promised a second chance the code
+       never gave: any skip wrote onboarded=True and ended setup for good. #}
     <button class="btn ghost" type="submit" name="action" value="skip">Skip this question</button>
     <button class="btn primary" type="submit" name="action" value="next">
       {{ 'Finish' if step == steps else 'Continue' }}</button>
   </div>
 </form>
-{# Search, the six-pick cap and the live counter. The picker WORKS without it — the checkboxes
-   post themselves — so a load failure costs polish, not the answer. #}
+{% if step == 2 %}
+{# Search, the six-pick cap and the live counter. The picker WORKS without it, since the
+   checkboxes post themselves, so a load failure costs polish rather than the answer. #}
 <script src="{{ static_v('rolepick.js') }}"></script>
+{% endif %}
 {% endblock %}
