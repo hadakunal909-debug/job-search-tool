@@ -34,8 +34,15 @@ def main(argv):
         _usage()
     cmd = argv[0].lower()
 
+    # Both password paths validate through auth, the same call the admin UI makes. Without this
+    # the CLI enforced nothing: it would set a one-character password on an account the web UI
+    # would have refused to create, and the account it produced logs in exactly the same way.
     if cmd == "add" and len(argv) == 3:
         username, password = argv[1], argv[2]
+        bad = auth.password_problem(password)
+        if bad:
+            print(bad)
+            return
         if db.get_user(username):
             print("User '%s' already exists. Use 'passwd' to change the password." % username)
             return
@@ -44,6 +51,10 @@ def main(argv):
 
     elif cmd == "passwd" and len(argv) == 3:
         username, password = argv[1], argv[2]
+        bad = auth.password_problem(password)
+        if bad:
+            print(bad)
+            return
         if not db.get_user(username):
             print("No such user: %s" % username)
             return
