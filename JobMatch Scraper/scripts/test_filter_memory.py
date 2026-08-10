@@ -56,6 +56,7 @@ function box(v) { return { type: "checkbox", checked: !!v }; }
 
 var IN = %(input)s;
 var PAGE = IN.page;                       // "feed" | "company"
+var feed = { getAttribute: function (a) { return a === "data-user" ? IN.user : null; } };
 
 // Controls present on this page. company.html renders only #q and #sort.
 var q, minR, sortSel, dateSel, expSel, internSel, minSalSel, locInp, visaSel, trackSel,
@@ -91,12 +92,13 @@ var document = {
 };
 
 // ---- lifted verbatim from static/app.js ---------------------------------------
-var FILTER_KEY = "jm_filters", FILTER_V = 1;
+var FILTER_KEY = "jm_filters:" + (feed.getAttribute("data-user") || ""), FILTER_V = 1;
 %(funcs)s
 
 // ---- run ----------------------------------------------------------------------
 var out = {};
 reset(PAGE, IN.set);
+if (IN.seed) { for (var sk in IN.seed) STORE[sk] = JSON.stringify(IN.seed[sk]); }
 if (IN.store !== null) STORE[FILTER_KEY] = JSON.stringify(IN.store);
 if (IN.action === "save") { saveFilterState(); out.stored = JSON.parse(STORE[FILTER_KEY] || "{}"); }
 else {
@@ -117,9 +119,10 @@ FUNCS = "\n".join(js_function(SRC, n) for n in ("_ctlMap", "_readStore",
                                                 "saveFilterState", "applyFilterState"))
 
 
-def run(page, action, set_vals=None, store=None):
-    body = DRIVER % {"input": json.dumps({"page": page, "action": action,
-                                          "set": set_vals or {}, "store": store}),
+def run(page, action, set_vals=None, store=None, user="kunal", seed=None):
+    body = DRIVER % {"input": json.dumps({"page": page, "action": action, "user": user,
+                                          "set": set_vals or {}, "store": store,
+                                          "seed": seed or {}}),
                      "funcs": FUNCS}
     fh = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8")
     fh.write(body)
@@ -165,6 +168,24 @@ check("feed-only filters survive a company-page save",
 check("sort IS shared across both pages", after.get("sort") == "newest")
 check("company-page search text does NOT leak into the feed's q",
       after.get("q") != "engineer", repr(after.get("q")))
+
+print("\none browser, two accounts — filters must not follow the machine")
+# Found while testing a second account: their brand-new feed came up carrying the first
+# account's saved sort, because localStorage belongs to the BROWSER, not the login.
+saved = run("feed", "save", {"min": "45", "sort": "sponsor", "loc": "Boston"},
+            user="kunal")["stored"]
+got = run("feed", "apply", {"min": "0", "sort": "score", "loc": ""},
+          user="onboardtest", seed={"jm_filters:kunal": saved})
+check("a different user gets their OWN defaults, not the last user's",
+      got["dom"]["sort"] == "score" and got["dom"]["min"] == "0" and got["dom"]["loc"] == "",
+      json.dumps(got["dom"]))
+back = run("feed", "apply", {"min": "0", "sort": "score"}, store=saved, user="kunal")
+check("...and the first user still gets theirs back",
+      back["dom"]["sort"] == "sponsor" and back["dom"]["min"] == "45")
+own = run("feed", "save", {"sort": "newest"}, user="onboardtest",
+          seed={"jm_filters:kunal": saved})
+check("the second user's save doesn't touch the first user's key",
+      own["stored"].get("sort") == "newest")
 
 print("\nrubbish in localStorage is discarded whole, never half-applied")
 for bad in ({"v": 99, "min": "80"}, {"min": "80"}, [], "nope", None):
