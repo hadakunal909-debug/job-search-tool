@@ -57,6 +57,7 @@
   --status-danger-border:var(--red-500);
   --status-info-text:var(--blue-700); --status-info-bg:var(--blue-50);
   --focus-ring:0 0 0 3px rgba(79,70,229,.25);
+  --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235b6270' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
   /* --- Layer 3: domain ----------------------------------------------------
      Three visa families, not five colours: the temporary work routes share a hue
@@ -193,6 +194,7 @@
   --status-danger-text:#f0726b; --status-danger-bg:#3a1d1d; --status-danger-border:#f0726b;
   --status-info-text:#93b4f5; --status-info-bg:#172138;
   --focus-ring:0 0 0 3px rgba(139,140,247,.35);
+  --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa1b0' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --visa-h1b-text:#93b4f5;  --visa-h1b-bg:#172138;
   --visa-e3-text:#93b4f5;   --visa-e3-bg:#172138;
   --visa-h1b1-text:#93b4f5; --visa-h1b1-bg:#172138;
@@ -310,6 +312,14 @@ h3{font-size:var(--text-base);margin:0;font-weight:600}
 .login form{display:flex;flex-direction:column;gap:var(--space-150);margin-top:22px}
 input,textarea,select{font:inherit;padding:10px 13px;border:1px solid var(--line-strong);border-radius:var(--r);width:100%;background:var(--surface);color:var(--ink);transition:border-color .15s,box-shadow .15s}
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--brand);box-shadow:var(--focus)}
+/* The native OS select arrow was the loudest "this is unstyled" signal in the product.
+   appearance:none removes it; the chevron comes back as a background image whose colour is
+   themed through --select-chevron. padding-right leaves room so a long option never runs
+   under it. Only real dropdowns: [multiple] and [size] render as list boxes, not menus. */
+select:not([multiple]):not([size]){appearance:none;-webkit-appearance:none;
+  background-image:var(--select-chevron);background-repeat:no-repeat;
+  background-position:right var(--space-150) center;padding-right:var(--space-400)}
+select::-ms-expand{display:none}
 ::placeholder{color:var(--muted);opacity:.7}
 textarea{resize:vertical}
 
@@ -942,7 +952,6 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .wact{display:flex;align-items:center;gap:var(--space-150);margin-top:var(--space-300);max-width:var(--layout-form-max)}
 .wact .spacer{flex:1}
 .rolepick{max-width:var(--layout-form-max)}
-.wnote{max-width:var(--layout-form-max);padding:var(--space-150) var(--space-200);border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--bg-sunken);font-size:var(--text-xs);color:var(--text-secondary);margin:0 0 var(--space-200)}
 
 /* --- /profile: extension token box and the visa timeline --- */
 .tokbox,.tlbox{margin-top:var(--space-300);padding:var(--space-200) var(--space-250);border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--bg-sunken);max-width:var(--layout-form-max)}
@@ -1031,3 +1040,79 @@ a.who:hover{text-decoration:underline}
 .u-subnote{margin:calc(var(--space-100) * -1) 0 var(--space-250)}
 .u-sechead{margin:var(--space-150) 0 var(--space-100)}
 .u-sechead-sm{font-size:var(--text-sm);margin:var(--space-250) 0 var(--space-100)}
+
+/* ==================================================================
+   The four states this app had no way to express, plus the tooltip.
+   Added 2026-08-09 alongside the select chevron above.
+   ================================================================== */
+
+/* --- BUTTON: loading -------------------------------------------------------
+   #saveprefs used to just disable itself, so a slow save was indistinguishable
+   from a dead button. The label deliberately STAYS visible: swapping it for a
+   spinner loses the one piece of information that says which action is running,
+   and it makes the button resize mid-click. aria-busy is the accessible half. */
+.btn.is-loading{pointer-events:none;opacity:.8}
+.btn.is-loading::before{content:"";width:13px;height:13px;flex:0 0 auto;
+  border:2px solid currentColor;border-top-color:transparent;
+  border-radius:var(--radius-full);animation:spin .7s linear infinite}
+@media (prefers-reduced-motion:reduce){.btn.is-loading::before{animation-duration:2.4s}}
+
+/* --- FIELD: error ----------------------------------------------------------
+   Keyed on [aria-invalid="true"], not on a .has-error class, so the thing a
+   screen reader announces and the thing the eye sees can never disagree. Setting
+   the class without the attribute simply does nothing, which is the point. */
+.field{display:flex;flex-direction:column;gap:var(--space-050);margin-bottom:var(--space-200)}
+.field-label{font-size:var(--text-2xs);color:var(--text-secondary);font-weight:var(--weight-medium)}
+.field-help{font-size:var(--text-2xs);color:var(--text-secondary)}
+.field-error{font-size:var(--text-2xs);color:var(--status-danger-text);
+  font-weight:var(--weight-medium);display:flex;align-items:flex-start;gap:var(--space-050)}
+.field-error::before{content:"!";flex:0 0 auto;width:14px;height:14px;margin-top:1px;
+  border-radius:var(--radius-full);background:var(--status-danger-text);
+  color:var(--bg-surface);font-size:10px;line-height:14px;text-align:center;
+  font-weight:var(--weight-bold)}
+input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{
+  border-color:var(--status-danger-border)}
+input[aria-invalid="true"]:focus,select[aria-invalid="true"]:focus,
+textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
+  box-shadow:0 0 0 3px var(--status-danger-bg)}
+
+/* --- CALLOUT ---------------------------------------------------------------
+   Full borders only. A single-sided accent rule with rounded corners looks like
+   a rendering bug, so these are bordered boxes.
+
+   .legal exists for one reason: the immigration disclaimer needs a component of
+   its OWN, so that restyling "notes" generally cannot quietly turn a liability
+   statement into a decorative info box, and so a reviewer can see at a glance
+   that the copy inside is exempt from the house style rules. Do not merge it
+   into .callout.info because they currently look similar. */
+.callout{padding:var(--space-150) var(--space-200);border-radius:var(--radius-md);
+  border:1px solid var(--border-subtle);background:var(--bg-sunken);
+  color:var(--text-secondary);font-size:var(--text-xs);line-height:var(--leading-xs);
+  margin:0 0 var(--space-200);max-width:var(--layout-prose-max)}
+.callout b,.callout strong{color:var(--text-primary)}
+.callout.info{background:var(--status-info-bg);border-color:var(--status-info-bg);
+  color:var(--status-info-text)}
+.callout.warn{background:var(--status-warn-bg);border-color:var(--status-warn-border);
+  color:var(--status-warn-text)}
+.callout.danger{background:var(--status-danger-bg);border-color:var(--status-danger-border);
+  color:var(--status-danger-text)}
+.callout.legal{background:var(--bg-sunken);border-color:var(--border-default);
+  color:var(--text-secondary)}
+.callout.legal a{color:inherit;text-decoration:underline}
+
+/* --- TOOLTIP ---------------------------------------------------------------
+   Replaces native title= on the explanations that matter. A native tooltip never
+   appears on touch at all, has an uncontrollable delay, and is announced
+   inconsistently. tip.js promotes title -> data-tip on first hover or focus, so
+   with JS off the native tooltip still works and nothing is lost.
+
+   Fixed position and appended to <body> on purpose: the filter rail scrolls its
+   own body, and an absolutely positioned tip inside it would be clipped. */
+.tip{position:fixed;z-index:var(--z-toast);max-width:280px;pointer-events:none;
+  background:var(--text-primary);color:var(--bg-surface);
+  font-size:var(--text-2xs);line-height:var(--leading-2xs);font-weight:var(--weight-regular);
+  padding:var(--space-100) var(--space-150);border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-md);opacity:0;transform:translateY(2px);
+  transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+.tip.on{opacity:1;transform:translateY(0)}
+@media (prefers-reduced-motion:reduce){.tip{transition:none}}

@@ -1151,11 +1151,13 @@ def login():
         p = request.form.get("password") or ""
         if u and _too_many_logins(u):              # short-circuit BEFORE the expensive hash
             flash("Too many sign-in attempts. Please wait a few minutes and try again.")
-            return render_template("login.html")
+            return render_template("login.html", bad_login=True, username=u)
         rec = None
+        db_down = False
         try:
             rec = db.get_user(u)
         except Exception:
+            db_down = True
             flash("Couldn't reach the database. Try again.")
         if rec and auth.verify_password(p, rec.get("password_hash", "")):
             # Checked AFTER the password, so a wrong guess can't be used to enumerate which
@@ -1163,17 +1165,26 @@ def login():
             # just-disabled account can't sign in during the cache's 60-second window.
             if rec.get("disabled_at"):
                 flash("That account has been disabled.")
-                return render_template("login.html")
+                return render_template("login.html", bad_login=True, username=u)
             _login_fails.pop(u, None)              # clear on success
             session.permanent = True
             session["user"] = u                    # résumé stays OUT of the cookie (size cap)
             _resume_cache[u] = (rec.get("resume", "") or "", time.time())
             analytics.emit(u, _sid(), "login")
             return redirect(_safe_next(request.args.get("next")) or url_for("feed"))
-        if rec is not None:
-            _login_fails.setdefault(u, []).append(time.time())
+        # ONE response whether or not the account exists. This used to flash only when
+        # db.get_user returned a row, so an unknown username re-rendered in silence while a
+        # real one said "Wrong username or password" — which let anyone enumerate accounts by
+        # watching for the message, the exact thing the disabled-check above is careful to
+        # avoid. It also read as a dead form when you simply mistyped your username.
+        # The failure counter still only records real accounts, so junk names can't grow
+        # _login_fails without bound.
+        if not db_down:
+            if rec is not None:
+                _login_fails.setdefault(u, []).append(time.time())
             flash("Wrong username or password.")
-    return render_template("login.html")
+            return render_template("login.html", bad_login=True, username=u)
+    return render_template("login.html", username=(u if request.method == "POST" else ""))
 
 
 @app.route("/logout")

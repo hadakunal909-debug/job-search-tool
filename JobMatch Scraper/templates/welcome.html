@@ -45,7 +45,7 @@
       deadline reminders. Every field is optional.</p>
     {# Same wording as profile.html, which marks it "Don't trim further." A tool that does date
        arithmetic near an immigration deadline has to say plainly that it is not advice. #}
-    <div class="wnote"><strong>Not immigration advice.</strong> These are reminders calculated
+    <div class="callout legal"><strong>Not immigration advice.</strong> These are reminders calculated
       from dates you type in. They assert nothing about your eligibility. Confirm anything that
       matters with your school's international-student office (DSO) and uscis.gov.</div>
     <div class="pgrid">
@@ -79,7 +79,7 @@
         <textarea name="companies" rows="4" placeholder="Stripe, Databricks, Northrop Grumman">{{ companies }}</textarea>
       </label>
     </div>
-    <div class="wnote">An employer missing from the federal sponsorship data isn't a
+    <div class="callout">An employer missing from the federal sponsorship data isn't a
       non-sponsor. The files are incomplete. That is why the feed ranks by sponsorship
       rather than filtering on it.</div>
 
@@ -88,7 +88,7 @@
     <p class="sub">Every match score is calculated against your résumé.
       Without it, every job scores the same.</p>
     {% if has_resume %}
-      <div class="wnote">You already have a résumé saved. Adding a new one replaces it.</div>
+      <div class="callout">You already have a résumé saved. Adding a new one replaces it.</div>
     {% endif %}
     <div class="pgrid">
       <label class="full">Upload it

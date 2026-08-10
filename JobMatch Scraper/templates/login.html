@@ -5,9 +5,22 @@
     <span>Job<b>Match</b></span>
   </div>
   <p class="sub">Sign in to see your jobs.</p>
+  {# On a failed attempt both fields are marked invalid rather than one: saying which half was
+     wrong would tell an attacker which usernames exist. The username is typed back so a wrong
+     password does not cost you the whole form. #}
   <form method="post">
-    <input name="username" placeholder="Username" autofocus required>
-    <input name="password" type="password" placeholder="Password" required>
+    <div class="field">
+      <input name="username" placeholder="Username" aria-label="Username"
+             value="{{ username or '' }}" autofocus required
+             {% if bad_login %}aria-invalid="true" aria-describedby="login-err"{% endif %}>
+    </div>
+    <div class="field">
+      <input name="password" type="password" placeholder="Password" aria-label="Password" required
+             {% if bad_login %}aria-invalid="true" aria-describedby="login-err"{% endif %}>
+      {% if bad_login %}
+      <p class="field-error" id="login-err">Check your username and password, then try again.</p>
+      {% endif %}
+    </div>
     <button class="btn primary" type="submit">Log in</button>
   </form>
 </div>
