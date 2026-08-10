@@ -1171,6 +1171,12 @@ def feed():
     let app.js fetch /api/feed for search/filter/paging over the full set — so the payload stays
     small at any scale. The switch is automatic + env-tunable; behaviour is unchanged below it."""
     user = session["user"]
+    # A brand-new account lands on an unpersonalized feed: no résumé means no meaningful score,
+    # so the match floor silently drops to 0 and every card reads the same. Send them through
+    # the wizard once instead. _needs_onboarding checks the PROFILE, not just a flag, so an
+    # existing account is never dragged through it, and every step offers "Skip for now".
+    if _needs_onboarding(user):
+        return redirect(url_for("welcome"))
     resume = current_profile()           # match against the WHOLE profile (résumés + stories)
     rows = ranked_rows(user, resume)     # full corpus, score-sorted, status-free, cached
     statuses = user_statuses(user)
@@ -3757,6 +3763,148 @@ def _cors(resp):
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
+
+
+# ------------------------------------------------------------------
+# ONBOARDING
+#
+# Accounts are admin-created and there is no signup, so "first login with an empty profile" is
+# the only hook available. The flag lives in profiles.extra (jsonb, already there) rather than
+# a new column, so this needs no migration.
+#
+# Each step POSTs and advances, instead of one page that collects everything and saves at the
+# end: closing the tab half way then keeps what you filled in.
+#
+# It must NOT post to /profile. That route rebuilds its payload as
+# {k: f.get(k, "").strip() for k in text_keys} over all 39 fields, so a partial form BLANKS
+# everything it doesn't contain. db.save_profile itself is safe with a partial dict — it filters
+# to the keys you passed — so these steps write straight through it.
+# ------------------------------------------------------------------
+ONBOARD_STEPS = 5
+
+# Offered as tick-boxes because "what are you targeting" is a recall problem, not a typing one.
+# Grouped the way core.role_track splits the corpus, so a choice here means something the feed
+# can already act on.
+TARGET_ROLES = [
+    ("Project Manager", "mgmt"), ("Program Manager", "mgmt"), ("Product Manager", "mgmt"),
+    ("Project Coordinator", "mgmt"), ("Business Analyst", "mgmt"), ("Data Analyst", "mgmt"),
+    ("Operations Manager", "mgmt"), ("Scrum Master", "mgmt"),
+    ("Implementation Consultant", "mgmt"),
+    ("Software Engineer", "dev"), ("Full Stack Developer", "dev"), ("Data Engineer", "dev"),
+    ("Data Scientist", "dev"), ("Machine Learning Engineer", "dev"),
+    ("DevOps / SRE", "dev"), ("QA Engineer", "dev"),
+]
+
+
+def _extra(user):
+    """The profile's `extra` jsonb as a dict, whatever shape it is stored in."""
+    try:
+        e = (db.get_profile(user) or {}).get("extra")
+        if isinstance(e, str):
+            e = json.loads(e or "{}")
+        return e if isinstance(e, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_extra(user, updates):
+    """MERGE into extra, never replace it. db.save_profile overwrites the whole jsonb value, so
+    writing {'onboarded': True} on its own would silently drop ev_off (the analytics opt-out)."""
+    e = _extra(user)
+    e.update(updates)
+    return db.save_profile(user, {"extra": e})
+
+
+def _needs_onboarding(user):
+    """A genuinely EMPTY account — no contact details, no saved search, no résumé.
+
+    All three, not just contact details. Accounts predate this wizard, and plenty of them were
+    used for months without anyone typing a name: testing contact fields alone would have
+    ambushed a long-standing user with a setup flow for an app they already knew. Any one of
+    the three is proof the account has been used.
+
+    The flag is checked first so finishing or skipping is final.
+    """
+    if _extra(user).get("onboarded"):
+        return False
+    prof = db.get_profile(user) or {}
+    if any((prof.get(k) or "").strip()
+           for k in ("first_name", "last_name", "name", "email", "phone")):
+        return False
+    if prof.get("search_prefs"):                 # they have saved a search
+        return False
+    try:
+        return not (current_profile() or "").strip()      # ...or a résumé / brain story
+    except Exception:
+        return False                             # never block the feed on a lookup failure
+
+
+@app.route("/welcome", methods=["GET", "POST"])
+@login_required
+def welcome():
+    user = session["user"]
+    prof = db.get_profile(user) or {}
+    e = _extra(user)
+
+    if request.method == "POST":
+        if not _check_csrf():
+            flash("That form expired — please try again.")
+            return redirect(url_for("welcome"))
+        f = request.form
+        try:
+            step = max(1, min(ONBOARD_STEPS, int(f.get("step") or 1)))
+        except ValueError:
+            step = 1
+
+        if f.get("action") == "skip":
+            _save_extra(user, {"onboarded": True, "onboarding_skipped_at_step": step})
+            flash("You can finish your profile any time from the link with your name.")
+            return redirect(url_for("feed"))
+
+        # Only the fields this step actually renders, so nothing else can be blanked.
+        FIELDS = {
+            1: ("first_name", "last_name", "email", "phone", "location",
+                "linkedin", "github", "portfolio"),
+            2: ("work_auth_status", "needs_sponsorship", "requires_sponsorship_future",
+                "program_end_date", "opt_type", "opt_start_date", "opt_end_date",
+                "stem_eligible"),
+        }
+        if step in FIELDS:
+            payload = {k: (f.get(k) or "").strip() for k in FIELDS[step] if k in f}
+            if payload:
+                ok, msg = db.save_profile(user, payload)
+                if not ok:
+                    flash("Couldn't save — " + msg[:120])
+        elif step == 3:
+            roles = [r for r in f.getlist("roles") if r in dict(TARGET_ROLES)]
+            other = [s.strip() for s in (f.get("roles_other") or "").split(",") if s.strip()]
+            _save_extra(user, {"target_roles": roles + other[:10]})
+        elif step == 4:
+            cos = [s.strip() for s in (f.get("companies") or "").split(",") if s.strip()]
+            _save_extra(user, {"target_companies": cos[:40]})
+        elif step == 5:
+            text = (f.get("resume") or "").strip()
+            if text:
+                try:
+                    db.save_resume(user, {"name": "My résumé", "content": text[:60000]})
+                    _bust_profile(user)
+                except Exception as ex:
+                    flash("Couldn't save that résumé — " + str(ex)[:120])
+
+        if step >= ONBOARD_STEPS:
+            _save_extra(user, {"onboarded": True})
+            flash("You're set up. Matches are scored against your résumé from here.")
+            return redirect(url_for("feed"))
+        return redirect(url_for("welcome", step=step + 1))
+
+    try:
+        step = max(1, min(ONBOARD_STEPS, int(request.args.get("step") or 1)))
+    except ValueError:
+        step = 1
+    return render_template("welcome.html", step=step, steps=ONBOARD_STEPS, prof=prof,
+                           roles=TARGET_ROLES, chosen=e.get("target_roles") or [],
+                           companies=", ".join(e.get("target_companies") or []),
+                           has_resume=bool(current_profile()))
 
 
 @app.route("/profile", methods=["GET", "POST"])
