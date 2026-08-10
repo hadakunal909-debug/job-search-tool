@@ -193,7 +193,21 @@ def check(url):
         m = _ISO.search(d.get("most_probable_date") or "")
         date = m.group(0) if m else ""
         conf = (d.get("confidence") or "").lower()
-        note = d.get("reason") or ("" if d.get("supported", True) else "unsupported")
+        supported = d.get("supported", True)
+        note = d.get("reason") or ("" if supported else "unsupported")
+        if not supported:
+            # The service is telling us it cannot read this site — and it still returns a date
+            # with a confidence, which the caller accepts on confidence alone. Found by
+            # scripts/audit_dates.py 2026-08-09: two DIFFERENT iCIMS postings at Mastec Civil
+            # both came back 2023-06-29, conf=high, supported=false. One date per EMPLOYER
+            # rather than per posting is page furniture — a footer or a template — not a
+            # posting date, and writing it would record a three-year-old lie as verified.
+            #
+            # Dropping both the date and the confidence, rather than just the date, so the row
+            # records posted_confidence="none": an honest "asked, no usable answer" that also
+            # stops it being asked again. iCIMS rows are not queued today only because they
+            # store a bare ISO date, which is luck rather than a guard.
+            date, conf = "", ""
         return date, conf, note
     return "", "", "rate_limited"
 

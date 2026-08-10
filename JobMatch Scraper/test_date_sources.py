@@ -137,6 +137,49 @@ def test_startdate_is_run_through_the_shared_parser():
     assert clean(score_jobs._parse_date_any("2026-07-31"))
 
 
+# --- MUST NOT WRITE: a date from a site the service admits it cannot read --------------
+def test_an_unsupported_response_yields_no_date_and_no_confidence():
+    """The service returns supported=false alongside a confident-looking date, and the caller
+    accepts on confidence alone. Two different iCIMS postings at one employer both came back
+    2023-06-29 / conf=high / supported=false — one date per EMPLOYER is page furniture, and
+    writing it would record a three-year-old lie as a verified posting date."""
+    class _Resp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._p = payload
+
+        def json(self):
+            return self._p
+
+    class _Sess:
+        def __init__(self, payload):
+            self._p = payload
+
+        def get(self, *a, **k):
+            return _Resp(self._p)
+
+    real = verify_dates._session
+    try:
+        verify_dates._session = lambda: _Sess(
+            {"most_probable_date": "2023-06-29", "confidence": "high", "supported": False})
+        date, conf, note = verify_dates.check("https://careers-x.icims.com/jobs/1")
+        assert date == "", "an unsupported site's date must never be written"
+        assert conf == "", "and it must not be recorded as a confident answer"
+        assert note == "unsupported"
+        # ...and the acceptance rule the caller applies would now reject it.
+        assert not (date and conf in verify_dates.MIN_CONFIDENCE)
+
+        # A supported answer still comes through untouched.
+        verify_dates._session = lambda: _Sess(
+            {"most_probable_date": "2026-07-16", "confidence": "medium", "supported": True})
+        date, conf, note = verify_dates.check("https://x.example/jobs/1")
+        assert (date, conf) == ("2026-07-16", "medium")
+        assert date and conf in verify_dates.MIN_CONFIDENCE
+    finally:
+        verify_dates._session = real
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
