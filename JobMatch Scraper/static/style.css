@@ -1173,3 +1173,20 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
   .qtitle{font-size:var(--text-xl);line-height:var(--leading-xl)}
   .dropzone{padding:var(--space-400) var(--space-150)}
 }
+
+/* The parse echo. Rendered only by the React island on question 1, after an upload has
+   actually been read, so this is the moment the product proves the parser works instead of
+   asking the user to assume it. */
+.echo{border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+  background:var(--bg-sunken);padding:var(--space-250);max-width:var(--layout-form-max)}
+.echo-h{margin:0 0 var(--space-150);font-size:var(--text-base);
+  font-weight:var(--weight-medium);color:var(--text-primary)}
+.echo-chips{display:flex;flex-wrap:wrap;gap:var(--space-100);margin:0 0 var(--space-150)}
+/* The chips reuse .vt, the visa-route chip shape, so nothing new is invented for one screen.
+   margin-left is cleared because .vt assumes it is trailing a card title, not sitting in a
+   wrapped row of its own. */
+.echo-chips .vt{margin-left:0}
+.echo .dim{margin:0}
+.pastelink{margin:var(--space-200) 0 0}
+.pastelink .btn{padding-left:0}
+.pastebox.is-open textarea{width:100%;margin:0 0 var(--space-150)}

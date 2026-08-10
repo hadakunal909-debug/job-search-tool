@@ -1146,6 +1146,25 @@ def _read_vite_manifest():
 
 
 @app.template_global()
+def vite_preloads(src):
+    """Chunks the entry imports STATICALLY, so they can be fetched in parallel with it.
+
+    With more than one entry, Rollup hoists the shared runtime (React) into its own chunk. That
+    is desirable: it is content hashed and immutably cached, so it downloads once across every
+    migrated page. But the import only becomes visible after the browser has parsed the entry,
+    which puts a round trip in front of ~190 KB on the critical path of the FIRST screen a new
+    account ever sees. A modulepreload link makes it a parallel fetch instead.
+    """
+    entry = _read_vite_manifest().get(src) or {}
+    out = []
+    for key in entry.get("imports") or ():
+        dep = _read_vite_manifest().get(key) or {}
+        if dep.get("file"):
+            out.append(url_for("static", filename="dist/" + dep["file"]))
+    return out
+
+
+@app.template_global()
 def vite_entry(src):
     """URL for a built entry, or None when there is no build.
 
@@ -4030,6 +4049,51 @@ def _needs_onboarding(user):
         return False                             # never block the feed on a lookup failure
 
 
+@app.route("/api/onboard/resume", methods=["POST"])
+@login_required
+def api_onboard_resume():
+    """Save a résumé and echo back what was actually read out of it.
+
+    The echo is the point. A scanned or photographed PDF has no text to extract, and the old
+    flow discovered that AFTER a redirect, as a flash message on the next screen, by which
+    point the user had moved on. Reporting the parse inline, where the decision is being made,
+    turns a silent failure into a correctable one and buys the cheapest trust in the product.
+
+    Only ever reports what was genuinely detected. Years is omitted rather than guessed when
+    core.experience_years finds no stated figure, because an invented number on the one screen
+    that is asking the user to trust the parser would be worse than saying nothing.
+    """
+    if not _check_csrf():
+        return {"ok": False, "error": "That form expired. Reload and try again."}, 400
+    user = session["user"]
+    text, err = _uploaded_resume_text()
+    if not text:
+        text = (request.form.get("resume") or "").strip()
+    if not text:
+        return {"ok": False,
+                "error": err or ("That file has no text in it. A scanned or photographed "
+                                 "PDF has none to extract, so paste the text instead.")}
+    try:
+        db.save_resume(user, {"name": "My résumé", "content": text[:60000]})
+        _bust_profile(user)
+    except Exception as ex:
+        return {"ok": False, "error": "Couldn't save that résumé: " + str(ex)[:120]}
+
+    low = text.lower()
+    skills = sorted((k for k in core.ATS_KEYWORDS if k in low), key=lambda k: (-len(k), k))[:8]
+    roles = [{"key": k, "label": lab}
+             for k, lab, _g, _p in core.ROLE_FAMILIES
+             if k in core.roles_for_title(text)][:ROLE_PICK_MAX]
+    out = {"ok": True, "chars": len(text), "skills": skills, "roles": roles}
+    yrs = core.experience_years(text)
+    if yrs:
+        out["years"] = yrs
+    analytics.emit(user, _sid(), "resume_add",
+                   via="upload" if request.files.get("resume_file") else "paste",
+                   ok=True, chars=len(text))
+    return out
+
+
 def _onboard_rows():
     """Rows behind the location suggestions. Same source the feed uses, so the box on question
     four offers exactly what the feed's own location filter will accept."""
@@ -4147,7 +4211,9 @@ def welcome():
                            sponsorship=sponsorship,
                            metros=_feed_metros(_onboard_rows()),
                            states=_feed_states(_onboard_rows()),
-                           has_resume=bool(current_profile()))
+                           has_resume=bool(current_profile()),
+                           entry=vite_entry("src/entries/welcome.tsx"),
+                           props={"csrf": csrf_token(), "hasResume": bool(current_profile())})
 
 
 @app.route("/profile", methods=["GET", "POST"])
