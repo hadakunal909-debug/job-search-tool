@@ -501,6 +501,12 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .ring-low{--ring-color:var(--muted);--ring-track:var(--surface2)}
 .score-ring{flex-shrink:0;display:block}
 .score-pending{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;padding:0 4px;border-radius:12px;font-size:9.5px;font-weight:700;line-height:1.15;text-align:center;color:var(--muted);background:var(--surface2);border:1px dashed var(--warn-line)}
+/* No résumé: the card holds the ring's space but shows no number, so the layout doesn't shift
+   once scoring starts and nothing on the card claims a match we cannot compute. Deliberately
+   quiet — this is an absence, not a warning. */
+.score-none{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
+  width:46px;height:46px;border-radius:50%;font-size:15px;color:var(--muted);
+  background:var(--surface2);border:1px dashed var(--line-strong)}
 .loading-jd{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;padding:8px 4px}
 
 /* page progress */

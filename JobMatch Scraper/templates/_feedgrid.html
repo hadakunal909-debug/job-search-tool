@@ -18,6 +18,9 @@
      {# Namespaces the remembered filters. localStorage is per BROWSER, so without this the
         next person to log in on this machine inherits the last one's toolbar. #}
      data-user="{{ current_user or '' }}"
+     {# Without a résumé there is nothing to match against, so the cards show no percentage at
+        all rather than a number derived from somebody else's CV. #}
+     data-hasresume="{{ '1' if has_resume else '' }}"
      {%- if company_arg %} data-company="{{ company_arg }}"{% endif %}>
   {% for _ in range(8) %}
   <div class="skel" aria-hidden="true">

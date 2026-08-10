@@ -142,6 +142,7 @@
   // paging) from /api/feed, so the payload stays small at any scale. Small corpus: data-paged is
   // empty and everything stays client-side (instant) exactly as before.
   var PAGED = feed.getAttribute("data-paged") === "1";
+  var HAS_RESUME = feed.getAttribute("data-hasresume") === "1";
   var shown = 0, _seq = 0, _deb;
   // Set on the per-company page: every /api/feed request is pinned to that one employer,
   // server-side and before the filters run. Empty string on the main feed.
@@ -166,6 +167,12 @@
   // The score cell for a card/detail: the % ring, OR a neutral "JD pending" chip when the job's
   // description is too short/truncated to score honestly (score_pending from the server).
   function scoreCell(j) {
+    // No résumé, no score. This used to fall through to the stored match_score, which is
+    // computed against the SCRAPER's resume.txt — so a new account saw a feed of confident
+    // 62-64% rings derived from somebody else's CV, drawn identically to a real match. A
+    // number that looks personalised and isn't is worse than no number.
+    if (!HAS_RESUME)
+      return '<span class="score-none" title="Add your résumé to see how well each job matches you — until then there is nothing to compare against.">–</span>';
     if (j && j.score_pending)
       return '<span class="score-pending" title="This description is too short to score reliably yet — it\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);
