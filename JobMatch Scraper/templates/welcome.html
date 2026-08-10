@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{# Same macros as profile.html: `options` takes plain strings, where the stored value doubles as
+   the label, OR (value, label) pairs for when the two differ — opt_type stores 'opt'/'stem'
+   (what core.visa_timeline matches on) but has to READ as prose. #}
+{% macro sel(name, value, options) %}
+  <select name="{{ name }}">
+    <option value=""></option>
+    {% for o in options %}{% set v = o if o is string else o[0] %}{% set lab = o if o is string else o[1] %}<option value="{{ v }}"{{ ' selected' if value == v else '' }}>{{ lab }}</option>{% endfor %}
+  </select>
+{% endmacro %}
+{% macro yn(name, value) %}{{ sel(name, value, ['Yes', 'No']) }}{% endmacro %}
+{% block content %}
+<style>
+/* Deliberately the same shapes profile.html uses, so the wizard and the page it feeds look
+   like one product. They live page-local there; duplicated rather than promoted so this change
+   can't restyle the profile page as a side effect. */
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px;max-width:680px}
+.pgrid label{display:flex;flex-direction:column;font-size:12px;gap:4px;color:#555}
+.pgrid input,.pgrid select,.pgrid textarea{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;background:#fff;color:#111;font-family:inherit}
+.full{grid-column:1 / -1}
+.psec{grid-column:1 / -1;margin:10px 0 0;font-size:13px;font-weight:700;color:#334;border-bottom:1px solid #e3e8ef;padding-bottom:4px}
+.dim{color:#778;font-size:13px}
+/* The stepper — the one genuinely new component. A row of segments rather than "Step 3 of 5"
+   alone, so the remaining effort is visible before you commit to the first field. */
+.steps{display:flex;gap:6px;max-width:680px;margin:0 0 6px}
+.stepseg{flex:1;height:4px;border-radius:99px;background:#e3e8ef}
+.stepseg.on{background:var(--brand)}
+.stepn{font-size:12px;color:#778;margin:0 0 18px}
+.wact{display:flex;align-items:center;gap:12px;margin-top:22px;max-width:680px}
+.wact .spacer{flex:1}
+.rolegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;max-width:680px;margin:2px 0 12px}
+.rolegrid label{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13.5px;color:inherit}
+.rolegrid input{width:auto}
+.wnote{max-width:680px;padding:11px 13px;border:1px solid #e3e8ef;border-radius:10px;background:#fafbfc;font-size:13px;color:#556;margin:0 0 14px}
+[data-theme=dark] .pgrid label{color:#9aa7b4}
+[data-theme=dark] .psec{color:#c7d2dd;border-color:#2a3340}
+[data-theme=dark] .pgrid input,[data-theme=dark] .pgrid select,[data-theme=dark] .pgrid textarea{background:#0d1117;border-color:#2a3340;color:#e6edf3}
+[data-theme=dark] .stepseg{background:#2a3340}
+[data-theme=dark] .wnote{background:#13181f;border-color:#2a3340;color:#9aa7b4}
+</style>
+
+<div class="steps" aria-hidden="true">
+  {% for i in range(1, steps + 1) %}<div class="stepseg{{ ' on' if i <= step else '' }}"></div>{% endfor %}
+</div>
+<p class="stepn">Step {{ step }} of {{ steps }}</p>
+
+<form method="post" action="{{ url_for('welcome') }}">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="step" value="{{ step }}">
+
+  {% if step == 1 %}
+    <h1>Welcome — let's set up your search</h1>
+    <p class="sub">These details auto-fill application forms through the browser extension.
+      Nothing here is shared with employers until you apply.</p>
+    <div class="pgrid">
+      <label>First name<input name="first_name" value="{{ prof.first_name or '' }}" autofocus></label>
+      <label>Last name<input name="last_name" value="{{ prof.last_name or '' }}"></label>
+      <label>Email<input name="email" type="email" value="{{ prof.email or '' }}"></label>
+      <label>Phone<input name="phone" value="{{ prof.phone or '' }}"></label>
+      {# Not just autofill: this one also feeds the feed's location filter. #}
+      <label class="full">Where are you based?<input name="location" value="{{ prof.location or '' }}"
+             placeholder="City, State — also used to filter the feed"></label>
+      <label>LinkedIn<input name="linkedin" value="{{ prof.linkedin or '' }}" placeholder="linkedin.com/in/..."></label>
+      <label>GitHub<input name="github" value="{{ prof.github or '' }}" placeholder="github.com/..."></label>
+      <label class="full">Portfolio or website<input name="portfolio" value="{{ prof.portfolio or '' }}"></label>
+    </div>
+
+  {% elif step == 2 %}
+    <h1>Work authorization</h1>
+    <p class="sub">This decides which sponsorship signals the feed shows you, and powers the
+      deadline reminders. Every field is optional.</p>
+    {# Same wording as profile.html, which marks it "Don't trim further." A tool that does date
+       arithmetic near an immigration deadline has to say plainly that it is not advice. #}
+    <div class="wnote"><strong>Not immigration advice.</strong> These are reminders calculated
+      from dates you type in — they assert nothing about your eligibility. Confirm anything that
+      matters with your school's international-student office (DSO) and uscis.gov.</div>
+    <div class="pgrid">
+      <label>Current status{{ sel('work_auth_status', prof.work_auth_status, ['US Citizen', 'Green Card / Permanent Resident', 'H-1B', 'OPT / CPT (F-1)', 'TN', 'Other', 'Prefer not to say']) }}</label>
+      <label>Need sponsorship now?{{ yn('needs_sponsorship', prof.needs_sponsorship) }}</label>
+      <label>Will need it in future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
+      <label>STEM-eligible degree?{{ yn('stem_eligible', prof.stem_eligible) }}</label>
+      <h3 class="psec">Dates <span class="dim">— optional; they drive the reminders only</span></h3>
+      <label>Graduation / program end<input type="date" name="program_end_date" value="{{ prof.program_end_date or '' }}"></label>
+      <label>Which OPT?{{ sel('opt_type', prof.opt_type, [('opt', 'Post-completion OPT'), ('stem', 'STEM extension (24-month)')]) }}</label>
+      <label>OPT start <span class="dim">(EAD valid from)</span><input type="date" name="opt_start_date" value="{{ prof.opt_start_date or '' }}"></label>
+      <label>OPT end <span class="dim">(EAD valid to)</span><input type="date" name="opt_end_date" value="{{ prof.opt_end_date or '' }}"></label>
+    </div>
+
+  {% elif step == 3 %}
+    <h1>What are you targeting?</h1>
+    <p class="sub">Tick everything that fits. This shapes what the feed puts in front of you —
+      it never hides the rest.</p>
+    <div class="rolegrid">
+      {% for name, track in roles %}
+      <label><input type="checkbox" name="roles" value="{{ name }}"{{ ' checked' if name in chosen else '' }}> {{ name }}</label>
+      {% endfor %}
+    </div>
+    <div class="pgrid">
+      <label class="full">Anything else? <span class="dim">comma-separated</span>
+        <input name="roles_other" placeholder="Technical Program Manager, Solutions Architect">
+      </label>
+    </div>
+
+  {% elif step == 4 %}
+    <h1>Any companies in mind?</h1>
+    <p class="sub">Employers you'd especially like to hear about. Leave it blank if you're open —
+      this only lifts them in your feed, it never filters anyone out.</p>
+    <div class="pgrid">
+      <label class="full">Target companies <span class="dim">comma-separated</span>
+        <textarea name="companies" rows="4" placeholder="Stripe, Databricks, Northrop Grumman">{{ companies }}</textarea>
+      </label>
+    </div>
+    <div class="wnote">Worth knowing: an employer missing from the federal sponsorship data
+      isn't a non-sponsor — the files are incomplete. The feed ranks by sponsorship rather than
+      filtering on it, for exactly that reason.</div>
+
+  {% elif step == 5 %}
+    <h1>Add your résumé</h1>
+    <p class="sub">This is what every match score is calculated against. Without it the feed
+      can't rank anything for you — scores fall back to a flat baseline.</p>
+    {% if has_resume %}
+      <div class="wnote">You already have one saved. Paste over it here, or skip and keep it.</div>
+    {% endif %}
+    <div class="pgrid">
+      <label class="full">Paste your résumé text
+        <textarea name="resume" rows="14" placeholder="Paste the whole thing — plain text is fine."></textarea>
+      </label>
+    </div>
+    <p class="dim">Plain text only for now; there's no file upload yet. You can edit it later
+      under Resume Brain.</p>
+  {% endif %}
+
+  <div class="wact">
+    {% if step > 1 %}<a class="btn ghost" href="{{ url_for('welcome', step=step - 1) }}">Back</a>{% endif %}
+    <span class="spacer"></span>
+    <button class="btn ghost" type="submit" name="action" value="skip">Skip for now</button>
+    <button class="btn primary" type="submit" name="action" value="next">
+      {{ 'Finish' if step == steps else 'Continue' }}</button>
+  </div>
+</form>
+{% endblock %}
