@@ -28,9 +28,7 @@
 .stepn{font-size:12px;color:#778;margin:0 0 18px}
 .wact{display:flex;align-items:center;gap:12px;margin-top:22px;max-width:680px}
 .wact .spacer{flex:1}
-.rolegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;max-width:680px;margin:2px 0 12px}
-.rolegrid label{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13.5px;color:inherit}
-.rolegrid input{width:auto}
+.rolepick{max-width:680px}
 .wnote{max-width:680px;padding:11px 13px;border:1px solid #e3e8ef;border-radius:10px;background:#fafbfc;font-size:13px;color:#556;margin:0 0 14px}
 [data-theme=dark] .pgrid label{color:#9aa7b4}
 [data-theme=dark] .psec{color:#c7d2dd;border-color:#2a3340}
@@ -92,16 +90,9 @@
     <h1>What are you targeting?</h1>
     <p class="sub">Tick everything that fits. This shapes what the feed puts in front of you —
       it never hides the rest.</p>
-    <div class="rolegrid">
-      {% for name, track in roles %}
-      <label><input type="checkbox" name="roles" value="{{ name }}"{{ ' checked' if name in chosen else '' }}> {{ name }}</label>
-      {% endfor %}
-    </div>
-    <div class="pgrid">
-      <label class="full">Anything else? <span class="dim">comma-separated</span>
-        <input name="roles_other" placeholder="Technical Program Manager, Solutions Architect">
-      </label>
-    </div>
+    {# The same picker the feed uses, so what you choose here is editable later from exactly
+       one place and there is no second list to keep in step. #}
+    {% include "_rolepicker.html" %}
 
   {% elif step == 4 %}
     <h1>Any companies in mind?</h1>

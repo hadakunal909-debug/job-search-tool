@@ -1,0 +1,33 @@
+{# The role picker, shared by the feed's modal and onboarding step 3 so the two can't drift.
+
+   Renders a checkbox per family with its live corpus count, plus a search box that filters the
+   list client-side. The checkboxes are the UI; #roles (a hidden input) is the state every
+   filter path reads — the same trick #visatags and #track use, which lets feed_parity stub one
+   control instead of a NodeList.
+
+   Caller supplies: role_families, role_counts, chosen (tuple of keys), role_max.
+   `inline=True` drops the modal chrome for the wizard, where it IS the page. #}
+<div class="rolepick" data-max="{{ role_max or 6 }}">
+  <input type="hidden" id="roles" name="roles" value="{{ chosen|join(',') }}">
+  <div class="rolesearch">
+    <input type="search" id="rolefind" placeholder="Search roles — try 'data' or 'manager'"
+           autocomplete="off" aria-label="Search role types">
+    <span class="rolecount"><span id="rolen">{{ chosen|length }}</span> of {{ role_max or 6 }}</span>
+  </div>
+  <div class="rolelist" id="rolelist">
+    {% for key, label, phrases in role_families %}
+    {# data-find carries the phrases too, so searching "sde" or "tpm" finds the family even
+       though neither word is in its label. #}
+    <label class="roleopt{{ ' on' if key in chosen else '' }}" data-role="{{ key }}"
+           data-find="{{ (label ~ ' ' ~ phrases|join(' '))|lower }}">
+      <input type="checkbox" value="{{ key }}"{{ ' checked' if key in chosen else '' }}>
+      <span class="rolelab">{{ label }}</span>
+      <span class="rolen">{{ '{:,}'.format(role_counts.get(key, 0)) }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  <p class="rolenone" id="rolenone" hidden>No role matches that. Clear the search to see all
+    {{ role_families|length }}.</p>
+  <p class="rolehint">Pick up to {{ role_max or 6 }}. Leave it empty to see every role —
+    the number beside each is how many are live right now.</p>
+</div>

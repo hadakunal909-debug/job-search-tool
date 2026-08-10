@@ -1276,6 +1276,132 @@ _DEV_TITLE_RE = re.compile(r"""\b(?:
 )\b""", re.I | re.X)
 
 
+# ------------------------------------------------------------
+# ROLE FAMILIES — "what kind of job do you want", answerable
+#
+# role_track sorts every posting into dev or mgmt, which is two buckets for the 4,296 distinct
+# title families measured in this corpus. That is enough to split a feed and nowhere near enough
+# to say what someone is looking for.
+#
+# Each family is a set of phrases people would consider the SAME job. Grouped from the real
+# title distribution rather than invented, because a role nobody is hiring for makes the feed
+# look broken when it returns nothing. Counts from 2026-08-09 are in the comments as a record of
+# why each earned a slot; they drift, and web.role_counts() shows the live number in the picker.
+#
+# A title may match several families on purpose — a "Technical Program Manager" is both, and
+# someone who ticked either should see it. Matching is whole-phrase and case-insensitive, so
+# "Project Management" does not make everything a Project Manager.
+ROLE_FAMILIES = [
+    ("swe",        "Software Engineer",        # 2144 + 444 + 75 + 63 + 122 + 70 + 44
+     ("software engineer", "software developer", "software development engineer",
+      "software dev engineer", "sde", "full stack developer", "fullstack developer",
+      "backend engineer", "back end engineer", "frontend engineer", "front end engineer",
+      "embedded software engineer", "platform software engineer", "application developer",
+      "web developer")),
+    ("pm",         "Project Manager",          # 954 + 169 + 43
+     ("project manager", "project management", "construction project manager",
+      "technical project manager", "project lead", "project controls")),
+    ("product",    "Product Manager",          # 905 + 57 + 52
+     ("product manager", "technical product manager", "product owner",
+      "associate product manager", "product management")),
+    ("program",    "Program Manager",          # 518 + 347 + 50
+     ("program manager", "technical program manager", "program management", "tpm")),
+    ("coordinator", "Project / Program Coordinator",   # 126 + 50
+     ("project coordinator", "program coordinator", "operations coordinator",
+      "project administrator")),
+    ("ops",        "Operations Manager",       # 381 + 70
+     ("operations manager", "operations lead", "branch operations", "business operations",
+      "operations supervisor")),
+    ("dataeng",    "Data Engineer",            # 282
+     ("data engineer", "analytics engineer", "etl developer", "data platform engineer")),
+    ("datasci",    "Data Scientist",           # 238 + 101
+     ("data scientist", "applied scientist", "research scientist", "data science")),
+    ("dataanalyst", "Data Analyst",            # 86
+     ("data analyst", "analytics analyst", "reporting analyst", "bi analyst",
+      "business intelligence analyst")),
+    ("ml",         "Machine Learning / AI Engineer",   # 169 + 73 + 60
+     ("machine learning engineer", "ml engineer", "ai engineer", "deep learning engineer",
+      "computer vision engineer", "nlp engineer", "mlops engineer",
+      "artificial intelligence engineer")),
+    ("ba",         "Business Analyst",         # 198
+     ("business analyst", "business systems analyst", "business process analyst")),
+    ("finance",    "Financial Analyst",        # 328
+     ("financial analyst", "finance analyst", "fp&a analyst", "budget analyst")),
+    ("systems",    "Systems Engineer",         # 373
+     ("systems engineer", "system engineer", "systems analyst", "solutions engineer")),
+    ("devops",     "DevOps / SRE",             # 114 + 129 + 41 + 41
+     ("devops engineer", "site reliability engineer", "sre", "platform engineer",
+      "infrastructure engineer", "cloud engineer", "devsecops engineer")),
+    ("qa",         "QA / Test Engineer",       # 130 + 88
+     ("qa engineer", "test engineer", "quality assurance engineer", "automation engineer",
+      "test automation engineer", "sdet")),
+    ("security",   "Security Engineer",        # 78
+     ("security engineer", "application security", "information security analyst",
+      "cybersecurity analyst", "security analyst")),
+    ("network",    "Network Engineer",         # 76
+     ("network engineer", "network administrator", "systems administrator")),
+    ("engmgr",     "Engineering Manager",      # 50
+     ("engineering manager", "software engineering manager", "development manager",
+      "technical lead", "tech lead")),
+    ("apps",       "Applications Engineer",    # 44
+     ("applications engineer", "application engineer", "field applications engineer")),
+    ("supply",     "Supply Chain / Logistics", # 54
+     ("supply chain manager", "supply chain analyst", "logistics manager",
+      "procurement analyst", "supply chain")),
+    ("scrum",      "Scrum Master / Agile",
+     ("scrum master", "agile coach", "release train engineer")),
+    ("consultant", "Implementation / Solutions Consultant",
+     ("implementation consultant", "implementation specialist", "implementation manager",
+      "solutions consultant", "solutions architect", "technical consultant")),
+]
+ROLE_KEYS = tuple(k for k, _lab, _p in ROLE_FAMILIES)
+ROLE_LABELS = {k: lab for k, lab, _p in ROLE_FAMILIES}
+# One whole-phrase regex per family, alternatives longest-first so the most specific wins the
+# match position. Built once: this runs over every row of the corpus on a feed render.
+_ROLE_RES = {k: re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(phr, key=len, reverse=True)), re.I)
+    for k, _lab, phr in ROLE_FAMILIES}
+_role_cache = {}
+
+
+def roles_for_title(title):
+    """Every role family this title belongs to, as a tuple of keys ('' -> ())."""
+    t = (title or "").strip()
+    if not t:
+        return ()
+    hit = _role_cache.get(t)
+    if hit is None:
+        hit = tuple(k for k in ROLE_KEYS if _ROLE_RES[k].search(t))
+        if len(_role_cache) < 60000:          # bounded: titles repeat heavily across the corpus
+            _role_cache[t] = hit
+    return hit
+
+
+def parse_roles_pref(raw):
+    """A stored/posted roles value -> a validated, canonically ordered tuple of keys.
+
+    Same shape as parse_visa_pref: junk dropped, duplicates collapsed, order fixed so two
+    equivalent selections can't produce two different stored strings.
+    """
+    if isinstance(raw, (list, tuple)):
+        vals = [str(x) for x in raw]
+    else:
+        vals = str(raw or "").replace(" ", "").split(",")
+    want = {v for v in vals if v in ROLE_LABELS}
+    return tuple(k for k in ROLE_KEYS if k in want)
+
+
+def roles_match(row_roles, wanted):
+    """Does this posting belong to any family the user picked? Empty selection matches all.
+
+    OR across the picks, like the visa filter: someone who ticks Project Manager and Data
+    Analyst wants both, not the intersection (which would be almost nothing).
+    """
+    if not wanted:
+        return True
+    return bool(set(row_roles or ()) & set(wanted))
+
+
 def role_track(title):
     """Which career track a posting belongs to: 'dev' (software/data/infra IC work) or
     'mgmt' (project/program/product/ops/analyst work).
@@ -1423,6 +1549,9 @@ DEFAULT_PREFS = {
     # a job we just discovered and therefore not yet verified, so applying this to the email
     # would silently empty it.
     "verifiedonly": False,
+    # csv subset of ROLE_KEYS — "what kind of job do you want", the thing `track` only ever
+    # answered two ways. Empty = every role, so an untouched account sees the whole corpus.
+    "roles": "",
     "exp": "any",         # any | 2 | 5 | senior
     "intern": "any",      # any | only | no
     "track": "any",       # any | dev (software/data) | mgmt (project/product/ops) — see role_track
@@ -1444,7 +1573,7 @@ _PREF_CHOICES = {
 }
 # Keys whose value is a comma-separated subset of a fixed vocabulary. Validated separately
 # from _PREF_CHOICES (which is one-of) so junk is dropped and the order is canonicalized.
-_PREF_CSV = {"visatags": VISA_TAGS}
+_PREF_CSV = {"visatags": VISA_TAGS, "roles": ROLE_KEYS}
 
 
 def _pref_bool(v):
@@ -1479,7 +1608,7 @@ def normalize_prefs(raw):
             except (TypeError, ValueError):
                 pass
         elif key in _PREF_CSV:
-            out[key] = ",".join(parse_visa_pref(v))
+            out[key] = ",".join(parse_roles_pref(v) if key == "roles" else parse_visa_pref(v))
         elif key in _PREF_CHOICES:
             s = str(v).strip().lower()
             if s in _PREF_CHOICES[key]:
@@ -1513,6 +1642,12 @@ def prefs_match(row, prefs):
     if p.get("hidenospon") and row.get("sponsor_jd") == "blocked":
         return False
     if not visa_tags_match(row.get("visa"), parse_visa_pref(p.get("visatags"))):
+        return False
+    # Unlike verifiedonly, this one DOES belong in the digest: "I want Project Manager jobs" is
+    # exactly as true of an email as of the feed, and a new posting's role is known the moment
+    # we see its title — nothing has to be verified first.
+    if not roles_match(row.get("roles") or roles_for_title(row.get("title")),
+                       parse_roles_pref(p.get("roles"))):
         return False
     if p.get("hideagency") and row.get("agency"):
         return False
@@ -1618,6 +1753,7 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
         # recipient, and sponsor_counts.json is ~2.9 MB. Absent index -> ("", 0), which ranks the
         # employer as "no record" rather than erroring.
         "strength": _st, "strength_n": _sn,
+        "roles": list(roles_for_title(job.get("title"))),
         "agency": is_agency(company), "cap_exempt": is_cap_exempt(company),
         # stem_opt IS the E-Verify fact, now sourced from the visa index; fall back to the
         # old everify.txt path for anyone who built that file.
