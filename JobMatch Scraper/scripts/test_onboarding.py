@@ -100,6 +100,12 @@ for step, marker in [(1, "First name"), (2, "Work authorization"), (3, "What are
                      (4, "companies in mind"), (5, "Add your r")]:
     body = c.get("/welcome?step=%d" % step).data.decode("utf-8", "replace")
     check("step %d" % step, marker in body)
+    if step == 3:
+        check("  ...renders the shared role picker",
+              'class="rolepick"' in body and 'id="roles"' in body)
+        check("  ...with live corpus counts beside each family", 'class="rolen"' in body)
+        check("  ...and every family from core", all(
+            ('data-role="%s"' % k) in body for k in core.ROLE_KEYS))
     if step == 2:
         check("  ...carries the not-advice wording", "Not immigration advice" in body)
         check("  ...and points at the DSO and uscis.gov", "DSO" in body and "uscis.gov" in body)
@@ -131,33 +137,49 @@ check("everything the step didn't render survived",
       json.dumps(survived))
 
 print("\n" + "=" * 74)
+print("roles are a saved-search PREF, not profile extra")
+print("=" * 74)
+# They FILTER the feed and the digest, so they have to live where the other filters live and go
+# through normalize_prefs. Saving them must merge over the stored search, not reset it.
+STORE.clear()
+STORE.update({"search_prefs": {"min": 60, "loc": "boston", "hideagency": True}})
+c = client()
+post(c, 3, roles=["pm", "dataeng"])
+sp = STORE.get("search_prefs") or {}
+check("roles land in search_prefs", sp.get("roles") == "pm,dataeng", json.dumps(sp.get("roles")))
+check("the rest of the saved search survives",
+      sp.get("min") == 60 and sp.get("loc") == "boston" and sp.get("hideagency") is True,
+      json.dumps({k: sp.get(k) for k in ("min", "loc", "hideagency")}))
+check("and NOT in extra, where nothing reads them",
+      "target_roles" not in (STORE.get("extra") or {}))
+
+print("\n" + "=" * 74)
 print("extra is merged, not replaced")
 print("=" * 74)
 STORE.clear()
 STORE.update({"extra": {"ev_off": True}})       # the analytics opt-out lives here too
 c = client()
-post(c, 3, roles=["Project Manager", "Data Engineer"], roles_other="Chief of Staff, ")
-e = STORE.get("extra") or {}
-check("roles saved", e.get("target_roles") == ["Project Manager", "Data Engineer",
-                                               "Chief of Staff"], json.dumps(e.get("target_roles")))
-check("the analytics opt-out was NOT clobbered", e.get("ev_off") is True)
 post(c, 4, companies="Stripe, Databricks ,, Northrop Grumman")
 e = STORE.get("extra") or {}
 check("companies saved and blanks dropped",
       e.get("target_companies") == ["Stripe", "Databricks", "Northrop Grumman"],
       json.dumps(e.get("target_companies")))
-check("roles still there after the next step", e.get("target_roles"))
-check("and the opt-out still survives", e.get("ev_off") is True)
+check("the analytics opt-out was NOT clobbered", e.get("ev_off") is True)
 
 print("\n" + "=" * 74)
 print("junk in, nothing out")
 print("=" * 74)
 STORE.clear()
 c = client()
-post(c, 3, roles=["Project Manager", "'; DROP TABLE jobs; --", "Not A Real Role"])
-check("only known roles are accepted",
-      (STORE.get("extra") or {}).get("target_roles") == ["Project Manager"],
-      json.dumps((STORE.get("extra") or {}).get("target_roles")))
+post(c, 3, roles=["pm", "'; DROP TABLE jobs; --", "not_a_real_role"])
+check("only known role keys are accepted",
+      (STORE.get("search_prefs") or {}).get("roles") == "pm",
+      json.dumps((STORE.get("search_prefs") or {}).get("roles")))
+c = client()
+post(c, 3, roles=["dataeng", "pm"])
+check("...and the stored order is canonical, not whatever was posted",
+      (STORE.get("search_prefs") or {}).get("roles") == "pm,dataeng",
+      json.dumps((STORE.get("search_prefs") or {}).get("roles")))
 
 print("\n" + "=" * 74)
 print("finishing, skipping, and CSRF")

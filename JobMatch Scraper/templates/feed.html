@@ -156,6 +156,18 @@
         </select>
       </div>
 
+      {# Above Date posted because it is the broadest cut in the rail — "what job" comes before
+         "how recent". The button reads as the current selection rather than a label, so the
+         rail says what is on without opening anything. #}
+      <div class="fgroup">
+        <h3 class="flab" id="lab-roles">Role</h3>
+        <button type="button" id="roleopen" class="rolebtn" aria-haspopup="dialog"
+                aria-label="Choose which roles to show">
+          <span class="rolebtn-t" id="rolebtn-t">All roles</span>
+          <span class="count-pill fbadge-role" id="rolebadge" hidden></span>
+        </button>
+      </div>
+
       <div class="fgroup">
         <h3 class="flab" id="lab-date">Date posted</h3>
         <select id="date" class="sel" aria-labelledby="lab-date">
@@ -214,6 +226,29 @@
 </div>
 
 {% include "_jobmodal.html" %}
+
+{# Role picker. Same .modal-overlay chrome the job modal uses, so open/close/Escape/backdrop
+   behave identically and there is no second dialog pattern to learn. #}
+<div class="modal-overlay" id="rolemodal" role="dialog" aria-modal="true"
+     aria-labelledby="rolemodal-h">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head">
+      <div>
+        <h2 id="rolemodal-h" style="margin:0;font-size:19px">What are you looking for?</h2>
+        <p class="sub" style="margin:4px 0 0">Pick the roles you want in your feed.</p>
+      </div>
+      <button class="modal-x" type="button" id="roleclose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      {% include "_rolepicker.html" %}
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn ghost sm" id="roleclear">Clear</button>
+      <span style="flex:1"></span>
+      <button type="button" class="btn primary" id="roledone">Show these roles</button>
+    </div>
+  </div>
+</div>
 </div>
 {% endblock %}
 

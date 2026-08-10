@@ -32,6 +32,9 @@
       emptyEl = document.getElementById("empty"), moreBtn = document.getElementById("loadmore"),
       toasts = document.getElementById("toasts"), hideNo = document.getElementById("hidenospon"),
       verifiedOnly = document.getElementById("verifiedonly"),
+      // Same hidden-input trick as #visatags and #track: the checkboxes are the UI, this is the
+      // state every filter path reads, so feed_parity can stub one control not a NodeList.
+      rolesSel = document.getElementById("roles"),
       expSel = document.getElementById("exp"),
       // Visa-route filter. Same hidden-input trick as trackSel below: the five checkboxes only
       // write into this, and every filter path reads its `.value`, so the parity harness can
@@ -87,7 +90,7 @@
     // feed.html, which is the discriminator. #sort IS shared: that one is a global preference.
     return { q: (rail ? q : null), min: minR, sort: sortSel, date: dateSel, exp: expSel,
              intern: internSel, minsal: minSalSel, loc: locInp, visatags: visaSel,
-             track: trackSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
+             track: trackSel, roles: rolesSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
              remoteonly: remoteOnly, hideagency: hideAgency, showclosed: showClosed };
   }
   function _readStore() {
@@ -360,6 +363,24 @@
   // first_seen so a job whose employer publishes no posting date (Tesla) is judged on when it
   // reached us rather than escaping every date filter. feed_parity.py checks this twin.
   function rowDate(j) { return j.date || j.first_seen || ""; }
+  // Which role families the user picked. Mirror of core.parse_roles_pref.
+  function rolesWanted() {
+    if (!rolesSel) return [];
+    var out = [], parts = String(rolesSel.value || "").split(",");
+    for (var i = 0; i < parts.length; i++) if (parts[i]) out.push(parts[i]);
+    return out;
+  }
+  // Mirror of core.roles_match. j.roles is computed SERVER-side by core.roles_for_title, so the
+  // phrase vocabulary has one definition and this only has to intersect two lists. OR across
+  // picks, like the visa filter: someone who ticks Project Manager and Data Analyst wants
+  // either, not both at once.
+  function roleHit(j, wanted) {
+    if (!wanted.length) return true;
+    var have = j.roles || [];
+    for (var i = 0; i < have.length; i++)
+      if (wanted.indexOf(have[i]) >= 0) return true;
+    return false;
+  }
   // Mirror of web.py _row_sponsor_rank(): lowest first. Ranking rather than filtering, because
   // hiding rows with no federal record would bin 41 Northrop Grumman postings and 4 at Penn
   // State (cap-exempt, the best H-1B route there is) — absence from a DOL file is "no data",
@@ -433,6 +454,7 @@
     // date_trusted is computed server-side by core.is_trusted_date, so this reads a flag
     // rather than re-deriving the "bare ISO means a publisher stated it" rule in JS.
     if (ok && verifiedOnly && verifiedOnly.checked && !j.date_trusted) ok = false;
+    if (ok && !roleHit(j, rolesWanted())) ok = false;
     if (ok && !visaHit(j, visaWanted())) ok = false;
     if (ok && locInp && locInp.value.trim()) ok = locHit(j, locInp.value.trim().toLowerCase());
     if (ok && remoteOnly && remoteOnly.checked && !j.remote) ok = false;
@@ -503,6 +525,7 @@
     if (visaWanted().length) n++;      // the whole visa group counts as ONE filter, not five
     if (hideNo && hideNo.checked) n++;
     if (verifiedOnly && verifiedOnly.checked) n++;
+    if (rolesWanted().length) n++;     // the whole role selection counts as ONE filter
     if (remoteOnly && remoteOnly.checked) n++;
     if (hideAgency && hideAgency.checked) n++;
     if (showClosed && showClosed.checked) n++;
@@ -518,6 +541,7 @@
       setFlag(vbox[vb].closest(".ck"), vbox[vb].checked);
     setFlag(hideNo && hideNo.closest(".ck"), hideNo && hideNo.checked);
     setFlag(verifiedOnly && verifiedOnly.closest(".ck"), verifiedOnly && verifiedOnly.checked);
+    if (typeof syncRoles === "function") syncRoles();   // keeps the rail button label honest
     setFlag(remoteOnly && remoteOnly.closest(".ck"), remoteOnly && remoteOnly.checked);
     setFlag(minSalSel, minSalSel && minSalSel.value);
     setFlag(locInp, locInp && locInp.value.trim());
@@ -559,6 +583,8 @@
     if (vw.length) ps.push("visatags=" + encodeURIComponent(vw.join(",")));
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
     if (verifiedOnly && verifiedOnly.checked) ps.push("verifiedonly=1");
+    var rw = rolesWanted();
+    if (rw.length) ps.push("roles=" + encodeURIComponent(rw.join(",")));
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
     if (trackSel && trackSel.value !== "any") ps.push("track=" + encodeURIComponent(trackSel.value));
     if (locInp && locInp.value.trim()) ps.push("loc=" + encodeURIComponent(locInp.value.trim()));
@@ -667,6 +693,117 @@
   });
   if (hideNo) hideNo.addEventListener("change", function () { render(true); });
   if (verifiedOnly) verifiedOnly.addEventListener("change", function () { render(true); });
+
+  // ---- role picker -------------------------------------------------------------------
+  // Shared by the feed's modal and onboarding step 3 (templates/_rolepicker.html), so this
+  // runs on both pages. On the wizard there is no modal and no rail button — every lookup
+  // below is guarded, and the hidden #roles input is submitted with the form instead.
+  var rolePick = document.querySelector(".rolepick"),
+      roleList = document.getElementById("rolelist"),
+      roleFind = document.getElementById("rolefind"),
+      roleNone = document.getElementById("rolenone"),
+      roleNEl = document.getElementById("rolen"),
+      roleBtnT = document.getElementById("rolebtn-t"),
+      roleBadge = document.getElementById("rolebadge"),
+      roleModal = document.getElementById("rolemodal"),
+      ROLE_MAX = rolePick ? (parseInt(rolePick.getAttribute("data-max"), 10) || 6) : 6;
+
+  function roleBoxes() {
+    return rolePick ? rolePick.querySelectorAll(".roleopt") : [];
+  }
+  function syncRoles() {
+    if (!rolePick || !rolesSel) return;
+    var on = [], boxes = roleBoxes();
+    for (var i = 0; i < boxes.length; i++) {
+      var cb = boxes[i].querySelector("input");
+      boxes[i].classList.toggle("on", cb.checked);
+      if (cb.checked) on.push(boxes[i].getAttribute("data-role"));
+    }
+    rolesSel.value = on.join(",");
+    // At the cap the unticked options go quiet rather than vanishing, so the limit reads as a
+    // state instead of options mysteriously disappearing.
+    rolePick.classList.toggle("full", on.length >= ROLE_MAX);
+    for (var k = 0; k < boxes.length; k++) {
+      var b = boxes[k].querySelector("input");
+      b.disabled = !b.checked && on.length >= ROLE_MAX;
+    }
+    if (roleNEl) roleNEl.textContent = on.length;
+    // The rail button reads as the CURRENT SELECTION, so the rail says what is on without
+    // anyone opening the dialog.
+    if (roleBtnT) {
+      var labs = [];
+      for (var m = 0; m < boxes.length; m++)
+        if (boxes[m].querySelector("input").checked)
+          labs.push(boxes[m].querySelector(".rolelab").textContent.trim());
+      roleBtnT.textContent = !labs.length ? "All roles"
+        : (labs.length <= 2 ? labs.join(", ") : labs[0] + " +" + (labs.length - 1) + " more");
+    }
+    if (roleBadge) { roleBadge.textContent = on.length; roleBadge.hidden = !on.length; }
+    var ob = document.getElementById("roleopen");
+    if (ob) ob.classList.toggle("fset", !!on.length);
+  }
+  if (roleList) roleList.addEventListener("change", function (e) {
+    if (!e.target || e.target.type !== "checkbox") return;
+    syncRoles();
+    if (roleModal) return;              // in the modal, apply on "Show these roles"
+    if (typeof render === "function") render(true);   // the wizard has no feed to re-render
+  });
+  if (roleFind) roleFind.addEventListener("input", function () {
+    var q = roleFind.value.trim().toLowerCase(), boxes = roleBoxes(), shown = 0;
+    for (var i = 0; i < boxes.length; i++) {
+      // data-find carries the family's phrases as well as its label, so "sde" or "tpm" finds
+      // the right row even though neither word is in the visible text.
+      var hit = !q || (boxes[i].getAttribute("data-find") || "").indexOf(q) >= 0;
+      boxes[i].hidden = !hit;
+      if (hit) shown++;
+    }
+    if (roleNone) roleNone.hidden = !!shown;
+  });
+  // Mark families with nothing live, without hiding them: "0" is the useful answer.
+  (function () {
+    var boxes = roleBoxes();
+    for (var i = 0; i < boxes.length; i++) {
+      var n = boxes[i].querySelector(".rolen");
+      if (n && n.textContent.trim() === "0") boxes[i].classList.add("empty");
+    }
+    syncRoles();
+  })();
+
+  function openRoles() {
+    if (!roleModal) return;
+    roleModal.classList.add("open");
+    document.body.style.overflow = "hidden";
+    if (roleFind) roleFind.focus();
+  }
+  function closeRoles() {
+    if (!roleModal) return;
+    roleModal.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+  var roleOpenBtn = document.getElementById("roleopen");
+  if (roleOpenBtn) roleOpenBtn.addEventListener("click", openRoles);
+  var roleCloseBtn = document.getElementById("roleclose");
+  if (roleCloseBtn) roleCloseBtn.addEventListener("click", closeRoles);
+  var roleDoneBtn = document.getElementById("roledone");
+  if (roleDoneBtn) roleDoneBtn.addEventListener("click", function () {
+    closeRoles(); EV("roles_set", { n: rolesWanted().length }); render(true);
+  });
+  var roleClearBtn = document.getElementById("roleclear");
+  if (roleClearBtn) roleClearBtn.addEventListener("click", function () {
+    var boxes = roleBoxes();
+    for (var i = 0; i < boxes.length; i++) boxes[i].querySelector("input").checked = false;
+    if (roleFind) { roleFind.value = ""; for (var k = 0; k < boxes.length; k++) boxes[k].hidden = false; }
+    if (roleNone) roleNone.hidden = true;
+    syncRoles();
+  });
+  if (roleModal) roleModal.addEventListener("click", function (e) {
+    if (e.target === roleModal) { closeRoles(); render(true); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && roleModal && roleModal.classList.contains("open")) {
+      closeRoles(); render(true);
+    }
+  });
   // Location is free text, so debounce it like the search box rather than firing per keystroke.
   if (locInp) locInp.addEventListener("input", function () { if (PAGED) debouncedRender(); else render(true); });
   if (remoteOnly) remoteOnly.addEventListener("change", function () { render(true); });
@@ -758,6 +895,12 @@
     if (visaSel) visaSel.value = "";
     if (hideNo) hideNo.checked = false;
     if (verifiedOnly) verifiedOnly.checked = false;
+    if (rolesSel) {
+      var rclr = document.querySelectorAll(".roleopt input");
+      for (var rc = 0; rc < rclr.length; rc++) rclr[rc].checked = false;
+      rolesSel.value = "";
+      if (typeof syncRoles === "function") syncRoles();
+    }
     if (remoteOnly) remoteOnly.checked = false;
     if (hideAgency) hideAgency.checked = false;
     if (showClosed) showClosed.checked = false;
@@ -776,6 +919,7 @@
       visatags: visaWanted().join(","),
       hidenospon: !!(hideNo && hideNo.checked),
       verifiedonly: !!(verifiedOnly && verifiedOnly.checked),
+      roles: rolesWanted().join(","),
       exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
       track: trackSel ? trackSel.value : "any",
       date: dateSel ? dateSel.value : "any", sort: sortBy

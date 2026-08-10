@@ -44,7 +44,8 @@ APP_JS = os.path.join(ROOT, "static", "app.js")
 # The pure predicate functions app.js and web.py mirror. Order matters only for readability —
 # node hoists function declarations. Lifted from app.js BY SOURCE TEXT, so a name that no longer
 # exists there is a hard SystemExit from js_function(), not a silent skip.
-JS_FUNCS = ["locHit", "annualize", "rowDate", "visaWanted", "visaHit", "matches",
+JS_FUNCS = ["locHit", "annualize", "rowDate", "rolesWanted", "roleHit", "visaWanted", "visaHit",
+            "matches",
             # The sort comparator, lifted rather than re-typed. It used to be hand-copied into
             # DRIVER_MAIN below, which meant a third implementation nobody remembered to update
             # — exactly the drift this harness exists to catch, sitting inside the harness.
@@ -57,7 +58,7 @@ ROW_KEYS = {
     "title", "company", "location", "loc_state", "loc_metro", "remote",
     "salary_min", "salary_max", "salary_period", "closed", "url", "score",
     "score_pending", "date", "date_verified", "date_trusted", "first_seen", "sponsor_jd",
-    "sponsors_h1b", "everify", "visa", "agency", "cap_exempt", "intern", "track",
+    "sponsors_h1b", "everify", "visa", "roles", "agency", "cap_exempt", "intern", "track",
     "exp_years", "exp_level",
     # Read only by the sponsor sort. Without them here the sponsor case would pass VACUOUSLY:
     # strength_n is None server-side and undefined in JS, both rank everything identically, and
@@ -100,6 +101,7 @@ def _row(rng, n, title, company, state, **over):
             days=rng.choice([0, 1, 3, 9, 20, 29, 31, 64, 140]))).isoformat(),
         "date_verified": False,          # both overwritten below, derived together
         "date_trusted": True,
+        "roles": [],                     # ...as is this, from the title
         # Empty for every row except the undated cohort below — a normal row is filtered on
         # its posting date and never reaches the fallback.
         "first_seen": "",
@@ -136,6 +138,9 @@ def _row(rng, n, title, company, state, **over):
     # rows — caught by the anti-vacuity check, but only after the fact. Roughly the live split
     # (~60% trusted before the Amazon/Workday fixes land, ~10% service-verified), and verified
     # IMPLIES trusted, which is the invariant core.is_trusted_date guarantees.
+    # Derived from the TITLE by the same function _build_row uses, so the fixture can't claim a
+    # role the title doesn't support — and the generated titles below really do span families.
+    r["roles"] = list(web.core.roles_for_title(title))
     r["date_trusted"] = rng.random() < 0.6
     r["date_verified"] = r["date_trusted"] and rng.random() < 0.17
     r.update(over)
@@ -168,6 +173,31 @@ def build_corpus():
         add("Project Manager", "Actalent", "IL", agency=True)
     for i in range(35):
         add("Environmental Project Manager", "Actalent", "NY", agency=True)
+
+    # A spread across the role families, NON-agency. Without this the only Project Manager rows
+    # in the corpus were Actalent's, which are agency=True and therefore hidden by the default
+    # hideagency — so a "roles=pm" case matched nothing and passed vacuously. The anti-vacuity
+    # check caught exactly that. Titles are real shapes, including ones that belong to two
+    # families at once and ones that belong to none.
+    ROLE_TITLES = [
+        "Project Manager", "Senior Project Manager", "Technical Project Manager",
+        "Program Manager", "Technical Program Manager", "Product Manager",
+        "Associate Product Manager", "Product Owner", "Business Analyst",
+        "Business Systems Analyst", "Data Analyst", "Data Engineer", "Data Scientist",
+        "Machine Learning Engineer", "AI Engineer", "Software Engineer",
+        "Full Stack Developer", "Backend Engineer", "DevOps Engineer",
+        "Site Reliability Engineer", "QA Engineer", "Test Engineer", "Security Engineer",
+        "Network Engineer", "Systems Engineer", "Engineering Manager", "Scrum Master",
+        "Implementation Consultant", "Solutions Architect", "Supply Chain Analyst",
+        "Financial Analyst", "Operations Manager", "Project Coordinator",
+        "Applications Engineer",
+        # Deliberately in NO family: a role filter must exclude these, and "any pick hides
+        # them" is as much a part of the contract as "the right pick shows the rest".
+        "Registered Nurse", "Warehouse Associate", "Barista", "Line Cook",
+    ]
+    for i, t in enumerate(ROLE_TITLES):
+        for j in range(3):                     # a few each, across states and employers
+            add(t, "RoleCo %d" % (i % 5), STATES[(i + j) % len(STATES)])
 
     # Runs of every small size, so a page boundary can land inside one.
     for size in (1, 2, 3, 4, 5):
@@ -286,6 +316,18 @@ def build_cases():
         # The sponsor ladder is a 3-key sort (tier, then USCIS volume, then score), so it has
         # far more ways to disagree across the two implementations than the other two modes.
         # Run it wide open and against several filtered subsets.
+        # Roles FILTER rather than rank, so a wrong twin hides real jobs silently. One family,
+        # several, one with nothing live, and mixed with other filters.
+        ("role: project manager", {"roles": "pm", "min": "0", "date": "any"}),
+        ("role: software engineer", {"roles": "swe", "min": "0", "date": "any"}),
+        ("roles: pm + swe", {"roles": "pm,swe", "min": "0", "date": "any"}),
+        ("roles: four at once", {"roles": "pm,product,program,ba", "min": "0", "date": "any"}),
+        ("roles + visa + agencies", {"roles": "swe,dataeng", "visatags": "h1b",
+                                     "hideagency": "", "min": "0", "date": "any"}),
+        ("roles + track + newest", {"roles": "pm", "track": "mgmt", "sort": "newest",
+                                    "min": "0", "date": "any"}),
+        ("roles + verified only", {"roles": "swe", "verifiedonly": "1", "min": "0",
+                                   "date": "any"}),
         ("verified dates only", {"verifiedonly": "1"}),
         ("verified only + any date", {"verifiedonly": "1", "date": "any", "min": "0"}),
         # Paired with the date window it qualifies: "Past 7 days" means something different
@@ -427,7 +469,8 @@ function chk(v) { return { checked: !!v }; }
 var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any"),
     trackSel = ctl("any"),
     locInp = ctl(""), minSalSel = ctl(""), sortSel = ctl("score"),
-    hideNo = chk(false), verifiedOnly = chk(false), visaSel = ctl(""), remoteOnly = chk(false),
+    hideNo = chk(false), verifiedOnly = chk(false), visaSel = ctl(""), rolesSel = ctl(""),
+    remoteOnly = chk(false),
     hideAgency = chk(false), showClosed = chk(false);
 var VISA_TAGS = %(visa_tags)s;
 """
@@ -449,6 +492,7 @@ IN.cases.forEach(function (cs) {
   minSalSel.value = p.minsal || "";
   hideNo.checked = p.hidenospon === "1";
   verifiedOnly.checked = p.verifiedonly === "1";
+  rolesSel.value = p.roles || "";
   visaSel.value = p.visatags || "";
   remoteOnly.checked = p.remote === "1";
   hideAgency.checked = p.hideagency === "1";

@@ -719,6 +719,9 @@ def _build_row(j, score):
             # verifiedonly filter reads this, and app.js just checks the flag rather than
             # re-deriving the string-shape rule.
             "date_trusted": core.is_trusted_date(j.get("found_date"), j.get("posted_verified")),
+            # Which role families this title belongs to. Computed here rather than in JS so the
+            # phrase vocabulary has ONE definition; app.js just intersects two lists.
+            "roles": list(core.roles_for_title(j.get("title"))),
             # Some employers publish no posting date at all (Tesla's careers API has no date
             # field anywhere), so this is when the job first entered OUR database. Rendered as
             # "Added <x>", never as a posting date. "" until the migration has been run.
@@ -849,6 +852,7 @@ def _prefs_as_params(prefs):
         "visatags": prefs.get("visatags") or "",
         "hidenospon": "1" if prefs.get("hidenospon") else "",
         "verifiedonly": "1" if prefs.get("verifiedonly") else "",
+        "roles": prefs.get("roles") or "",
     }
 
 
@@ -920,6 +924,7 @@ def _filter_rows(rows, statuses, p):
     want_visa = core.parse_visa_pref(p.get("visatags"))
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     verified_only = (p.get("verifiedonly") or "") in ("1", "true", "yes", "on")
+    want_roles = core.parse_roles_pref(p.get("roles"))
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
     track = p.get("track") or "any"        # any | dev (software/data) | mgmt (project/product/ops)
@@ -953,6 +958,8 @@ def _filter_rows(rows, statuses, p):
         if hide_no and r["sponsor_jd"] == "blocked":
             continue
         if verified_only and not r.get("date_trusted"):
+            continue
+        if not core.roles_match(r.get("roles"), want_roles):
             continue
         if not core.visa_tags_match(r.get("visa"), want_visa):
             continue
@@ -1217,6 +1224,8 @@ def feed():
                            default_min=default_min, paged=paged,
                            metros=_feed_metros(rows), states=_feed_states(rows),
                            visa_tag_controls=_VISA_TAG_CONTROLS,
+                           role_families=core.ROLE_FAMILIES, role_counts=role_counts(),
+                           role_max=ROLE_PICK_MAX,
                            visa=visa, visa_ctx=visa_ctx, prefs=prefs)
 
 
@@ -3800,19 +3809,33 @@ def _cors(resp):
 # to the keys you passed — so these steps write straight through it.
 # ------------------------------------------------------------------
 ONBOARD_STEPS = 5
+# How many role families someone may target at once. A cap is a feature, not a limit: an
+# unbounded pick is the same as no pick, and the filter stops meaning anything.
+ROLE_PICK_MAX = 6
 
-# Offered as tick-boxes because "what are you targeting" is a recall problem, not a typing one.
-# Grouped the way core.role_track splits the corpus, so a choice here means something the feed
-# can already act on.
-TARGET_ROLES = [
-    ("Project Manager", "mgmt"), ("Program Manager", "mgmt"), ("Product Manager", "mgmt"),
-    ("Project Coordinator", "mgmt"), ("Business Analyst", "mgmt"), ("Data Analyst", "mgmt"),
-    ("Operations Manager", "mgmt"), ("Scrum Master", "mgmt"),
-    ("Implementation Consultant", "mgmt"),
-    ("Software Engineer", "dev"), ("Full Stack Developer", "dev"), ("Data Engineer", "dev"),
-    ("Data Scientist", "dev"), ("Machine Learning Engineer", "dev"),
-    ("DevOps / SRE", "dev"), ("QA Engineer", "dev"),
-]
+
+_role_counts_cache = {"at": 0.0, "v": None}
+
+
+def role_counts():
+    """{role_key: how many live postings} for the picker, cached 10 minutes.
+
+    Shown next to each option so the choice is made against what is actually in the corpus. A
+    family sitting at 0 is worth seeing too — it says the search is empty, rather than letting
+    someone tick it and conclude the feed is broken.
+    """
+    now = time.time()
+    if _role_counts_cache["v"] is not None and now - _role_counts_cache["at"] < 600:
+        return _role_counts_cache["v"]
+    counts = {k: 0 for k in core.ROLE_KEYS}
+    try:
+        for j in get_jobs():
+            for k in core.roles_for_title(j.get("title")):
+                counts[k] += 1
+    except Exception:
+        pass                                   # a picker without counts still works
+    _role_counts_cache.update(at=now, v=counts)
+    return counts
 
 
 def _uploaded_resume_text(field="resume_file"):
@@ -3912,9 +3935,14 @@ def welcome():
                 if not ok:
                     flash("Couldn't save — " + msg[:120])
         elif step == 3:
-            roles = [r for r in f.getlist("roles") if r in dict(TARGET_ROLES)]
-            other = [s.strip() for s in (f.get("roles_other") or "").split(",") if s.strip()]
-            _save_extra(user, {"target_roles": roles + other[:10]})
+            # Roles are a saved-search PREF, not profile extra: they filter the feed and the
+            # digest, so they have to live where every other filter lives and go through
+            # normalize_prefs. Merged over the stored prefs the same way POST /profile merges
+            # the alert settings, or saving here would reset the rest of the search.
+            picked = ",".join(core.parse_roles_pref(f.getlist("roles") or f.get("roles")))
+            db.save_profile(user, {"search_prefs": core.normalize_prefs(
+                dict(_user_prefs(user), roles=picked))})
+            _rows_cache.clear()                # the first-paint count is derived from prefs
         elif step == 4:
             cos = [s.strip() for s in (f.get("companies") or "").split(",") if s.strip()]
             _save_extra(user, {"target_companies": cos[:40]})
@@ -3946,7 +3974,9 @@ def welcome():
     except ValueError:
         step = 1
     return render_template("welcome.html", step=step, steps=ONBOARD_STEPS, prof=prof,
-                           roles=TARGET_ROLES, chosen=e.get("target_roles") or [],
+                           role_families=core.ROLE_FAMILIES, role_counts=role_counts(),
+                           role_max=ROLE_PICK_MAX,
+                           chosen=core.parse_roles_pref(_user_prefs(user).get("roles")),
                            companies=", ".join(e.get("target_companies") or []),
                            has_resume=bool(current_profile()))
 
