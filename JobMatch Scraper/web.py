@@ -2690,7 +2690,7 @@ def _admin_ev(force=False):
 # escaping, so a name containing a comma, quote or paren produces a nonsense filter rather
 # than a lookup. Cheaper to refuse those at the door than to fix every call site.
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{2,40}$")
-_MIN_PASSWORD = 12
+_MIN_PASSWORD = auth.MIN_PASSWORD_LEN     # one definition, shared with manage_users.py
 
 
 def _can_disable():
@@ -2744,8 +2744,8 @@ def admin_user_create():
     pw = request.form.get("password") or ""
     if not _USERNAME_RE.match(name):
         flash("That username isn't valid (2-40 chars: letters, digits, dot, dash, underscore).")
-    elif len(pw) < _MIN_PASSWORD:
-        flash("Password must be at least %d characters." % _MIN_PASSWORD)
+    elif auth.password_problem(pw):
+        flash(auth.password_problem(pw))
     elif db.get_user(name):
         flash("User '%s' already exists — use Reset password instead." % name)
     else:
@@ -2763,8 +2763,8 @@ def admin_user_password():
     bad = _admin_user_guard(name, "reset")
     if bad:
         flash(bad)
-    elif len(pw) < _MIN_PASSWORD:
-        flash("Password must be at least %d characters." % _MIN_PASSWORD)
+    elif auth.password_problem(pw):
+        flash(auth.password_problem(pw))
     else:
         try:
             db.set_user_password(name, auth.hash_password(pw))
