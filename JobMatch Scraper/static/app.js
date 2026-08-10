@@ -566,10 +566,115 @@
         bs[i].setAttribute("aria-pressed", on ? "true" : "false");
       }
     }
+    syncChips();
     // The one place filter state is persisted. Every change listener reaches here via render(),
     // so nothing can change a filter without this running.
     saveFilterState();
   }
+
+  // ---- the chip bar ----
+  // Chips are a FACADE over the real inputs, which keep their ids and live inside the popovers.
+  // Nothing in the filter pipeline knows this layer exists, which is why feed_parity.py and
+  // test_filter_memory.py still drive the same functions with the same stubbed controls. Same
+  // arrangement #trackseg already had over #track, applied to the whole bar.
+  var POPS = ["pop-roles", "pop-loc", "pop-spon", "pop-date", "pop-more"];
+  var openPop = null;
+
+  function chipSet(id, on, value) {
+    var chip = document.getElementById("chip-" + id);
+    if (!chip) return;
+    chip.classList.toggle("on", !!on);
+    var v = document.getElementById("chipv-" + id);
+    if (v) v.textContent = on ? value : "";
+  }
+  // Reads the SAME state the filters read, so a chip can never disagree with the results.
+  function syncChips() {
+    var roles = rolesWanted();
+    var rl = document.getElementById("rolebtn-t");
+    chipSet("roles", roles.length,
+            roles.length === 1 && rl ? rl.textContent.trim() : roles.length + " picked");
+
+    var loc = locInp ? locInp.value.trim() : "";
+    var rem = remoteOnly && remoteOnly.checked;
+    chipSet("loc", loc || rem, loc && rem ? loc + " + remote" : (loc || "Remote only"));
+
+    var vt = visaWanted(), hn = hideNo && hideNo.checked, vlab = "";
+    if (vt.length === 1) {
+      // The route's real label ("H-1B", not "H1B") is already rendered next to its checkbox,
+      // from core.VISA_LABELS. Reading it back beats re-deriving a label from the key here and
+      // then having two spellings to keep in step.
+      var one = document.getElementById("visa-" + vt[0]);
+      vlab = one && one.parentNode ? one.parentNode.textContent.trim() : vt[0];
+    }
+    chipSet("spon", vt.length || hn,
+            vt.length ? (vt.length === 1 ? vlab : vt.length + " routes") : "Sponsoring only");
+
+    var d = dateSel ? dateSel.value : "any";
+    var DL = { "1": "Past 24 hours", "7": "Past 7 days", "30": "Past 30 days", "90": "Past 90 days" };
+    var vo = verifiedOnly && verifiedOnly.checked;
+    chipSet("date", (d && d !== "any") || vo, (DL[d] || "Any time") + (vo ? " · confirmed" : ""));
+
+    var pc = document.getElementById("popcount");
+    if (pc && countEl) pc.textContent = countEl.textContent;
+  }
+
+  function closePop() {
+    if (!openPop) return;
+    var el = document.getElementById(openPop);
+    if (el) el.hidden = true;
+    var btn = document.querySelector('[data-pop="' + openPop + '"]');
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    openPop = null;
+  }
+  function placePop(el, btn) {
+    // Absolute inside .feedlayout (position:relative), so it scrolls with the bar it belongs
+    // to. Clamped to the layout's own box rather than the viewport, because the feed is
+    // centred and a viewport clamp would let a right-hand popover drift off the content.
+    el.hidden = false;                                    // measurable only once shown
+    // Below 900px the popover becomes a full-width fixed sheet whose left AND right insets come
+    // from CSS. An inline left would win over that and leave it 12px off-centre, so the inline
+    // placement is cleared and only the vertical offset is set, from the bar it belongs to.
+    if (getComputedStyle(el).position === "fixed") {
+      el.style.left = "";
+      var bar = document.getElementById("filterbar");
+      el.style.top = Math.round((bar ? bar.getBoundingClientRect().bottom : 56) + 6) + "px";
+      return;
+    }
+    var host = feedLayout || el.offsetParent || document.body;
+    var hb = host.getBoundingClientRect(), bb = btn.getBoundingClientRect();
+    var w = el.offsetWidth;
+    var left = bb.left - hb.left;
+    if (left + w > hb.width) left = Math.max(0, hb.width - w);
+    el.style.left = Math.round(left) + "px";
+    el.style.top = Math.round(bb.bottom - hb.top + 6) + "px";
+  }
+  function togglePop(id, btn) {
+    var was = openPop;
+    closePop();
+    if (was === id) return;
+    var el = document.getElementById(id);
+    if (!el) return;
+    placePop(el, btn);
+    btn.setAttribute("aria-expanded", "true");
+    openPop = id;
+  }
+  for (var pi = 0; pi < POPS.length; pi++) {
+    (function (id) {
+      var btn = document.querySelector('[data-pop="' + id + '"]');
+      if (btn) btn.addEventListener("click", function (e) { e.stopPropagation(); togglePop(id, btn); });
+    })(POPS[pi]);
+  }
+  document.addEventListener("click", function (e) {
+    if (!openPop) return;
+    if (e.target.closest && (e.target.closest(".fpop") || e.target.closest(".fchip"))) {
+      if (e.target.closest("[data-popclose]")) closePop();
+      return;
+    }
+    closePop();
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePop(); });
+  // A popover positioned against its chip is wrong the moment the bar reflows.
+  addEventListener("resize", closePop);
 
   // Dispatcher: small corpus renders locally from the inline DATA (instant); large corpus
   // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.

@@ -385,7 +385,10 @@ textarea{resize:vertical}
 /* align-items:start is load-bearing twice over: a grid item defaults to stretch, which leaves
    position:sticky no room to slide (it would silently never stick), and a short rail would
    otherwise draw as a full-height empty card. */
-.feedlayout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:var(--space-250);align-items:start}
+/* One column now. The 280px rail column is gone; see templates/feed.html for the arithmetic,
+   but the short version is that removing it buys a fourth card column at 1440px. Kept as a
+   named block rather than deleted so .results keeps its min-width:0 grid-child guard. */
+.feedlayout{display:block;position:relative}
 .results{min-width:0}
 .rail{position:sticky;top:calc(var(--topbar-h) + 14px);display:flex;flex-direction:column;max-height:calc(100vh - var(--topbar-h) - 28px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 14px}
 .railtop{display:flex;flex-direction:column;gap:var(--space-150)}
@@ -1190,3 +1193,77 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 .pastelink{margin:var(--space-200) 0 0}
 .pastelink .btn{padding-left:0}
 .pastebox.is-open textarea{width:100%;margin:0 0 var(--space-150)}
+
+/* ==================================================================
+   FILTER BAR. Replaces the 280px rail (2026-08-09).
+
+   A chip row is self-documenting where a rail is not: an inactive rail showed fourteen
+   controls set to nothing, this shows exactly what is narrowing the list right now. Left
+   rails survive where faceting IS the browsing method and the catalogue is unfamiliar
+   (Amazon, Booking). Chip rows dominate where the user has a standing intent and the system
+   already ranks (LinkedIn Jobs, Indeed, Google Flights, Zillow). This product has a saved
+   search, a ranked feed and a résumé-derived score, so it is squarely the second group.
+   ================================================================== */
+.filterbar{position:sticky;top:var(--topbar-h);z-index:var(--z-sticky);
+  display:flex;align-items:center;gap:var(--space-150);flex-wrap:wrap;
+  padding:var(--space-150) 0;margin:0 0 var(--space-200);
+  background:var(--bg-canvas);border-bottom:1px solid var(--border-subtle)}
+.fsearch{flex:1 1 260px;min-width:200px}
+.fsearch input{width:100%;height:var(--field-h);padding-top:0;padding-bottom:0}
+.fchips{display:flex;align-items:center;gap:var(--space-100);flex-wrap:wrap;min-width:0}
+
+/* An inactive chip names the dimension. An active one carries its VALUE, which is what turns
+   the row into a sentence about the current search. */
+.fchip{display:inline-flex;align-items:center;gap:var(--space-100);height:var(--field-h);
+  padding:0 var(--space-150);border:1px solid var(--border-default);
+  border-radius:var(--radius-full);background:var(--bg-surface);color:var(--text-secondary);
+  font:inherit;font-size:var(--text-xs);font-weight:var(--weight-medium);
+  white-space:nowrap;cursor:pointer;
+  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),
+             color var(--t-fast) var(--ease)}
+.fchip:hover{border-color:var(--border-strong);color:var(--text-primary)}
+.fchip:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.fchip[aria-expanded="true"]{border-color:var(--accent);color:var(--accent-text)}
+.fchip.on{background:var(--accent-bg);border-color:var(--accent-bg);color:var(--accent-text)}
+.fchip.on .fchip-l{color:var(--accent-text);opacity:.7}
+.fchip-v{font-weight:var(--weight-semibold);max-width:19ch;overflow:hidden;text-overflow:ellipsis}
+.fchip-v:empty{display:none}
+.fchip-c{font-size:var(--text-3xs);opacity:.6}
+.fchip-more{margin-left:auto}
+.fchip-more .fbadge{background:var(--accent);color:var(--text-on-accent);
+  border-radius:var(--radius-full);min-width:18px;padding:0 5px;text-align:center;
+  font-size:var(--text-3xs);font-weight:var(--weight-bold);line-height:18px}
+
+/* Popovers sit OUTSIDE .filterbar so a sticky, wrapping bar cannot clip them. Absolute rather
+   than fixed so they scroll with the bar they belong to. */
+.fpop{position:absolute;z-index:var(--z-dropdown);min-width:260px;max-width:340px;
+  padding:var(--space-200);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-md);background:var(--bg-raised);box-shadow:var(--shadow-md)}
+.fpop[hidden]{display:none}
+.fpop-wide{min-width:340px;max-width:420px}
+.fpop .flab{margin:0 0 var(--space-150);font-size:var(--text-2xs);
+  text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--text-secondary)}
+.fpop .fgroup+.fgroup{margin-top:var(--space-250);padding-top:var(--space-200);
+  border-top:1px solid var(--border-subtle)}
+.fpop .sel,.fpop .locin{width:100%;margin-bottom:var(--space-100)}
+.fpop .ck{display:flex;margin:var(--space-100) 0}
+.fpopfoot{display:flex;align-items:center;gap:var(--space-100);
+  margin-top:var(--space-250);padding-top:var(--space-200);
+  border-top:1px solid var(--border-subtle)}
+
+/* The reclaimed width is the whole point, so the card grid gets a smaller minimum and a
+   larger gap: four columns at 1440px instead of three. */
+@media (min-width:1200px){ #feed{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--space-300)} }
+
+@media (max-width:900px){
+  /* The bar scrolls horizontally with Filters pinned to the right, which is Airbnb's and
+     Google's pattern and keeps the escape hatch reachable without scrolling to find it. */
+  .filterbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .filterbar::-webkit-scrollbar{display:none}
+  .fsearch{flex:1 0 60%}
+  .fchips{flex-wrap:nowrap}
+  .fchip-more{position:sticky;right:0;margin-left:0;
+    box-shadow:-12px 0 12px -6px var(--bg-canvas)}
+  .fpop{position:fixed;left:var(--space-150);right:var(--space-150);
+    max-width:none;min-width:0;max-height:70vh;overflow:auto}
+}
