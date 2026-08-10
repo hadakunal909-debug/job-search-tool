@@ -1224,7 +1224,7 @@ def feed():
                            default_min=default_min, paged=paged,
                            metros=_feed_metros(rows), states=_feed_states(rows),
                            visa_tag_controls=_VISA_TAG_CONTROLS,
-                           role_families=core.ROLE_FAMILIES, role_counts=role_counts(),
+                           role_groups=core.role_families_grouped(), role_counts=role_counts(),
                            role_max=ROLE_PICK_MAX,
                            visa=visa, visa_ctx=visa_ctx, prefs=prefs)
 
@@ -3974,7 +3974,7 @@ def welcome():
     except ValueError:
         step = 1
     return render_template("welcome.html", step=step, steps=ONBOARD_STEPS, prof=prof,
-                           role_families=core.ROLE_FAMILIES, role_counts=role_counts(),
+                           role_groups=core.role_families_grouped(), role_counts=role_counts(),
                            role_max=ROLE_PICK_MAX,
                            chosen=core.parse_roles_pref(_user_prefs(user).get("roles")),
                            companies=", ".join(e.get("target_companies") or []),

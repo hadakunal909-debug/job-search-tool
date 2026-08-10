@@ -660,39 +660,53 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   .countrow{flex-wrap:wrap}
   .countrow .sel{width:100%}
   .tab{padding:8px 13px}
-  .rolelist{grid-template-columns:1fr;max-height:50vh}
+  .roletiles{grid-template-columns:1fr}
+  .modal .rolegroups{max-height:58vh}
 }
 
 /* ---- role picker ------------------------------------------------------------------
    "What kind of job do you want", which until now had two possible answers. Shared by the
    feed's modal and onboarding step 3 via _rolepicker.html, so both get this styling and
    neither can drift from the other. Vars only — it inherits dark mode for free. */
-.rolepick{display:flex;flex-direction:column;gap:10px;min-width:0}
-.rolesearch{display:flex;gap:10px;align-items:center}
-.rolesearch input{flex:1;padding:9px 12px;border:1px solid var(--line-strong);
+.rolepick{display:flex;flex-direction:column;gap:14px;min-width:0}
+.rolesearch{display:flex;gap:12px;align-items:center}
+.rolesearch input{flex:1;padding:11px 14px;border:1px solid var(--line-strong);
   border-radius:var(--r);background:var(--surface);color:var(--ink);font-size:14px;font-family:inherit}
 .rolesearch input:focus{outline:none;box-shadow:var(--focus);border-color:var(--brand)}
-.rolecount{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-/* Two columns so ~22 families fit without a long scroll, and capped so the modal never grows
-   past the viewport on a laptop. */
-.rolelist{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;max-height:44vh;
-  overflow:auto;padding:2px}
-.roleopt{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-sm);
-  border:1px solid transparent;cursor:pointer;font-size:13.5px;transition:background .15s ease}
-.roleopt:hover{background:var(--surface2)}
-.roleopt.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-ink)}
-/* A family with nothing live is shown, not hidden — "0" is the useful answer, and silently
-   dropping it would leave someone wondering why their role isn't listed. */
-.roleopt.empty .rolen{opacity:.45}
-.roleopt input{width:auto;margin:0;flex:0 0 auto}
-.rolelab{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rolen{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 auto}
-.roleopt.on .rolen{color:var(--brand-ink)}
-/* Past the cap the unticked options go quiet rather than vanishing, so the limit is visible
-   as a state instead of options mysteriously disappearing. */
-.rolepick.full .roleopt:not(.on){opacity:.4}
-.rolepick.full .roleopt:not(.on):hover{background:transparent;cursor:not-allowed}
-.rolenone,.rolehint{margin:0;font-size:12px;color:var(--muted)}
+.rolecount{font-size:12.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.rolecount b{color:var(--ink);font-variant-numeric:tabular-nums}
+.rolegroups{display:flex;flex-direction:column;gap:18px}
+/* Sectioned so 22 options read as four short lists rather than one long scroll. The heading
+   rule is the divider — no boxes, so the tiles themselves are the only framed thing. */
+.rolegh{margin:0 0 9px;font-size:11px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted)}
+.roletiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:9px}
+/* A tile, not a checkbox row: the whole thing is the target, and the count sits under the
+   label instead of fighting it for the same line. */
+.roletile{position:relative;display:flex;align-items:flex-start;gap:10px;padding:12px 13px;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--surface);
+  cursor:pointer;min-width:0;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}
+.roletile:hover{border-color:var(--line-strong);background:var(--surface2)}
+.roletile.on{border-color:var(--brand);background:var(--brand-soft);box-shadow:var(--e1)}
+.roletile input{margin:1px 0 0;flex:0 0 auto;width:auto;accent-color:var(--brand)}
+.roletile-b{display:flex;flex-direction:column;gap:2px;min-width:0}
+.rolelab{font-size:13.5px;line-height:1.3;color:var(--ink);overflow-wrap:anywhere}
+.roletile.on .rolelab{color:var(--brand-ink);font-weight:600}
+.rolen{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* A family with nothing live is shown, not hidden — "0 open" is the useful answer, and
+   silently dropping it would leave someone wondering why their role isn't listed. */
+.roletile.empty{opacity:.62}
+/* Past the cap the unticked tiles go quiet rather than vanishing, so the limit reads as a
+   state instead of options mysteriously disappearing. */
+.rolepick.full .roletile:not(.on){opacity:.38}
+.rolepick.full .roletile:not(.on):hover{background:var(--surface);border-color:var(--line);
+  cursor:not-allowed}
+.rolenone,.rolehint{margin:0;font-size:12.5px;color:var(--muted)}
+/* In the modal the list has to scroll; on the wizard, where it IS the page, it must not — an
+   inner scrollbar inside a short box was what made the first version feel cramped. */
+.modal .rolegroups{max-height:52vh;overflow:auto;padding-right:4px}
+.rolepick-page{max-width:none}
+.rolepick-page .roletiles{grid-template-columns:repeat(auto-fill,minmax(236px,1fr))}
 /* The rail's trigger: reads as the current selection, not as a button labelled "Roles". */
 .rolebtn{display:flex;width:100%;gap:8px;align-items:center;text-align:left;padding:9px 11px;
   border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);

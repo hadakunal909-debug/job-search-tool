@@ -1,33 +1,49 @@
 {# The role picker, shared by the feed's modal and onboarding step 3 so the two can't drift.
 
-   Renders a checkbox per family with its live corpus count, plus a search box that filters the
-   list client-side. The checkboxes are the UI; #roles (a hidden input) is the state every
-   filter path reads — the same trick #visatags and #track use, which lets feed_parity stub one
-   control instead of a NodeList.
+   WORKS WITHOUT JAVASCRIPT when `form_post` is set. The first version relied on JS to copy the
+   ticked boxes into a hidden input — but app.js is only loaded on the feed, so on the wizard
+   nothing synced, the counter sat at "0 of 6" while four boxes were ticked, and the roles
+   submitted were silently empty. Now the checkboxes carry name="roles" and post themselves;
+   rolepick.js only adds search, the cap and the live counter on top.
 
-   Caller supplies: role_families, role_counts, chosen (tuple of keys), role_max.
-   `inline=True` drops the modal chrome for the wizard, where it IS the page. #}
-<div class="rolepick" data-max="{{ role_max or 6 }}">
-  <input type="hidden" id="roles" name="roles" value="{{ chosen|join(',') }}">
+   On the feed there is no form, so the hidden #roles input IS the state and JS drives it —
+   the same arrangement #visatags and #track use.
+
+   Caller supplies: role_groups, role_counts, chosen, role_max, and form_post. #}
+<div class="rolepick{{ ' rolepick-page' if form_post else '' }}" data-max="{{ role_max or 6 }}">
+  {% if not form_post %}<input type="hidden" id="roles" value="{{ chosen|join(',') }}">{% endif %}
+
   <div class="rolesearch">
-    <input type="search" id="rolefind" placeholder="Search roles — try 'data' or 'manager'"
+    <input type="search" id="rolefind" placeholder="Search roles — try “data”, “manager”, “sde”"
            autocomplete="off" aria-label="Search role types">
-    <span class="rolecount"><span id="rolen">{{ chosen|length }}</span> of {{ role_max or 6 }}</span>
+    <span class="rolecount"><b id="rolen">{{ chosen|length }}</b> of {{ role_max or 6 }}</span>
   </div>
-  <div class="rolelist" id="rolelist">
-    {% for key, label, phrases in role_families %}
-    {# data-find carries the phrases too, so searching "sde" or "tpm" finds the family even
-       though neither word is in its label. #}
-    <label class="roleopt{{ ' on' if key in chosen else '' }}" data-role="{{ key }}"
-           data-find="{{ (label ~ ' ' ~ phrases|join(' '))|lower }}">
-      <input type="checkbox" value="{{ key }}"{{ ' checked' if key in chosen else '' }}>
-      <span class="rolelab">{{ label }}</span>
-      <span class="rolen">{{ '{:,}'.format(role_counts.get(key, 0)) }}</span>
-    </label>
+
+  <div class="rolegroups" id="rolelist">
+    {% for gkey, glabel, fams in role_groups %}
+    <section class="rolegroup" data-group="{{ gkey }}">
+      <h4 class="rolegh">{{ glabel }}</h4>
+      <div class="roletiles">
+        {% for key, label, phrases in fams %}
+        {# data-find carries the phrases too, so "sde" or "tpm" finds the family even though
+           neither word appears in its label. #}
+        <label class="roletile{{ ' on' if key in chosen else '' }}{{ ' empty' if not role_counts.get(key) else '' }}"
+               data-role="{{ key }}" data-find="{{ (label ~ ' ' ~ phrases|join(' '))|lower }}">
+          <input type="checkbox" {% if form_post %}name="roles" {% endif %}value="{{ key }}"
+                 {{ ' checked' if key in chosen else '' }}>
+          <span class="roletile-b">
+            <span class="rolelab">{{ label }}</span>
+            <span class="rolen">{{ '{:,}'.format(role_counts.get(key, 0)) }} open</span>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </section>
     {% endfor %}
   </div>
-  <p class="rolenone" id="rolenone" hidden>No role matches that. Clear the search to see all
-    {{ role_families|length }}.</p>
-  <p class="rolehint">Pick up to {{ role_max or 6 }}. Leave it empty to see every role —
-    the number beside each is how many are live right now.</p>
+
+  <p class="rolenone" id="rolenone" hidden>Nothing matches that. Clear the search to see all
+    {{ role_counts|length }} roles.</p>
+  <p class="rolehint">Pick up to {{ role_max or 6 }} — or leave it empty to see everything.
+    The number on each is how many are live right now.</p>
 </div>
