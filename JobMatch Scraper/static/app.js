@@ -143,6 +143,21 @@
   // empty and everything stays client-side (instant) exactly as before.
   var PAGED = feed.getAttribute("data-paged") === "1";
   var HAS_RESUME = feed.getAttribute("data-hasresume") === "1";
+
+  // Without a résumé every score is the same flat baseline, so "Best match" sorts on noise
+  // while looking authoritative. user_scores already suppresses the number on the card; this
+  // stops the ordering pretending too. Newest is the honest default when nothing can be ranked.
+  if (!HAS_RESUME && sortSel) {
+    var so = sortSel.querySelector('option[value="score"]');
+    if (so) {
+      so.disabled = true;
+      so.textContent = "Sort: Best match (add a résumé)";
+    }
+    // sortBy was captured from the select a few lines above, so the variable has to move with
+    // it or the control would read "Newest" while the feed kept sorting on score.
+    if (sortSel.value === "score") { sortSel.value = "newest"; sortBy = "newest"; }
+  }
+
   var shown = 0, _seq = 0, _deb;
   // Set on the per-company page: every /api/feed request is pinned to that one employer,
   // server-side and before the filters run. Empty string on the main feed.
@@ -281,7 +296,11 @@
     // caveats on every chip of every card was a wall of hover text. The caveats didn't go away:
     // the detail panel still shows every route WITH its VISA_TIPS sentence, which is the right
     // home for them — one view, read once, instead of forty times down a feed.
-    var vt = (j.visa || []);
+    // Ordered so the routes THIS user is filtering on come first. A big sponsor carries all
+    // five and only three fit, so an unranked list can push the one route that matters to the
+    // reader into the "+2". This is the payoff for asking the sponsorship question at all:
+    // the chips answer "can I take this job" rather than "what has this employer ever filed".
+    var vt = rankVisa(j.visa || []);
     for (var vi = 0; vi < vt.length && vi < 3; vi++) {
       var vk = vt[vi];
       badges += '<span class="vt vt-' + H(vk) + '">' + esc(VISA_LABELS[vk] || vk) +
@@ -516,6 +535,17 @@
   }
 
   // Highlight any control set to a non-default value (so active filters are obvious at a glance).
+  // Routes the user has ticked in the Sponsorship filter, hoisted to the front. Stable
+  // otherwise, so a card with no filter set looks exactly as it did.
+  var _wantVisa = [];
+  function rankVisa(vt) {
+    if (!_wantVisa.length || vt.length < 2) return vt;
+    var first = [], rest = [];
+    for (var i = 0; i < vt.length; i++)
+      (_wantVisa.indexOf(vt[i]) >= 0 ? first : rest).push(vt[i]);
+    return first.concat(rest);
+  }
+
   function setFlag(el, on) { if (el) el.classList.toggle("fset", !!on); }
 
   // How many NARROWING filters are on — the eight under "Filters" in the rail. Search, track and
@@ -764,7 +794,11 @@
 
   // Dispatcher: small corpus renders locally from the inline DATA (instant); large corpus
   // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.
-  function render(reset) { markFilters(); if (PAGED) renderServer(reset); else renderLocal(reset); }
+  function render(reset) {
+    markFilters();
+    _wantVisa = visaWanted();          // once per render, not once per card
+    if (PAGED) renderServer(reset); else renderLocal(reset);
+  }
 
   // Every filter control as query params, with NO paging — buildParams adds that.
   function filterParams() {
