@@ -18,9 +18,15 @@
     <button type="button" class="btn primary lg add-toggle" data-target="add-resume">Add a résumé</button>
   </div>
 
-  <form id="add-resume" class="addbox" method="post" action="{{ url_for('brain_resume_save') }}">
+  {# enctype is load-bearing: without it the browser posts only the field NAME and the file
+     never arrives, which fails silently rather than erroring. #}
+  <form id="add-resume" class="addbox" method="post" enctype="multipart/form-data"
+        action="{{ url_for('brain_resume_save') }}">
     <label>Name <input type="text" name="name" placeholder="e.g. PM-focused résumé"></label>
-    <label>Content <span class="muted">(plain text)</span>
+    <label>Upload a file <span class="muted">(PDF, .docx, .txt — the text is extracted and the
+      file itself is not stored)</span>
+      <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md"></label>
+    <label>…or paste the content <span class="muted">(plain text)</span>
       <textarea name="content" rows="12" class="mono" placeholder="Paste this résumé version."></textarea></label>
     <div class="row">
       <button class="btn primary" type="submit">Save résumé</button>

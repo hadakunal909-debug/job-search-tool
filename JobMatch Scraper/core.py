@@ -1891,6 +1891,83 @@ def fetch_jd(url, limit=8000):
 
 
 # ------------------------------------------------------------
+# Read an UPLOADED resume back into plain text
+#
+# Everything downstream — the match score, the digest, Resume Brain — works on the plain text
+# from db.profile_text(), so the file itself is never stored. It is parsed in memory and
+# discarded. That keeps this feature out of the questions that come with holding user documents
+# (where they live, who can read them, how they get deleted), and there is nothing to back up.
+# ------------------------------------------------------------
+RESUME_UPLOAD_MAX_BYTES = 4 * 1024 * 1024      # a resume is a few pages; 4 MB is generous
+_RESUME_PDF_MAX_PAGES = 40                     # bound the work a crafted file can ask for
+RESUME_UPLOAD_EXTS = (".pdf", ".docx", ".txt", ".md")
+
+
+def _docx_to_text(data):
+    from docx import Document                  # already a dependency: core writes .docx too
+    doc = Document(BytesIO(data))
+    out = [p.text for p in doc.paragraphs]
+    # Plenty of resumes lay dates and employers out in a borderless table, and those cells are
+    # NOT in doc.paragraphs — miss them and half the work history silently disappears.
+    for t in doc.tables:
+        for row in t.rows:
+            out.append("\t".join(c.text.strip() for c in row.cells))
+    return "\n".join(out)
+
+
+def _pdf_to_text(data):
+    from pypdf import PdfReader
+    reader = PdfReader(BytesIO(data))
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")                 # many resumes are "protected" with an empty owner
+        except Exception:                      # password; a real one is a clear error below
+            return ""
+    return "\n".join((p.extract_text() or "")
+                     for p in reader.pages[:_RESUME_PDF_MAX_PAGES])
+
+
+def resume_text_from_upload(filename, data):
+    """(text, error) from an uploaded resume. Never raises, never touches disk.
+
+    A scanned PDF parses fine and yields nothing — that is not an error the user can debug from
+    a stack trace, so it gets its own message naming the likely cause.
+    """
+    name = (filename or "").strip().lower()
+    if not data:
+        return "", "That file was empty."
+    if len(data) > RESUME_UPLOAD_MAX_BYTES:
+        return "", ("That file is %.1f MB — the limit is %d MB."
+                    % (len(data) / 1048576.0, RESUME_UPLOAD_MAX_BYTES // 1048576))
+    ext = os.path.splitext(name)[1]
+    if ext == ".doc":
+        return "", ("Old-style .doc isn't supported — re-save it as .docx or PDF, "
+                    "or paste the text below.")
+    if ext not in RESUME_UPLOAD_EXTS:
+        return "", "Upload a PDF, .docx, .txt or .md file — or paste the text below."
+    try:
+        if ext == ".pdf":
+            text = _pdf_to_text(data)
+        elif ext == ".docx":
+            text = _docx_to_text(data)
+        else:
+            text = data.decode("utf-8", "replace")
+    except ImportError:
+        return "", ("This server can't read %s files yet (missing library) — "
+                    "paste the text below instead." % ext)
+    except Exception:
+        # Malformed, encrypted, or not really the format its extension claims.
+        return "", ("Couldn't read that %s — it may be password-protected or corrupted. "
+                    "Try paste instead." % ext)
+    text = re.sub(r"[ \t]+\n", "\n", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if len(text) < 40:
+        return "", ("That file had almost no readable text. A scanned or image-only PDF has "
+                    "none to extract — paste the text below instead.")
+    return text, ""
+
+
+# ------------------------------------------------------------
 # Export the (edited) resume to .docx
 # ------------------------------------------------------------
 def resume_to_docx_bytes(text):

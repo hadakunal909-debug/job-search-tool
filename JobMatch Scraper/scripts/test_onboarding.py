@@ -104,7 +104,12 @@ for step, marker in [(1, "First name"), (2, "Work authorization"), (3, "What are
         check("  ...carries the not-advice wording", "Not immigration advice" in body)
         check("  ...and points at the DSO and uscis.gov", "DSO" in body and "uscis.gov" in body)
     if step == 5:
-        check("  ...admits there is no file upload", "no file upload" in body)
+        check("  ...offers a file upload", 'type="file"' in body and 'name="resume_file"' in body)
+        check("  ...is multipart, or the file never arrives",
+              'enctype="multipart/form-data"' in body)
+        check("  ...still offers paste, since a scanned PDF has no text to extract",
+              'name="resume"' in body and "scanned" in body)
+        check("  ...says the file itself isn't kept", "don't keep the file" in body)
 
 print("\n" + "=" * 74)
 print("A STEP MUST NOT BLANK THE REST OF THE PROFILE")
@@ -179,6 +184,61 @@ token(c)
 c.post("/welcome", data={"step": "1", "action": "next", "first_name": "Nope"})
 check("a POST with no CSRF token saves nothing", not STORE.get("first_name"),
       repr(STORE.get("first_name")))
+
+print("\n" + "=" * 74)
+print("résumé upload reaches the route")
+print("=" * 74)
+# The unit tests cover the parser; this covers the plumbing between the form and it, which is
+# where an upload fails SILENTLY (a missing enctype posts the field name and no file).
+import io
+try:
+    import core
+    doc = core.resume_to_docx_bytes(
+        "KUNAL SINGH\n\nEXPERIENCE\nProgram Manager, Globex\n- Ran six projects\n")
+    STORE.clear()
+    RESUMES.clear()
+    c = client()
+    c.post("/welcome", data={"_csrf": token(c), "step": "5", "action": "next",
+                             "resume_file": (io.BytesIO(doc), "kunal_cv.docx")},
+           content_type="multipart/form-data")
+    check("an uploaded .docx is parsed and saved",
+          RESUMES and "Program Manager, Globex" in RESUMES[-1]["content"],
+          RESUMES[-1]["content"][:60] if RESUMES else "nothing saved")
+    check("and it still completes the wizard",
+          (STORE.get("extra") or {}).get("onboarded") is True)
+
+    # An unreadable upload must not cost the user what they typed.
+    STORE.clear()
+    RESUMES.clear()
+    c = client()
+    c.post("/welcome", data={"_csrf": token(c), "step": "5", "action": "next",
+                             "resume": "pasted fallback text about project management",
+                             "resume_file": (io.BytesIO(b"not a pdf at all"), "cv.pdf")},
+           content_type="multipart/form-data")
+    check("a failed parse falls back to the pasted text",
+          RESUMES and "pasted fallback" in RESUMES[-1]["content"],
+          RESUMES[-1]["content"][:50] if RESUMES else "nothing saved")
+
+    # Resume Brain's own form, the other upload surface.
+    STORE.clear()
+    RESUMES.clear()
+    c = client()
+    c.post("/brain/resume/save",
+           data={"resume_file": (io.BytesIO(doc), "PM résumé v2.docx")},
+           content_type="multipart/form-data")
+    check("Resume Brain accepts an upload too",
+          RESUMES and "Globex" in RESUMES[-1]["content"])
+    check("...and names it after the file rather than 'Untitled résumé'",
+          RESUMES and RESUMES[-1]["name"] == "PM résumé v2",
+          RESUMES[-1]["name"] if RESUMES else "-")
+
+    RESUMES.clear()
+    c = client()
+    c.post("/brain/resume/save", data={"name": "", "content": ""},
+           content_type="multipart/form-data")
+    check("an empty submit saves nothing", not RESUMES)
+except ImportError:
+    print("  (skipped — python-docx not installed)")
 
 print("\n" + ("ALL ONBOARDING CHECKS PASS" if not fails else "FAILED: %s" % fails))
 sys.exit(1 if fails else 0)

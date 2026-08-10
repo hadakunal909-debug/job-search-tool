@@ -133,6 +133,11 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes"),
+    # Résumé uploads are the only file input in the product. Flask rejects a larger body before
+    # a byte reaches a view, so an oversized or hostile upload costs nothing to refuse. Slightly
+    # above core.RESUME_UPLOAD_MAX_BYTES so the friendlier per-file message is what users
+    # normally see, with this as the hard backstop.
+    MAX_CONTENT_LENGTH=6 * 1024 * 1024,
 )
 
 
@@ -3359,11 +3364,25 @@ def brain_teach():
 @login_required
 def brain_resume_save():
     user = session["user"]
+    uploaded, err = _uploaded_resume_text()
+    if err:
+        flash(err)
+    content = uploaded or request.form.get("content", "")
+    if not (content or "").strip():
+        flash(err or "Nothing to save — attach a file or paste the text.")
+        return redirect(url_for("brain_teach"))
+    name = (request.form.get("name") or "").strip()
+    if not name and uploaded:
+        # Name it after the file rather than "Untitled résumé", so a library of several
+        # uploads stays tellable apart without anyone having to type a label.
+        up = request.files.get("resume_file")
+        name = os.path.splitext(os.path.basename(up.filename or ""))[0].strip() if up else ""
     rb.save_resume(user, {"id": request.form.get("id", ""),
-                          "name": (request.form.get("name") or "Untitled résumé").strip(),
-                          "content": request.form.get("content", "")})
+                          "name": name or "Untitled résumé",
+                          "content": content})
     _bust_profile(user)
-    flash("Résumé saved — your match scores now include it.")
+    flash(("Read %d characters from that file — " % len(content) if uploaded else "")
+          + "résumé saved. Your match scores now include it.")
     return redirect(url_for("brain_teach"))
 
 
@@ -3796,6 +3815,23 @@ TARGET_ROLES = [
 ]
 
 
+def _uploaded_resume_text(field="resume_file"):
+    """(text, error) for an uploaded résumé, or ('', '') when no file was attached.
+
+    The upload is a CONVENIENCE over the textarea, never a replacement: every caller falls back
+    to pasted text, because a scanned PDF has nothing to extract and no amount of parsing fixes
+    that. Flask's MAX_CONTENT_LENGTH rejects an oversized body before it reaches here; the size
+    check in core is the second line for anything that slips past it.
+    """
+    try:
+        f = request.files.get(field)
+        if not f or not (f.filename or "").strip():
+            return "", ""
+        return core.resume_text_from_upload(f.filename, f.read())
+    except Exception:
+        return "", "Couldn't read that upload — paste the text below instead."
+
+
 def _extra(user):
     """The profile's `extra` jsonb as a dict, whatever shape it is stored in."""
     try:
@@ -3883,7 +3919,15 @@ def welcome():
             cos = [s.strip() for s in (f.get("companies") or "").split(",") if s.strip()]
             _save_extra(user, {"target_companies": cos[:40]})
         elif step == 5:
-            text = (f.get("resume") or "").strip()
+            # An upload wins if it produced text; otherwise fall through to whatever was pasted,
+            # so a failed parse never costs the user what they typed.
+            text, err = _uploaded_resume_text()
+            if err:
+                flash(err)
+            if not text:
+                text = (f.get("resume") or "").strip()
+            if err and not text:
+                return redirect(url_for("welcome", step=step))     # let them try again
             if text:
                 try:
                     db.save_resume(user, {"name": "My résumé", "content": text[:60000]})

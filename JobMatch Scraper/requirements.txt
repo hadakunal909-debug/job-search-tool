@@ -22,6 +22,16 @@ python-docx
 #     pip install openpyxl
 python-dotenv
 
+# Reading UPLOADED résumés (core.resume_text_from_upload). PDF is the format people actually
+# have, which is why the app was paste-only until now. Pure Python, ~294 KB, no compiled
+# extensions and no runtime deps on Python 3.11+ — the lightest option that reads real PDFs.
+# .docx needs nothing new: python-docx above already writes them, and reads them too.
+#
+# UNLIKE python-jobspy this DOES belong in requirements-cpanel.txt as well, because the upload
+# route runs on the web host, not in the scraper. Imported lazily, so a host missing it gets a
+# "paste the text instead" message rather than a 500.
+pypdf==6.15.0
+
 # Aggregator sweep (LinkedIn/Indeed/Glassdoor/Google/ZipRecruiter) — scraper.scrape_jobspy.
 #
 # PINNED, unlike everything above it. This library scrapes hostile targets, so its selectors and

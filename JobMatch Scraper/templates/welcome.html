@@ -44,7 +44,9 @@
 </div>
 <p class="stepn">Step {{ step }} of {{ steps }}</p>
 
-<form method="post" action="{{ url_for('welcome') }}">
+{# multipart throughout: step 5 carries a file input, and switching enctype per step would be a
+   trap for whoever adds the next one. It costs the other steps nothing. #}
+<form method="post" enctype="multipart/form-data" action="{{ url_for('welcome') }}">
   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <input type="hidden" name="step" value="{{ step }}">
 
@@ -122,12 +124,16 @@
       <div class="wnote">You already have one saved. Paste over it here, or skip and keep it.</div>
     {% endif %}
     <div class="pgrid">
-      <label class="full">Paste your résumé text
-        <textarea name="resume" rows="14" placeholder="Paste the whole thing — plain text is fine."></textarea>
+      <label class="full">Upload it
+        <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md">
+      </label>
+      <label class="full">…or paste the text
+        <textarea name="resume" rows="12" placeholder="Paste the whole thing — plain text is fine."></textarea>
       </label>
     </div>
-    <p class="dim">Plain text only for now; there's no file upload yet. You can edit it later
-      under Resume Brain.</p>
+    <p class="dim">PDF, .docx, .txt or .md. We read the text out and don't keep the file. A
+      scanned or photographed PDF has no text to extract — paste it instead. You can edit any of
+      this later under Resume Brain.</p>
   {% endif %}
 
   <div class="wact">
