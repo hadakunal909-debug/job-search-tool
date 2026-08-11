@@ -735,8 +735,18 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    United States of America" — everything else keeps its full width and the row can never
    wrap a bare separator dot onto the start of a new line. min-width:0 on both the row and
    the shrinking child is what actually lets text-overflow fire inside a flex container. */
-.cident{display:flex;align-items:baseline;min-width:0;white-space:nowrap}
+/* overflow:hidden is not cosmetic here, it is what stops the row sizing the whole card.
+   A grid item's automatic minimum size is its MIN-CONTENT width, and an unbreakable nowrap
+   run of "Medtronic · Minneapolis Minnesota United States of America · 4d ago" measures
+   426px — so on a 375px phone the track was forced to 468px and the entire page scrolled
+   sideways. Clipping the row drops its min-content contribution to zero, and the track goes
+   back to obeying the grid. .cloc still gives first, so the clip is a backstop rather than
+   the mechanism. */
+.cident{display:flex;align-items:baseline;min-width:0;overflow:hidden;white-space:nowrap}
+.cident > *{flex:0 0 auto}
 .cloc{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* The card is the grid item, so it carries the same guard one level up. */
+.card,.cmeta{min-width:0}
 /* CHIP ROW: a real flex row with a real gap. The chips each carry margin-left:6px for the
    inline runs they appear in elsewhere, which here would double the gap and indent the
    first one, so it is cleared — the same fix .kw already makes. */
@@ -887,7 +897,13 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .result.err{background:var(--danger-soft);border:1px solid var(--danger);color:var(--danger)}
 .result.info,.result.sql{background:var(--blue-soft);border:1px solid var(--line);color:var(--blue)}
 pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflow:auto;font-size:var(--text-2xs)}
-.brow{display:flex;align-items:center;gap:var(--space-150);justify-content:space-between;border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;margin:8px 0;background:var(--surface)}
+/* A board row carries a raw careers URL, which has no spaces to break at, so on a phone it
+   pushed the page 502px wide. overflow-wrap:anywhere lets it break mid-string, min-width:0
+   lets the flex child actually shrink to allow that, and the row wraps rather than squeezing
+   the Remove button to nothing. */
+.brow{display:flex;align-items:center;gap:var(--space-150);justify-content:space-between;flex-wrap:wrap;border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;margin:8px 0;background:var(--surface)}
+.brow > div{flex:1 1 240px;min-width:0}
+.brow .muted{overflow-wrap:anywhere}
 .back{font-size:var(--text-xs);display:inline-block;margin-bottom:8px;font-weight:500}
 
 /* loading */
