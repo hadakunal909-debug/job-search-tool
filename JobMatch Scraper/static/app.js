@@ -824,6 +824,12 @@
     if (left + w > hb.width) left = Math.max(0, hb.width - w);
     el.style.left = Math.round(left) + "px";
     el.style.top = Math.round(bb.bottom - hb.top + 6) + "px";
+    // Height has to be measured, not guessed in CSS. A max-height in the stylesheet can only
+    // subtract a CONSTANT from the viewport, but a popover opens wherever its chip happens to
+    // be, and the chip bar sits below a page heading whose height varies. "More filters" ran
+    // 36px past the bottom of a 1000px window, which put the primary "Show N jobs" button
+    // off screen with no way to scroll to it. Measured from the chip, it always fits.
+    el.style.maxHeight = Math.max(220, Math.round(window.innerHeight - bb.bottom - 24)) + "px";
   }
   function togglePop(id, btn) {
     var was = openPop;

@@ -181,24 +181,57 @@
       </div>
     </div>
 
+    {# THE EXPERIENCE FILTER.
+
+       It used to be three unlabelled selects under one "Pay & experience" heading, each
+       explaining itself only through a title= nobody hovers, and the experience one mixed
+       two mental models across its four options: "Entry level (0–2 years)" is a range,
+       "Mid level (up to 5 years)" is a ceiling, "Hide senior roles" is a negation.
+
+       Worse, two of those were the SAME FILTER. app.js drops a job when the years it asks
+       for exceed the selected value, and separately drops anything at 6+ when the value is
+       "senior" — so 5 keeps jobs asking up to 5, and senior keeps jobs asking up to 5.
+       Identical behaviour, two labels, one of them phrased as if it did something else.
+
+       Reframed as a fact about the READER rather than a rule about jobs, which is what
+       someone actually knows about themselves: how much experience do you have. The stored
+       values are untouched, so nothing about the filtering changes, and a saved "senior"
+       still lands on the option that behaves identically to it. #}
     <div class="fgroup">
-      <h3 class="flab" id="lab-pay">Pay &amp; experience</h3>
-      {# The "only a third state one" clause stays: without it this control looks broken. #}
-      <select id="minsal" class="sel" aria-labelledby="lab-pay" title="Read from the pay range in the description. Only about a third of postings state one, so any minimum hides the rest.">
-        {% for v, lab in [(0, 'Any pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
-        <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
-      <select id="exp" class="sel" title="Years the description asks for. Jobs that don't state a number are always kept.">
-        {% for v, lab in [('any', 'Any experience'), ('2', 'Entry level (0–2 years)'), ('5', 'Mid level (up to 5 years)'), ('senior', 'Hide senior roles')] %}
-        <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
-      <select id="intern" class="sel" title="Internships and co-ops are OPT and STEM-OPT eligible.">
-        {% for v, lab in [('any', 'Intern + full-time'), ('only', 'Internships & co-ops only'), ('no', 'Exclude internships')] %}
-        <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
-        {% endfor %}
-      </select>
+      <div class="field">
+        <label class="field-label" for="exp">How Much Experience Do You Have?</label>
+        <select id="exp" class="sel">
+          {% for v, lab in [('any', 'Any Amount'), ('2', '0 to 2 Years'), ('5', '3 to 5 Years')] %}
+          {# A stored exp=senior selects this option rather than rendering a fourth one that
+             would claim to be a different filter. It IS this filter. #}
+          <option value="{{ v }}"{{ ' selected' if prefs.exp == v or (v == '5' and prefs.exp == 'senior') else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        <p class="field-help">Jobs that never say how many years they want are always shown.</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="minsal">Lowest Pay You Would Take</label>
+        <select id="minsal" class="sel">
+          {% for v, lab in [(0, 'Any Pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
+          <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        {# Promoted out of a title= because it is the difference between "this control is
+           broken" and "this control is working as designed". #}
+        <p class="field-help">Only about a third of postings state a pay range, so any
+          minimum hides the other two thirds.</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="intern">Internships</label>
+        <select id="intern" class="sel">
+          {% for v, lab in [('any', 'Intern + Full-Time'), ('only', 'Internships & Co-ops Only'), ('no', 'Exclude Internships')] %}
+          <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        <p class="field-help">Internships and co-ops are OPT and STEM-OPT eligible.</p>
+      </div>
     </div>
 
     <div class="fgroup" role="group" aria-labelledby="lab-other">
