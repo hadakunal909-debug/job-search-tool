@@ -3,7 +3,7 @@
 <div class="feedwrap">
 <div class="feedhead">
   <div class="feedrow">
-    <h1>Jobs feed</h1>
+    <h1>Jobs Feed</h1>
     <div class="feedtools">
       <a class="btn" href="{{ url_for('reload_jobs') }}">Reload</a>
       {# Update jobs lives on /admin ONLY. Every press starts a real GitHub Actions run out of a
@@ -76,7 +76,7 @@
         <span class="fchip-l">Sponsorship</span><span class="fchip-v" id="chipv-spon"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
       </button>
       <button type="button" class="fchip" id="chip-date" data-pop="pop-date" aria-expanded="false" aria-haspopup="true">
-        <span class="fchip-l">Date posted</span><span class="fchip-v" id="chipv-date"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+        <span class="fchip-l">Date Posted</span><span class="fchip-v" id="chipv-date"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
       </button>
       <button type="button" class="fchip fchip-more" id="fmore" data-pop="pop-more" aria-expanded="false" aria-haspopup="true">
         <span class="fchip-l">Filters</span><span class="fbadge" id="fbadge" hidden>0</span>
@@ -87,10 +87,10 @@
   {# Popovers. They live OUTSIDE .filterbar so a sticky, overflow-scrolling bar cannot clip
      them, which is the same reason tip.js appends its bubble to <body>. #}
   <div class="fpop" id="pop-roles" hidden role="group" aria-labelledby="lab-roles">
-    <h3 class="flab" id="lab-roles">Which roles?</h3>
+    <h3 class="flab" id="lab-roles">Which Roles?</h3>
     <button type="button" id="roleopen" class="rolebtn" aria-haspopup="dialog"
             aria-label="Choose which roles to show">
-      <span class="rolebtn-t" id="rolebtn-t">All roles</span>
+      <span class="rolebtn-t" id="rolebtn-t">All Roles</span>
       <span class="count-pill fbadge-role" id="rolebadge" hidden></span>
     </button>
   </div>
@@ -109,11 +109,11 @@
       {% for s in states %}<option value="{{ s }}">{% endfor %}
     </datalist>
     <label class="ck">
-      <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote only</label>
+      <input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}> Remote Only</label>
   </div>
 
   <div class="fpop" id="pop-spon" hidden role="group" aria-labelledby="lab-visa">
-    <h3 class="flab" id="lab-visa">Visa &amp; sponsorship</h3>
+    <h3 class="flab" id="lab-visa">Visa &amp; Sponsorship</h3>
     {# The tag set is carried in ONE hidden input rather than read off five checkboxes, because
        scripts/feed_parity.py drives the JS filter with a stubbed control object and can fake a
        single .value but not a NodeList. Same trick #track uses. #}
@@ -128,13 +128,13 @@
     <p class="fnote">Any route you tick will match. These come from past federal filings.
       If a route is not shown there is no record of it, which is not a refusal.</p>
     <label class="ck" title="Hides roles whose description rules out visa sponsorship, including ones that ask for citizenship, a clearance, or a green card.">
-      <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide no-sponsorship</label>
+      <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide No-Sponsorship</label>
   </div>
 
   <div class="fpop" id="pop-date" hidden role="group" aria-labelledby="lab-date">
-    <h3 class="flab" id="lab-date">Date posted</h3>
+    <h3 class="flab" id="lab-date">Date Posted</h3>
     <select id="date" class="sel" aria-labelledby="lab-date">
-      {% for v, lab in [('any', 'Any time'), ('1', 'Past 24 hours'), ('7', 'Past 7 days'), ('30', 'Past 30 days'), ('90', 'Past 90 days')] %}
+      {% for v, lab in [('any', 'Any Time'), ('1', 'Past 24 Hours'), ('7', 'Past 7 Days'), ('30', 'Past 30 Days'), ('90', 'Past 90 Days')] %}
       <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
       {% endfor %}
     </select>
@@ -142,7 +142,7 @@
        "Past 7 days" mean less than it looks. The title says what the alternative IS, since
        "confirmed" alone invites the reading "verified job". #}
     <label class="ck" title="Keep only postings whose date the employer's own board stated, or that we independently confirmed. Excludes dates the scraper had to estimate from 'Posted 30+ days ago', and postings with no date at all.">
-      <input type="checkbox" id="verifiedonly"{{ ' checked' if prefs.verifiedonly else '' }}> Confirmed posting date</label>
+      <input type="checkbox" id="verifiedonly"{{ ' checked' if prefs.verifiedonly else '' }}> Confirmed Posting Date</label>
   </div>
 
   {# Everything that is genuinely secondary. NOTE: nothing has been CUT. The plan gates every
@@ -150,7 +150,7 @@
      to decide it was corrupt until 2026-08-09 (see jobmatch-analytics-trust). Demoting is
      reversible; deleting a control people turn out to use is not. #}
   <div class="fpop fpop-wide" id="pop-more" hidden role="group" aria-labelledby="lab-more">
-    <h3 class="flab" id="lab-more">More filters</h3>
+    <h3 class="flab" id="lab-more">More Filters</h3>
 
     <div class="fgroup">
       <div class="matchfilter">
@@ -165,13 +165,13 @@
     </div>
 
     <div class="fgroup">
-      <span class="flab">Career track</span>
+      <span class="flab">Career Track</span>
       <input type="hidden" id="track" value="{{ prefs.track or 'any' }}">
       <div class="seg" id="trackseg" role="group" aria-label="Career track">
         {# Tooltips name what each track CONTAINS, which the two labels don't tell you. "All
            roles" gets none: the label is the whole story. #}
       {% for v, lab, tip in [
-             ('any',  'All roles',        ''),
+             ('any',  'All Roles',        ''),
              ('dev',  'Software & Data',  'Engineering, data, machine learning, DevOps, QA, and database roles'),
              ('mgmt', 'Management',       'Project, program, product, operations, analyst')] %}
         <button type="button" class="segb{{ ' on' if (prefs.track or 'any') == v else '' }}"
@@ -239,9 +239,9 @@
       {# Both keep their explanation: one is pre-checked (a filter that's already on has to say
          why), the other describes a heuristic with an exception you can't see. #}
       <label class="ck" title="Agencies post placement roles, not their own team's. Hidden by default.">
-        <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide staffing agencies</label>
+        <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide Staffing Agencies</label>
       <label class="ck" title="Hidden once a posting vanishes from the company's board across several checks. Saved and Applied always stay visible.">
-        <input type="checkbox" id="showclosed"> Show closed postings</label>
+        <input type="checkbox" id="showclosed"> Show Closed Postings</label>
     </div>
 
     <div class="fpopfoot">
@@ -249,7 +249,7 @@
               title="Resets the filters. Your search text and career track stay.">Clear</button>
       <span class="spacer"></span>
       <button id="saveprefs" class="btn sm" type="button"
-              title="Saves these filters as your default search. They also decide what goes in your daily email.">Save as default</button>
+              title="Saves these filters as your default search. They also decide what goes in your daily email.">Save as Default</button>
       {# Live count, not a deferred apply: every control here still applies on change, which is
          the behaviour feed_parity.py and test_saved_search.py both assert. #}
       <button type="button" class="btn sm primary" data-popclose>Show <span id="popcount">{{ default_total }}</span> jobs</button>
@@ -275,11 +275,11 @@
          integer (afterAction decrements it), so the numerator stays alone in its own span. #}
       <div class="count"><span id="count">{{ default_total }}</span><span id="counttot"> of {{ total }}</span> jobs</div>
       <select id="sort" class="sel">
-        <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best match</option>
+        <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best Match</option>
         <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
         {# "Sponsorship" did not say which direction. core.sponsor_rank sorts LOWEST first,
            meaning "show me the jobs I can actually take", so the label says that. #}
-        <option value="sponsor"{{ ' selected' if prefs.sort == 'sponsor' else '' }}>Sort: Most likely to sponsor</option>
+        <option value="sponsor"{{ ' selected' if prefs.sort == 'sponsor' else '' }}>Sort: Most Likely to Sponsor</option>
       </select>
     </div>
 
@@ -308,7 +308,7 @@
     <div class="modal-foot">
       <button type="button" class="btn ghost sm" id="roleclear">Clear</button>
       <span class="u-grow"></span>
-      <button type="button" class="btn primary" id="roledone">Show these roles</button>
+      <button type="button" class="btn primary" id="roledone">Show These Roles</button>
     </div>
   </div>
 </div>

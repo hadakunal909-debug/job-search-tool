@@ -25,7 +25,7 @@
   <input type="hidden" name="step" value="{{ step }}">
 
   {% if step == 1 %}
-    <h1 class="qtitle">Add your résumé.</h1>
+    <h1 class="qtitle">Add Your Résumé.</h1>
     <p class="qsub">Every match score is calculated against it. Without it, every job scores the same.</p>
     {% if has_resume %}
       <div class="callout">You already have a résumé saved. Adding a new one replaces it.</div>
@@ -46,7 +46,7 @@
         <input type="file" id="resume_file" name="resume_file" accept=".pdf,.docx,.txt,.md">
       </label>
       <details class="pastebox">
-        <summary>Or paste the text instead</summary>
+        <summary>Or Paste the Text Instead</summary>
         <textarea name="resume" rows="12" aria-label="Paste your résumé"
                   placeholder="Paste the whole thing. Plain text is fine."></textarea>
       </details>
@@ -55,7 +55,7 @@
     </div>
 
   {% elif step == 2 %}
-    <h1 class="qtitle">What kind of work?</h1>
+    <h1 class="qtitle">What Kind of Work?</h1>
     <p class="qsub">Pick everything that fits. This decides what the feed shows first. Nothing gets hidden.</p>
     {# The same picker the feed uses, so a choice made here is editable later from exactly one
        place. form_post makes the checkboxes submit themselves: relying on JS to fill a hidden
@@ -63,10 +63,10 @@
     {% with form_post = True %}{% include "_rolepicker.html" %}{% endwith %}
     {# Leaving it empty is a legitimate answer, so it looks like one instead of being the last
        clause of a hint nobody reads. #}
-    <button class="btn" type="submit" name="all_roles" value="1">Show me everything</button>
+    <button class="btn" type="submit" name="all_roles" value="1">Show Me Everything</button>
 
   {% elif step == 3 %}
-    <h1 class="qtitle">Do you need visa sponsorship?</h1>
+    <h1 class="qtitle">Do You Need Visa Sponsorship?</h1>
     <p class="qsub">This decides which sponsorship signals the feed puts in front of you.</p>
     <div class="choices">
       {% for val, label, hint in [
@@ -89,7 +89,7 @@
       that matters with your school's international-student office (DSO) and uscis.gov.</div>
 
   {% elif step == 4 %}
-    <h1 class="qtitle">Where do you want to work?</h1>
+    <h1 class="qtitle">Where Do You Want to Work?</h1>
     <p class="qsub">A city, a metro, or a state. Remote counts as a place.</p>
     <label class="qfield">
       <input name="location" list="locs" value="{{ prof.location or '' }}"
@@ -109,7 +109,7 @@
     <span class="spacer"></span>
     {# "Skip this question", not "Skip for now". The old label promised a second chance the code
        never gave: any skip wrote onboarded=True and ended setup for good. #}
-    <button class="btn ghost" type="submit" name="action" value="skip">Skip this question</button>
+    <button class="btn ghost" type="submit" name="action" value="skip">Skip This Question</button>
     <button class="btn primary" type="submit" name="action" value="next">
       {{ 'Finish' if step == steps else 'Continue' }}</button>
   </div>

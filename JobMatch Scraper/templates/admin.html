@@ -4,21 +4,21 @@
    Corpus breakdowns and health live on /admin/data; behaviour lives on /admin/usage. #}
 {% block admin_title %}Overview{% endblock %}
 {% block admin_tools %}
-    <a class="btn" href="{{ url_for('admin', refresh=1) }}">Re-read DB</a>
+    <a class="btn" href="{{ url_for('admin', refresh=1) }}">Re-Read DB</a>
     {# /scrape is @admin_required, which enforces CSRF on non-GET. This hidden field covers the
        no-JS submit; the fetch below sends no body, so it carries the token as a header instead.
        Without BOTH, the check fails, admin_required redirects, and the fetch's .json() throws
        "Couldn't start the scrape" with nothing to say why. #}
     <form id="scrapeform" method="post" action="{{ url_for('scrape_now') }}" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-      <button id="updatejobs" class="btn primary" type="submit">Update jobs</button>
+      <button id="updatejobs" class="btn primary" type="submit">Update Jobs</button>
     </form>
 {% endblock %}
 
 {% block admin %}
 {% if not gh_token %}
 <div class="banner">
-  No <code>GH_TOKEN</code> is set on this server, so <b>Update jobs</b> and the run history below
+  No <code>GH_TOKEN</code> is set on this server, so <b>Update Jobs</b> and the run history below
   are unavailable. Add a fine-grained GitHub PAT (Actions: read and write) to <code>.env</code>.
   You can still start a scrape from the repo's Actions tab.
 </div>
@@ -61,7 +61,7 @@
 <div class="adm-cols">
   {# ---- score distribution ---- #}
   <section class="panel">
-    <h2>Match-score spread</h2>
+    <h2>Match-Score Spread</h2>
     <p class="muted">Scored jobs only. JD-pending rows sit at 0 and are excluded.</p>
     <div class="hist">
       {% for b in stats.buckets %}
@@ -76,7 +76,7 @@
 
   {# ---- Actions run history ---- #}
   <section class="panel">
-    <h2>Recent scrape runs</h2>
+    <h2>Recent Scrape Runs</h2>
     {% if runs is none %}
       <p class="muted">Needs <code>GH_TOKEN</code> to read the Actions API.</p>
     {% elif not runs %}

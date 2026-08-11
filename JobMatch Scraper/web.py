@@ -3996,10 +3996,10 @@ ONBOARD_STEPS = 4
 # irreversible, and at position five it sat behind sixteen low-value fields at exactly the point
 # where the flow has spent four screens teaching the user that Skip is harmless.
 ONBOARD_QUESTIONS = (
-    {"n": 1, "key": "resume",      "title": "Add your résumé."},
-    {"n": 2, "key": "roles",       "title": "What kind of work?"},
-    {"n": 3, "key": "sponsorship", "title": "Do you need visa sponsorship?"},
-    {"n": 4, "key": "location",    "title": "Where do you want to work?"},
+    {"n": 1, "key": "resume",      "title": "Add Your Résumé."},
+    {"n": 2, "key": "roles",       "title": "What Kind of Work?"},
+    {"n": 3, "key": "sponsorship", "title": "Do You Need Visa Sponsorship?"},
+    {"n": 4, "key": "location",    "title": "Where Do You Want to Work?"},
 )
 # Profile columns each question is allowed to write. A step must never post a key outside its
 # own list: POST /profile rebuilds all 39 text keys, so a partial form blanks everything it

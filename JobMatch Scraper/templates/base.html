@@ -52,7 +52,7 @@
     <a href="{{ url_for('applications') }}" class="{{ 'active' if ep == 'applications' }}">Applications</a>
     <a href="{{ url_for('brain_home') }}" class="{{ 'active' if ep.startswith('brain') }}">Resume Brain</a>
     <a href="{{ url_for('careers') }}" class="{{ 'active' if ep == 'careers' }}">Sponsors</a>
-    <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','add_board_post') }}">Add board</a>
+    <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','add_board_post') }}">Add Board</a>
     {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
   {% endif %}
@@ -62,7 +62,7 @@
     <button id="themetoggle" class="iconbtn themebtn" aria-label="Toggle theme"><span class="ic ic-system" aria-hidden="true"></span></button>
     {% if not setup %}
     <a class="who" href="{{ url_for('profile') }}">{{ current_user }}</a>
-    <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
+    <a class="btn ghost" href="{{ url_for('logout') }}">Log Out</a>
     {% endif %}
   </div>
 </header>

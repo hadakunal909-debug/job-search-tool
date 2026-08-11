@@ -42,13 +42,13 @@
        nothing they can do about it. The field still feeds the feed's location filter. #}
     <label class="full">Location (city, state)<input name="location" value="{{ prof.location or '' }}"></label>
 
-    <div class="psec">Work authorization</div>
+    <div class="psec">Work Authorization</div>
     <label>Authorized to work in the US?{{ yn('work_authorized', prof.work_authorized) }}</label>
     <label>Work status{{ sel('work_auth_status', prof.work_auth_status, ['US Citizen', 'Green Card / Permanent Resident', 'H-1B', 'OPT / CPT (F-1)', 'TN', 'Other', 'Prefer not to say']) }}</label>
     <label>Require sponsorship now?{{ yn('needs_sponsorship', prof.needs_sponsorship) }}</label>
     <label>Require sponsorship in the future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
 
-    <div class="psec">Work-authorization timeline <span class="dim">optional, and it powers deadline reminders. Nothing here is sent to employers.</span></div>
+    <div class="psec">Work-Authorization Timeline <span class="dim">optional, and it powers deadline reminders. Nothing here is sent to employers.</span></div>
     {# Liability copy. The "these are just dates and the reminders are arithmetic" opener went —
        it restated the heading — but the disclaimer itself stays intact. Don't trim further. #}
     <div class="full callout legal">
@@ -73,11 +73,11 @@
       <input name="unemployment_days_used" type="number" min="0" max="400"
              value="{{ prof.unemployment_days_used or '' }}" placeholder="e.g. 12"></label>
 
-    <div class="psec">Email alerts <span class="dim">a daily email of new jobs matching your saved search</span></div>
+    <div class="psec">Email Alerts <span class="dim">a daily email of new jobs matching your saved search</span></div>
     <label>Email me new matches
       <select name="alerts">
         <option value="off"{{ ' selected' if prefs.alerts != 'daily' else '' }}>Off</option>
-        <option value="daily"{{ ' selected' if prefs.alerts == 'daily' else '' }}>Daily digest</option>
+        <option value="daily"{{ ' selected' if prefs.alerts == 'daily' else '' }}>Daily Digest</option>
       </select>
       {# "Off unless you turn it on" dropped — the select's own default option reads Off. #}
       <span class="dim">Sent to the email above.</span></label>
@@ -93,7 +93,7 @@
       {{ prefs.loc or 'anywhere' }}, {{ prefs.min }}%+ match{% if prefs.remote %}, remote only{% endif %}{% if prefs.hideagency %}, no staffing agencies{% endif %}{% if prefs.everify %}, E-Verify only{% endif %}.
     </label>
 
-    <div class="psec">Voluntary self-identification (EEO) <span class="dim">optional, and many application forms ask for these</span></div>
+    <div class="psec">Voluntary Self-Identification (EEO) <span class="dim">optional, and many application forms ask for these</span></div>
     <label>Gender{{ sel('gender', prof.gender, ['Male', 'Female', 'Non-binary', 'Decline to self-identify']) }}</label>
     <label>Hispanic or Latino?{{ sel('hispanic_latino', prof.hispanic_latino, ['Yes', 'No', 'Decline to self-identify']) }}</label>
     <label>Race / ethnicity{{ sel('race_ethnicity', prof.race_ethnicity, ['American Indian or Alaska Native', 'Asian', 'Black or African American', 'Native Hawaiian or Other Pacific Islander', 'White', 'Two or more races', 'Decline to self-identify']) }}</label>
@@ -109,7 +109,7 @@
 
     <label class="full">Notes<textarea name="notes" rows="2">{{ prof.notes or '' }}</textarea></label>
   </div>
-  <button class="btn primary u-mt-150" type="submit">Save profile</button>
+  <button class="btn primary u-mt-150" type="submit">Save Profile</button>
 </form>
 
 {% if timeline.has_data %}
@@ -158,7 +158,7 @@
       <input type="checkbox" name="ev_off" value="1" {{ 'checked' if ev_off }}>
       <span>Don't record my usage</span>
     </label>
-    <button class="btn sm u-mt-100" type="submit">Save preference</button>
+    <button class="btn sm u-mt-100" type="submit">Save Preference</button>
   </form>
 </div>
 

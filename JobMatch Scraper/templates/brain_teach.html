@@ -4,7 +4,7 @@
 
 <div class="cta-banner">
   <div class="cta-text">
-    <h2>Teach your brain</h2>
+    <h2>Teach Your Brain</h2>
     <p>The more you add, the smarter your matches and tailoring get. Every résumé and story here
       counts toward your feed scores and powers tailoring. Private to your account.</p>
   </div>
@@ -15,7 +15,7 @@
 <section class="panel">
   <div class="section-head">
     <h2>Résumés <span class="count-pill">{{ resumes|length }}</span></h2>
-    <button type="button" class="btn primary lg add-toggle" data-target="add-resume">Add a résumé</button>
+    <button type="button" class="btn primary lg add-toggle" data-target="add-resume">Add a Résumé</button>
   </div>
 
   {# enctype is load-bearing: without it the browser posts only the field NAME and the file
@@ -29,7 +29,7 @@
     <label>…or paste the content <span class="muted">(plain text)</span>
       <textarea name="content" rows="12" class="mono" placeholder="Paste this résumé version."></textarea></label>
     <div class="row">
-      <button class="btn primary" type="submit">Save résumé</button>
+      <button class="btn primary" type="submit">Save Résumé</button>
       <button type="button" class="btn ghost add-toggle" data-target="add-resume">Cancel</button>
     </div>
   </form>
@@ -50,13 +50,13 @@
         <label>Name <input type="text" name="name" value="{{ r.name }}"></label>
         <label>Content <textarea name="content" rows="12" class="mono">{{ r.content }}</textarea></label>
         <div class="row">
-          <button class="btn primary" type="submit">Save changes</button>
+          <button class="btn primary" type="submit">Save Changes</button>
           <button type="button" class="btn ghost edit-toggle" data-target="ed-r-{{ r.id }}">Close</button>
         </div>
       </form>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No résumés yet. Click <strong>Add a résumé</strong> to paste your first.
+    <div class="empty sm">No résumés yet. Click <strong>Add a Résumé</strong> to paste your first.
       it powers your feed match scores and every tailored draft.</div>
   {% endif %}
 </section>
@@ -65,7 +65,7 @@
 <section class="panel">
   <div class="section-head">
     <h2>Stories <span class="count-pill">{{ stories|length }}</span></h2>
-    <button type="button" class="btn primary lg add-toggle" data-target="add-story">Write a story</button>
+    <button type="button" class="btn primary lg add-toggle" data-target="add-story">Write a Story</button>
   </div>
   <p class="muted small u-subnote">One experience each. The brain picks the most
     relevant stories per job and weaves them into your tailored résumé.</p>
@@ -79,7 +79,7 @@
     <label>Story <span class="muted">(situation &rarr; what you did &rarr; measurable result)</span>
       <textarea name="text" rows="7" placeholder="Led X to do Y, resulting in Z. Use numbers: %, $, time saved, scale."></textarea></label>
     <div class="row">
-      <button class="btn primary" type="submit">Save story</button>
+      <button class="btn primary" type="submit">Save Story</button>
       <button type="button" class="btn ghost add-toggle" data-target="add-story">Cancel</button>
     </div>
   </form>
@@ -103,13 +103,13 @@
         <label>Skills <input type="text" name="skills" value="{{ s.skills | join(', ') }}"></label>
         <label>Story <textarea name="text" rows="7">{{ s.text }}</textarea></label>
         <div class="row">
-          <button class="btn primary" type="submit">Save changes</button>
+          <button class="btn primary" type="submit">Save Changes</button>
           <button type="button" class="btn ghost edit-toggle" data-target="ed-s-{{ s.id }}">Close</button>
         </div>
       </form>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No stories yet. Click <strong>Write a story</strong> to add your first.
+    <div class="empty sm">No stories yet. Click <strong>Write a Story</strong> to add your first.
       stories are what let the brain tailor beyond a single résumé.</div>
   {% endif %}
 </section>
@@ -118,7 +118,7 @@
 <section class="panel">
   <div class="section-head">
     <h2>Lessons <span class="count-pill">{{ lessons|length }}</span></h2>
-    <button type="button" class="btn primary lg add-toggle" data-target="add-lesson">Teach a lesson</button>
+    <button type="button" class="btn primary lg add-toggle" data-target="add-lesson">Teach a Lesson</button>
   </div>
   <p class="muted small u-subnote">Rules the brain follows. It also learns these
     automatically from your feedback on the Tailor page.</p>
@@ -128,7 +128,7 @@
     <label>Apply when job mentions <span class="muted">(comma-separated; blank = always)</span>
       <input type="text" name="triggers" placeholder="fintech, payments"></label>
     <div class="row">
-      <button class="btn primary" type="submit">Save lesson</button>
+      <button class="btn primary" type="submit">Save Lesson</button>
       <button type="button" class="btn ghost add-toggle" data-target="add-lesson">Cancel</button>
     </div>
   </form>
