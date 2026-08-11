@@ -48,31 +48,22 @@
     <label>Require sponsorship now?{{ yn('needs_sponsorship', prof.needs_sponsorship) }}</label>
     <label>Require sponsorship in the future?{{ yn('requires_sponsorship_future', prof.requires_sponsorship_future) }}</label>
 
-    <div class="psec">Work-Authorization Timeline <span class="dim">optional, and it powers deadline reminders. Nothing here is sent to employers.</span></div>
-    {# Liability copy. The "these are just dates and the reminders are arithmetic" opener went —
-       it restated the heading — but the disclaimer itself stays intact. Don't trim further. #}
-    <div class="full callout legal">
-      <b>Not immigration advice.</b> These reminders confirm nothing about your eligibility.
-      Check with your school's international-student office (DSO) and
-      <a href="https://www.uscis.gov" target="_blank" rel="noopener">uscis.gov</a>; the rules and
-      the exact H-1B dates change every year.
-    </div>
-    <label>Program end date <span class="dim">(graduation)</span>
-      <input name="program_end_date" type="date" value="{{ prof.program_end_date or '' }}"></label>
-    {# The legend under this control existed only because the two options read "opt" and "stem".
-       Self-describing labels delete the need for it. The VALUES are unchanged — core.py and the
-       visa timeline still match on 'opt' / 'stem'; sel() renders value/label separately. #}
-    <label>Current status{{ sel('opt_type', prof.opt_type, [('opt', 'Post-completion OPT'),
-                                                            ('stem', 'STEM extension (24-month)')]) }}</label>
-    <label>OPT start date <span class="dim">(EAD "valid from")</span>
-      <input name="opt_start_date" type="date" value="{{ prof.opt_start_date or '' }}"></label>
-    <label>OPT end date <span class="dim">(EAD "valid to")</span>
-      <input name="opt_end_date" type="date" value="{{ prof.opt_end_date or '' }}"></label>
-    <label>STEM-eligible degree?{{ yn('stem_eligible', prof.stem_eligible) }}</label>
-    <label>Unemployment days used so far
-      <input name="unemployment_days_used" type="number" min="0" max="400"
-             value="{{ prof.unemployment_days_used or '' }}" placeholder="e.g. 12"></label>
+    {# THE WORK-AUTHORIZATION TIMELINE IS GONE, at Kunal's request: program end date, OPT
+       type, the two EAD dates, STEM eligibility and unemployment days used.
 
+       Three things went with it, deliberately and not by accident:
+         - the "Your dates" panel below, which only ever rendered these
+         - the deadline strip at the top of the feed, which had no data left to run on
+         - the "Not immigration advice" callout that sat in this block
+
+       That last one needs saying out loud, because it is a liability notice. It was here
+       specifically to disclaim the deadline ARITHMETIC this app performed on dates you
+       typed in. With no dates and no arithmetic there is nothing left for it to disclaim.
+       The identical callout on the onboarding sponsorship question is untouched and still
+       carries the DSO and uscis.gov wording verbatim.
+
+       The Work Authorization questions above stay: they are facts about you that application
+       forms ask for, and they compute nothing. #}
     <div class="psec">Email Alerts <span class="dim">a daily email of new jobs matching your saved search</span></div>
     <label>Email me new matches
       <select name="alerts">
@@ -111,30 +102,6 @@
   </div>
   <button class="btn primary u-mt-150" type="submit">Save Profile</button>
 </form>
-
-{% if timeline.has_data %}
-<div class="tlbox">
-  <b>Your dates</b>
-  <p class="dim">Worked out from what you entered above. These are reminders only. Confirm anything that
-  matters with your DSO.</p>
-  {% if timeline.unemployment %}
-  {% set un = timeline.unemployment %}
-  <div class="tlrow tl-{{ un.severity }}">
-    <span class="tlwhen">{{ [un.left, 0] | max }} / {{ un.limit }}</span>
-    <span class="tlwhat">Unemployment days remaining
-      <span class="dim">{{ un.note }}</span></span>
-  </div>
-  {% endif %}
-  {% for i in timeline['items'] %}
-  <div class="tlrow tl-{{ i.severity }}">
-    <span class="tlwhen">
-      {%- if i.days < 0 %}{{ -i.days }}d ago{% elif i.days == 0 %}today{% else %}in {{ i.days }}d{% endif -%}
-    </span>
-    <span class="tlwhat">{{ i.label }} <span class="dim">· {{ i.date }} · {{ i.note }}</span></span>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
 
 <div class="tokbox">
   <b>Usage data</b>
