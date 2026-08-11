@@ -403,7 +403,14 @@
         newFlag +
         scoreCell(j) +
       '</div>' +
-      '<div class="ctitle">' + esc(j.title) + '</div>' +
+      // A REAL BUTTON, not a styled div. The card is an <article> with a click handler and no
+      // tabindex, no role and no key handler, so until now a keyboard or screen-reader user
+      // could not open a job at all — every posting in the feed was mouse-only.
+      //
+      // The title is the right thing to promote: it is what the panel is about, it is already
+      // the largest target on the card, and a <button> fires click on both Enter and Space
+      // natively, so the existing delegation below opens the panel with no new listener.
+      '<button type="button" class="ctitle">' + esc(j.title) + '</button>' +
       // TWO parts, not one inline run. Identity (company, place, when) is a single line that
       // truncates; the chips are a wrapping row below it.
       //

@@ -296,6 +296,18 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0}
+/* Skip link. Positioned off screen rather than hidden, because display:none and
+   visibility:hidden both drop it out of the tab order, which is the one thing it exists to
+   be in. It appears where focus does, on top of the sticky top bar. */
+.skiplink{position:fixed;top:var(--space-100);left:var(--space-100);z-index:calc(var(--z-progress) + 1);
+  transform:translateY(-200%);
+  padding:var(--space-100) var(--space-200);border-radius:var(--radius-sm);
+  background:var(--accent);color:var(--text-on-accent);
+  font-size:var(--text-sm);font-weight:var(--weight-semibold);text-decoration:none;
+  transition:transform var(--t-fast) var(--ease)}
+.skiplink:focus{transform:none;color:var(--text-on-accent)}
+/* main takes focus from the skip link, so it must not draw a ring for a click. */
+main:focus{outline:none}
 
 /* ------------------------------------------------------------------
    MOTION LAYER
@@ -327,9 +339,9 @@ button:active,.btn:active,.ico:active,.segb:active{transform:scale(.97)}
   }
 }
 body{font-family:var(--font-sans);background:var(--bg-canvas);color:var(--text-primary);font-size:var(--text-base);line-height:var(--leading-base);-webkit-font-smoothing:antialiased}
-a{color:var(--brand);text-decoration:none}
-main{padding:24px 26px 72px}
-h1{font-size:var(--text-xl);margin:0;letter-spacing:-.015em;font-weight:700}
+a{color:var(--brand);text-decoration:none;touch-action:manipulation}
+main{padding:24px 26px 72px;padding-left:max(26px,env(safe-area-inset-left));padding-right:max(26px,env(safe-area-inset-right))}
+h1{font-size:var(--text-xl);margin:0;letter-spacing:-.015em;font-weight:700;text-wrap:balance}
 h2{font-size:var(--text-md);margin:0;font-weight:600}
 h3{font-size:var(--text-base);margin:0;font-weight:600}
 .sub{color:var(--muted);margin:5px 0 20px;font-size:var(--text-sm)}
@@ -754,7 +766,18 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .newflag{margin-left:auto}
 .logo{width:42px;height:42px;border-radius:var(--radius-md);color:#fff;font-weight:700;font-size:var(--text-md);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;flex:0 0 auto;box-shadow:0 0 0 1px var(--line)}
 .logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:3px}
-.ctitle{font-weight:600;font-size:var(--text-base);line-height:1.35;letter-spacing:-.01em;text-wrap:balance;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:42px}
+/* The title is a real <button> now, so everything a button brings and this element does not
+   want has to be undone: the UA font, the border, the padding, the centre alignment. What it
+   keeps is the two-line clamp and, crucially, the focus ring — which is the entire reason
+   for the change. Never add outline:none here without a focus-visible replacement. */
+.ctitle{display:-webkit-box;width:100%;padding:0;border:0;background:none;text-align:left;
+  font:inherit;font-weight:600;font-size:var(--text-base);line-height:1.35;letter-spacing:-.01em;
+  color:var(--ink);cursor:pointer;text-wrap:balance;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:42px}
+.ctitle:focus-visible{outline:none;box-shadow:var(--focus);border-radius:var(--radius-xs)}
+/* Reaching any control inside a card lifts the whole card, so a keyboard user sees the same
+   "this one" the mouse gets on hover instead of a ring floating on an otherwise flat grid. */
+.card:focus-within{border-color:var(--border-strong);box-shadow:var(--shadow-md)}
 .cmeta{color:var(--muted);font-size:var(--text-xs);line-height:1.7}
 /* The meta-row separator. Set apart from the words it divides so the eye reads three facts
    rather than one run-on string, and given real breathing room instead of the single spaces
@@ -866,7 +889,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .morewrap{text-align:center;margin:28px 0}
 
 /* modal */
-.modal-overlay{position:fixed;inset:0;background:rgba(10,12,18,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:none;align-items:flex-start;justify-content:center;z-index:var(--z-modal);padding:40px 16px;overflow:auto}
+.modal-overlay{position:fixed;inset:0;background:rgba(10,12,18,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:none;align-items:flex-start;justify-content:center;z-index:var(--z-modal);padding:40px 16px;overflow:auto;overscroll-behavior:contain}
 .modal-overlay.open{display:flex}
 .modal{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);max-width:760px;width:100%;box-shadow:var(--e3);animation:pop .22s ease}
 @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
@@ -911,7 +934,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .modal-foot{display:flex;gap:var(--space-100);align-items:center;padding:14px 24px 20px;border-top:1px solid var(--line);margin-top:12px;position:sticky;bottom:0;background:var(--surface)}
 
 /* toasts */
-.toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:var(--space-100);z-index:var(--z-toast)}
+.toasts{position:fixed;right:max(18px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:var(--space-100);z-index:var(--z-toast)}
 .toast{background:var(--ink);color:var(--bg);padding:11px 15px;border-radius:var(--r);font-size:var(--text-sm);font-weight:500;box-shadow:var(--e2);animation:slidein .2s ease}
 @keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
 
@@ -1646,5 +1669,5 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 /* The empty state stops guessing. web._relax_suggestions works out which single filter, if
    dropped, brings back the most jobs, so this names a VALUE and offers to undo it rather than
    naming a control and leaving the reader to go and look at what it was set to. */
-.empty-h{font-size:var(--text-md);font-weight:var(--weight-medium);color:var(--text-primary);margin:0 0 var(--space-100)}
+.empty-h{font-size:var(--text-md);font-weight:var(--weight-medium);color:var(--text-primary);margin:0 0 var(--space-100);text-wrap:balance}
 .empty-acts{display:flex;flex-wrap:wrap;gap:var(--space-100);justify-content:center;margin-top:var(--space-200)}

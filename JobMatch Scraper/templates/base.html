@@ -34,6 +34,10 @@
 {# data-sid carries the SERVER's session id to the client beacons, so events from both sides
    stitch into one session. Absent when logged out, which is ev.js's cue to do nothing. #}
 <body{% if current_user %} data-sid="{{ session_id() }}"{% endif %}>
+{# It took 22 tab stops to reach the first job: the nav, the five filter chips, four tabs and
+   the sort all come first. Off screen until focused, which is the first thing a keyboard user
+   lands on. #}
+<a class="skiplink" href="#main">Skip to Content</a>
 {% if current_user %}
 {% set ep = request.endpoint or '' %}
 {# SETUP IS NOT THE APP. On /welcome the nav and the account controls are withheld and only
@@ -78,7 +82,9 @@ set();addEventListener('load',set);addEventListener('resize',set);
 if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__topbarRO.observe(t);}})();
 </script>
 {% endif %}
-<main>
+{# tabindex="-1" so the skip link can actually MOVE focus here. Without it the browser scrolls
+   to the anchor but leaves focus on the link, and the next Tab goes back to the nav. #}
+<main id="main" tabindex="-1">
   {% with msgs = get_flashed_messages() %}
     {% if msgs %}<div class="flash">{% for m in msgs %}<div>{{ m }}</div>{% endfor %}</div>{% endif %}
   {% endwith %}
