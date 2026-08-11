@@ -7,21 +7,31 @@
   <p class="sub">Sign in to see your jobs.</p>
   {# On a failed attempt both fields are marked invalid rather than one: saying which half was
      wrong would tell an attacker which usernames exist. The username is typed back so a wrong
-     password does not cost you the whole form. #}
+     password does not cost you the whole form.
+
+     autocomplete lets a password manager fill this in one gesture instead of two; without
+     the tokens managers guess from the field name and get it wrong often enough to matter.
+     spellcheck is off on the username because a red squiggle under someone's handle is the
+     browser telling them their own name is a mistake. #}
   <form method="post">
     <div class="field">
-      <input name="username" placeholder="Username" aria-label="Username"
+      <label class="field-label" for="login-user">Username</label>
+      <input id="login-user" name="username" aria-label="Username"
+             autocomplete="username" spellcheck="false" autocapitalize="none"
              value="{{ username or '' }}" autofocus required
              {% if bad_login %}aria-invalid="true" aria-describedby="login-err"{% endif %}>
     </div>
     <div class="field">
-      <input name="password" type="password" placeholder="Password" aria-label="Password" required
+      <label class="field-label" for="login-pass">Password</label>
+      <input id="login-pass" name="password" type="password" aria-label="Password" required
+             autocomplete="current-password" spellcheck="false"
              {% if bad_login %}aria-invalid="true" aria-describedby="login-err"{% endif %}>
       {% if bad_login %}
-      <p class="field-error" id="login-err">Check your username and password, then try again.</p>
+      {# aria-live so the failure is announced when it arrives, not only when focus lands. #}
+      <p class="field-error" id="login-err" role="alert">Check your username and password, then try again.</p>
       {% endif %}
     </div>
-    <button class="btn primary" type="submit">Log in</button>
+    <button class="btn primary" type="submit">Log In</button>
   </form>
 </div>
 {% endblock %}

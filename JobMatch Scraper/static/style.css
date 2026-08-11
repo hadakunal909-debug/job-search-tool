@@ -72,6 +72,10 @@
   --status-danger-border:var(--red-500);
   --status-info-text:var(--blue-700); --status-info-bg:var(--blue-50);
   --focus-ring:0 0 0 3px rgba(16,19,25,.18);
+  /* The tick drawn INSIDE a filled ink control, so its stroke is the on-accent colour and it
+     has to be baked into the SVG rather than inherited. Themed here for the same reason
+     --select-chevron is: an image cannot read a custom property. */
+  --tick-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E");
   --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234e5462' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
   /* --- Layer 3: domain ----------------------------------------------------
@@ -261,6 +265,7 @@
   --status-danger-text:#f5a3a3; --status-danger-bg:#3a1a1a; --status-danger-border:#f5a3a3;
   --status-info-text:#93c5fd; --status-info-bg:#152340;
   --focus-ring:0 0 0 3px rgba(235,237,243,.28);
+  --tick-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230c0e14' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E");
   --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ea5b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --visa-h1b-text:#93c5fd;  --visa-h1b-bg:#152340;
   --visa-e3-text:#93c5fd;   --visa-e3-bg:#152340;
@@ -418,10 +423,18 @@ h3{font-size:var(--text-base);margin:0;font-weight:600}
 .addbox.open{display:block;animation:fade .16s ease}
 @keyframes fade{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 
-/* login */
-.login{max-width:380px;margin:13vh auto;text-align:center}
-.login .brand{justify-content:center;font-size:var(--text-2xl);margin-bottom:8px}
-.login form{display:flex;flex-direction:column;gap:var(--space-150);margin-top:22px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:28px 24px;box-shadow:var(--shadow-md)}
+/* login
+   The card keeps a hairline instead of a drop shadow. A shadow on the only element on an
+   otherwise empty page has nothing to be elevated ABOVE, so it read as a default rather
+   than a decision. The form itself is left-aligned inside a centred card: labels and inputs
+   are a sequence to work through, and centring them makes each one start in a new place. */
+.login{max-width:400px;margin:13vh auto;text-align:center}
+.login .brand{justify-content:center;font-size:var(--text-xl);margin-bottom:8px}
+.login .sub{margin-bottom:var(--space-300)}
+.login form{display:flex;flex-direction:column;gap:var(--space-200);margin-top:0;text-align:left;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:28px 26px;box-shadow:var(--shadow-none)}
+.login .field{margin-bottom:0}
+.login .field-label{font-weight:var(--weight-medium);color:var(--text-primary);font-size:var(--text-xs)}
+.login .btn{width:100%;padding-top:11px;padding-bottom:11px;margin-top:var(--space-050)}
 input,textarea,select{font:inherit;padding:11px 14px;border:1px solid var(--line-strong);border-radius:var(--r);width:100%;background:var(--surface);color:var(--ink);transition:border-color .15s,box-shadow .15s}
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--brand);box-shadow:var(--focus)}
 /* The native OS select arrow was the loudest "this is unstyled" signal in the product.
@@ -1148,7 +1161,10 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .steps{display:flex;gap:var(--space-100);max-width:var(--layout-form-max);margin:0 0 var(--space-100)}
 .stepseg{flex:1;height:4px;border-radius:var(--radius-full);background:var(--border-subtle);transition:background var(--t-slow) var(--ease)}
 .stepseg.on{background:var(--accent)}
-.stepn{font-family:var(--font-data);font-size:var(--text-2xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-secondary);margin:0 0 var(--space-250);font-weight:var(--weight-medium)}
+/* Needs the column's max-width of its own, or margin-inline:auto has nothing to centre
+   against: a full-width <p> centres its BOX and leaves the text against the page edge,
+   which is how the counter ended up 180px left of the bar it counts. */
+.stepn{max-width:var(--layout-form-max);font-family:var(--font-data);font-size:var(--text-2xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-secondary);margin:0 0 var(--space-250);font-weight:var(--weight-medium)}
 .wact{display:flex;align-items:center;gap:var(--space-150);margin-top:var(--space-300);max-width:var(--layout-form-max)}
 .wact .spacer{flex:1}
 .rolepick{max-width:var(--layout-form-max)}
@@ -1333,25 +1349,46 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    rather than a box around every field. Added 2026-08-09 with the four
    question rewrite.
    ================================================================== */
-.wizard{max-width:var(--layout-form-max)}
+/* CENTRED, not flushed left. One question per screen only works if the question is the
+   composition: left-aligned in a 1400px window the column sat against the edge with half
+   the page empty beside it, which reads as a form that failed to finish loading rather
+   than as a considered screen. The TEXT stays left-aligned inside the column — centred
+   prose is harder to read and this is a form, not a poster. */
+.steps,.stepn,.wizard,.rolepick-page,.echo{margin-inline:auto}
+.wizard{max-width:var(--layout-form-max);margin-top:var(--space-500)}
+.steps{margin-top:var(--space-500)}
+/* The callout's prose max-width is right in a page of running text and wrong here, where it
+   ended 120px short of the choices above it and left the column looking ragged. */
+.wizard .callout{max-width:none}
+/* Setup gets its own bar: no nav, no account, just the mark and the theme control, so the
+   left edge of the wordmark lines up with the left edge of the question below it. */
+.topbar-setup{justify-content:space-between}
+.topbar-setup .acct{margin-left:auto}
+
 /* The display step. h1 was 24px against a 15px body, a 1.6x ratio, and that timidity is most
    of why these pages read as a form rather than as a designed product. */
 .qtitle{font-size:var(--text-2xl);line-height:var(--leading-2xl);letter-spacing:var(--tracking-tight);
-  font-weight:var(--weight-medium);margin:0 0 var(--space-150)}
+  font-weight:var(--weight-medium);margin:0 0 var(--space-150);text-wrap:balance}
 .qsub{font-size:var(--text-base);line-height:var(--leading-base);color:var(--text-secondary);
-  max-width:46ch;margin:0 0 var(--space-400)}
+  max-width:46ch;margin:0 0 var(--space-400);text-wrap:pretty}
 .qfield input{width:100%}
 
 /* The résumé drop target. Large and primary, because upload is the path we want; the dashed
-   border says "put something here" without competing with a real control's solid edge. */
+   border says "put something here" without competing with a real control's solid edge.
+   The icon replaces a box that was otherwise four words in an empty rectangle, and it is the
+   one place on the screen carrying any illustration at all. */
 .dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:var(--space-100);text-align:center;padding:var(--space-600) var(--space-200);
+  gap:var(--space-100);text-align:center;padding:var(--space-500) var(--space-200);
   border:2px dashed var(--border-default);border-radius:var(--radius-lg);
   background:var(--bg-surface);cursor:pointer;
-  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t) var(--ease)}
-.dropzone:hover,.dropzone:focus-within{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 4px var(--accent-bg)}
+  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+.dropzone:hover,.dropzone:focus-within{border-color:var(--accent);background:var(--bg-hover)}
+.dz-icon{width:30px;height:30px;color:var(--text-tertiary);margin-bottom:var(--space-050);
+  transition:color var(--t-fast) var(--ease)}
+.dropzone:hover .dz-icon,.dropzone:focus-within .dz-icon{color:var(--text-primary)}
 .dz-main{font-size:var(--text-base);font-weight:var(--weight-medium);color:var(--text-primary)}
-.dz-sub{font-size:var(--text-xs);color:var(--text-secondary)}
+.dz-sub{font-family:var(--font-data);font-size:var(--text-2xs);color:var(--text-secondary);
+  letter-spacing:var(--tracking-wide);text-transform:uppercase}
 /* The input still has to be reachable by keyboard and by a screen reader, so it is moved
    off-screen rather than display:none, which would drop it from the tab order entirely. */
 /* Chrome enforces an intrinsic minimum on file inputs, so width:1px alone does not shrink it
@@ -1360,25 +1397,62 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 .dropzone input[type=file]{position:absolute;width:1px;height:1px;opacity:0;padding:0;border:0;
   margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 
-/* Paste is a disclosure, not a second giant field competing with the drop zone. */
+/* Paste is a disclosure, not a second giant field competing with the drop zone.
+   The native marker goes: browsers draw it as a filled triangle that matches nothing else
+   on the page and sits at a different optical weight in every engine. Our own chevron
+   instead, rotating on open so the control says which way it is going. */
 .pastebox{margin:var(--space-200) 0 0}
-.pastebox>summary{cursor:pointer;font-size:var(--text-sm);color:var(--accent-text);
-  width:fit-content}
+.pastebox>summary{display:inline-flex;align-items:center;gap:var(--space-100);cursor:pointer;
+  font-size:var(--text-sm);font-weight:var(--weight-medium);color:var(--text-primary);
+  width:fit-content;list-style:none;padding:var(--space-050) 0}
+.pastebox>summary::-webkit-details-marker{display:none}
+.pastebox>summary::before{content:"";width:12px;height:12px;flex:0 0 auto;
+  background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/contain no-repeat;
+  transform:rotate(-90deg);transition:transform var(--t-fast) var(--ease)}
+.pastebox[open]>summary::before{transform:none}
+.pastebox>summary:hover{color:var(--text-primary);text-decoration:underline;text-underline-offset:3px}
+.pastebox>summary:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:var(--radius-xs)}
 .pastebox textarea{width:100%;margin-top:var(--space-150)}
 
-/* One decision per screen: big targets, the label doing the work, no radio dot to aim at. */
+/* One decision per screen: big targets, the label doing the work, no radio dot to aim at.
+   The native radio is hidden rather than tinted — at 13px it is a different shape in every
+   browser and it competed with the tick that actually marks the chosen row. It stays in the
+   DOM and stays focusable, so keyboard and screen readers are unaffected. */
 .choices{display:flex;flex-direction:column;gap:var(--space-150);margin:0 0 var(--space-300)}
-.choice{display:grid;grid-template-columns:auto 1fr;gap:0 var(--space-150);align-items:start;
-  padding:var(--space-200);border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+.choice{position:relative;display:grid;grid-template-columns:1fr auto;gap:0 var(--space-150);align-items:start;
+  padding:var(--space-200);border:1px solid var(--border-default);border-radius:var(--radius-md);
   background:var(--bg-surface);cursor:pointer;
-  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
-.choice:hover{border-color:var(--border-default);background:var(--bg-hover)}
+  transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.choice:hover{border-color:var(--border-strong);background:var(--bg-hover)}
 .choice:focus-within{border-color:var(--accent);box-shadow:var(--focus-ring)}
-.choice input{width:auto;margin-top:2px;accent-color:var(--accent)}
-.choice-b{font-size:var(--text-base);font-weight:var(--weight-medium);color:var(--text-primary)}
-.choice-h{grid-column:2;font-size:var(--text-xs);color:var(--text-secondary);margin-top:2px}
-.choice.on{border-color:var(--accent);background:var(--accent-bg)}
-.choice.on .choice-b{color:var(--accent-text)}
+.choice input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.choice-b{grid-column:1;font-size:var(--text-base);font-weight:var(--weight-medium);color:var(--text-primary)}
+.choice-h{grid-column:1;font-size:var(--text-xs);color:var(--text-secondary);margin-top:2px}
+/* The tick. Drawn as an empty ring until chosen, so every row shows where the answer will
+   land rather than the chosen one growing a control the others do not have. */
+.choice::after{content:"";grid-column:2;grid-row:1 / span 2;align-self:center;
+  width:20px;height:20px;border-radius:var(--radius-full);
+  border:1px solid var(--border-strong);background:transparent;
+  transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+/* TWO selectors, and both are needed. .on is what the SERVER renders for the answer already
+   saved. :has() is what responds to a click, and without it this screen would be silent:
+   welcome.html has no JavaScript on this step by design, so nothing would repaint the row
+   the moment the native radio stopped being the visible control. */
+.choice.on,.choice:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.choice.on::after,.choice:has(input:checked)::after{
+  background:var(--accent) var(--tick-mark) center/12px no-repeat;border-color:var(--accent)}
+/* Where :has() is unavailable the ring cannot track the answer, so the native radio comes
+   back rather than leaving a control that never visibly responds. */
+@supports not selector(:has(*)){
+  .choice{grid-template-columns:auto 1fr}
+  .choice::after{display:none}
+  .choice input{position:static;opacity:1;width:auto;height:auto;
+    grid-column:1;grid-row:1 / span 2;align-self:center;margin:0;
+    pointer-events:auto;accent-color:var(--accent)}
+  .choice-b,.choice-h{grid-column:2}
+}
 
 @media (max-width:560px){
   .qtitle{font-size:var(--text-xl);line-height:var(--leading-xl)}

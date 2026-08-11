@@ -35,11 +35,18 @@
    stitch into one session. Absent when logged out, which is ev.js's cue to do nothing. #}
 <body{% if current_user %} data-sid="{{ session_id() }}"{% endif %}>
 {% if current_user %}
-<header class="topbar">
+{% set ep = request.endpoint or '' %}
+{# SETUP IS NOT THE APP. On /welcome the nav and the account controls are withheld and only
+   the wordmark stays, because a brand new account was being shown six destinations for a
+   product it has not met yet — which made a four-question setup read as a settings screen
+   with an escape hatch. The theme toggle stays: someone answering four questions on a dark
+   monitor at midnight should not have to finish them first to turn the lights down. #}
+{% set setup = ep == 'welcome' %}
+<header class="topbar{{ ' topbar-setup' if setup else '' }}">
   <a class="brand" href="{{ url_for('feed') }}">
     <span>Job<b>Match</b></span>
   </a>
-  {% set ep = request.endpoint or '' %}
+  {% if not setup %}
   <nav>
     <a href="{{ url_for('feed') }}" class="{{ 'active' if ep == 'feed' }}">Jobs</a>
     <a href="{{ url_for('applications') }}" class="{{ 'active' if ep == 'applications' }}">Applications</a>
@@ -48,12 +55,15 @@
     <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','add_board_post') }}">Add board</a>
     {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
+  {% endif %}
   <div class="acct">
     {# No title= on either: the icon is captioned by aria-label, and the link is your username.
        aria-label stays on the toggle because what it means changes with the state. #}
     <button id="themetoggle" class="iconbtn themebtn" aria-label="Toggle theme"><span class="ic ic-system" aria-hidden="true"></span></button>
+    {% if not setup %}
     <a class="who" href="{{ url_for('profile') }}">{{ current_user }}</a>
     <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
+    {% endif %}
   </div>
 </header>
 {# The feed's filter rail sticks below this bar, so it needs the bar's real height. It isn't a
