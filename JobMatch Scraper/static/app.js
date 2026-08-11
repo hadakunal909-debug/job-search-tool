@@ -46,13 +46,16 @@
       // it with the same ctl() shim. The segmented buttons only write to it.
       trackSel = document.getElementById("track"),
       trackSeg = document.getElementById("trackseg"),
-      fmoreBtn = document.getElementById("fmore"), rail = document.getElementById("filterrail"),
-      // Two badges: one in the rail head, one on the collapsed strip. Only one is ever visible,
-      // and markFilters writes to both, so a folded rail still shows that filters are on.
+      fmoreBtn = document.getElementById("fmore"),
+      // "Am I on the feed?" — company.html renders the same #q and #sort but means something
+      // different by #q, so the two must not share it. This pointed at #filterrail, which was
+      // DELETED when the chip bar replaced the rail, so it has been null on every page since:
+      // _ctlMap below then returned q:null on the feed and the search box silently stopped
+      // being remembered. test_filter_memory could not catch it because its harness stubs this
+      // very variable, which is the standing lesson about a green suite and live behaviour.
+      feedOnly = document.getElementById("filterbar"),
       fbadges = document.querySelectorAll(".fbadge"),
       feedLayout = document.getElementById("feedlayout"),
-      railCollapseBtn = document.getElementById("railcollapse"),
-      railExpandBtn = document.getElementById("railexpand"),
       locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
       minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
       showClosed = document.getElementById("showclosed"),
@@ -73,7 +76,7 @@
   // Kept CLIENT-SIDE on purpose. Auto-saving to the server would fire save_prefs on every
   // keystroke, and that route calls _rows_cache.clear() — which is process-wide, not per-user,
   // so one person dragging the Match slider would rebuild the scored corpus for everybody.
-  // localStorage is also already the pattern here (jm_fpanel, jm_railcollapsed, theme).
+  // localStorage is also already the pattern here (theme, the per-user filter blob).
   //
   // Written from markFilters() rather than from the ~15 change listeners: every one of them
   // already routes through render() -> markFilters(), so there is no listener to forget.
@@ -86,16 +89,17 @@
   function _ctlMap() {
     // #q is deliberately excluded off the main feed. Both pages have one, but they mean
     // different things — "search every job" vs company.html's "filter these roles" — so sharing
-    // it would leak an employer-page filter back into the feed. #filterrail exists only on
+    // it would leak an employer-page filter back into the feed. #filterbar exists only on
     // feed.html, which is the discriminator. #sort IS shared: that one is a global preference.
-    return { q: (rail ? q : null), min: minR, sort: sortSel, date: dateSel, exp: expSel,
+    return { q: (feedOnly ? q : null), min: minR, sort: sortSel, date: dateSel, exp: expSel,
              intern: internSel, minsal: minSalSel, loc: locInp, visatags: visaSel,
              track: trackSel, roles: rolesSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
              remoteonly: remoteOnly, hideagency: hideAgency, showclosed: showClosed };
   }
   function _readStore() {
-    // A stored blob from an older shape is discarded whole rather than half-applied — see the
-    // jm_fpanel hazard note further down, where a stale value once hid the entire rail.
+    // A stored blob from an older shape is discarded whole rather than half-applied. The
+    // precedent: jm_fpanel once shipped defaulting to "0" and a stale value could hide the
+    // entire filter panel from a returning user, with no error anywhere.
     try {
       var o = JSON.parse(localStorage.getItem(FILTER_KEY) || "null");
       return (o && typeof o === "object" && o.v === FILTER_V) ? o : {};
@@ -616,10 +620,10 @@
 
   function setFlag(el, on) { if (el) el.classList.toggle("fset", !!on); }
 
-  // How many NARROWING filters are on — the eight under "Filters" in the rail. Search, track and
-  // sort are excluded: they START a search rather than narrow one, and they stay visible at every
-  // width. The count matters most below 900px, where the rail body collapses and would otherwise
-  // hide active filters — the bug any disclosure invites.
+  // How many NARROWING filters are on: the ones behind the "Filters" chip. Search, track and
+  // sort are excluded because they START a search rather than narrow one, and they stay visible
+  // at every width. The count is what stops a closed popover from hiding that filters are on,
+  // which is the bug any disclosure invites.
   function activeFilterCount() {
     var n = 0;
     if (minVal > 0) n++;
@@ -1025,60 +1029,7 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
-  // ---- "Filters" disclosure — below 900px only ----
-  // Above that the rail shows its body from CSS alone, so neither a JS failure nor a stale
-  // localStorage value can leave the feed with no visible filters. That was a live hazard in the
-  // old toolbar: #fpanel shipped with the `hidden` ATTRIBUTE and only this function cleared it,
-  // so a returning user whose jm_fpanel was "0" would have got an always-open rail that never
-  // actually appeared. Below 900px .railbody is display:none until .rail carries .open, which is
-  // all this toggles. Open state persists per browser so someone who works with pay + location
-  // open every session doesn't re-open the rail each visit.
-  var fmoreLbl = fmoreBtn ? fmoreBtn.querySelector(".railtoggle-t") : null;
-  function setPanel(open) {
-    if (!rail || !fmoreBtn) return;
-    rail.classList.toggle("open", !!open);
-    fmoreBtn.setAttribute("aria-expanded", open ? "true" : "false");
-    fmoreBtn.setAttribute("aria-label", (open ? "Hide" : "Show") + " filters");
-    fmoreBtn.classList.toggle("open", !!open);
-    if (fmoreLbl) fmoreLbl.textContent = open ? "Hide" : "Show";
-    try { localStorage.setItem("jm_fpanel", open ? "1" : "0"); } catch (err) { /* private mode */ }
-  }
-  if (fmoreBtn && rail) {
-    var wasOpen = "0";
-    try { wasOpen = localStorage.getItem("jm_fpanel") || "0"; } catch (err) { wasOpen = "0"; }
-    setPanel(wasOpen === "1");
-    fmoreBtn.addEventListener("click", function () {
-      var opening = !rail.classList.contains("open");
-      EV("filter_panel", { open: opening });
-      setPanel(opening);
-    });
-  }
 
-  // ---- collapse the whole rail to a strip (desktop) ----
-  // Purely presentational: no filter value changes, so nothing re-renders. Persisted per browser
-  // because whether you want the filters parked is a standing preference, not a per-visit one.
-  // Below 900px the CSS ignores .railcollapsed entirely — there the rail is already collapsible.
-  function setRail(collapsed) {
-    if (!feedLayout) return;
-    feedLayout.classList.toggle("railcollapsed", !!collapsed);
-    if (railCollapseBtn) railCollapseBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    try { localStorage.setItem("jm_railcollapsed", collapsed ? "1" : "0"); } catch (err) { /* private mode */ }
-  }
-  if (feedLayout && (railCollapseBtn || railExpandBtn)) {
-    var railWas = "0";
-    try { railWas = localStorage.getItem("jm_railcollapsed") || "0"; } catch (err) { railWas = "0"; }
-    setRail(railWas === "1");
-    if (railCollapseBtn) railCollapseBtn.addEventListener("click", function () {
-      EV("rail", { open: false });
-      setRail(true);
-    });
-    if (railExpandBtn) railExpandBtn.addEventListener("click", function () {
-      EV("rail", { open: true });
-      setRail(false);
-      var f = document.getElementById("q");        // land focus somewhere useful on reopen
-      if (f) f.focus({ preventScroll: true });
-    });
-  }
 
   // ---- "Clear" — reset every NARROWING filter, leaving search text and track alone ----
   var clearBtn = document.getElementById("clearfilters");

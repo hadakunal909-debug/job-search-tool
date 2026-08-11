@@ -60,13 +60,13 @@ var feed = { getAttribute: function (a) { return a === "data-user" ? IN.user : n
 
 // Controls present on this page. company.html renders only #q and #sort.
 var q, minR, sortSel, dateSel, expSel, internSel, minSalSel, locInp, visaSel, rolesSel,
-    trackSel, hideNo, verifiedOnly, remoteOnly, hideAgency, showClosed, rail, tabBtns, tab;
+    trackSel, hideNo, verifiedOnly, remoteOnly, hideAgency, showClosed, feedOnly, tabBtns, tab;
 var VISABOXES = [];
 function reset(page, vals) {
   q = ctl(vals.q || "");
   sortSel = ctl(vals.sort || "score");
   if (page === "feed") {
-    rail = {};                            // #filterrail exists only on the feed
+    feedOnly = {};                        // #filterbar exists only on the feed
     minR = ctl(vals.min || "0");
     dateSel = ctl(vals.date || "any"); expSel = ctl(vals.exp || "any");
     internSel = ctl(vals.intern || "any"); minSalSel = ctl(vals.minsal || "");
@@ -80,7 +80,7 @@ function reset(page, vals) {
       return { type: "checkbox", checked: false, getAttribute: function () { return t; } };
     });
   } else {
-    rail = null; minR = dateSel = expSel = internSel = minSalSel = null;
+    feedOnly = null; minR = dateSel = expSel = internSel = minSalSel = null;
     locInp = visaSel = rolesSel = trackSel = hideNo = verifiedOnly = null;
     remoteOnly = hideAgency = showClosed = null;
     tabBtns = []; tab = "recommended"; VISABOXES = [];
