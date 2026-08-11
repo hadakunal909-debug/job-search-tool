@@ -58,7 +58,7 @@
 
     <div class="modal-body">
       {% if about.researched %}
-      <div class="sechdr">What they do</div>
+      <div class="sechdr">What They Do</div>
       <p class="coprose">{{ about.research.what_they_do or about.research.about }}</p>
       {% if about.research.mission %}
       <div class="sechdr">Mission</div>
@@ -66,7 +66,7 @@
       {% endif %}
       {% endif %}
 
-      <div class="sechdr">Sponsorship history</div>
+      <div class="sechdr">Sponsorship History</div>
       <div class="costats">
         <div class="costat">
           <b>{{ '{:,}'.format(info.strength_n) if info.strength_n else 'None' }}</b>
@@ -103,7 +103,7 @@
         no counts and no dates. A chip means "has filed", never "how often". The three current
         figures are read from these postings' own text and are the freshest signal here.</p>
 
-      <div class="sechdr">What they hire for</div>
+      <div class="sechdr">What They Hire For</div>
       <div class="costats">
         <div class="costat"><b>{{ about.tracks.dev }}</b><span>software<br>&amp; data</span></div>
         <div class="costat"><b>{{ about.tracks.mgmt }}</b><span>project<br>&amp; product</span></div>
@@ -125,12 +125,12 @@
       {% endif %}
 
       {% if about.tech_stack %}
-      <div class="sechdr">Tech named on their site</div>
+      <div class="sechdr">Tech Named on Their Site</div>
       <div class="kw">{% for s in about.tech_stack %}<span class="tag miss">{{ s }}</span>{% endfor %}</div>
       {% endif %}
 
       {% if about.company_values %}
-      <div class="sechdr">Stated values</div>
+      <div class="sechdr">Stated Values</div>
       <div class="kw">{% for s in about.company_values %}<span class="tag">{{ s }}</span>{% endfor %}</div>
       {% endif %}
 
@@ -140,7 +140,7 @@
       {% endif %}
 
       {% if not about.researched %}
-      <div class="sechdr">Company research</div>
+      <div class="sechdr">Company Research</div>
       <p class="coprose">Nothing researched for this employer yet. What they do, their mission,
         values and initiatives come from Resume Brain, which crawls a company's own site the
         first time you tailor a résumé for them.

@@ -2,7 +2,7 @@
 {% block content %}
 <div class="rb">
 <div class="card">
-  <h1>Your tailored draft</h1>
+  <h1>Your Tailored Draft</h1>
   <p class="muted small">AI-written from your real material + the brain's plan. Edit anything, then copy
     or download as .docx. <a class="backlink" href="{{ url_for('brain_home') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> Back to Tailor</a></p>
 </div>
@@ -14,7 +14,7 @@
   {% if out.notes %}<div class="card"><h2>Notes</h2><ul class="muted small">{% for n in out.notes %}<li>{{ n }}</li>{% endfor %}</ul></div>{% endif %}
 
   <div class="card">
-    <div class="row between"><h2>Tailored résumé</h2><button class="btn" type="button" data-copy="#resumeText">Copy</button></div>
+    <div class="row between"><h2>Tailored Résumé</h2><button class="btn" type="button" data-copy="#resumeText">Copy</button></div>
     <form method="post" action="{{ url_for('brain_export_resume') }}">
       <textarea id="resumeText" name="content" rows="22" class="mono">{{ out.tailored_resume }}</textarea>
       <input type="hidden" name="title" value="{{ ctx.name or 'Tailored Résumé' }}">
@@ -27,7 +27,7 @@
 
   {% if out.cover_letter %}
   <div class="card">
-    <div class="row between"><h2>Cover letter</h2><button class="btn" type="button" data-copy="#coverText">Copy</button></div>
+    <div class="row between"><h2>Cover Letter</h2><button class="btn" type="button" data-copy="#coverText">Copy</button></div>
     <form method="post" action="{{ url_for('brain_export_cover') }}">
       <textarea id="coverText" name="content" rows="16">{{ out.cover_letter }}</textarea>
       <div class="row"><button class="btn primary" type="submit">Download .docx</button></div>

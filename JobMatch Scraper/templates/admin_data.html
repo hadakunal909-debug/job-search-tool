@@ -1,7 +1,7 @@
 {% extends "admin_base.html" %}
 {% block admin_title %}Data &amp; health{% endblock %}
 {% block admin_tools %}
-    <a class="btn" href="{{ url_for('admin_data', refresh=1) }}">Re-read DB</a>
+    <a class="btn" href="{{ url_for('admin_data', refresh=1) }}">Re-Read DB</a>
 {% endblock %}
 
 {% block admin %}
@@ -67,7 +67,7 @@
   <pre class="sqlblock">{{ dbi.sql }}</pre>
 </section>
 <section class="panel">
-  <h2>Row counts</h2>
+  <h2>Row Counts</h2>
   <table class="adm-t">
     <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
     <tbody>
@@ -82,8 +82,8 @@
 {# ---- health checks, on demand ---- #}
 <section class="panel">
   <div class="feedrow u-mb-100">
-    <h2 class="u-m0">Health checks</h2>
-    <button id="runchecks" class="btn sm" type="button">Run checks</button>
+    <h2 class="u-m0">Health Checks</h2>
+    <button id="runchecks" class="btn sm" type="button">Run Checks</button>
   </div>
   <p class="muted">Not run on page load, because it is expensive.</p>
   <div id="checks">
@@ -94,7 +94,7 @@
 
 {# ---- destructive actions ---- #}
 <section class="panel">
-  <h2>Remove jobs</h2>
+  <h2>Remove Jobs</h2>
   {# Guardrail on a delete form — kept. Trimmed, not cut. #}
   <p class="muted">
     Previews only; the delete is on the next screen. Liked, applied and hidden rows are always
@@ -113,7 +113,7 @@
 </section>
 
 <section class="panel">
-  <h2>Blocked companies</h2>
+  <h2>Blocked Companies</h2>
   <p class="muted">
     Stops new rows arriving; doesn't remove stored ones. That's what makes a delete stick.
   </p>
@@ -150,7 +150,7 @@
 
 {% if audit %}
 <section class="panel">
-  <h2>Recent admin actions</h2>
+  <h2>Recent Admin Actions</h2>
   <table class="adm-t">
     <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th class="num">Rows</th></tr></thead>
     <tbody>
@@ -170,7 +170,7 @@
 
 {# ---- board freshness: the panel that catches a silently-dead scraper ---- #}
 <section class="panel">
-  <h2>Sources by size</h2>
+  <h2>Sources by Size</h2>
   {# The diagnostic itself is the value here — this is how a broken board gets noticed. #}
   <p class="muted">Plenty of rows but <b>0 fresh</b> = a quietly-broken board.</p>
   <table class="adm-t">
@@ -189,7 +189,7 @@
 </section>
 
 <section class="panel">
-  <h2>Biggest employers</h2>
+  <h2>Biggest Employers</h2>
   <table class="adm-t">
     <tbody>
     {% for name, n in stats.companies %}

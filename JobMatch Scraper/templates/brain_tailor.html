@@ -9,11 +9,11 @@
       tells you exactly how to tailor and learns from your feedback. The more you add in Teach,
       the smarter it gets.</p>
   </div>
-  <a class="btn primary lg" href="{{ url_for('brain_teach') }}">Teach your brain</a>
+  <a class="btn primary lg" href="{{ url_for('brain_teach') }}">Teach Your Brain</a>
 </div>
 
 <form method="post" action="{{ url_for('brain_tailor') }}" id="tailorForm" class="card">
-  <h2>Tailor to a job</h2>
+  <h2>Tailor to a Job</h2>
   <p class="muted small u-mt-050">Paste a job description or pick one from your feed below.</p>
 
   {% if not have_resumes %}
@@ -50,7 +50,7 @@
   {% set r = data.result %}
   {% if r %}
   <div class="card">
-    <h2>Best-matching résumé</h2>
+    <h2>Best-Matching Résumé</h2>
     {% if r.best_resume %}
       <p><strong>{{ r.best_resume.resume.name }}</strong></p>
       <div class="cov">
@@ -64,7 +64,7 @@
   </div>
 
   <div class="card">
-    <h2>Stories to feature</h2>
+    <h2>Stories to Feature</h2>
     <p class="muted small">Check the ones you'll use and the brain weights them for jobs like this from now on. Add a note to teach it something specific.</p>
     <form method="post" action="{{ url_for('brain_feedback') }}">
       <input type="hidden" name="jd_terms" value="{{ r.jd_terms | join(',') }}">
@@ -81,7 +81,7 @@
       {% else %}<p class="muted">No stories yet. Add some in <a href="{{ url_for('brain_teach') }}">Teach</a>.</p>{% endif %}
       <label>Teach the brain <span class="muted">optional, and it becomes a lasting lesson</span>
         <input type="text" name="feedback" placeholder="e.g. For fintech roles, lead with the automation project."></label>
-      <div class="row"><button type="submit" class="btn primary">Save what I taught</button></div>
+      <div class="row"><button type="submit" class="btn primary">Save What I Taught</button></div>
     </form>
   </div>
 
@@ -98,27 +98,27 @@
         <div class="chips">{% for s in r.stories %}<label class="storypick"><input type="checkbox" name="story_ids" value="{{ s.story.id }}" {% if loop.index <= 3 %}checked{% endif %}> {{ s.story.title }}</label>{% endfor %}</div>
       {% endif %}
       {% if not have_key %}<label>Gemini API key <span class="muted">(saved to your session, ~30 days; not in the DB)</span><input type="password" name="api_key" placeholder="AIza…" autocomplete="off"></label>{% endif %}
-      <div class="row"><button type="submit" class="btn primary" id="rewriteBtn">Write résumé + cover letter</button></div>
+      <div class="row"><button type="submit" class="btn primary" id="rewriteBtn">Write Résumé + Cover Letter</button></div>
     </form>
   </div>
 
   <div class="card">
-    <h2>The job's voice (“symphony”)</h2>
+    <h2>The Job's Voice (“symphony”)</h2>
     {% if r.symphony.tones %}<div class="chips">{% for t in r.symphony.tones %}<span class="chip tone">{{ t }}</span>{% endfor %}</div>{% endif %}
     <p class="muted small">{{ r.symphony.focus }} · {{ r.symphony.formality }} tone · ~{{ r.symphony.avg_sentence_len }} words/sentence.{% if r.symphony.top_verbs %} Echo their verbs: {{ r.symphony.top_verbs | join(', ') }}.{% endif %}</p>
   </div>
 
-  {% if r.looking_for %}<div class="card"><h2>What they're looking for</h2><ul class="muted small">{% for s in r.looking_for %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if r.looking_for %}<div class="card"><h2>What They're Looking For</h2><ul class="muted small">{% for s in r.looking_for %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
 
   {% if data.company %}
   <div class="card">
-    <h2>Culture fit</h2>
+    <h2>Culture Fit</h2>
     {% if r.culture_fit.shared %}<p class="small">You already speak their language: <strong>{{ r.culture_fit.shared | join(', ') }}</strong></p>{% endif %}
     {% if r.culture_fit.gaps %}<p class="small muted">Values to show more of: {{ r.culture_fit.gaps | join(', ') }}</p>{% endif %}
   </div>
   {% endif %}
 
-  {% if r.applied_lessons %}<div class="card"><h2>Lessons applied</h2><ul class="muted small">{% for l in r.applied_lessons %}<li>{{ l.text }}{% if l.source %} <span class="badge">{{ l.source }}</span>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
+  {% if r.applied_lessons %}<div class="card"><h2>Lessons Applied</h2><ul class="muted small">{% for l in r.applied_lessons %}<li>{{ l.text }}{% if l.source %} <span class="badge">{{ l.source }}</span>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
 
   {% if data.company %}
   <details class="card">

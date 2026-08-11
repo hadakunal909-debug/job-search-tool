@@ -1,7 +1,7 @@
 {% extends "admin_base.html" %}
 {% block admin_title %}Usage{% endblock %}
 {% block admin_tools %}
-    <a class="btn" href="{{ url_for('admin_usage', refresh=1) }}">Re-read DB</a>
+    <a class="btn" href="{{ url_for('admin_usage', refresh=1) }}">Re-Read DB</a>
 {% endblock %}
 
 {% block admin %}
@@ -39,7 +39,7 @@
 </div>
 
 <section class="panel">
-  <h2>Does a higher score get applied to?</h2>
+  <h2>Does a Higher Score Get Applied To?</h2>
   <p class="muted">
     Per score band, from the score <b>as shown</b> at click time. Flat means the score isn't
     separating good from bad and the min-score slider is decorative.
@@ -60,7 +60,7 @@
 
 <div class="adm-cols">
   <section class="panel">
-    <h2>Filters people actually use</h2>
+    <h2>Filters People Actually Use</h2>
     <table class="adm-t">
       <tbody>
       {% for k, n in ev.filters %}
@@ -79,7 +79,7 @@
   </section>
 
   <section class="panel">
-    <h2>Pages by traffic</h2>
+    <h2>Pages by Traffic</h2>
     <table class="adm-t">
       <tbody>
       {% for r in ev.routes[:12] %}
@@ -100,7 +100,7 @@
 
 {% if ev.zero_q %}
 <section class="panel">
-  <h2>Searches that found nothing</h2>
+  <h2>Searches That Found Nothing</h2>
   <p class="muted">
     The clearest list of what the corpus is missing. Each row is a company or role someone
     looked for and the feed couldn't answer. Search text is stored <i>only</i> in this case.
@@ -149,7 +149,7 @@
 
 {% if u.dead %}
 <section class="panel">
-  <h2>Features nobody uses</h2>
+  <h2>Features Nobody Uses</h2>
   <p class="muted">
     Derived from what is stored, not from click tracking, so this catches features that are
     never <i>completed</i>, not ones that are opened and abandoned. Phase 4 adds the latter.
@@ -171,7 +171,7 @@
 
 {# ---- per user ---- #}
 <section class="panel">
-  <h2>By user</h2>
+  <h2>By User</h2>
   <table class="adm-t">
     <thead><tr>
       <th>User</th><th class="num">Saved</th><th class="num">Applied</th><th class="num">Hidden</th>
@@ -193,7 +193,7 @@
 
 {# ---- does the score predict anything ---- #}
 <section class="panel">
-  <h2>Does the match score predict behaviour?</h2>
+  <h2>Does the Match Score Predict Behaviour?</h2>
   <p class="muted">
     If <b>applied</b> and <b>hidden</b> sit on the same median, the score is not separating good
     from bad and the match filter is decorative. A clear gap is evidence the scoring engine works.
@@ -209,7 +209,7 @@
     </tbody>
   </table>
 
-  <h3 class="u-sechead-sm">Corpus supply vs revealed demand</h3>
+  <h3 class="u-sechead-sm">Corpus Supply vs Revealed Demand</h3>
   <p class="muted">
     What the scraper collects (grey) against what anyone liked or applied to (colour), both as a
     share of their own total. If demand sits far to the right of supply, the scraper is fetching
@@ -231,7 +231,7 @@
 {# ---- what they want more of ---- #}
 <div class="adm-cols">
   <section class="panel">
-    <h2>Companies liked most</h2>
+    <h2>Companies Liked Most</h2>
     <table class="adm-t">
       <tbody>
       {% for co, n in u.top_liked %}
@@ -244,7 +244,7 @@
   </section>
 
   <section class="panel">
-    <h2>Résumé versions used</h2>
+    <h2>Résumé Versions Used</h2>
     <table class="adm-t">
       <tbody>
       {% for name, n in u.resumes %}
@@ -259,7 +259,7 @@
 
 {# ---- auto-filter candidates ---- #}
 <section class="panel">
-  <h2>Auto-filter candidates</h2>
+  <h2>Auto-Filter Candidates</h2>
   {% if not u.totals.hidden %}
   <p class="muted">
     Nothing has ever been hidden, so there is no rejection signal to mine yet. These tables come
@@ -299,7 +299,7 @@
     </tbody>
   </table>
 
-  <h3 class="u-sechead-sm">Title words over-represented in hidden jobs</h3>
+  <h3 class="u-sechead-sm">Title Words Over-Represented in Hidden Jobs</h3>
   <table class="adm-t">
     <thead><tr><th>Word</th><th class="num">In hidden</th><th class="num">In corpus</th><th class="num">Lift</th></tr></thead>
     <tbody>
@@ -316,7 +316,7 @@
 
 {# ---- the only real timeline ---- #}
 <section class="panel">
-  <h2>Applications over time</h2>
+  <h2>Applications over Time</h2>
   <p class="muted">
     <code>applications.created_at</code> is the one timestamp this app records today, so this is
     the only genuine time series available before event tracking ships.
@@ -353,7 +353,7 @@
   </section>
 
   <section class="panel">
-    <h2>When people apply</h2>
+    <h2>When People Apply</h2>
     <table class="adm-t">
       <tbody>
       {% for d, n in u.by_dow %}

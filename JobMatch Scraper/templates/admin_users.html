@@ -41,11 +41,11 @@
             <form method="post" action="{{ url_for('admin_user_revoke_token') }}" class="inline">
               <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
               <input type="hidden" name="username" value="{{ u.username }}">
-              <button class="btn sm" type="submit">Revoke token</button>
+              <button class="btn sm" type="submit">Revoke Token</button>
             </form>
             {% endif %}
             <details class="pwreset">
-              <summary class="btn sm">Reset password</summary>
+              <summary class="btn sm">Reset Password</summary>
               <form method="post" action="{{ url_for('admin_user_password') }}" class="pwform">
                 <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                 <input type="hidden" name="username" value="{{ u.username }}">
@@ -73,7 +73,7 @@
 </section>
 
 <section class="panel">
-  <h2>Create an account</h2>
+  <h2>Create an Account</h2>
   <form method="post" action="{{ url_for('admin_user_create') }}" class="newuser">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input name="username" placeholder="username" required pattern="[A-Za-z0-9._\-]{2,40}"
@@ -85,13 +85,13 @@
 </section>
 
 <section class="panel">
-  <h2>What disable and delete actually do</h2>
+  <h2>What Disable and Delete Actually Do</h2>
   <table class="adm-t">
     <tbody>
       <tr><td><b>Disable</b></td>
           <td>Ends their session on the next request they make, blocks a fresh sign-in, and
               revokes their extension token. Reversible.</td></tr>
-      <tr><td><b>Revoke token</b></td>
+      <tr><td><b>Revoke Token</b></td>
           <td>Invalidates every browser-extension token that account holds. Their web session is
               untouched; they copy a new token from their profile page.</td></tr>
       <tr><td><b>Delete</b></td>
