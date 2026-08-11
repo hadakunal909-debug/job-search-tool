@@ -2,13 +2,23 @@
    TOKENS. Three layers, and the rule that keeps them honest:
    a component may reference layer 2 and layer 3, NEVER layer 1.
 
-   Layer 1  primitives  raw ramps, mode-stable. #4f46e5 is the same pixel in both themes.
+   Layer 1  primitives  raw ramps, mode-stable. #1d4ed8 is the same pixel in both themes.
    Layer 2  semantic    what a thing DOES. --accent, --text-secondary, --border-subtle.
    Layer 3  domain      what a thing MEANS here. Visa route, match strength, posting age.
 
    Layer 3 is the one this app most needed and had none of. Sponsorship route is
    meaningless outside this product, so it gets its own vocabulary rather than borrowing
    --brand-soft and --ok-soft, which chained the taxonomy to the accent and to "success".
+
+   THE COLOUR RULE, 2026-08-10. Colour means sponsorship. Everything else is ink.
+
+   Actions are ink: black on light, white on dark, no hue at all. Selection is an ink
+   border over a neutral fill rather than a coloured wash. That is not minimalism for its
+   own sake, it is a budget decision. The accent used to be indigo and the H-1B chip blue,
+   neighbours on the wheel, so the button you press and the fact you are scanning for
+   competed on every card. Spending nothing on chrome leaves the entire chromatic budget
+   for the one thing no other job board can tell this audience: which visa route this
+   employer has actually filed for. Six colours in the product, statable in a sentence.
 
    Everything below the layers is a LEGACY ALIAS. The old names still resolve, so the ~700
    lines of component CSS under here keep working while call sites migrate one at a time.
@@ -17,22 +27,22 @@
   color-scheme:light;
 
   /* --- Layer 1: primitives ------------------------------------------------
-     The neutral ramp deliberately preserves the previous greys at their exact
-     values (#f7f8fa, #e6e8ee, #d7dae2, #6b7280, #14171f), so adopting the scale
-     is a rename and not a repaint. */
-  --gray-0:#ffffff;  --gray-25:#fafbfc;  --gray-50:#f5f6f8;  --gray-100:#eef0f3;
-  --gray-200:#e2e5ea; --gray-300:#d3d6de; --gray-400:#adb3bf; --gray-500:#848a98;
-  --gray-550:#6d7382; --gray-600:#636976; --gray-650:#555b68; --gray-700:#454b58;
-  --gray-800:#2a2f3a; --gray-900:#141720;
+     The neutral ramp carries the whole interface now that chrome has no hue, so it is
+     tuned a touch cooler and a touch wider at the dark end: ink needs to sit clearly
+     below --gray-900 for a solid button to read as deliberate rather than as text. */
+  --gray-0:#ffffff;  --gray-25:#fdfdfe;  --gray-50:#fbfbfc;  --gray-100:#f1f3f6;
+  --gray-200:#e4e7ec; --gray-300:#d3d7df; --gray-400:#aeb4c0; --gray-500:#858b99;
+  --gray-550:#6d7382; --gray-600:#5f6573; --gray-650:#4e5462; --gray-700:#3c414d;
+  --gray-800:#2a2f3a; --gray-900:#101319;
   --gray-950:#0b0d12;
   --indigo-50:#eef1ff; --indigo-100:#e0e4fe; --indigo-300:#a5a8f6;
   --indigo-500:#6366f1; --indigo-600:#4f46e5; --indigo-700:#4338ca;
-  --blue-50:#eff4ff;   --blue-500:#3b82f6;   --blue-700:#1d4ed8;
-  --violet-50:#f5f0ff; --violet-600:#7c3aed;
-  --teal-50:#e6f6f4;   --teal-700:#0f766e;
-  --green-50:#ecfdf5;  --green-600:#16a34a;  --green-700:#15803d;
-  --amber-50:#fffbeb;  --amber-200:#fde68a;  --amber-700:#b45309;
-  --red-50:#fef2f2;    --red-500:#ef4444;    --red-700:#b91c1c;
+  --blue-50:#eaf1fe;   --blue-500:#2563eb;   --blue-700:#1d4ed8;
+  --violet-50:#f2ecfd; --violet-600:#6d28d9;
+  --teal-50:#e2f4f1;   --teal-700:#0f766e;
+  --green-50:#e8f7ee;  --green-600:#16a34a;  --green-700:#15803d;
+  --amber-50:#fdf6e7;  --amber-200:#f2dfae;  --amber-700:#8a5a08;
+  --red-50:#fdeeee;    --red-500:#dc2626;    --red-700:#b3261e;
 
   /* --- Layer 2: semantic --------------------------------------------------
      --surface2 used to mean BOTH "sunken" and "raised", and it inverted between
@@ -46,19 +56,23 @@
   --border-strong:var(--gray-500);
   /* --brand became --accent because the accent is a ROLE, not an identity. The old
      name invited "our colour", which is how one token ended up painting the primary
-     button, the nav, the tabs, the score ring, the charts AND the focus ring. */
-  --accent:var(--indigo-500); --accent-hover:var(--indigo-600);
-  --accent-bg:var(--indigo-50); --accent-bg-hover:var(--indigo-100);
-  --accent-text:var(--indigo-700);
-  --accent-gradient:linear-gradient(135deg,#6366f1,#8b5cf6);
+     button, the nav, the tabs, the score ring, the charts AND the focus ring.
+
+     It is now ink, and that is the point: the role is "this is an action", and an action
+     does not need a hue to say so. --accent-bg is the SELECTION tint, a neutral, so a
+     chosen chip reads as chosen through its border and its weight instead of through a
+     wash of colour that would compete with the visa chips beside it. */
+  --accent:var(--gray-900); --accent-hover:var(--gray-800);
+  --accent-bg:var(--gray-100); --accent-bg-hover:var(--gray-200);
+  --accent-text:var(--gray-900);
   --status-success-text:var(--green-700); --status-success-bg:var(--green-50);
   --status-warn-text:var(--amber-700); --status-warn-bg:var(--amber-50);
   --status-warn-border:var(--amber-200);
   --status-danger-text:var(--red-700); --status-danger-bg:var(--red-50);
   --status-danger-border:var(--red-500);
   --status-info-text:var(--blue-700); --status-info-bg:var(--blue-50);
-  --focus-ring:0 0 0 3px rgba(99,102,241,.3);
-  --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235b6270' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --focus-ring:0 0 0 3px rgba(16,19,25,.18);
+  --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234e5462' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
   /* --- Layer 3: domain ----------------------------------------------------
      Three visa families, not five colours: the temporary work routes share a hue
@@ -85,6 +99,26 @@
   --match-none:var(--gray-300);
   --posting-agency-text:var(--gray-700); --posting-agency-bg:var(--gray-100);
 
+  /* THE ROUTE RAIL. The 3px rule down a card's left edge, coloured by the best route this
+     employer has on file for this reader. rankVisa() in app.js already works this out to
+     pick which three chips to show, then throws the ranking away; the rail spends it.
+
+     Down a four-column grid the rail is the only thing that reads at a glance, which is
+     the whole argument for it: sponsorship is the question this audience is actually
+     asking, and until now they had to read three chips per card to answer it.
+
+     "No record" is a quiet grey ON PURPOSE and is deliberately NOT red. An employer with
+     no filing history is a routine fact this audience scrolls past hundreds of times a
+     week, not an error, and core.py documents that absence is never a refusal. */
+  --route-none:var(--gray-300);
+
+  /* Seniority is one continuous variable, so it gets a neutral VALUE ramp rather than
+     three hues. The three classes previously resolved to identical greys, which meant
+     the card drew a distinction it never actually showed. */
+  --exp-entry-text:var(--gray-600);  --exp-entry-bg:var(--gray-100);
+  --exp-mid-text:var(--gray-700);    --exp-mid-bg:var(--gray-200);
+  --exp-senior-text:var(--gray-800); --exp-senior-bg:var(--gray-300);
+
   /* --- Type scale ---------------------------------------------------------
      Nine steps replacing the 22 distinct sizes previously in use, six of which were
      half pixels (9.5, 11.5, 12.5, 13.5, 14.5, 15.5). Half pixels are the signature
@@ -98,9 +132,22 @@
      1.6x ratio, and that timidity is most of why these pages read as forms. Contrast
      in scale is what "editorial" actually means, more than whitespace is.
 
-     Weight 800 and the one-off 650 are banned. Inter at 700/28px is emphatic enough. */
+     Weight 800 and the one-off 650 are banned. Inter at 700/28px is emphatic enough.
+
+     TWO FACES, 2026-08-10. Inter keeps the interface; IBM Plex Mono takes every number,
+     date, count, percentage and eyebrow label. That is not decoration. This product is
+     built on LCA filings, fiscal years, approval counts and deadlines, so numbers are its
+     texture, and a face that treats them as data rather than as prose is the honest
+     setting for them. Plex also carries the institutional register the subject lives in
+     without tipping into pastiche, and its tabular figures stop a column of match
+     percentages from shifting as it renders.
+
+     Use --font-data, never --font-mono, for anything the reader is meant to COMPARE.
+     --font-mono stays pointed at the same stack and keeps its old meaning, "this is
+     literal text": tokens, SQL, pasted résumés. */
   --font-sans:"InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --font-data:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --text-3xs:11px; --leading-3xs:1.40;
   --text-2xs:12px; --leading-2xs:1.45;
   --text-xs:13px;  --leading-xs:1.50;
@@ -145,7 +192,11 @@
      Every pre-2026-08-09 token name, still resolving. Delete an entry only once
      grep proves nothing references it. --surface2 keeps its literal value rather
      than aliasing, because its two meanings have to be separated per call site
-     and guessing here would silently restyle either the .jd block or the tiles. */
+     and guessing here would silently restyle either the .jd block or the tiles.
+
+     --brand and its family now resolve to ink through --accent. Nothing below had to
+     change for that: the aliases were already pointed at semantic tokens rather than at
+     literal indigo, which is exactly the property they were introduced for. */
   --bg:var(--bg-canvas); --surface:var(--bg-surface); --surface2:#f3f4f7;
   --ink:var(--text-primary); --muted:var(--text-secondary);
   --line:var(--border-subtle); --line-strong:var(--border-default);
@@ -187,16 +238,20 @@
   --bg-hover:#232738; --bg-active:#2c3045;
   --surface2:#1c1f2b;
   --text-primary:#ebedf3; --text-secondary:#9ea5b8; --text-tertiary:#7d849a;
-  --text-on-accent:#ffffff;
-  --border-subtle:#232738; --border-default:#333851; --border-strong:#5c6280;
-  --accent:#818cf8; --accent-hover:#a5b4fc; --accent-bg:#1e1f3a;
-  --accent-bg-hover:#292b4a; --accent-text:#c7d0fc;
-  --accent-gradient:linear-gradient(135deg,#818cf8,#a78bfa);
+  /* Ink inverts. On dark, an action is the lightest thing on screen and its label is the
+     canvas, which is the same statement the light theme makes with the values swapped. */
+  --accent:#ebedf3; --accent-hover:#ffffff; --accent-bg:#232738;
+  --accent-bg-hover:#2c3045; --accent-text:#ebedf3;
+  --text-on-accent:#0c0e14;
+  /* --border-strong is a CONTROL boundary, so it owes 3:1 against every surface it can sit
+     on, not just against the canvas. At #5c6280 it cleared --bg-canvas and missed
+     --bg-surface at 2.96:1, which is exactly the input border on every panel. */
+  --border-subtle:#232738; --border-default:#333851; --border-strong:#666c88;
   --status-success-text:#6ee7a0; --status-success-bg:#0f2d1e;
-  --status-warn-text:#fbbf24; --status-warn-bg:#2a2212; --status-warn-border:#4a3c1a;
-  --status-danger-text:#fca5a5; --status-danger-bg:#3a1a1a; --status-danger-border:#fca5a5;
+  --status-warn-text:#f0c05a; --status-warn-bg:#2a2212; --status-warn-border:#4a3c1a;
+  --status-danger-text:#f5a3a3; --status-danger-bg:#3a1a1a; --status-danger-border:#f5a3a3;
   --status-info-text:#93c5fd; --status-info-bg:#152340;
-  --focus-ring:0 0 0 3px rgba(129,140,248,.35);
+  --focus-ring:0 0 0 3px rgba(235,237,243,.28);
   --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ea5b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --visa-h1b-text:#93c5fd;  --visa-h1b-bg:#152340;
   --visa-e3-text:#93c5fd;   --visa-e3-bg:#152340;
@@ -208,6 +263,12 @@
   --match-track:#2c3045; --match-strong:#ebedf3; --match-good:#9ea5b8;
   --match-weak:#6b7280;  --match-none:#454d5d;
   --posting-agency-text:#9ea5b8; --posting-agency-bg:#232738;
+  /* The rail has to survive on a #0c0e14 canvas, so "no record" lifts to a visible grey
+     rather than following --gray-300 down into the background. */
+  --route-none:#3c4256;
+  --exp-entry-text:#8a90a2;  --exp-entry-bg:#1c2030;
+  --exp-mid-text:#a8afc2;    --exp-mid-bg:#232738;
+  --exp-senior-text:#c5cbdb; --exp-senior-bg:#2c3045;
   --blue:#60a5fa; --blue-soft:#152340;
   --shadow-xs:none;
   --shadow-sm:none;
@@ -260,36 +321,72 @@ h3{font-size:var(--text-base);margin:0;font-weight:600}
 .sub a:hover,p a:hover,li a:hover,.note a:hover,.banner a:hover,.empty a:hover,.flash a:hover,.muted a:hover,.help a:hover{text-decoration-color:var(--brand)}
 .btn,a.btn,.jobpick a,.careers li a{text-decoration:none}
 
+/* ---- ICONS ----------------------------------------------------------------
+   One base class, one custom property. Every icon is a CSS mask painted with
+   currentColor, so it inherits the text colour, both themes, and every hover,
+   focus and disabled state for free, with no extra request and nothing to
+   go stale next to the label it sits beside.
+
+   Sized in `em` on purpose: an icon set in a 13px chip and the same icon in a
+   16px button should not need two rules. Always pair with aria-hidden="true"
+   when the neighbouring text already says the thing. */
+.ic{display:inline-block;width:1em;height:1em;flex:0 0 auto;background:currentColor;
+  -webkit-mask:var(--ic) center/contain no-repeat;mask:var(--ic) center/contain no-repeat}
+.ic-chevron{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")}
+.ic-external{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E")}
+.ic-arrow-left{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E")}
+.ic-arrow-right{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E")}
+.ic-upload{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12'/%3E%3C/svg%3E")}
+.ic-alert{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v5M12 16.5v.01'/%3E%3C/svg%3E")}
+.ic-check{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E")}
+.ic-sun{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='4.2'/%3E%3Cpath d='M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4'/%3E%3C/svg%3E")}
+.ic-moon{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z'/%3E%3C/svg%3E")}
+.ic-system{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.5' y='4' width='19' height='12.5' rx='2'/%3E%3Cpath d='M8.5 20.5h7'/%3E%3C/svg%3E")}
+
 /* top bar */
-.topbar{display:flex;align-items:center;gap:var(--space-250);background:color-mix(in srgb,var(--surface) 85%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:14px 24px;flex-wrap:wrap;position:sticky;top:0;z-index:var(--z-topbar)}
+/* No backdrop blur. It was blurring an opaque canvas, so it bought nothing visible and
+   cost a compositor layer on the one element that is painted on every scroll frame. */
+.topbar{display:flex;align-items:center;gap:var(--space-250);background:var(--surface);border-bottom:1px solid var(--line);padding:14px 24px;flex-wrap:wrap;position:sticky;top:0;z-index:var(--z-topbar);padding-left:max(24px,env(safe-area-inset-left));padding-right:max(24px,env(safe-area-inset-right))}
 .brand{display:flex;align-items:center;gap:var(--space-100);font-size:var(--text-md);font-weight:700;color:var(--ink);letter-spacing:-.02em}
-.brand b{background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:700}
+/* The wordmark is ink like everything else. A gradient here was the app's loudest claim
+   to a brand colour, and this product's identity is the data, not a hue. */
+.brand b{color:var(--ink);font-weight:700}
 .topbar nav{display:flex;gap:var(--space-050);flex:1;flex-wrap:wrap}
-.topbar nav a{color:var(--muted);font-weight:500;font-size:var(--text-sm);padding:8px 14px;border-radius:var(--radius-full);transition:background .15s,color .15s}
+.topbar nav a{color:var(--muted);font-weight:500;font-size:var(--text-sm);padding:8px 14px;border-radius:var(--radius-full);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .topbar nav a:hover{color:var(--ink);background:var(--surface2)}
-.topbar nav a.active{color:var(--accent-text);background:var(--brand-soft);font-weight:600}
+.topbar nav a.active{color:var(--ink);background:var(--bg-active);font-weight:600}
 .acct{display:flex;align-items:center;gap:var(--space-150)}
 .who{color:var(--muted);font-size:var(--text-xs);font-weight:500}
-.themebtn{font-size:var(--text-base);line-height:1;padding:6px 10px;border-radius:var(--radius-full);border-color:transparent;background:var(--surface2)}
-.themebtn:hover{background:var(--bg-hover);border-color:transparent}
+/* The theme control carried three emoji, which rendered as three different vendor
+   cartoons at three different weights next to a 14px nav. It is an icon button now:
+   one stroke weight, one colour, and it follows the text like everything else. */
+.themebtn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;font-size:var(--text-base);line-height:1;border-radius:var(--radius-full);border-color:transparent;background:var(--surface2);color:var(--muted)}
+.themebtn:hover{background:var(--bg-active);border-color:transparent;color:var(--ink)}
+.themebtn .ic{width:16px;height:16px}
 
-/* buttons — minimal */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-100);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:var(--r);font:inherit;font-size:var(--text-sm);font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,color .15s,box-shadow .15s,opacity .15s,transform .15s;white-space:nowrap;text-decoration:none}
-.btn:hover{border-color:var(--brand);color:var(--brand);background:var(--surface)}
+/* buttons — minimal
+   touch-action:manipulation on everything tappable removes the 300ms wait a mobile
+   browser spends deciding whether a tap was the first half of a double-tap zoom. */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-100);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:var(--r);font:inherit;font-size:var(--text-sm);font-weight:600;cursor:pointer;touch-action:manipulation;transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease);white-space:nowrap;text-decoration:none}
+.btn:hover{border-color:var(--border-strong);color:var(--ink);background:var(--bg-hover)}
 .btn:focus-visible{outline:none;box-shadow:var(--focus)}
-.btn.primary{background:var(--accent-gradient);color:#fff;border-color:transparent;box-shadow:0 1px 3px rgba(99,102,241,.3)}
-.btn.primary:hover{opacity:.9;box-shadow:0 4px 12px rgba(99,102,241,.35);border-color:transparent;color:#fff}
+/* Solid ink. An Apply button is the one action on a card that matters, and ink says that
+   more confidently than a tinted one did while spending nothing from the colour budget. */
+.btn.primary{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent)}
+.btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--text-on-accent)}
 .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
 .btn.ghost:hover{background:var(--surface2);border-color:transparent;color:var(--ink)}
-.btn.tertiary{background:transparent;border-color:transparent;color:var(--brand);padding-left:6px;padding-right:6px}
-.btn.tertiary:hover{background:var(--brand-soft)}
+.btn.tertiary{background:transparent;border-color:transparent;color:var(--ink);padding-left:6px;padding-right:6px;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-strong)}
+.btn.tertiary:hover{background:var(--surface2);text-decoration-color:var(--ink)}
 .btn.danger{color:var(--danger);border-color:transparent;background:transparent}
 .btn.danger:hover{background:var(--danger-soft);border-color:transparent;color:var(--danger)}
 .btn.sm{padding:6px 11px;font-size:var(--text-xs);border-radius:var(--radius-sm)}
 .btn.lg{padding:10px 18px;font-size:var(--text-sm)}
 .btn:disabled{opacity:.5;cursor:default;box-shadow:none}
-.iconbtn{border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--radius-sm);padding:7px 12px;cursor:pointer;font-size:var(--text-xs);font-weight:600;line-height:1;color:var(--ink)}
-.iconbtn:hover{border-color:var(--brand);color:var(--brand)}
+.btn .ic{width:1.05em;height:1.05em;opacity:.7}
+.btn.primary .ic{opacity:.85}
+.iconbtn{border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--radius-sm);padding:7px 12px;cursor:pointer;font-size:var(--text-xs);font-weight:600;line-height:1;color:var(--ink);touch-action:manipulation}
+.iconbtn:hover{border-color:var(--border-strong);background:var(--bg-hover)}
 .iconbtn:focus-visible{outline:none;box-shadow:var(--focus)}
 .inline{display:inline;margin:0}
 
@@ -348,8 +445,7 @@ textarea{resize:vertical}
 /* ---- company page ---- */
 /* The header mirrors a card's logo + meta stack, so the page reads as "one card, expanded". */
 .backlink{display:inline-flex;align-items:center;gap:var(--space-100);color:var(--muted);font-size:var(--text-xs);text-decoration:none;margin:2px 0 12px;font-weight:500}
-.backlink:hover{color:var(--brand)}
-.back-arrow{display:inline-block;width:14px;height:14px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E") center/contain no-repeat;vertical-align:middle}
+.backlink:hover{color:var(--ink)}
 .cohead{display:flex;gap:var(--space-200);align-items:flex-start;margin:0 0 6px}
 .cohead .logo{width:56px;height:56px;font-size:var(--text-lg);border-radius:var(--radius-md)}
 .cohead-main{min-width:0;flex:1}
@@ -523,7 +619,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 18px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;will-change:transform;box-shadow:var(--shadow-xs)}
 /* "New" flag — today's freshly-pulled jobs (app.js adds it by comparing the date to today, so it
    disappears on its own the next day). Sits in the top-right corner, above the score ring. */
-.newflag{position:absolute;top:-7px;right:12px;z-index:3;font-size:var(--text-3xs);font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--accent-gradient);padding:3px 10px;border-radius:var(--radius-full);box-shadow:0 2px 8px rgba(99,102,241,.3)}
+.newflag{position:absolute;top:-7px;right:12px;z-index:3;font-family:var(--font-data);font-size:var(--text-3xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-on-accent);background:var(--accent);padding:3px 9px;border-radius:var(--radius-full)}
 .card:hover{border-color:var(--line-strong);box-shadow:var(--shadow-md);transform:translateY(-3px)}
 
 /* Hide = the card visibly leaves, then the grid reflows.
@@ -553,8 +649,15 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .cardtop{display:flex;align-items:center;justify-content:space-between}
 .logo{width:42px;height:42px;border-radius:var(--radius-md);color:#fff;font-weight:700;font-size:var(--text-md);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;flex:0 0 auto;box-shadow:0 0 0 1px var(--line)}
 .logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:3px}
-.ctitle{font-weight:600;font-size:var(--text-base);line-height:1.35;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:42px}
+.ctitle{font-weight:600;font-size:var(--text-base);line-height:1.35;letter-spacing:-.01em;text-wrap:balance;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:42px}
 .cmeta{color:var(--muted);font-size:var(--text-xs);line-height:1.7}
+/* The meta-row separator. Set apart from the words it divides so the eye reads three facts
+   rather than one run-on string, and given real breathing room instead of the single spaces
+   it used to be typed between. */
+.sep{color:var(--border-default);padding:0 var(--space-050);font-weight:var(--weight-regular)}
+/* Dates and pay are things you compare down a column, so they get the data face and figures
+   that hold their width while the feed renders. */
+.cmeta .posted{font-family:var(--font-data);font-size:var(--text-3xs);font-variant-numeric:tabular-nums;letter-spacing:0}
 /* "Added <date>" — this employer publishes no posting date (Tesla's careers API has no date
    field at all), so the card shows when the job reached us instead. Italic + a dotted underline
    so it can never be misread as a posting date. Plain .posted has no rule of its own: it just
@@ -592,7 +695,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .sb-row #sb-label{font-weight:600;color:var(--ink)}
 .sb-meta{color:var(--muted);font-size:var(--text-xs);font-variant-numeric:tabular-nums;text-align:right}
 .sb-track{height:8px;border-radius:var(--radius-xs);background:var(--surface2);overflow:hidden}
-.sb-fill{height:100%;width:0;border-radius:var(--radius-xs);background:var(--accent-gradient);transition:width .5s ease}
+.sb-fill{height:100%;width:0;border-radius:var(--radius-xs);background:var(--accent);transition:width .5s ease}
 .sb-fill.indet{width:35%!important;background:linear-gradient(90deg,transparent,var(--brand),transparent);animation:sbslide 1.15s linear infinite}
 @keyframes sbslide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .ev{background:var(--visa-stem-bg);color:var(--visa-stem-text)}
@@ -614,7 +717,14 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 /* A closed posting is de-emphasised rather than hidden when the user opts to see them. */
 .card.is-closed{opacity:var(--opacity-deemphasis)}
 .card.is-closed:hover{opacity:1}
-.exp-lo,.exp-mid,.exp-hi{background:var(--visa-unknown-bg);color:var(--visa-unknown-text)}
+/* Seniority is ONE continuous variable, so it reads as a value ramp rather than as three
+   hues — and colour is spoken for by sponsorship anyway. These three classes previously
+   resolved to the same grey, so the card computed a distinction it never drew. Tabular
+   figures because "12+ yrs" and "2+ yrs" sit in the same column down a grid. */
+.exp{font-family:var(--font-data);font-variant-numeric:tabular-nums;letter-spacing:0}
+.exp-lo{background:var(--exp-entry-bg);color:var(--exp-entry-text)}
+.exp-mid{background:var(--exp-mid-bg);color:var(--exp-mid-text)}
+.exp-hi{background:var(--exp-senior-bg);color:var(--exp-senior-text)}
 .cardact{display:flex;align-items:center;gap:var(--space-100);margin-top:6px;padding-top:13px;border-top:1px solid var(--line)}
 .spacer{flex:1}
 .acts{display:inline-flex;gap:var(--space-050)}
@@ -711,14 +821,15 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .score-pending{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;padding:0 4px;border-radius:var(--radius-md);font-size:var(--text-3xs);font-weight:700;line-height:1.15;text-align:center;color:var(--muted);background:var(--surface2);border:1px dashed var(--warn-line)}
 /* No résumé: the card holds the ring's space but shows no number, so the layout doesn't shift
    once scoring starts and nothing on the card claims a match we cannot compute. Deliberately
-   quiet — this is an absence, not a warning. */
+   quiet — this is an absence, not a warning, and an empty dashed ring says that on its own
+   without a character typed into the middle of it. */
 .score-none{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
-  width:46px;height:46px;border-radius:var(--radius-full);font-size:var(--text-base);color:var(--muted);
-  background:var(--surface2);border:1px dashed var(--line-strong)}
+  width:46px;height:46px;border-radius:var(--radius-full);color:var(--muted);
+  background:transparent;border:1px dashed var(--line-strong);cursor:help}
 .loading-jd{display:flex;align-items:center;gap:var(--space-150);color:var(--muted);font-size:var(--text-sm);padding:8px 4px}
 
 /* page progress */
-.page-progress{position:fixed;top:0;left:0;height:3px;background:var(--accent-gradient);z-index:var(--z-progress);pointer-events:none;width:0;opacity:0;border-radius:0 var(--radius-full) var(--radius-full) 0}
+.page-progress{position:fixed;top:0;left:0;height:2px;background:var(--accent);z-index:var(--z-progress);pointer-events:none;width:0;opacity:0;border-radius:0 var(--radius-full) var(--radius-full) 0}
 
 /* ============ Resume Brain ============ */
 .rb{max-width:920px;margin:0 auto}
@@ -957,12 +1068,20 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 
 /* --- The onboarding stepper --- */
 .steps{display:flex;gap:var(--space-100);max-width:var(--layout-form-max);margin:0 0 var(--space-100)}
-.stepseg{flex:1;height:6px;border-radius:var(--radius-full);background:var(--border-subtle);transition:background .3s ease}
-.stepseg.on{background:var(--accent-gradient)}
-.stepn{font-size:var(--text-2xs);color:var(--text-secondary);margin:0 0 var(--space-250);font-weight:var(--weight-medium)}
+.stepseg{flex:1;height:4px;border-radius:var(--radius-full);background:var(--border-subtle);transition:background var(--t-slow) var(--ease)}
+.stepseg.on{background:var(--accent)}
+.stepn{font-family:var(--font-data);font-size:var(--text-2xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-secondary);margin:0 0 var(--space-250);font-weight:var(--weight-medium)}
 .wact{display:flex;align-items:center;gap:var(--space-150);margin-top:var(--space-300);max-width:var(--layout-form-max)}
 .wact .spacer{flex:1}
 .rolepick{max-width:var(--layout-form-max)}
+
+/* A real ordered list for real sequences. The markers are the data face so the numbers sit
+   in a column, and they are the ONLY numbered markers in the app: this is a genuine
+   procedure where doing step 3 before step 2 fails, which is the test for using them. */
+.steplist{margin:var(--space-100) 0 var(--space-150);padding-left:var(--space-250);
+  font-size:var(--text-xs);line-height:var(--leading-xs);color:var(--text-secondary)}
+.steplist li{margin:0 0 var(--space-050);padding-left:var(--space-050)}
+.steplist li::marker{font-family:var(--font-data);font-size:var(--text-3xs);color:var(--text-tertiary)}
 
 /* --- /profile: extension token box and the visa timeline --- */
 .tokbox,.tlbox{margin-top:var(--space-300);padding:var(--space-200) var(--space-250);border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--bg-sunken);max-width:var(--layout-form-max)}
@@ -1078,10 +1197,12 @@ a.who:hover{text-decoration:underline}
 .field-help{font-size:var(--text-2xs);color:var(--text-secondary)}
 .field-error{font-size:var(--text-2xs);color:var(--status-danger-text);
   font-weight:var(--weight-medium);display:flex;align-items:flex-start;gap:var(--space-050)}
-.field-error::before{content:"!";flex:0 0 auto;width:14px;height:14px;margin-top:1px;
-  border-radius:var(--radius-full);background:var(--status-danger-text);
-  color:var(--bg-surface);font-size:10px;line-height:14px;text-align:center;
-  font-weight:var(--weight-bold)}
+/* A filled circle with a bare "!" typed into it read as a stray character at 10px. Same
+   meaning, drawn as one stroke weight that matches every other icon in the app. */
+.field-error::before{content:"";flex:0 0 auto;width:13px;height:13px;margin-top:2px;
+  background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v5M12 16.5v.01'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v5M12 16.5v.01'/%3E%3C/svg%3E") center/contain no-repeat}
 input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{
   border-color:var(--status-danger-border)}
 input[aria-invalid="true"]:focus,select[aria-invalid="true"]:focus,

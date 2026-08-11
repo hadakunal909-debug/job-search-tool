@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<a class="back backlink" href="{{ url_for('feed') }}"><span class="back-arrow"></span> Back to feed</a>
+<a class="back backlink" href="{{ url_for('feed') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> Back to Feed</a>
 <h1>{{ job.title }}</h1>
 <div class="cmeta">{{ job.company }} · {{ job.location or 'n/a' }}
   {% if job.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
@@ -43,7 +43,7 @@
     <button class="btn primary" type="submit" id="aibtn">{{ 'Re-tailor' if tailored else 'AI-tailor my résumé' }}</button>
   </form>
 </div>
-<p class="u-mt-250"><a class="btn primary" href="{{ job.url }}" target="_blank" rel="noopener">Apply ↗</a></p>
+<p class="u-mt-250"><a class="btn primary" href="{{ job.url }}" target="_blank" rel="noopener">Apply<span class="ic ic-external" aria-hidden="true"></span></a></p>
 {% endblock %}
 
 {% block scripts %}

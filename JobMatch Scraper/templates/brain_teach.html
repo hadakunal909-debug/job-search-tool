@@ -87,7 +87,7 @@
   {% if stories %}
     {% for s in stories %}
       <div class="list-row">
-        <div class="row-main"><strong>{{ s.title }}</strong>{% if s.uses %} <span class="muted small">· used {{ s.uses }}×</span>{% endif %}
+        <div class="row-main"><strong>{{ s.title }}</strong>{% if s.uses %} <span class="muted small">used {{ s.uses }} time{{ '' if s.uses == 1 else 's' }}</span>{% endif %}
           {% if s.tags %}<div class="muted small">{{ s.tags | join(', ') }}</div>{% endif %}</div>
         <div class="row-actions">
           <button type="button" class="btn sm edit-toggle" data-target="ed-s-{{ s.id }}">Edit</button>
