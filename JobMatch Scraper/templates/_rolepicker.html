@@ -10,16 +10,18 @@
    the same arrangement #visatags and #track use.
 
    Caller supplies: role_groups, role_counts, chosen, role_max, and form_post. #}
-<div class="rolepick{{ ' rolepick-page' if form_post else '' }}" data-max="{{ role_max or 6 }}">
+{# data-max="0" means NO CAP. Kunal: "there should not be any limit why we are just picking
+   six". core.parse_roles_pref never capped server-side, so only the front end enforced it. #}
+<div class="rolepick{{ ' rolepick-page' if form_post else '' }}" data-max="0">
   {% if not form_post %}<input type="hidden" id="roles" value="{{ chosen|join(',') }}">{% endif %}
 
   <div class="rolesearch">
-    <input type="search" id="rolefind" placeholder="Search roles, for example data, manager, or sde…"
+    <input type="search" id="rolefind" placeholder="Search roles…"
            autocomplete="off" aria-label="Search role types">
     {# The cap counter, as a pill rather than two words floating beside the field. It is the
        only thing on the screen that says the selection is bounded, so it has to read as a
        state and not as a caption. #}
-    <span class="rolecount" aria-live="polite"><b id="rolen">{{ chosen|length }}</b> of {{ role_max or 6 }}</span>
+    <span class="rolecount" aria-live="polite"><b id="rolen">{{ chosen|length }}</b> selected</span>
   </div>
 
   <div class="rolegroups" id="rolelist">
@@ -47,8 +49,7 @@
     {% endfor %}
   </div>
 
-  <p class="rolenone" id="rolenone" hidden>No roles match that search. Clear it to see all
+  <p class="rolenone" id="rolenone" hidden>No match. Clear the search to see all
     {{ role_counts|length }}.</p>
-  <p class="rolehint">Pick up to {{ role_max or 6 }}, or leave it empty to see every role.
-    The number on each one is how many jobs are open now.</p>
+  <p class="rolehint">Pick any number, or none to see everything. Counts are jobs open now.</p>
 </div>

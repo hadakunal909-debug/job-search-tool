@@ -62,16 +62,16 @@
      does not need a hue to say so. --accent-bg is the SELECTION tint, a neutral, so a
      chosen chip reads as chosen through its border and its weight instead of through a
      wash of colour that would compete with the visa chips beside it. */
-  --accent:var(--gray-900); --accent-hover:var(--gray-800);
-  --accent-bg:var(--gray-100); --accent-bg-hover:var(--gray-200);
-  --accent-text:var(--gray-900);
+  --accent:#1d4ed8; --accent-hover:#1a44bd;
+  --accent-bg:#eaf1fe; --accent-bg-hover:#dbe7fd;
+  --accent-text:#1a44bd;
   --status-success-text:var(--green-700); --status-success-bg:var(--green-50);
   --status-warn-text:var(--amber-700); --status-warn-bg:var(--amber-50);
   --status-warn-border:var(--amber-200);
   --status-danger-text:var(--red-700); --status-danger-bg:var(--red-50);
   --status-danger-border:var(--red-500);
   --status-info-text:var(--blue-700); --status-info-bg:var(--blue-50);
-  --focus-ring:0 0 0 3px rgba(16,19,25,.18);
+  --focus-ring:0 0 0 3px rgba(29,78,216,.28);
   /* The tick drawn INSIDE a filled ink control, so its stroke is the on-accent colour and it
      has to be baked into the SVG rather than inherited. Themed here for the same reason
      --select-chevron is: an image cannot read a custom property. */
@@ -80,6 +80,8 @@
      route needing its own second shade. Dark mode LIGHTENS instead, because there the
      button already sits near the dark end. */
   --ink-veil:rgba(0,0,0,.16);
+  /* A lift for chips and hover states that sit ON a tinted card. */
+  --on-card-veil:rgba(255,255,255,.6);
   /* The chevron, once. It is drawn twice in the app for two different reasons: as a MASK
      over currentColor wherever it rides text (the .ic set, disclosures), and as a background
      IMAGE with a baked-in stroke on <select>, which cannot mask. Mode-stable because a mask
@@ -139,11 +141,18 @@
      audience scrolls past it hundreds of times a week.
 
      Both of those keep the INK Apply button, because a grey one would read as disabled. */
-  --route-h1b-wash:#f4f8ff;  --route-h1b-line:#c3d6fb;  --route-h1b-ink:#1d4ed8;
-  --route-gc-wash:#faf5ff;   --route-gc-line:#dbcbf8;   --route-gc-ink:#6d28d9;
-  --route-stem-wash:#f2fbf5; --route-stem-line:#c2e6d1; --route-stem-ink:#0f7a43;
-  --route-blocked-wash:var(--gray-100); --route-blocked-line:var(--gray-300);
-  --route-none-wash:var(--bg-surface);  --route-none-line:var(--border-subtle);
+  /* THREE VALUES PER ROUTE, and the middle one is the whole design.
+       -fill  the card. Light enough to keep black type on it, saturated enough that you can
+              name the colour without being told. This landed after two misses: a near-white
+              wash read as "why is this card slightly blue", and a deep navy fill read as
+              heavy. The answer was neither end.
+       -line  the border, a step up in saturation so the card has a definite edge.
+       -ink   the Apply button and the filter swatches, full strength with white type. */
+  --route-h1b-fill:#dbe7fb;     --route-h1b-line:#a9c6f4;     --route-h1b-ink:#1d4ed8;
+  --route-gc-fill:#eadffb;      --route-gc-line:#cdb2f2;      --route-gc-ink:#6d28d9;
+  --route-stem-fill:#d6efe0;    --route-stem-line:#a2d8bd;    --route-stem-ink:#0f7a43;
+  --route-blocked-fill:#e7e9ee; --route-blocked-line:#c8ccd6; --route-blocked-ink:#4e5462;
+  --route-none-fill:#f6f7f9;    --route-none-line:#e2e5ea;    --route-none-ink:#4e5462;
 
   /* Seniority is one continuous variable, so it gets a neutral VALUE ramp rather than
      three hues. The three classes previously resolved to identical greys, which meant
@@ -273,9 +282,12 @@
   --text-primary:#ebedf3; --text-secondary:#9ea5b8; --text-tertiary:#7d849a;
   /* Ink inverts. On dark, an action is the lightest thing on screen and its label is the
      canvas, which is the same statement the light theme makes with the values swapped. */
-  --accent:#ebedf3; --accent-hover:#ffffff; --accent-bg:#232738;
-  --accent-bg-hover:#2c3045; --accent-text:#ebedf3;
-  --text-on-accent:#0c0e14;
+  /* Deep enough to carry white text at 13px: a lighter blue reads better as a LINK on this
+     canvas but fails 4.5:1 the moment it becomes a filled button, and the same token does
+     both jobs. --accent-text is the light one, for text ON the canvas. */
+  --accent:#2563eb; --accent-hover:#3b76ef; --accent-bg:#16233f;
+  --accent-bg-hover:#1d2f52; --accent-text:#a8c5fb;
+  --text-on-accent:#ffffff;
   /* --border-strong is a CONTROL boundary, so it owes 3:1 against every surface it can sit
      on, not just against the canvas. At #5c6280 it cleared --bg-canvas and missed
      --bg-surface at 2.96:1, which is exactly the input border on every panel. */
@@ -284,9 +296,10 @@
   --status-warn-text:#f0c05a; --status-warn-bg:#2a2212; --status-warn-border:#4a3c1a;
   --status-danger-text:#f5a3a3; --status-danger-bg:#3a1a1a; --status-danger-border:#f5a3a3;
   --status-info-text:#93c5fd; --status-info-bg:#152340;
-  --focus-ring:0 0 0 3px rgba(235,237,243,.28);
-  --tick-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230c0e14' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E");
+  --focus-ring:0 0 0 3px rgba(77,130,243,.35);
+  --tick-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E");
   --ink-veil:rgba(255,255,255,.14);
+  --on-card-veil:rgba(255,255,255,.07);
   --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ea5b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --visa-h1b-text:#93c5fd;  --visa-h1b-bg:#152340;
   --visa-e3-text:#93c5fd;   --visa-e3-bg:#152340;
@@ -301,11 +314,14 @@
   /* On a #0c0e14 canvas a tint has to be a LIFT rather than a wash, so each route's fill
      is its hue mixed up out of the surface rather than down out of white. The inks stay
      saturated enough to carry white text at 14px. */
-  --route-h1b-wash:#131c2e;  --route-h1b-line:#2a4576;  --route-h1b-ink:#2563eb;
-  --route-gc-wash:#1c1533;   --route-gc-line:#463281;   --route-gc-ink:#7c3aed;
-  --route-stem-wash:#0f2419; --route-stem-line:#245e3c; --route-stem-ink:#16a34a;
-  --route-blocked-wash:#191c25; --route-blocked-line:#3a4155;
-  --route-none-wash:var(--bg-surface); --route-none-line:var(--border-subtle);
+  /* Dark mode inverts the method rather than the values: the fill is the hue mixed UP out of
+     the canvas instead of down out of white, so a card still sits above the page and the type
+     on it is still the theme's own light text. */
+  --route-h1b-fill:#18253f;     --route-h1b-line:#2d4a7f;     --route-h1b-ink:#3b76ef;
+  --route-gc-fill:#241a3c;      --route-gc-line:#4b3080;      --route-gc-ink:#8b5cf6;
+  --route-stem-fill:#132c20;    --route-stem-line:#255c40;    --route-stem-ink:#1f9d55;
+  --route-blocked-fill:#1c1f28; --route-blocked-line:#39404f; --route-blocked-ink:#5f6779;
+  --route-none-fill:#171a22;    --route-none-line:#282d3a;    --route-none-ink:#5f6779;
   --exp-entry-text:#8a90a2;  --exp-entry-bg:#1c2030;
   --exp-mid-text:#a8afc2;    --exp-mid-bg:#232738;
   --exp-senior-text:#c5cbdb; --exp-senior-bg:#2c3045;
@@ -430,7 +446,7 @@ details > summary:focus-visible{outline:none;box-shadow:var(--focus-ring);border
 .brand{display:flex;align-items:center;gap:var(--space-100);font-size:var(--text-md);font-weight:700;color:var(--ink);letter-spacing:-.02em}
 /* The wordmark is ink like everything else. A gradient here was the app's loudest claim
    to a brand colour, and this product's identity is the data, not a hue. */
-.brand b{color:var(--ink);font-weight:700}
+.brand b{color:var(--accent);font-weight:700}
 .topbar nav{display:flex;gap:var(--space-050);flex:1;flex-wrap:wrap}
 .topbar nav a{color:var(--muted);font-weight:500;font-size:var(--text-sm);padding:8px 14px;border-radius:var(--radius-full);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .topbar nav a:hover{color:var(--ink);background:var(--surface2)}
@@ -574,8 +590,11 @@ textarea{resize:vertical}
 .colist li{margin:0 0 5px}
 /* The card's company name is a link now. Underlining every one of them turns the feed into a
    wall of rules, so it reads as plain emphasis until you point at it. */
-.cmeta a{font-weight:600;text-decoration:none}
-.cmeta a:hover{text-decoration:underline;text-decoration-color:var(--brand)}
+/* color:inherit is load-bearing now that the accent is blue. Without it these picked up the
+   global link colour and every company name on a blue card was blue text on blue, which is
+   the opposite of what the rule below intends. It reads as emphasis until you point at it. */
+.cmeta a{color:inherit;font-weight:600;text-decoration:none}
+.cmeta a:hover{text-decoration:underline;text-underline-offset:2px}
 /* ---- feed layout ----
    One column. The 280px rail column is gone and so is every rule that served it: .railtop,
    .railhead, .railtitle, .railtoggle, .railbody, .railfoot, .railstrip, .railcollapsebtn,
@@ -680,57 +699,61 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    It is inset from the corners rather than running the full height because a rounded
    card with a full-bleed edge stripe reads as a rendering error, and it is 3px because
    at 2px the plum and the blue stop being separable on a low-contrast laptop panel. */
-.card[data-route]{background:var(--route-none-wash);border-color:var(--route-none-line)}
+.card[data-route]{background:var(--route-none-fill);border-color:var(--route-none-line)}
 .card[data-route="h1b"],.card[data-route="e3"],.card[data-route="h1b1"]{
-  background:var(--route-h1b-wash);border-color:var(--route-h1b-line)}
-.card[data-route="green_card"]{background:var(--route-gc-wash);border-color:var(--route-gc-line)}
-.card[data-route="stem_opt"]{background:var(--route-stem-wash);border-color:var(--route-stem-line)}
-.card[data-route="blocked"]{background:var(--route-blocked-wash);border-color:var(--route-blocked-line)}
+  background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
+.card[data-route="green_card"]{background:var(--route-gc-fill);border-color:var(--route-gc-line)}
+.card[data-route="stem_opt"]{background:var(--route-stem-fill);border-color:var(--route-stem-line)}
+.card[data-route="blocked"]{background:var(--route-blocked-fill);border-color:var(--route-blocked-line)}
 
-/* THE APPLY BUTTON TAKES THE ROUTE. The single change that stops a screen of twenty jobs
-   being twenty black bricks, and it is not decoration: the action is coloured by what the
-   job can actually offer you, so the button agrees with the card it sits in and with the
-   chips above it. One colour system on the card, not two.
+/* Hover deepens the card's OWN colour rather than swapping its border for a neutral, which
+   would wipe the route on the one interaction where the reader most wants to still see it. */
+.card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px)}
+.card[data-route]:hover,.card[data-route]:focus-within{filter:saturate(1.35)}
 
-   Blocked and no-record keep the ink button on purpose. A grey primary action reads as
-   disabled, and neither of those states means "you cannot apply". */
-.card[data-route="h1b"] .btn.primary,
-.card[data-route="e3"] .btn.primary,
-.card[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:#fff}
-.card[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink);color:#fff}
-.card[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink);color:#fff}
-/* Hover darkens by overlaying the button's own colour with ink rather than naming a second
-   shade per route, so adding a route later needs no new hover token. */
+/* APPLY TAKES THE ROUTE AT FULL STRENGTH. The card names the route quietly, the button says
+   it loudly, and between them no black is left anywhere in the grid. Blocked and no-record
+   get a neutral ink because there is no route to name, but they still get a FILLED button:
+   a hollow one reads as disabled, and neither state means you cannot apply. */
+.card[data-route] .btn.primary{background:var(--route-none-ink);border-color:var(--route-none-ink);color:#fff}
+.card[data-route="h1b"] .btn.primary,.card[data-route="e3"] .btn.primary,
+.card[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink)}
+.card[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink)}
+.card[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink)}
+.card[data-route="blocked"] .btn.primary{background:var(--route-blocked-ink);border-color:var(--route-blocked-ink)}
+/* One veil rather than a second shade per route, so adding a route later needs no new token. */
 .card[data-route] .btn.primary:hover,
 .modal-overlay[data-route] .btn.primary:hover{background-image:linear-gradient(var(--ink-veil),var(--ink-veil))}
-/* The detail panel inherits the route from the card that opened it, so its Apply matches.
-   The panel itself stays on a plain surface: it is a reading view, and a tinted background
-   under 7,000 characters of job description is a different proposition from a tinted card. */
+
+/* Everything that was drawn for a plain white surface and now sits on a tint. Grouped here
+   so there is one place to look when a new element is added to a card and comes out as a
+   pale rectangle floating on the colour. */
+.card[data-route] .btn:not(.primary){background:transparent}
+.card[data-route] .btn:not(.primary):hover,
+.card[data-route] .ico:hover{background:var(--on-card-veil)}
+.card[data-route] .cardact{border-top-color:color-mix(in srgb,var(--text-primary) 12%,transparent)}
+/* The NEUTRAL chips go translucent. The ROUTE chips keep their own colours, because those
+   agree with the card rather than competing with it. */
+.card[data-route] .pay,.card[data-route] .rem,.card[data-route] .exp,.card[data-route] .intl,
+.card[data-route] .vt-more,.card[data-route] .agency,.card[data-route] .closed{
+  background:var(--on-card-veil)}
+.card[data-route] .logo{box-shadow:0 0 0 1px color-mix(in srgb,var(--text-primary) 10%,transparent)}
+
+/* The detail panel keeps a plain surface — it is a reading view, and a tint under 7,000
+   characters of description is a different proposition from a tint on a card — but its Apply
+   carries the route, so the action does not change colour on the way in. */
 .modal-overlay[data-route="h1b"] .btn.primary,
 .modal-overlay[data-route="e3"] .btn.primary,
 .modal-overlay[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:#fff}
 .modal-overlay[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink);color:#fff}
 .modal-overlay[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink);color:#fff}
 
-/* The chips, the divider and the score track all sit ON the tint now, so anything that was
-   a flat surface colour has to become transparent or it draws a paler rectangle inside a
-   tinted card. */
-.card[data-route] .cardact{border-top-color:color-mix(in srgb,currentColor 12%,transparent)}
-.card[data-route] .pay,.card[data-route] .rem,.card[data-route] .exp,
-.card[data-route] .intl,.card[data-route] .vt-more,.card[data-route] .agency{
-  background:color-mix(in srgb,var(--bg-surface) 78%,transparent)}
-/* "New" flag — today's freshly-pulled jobs (app.js adds it by comparing the date to today, so
-   it disappears on its own the next day). It rides IN the top row now, between the logo and
-   the score, instead of hanging off the card's top edge: an overhanging sticker was the one
-   piece of card furniture that read as decoration, and the paint containment that makes a
-   long grid cheap to scroll would have clipped it anyway. */
-.newflag{font-family:var(--font-data);font-size:var(--text-3xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-on-accent);background:var(--accent);padding:3px 9px;border-radius:var(--radius-full);line-height:1.4}
-/* Hover and focus deepen the card's OWN border rather than replacing it with a neutral,
-   which is what a flat `border-color:var(--line-strong)` would do — it would wipe the route
-   colour on the single interaction where the reader most wants to still see it. */
-.card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px);
-  border-color:color-mix(in srgb,currentColor 22%,var(--border-default))}
-.card[data-route]:hover{filter:saturate(1.25)}
+/* "New" — today's freshly pulled jobs. Rides IN the top row between the logo and the score
+   rather than hanging off the card's edge, because an overhanging sticker was the one piece
+   of card furniture that read as decoration rather than as data. */
+.newflag{font-family:var(--font-data);font-size:var(--text-3xs);font-weight:var(--weight-semibold);
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-on-accent);background:var(--accent);
+  padding:3px 9px;border-radius:var(--radius-full);line-height:1.4;white-space:nowrap}
 
 /* Hide = the card visibly leaves, then the grid reflows.
    Fade + scale rather than a height collapse. .feedgrid is
@@ -1168,13 +1191,19 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   background:var(--bg-sunken);border:1px solid var(--border-subtle);
   border-radius:var(--radius-full);padding:var(--space-050) var(--space-150)}
 .rolecount b{color:var(--ink)}
-.rolegroups{display:flex;flex-direction:column;gap:var(--space-250)}
+/* HORIZONTAL. The groups were stacked, which is what forced a scroller: four sections of
+   rows in a 560px box could only ever show two. Side by side they fill the width instead of
+   the height, and all 22 roles fit on one screen — which is what Kunal asked for and is also
+   simply better, because the whole point of this screen is to compare the options.
+   auto-fit collapses it back to one column on a narrow window with no media query. */
+.rolegroups{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:var(--space-300) var(--space-250);align-items:start}
 /* The heading rule is the divider — no boxes, so the rows are the only framed thing. */
 .rolegh{margin:0 0 var(--space-100);padding-bottom:var(--space-050);
   font-family:var(--font-data);font-size:var(--text-3xs);font-weight:var(--weight-semibold);
   letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-secondary);
   border-bottom:1px solid var(--border-subtle)}
-.roletiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--space-050) var(--space-150)}
+.roletiles{display:flex;flex-direction:column;gap:var(--space-025)}
 
 /* A ROW. Fixed height so no wrapped label can make one taller than its neighbour, and the
    whole row is the target. The native checkbox is replaced by a tick for the same reason as
@@ -1217,10 +1246,10 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   .roletile input{position:static;opacity:1;width:auto;height:auto;pointer-events:auto;
     accent-color:var(--accent)}
 }
-/* In the modal the list scrolls; on the wizard, where it IS the page, it must not — an inner
-   scrollbar inside a short box is what made the first version feel cramped. */
-.modal .rolegroups{max-height:56vh;overflow:auto;padding-right:var(--space-050)}
+/* No inner scroller anywhere. It exists to be read in one go; if the window is genuinely
+   too short the modal overlay already scrolls, which is one scrollbar instead of two. */
 .rolepick-page{max-width:none}
+#rolemodal .modal{max-width:1040px}
 /* The feed's trigger: reads as the current selection, not as a button labelled "Roles". */
 .rolebtn{display:flex;width:100%;gap:var(--space-100);align-items:center;text-align:left;padding:9px 11px;
   border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);
@@ -1279,7 +1308,14 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .stepn{max-width:var(--layout-form-max);font-family:var(--font-data);font-size:var(--text-2xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-secondary);margin:0 0 var(--space-250);font-weight:var(--weight-medium)}
 .wact{display:flex;align-items:center;gap:var(--space-150);margin-top:var(--space-300);max-width:var(--layout-form-max)}
 .wact .spacer{flex:1}
-.rolepick{max-width:var(--layout-form-max)}
+/* Scoped to the WIZARD. Unscoped this also capped the picker inside the modal at 680px, so
+   the four groups could only lay out two across and the widened modal had a third of itself
+   empty. The wizard wants the form column; the modal wants the whole dialog. */
+.wizard ~ .rolepick,.rolepick-page{max-width:var(--layout-form-max)}
+.modal .rolepick{max-width:none}
+/* A grid item will not shrink below its content unless told to, and a role label is a long
+   nowrap string, so without this the four columns collapse back to two. */
+.rolegroup{min-width:0}
 
 /* A real ordered list for real sequences. The markers are the data face so the numbers sit
    in a column, and they are the ONLY numbered markers in the app: this is a genuine
@@ -1675,18 +1711,24 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 .typeboxes{display:flex;flex-direction:column;gap:var(--space-100);margin:var(--space-050) 0}
 .typeboxes .ck{font-size:var(--text-sm);color:var(--text-primary)}
 
-/* THE COLOUR KEY. Each swatch is drawn from the SAME tokens the cards use — fill and border
-   both — so it is a sample of the real thing rather than an approximation of it that can
-   quietly drift once a route colour is retuned. */
-.fpop .flab.u-mt-250{padding-top:var(--space-200);border-top:1px solid var(--border-subtle)}
-.ckey{list-style:none;margin:0 0 var(--space-100);padding:0;display:flex;flex-direction:column;gap:var(--space-100)}
-.ckey li{display:flex;align-items:center;gap:var(--space-150);font-size:var(--text-xs);color:var(--text-secondary)}
-.ckey-sw{flex:0 0 auto;width:26px;height:18px;border-radius:var(--radius-xs);border:1px solid}
-.ckey-h1b{background:var(--route-h1b-wash);border-color:var(--route-h1b-line)}
-.ckey-gc{background:var(--route-gc-wash);border-color:var(--route-gc-line)}
-.ckey-stem{background:var(--route-stem-wash);border-color:var(--route-stem-line)}
-.ckey-blocked{background:var(--route-blocked-wash);border-color:var(--route-blocked-line)}
-.ckey-none{background:var(--route-none-wash);border-color:var(--route-none-line)}
+/* THE COLOUR SWATCH, on the row it describes rather than in a key underneath it. Each one
+   is the card fill for that route, straight from the token, so the swatch and the feed cannot
+   disagree. Pushed to the right edge so the swatches line up as a column of their own. */
+.visack,.ck-static{display:flex;align-items:center;gap:var(--space-150)}
+.visack-l{flex:1;min-width:0}
+.ck-static{cursor:default;color:var(--text-tertiary)}
+/* The SATURATED value, not the card fill. A 22x14 chip of the card's own pale tint is very
+   nearly invisible, which defeats the point of putting it here; the ink is the same route
+   colour at a size where it can actually be seen, and it is what the Apply button wears. */
+.sw{flex:0 0 auto;width:20px;height:12px;border-radius:var(--radius-full)}
+.sw-h1b,.sw-e3,.sw-h1b1{background:var(--route-h1b-ink)}
+.sw-green_card{background:var(--route-gc-ink)}
+.sw-stem_opt{background:var(--route-stem-ink)}
+.sw-blocked{background:var(--route-blocked-ink)}
+.sw-none{background:var(--route-none-fill);box-shadow:inset 0 0 0 1px var(--route-none-line)}
+/* The last row has no checkbox, so its label needs the checkbox's width to line up with the
+   ones above it. 13px control + the row gap. */
+.ck-static .visack-l{padding-left:calc(13px + var(--space-100))}
 
 .fpopfoot{position:sticky;bottom:calc(var(--space-200) * -1);
   display:flex;align-items:center;gap:var(--space-100);

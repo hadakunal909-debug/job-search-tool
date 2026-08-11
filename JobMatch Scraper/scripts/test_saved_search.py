@@ -75,7 +75,12 @@ print("=" * 78)
 print("the feed comes back with those controls pre-set")
 print("=" * 78)
 body = client().get("/").data.decode("utf-8", "replace")
-check("loc input restored", 'value="boston"' in body)
+# The Location control was removed from the feed. The PREF still round-trips — it is what
+# the daily email digest narrows on — so what is asserted is that it survived the save,
+# which "loc saved" above already proves, and that the feed no longer renders a control
+# for it. Asserting the absence is the point: a stale #loc left behind would keep
+# narrowing the feed with nothing on screen able to clear it.
+check("no loc control on the feed", 'id="loc"' not in body)
 check("min slider restored", 'id="min" class="ranged" type="range" min="0" max="75" step="1" value="35"' in body)
 check("date=90 selected", '<option value="90" selected>Past 90 Days' in body)
 check("exp=5 selected", '<option value="5" selected>' in body)

@@ -21,7 +21,9 @@
       badge = document.getElementById("rolebadge"),
       openBtn = document.getElementById("roleopen"),
       modal = document.getElementById("rolemodal"),
-      MAX = parseInt(pick.getAttribute("data-max"), 10) || 6;
+      // 0 means NO CAP. `|| 6` used to turn a legitimate 0 into six, which is exactly the
+      // trap a falsy-default has with a numeric limit, so it is read explicitly.
+      MAX = (function () { var m = parseInt(pick.getAttribute("data-max"), 10); return isNaN(m) ? 0 : m; })();
 
   function tiles() { return pick.querySelectorAll(".roletile"); }
 
@@ -35,10 +37,10 @@
     if (hidden) hidden.value = on.join(",");
     // At the cap the unticked tiles go quiet rather than vanishing, so the limit reads as a
     // state instead of options mysteriously disappearing.
-    pick.classList.toggle("full", on.length >= MAX);
+    pick.classList.toggle("full", MAX > 0 && on.length >= MAX);
     for (i = 0; i < t.length; i++) {
       var b = t[i].querySelector("input");
-      b.disabled = !b.checked && on.length >= MAX;
+      b.disabled = MAX > 0 && !b.checked && on.length >= MAX;
     }
     if (nEl) nEl.textContent = on.length;
     // The rail button reads as the CURRENT SELECTION, so the rail says what is on without
