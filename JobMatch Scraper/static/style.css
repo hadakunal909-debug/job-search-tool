@@ -76,6 +76,10 @@
      has to be baked into the SVG rather than inherited. Themed here for the same reason
      --select-chevron is: an image cannot read a custom property. */
   --tick-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E");
+  /* A neutral darkening layer, so a coloured button can have a hover state without every
+     route needing its own second shade. Dark mode LIGHTENS instead, because there the
+     button already sits near the dark end. */
+  --ink-veil:rgba(0,0,0,.16);
   /* The chevron, once. It is drawn twice in the app for two different reasons: as a MASK
      over currentColor wherever it rides text (the .ic set, disclosures), and as a background
      IMAGE with a baked-in stroke on <select>, which cannot mask. Mode-stable because a mask
@@ -100,7 +104,7 @@
   --visa-e3-text:var(--blue-700);    --visa-e3-bg:var(--blue-50);
   --visa-h1b1-text:var(--blue-700);  --visa-h1b1-bg:var(--blue-50);
   --visa-gc-text:var(--violet-600);  --visa-gc-bg:var(--violet-50);
-  --visa-stem-text:var(--teal-700);  --visa-stem-bg:var(--teal-50);
+  --visa-stem-text:#0f7a43;          --visa-stem-bg:#e6f6ec;
   --visa-blocked-text:var(--gray-700); --visa-blocked-bg:var(--gray-100);
   --visa-unknown-text:var(--gray-650); --visa-unknown-bg:var(--gray-100);
   --match-track:var(--gray-200);  --match-strong:var(--gray-900);
@@ -108,27 +112,38 @@
   --match-none:var(--gray-300);
   --posting-agency-text:var(--gray-700); --posting-agency-bg:var(--gray-100);
 
-  /* THE ROUTE RAIL. The 3px rule down a card's left edge, coloured by the best route this
-     employer has on file for this reader. rankVisa() in app.js already works this out to
-     pick which three chips to show, then throws the ranking away; the rail spends it.
+  /* THE ROUTE PALETTE. The whole card is coloured by the best sponsorship route open to
+     this reader, not a stripe down its edge. A 3px rule was too quiet to read as meaning
+     anything: it looked like trim, so it prompted "why is there a blue line" rather than
+     "this employer files H-1Bs".
 
-     Down a four-column grid the rail is the only thing that reads at a glance, which is
-     the whole argument for it: sponsorship is the question this audience is actually
-     asking, and until now they had to read three chips per card to answer it.
+     Three values per route, and each does a different job:
+       -wash  the card fill. Very light on purpose. The card carries a job title, a
+              company, four chips and three buttons, and all of that has to stay legible,
+              so the tint is a signal you read peripherally rather than a background you
+              read through.
+       -line  the card border. Where the colour actually asserts itself.
+       -ink   the Apply button. Saturated, white text. This is what stops the feed being
+              twenty black slabs: the primary action is coloured by what the job offers
+              you, so the button, the tint and the chips all say the same thing and there
+              is ONE colour system on the card rather than two.
 
-     Three states, one hue. Colour means a route exists. A STRONG neutral means the
-     posting's own text closes the door. A FAINT neutral means nothing is on file.
+     Everything OUTSIDE a card stays neutral — nav, filter chips, tabs, the top bar — so
+     the chrome never competes with the data.
 
-     The ordering between those last two is load-bearing and was wrong on the first pass:
-     "no record" drew heavier than "blocked", so the absence of data looked like a firmer
-     fact than an explicit refusal. Blocked is a definite thing the posting says, so it
-     reads as definite; no-record is an empty file, so it barely registers.
+     Two states are deliberately not chromatic. "Blocked" means the posting's own text
+     rules sponsorship out, and gets a grey wash with a firmer border: a stated fact, and
+     a firmer one than an empty file, which is why it draws heavier than "no record".
+     "No record" gets no tint at all, because there is genuinely nothing to say — and it
+     is never red. core.py documents absence as "no record, not a refusal", and this
+     audience scrolls past it hundreds of times a week.
 
-     Neither is red. An employer with no filing history is a routine fact this audience
-     scrolls past hundreds of times a week, not an error and not something they did wrong,
-     and core.py documents absence as "no record, not a refusal". */
-  --route-none:var(--gray-200);
-  --route-blocked:var(--gray-400);
+     Both of those keep the INK Apply button, because a grey one would read as disabled. */
+  --route-h1b-wash:#f4f8ff;  --route-h1b-line:#c3d6fb;  --route-h1b-ink:#1d4ed8;
+  --route-gc-wash:#faf5ff;   --route-gc-line:#dbcbf8;   --route-gc-ink:#6d28d9;
+  --route-stem-wash:#f2fbf5; --route-stem-line:#c2e6d1; --route-stem-ink:#0f7a43;
+  --route-blocked-wash:var(--gray-100); --route-blocked-line:var(--gray-300);
+  --route-none-wash:var(--bg-surface);  --route-none-line:var(--border-subtle);
 
   /* Seniority is one continuous variable, so it gets a neutral VALUE ramp rather than
      three hues. The three classes previously resolved to identical greys, which meant
@@ -271,20 +286,26 @@
   --status-info-text:#93c5fd; --status-info-bg:#152340;
   --focus-ring:0 0 0 3px rgba(235,237,243,.28);
   --tick-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230c0e14' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 13 4 4L19 7'/%3E%3C/svg%3E");
+  --ink-veil:rgba(255,255,255,.14);
   --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ea5b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --visa-h1b-text:#93c5fd;  --visa-h1b-bg:#152340;
   --visa-e3-text:#93c5fd;   --visa-e3-bg:#152340;
   --visa-h1b1-text:#93c5fd; --visa-h1b1-bg:#152340;
   --visa-gc-text:#c4b5fd;   --visa-gc-bg:#241a3d;
-  --visa-stem-text:#6fd0bd; --visa-stem-bg:#0f2b28;
+  --visa-stem-text:#5fd08a; --visa-stem-bg:#0f2b1c;
   --visa-blocked-text:#9ea5b8; --visa-blocked-bg:#232738;
   --visa-unknown-text:#9ea5b8; --visa-unknown-bg:#232738;
   --match-track:#2c3045; --match-strong:#ebedf3; --match-good:#9ea5b8;
   --match-weak:#6b7280;  --match-none:#454d5d;
   --posting-agency-text:#9ea5b8; --posting-agency-bg:#232738;
-  /* Both rails lift on a #0c0e14 canvas, keeping the same relationship: blocked reads as a
-     stated fact, no-record barely registers. */
-  --route-none:#282d3e; --route-blocked:#5b6280;
+  /* On a #0c0e14 canvas a tint has to be a LIFT rather than a wash, so each route's fill
+     is its hue mixed up out of the surface rather than down out of white. The inks stay
+     saturated enough to carry white text at 14px. */
+  --route-h1b-wash:#131c2e;  --route-h1b-line:#2a4576;  --route-h1b-ink:#2563eb;
+  --route-gc-wash:#1c1533;   --route-gc-line:#463281;   --route-gc-ink:#7c3aed;
+  --route-stem-wash:#0f2419; --route-stem-line:#245e3c; --route-stem-ink:#16a34a;
+  --route-blocked-wash:#191c25; --route-blocked-line:#3a4155;
+  --route-none-wash:var(--bg-surface); --route-none-line:var(--border-subtle);
   --exp-entry-text:#8a90a2;  --exp-entry-bg:#1c2030;
   --exp-mid-text:#a8afc2;    --exp-mid-bg:#232738;
   --exp-senior-text:#c5cbdb; --exp-senior-bg:#2c3045;
@@ -646,7 +667,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    view, which matters on a grid that routinely runs past a hundred. contain-intrinsic-size
    is the height it should ASSUME for a skipped card — without it the scrollbar jumps as
    each one is realised. 186px is the measured resting height of a two-line title. */
-.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 18px 18px 22px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;will-change:transform;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 186px}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;will-change:transform;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 186px}
 
 /* ---- THE ROUTE RAIL ----------------------------------------------------------------
    The 3px rule down a card's left edge, coloured by the best sponsorship route open to
@@ -659,24 +680,57 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    It is inset from the corners rather than running the full height because a rounded
    card with a full-bleed edge stripe reads as a rendering error, and it is 3px because
    at 2px the plum and the blue stop being separable on a low-contrast laptop panel. */
-.card[data-route]::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;
-  border-radius:0 var(--radius-full) var(--radius-full) 0;background:var(--route-none)}
-.card[data-route="h1b"]::before,
-.card[data-route="e3"]::before,
-.card[data-route="h1b1"]::before{background:var(--visa-h1b-text)}
-.card[data-route="green_card"]::before{background:var(--visa-gc-text)}
-.card[data-route="stem_opt"]::before{background:var(--visa-stem-text)}
-/* A posting whose own text rules sponsorship out. A firm neutral, heavier than "no record"
-   because it IS a firmer fact: one is a closed door, the other an empty file. Not red,
-   which would read as an error, and this is neither an error nor the reader's fault. */
-.card[data-route="blocked"]::before{background:var(--route-blocked)}
+.card[data-route]{background:var(--route-none-wash);border-color:var(--route-none-line)}
+.card[data-route="h1b"],.card[data-route="e3"],.card[data-route="h1b1"]{
+  background:var(--route-h1b-wash);border-color:var(--route-h1b-line)}
+.card[data-route="green_card"]{background:var(--route-gc-wash);border-color:var(--route-gc-line)}
+.card[data-route="stem_opt"]{background:var(--route-stem-wash);border-color:var(--route-stem-line)}
+.card[data-route="blocked"]{background:var(--route-blocked-wash);border-color:var(--route-blocked-line)}
+
+/* THE APPLY BUTTON TAKES THE ROUTE. The single change that stops a screen of twenty jobs
+   being twenty black bricks, and it is not decoration: the action is coloured by what the
+   job can actually offer you, so the button agrees with the card it sits in and with the
+   chips above it. One colour system on the card, not two.
+
+   Blocked and no-record keep the ink button on purpose. A grey primary action reads as
+   disabled, and neither of those states means "you cannot apply". */
+.card[data-route="h1b"] .btn.primary,
+.card[data-route="e3"] .btn.primary,
+.card[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:#fff}
+.card[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink);color:#fff}
+.card[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink);color:#fff}
+/* Hover darkens by overlaying the button's own colour with ink rather than naming a second
+   shade per route, so adding a route later needs no new hover token. */
+.card[data-route] .btn.primary:hover,
+.modal-overlay[data-route] .btn.primary:hover{background-image:linear-gradient(var(--ink-veil),var(--ink-veil))}
+/* The detail panel inherits the route from the card that opened it, so its Apply matches.
+   The panel itself stays on a plain surface: it is a reading view, and a tinted background
+   under 7,000 characters of job description is a different proposition from a tinted card. */
+.modal-overlay[data-route="h1b"] .btn.primary,
+.modal-overlay[data-route="e3"] .btn.primary,
+.modal-overlay[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:#fff}
+.modal-overlay[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink);color:#fff}
+.modal-overlay[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink);color:#fff}
+
+/* The chips, the divider and the score track all sit ON the tint now, so anything that was
+   a flat surface colour has to become transparent or it draws a paler rectangle inside a
+   tinted card. */
+.card[data-route] .cardact{border-top-color:color-mix(in srgb,currentColor 12%,transparent)}
+.card[data-route] .pay,.card[data-route] .rem,.card[data-route] .exp,
+.card[data-route] .intl,.card[data-route] .vt-more,.card[data-route] .agency{
+  background:color-mix(in srgb,var(--bg-surface) 78%,transparent)}
 /* "New" flag — today's freshly-pulled jobs (app.js adds it by comparing the date to today, so
    it disappears on its own the next day). It rides IN the top row now, between the logo and
    the score, instead of hanging off the card's top edge: an overhanging sticker was the one
    piece of card furniture that read as decoration, and the paint containment that makes a
    long grid cheap to scroll would have clipped it anyway. */
 .newflag{font-family:var(--font-data);font-size:var(--text-3xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-on-accent);background:var(--accent);padding:3px 9px;border-radius:var(--radius-full);line-height:1.4}
-.card:hover{border-color:var(--line-strong);box-shadow:var(--shadow-md);transform:translateY(-3px)}
+/* Hover and focus deepen the card's OWN border rather than replacing it with a neutral,
+   which is what a flat `border-color:var(--line-strong)` would do — it would wipe the route
+   colour on the single interaction where the reader most wants to still see it. */
+.card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px);
+  border-color:color-mix(in srgb,currentColor 22%,var(--border-default))}
+.card[data-route]:hover{filter:saturate(1.25)}
 
 /* Hide = the card visibly leaves, then the grid reflows.
    Fade + scale rather than a height collapse. .feedgrid is
@@ -720,7 +774,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .ctitle:focus-visible{outline:none;box-shadow:var(--focus);border-radius:var(--radius-xs)}
 /* Reaching any control inside a card lifts the whole card, so a keyboard user sees the same
    "this one" the mouse gets on hover instead of a ring floating on an otherwise flat grid. */
-.card:focus-within{border-color:var(--border-strong);box-shadow:var(--shadow-md)}
+.card:focus-within{box-shadow:var(--shadow-md);border-color:color-mix(in srgb,currentColor 30%,var(--border-default))}
 .cmeta{color:var(--muted);font-size:var(--text-xs);line-height:1.7}
 /* The meta-row separator. Set apart from the words it divides so the eye reads three facts
    rather than one run-on string, and given real breathing room instead of the single spaces
@@ -1093,53 +1147,88 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
    "What kind of job do you want", which until now had two possible answers. Shared by the
    feed's modal and onboarding step 3 via _rolepicker.html, so both get this styling and
    neither can drift from the other. Vars only — it inherits dark mode for free. */
-.rolepick{display:flex;flex-direction:column;gap:var(--space-200);min-width:0}
+/* ---- ROLE PICKER --------------------------------------------------------------------
+   Rebuilt 2026-08-10. It was 22 bordered BOXES two across, each holding a native checkbox,
+   a label and a count stacked vertically. That is 960px of content in a 520px window, so
+   two of the four groups were always below the fold, and a role whose name wrapped made its
+   row taller than its partner, which left the grid visibly ragged.
+
+   One line per role instead: name on the left, count right-aligned in the data face. The
+   counts become a column you can scan, which matters because "how many jobs are actually
+   open" is the only comparative information on this screen. Twenty-two roles now fit in
+   roughly the height that six used to take. */
+.rolepick{display:flex;flex-direction:column;gap:var(--space-250);min-width:0}
 .rolesearch{display:flex;gap:var(--space-150);align-items:center}
 .rolesearch input{flex:1;padding:11px 14px;border:1px solid var(--line-strong);
   border-radius:var(--r);background:var(--surface);color:var(--ink);font-size:var(--text-sm);font-family:inherit}
-.rolesearch input:focus{outline:none;box-shadow:var(--focus);border-color:var(--brand)}
-.rolecount{font-size:var(--text-xs);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.rolecount b{color:var(--ink);font-variant-numeric:tabular-nums}
+.rolesearch input:focus{outline:none;box-shadow:var(--focus);border-color:var(--accent)}
+/* A state, not a caption: it is the only thing saying the selection is capped. */
+.rolecount{flex:0 0 auto;font-family:var(--font-data);font-size:var(--text-2xs);
+  font-variant-numeric:tabular-nums;color:var(--text-secondary);white-space:nowrap;
+  background:var(--bg-sunken);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-full);padding:var(--space-050) var(--space-150)}
+.rolecount b{color:var(--ink)}
 .rolegroups{display:flex;flex-direction:column;gap:var(--space-250)}
-/* Sectioned so 22 options read as four short lists rather than one long scroll. The heading
-   rule is the divider — no boxes, so the tiles themselves are the only framed thing. */
-.rolegh{margin:0 0 9px;font-size:var(--text-3xs);font-weight:700;letter-spacing:.07em;
-  text-transform:uppercase;color:var(--muted)}
-.roletiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:var(--space-100)}
-/* A tile, not a checkbox row: the whole thing is the target, and the count sits under the
-   label instead of fighting it for the same line. */
-.roletile{position:relative;display:flex;align-items:flex-start;gap:var(--space-150);padding:12px 13px;
-  border:1px solid var(--line);border-radius:var(--r);background:var(--surface);
-  cursor:pointer;min-width:0;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}
-.roletile:hover{border-color:var(--line-strong);background:var(--surface2)}
-.roletile.on{border-color:var(--brand);background:var(--brand-soft);box-shadow:var(--e1)}
-.roletile input{margin:1px 0 0;flex:0 0 auto;width:auto;accent-color:var(--brand)}
-.roletile-b{display:flex;flex-direction:column;gap:var(--space-025);min-width:0}
-.rolelab{font-size:var(--text-sm);line-height:1.3;color:var(--ink);overflow-wrap:anywhere}
-.roletile.on .rolelab{color:var(--brand-ink);font-weight:600}
-.rolen{font-size:var(--text-2xs);color:var(--muted);font-variant-numeric:tabular-nums}
-/* A family with nothing live is shown, not hidden — "0 open" is the useful answer, and
-   silently dropping it would leave someone wondering why their role isn't listed. */
-.roletile.empty{opacity:.62}
-/* Past the cap the unticked tiles go quiet rather than vanishing, so the limit reads as a
+/* The heading rule is the divider — no boxes, so the rows are the only framed thing. */
+.rolegh{margin:0 0 var(--space-100);padding-bottom:var(--space-050);
+  font-family:var(--font-data);font-size:var(--text-3xs);font-weight:var(--weight-semibold);
+  letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-secondary);
+  border-bottom:1px solid var(--border-subtle)}
+.roletiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--space-050) var(--space-150)}
+
+/* A ROW. Fixed height so no wrapped label can make one taller than its neighbour, and the
+   whole row is the target. The native checkbox is replaced by a tick for the same reason as
+   the onboarding choices: at 13px it renders as a different shape in every browser. It stays
+   in the DOM, focusable, and carries name="roles" on the wizard where it posts itself. */
+.roletile{position:relative;display:flex;align-items:center;gap:var(--space-150);
+  height:38px;padding:0 var(--space-150) 0 var(--space-100);
+  border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;
+  cursor:pointer;min-width:0;
+  transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.roletile:hover{background:var(--bg-hover)}
+.roletile:focus-within{border-color:var(--accent);box-shadow:var(--focus-ring)}
+.roletile input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+/* The tick, drawn as an empty box until chosen so every row shows where the answer lands. */
+.roletile::before{content:"";flex:0 0 auto;width:17px;height:17px;border-radius:var(--radius-xs);
+  border:1px solid var(--border-strong);background:transparent;
+  transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.roletile.on,.roletile:has(input:checked){background:var(--accent-bg);border-color:var(--border-default)}
+.roletile.on::before,.roletile:has(input:checked)::before{
+  background:var(--accent) var(--tick-mark) center/11px no-repeat;border-color:var(--accent)}
+.roletile-b{display:flex;align-items:baseline;gap:var(--space-150);flex:1;min-width:0}
+.rolelab{flex:1;min-width:0;font-size:var(--text-sm);line-height:1.3;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.roletile.on .rolelab{font-weight:var(--weight-semibold)}
+/* Right-aligned and tabular so the counts read down the column as a comparison. */
+.rolen{flex:0 0 auto;font-family:var(--font-data);font-size:var(--text-2xs);
+  font-variant-numeric:tabular-nums;color:var(--text-secondary)}
+/* A family with nothing live is shown, not hidden — "0" is the useful answer, and dropping
+   it silently would leave someone wondering why their role is missing. */
+.roletile.empty{opacity:.55}
+/* Past the cap the unticked rows go quiet rather than vanishing, so the limit reads as a
    state instead of options mysteriously disappearing. */
-.rolepick.full .roletile:not(.on){opacity:.38}
-.rolepick.full .roletile:not(.on):hover{background:var(--surface);border-color:var(--line);
-  cursor:not-allowed}
+.rolepick.full .roletile:not(.on){opacity:.35}
+.rolepick.full .roletile:not(.on):hover{background:transparent;cursor:not-allowed}
 .rolenone,.rolehint{margin:0;font-size:var(--text-xs);color:var(--muted)}
-/* In the modal the list has to scroll; on the wizard, where it IS the page, it must not — an
-   inner scrollbar inside a short box was what made the first version feel cramped. */
-.modal .rolegroups{max-height:52vh;overflow:auto;padding-right:4px}
+/* Where :has() is unavailable the row cannot track its own checkbox, so the native control
+   comes back rather than leaving a box that never visibly responds. */
+@supports not selector(:has(*)){
+  .roletile::before{display:none}
+  .roletile input{position:static;opacity:1;width:auto;height:auto;pointer-events:auto;
+    accent-color:var(--accent)}
+}
+/* In the modal the list scrolls; on the wizard, where it IS the page, it must not — an inner
+   scrollbar inside a short box is what made the first version feel cramped. */
+.modal .rolegroups{max-height:56vh;overflow:auto;padding-right:var(--space-050)}
 .rolepick-page{max-width:none}
-.rolepick-page .roletiles{grid-template-columns:repeat(auto-fill,minmax(236px,1fr))}
-/* The rail's trigger: reads as the current selection, not as a button labelled "Roles". */
+/* The feed's trigger: reads as the current selection, not as a button labelled "Roles". */
 .rolebtn{display:flex;width:100%;gap:var(--space-100);align-items:center;text-align:left;padding:9px 11px;
   border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);
   color:var(--ink);font-size:var(--text-sm);font-family:inherit;cursor:pointer}
-.rolebtn:hover{border-color:var(--brand);background:var(--surface2)}
+.rolebtn:hover{border-color:var(--border-strong);background:var(--bg-hover)}
 .rolebtn .rolebtn-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rolebtn .count-pill{flex:0 0 auto}
-.rolebtn.fset{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink)}
+.rolebtn.fset{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 
 
 /* ==================================================================
@@ -1582,6 +1671,23 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    without scrolling to the end of a long filter list to find it. It resolves against the
    .fpop scroll container rather than the viewport, which is why this is safe here and was
    not on the old rail footer. */
+/* JOB TYPE: two things you can want, ticked independently, over a hidden #intern select. */
+.typeboxes{display:flex;flex-direction:column;gap:var(--space-100);margin:var(--space-050) 0}
+.typeboxes .ck{font-size:var(--text-sm);color:var(--text-primary)}
+
+/* THE COLOUR KEY. Each swatch is drawn from the SAME tokens the cards use — fill and border
+   both — so it is a sample of the real thing rather than an approximation of it that can
+   quietly drift once a route colour is retuned. */
+.fpop .flab.u-mt-250{padding-top:var(--space-200);border-top:1px solid var(--border-subtle)}
+.ckey{list-style:none;margin:0 0 var(--space-100);padding:0;display:flex;flex-direction:column;gap:var(--space-100)}
+.ckey li{display:flex;align-items:center;gap:var(--space-150);font-size:var(--text-xs);color:var(--text-secondary)}
+.ckey-sw{flex:0 0 auto;width:26px;height:18px;border-radius:var(--radius-xs);border:1px solid}
+.ckey-h1b{background:var(--route-h1b-wash);border-color:var(--route-h1b-line)}
+.ckey-gc{background:var(--route-gc-wash);border-color:var(--route-gc-line)}
+.ckey-stem{background:var(--route-stem-wash);border-color:var(--route-stem-line)}
+.ckey-blocked{background:var(--route-blocked-wash);border-color:var(--route-blocked-line)}
+.ckey-none{background:var(--route-none-wash);border-color:var(--route-none-line)}
+
 .fpopfoot{position:sticky;bottom:calc(var(--space-200) * -1);
   display:flex;align-items:center;gap:var(--space-100);
   margin:var(--space-250) calc(var(--space-200) * -1) calc(var(--space-200) * -1);

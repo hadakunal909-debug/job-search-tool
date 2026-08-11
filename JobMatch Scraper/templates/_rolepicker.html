@@ -16,7 +16,10 @@
   <div class="rolesearch">
     <input type="search" id="rolefind" placeholder="Search roles, for example data, manager, or sde…"
            autocomplete="off" aria-label="Search role types">
-    <span class="rolecount"><b id="rolen">{{ chosen|length }}</b> of {{ role_max or 6 }}</span>
+    {# The cap counter, as a pill rather than two words floating beside the field. It is the
+       only thing on the screen that says the selection is bounded, so it has to read as a
+       state and not as a caption. #}
+    <span class="rolecount" aria-live="polite"><b id="rolen">{{ chosen|length }}</b> of {{ role_max or 6 }}</span>
   </div>
 
   <div class="rolegroups" id="rolelist">
@@ -31,9 +34,11 @@
                data-role="{{ key }}" data-find="{{ (label ~ ' ' ~ phrases|join(' '))|lower }}">
           <input type="checkbox" {% if form_post %}name="roles" {% endif %}value="{{ key }}"
                  {{ ' checked' if key in chosen else '' }}>
+          {# One line per role: name left, count right. "open" is gone from each row — it was
+             the same word 22 times, and the hint below already says what the number is. #}
           <span class="roletile-b">
             <span class="rolelab">{{ label }}</span>
-            <span class="rolen">{{ '{:,}'.format(role_counts.get(key, 0)) }} open</span>
+            <span class="rolen">{{ '{:,}'.format(role_counts.get(key, 0)) }}</span>
           </span>
         </label>
         {% endfor %}
