@@ -669,6 +669,10 @@
         bs[i].setAttribute("aria-pressed", on ? "true" : "false");
       }
     }
+    // Same reason as the segmented buttons above: Clear, the seeded prefs and the remembered
+    // blob all write to #intern directly, and the boxes have to follow or they would show a
+    // job type the feed is no longer filtering on.
+    syncJobTypeBoxes();
     syncChips();
     // The one place filter state is persisted. Every change listener reaches here via render(),
     // so nothing can change a filter without this running.
@@ -1029,6 +1033,38 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
+  // ---- job type: two boxes over the #intern select ----
+  // The select used to BE the control, and it asked the question three different ways at
+  // once: "Intern + full-time" (an inclusion), "Internships & co-ops only" (a restriction)
+  // and "Exclude internships" (an exclusion). Two things exist, so two boxes name them and
+  // the stored value is derived. #intern stays in the DOM as the value carrier because
+  // app.js's own filter, feed_parity.py and test_saved_search.py all read it by id.
+  var jtFull = document.getElementById("jt-full"), jtIntern = document.getElementById("jt-intern");
+  function jobTypeFromBoxes() {
+    var f = jtFull.checked, i = jtIntern.checked;
+    // Unticking both would ask for nothing at all and return an empty feed with no way to
+    // tell why, so the box you just cleared re-ticks the other one. The control cannot be
+    // put into a state that means "show me no jobs".
+    if (!f && !i) return null;
+    return f && i ? "any" : (i ? "only" : "no");
+  }
+  function syncJobTypeBoxes() {
+    if (!jtFull || !jtIntern || !internSel) return;
+    jtFull.checked = internSel.value !== "only";
+    jtIntern.checked = internSel.value !== "no";
+  }
+  if (jtFull && jtIntern && internSel) {
+    [jtFull, jtIntern].forEach(function (box) {
+      box.addEventListener("change", function () {
+        var v = jobTypeFromBoxes();
+        if (v === null) { syncJobTypeBoxes(); return; }   // refuse the empty state
+        internSel.value = v;
+        render(true);
+      });
+    });
+    syncJobTypeBoxes();
+  }
+
 
 
   // ---- "Clear" — reset every NARROWING filter, leaving search text and track alone ----
@@ -1369,6 +1405,10 @@
   function openModal(card) {
     if (!modal) return;
     mUrl = card.getAttribute("data-url");
+    // The panel inherits the card's route, so its Apply button is the same colour as the one
+    // that was just clicked. Without this the detail view would be the single place in the
+    // product where the primary action forgets what the job offers.
+    modal.setAttribute("data-route", card.getAttribute("data-route") || "");
     var lg = card.querySelector(".logo");
     $("m-logo").innerHTML = lg ? lg.innerHTML : ""; $("m-logo").style.background = lg ? lg.style.background : "";
     var mlImg = $("m-logo").querySelector(".logo-img");

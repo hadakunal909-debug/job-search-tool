@@ -79,7 +79,9 @@ check("loc input restored", 'value="boston"' in body)
 check("min slider restored", 'id="min" class="ranged" type="range" min="0" max="75" step="1" value="35"' in body)
 check("date=90 selected", '<option value="90" selected>Past 90 Days' in body)
 check("exp=5 selected", '<option value="5" selected>' in body)
-check("intern=no selected", '<option value="no" selected>Exclude Internships' in body)
+# #intern is a hidden value carrier behind two "Job type" checkboxes now, so the option has
+# no user-visible label left to assert. The value round-tripping is the actual contract.
+check("intern=no selected", '<option value="no" selected>' in body)
 check("sort=newest selected", '<option value="newest" selected>' in body)
 check("hidenospon checked", 'id="hidenospon" checked' in body)
 check("hideagency still checked", 'id="hideagency" checked' in body)

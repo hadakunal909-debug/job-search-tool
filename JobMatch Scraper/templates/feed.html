@@ -129,6 +129,21 @@
       If a route is not shown there is no record of it, which is not a refusal.</p>
     <label class="ck" title="Hides roles whose description rules out visa sponsorship, including ones that ask for citizenship, a clearance, or a green card.">
       <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}> Hide No-Sponsorship</label>
+
+    {# THE KEY. It belongs here rather than anywhere else on the page: this popover is where
+       someone is already thinking about sponsorship, and the card colours encode nothing
+       else. Every swatch is the real card fill and border, pulled from the same tokens the
+       cards use, so the legend cannot drift from what the feed actually draws. #}
+    <h3 class="flab u-mt-250">What the Card Colours Mean</h3>
+    <ul class="ckey">
+      <li><span class="ckey-sw ckey-h1b"></span>H-1B, E-3 or H-1B1</li>
+      <li><span class="ckey-sw ckey-gc"></span>Green Card</li>
+      <li><span class="ckey-sw ckey-stem"></span>STEM-OPT, via E-Verify</li>
+      <li><span class="ckey-sw ckey-blocked"></span>This posting rules sponsorship out</li>
+      <li><span class="ckey-sw ckey-none"></span>No filing on record</li>
+    </ul>
+    <p class="fnote">A card takes the colour of the best route open to you. Its Apply button
+      matches, so the colour you tick above is the colour you look for below.</p>
   </div>
 
   <div class="fpop" id="pop-date" hidden role="group" aria-labelledby="lab-date">
@@ -223,13 +238,34 @@
           minimum hides the other two thirds.</p>
       </div>
 
+      {# JOB TYPE. It used to be one dropdown mixing two grammars: "Intern + full-time" is
+         an inclusion, "Internships & co-ops only" is a restriction, "Exclude internships"
+         is an exclusion. Three options, three different ways of thinking, for a question
+         with exactly two things in it.
+
+         So: name the two things and let people tick what they want. The three stored
+         values are untouched and still map one-to-one, they are just derived from the
+         boxes now instead of being chosen from a list of verbs:
+             both ticked  -> any     full-time only -> no     internships only -> only
+
+         The <select> STAYS in the DOM as the value carrier, the same facade #track and
+         #visatags already use, because app.js, scripts/feed_parity.py and
+         scripts/test_saved_search.py all read #intern by id and expect an <option>. #}
       <div class="field">
-        <label class="field-label" for="intern">Internships</label>
-        <select id="intern" class="sel">
-          {% for v, lab in [('any', 'Intern + Full-Time'), ('only', 'Internships & Co-ops Only'), ('no', 'Exclude Internships')] %}
-          <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ lab }}</option>
+        <span class="field-label" id="lab-jobtype">Job Type</span>
+        <select id="intern" class="sel u-hide" aria-hidden="true" tabindex="-1">
+          {% for v in ['any', 'only', 'no'] %}
+          <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ v }}</option>
           {% endfor %}
         </select>
+        <div class="typeboxes" id="jobtype" role="group" aria-labelledby="lab-jobtype">
+          <label class="ck">
+            <input type="checkbox" id="jt-full" data-jt="full"
+                   {{ ' checked' if prefs.intern != 'only' else '' }}> Full-time</label>
+          <label class="ck">
+            <input type="checkbox" id="jt-intern" data-jt="intern"
+                   {{ ' checked' if prefs.intern != 'no' else '' }}> Internships &amp; co-ops</label>
+        </div>
         <p class="field-help">Internships and co-ops are OPT and STEM-OPT eligible.</p>
       </div>
     </div>
