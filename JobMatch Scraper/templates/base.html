@@ -41,7 +41,7 @@
   <div class="acct">
     {# No title= on either: the button's own text is Dark/Light, and the link is your username.
        aria-label stays on the toggle because its text changes. #}
-    <button id="themetoggle" class="iconbtn" aria-label="Toggle theme">Dark</button>
+    <button id="themetoggle" class="iconbtn themebtn" aria-label="Toggle theme">Dark</button>
     <a class="who" href="{{ url_for('profile') }}">{{ current_user }}</a>
     <a class="btn ghost" href="{{ url_for('logout') }}">Log out</a>
   </div>
@@ -72,12 +72,12 @@ if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__top
    choice forever. The label names the current preference, so the control says what it is set
    to rather than what the next click would do. */
 (function(){var b=document.getElementById('themetoggle');if(!b)return;
-var ORDER=['light','dark','system'],LABEL={light:'Light',dark:'Dark',system:'System'};
+var ORDER=['light','dark','system'],LABEL={light:'☀️',dark:'🌙',system:'💻'};
 var mq=matchMedia('(prefers-color-scheme:dark)');
 function read(){try{var p=localStorage.getItem('theme');return LABEL[p]?p:'system';}catch(e){return 'system';}}
 function apply(p){var dark=p==='dark'||(p==='system'&&mq.matches);
   document.documentElement.setAttribute('data-theme',dark?'dark':'light');
-  b.textContent=LABEL[p];b.setAttribute('aria-label','Theme: '+LABEL[p]+'. Click to change.');}
+  b.textContent=LABEL[p];b.setAttribute('aria-label','Theme: '+(p==='light'?'Light':p==='dark'?'Dark':'System')+'. Click to change.');}
 function set(p){try{localStorage.setItem('theme',p);}catch(e){}apply(p);}
 apply(read());
 b.addEventListener('click',function(){set(ORDER[(ORDER.indexOf(read())+1)%ORDER.length]);});

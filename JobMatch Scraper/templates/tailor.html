@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<a class="back" href="{{ url_for('feed') }}">← Back to feed</a>
+<a class="back backlink" href="{{ url_for('feed') }}"><span class="back-arrow"></span> Back to feed</a>
 <h1>{{ job.title }}</h1>
 <div class="cmeta">{{ job.company }} · {{ job.location or 'n/a' }}
   {% if job.sponsors_h1b=='yes' %}<span class="h1b">H1B</span>{% endif %}</div>
