@@ -9,7 +9,7 @@
    fixed. Both ids (#q, #sort) are ones app.js already wires up and null-guards. #}
 {% block content %}
 <div class="feedwrap">
-  <a class="backlink" href="{{ url_for('feed') }}">← All jobs</a>
+  <a class="backlink" href="{{ url_for('feed') }}"><span class="back-arrow"></span> All jobs</a>
 
   <div class="cohead">
     <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
@@ -53,7 +53,7 @@
         <h2 id="cotitle">{{ info.name }}</h2>
         <div class="cmeta">{{ info.n }} open role{{ '' if info.n == 1 else 's' }} in your feed</div>
       </div>
-      <button class="modal-x" id="coclose" aria-label="Close">&times;</button>
+      <button class="modal-x" id="coclose" aria-label="Close"></button>
     </div>
 
     <div class="modal-body">

@@ -337,7 +337,7 @@
     // No title on this one: the chip already reads "5+ yrs".
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
-      badges += '<span class="exp ' + ec + '">' + H(j.exp_years) + '+ yrs</span>';
+      badges += '<span class="exp ' + ec + '">' + H(j.exp_years) + '+ years</span>';
     }
     if (j.sponsor_jd === 'blocked')
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';

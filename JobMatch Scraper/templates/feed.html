@@ -190,7 +190,7 @@
         {% endfor %}
       </select>
       <select id="exp" class="sel" title="Years the description asks for. Jobs that don't state a number are always kept.">
-        {% for v, lab in [('any', 'Any experience'), ('2', 'Entry · ≤2 yrs'), ('5', '≤5 yrs'), ('senior', 'Hide 6+ yrs')] %}
+        {% for v, lab in [('any', 'Any experience'), ('2', 'Entry level (0–2 years)'), ('5', 'Mid level (up to 5 years)'), ('senior', 'Hide senior roles')] %}
         <option value="{{ v }}"{{ ' selected' if prefs.exp == v else '' }}>{{ lab }}</option>
         {% endfor %}
       </select>
@@ -267,7 +267,7 @@
         <h2 class="u-m0 u-text-md" id="rolemodal-h">What are you looking for?</h2>
         <p class="sub u-mt-050">Pick the roles you want in your feed.</p>
       </div>
-      <button class="modal-x" type="button" id="roleclose" aria-label="Close">&times;</button>
+      <button class="modal-x" type="button" id="roleclose" aria-label="Close"></button>
     </div>
     <div class="modal-body">
       {% include "_rolepicker.html" %}
