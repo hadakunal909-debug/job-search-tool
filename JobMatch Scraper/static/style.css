@@ -316,8 +316,8 @@ main:focus{outline:none}
    every hover and force layout on each frame, which is what makes "smooth" CSS feel
    sluggish. Colour and opacity are composited cheaply; transform is GPU-cheap too.
    ------------------------------------------------------------------ */
-a,button,.btn,.iconbtn,.ico,.chip,.mchip,.segb,.ck,.tag,.pill,.list-row,.card,
-input,select,textarea,summary,.railcollapsebtn,.vt,.h1b,.cx,.ev,.intl,.spon,.nospon,.agency{
+a,button,.btn,.iconbtn,.ico,.chip,.segb,.ck,.tag,.pill,.list-row,.card,
+input,select,textarea,summary,.vt,.h1b,.cx,.ev,.intl,.spon,.nospon,.agency{
   transition:color var(--t-fast) var(--ease),
              background-color var(--t-fast) var(--ease),
              border-color var(--t-fast) var(--ease),
@@ -555,84 +555,29 @@ textarea{resize:vertical}
    wall of rules, so it reads as plain emphasis until you point at it. */
 .cmeta a{font-weight:600;text-decoration:none}
 .cmeta a:hover{text-decoration:underline;text-decoration-color:var(--brand)}
-/* align-items:start is load-bearing twice over: a grid item defaults to stretch, which leaves
-   position:sticky no room to slide (it would silently never stick), and a short rail would
-   otherwise draw as a full-height empty card. */
-/* One column now. The 280px rail column is gone; see templates/feed.html for the arithmetic,
-   but the short version is that removing it buys a fourth card column at 1440px. Kept as a
-   named block rather than deleted so .results keeps its min-width:0 grid-child guard. */
+/* ---- feed layout ----
+   One column. The 280px rail column is gone and so is every rule that served it: .railtop,
+   .railhead, .railtitle, .railtoggle, .railbody, .railfoot, .railstrip, .railcollapsebtn,
+   .fcaret, the four `.rail X` overrides, the collapse-to-a-strip block and the two media
+   queries that sized a grid track for it. None of that had been rendered by any template
+   since the chip bar landed; it was roughly 90 lines of CSS for markup that did not exist.
+
+   .feedlayout is kept as a named block rather than deleted so .results keeps its min-width:0
+   guard and the popovers keep a positioned ancestor to be absolute inside. */
 .feedlayout{display:block;position:relative}
 .results{min-width:0}
-.rail{position:sticky;top:calc(var(--topbar-h) + 14px);display:flex;flex-direction:column;max-height:calc(100vh - var(--topbar-h) - 28px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 14px}
-.railtop{display:flex;flex-direction:column;gap:var(--space-150)}
-.railhead{display:flex;align-items:center;gap:var(--space-100);margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
-.railtitle{font-size:var(--text-3xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
-.railtoggle{display:none;align-items:center;gap:var(--space-100);margin-left:auto}
-/* min-height:0 is load-bearing: without it this scrolling flex child's min-content height wins and
-   the rail grows past its max-height instead of scrolling inside it. */
-.railbody{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:var(--space-200);margin-top:12px;scroll-padding-block:4px 60px}
-.fgroup{display:flex;flex-direction:column;gap:var(--space-100)}
-.flab{font-size:var(--text-3xs);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0}
-/* On an 800px-tall laptop the rail runs ~120px past the viewport, so Clear/Save pin to the bottom
-   of their own scroller rather than sitting below the fold on every visit. No negative margins to
-   bleed into the rail's padding: overflow-y:auto computes overflow-x to auto, so that would add a
-   horizontal scrollbar. */
-.railfoot{position:sticky;bottom:0;display:flex;gap:var(--space-100);padding:11px 0 0;background:var(--surface);border-top:1px solid var(--line)}
-.railfoot .btn{flex:1}
-/* At least 252px of usable width (the 280px rail, wider above 1900px), so controls go full-bleed.
-   #q and .locin pick width:100% back up from the
-   global input rule now that .filters is gone. Deliberately NOT `.rail input{width:100%}` — that
-   ties with .ck input{width:auto} and wins on source order, blowing the checkboxes out to full
-   width. */
-.rail .sel{width:100%}
-.rail .ck{white-space:normal;padding:1px 0}
-.rail .ck:focus-within{color:var(--ink)}
-.rail .seg{display:flex;flex-direction:column;width:100%}
-.rail .segb{width:100%;text-align:left;padding:8px 10px}
 .matchrow{display:flex;align-items:center;justify-content:space-between;gap:var(--space-100)}
 .countrow{display:flex;align-items:center;justify-content:space-between;gap:var(--space-150);margin:14px 0 8px}
 .results .tabs{margin-top:0}
 .results .count{margin:0}
 
-/* ---- collapsed rail ----
-   Once a search is dialled in the filters are dead weight, so the whole rail folds to a 46px
-   strip and the grid picks up another card column (1880 - 46 - 20 = 1814px of results, more
-   above 1900px).
-   The strip keeps the active-filter badge: a collapsed rail must never hide that filters are on.
-   These live in a min-width query rather than being declared unconditionally. The alternative —
-   declaring them unconditionally and undoing six of them in the <=900px block — fought
-   `.rail.open .railbody` on specificity and could leave the mobile rail unopenable. Scoping to
-   desktop is the safer shape. */
-.railstrip{display:none}
-.railcollapsebtn{display:none;margin-left:auto;font:inherit;font-size:var(--text-base);line-height:1;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);padding:4px 8px;cursor:pointer;transition:background .14s,color .14s}
-.railcollapsebtn:hover{background:var(--surface2);color:var(--ink)}
-.railcollapsebtn:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-@media (min-width:901px){
-  .railcollapsebtn{display:inline-flex}
-  .feedlayout.railcollapsed{grid-template-columns:46px minmax(0,1fr)}
-  .feedlayout.railcollapsed .rail{padding:10px 4px;align-items:center;max-height:none;overflow:visible}
-  .feedlayout.railcollapsed .railtop,
-  .feedlayout.railcollapsed .railhead,
-  .feedlayout.railcollapsed .railbody{display:none}
-  .feedlayout.railcollapsed .railstrip{display:flex;flex-direction:column;align-items:center;gap:var(--space-100);width:100%;padding:6px 0;font:inherit;background:transparent;border:0;border-radius:var(--radius-sm);cursor:pointer;color:var(--muted);transition:background .14s,color .14s}
-  .feedlayout.railcollapsed .railstrip:hover{background:var(--surface2);color:var(--brand-ink)}
-  .feedlayout.railcollapsed .railstrip:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  .rs-chev{font-size:var(--text-base);font-weight:700;line-height:1}
-  /* vertical so the word fits a 46px column without truncating */
-  .rs-txt{writing-mode:vertical-rl;font-size:var(--text-3xs);font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-}
-
 /* ---- wide displays ----
-   Above ~1900 the 1880 cap starts leaving gutters again, and a 280px rail reads as a sliver
-   next to 1900px of cards, so both widen. The card count follows from the grid's own arithmetic
-   (330px min track + 14px gap = 344px a column, so n columns need 344n-14 of results track):
-   4 columns at 1920, 5 at 2560, and one more than that with the rail collapsed.
-   Specificity here is (0,1,0) ON PURPOSE — .feedlayout.railcollapsed above is (0,2,0) and has to
-   keep winning the 46px track no matter how wide the display is. */
-@media (min-width:1900px){
-  .feedwrap{max-width:2280px}
-  .feedlayout{grid-template-columns:clamp(300px,17vw,360px) minmax(0,1fr)}
-}
+   Above ~1900 the 1880 cap starts leaving gutters again, so it widens. The column count
+   follows from the grid's own arithmetic (300px min track + 24px gap = 324px a column, so n
+   columns need 324n-24 of track): 5 at 1920, 7 at 2560.
+   The cap only. There is no rail column to widen any more, so the extra width goes entirely
+   to the card grid, which is what the chip bar bought in the first place. */
+@media (min-width:1900px){ .feedwrap{max-width:2280px} }
 
 /* career-track segmented control — the feed's primary split, so it reads as one solid object */
 .seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:var(--radius-full);padding:3px;gap:var(--space-025)}
@@ -646,8 +591,6 @@ textarea{resize:vertical}
 /* "Filters" disclosure (only rendered below 900px) + its active-count badge */
 .fbadge{background:var(--brand);color:var(--on-brand);border-radius:var(--radius-full);font-size:var(--text-3xs);font-weight:800;line-height:1;padding:3px 6px;min-width:16px;text-align:center}
 .fbadge[hidden]{display:none}
-.fcaret{font-size:var(--text-3xs);color:var(--muted);transition:transform .16s}
-.railtoggle.open .fcaret{transform:rotate(180deg)}
 .btn.fset{border-color:var(--accent);color:var(--ink)}
 .locin.fset{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .sel{width:auto;font-size:var(--text-sm);font-weight:500;padding:9px 11px;cursor:pointer}
@@ -666,7 +609,7 @@ textarea{resize:vertical}
 .ck.fset{color:var(--ink);font-weight:600}
 /* smooth custom range slider */
 /* width:100% is set here rather than via a `.rail .ranged` override: that would tie on specificity
-   (0,2,1 vs 0,2,1) and lose on source order. .ranged only ever appears in the rail. */
+   (0,2,1 vs 0,2,1) and lose on source order. .ranged only ever appears in a filter popover. */
 input[type=range].ranged{-webkit-appearance:none;appearance:none;background:transparent;width:100%;height:22px;padding:0;margin:0;cursor:pointer}
 .ranged::-webkit-slider-runnable-track{height:6px;border-radius:var(--radius-full);background:linear-gradient(to right,var(--brand) 0 var(--p,60%),var(--line-strong) var(--p,60%) 100%)}
 .ranged::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;margin-top:-6px;border-radius:var(--radius-full);background:var(--surface);border:2px solid var(--brand);box-shadow:0 1px 3px rgba(20,23,31,.25);transition:transform .14s ease,box-shadow .14s ease}
@@ -808,9 +751,6 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    inherits .cmeta's muted grey, and that difference is the point. */
 .posted.added{font-style:italic;opacity:.85;text-decoration:underline dotted;text-underline-offset:2px;text-decoration-color:var(--line-strong);cursor:help}
 .chip{font-weight:700;padding:6px 10px;border-radius:var(--radius-sm);font-size:var(--text-sm);line-height:1}
-.chip.strong{background:var(--brand-soft);color:var(--brand-ink)}
-.chip.good{background:var(--blue-soft);color:var(--blue)}
-.chip.low{background:var(--surface2);color:var(--muted)}
 .chip.big{display:inline-block;font-size:var(--text-md);padding:9px 14px}
 /* BADGE. One shape for all twelve; only the colour pair varies. These twelve classes each
    repeated the same five declarations before 2026-08-09.
@@ -1116,18 +1056,6 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   .hist-row.sd .hist-k{grid-row:span 2;align-self:center}
   /* Wide tables (per-table sizes, per-user actions) scroll rather than squeeze to nothing. */
   .panel{overflow-x:auto}
-  /* The rail becomes a normal full-width card above the results, and the eight narrowing filters
-     collapse behind the toggle. Search + the career track stay visible — they START a search. */
-  .feedlayout{grid-template-columns:1fr;gap:0}
-  .rail{position:static;max-height:none;margin:0 0 14px}
-  .railbody{display:none}
-  .rail.open .railbody{display:flex}
-  .railfoot{position:static}   /* sticky here resolves against the VIEWPORT and would pin
-                                  Clear/Save to the bottom of the phone screen while scrolling */
-  .railtoggle{display:inline-flex}
-  /* stacked track buttons read as a nav on a phone — back to a 3-up segmented control */
-  .rail .seg{flex-direction:row}
-  .rail .segb{flex:1;text-align:center;padding:7px 6px;font-size:var(--text-xs)}
 }
 @media (max-width:560px){
   main{padding:18px 14px 60px}
@@ -1138,11 +1066,6 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   .modal{border-radius:var(--r-lg) var(--r-lg) 0 0}
   .modal-foot{flex-wrap:wrap}
   h1,.rb h1{font-size:var(--text-lg)}
-  /* Bigger tap targets in the rail. NOTE: the old rules here sized .sel/.ck with
-     `flex:1 1 calc(50% - 5px)`, which assumed a ROW parent — inside the rail's COLUMN containers
-     flex-basis sizes the HEIGHT, so those produced comically tall selects. Padding only. */
-  .rail .sel{padding:11px 12px;font-size:var(--text-sm)}
-  .rail .ck{padding:6px 0;font-size:var(--text-sm)}
   .countrow{flex-wrap:wrap}
   .countrow .sel{width:100%}
   .tab{padding:8px 13px}
@@ -1428,7 +1351,7 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    inconsistently. tip.js promotes title -> data-tip on first hover or focus, so
    with JS off the native tooltip still works and nothing is lost.
 
-   Fixed position and appended to <body> on purpose: the filter rail scrolls its
+   Fixed position and appended to <body> on purpose: a filter popover scrolls its
    own body, and an absolutely positioned tip inside it would be clipped. */
 .tip{position:fixed;z-index:var(--z-toast);max-width:280px;pointer-events:none;
   background:var(--text-primary);color:var(--bg-surface);
