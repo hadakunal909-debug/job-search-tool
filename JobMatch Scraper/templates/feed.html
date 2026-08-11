@@ -61,7 +61,7 @@
 <div class="feedlayout" id="feedlayout">
   <div class="filterbar" id="filterbar">
     <div class="fsearch">
-      <input id="q" placeholder="Title, company, or location" autocomplete="off" aria-label="Search jobs">
+      <input id="q" placeholder="Title, company, or location…" autocomplete="off" aria-label="Search jobs">
     </div>
     {# Each chip OPENS the popover holding that dimension's real controls. The chip carries its
        own value, so the bar reads as a sentence about the current search. #}
@@ -100,7 +100,7 @@
     {# Remote lives HERE rather than as its own control, because remote is a place. The location
        box's own tooltip already said it accepts "remote" as a value, so the app knew this while
        the interface disagreed with itself. #}
-    <input id="loc" class="locin" list="locs" placeholder="City, metro or state" autocomplete="off"
+    <input id="loc" class="locin" list="locs" placeholder="City, metro, or state…" autocomplete="off"
            value="{{ prefs.loc }}" aria-labelledby="lab-loc"
            title="Also accepts a state code (MA) or 'remote'.">
     <datalist id="locs">
