@@ -377,16 +377,49 @@
     }
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "");
+    // THE ROUTE RAIL. One attribute; the 3px rule down the card's left edge is drawn in CSS.
+    //
+    // vt is already ranked by what this reader is filtering on, so vt[0] is the best route
+    // AVAILABLE TO THEM rather than whatever the employer files most of. That is the whole
+    // point: down a four-column grid the rail answers "can I take this job" before a single
+    // word is read, which is the question this audience actually opened the page with.
+    //
+    // A JD that rules sponsorship out wins over the employer's filing history, because for
+    // THIS posting the route is shut no matter what the company has filed before. Anything
+    // with no record at all gets the quiet grey, never red: core.py documents absence as
+    // "no record, not a refusal", and it is a routine fact here, not an error.
+    var route = j.sponsor_jd === "blocked" ? "blocked" : (vt.length ? vt[0] : "none");
     return '<article class="' + cls + '"' +
-      ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' + newFlag +
+      ' data-route="' + H(route) + '"' +
+      ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' +
+      // "New" sits INSIDE the top row, between the logo and the score, rather than hanging
+      // off the card's top edge as it used to. Two reasons: an overhanging sticker is the
+      // one bit of card furniture that read as decoration rather than as data, and the
+      // paint containment that makes a long grid cheap to scroll would have clipped it.
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
           '<img class="logo-img" src="' + LOGO_BASE + H(j.logo_domain) +
-          '" alt="" loading="lazy"></div>' +
+          '" alt="" width="42" height="42" loading="lazy"></div>' +
+        newFlag +
         scoreCell(j) +
       '</div>' +
       '<div class="ctitle">' + esc(j.title) + '</div>' +
-      '<div class="cmeta">' + companyLink(j.company) + SEP + esc(j.location || 'n/a') + posted + badges + '</div>' +
+      // TWO parts, not one inline run. Identity (company, place, when) is a single line that
+      // truncates; the chips are a wrapping row below it.
+      //
+      // As one run it broke badly: employers write locations like "Minneapolis Minnesota
+      // United States of America", so the row went to three lines, the sponsorship chips —
+      // the entire point of the card — were pushed past where the eye stops, and a wrap
+      // could leave a line starting with a bare separator dot. Splitting it means the
+      // identity line can never take more than one line and the chips can never be pushed
+      // down by a verbose employer.
+      '<div class="cmeta">' +
+        '<div class="cident">' + companyLink(j.company) + SEP +
+          '<span class="cloc" title="' + H(j.location || '') + '">' +
+          esc(j.location || 'Location not stated') + '</span>' + posted +
+        '</div>' +
+        (badges ? '<div class="cbadges">' + badges + '</div>' : '') +
+      '</div>' +
       '<div class="cardact">' +
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>' +
         '<a class="btn sm" href="/brain?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
