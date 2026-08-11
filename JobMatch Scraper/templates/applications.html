@@ -44,7 +44,7 @@
     <div class="apphead">
       <div>
         <div class="appco">{{ a.company or 'None' }}</div>
-        <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View posting' }} ↗</a>{% else %}{{ a.title or '' }}{% endif %}</div>
+        <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View Posting' }}<span class="ic ic-external" aria-hidden="true"></span></a>{% else %}{{ a.title or '' }}{% endif %}</div>
         <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}Not recorded{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
@@ -72,7 +72,7 @@
 
 <details class="setup">
   <summary>First time? One-time database setup</summary>
-  <p>If saving doesn't stick, the <code>applications</code> table doesn't exist yet. Run this once in Supabase → SQL Editor:</p>
+  <p>If saving doesn't stick, the <code>applications</code> table doesn't exist yet. Run this once in the Supabase SQL editor:</p>
   <pre>{{ sql }}</pre>
 </details>
 {% endblock %}

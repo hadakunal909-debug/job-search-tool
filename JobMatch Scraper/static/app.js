@@ -170,6 +170,11 @@
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
+  // The meta-row separator, in one place. The dot itself is correct typography and both
+  // LinkedIn and Indeed use it, so it stays — but typed bare into the string it inherited
+  // the full weight of the text around it, and a screen reader read "Stripe middle dot
+  // Boston comma MA". Wrapped, it can recede in CSS and be skipped in the accessible name.
+  var SEP = '<span class="sep" aria-hidden="true">·</span>';
   function scoreRing(s) {
     var cls = s >= 55 ? 'ring-strong' : s >= 42 ? 'ring-good' : 'ring-low';
     var off = (113.1 * (1 - s / 100)).toFixed(1);
@@ -186,8 +191,11 @@
     // computed against the SCRAPER's resume.txt — so a new account saw a feed of confident
     // 62-64% rings derived from somebody else's CV, drawn identically to a real match. A
     // number that looks personalised and isn't is worse than no number.
+    // Empty, not a typed-in dot. The dashed ring already says "a number belongs here and
+    // there isn't one"; a middle dot inside it read as a rendering artefact, and screen
+    // readers announced it. The tooltip carries the actual explanation.
     if (!HAS_RESUME)
-      return '<span class="score-none" title="Add your résumé to see how well each job matches you. Until then there is nothing to compare against.">·</span>';
+      return '<span class="score-none" title="Add your résumé to see how well each job matches you. Until then there is nothing to compare against."></span>';
     if (j && j.score_pending)
       return '<span class="score-pending" title="This description is too short to score reliably yet. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);
@@ -320,13 +328,14 @@
     for (var vi = 0; vi < vt.length && vi < 3; vi++) {
       var vk = vt[vi];
       badges += '<span class="vt vt-' + H(vk) + '">' + esc(VISA_LABELS[vk] || vk) +
-        (vk === "h1b" && j.strength === "high" ? " · top sponsor" : "") + '</span>';
+        (vk === "h1b" && j.strength === "high" ? ", top sponsor" : "") + '</span>';
     }
-    // This one KEEPS its tooltip: the chip reads "+2", so it is the only place the remaining
-    // routes are named. That's data, not prose.
+    // This one KEEPS its tooltip: the chip is the only place the remaining routes are named.
+    // "+2 more" rather than a bare "+2", which read as a stray symbol in a row of words and
+    // gave no clue it was a control you could hover for the rest.
     if (vt.length > 3)
       badges += '<span class="vt vt-more" title="' + H(vt.map(function (k) {
-        return VISA_LABELS[k] || k; }).join(", ")) + '">+' + (vt.length - 3) + '</span>';
+        return VISA_LABELS[k] || k; }).join(", ")) + '">+' + (vt.length - 3) + ' more</span>';
     // Fallback for when visa_tags.json hasn't been built: the old name-list H-1B flag.
     if (!vt.length && j.sponsors_h1b === "yes")
       badges += '<span class="h1b">H1B' + (j.strength === 'high' ? ' (top sponsor)' : '') + '</span>';
@@ -334,10 +343,13 @@
       badges += '<span class="cx">No lottery</span>';
     if (j.agency)
       badges += '<span class="agency">Agency</span>';
-    // No title on this one: the chip already reads "5+ yrs".
+    // Set in the data face with tabular figures, so "5+ yrs" reads as a measurement rather
+    // than as a plus sign someone left in a sentence. It keeps a tooltip because "5+" alone
+    // never said WHOSE five years it meant.
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
-      badges += '<span class="exp ' + ec + '">' + H(j.exp_years) + '+ years</span>';
+      badges += '<span class="exp ' + ec + '" title="The description asks for ' +
+        H(j.exp_years) + ' years of experience or more.">' + H(j.exp_years) + '+ yrs</span>';
     }
     if (j.sponsor_jd === 'blocked')
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
@@ -357,10 +369,10 @@
     // out as "Added <iso>" so there's no flash of a bare date before formatDates() runs.
     var posted = '';
     if (j.date) {
-      posted = ' · <span class="posted" data-d="' + H(j.date) + '"' +
+      posted = SEP + '<span class="posted" data-d="' + H(j.date) + '"' +
         (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>';
     } else if (j.first_seen) {
-      posted = ' · <span class="posted added" data-d="' + H(j.first_seen) +
+      posted = SEP + '<span class="posted added" data-d="' + H(j.first_seen) +
         '" data-added="1">Added ' + H(j.first_seen) + '</span>';
     }
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
@@ -374,9 +386,9 @@
         scoreCell(j) +
       '</div>' +
       '<div class="ctitle">' + esc(j.title) + '</div>' +
-      '<div class="cmeta">' + companyLink(j.company) + ' · ' + esc(j.location || 'n/a') + posted + badges + '</div>' +
+      '<div class="cmeta">' + companyLink(j.company) + SEP + esc(j.location || 'n/a') + posted + badges + '</div>' +
       '<div class="cardact">' +
-        '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply ↗</a>' +
+        '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>' +
         '<a class="btn sm" href="/brain?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
         '<span class="spacer"></span>' +
         // No title= here: each button's visible text already IS the tooltip, and this block
@@ -1159,7 +1171,7 @@
     else if (j.first_seen)
       parts.push('<span class="posted added" data-d="' + H(j.first_seen) +
                  '" data-added="1">Added ' + H(j.first_seen) + '</span>');
-    return parts.join(" · ");
+    return parts.join(SEP);
   }
 
   // ---- job description: plain text -> a readable document ----
@@ -1394,7 +1406,10 @@
       if (j.exp_years !== "" && j.exp_years != null) {
         var ey = parseInt(j.exp_years, 10);
         var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
-        spn += '<span class="exp ' + ec + '">' + ey + '+ yrs experience</span>';
+        // Same chip the card uses. It said "5+ yrs experience" here and "5+ yrs" there, so
+        // the two disagreed about their own wording on the same job.
+        spn += '<span class="exp ' + ec + '" title="The description asks for ' + ey +
+          ' years of experience or more.">' + ey + '+ yrs</span>';
       }
       // The modal has room, so it shows every route rather than the card's top three — and it
       // is where the "past filings, not a promise" caveat now lives, since the card's chips

@@ -169,11 +169,18 @@
   <p class="dim">Paste this token into the JobMatch Helper extension to tailor and auto-fill
   applications. Keep it private:</p>
   <div class="tok">{{ token }}</div>
+  {# A four-step install written as one sentence chained by arrows. The arrows were doing
+     the work an ordered list does natively, and doing it worse: nothing wrapped cleanly and
+     a screen reader read "right arrow" between every step. #}
   <details class="dim">
-    <summary>How to install</summary>
-    <p>Get the <code>extension/</code> folder from the repo → Chrome → <code>chrome://extensions</code>
-    → turn on <b>Developer mode</b> → <b>Load unpacked</b> → choose that folder. Full steps in
-    <code>extension/README.md</code>.</p>
+    <summary>How to Install</summary>
+    <ol class="steplist">
+      <li>Get the <code>extension/</code> folder from the repo.</li>
+      <li>Open <code>chrome://extensions</code> in Chrome.</li>
+      <li>Turn on <b>Developer mode</b>.</li>
+      <li>Choose <b>Load unpacked</b>, then pick that folder.</li>
+    </ol>
+    <p>Full steps are in <code>extension/README.md</code>.</p>
   </details>
   <form method="post" action="{{ url_for('profile_revoke_token') }}" class="inline">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">

@@ -9,7 +9,7 @@
    fixed. Both ids (#q, #sort) are ones app.js already wires up and null-guards. #}
 {% block content %}
 <div class="feedwrap">
-  <a class="backlink" href="{{ url_for('feed') }}"><span class="back-arrow"></span> All jobs</a>
+  <a class="backlink" href="{{ url_for('feed') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> All Jobs</a>
 
   <div class="cohead">
     <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
@@ -107,7 +107,7 @@
       <div class="costats">
         <div class="costat"><b>{{ about.tracks.dev }}</b><span>software<br>&amp; data</span></div>
         <div class="costat"><b>{{ about.tracks.mgmt }}</b><span>project<br>&amp; product</span></div>
-        <div class="costat"><b>{{ about.levels.entry }}</b><span>ask for<br>≤2 yrs</span></div>
+        <div class="costat"><b>{{ about.levels.entry }}</b><span>ask for<br>0 to 2 years</span></div>
         <div class="costat"><b>{{ about.fresh30 }}</b><span>posted in<br>the last 30 days</span></div>
       </div>
       <p class="coprose small">
@@ -151,7 +151,7 @@
 
     <div class="modal-foot">
       {% if about.research.pages %}
-      <a class="btn" href="{{ about.research.pages[0] }}" target="_blank" rel="noopener nofollow">Their site ↗</a>
+      <a class="btn" href="{{ about.research.pages[0] }}" target="_blank" rel="noopener nofollow">Their Site<span class="ic ic-external" aria-hidden="true"></span></a>
       {% endif %}
       <span class="spacer"></span>
       {% if about.research.fetched_at %}<span class="muted small">Researched {{ about.research.fetched_at }}</span>{% endif %}

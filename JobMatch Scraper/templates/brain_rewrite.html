@@ -4,7 +4,7 @@
 <div class="card">
   <h1>Your tailored draft</h1>
   <p class="muted small">AI-written from your real material + the brain's plan. Edit anything, then copy
-    or download as .docx. <a href="{{ url_for('brain_home') }}">← back to Tailor</a></p>
+    or download as .docx. <a class="backlink" href="{{ url_for('brain_home') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> Back to Tailor</a></p>
 </div>
 
 {% if error %}<div class="card"><div class="note warn">Couldn't generate: {{ error }}</div></div>{% endif %}

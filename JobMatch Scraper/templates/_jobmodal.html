@@ -22,7 +22,10 @@
       <div class="jd" id="m-jd">Loading…</div>
     </div>
     <div class="modal-foot">
-      <a class="btn primary" id="m-apply" target="_blank" rel="noopener">Apply ↗</a>
+      {# The mark is an icon, not an arrow typed into the label, so it inherits the button's
+         colour and disabled state and screen readers read "Apply" rather than "Apply north
+         east arrow". target=_blank is what it actually describes. #}
+      <a class="btn primary" id="m-apply" target="_blank" rel="noopener">Apply<span class="ic ic-external" aria-hidden="true"></span></a>
       <a class="btn" id="m-tailor">Tailor view</a>
       <span class="spacer"></span>
       <button class="btn" id="m-like">Save</button>
