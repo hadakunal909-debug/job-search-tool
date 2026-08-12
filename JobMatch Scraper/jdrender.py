@@ -225,6 +225,11 @@ MD_ATX = re.compile(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$")      # ## Heading
 MD_BOLD_LINE = re.compile(r"^\s*(?:\*\*|__)(?=\S)(.+?)(?<=\S)(?:\*\*|__)\s*:?\s*$")
 MD_BOLD = re.compile(r"(?:\*\*|__)(?=\S)(.+?)(?<=\S)(?:\*\*|__)", re.S)
 MD_STRAY = re.compile(r"\*\*|__(?=\s|\Z)")
+# Markdown backslash escapes: a writer who types "cross-functional" into a Markdown field gets
+# "cross\-functional" stored, and we were printing the backslash. Restricted to PUNCTUATION on
+# purpose -- a backslash before a letter or digit is not an escape, it is a Windows path or a
+# regex (\S, \D, \b appear in 24 of the cached descriptions) and must survive untouched.
+MD_ESCAPE = re.compile(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\]^_`{|}~\\])")
 # A setext underline only promotes a SHORT line. A rule under a 300-character paragraph is a
 # separator, not a title for it, and turning that paragraph into a heading would be worse than
 # leaving the dashes in.
@@ -232,9 +237,11 @@ MD_SETEXT_MAX = 90
 
 
 def strip_md(t):
-    """Drop emphasis markers, keeping the words. Runs on every line that survives as text."""
+    """Drop emphasis markers and backslash escapes, keeping the words. Runs on every line that
+    survives as text."""
     t = MD_BOLD.sub(r"\1", t)
     t = MD_STRAY.sub("", t)
+    t = MD_ESCAPE.sub(r"\1", t)
     return t.strip()
 
 
