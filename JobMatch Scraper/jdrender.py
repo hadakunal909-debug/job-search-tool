@@ -359,7 +359,10 @@ def split_boilerplate(nodes):
 # ---------------------------------------------------------------------------------------------
 # Pass 3: highlight the reader's keywords. Operates on PLAIN TEXT and returns plain-text runs.
 # ---------------------------------------------------------------------------------------------
-MAX_HITS_PER_TERM = 4                # past this a long description turns into a smear
+# Three, not four. With ten terms this bounds the page at thirty marks; a real Capital One posting
+# hit thirty-six at four and started reading as a highlighter accident again. Showing where a term
+# lives needs the first few occurrences, not all of them.
+MAX_HITS_PER_TERM = 3
 MIN_TERM_LEN = 3
 
 
@@ -459,6 +462,30 @@ def _nodes_html(nodes, hl, sections):
             out.append("<ul>%s</ul>"
                        % "".join("<li>%s</li>" % _text_html(i, _hl_for(i, hl)) for i in val))
     return "".join(out)
+
+
+def text_halves(text):
+    """(body, legal) as two lowercased strings: the description minus its notices, and the notices.
+
+    Exposed because the SCORER reads the whole description, boilerplate included, so its keyword
+    list can contain "regarding criminal", "background inquiries" and "applicable federal". A
+    caller can ask "is this term in the notices and nowhere else", which is a property of this
+    posting rather than a blacklist somebody has to maintain.
+
+    BOTH halves are built from the same jd_nodes() pass. Returning only the legal half and letting
+    the caller subtract it from the raw JD does not work, and failed silently the first time it was
+    tried: node text is whitespace-normalised and re-joined, so the reconstructed string never
+    appears verbatim in the original, str.replace removed nothing, and every term looked as though
+    it occurred outside the notices.
+
+    Covers boilerplate wherever it sits, not only a collapsible run at the end.
+    """
+    body, legal = [], []
+    for kind, val in jd_nodes(text):
+        for run in (val if kind == "ul" else [val]):
+            hit = _LEGAL_BODY.search(run) or (kind == "h" and _LEGAL_HEAD.search(run))
+            (legal if hit else body).append(run)
+    return " \n ".join(body).lower(), " \n ".join(legal).lower()
 
 
 def _hl_for(text, hl):

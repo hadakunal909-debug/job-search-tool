@@ -69,9 +69,10 @@ TEXT_PAIRS = [
     ("--route-on-ink", "--route-stem-ink"),
     ("--route-on-ink", "--route-blocked-ink"),
     ("--route-on-ink", "--route-none-ink"),
-    # Keyword marks inside a description: real body text at --text-sm, so the text minimum.
+    # Keyword marks inside a description. Real body text, so the text minimum, and both now carry
+    # a fill (green / red) rather than one being an underline on the page surface.
     ("--kw-have-text", "--kw-have-bg"),
-    ("--kw-miss-text", "--bg-sunken"),
+    ("--kw-miss-text", "--kw-miss-bg"),
     # The tooltip is an INVERTED bubble: it paints --text-primary as its background and
     # --bg-surface as its text, so the pair has to be checked in that order or the one
     # surface in the app that reverses the ramp goes unchecked.
@@ -83,8 +84,6 @@ UI_PAIRS = [
     ("--border-strong", "--bg-surface"),
     ("--border-strong", "--bg-canvas"),
     ("--accent", "--bg-surface"),
-    # The underline that carries the whole "to add" signal, since that mark has no fill.
-    ("--kw-miss-rule", "--bg-sunken"),
 ]
 
 EXEMPT = {

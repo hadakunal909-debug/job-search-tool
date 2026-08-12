@@ -131,9 +131,8 @@
      description on a plum-routed page would be saying two things at once. Matched is an ink tint
      under a solid rule, to-add is unfilled under a dotted one. mark's UA default is yellow on
      black, so both properties have to be set in both themes or dark mode renders black on grey. */
-  --kw-have-bg:var(--gray-200);   --kw-have-text:var(--text-primary);
-  --kw-have-rule:var(--text-primary);
-  --kw-miss-text:var(--text-primary); --kw-miss-rule:var(--border-strong);
+  --kw-have-bg:var(--status-success-bg);  --kw-have-text:var(--status-success-text);
+  --kw-miss-bg:var(--status-danger-bg);   --kw-miss-text:var(--status-danger-text);
   --posting-agency-text:var(--gray-700); --posting-agency-bg:var(--gray-100);
 
   /* THE ROUTE PALETTE. The whole card is coloured by the best sponsorship route open to
@@ -348,9 +347,8 @@
   --match-track:#2c3045; --match-strong:#6ee7a0; --match-good:#f0c05a;
   --match-weak:#f5a3a3;  --match-none:#454d5d;
   --match-pill:var(--bg-surface);
-  --kw-have-bg:var(--bg-active);  --kw-have-text:var(--text-primary);
-  --kw-have-rule:var(--text-primary);
-  --kw-miss-text:var(--text-primary); --kw-miss-rule:var(--border-strong);
+  --kw-have-bg:var(--status-success-bg);  --kw-have-text:var(--status-success-text);
+  --kw-miss-bg:var(--status-danger-bg);   --kw-miss-text:var(--status-danger-text);
   --posting-agency-text:#9ea5b8; --posting-agency-bg:#232738;
   /* On a #0c0e14 canvas a tint has to be a LIFT rather than a wash, so each route's fill
      is its hue mixed up out of the surface rather than down out of white. The inks stay
@@ -1014,14 +1012,14 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    title, score and Apply button scrolled away above the text you were reading. Bounded here,
    the description scrolls under a header that stays put. overscroll-behavior stops a flick at
    the bottom of the JD from carrying on and scrolling the page behind the modal. */
-/* No max-height and no overflow any more. Those belonged to the modal, where the description
-   shared a fixed-height panel with a header and a footer. On /job the page IS the scroll
-   container, and a nested one there gives you two scrollbars and a description that stops
-   moving when the pointer leaves a box you cannot see the edge of. */
-.jd{font-size:var(--text-sm);line-height:1.65;color:var(--ink);
-    background:var(--bg-sunken);border:1px solid var(--line);
-    border-radius:var(--r);padding:14px 16px}
-.jd p{margin:0 0 11px}
+/* NOT A BOX. No background, no border, no padding, and no max-height or overflow.
+   All of that belonged to the modal, where the description shared a fixed-height panel with a
+   header and a footer and needed an edge to sit inside. On a page it read as a quoted blob pasted
+   in from somewhere else rather than as the page's own content, and the nested scroll container
+   gave you two scrollbars. The description is the main thing here, so it is set as prose: type
+   size and rhythm carry it, and the section heading above is the only boundary it needs. */
+.jd{font-size:var(--text-base);line-height:1.7;color:var(--ink)}
+.jd p{margin:0 0 13px}
 /* Matched to .sechdr above on purpose: the JD's own section titles should read as siblings of
    the "Job description" header, not compete with it. */
 .jd h4.jdh{font-size:var(--text-2xs);font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 7px}
@@ -1034,6 +1032,9 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    tags it, so the three recognised kinds can be told apart without rewriting anybody's words. */
 .jd h4.jdh[data-sec]{color:var(--ink);border-left:3px solid var(--border-strong);padding-left:9px}
 .jd h4.jdh[data-sec="req"]{border-left-color:var(--accent)}
+/* Unboxed, the JD's own headings have to carry more weight than the modal's 11px eyebrows did,
+   or a 4,000-character description reads as one undifferentiated run. */
+.jd h4.jdh{font-size:var(--text-xs);margin:22px 0 9px}
 .jdjump{display:flex;flex-wrap:wrap;gap:var(--space-100);margin:0 0 10px}
 .jdjump a{font-size:var(--text-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.05em;
   text-decoration:none;color:var(--muted);background:var(--surface2);border:1px solid var(--line);
@@ -1044,23 +1045,38 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .jdlegal{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 .jdlegal summary{font-size:var(--text-2xs);color:var(--muted);font-weight:600}
 .jdlegal p,.jdlegal li{font-size:var(--text-2xs);color:var(--muted)}
-/* MATCHED and MISSING keywords, inline in the description. No new hue: the colour rule gives the
-   whole chromatic budget to sponsorship, and green in particular is already STEM-OPT's, so a
-   green mark inside a description on a plum-routed page would be saying two things at once.
-   Matched is an ink tint with a solid ink rule; to-add is unfilled with a dotted one, which is
-   the same logic .tag.miss already uses to read as a to-do rather than a fault. */
+/* MATCHED and MISSING keywords, inline in the description. GREEN and RED, on Kunal's call
+   2026-08-11: the first pass used an ink tint and a dotted rule to keep the chromatic budget on
+   sponsorship, and it was too quiet to scan. Green for what you already have, red for what would
+   help — a legend at the top of the description says exactly that, so the two colours are defined
+   on screen rather than assumed. They reuse the status tokens, which already carry this meaning
+   everywhere else in the product and are already contrast-checked. */
 mark.kw-have{background:var(--kw-have-bg);color:var(--kw-have-text);
-  box-shadow:inset 0 -2px 0 var(--kw-have-rule);border-radius:2px;padding:0 1px}
-mark.kw-miss{background:transparent;color:var(--kw-miss-text);
-  box-shadow:inset 0 -2px 0 var(--kw-miss-rule);border-radius:2px;padding:0 1px}
-.kwlegend{font-size:var(--text-2xs);color:var(--muted);margin:0 0 8px}
+  border-radius:3px;padding:0 3px;font-weight:600}
+mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
+  border-radius:3px;padding:0 3px;font-weight:600}
+.kwlegend{font-size:var(--text-xs);color:var(--muted);margin:0 0 12px}
+/* The chip lists under the description use the SAME green and red as the marks in it, or the
+   legend teaches one colour code and the lists below it use another. Scoped to .jobmain because
+   .tag.miss is an ordinary outlined chip on the company page (its tech stack) and must stay one. */
+.jobmain .kw .tag.miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);box-shadow:none}
 
 /* ---- THE JOB PAGE ------------------------------------------------------------------------
-   A reading page, so --layout-page-max rather than the feed's much wider --layout-feed-max.
+   FULL WIDTH, on Kunal's call 2026-08-11. It was --layout-page-max (1280px) with the reading
+   column held at --layout-prose-max (68ch), which is the textbook measure for prose and left a
+   1920px screen mostly empty either side — it read as a narrow strip of content in a lot of grey.
+   It now uses the feed's own --layout-feed-max and lets the column take whatever the aside does
+   not, so the page fills the screen the way every other page in the product does.
+
+   The measure is the acknowledged trade: body text runs wider than 68ch on a large monitor. It is
+   mitigated rather than ignored — 15px type with 1.7 line-height, and the JD's own headings and
+   lists break the run up every few paragraphs, so it is a description with structure rather than
+   an unbroken wall.
+
    DOM order equals the narrow-viewport order, which is why there is no `order` anywhere here:
    reordering with CSS would leave tab order following the source and reading order following the
    screen, and the two would disagree. */
-.jobwrap{max-width:var(--layout-page-max);margin:0 auto;padding:0 var(--space-200) var(--space-600)}
+.jobwrap{max-width:var(--layout-feed-max);margin:0 auto;padding:0 var(--space-300) var(--space-600)}
 .jobhead{display:flex;gap:var(--space-200);align-items:flex-start;margin:0 0 var(--space-300)}
 .jobhead .logo{width:56px;height:56px;font-size:var(--text-lg);border-radius:var(--radius-md)}
 .jobhead h1{margin:0;line-height:1.15;font-size:var(--text-xl);letter-spacing:var(--tracking-tight)}
@@ -1071,11 +1087,14 @@ mark.kw-miss{background:transparent;color:var(--kw-miss-text);
 /* Every date on this page is absolute and set in the data face. There is no relTime twin here on
    purpose: formatDates lives in app.js, which this page does not load. */
 .jobdate{font-family:var(--font-data);font-variant-numeric:tabular-nums;font-size:var(--text-xs)}
-.jobcols{display:grid;grid-template-columns:1fr;gap:var(--space-400)}
-.jobmain{min-width:0;max-width:var(--layout-prose-max)}
+.jobcols{display:grid;grid-template-columns:1fr;gap:var(--space-500)}
+/* No max-width: the column takes the whole track. min-width:0 is load-bearing, or a long
+   unbroken run inside the description sets the grid item's automatic minimum size and pushes the
+   track past the container — the same min-content floor that made the feed scroll sideways. */
+.jobmain{min-width:0}
 .jobaside{min-width:0}
 @media (min-width:1040px){
-  .jobcols{grid-template-columns:minmax(0,1fr) 320px}
+  .jobcols{grid-template-columns:minmax(0,1fr) 340px}
   /* Sticky, but only where there is room. On a phone a sticky aside would eat the viewport. */
   .jobaside{position:sticky;top:calc(var(--topbar-h) + var(--space-200));align-self:start}
 }
@@ -1108,17 +1127,34 @@ mark.kw-miss{background:transparent;color:var(--kw-miss-text);
 .jobrail .cx{background:var(--on-card-veil)}
 .jobrail .btn:not(.primary){background:transparent}
 .jobrail .btn:not(.primary):hover{background:var(--on-card-veil)}
-/* ALL FIVE ROUTES, always, including the ones with no record. The card shows one chip; this list
-   shows five rows and the empty ones are visibly empty, which is what makes "no record, not a
-   refusal" honest rather than defensive. */
-.routelist{list-style:none;margin:0 0 var(--space-200);padding:0}
-.routerow{display:flex;gap:var(--space-150);align-items:baseline;padding:7px 0;
-  border-bottom:1px solid var(--border-subtle)}
-.routerow:last-child{border-bottom:0}
-.routerow .vt{flex:0 0 auto}
-.routewhy{font-size:var(--text-xs);color:var(--muted);line-height:1.45}
-.routerow.off{opacity:var(--opacity-deemphasis)}
-.jobaside-apply{width:100%;justify-content:center;margin-bottom:var(--space-200)}
+/* The five-route table with a tip per route lived here. It answered "what is an H-1B", which is
+   not what somebody who opened a job description came to find out, and it pushed the description
+   itself below the fold. Sponsorship is two sentences at the foot of the page now, and /company
+   keeps the per-route detail and the year by year chart. */
+
+/* OTHER ROLES AT THIS EMPLOYER, in the rail. A sideways jump, so it belongs beside the posting
+   rather than inside it. Each row carries its own route colour as a 3px edge — the one place a
+   route still reads as a stripe, because at this size a full wash would fight the rail's own
+   surface. */
+.simlist{list-style:none;margin:0 0 var(--space-200);padding:0}
+.simrow{padding:9px 0 9px 10px;border-bottom:1px solid var(--border-subtle);
+  border-left:3px solid var(--route-none-line)}
+.simrow:last-child{border-bottom:0}
+.simrow[data-route="h1b"]{border-left-color:var(--route-h1b-ink)}
+.simrow[data-route="sponsor"]{border-left-color:var(--route-gc-ink)}
+.simrow[data-route="stem_opt"]{border-left-color:var(--route-stem-ink)}
+.simrow[data-route="blocked"]{border-left-color:var(--route-blocked-line)}
+.simtitle{display:block;font-size:var(--text-xs);font-weight:600;color:var(--ink);
+  text-decoration:none;line-height:1.4}
+.simtitle:hover{text-decoration:underline}
+.simmeta{display:flex;gap:var(--space-100);align-items:baseline;margin-top:3px;
+  font-size:var(--text-3xs);color:var(--muted)}
+.simmeta b{font-family:var(--font-data);font-variant-numeric:tabular-nums;
+  font-size:var(--text-2xs);font-weight:var(--weight-semibold)}
+.simmeta b.meter-strong{color:var(--match-strong)}
+.simmeta b.meter-good{color:var(--match-good)}
+.simmeta b.meter-weak{color:var(--match-weak)}
+.jobaside-apply{width:100%;justify-content:center;margin-bottom:var(--space-300)}
 .jobgone-url{font-family:var(--font-mono);font-size:var(--text-xs);word-break:break-all;
   color:var(--muted)}
 .modal-foot{display:flex;gap:var(--space-100);align-items:center;padding:14px 24px 20px;border-top:1px solid var(--line);margin-top:12px;position:sticky;bottom:0;background:var(--surface)}
