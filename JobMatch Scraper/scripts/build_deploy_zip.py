@@ -51,13 +51,15 @@ NOT included, deliberately:
   __pycache__, *.pyc        stale bytecode breaks more deploys than it fixes
 """
 import os
+import re
 import sys
 import zipfile
 
 # Mirrors the /bin/cp list in .cpanel.yml. Keep the two in sync — the check below fails the
 # build if they drift, because a bundle missing a module web.py imports is a dead site.
 FILES = [
-    "web.py", "core.py", "db.py", "auth.py", "analytics.py", "passenger_wsgi.py",
+    "web.py", "core.py", "db.py", "auth.py", "analytics.py", "jdrender.py",
+    "passenger_wsgi.py",
     "requirements-cpanel.txt", "idf.json", "careers_us.md", "sponsors.txt",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
@@ -76,6 +78,37 @@ def main():
     missing = [f for f in FILES if not os.path.isfile(f)]
     if missing:
         sys.exit("  Refusing to build an incomplete bundle — missing: %s" % ", ".join(missing))
+
+    # THE CHECK THE DOCSTRING ABOVE HAS ALWAYS PROMISED, now actually performed. It used to
+    # verify only that the listed files EXIST, which cannot catch the failure that matters: a
+    # module web.py imports and this list forgot. That ships a bundle whose first request is an
+    # ImportError, i.e. a dead site, and it happened for real — jdrender.py was added to web.py
+    # on 2026-08-12 and this list did not know about it.
+    #
+    # Reads web.py's own top-level imports and requires every one that resolves to a .py file in
+    # the app directory to be in FILES. Text-scanned rather than imported, because importing
+    # web.py here would need Flask, the .env and a live Supabase.
+    src = open("web.py", encoding="utf-8").read()
+    imported = set(re.findall(r"^\s*import\s+([a-zA-Z_][\w]*)", src, re.M))
+    imported |= set(re.findall(r"^\s*from\s+([a-zA-Z_][\w]*)\s+import", src, re.M))
+    local = {m for m in imported if os.path.isfile(m + ".py")}
+    packaged = {f[:-3] for f in FILES if f.endswith(".py")} | set(DIRS)
+    forgotten = sorted(local - packaged)
+    if forgotten:
+        sys.exit("  Refusing to build: web.py imports %s, which this bundle would not ship.\n"
+                 "  Add %s to FILES here AND to the /bin/cp line in ../.cpanel.yml — the two\n"
+                 "  lists deploy the same app by two different routes and must not drift."
+                 % (", ".join(forgotten), ", ".join(f + ".py" for f in forgotten)))
+
+    # And the other direction: FILES must not promise something .cpanel.yml would leave behind.
+    try:
+        cp = open(os.path.join("..", ".cpanel.yml"), encoding="utf-8").read()
+        absent = sorted(f for f in FILES if f.endswith(".py") and ('"$SRC/%s"' % f) not in cp)
+        if absent:
+            print("  WARNING: in FILES but not in .cpanel.yml's cp line: %s" % ", ".join(absent))
+            print("           the zip will be complete; a git-based deploy would not be.")
+    except OSError:
+        pass
 
     added, skipped = [], []
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
