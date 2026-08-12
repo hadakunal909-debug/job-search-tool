@@ -258,7 +258,13 @@
   --shadow-lg:0 20px 60px rgba(15,17,21,.2),0 8px 20px rgba(15,17,21,.08);
   --z-base:0; --z-sticky:100; --z-topbar:200; --z-dropdown:300;
   --z-overlay:400; --z-modal:500; --z-toast:600; --z-progress:700;
-  --layout-prose-max:68ch; --layout-form-max:680px; --layout-page-max:1280px;
+  --layout-prose-max:68ch;
+  /* Running prose on the JOB page. Wider than --layout-prose-max, which is the textbook measure
+     and made the page read as a narrow strip in a lot of empty grey, and narrower than the full
+     column, which at 1920px ran about 150 characters a line. Applied to PARAGRAPHS only: the
+     action band, the chip rows and the rail all still take the whole width, so the page fills the
+     screen and only the sentences are held to something you can read without losing your place. */
+  --layout-jd-max:90ch; --layout-form-max:680px; --layout-page-max:1280px;
   --layout-feed-max:1880px;
   --filterbar-h:56px;
   --field-h-sm:32px; --field-h:40px; --field-h-lg:48px;
@@ -1088,10 +1094,39 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
    purpose: formatDates lives in app.js, which this page does not load. */
 .jobdate{font-family:var(--font-data);font-variant-numeric:tabular-nums;font-size:var(--text-xs)}
 .jobcols{display:grid;grid-template-columns:1fr;gap:var(--space-500)}
-/* No max-width: the column takes the whole track. min-width:0 is load-bearing, or a long
-   unbroken run inside the description sets the grid item's automatic minimum size and pushes the
-   track past the container — the same min-content floor that made the feed scroll sideways. */
+/* The COLUMN takes the whole track; only the sentences inside it are held to a measure (below).
+   min-width:0 is load-bearing, or a long unbroken run inside the description sets the grid item's
+   automatic minimum size and pushes the track past the container — the same min-content floor that
+   made the feed scroll sideways. */
 .jobmain{min-width:0}
+/* WHAT IS CAPPED AND WHAT IS NOT. Running prose is capped, because a 150 character line loses your
+   place on the way back to the left margin. The action band, the section headings and the rails are
+   NOT, because those are scanned rather than read and width genuinely helps them. */
+.jobmain .jd,
+.jobmain .coprose,
+.jobmain .kwlegend,
+.jobmain .fnote,
+.jobmain .jobnote{max-width:var(--layout-jd-max)}
+
+/* CAPPING THE MEASURE ALONE IS NOT ENOUGH, and the first attempt proved it: at 1920px the
+   description stopped at 908px and left 570px of nothing between it and the rail, which is the
+   same empty space the full-width change was meant to remove, just relocated to the middle.
+   So the keywords move up beside the description and fill it with content that was already on the
+   page and reads better there anyway.
+   Below the breakpoint they sit under it, which is the DOM order, so nothing is reordered in CSS
+   and tab order needs no help. */
+.jdcols{display:grid;grid-template-columns:1fr;gap:var(--space-400)}
+.jdcol-main{min-width:0}
+.jdcol-kw{min-width:0}
+@media (min-width:1500px){
+  .jdcols{grid-template-columns:minmax(0,var(--layout-jd-max)) minmax(220px,1fr);
+    gap:var(--space-500)}
+  /* Follows the description down: the point of moving them here is having them in view while
+     reading, and a long JD would otherwise scroll them away in the first screen. */
+  .jdcol-kw{position:sticky;top:calc(var(--topbar-h) + var(--space-200));align-self:start}
+  /* Already the grid track's width; a second cap here would reintroduce the gap inside it. */
+  .jdcol-main .jd{max-width:none}
+}
 .jobaside{min-width:0}
 @media (min-width:1040px){
   .jobcols{grid-template-columns:minmax(0,1fr) 340px}
