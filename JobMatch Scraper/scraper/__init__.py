@@ -5447,9 +5447,15 @@ def main():
              "blocked company": 0,
              "aggregator copy of a job we hold": 0,
              "no federal sponsor record (aggregator)": 0,
-             "posted over %d days ago" % MAX_AGE_DAYS: 0}
+             "posted over %d days ago (%d for long-lived boards)"
+             % (MAX_AGE_DAYS, db.AGE_LONG_DAYS): 0}
     age_cutoff = ((datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS)).isoformat()
                   if MAX_AGE_DAYS > 0 else "")
+    # The longer window for sources that publish a real posting date AND only serve live reqs.
+    # The host set and the number both live in db, because the PRUNE has to use the same two or
+    # the corpus drifts to whichever half is looser — db.stale_urls' comment has the full story.
+    long_cutoff = ((datetime.date.today() - datetime.timedelta(days=db.AGE_LONG_DAYS)).isoformat()
+                   if (MAX_AGE_DAYS > 0 and db.AGE_LONG_DAYS) else age_cutoff)
     for j in scraped:
         j["url"] = canonical_url(j.get("url", ""))
         if j["url"].lower() in seen:
@@ -5478,8 +5484,10 @@ def main():
         # what the employer published — a date, an empty string, or nothing at all.
         if age_cutoff:
             posted = (j.get("found_date") or "")[:10]
-            if posted and posted < age_cutoff:
-                tally["posted over %d days ago" % MAX_AGE_DAYS] += 1
+            cut = long_cutoff if db.is_long_lived(j["url"]) else age_cutoff
+            if posted and posted < cut:
+                tally["posted over %d days ago (%d for long-lived boards)"
+                      % (MAX_AGE_DAYS, db.AGE_LONG_DAYS)] += 1
                 if VERBOSE:
                     print("  drop  %-52s posted %s" % (j["title"][:52], posted))
                 continue
@@ -5568,7 +5576,10 @@ def main():
     # PRUNE_DAYS=0 disables it.
     prune_days = int(os.environ.get("PRUNE_DAYS", str(MAX_AGE_DAYS)) or 0)
     if prune_days > 0:
-        pruned = db.prune_old_jobs(prune_days)
+        # db.AGE_LONG_DAYS explicitly, matching the intake gate above. Relying on the default
+        # would work today and break the moment somebody passes PRUNE_DAYS without thinking
+        # about the exemption; naming it here is what makes the pairing visible at the call site.
+        pruned = db.prune_old_jobs(prune_days, long_days=db.AGE_LONG_DAYS)
         if pruned:
             print(f"Pruned {pruned} stale job(s) older than {prune_days} days (kept flagged ones).")
 
