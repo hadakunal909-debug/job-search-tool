@@ -235,6 +235,43 @@ MD_ESCAPE = re.compile(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\]^_`{|}~\\])")
 # leaving the dashes in.
 MD_SETEXT_MAX = 90
 
+# ---------------------------------------------------------------------------------------------
+# The metadata header some boards stack one line at a time:
+#
+#     Clearance Level / None / Category / Software Engineering / Location / Remote...
+#
+# each separated by a blank line, so every one became its own paragraph and the description
+# opened with a ladder of orphaned words.
+#
+# WHY A VOCABULARY AND NOT A RULE. The obvious approach is "a short Title Case line followed by
+# another short line is a label", and it is wrong on this corpus. Counting what actually lands in
+# the label slot turns up "None", "Angular", "Software Engineering" and "Java (Programming
+# Language)" -- the VALUES are shaped exactly like the labels, so a structural guess inverts pairs
+# and renders worse than the stacking it replaces. Matching known ATS field names cannot make that
+# mistake: anything not on this list is left exactly as it renders today.
+#
+# Measured: only 12 of 18,087 cached descriptions (0.1%) open with this shape, so the list is
+# deliberately small. Add to it when a board turns up that needs it.
+FIELD_LABELS = frozenset([
+    "clearance level", "security clearance", "clearance", "public trust", "citizenship",
+    "category", "job category", "department", "business unit", "job family", "discipline",
+    "location", "work location", "job location", "remote type", "telecommuting options",
+    "travel required", "relocation",
+    "job type", "employment type", "employment status", "position type", "hire type",
+    "contract type", "work schedule", "schedule", "shift", "seniority level", "career level",
+    "requisition type", "requisition id", "req id", "req#", "job id", "posting id",
+    "posted date", "date posted", "close date",
+    "salary", "salary range", "pay range", "compensation", "benefits eligible", "flsa status",
+    "key skills for success", "key skills", "skills",
+    "education", "experience", "years of experience",
+])
+
+
+def _field_label(t):
+    """The canonical field name for a line, or "" if it is not one. Tolerates a trailing colon."""
+    k = re.sub(r"\s+", " ", (t or "").strip().rstrip(":").strip()).lower()
+    return k if k in FIELD_LABELS else ""
+
 
 def strip_md(t):
     """Drop emphasis markers and backslash escapes, keeping the words. Runs on every line that
@@ -263,6 +300,16 @@ def jd_nodes(text):
         lst = None
 
     def add_heading(txt):
+        # Some boards mark a FIELD up as a heading: "##### **REQ#:****RQ225292**" arrives here as
+        # "REQ#:RQ225292". While the metadata block is still open, put those in the field list
+        # instead of leaving three one-line headings stranded above the description. Gated on the
+        # same vocabulary, so an ordinary "Why Join Us: The Team" heading is untouched.
+        m2 = re.match(r"^\s*([^:]{2,40}?)\s*:\s*(\S.*)$", txt or "")
+        if m2 and _field_label(m2.group(1)) and not any(k in ("p", "ul") for k, _v in out):
+            flush_para()
+            flush_list()
+            out.append(("kv", (m2.group(1).strip(), [m2.group(2).strip()])))
+            return
         flush_para()
         flush_list()
         out.append(("h", re.sub(r":\Z", "", txt).strip()))
@@ -294,6 +341,32 @@ def jd_nodes(text):
             add_heading(strip_md(t))
             i += 1
             continue
+        # A stacked metadata field, but ONLY while the description has not started yet: the moment
+        # real prose or a list appears we stop looking, so a "Location" mentioned halfway down a
+        # paragraph-heavy description can never be pulled out of its context.
+        if _field_label(strip_md(t)) and not any(k in ("p", "ul") for k, _v in out):
+            label = strip_md(t).rstrip(":").strip()
+            vals, j = [], i
+            while j < len(lines):
+                nxt = lines[j].strip()
+                if not nxt:                          # blank lines separate the stacked lines
+                    j += 1
+                    continue
+                if (len(nxt) > 70 or JD_BULLET.match(nxt) or MD_RULE.match(nxt)
+                        or MD_ATX.match(nxt) or MD_BOLD_LINE.match(nxt)
+                        or _field_label(strip_md(nxt)) or re.search(r"[.!?]\Z", nxt)):
+                    break                            # the next field, a heading, or real prose
+                vals.append(strip_md(nxt))
+                j += 1
+                if len(vals) >= 8:                   # a runaway list is not a metadata field
+                    break
+            if vals:
+                flush_para()
+                flush_list()
+                out.append(("kv", (label, vals)))
+                i = j
+                continue
+            # No value under it: fall through and let it be treated as ordinary text.
         m = MD_BOLD_LINE.match(t)        # "**Location**" alone is a heading even with no rule
         if m:
             add_heading(strip_md(m.group(1)))
@@ -368,7 +441,11 @@ def classify_heading(t):
 
 
 def _node_text(node):
-    return " ".join(node[1]) if node[0] == "ul" else node[1]
+    if node[0] == "ul":
+        return " ".join(node[1])
+    if node[0] == "kv":
+        return node[1][0] + " " + " ".join(node[1][1])
+    return node[1]
 
 
 MAX_LEGAL_SHARE = 0.4                # of the description's characters
@@ -507,7 +584,24 @@ def _text_html(text, hl):
 
 def _nodes_html(nodes, hl, sections):
     out, anchored = [], set()
-    for kind, val in nodes:
+    # Consecutive metadata fields become ONE definition list. Emitting a <dl> per field would put
+    # each label on its own block and reproduce the ladder this exists to remove.
+    kind_at = [n[0] for n in nodes]
+    in_dl = False
+    for idx, (kind, val) in enumerate(nodes):
+        if kind == "kv":
+            if not in_dl:
+                out.append('<dl class="jdkv">')
+                in_dl = True
+            label, vals = val
+            out.append("<dt>%s</dt>" % esc(label))
+            # Values ARE highlighted: on the posting that prompted this they are the skills
+            # ("Java", "Amazon Web Services (AWS)"), which is exactly what the reader is scanning for.
+            out.extend("<dd>%s</dd>" % _text_html(v, _hl_for(v, hl)) for v in vals)
+            if idx + 1 >= len(kind_at) or kind_at[idx + 1] != "kv":
+                out.append("</dl>")
+                in_dl = False
+            continue
         if kind == "h":
             sec = classify_heading(val) if sections else ""
             attr = ""

@@ -1151,6 +1151,23 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
   font-size:var(--text-3xs);color:var(--muted)}
 .simmeta b{font-family:var(--font-data);font-variant-numeric:tabular-nums;
   font-size:var(--text-2xs);font-weight:var(--weight-semibold)}
+/* The metadata header some boards stack one line at a time — Clearance Level / None / Category /
+   Software Engineering — which used to render as a ladder of orphaned paragraphs. Two explicit
+   columns rather than auto-placement, so a label with SEVERAL values (Key Skills For Success) keeps
+   all of them in the value column instead of letting the second one fall under the label. */
+.jdkv{display:grid;grid-template-columns:minmax(6.5rem,max-content) 1fr;
+  gap:2px var(--space-200);margin:0 0 var(--space-300);align-items:baseline}
+.jdkv dt{grid-column:1;font-size:var(--text-3xs);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);font-weight:var(--weight-semibold);padding-top:2px}
+.jdkv dd{grid-column:2;margin:0;font-size:var(--text-xs);color:var(--ink);line-height:1.5}
+/* A field's second and later values sit tight under the first so the group reads as one answer. */
+.jdkv dd + dd{padding-top:1px}
+@media (max-width:640px){
+  .jdkv{grid-template-columns:1fr;gap:0 0}
+  .jdkv dt{grid-column:1;margin-top:var(--space-150)}
+  .jdkv dd{grid-column:1}
+}
+
 /* Employer name in the "Similar Roles" rail. It is the one field that varies down that list and
    the reason to click a row, so it reads darker than the rest of the meta line and is allowed to
    take the space, with the numbers and location holding their own width beside it. */
@@ -1160,6 +1177,13 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
 .simmeta b.meter-good{color:var(--match-good)}
 .simmeta b.meter-weak{color:var(--match-weak)}
 .jobaside-apply{width:100%;justify-content:center;margin-bottom:var(--space-300)}
+/* Buttons on the job page embed the EMPLOYER NAME — "Tailor for General Dynamics Information
+   Technology", "All 6 Roles at General Dynamics Information Technology" — and the base .btn is
+   white-space:nowrap. A long name therefore sets a min-content floor wider than a phone, which
+   pushed the whole PAGE 34px sideways at 390px and 49px at 375px. Completely invisible in a
+   screenshot; found by measuring scrollWidth - innerWidth across widths. Scoped to .jobwrap so
+   the feed's inline chip rows keep their single-line shape. */
+.jobwrap .btn{white-space:normal;text-align:center}
 .jobgone-url{font-family:var(--font-mono);font-size:var(--text-xs);word-break:break-all;
   color:var(--muted)}
 .modal-foot{display:flex;gap:var(--space-100);align-items:center;padding:14px 24px 20px;border-top:1px solid var(--line);margin-top:12px;position:sticky;bottom:0;background:var(--surface)}
