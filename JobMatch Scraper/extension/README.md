@@ -57,16 +57,21 @@ your **Applications** tracker, and imports jobs the server-side scraper can't re
   they get real match scores. *More tools* shows the last run plus a manual button.
 
 ## Coverage and limits
-- **Tuned adapters:** Workday, Oracle Cloud, iCIMS, Greenhouse, Lever, Ashby, SmartRecruiters —
-  together **~62% of the feed**. Everything else — SuccessFactors, Phenom, Workable, UltiPro,
-  BambooHR, Pinpoint, Rippling, Avature, JobDiva, Recruitee, Breezy, Personio, Jobvite — goes
-  through the **generic adapter**, which handles standard forms plus React comboboxes and custom
-  Yes/No toggle widgets.
+- **Tuned adapters:** Workday, Oracle Cloud, iCIMS, Salesforce Experience Cloud, SuccessFactors,
+  Greenhouse, Lever, Ashby, SmartRecruiters — together **~80% of the feed**. Everything else —
+  Phenom, Jibe, Eightfold, Workable, UltiPro, BambooHR, Pinpoint, Rippling, Avature, JobDiva,
+  Recruitee, Breezy, Personio, Jobvite — goes through the **generic adapter**, which handles
+  standard forms plus React comboboxes and custom Yes/No toggle widgets.
 - **Vanity career domains are recognised by fingerprint, not hostname.** About 29% of the corpus
-  sits on employer hostnames (`careers.airbnb.com`, `jobs.sap.com`, `careers-inc.nttdata.com`)
+  sits on employer hostnames (`careers.airbnb.com`, `jobs.sap.com`, `apply.actalentservices.com`)
   fronting a stock ATS, which no host list can enumerate. The extension reads the platform off the
-  page's own markers instead, so the right adapter is used and the Fill button appears even on the
-  job-description page, before the Apply gate is clicked.
+  page's own markers instead. Measured over the 30 largest such hosts in a real browser: 71% of
+  those jobs resolve to a platform that now has a tuned adapter.
+- **Shadow DOM is pierced everywhere.** Salesforce Experience Cloud — how Allegis runs Actalent,
+  TEKsystems and Aerotek, and the second-largest host in the corpus at 1,368 jobs — renders its
+  entire application inside Lightning web components. A light-DOM scan finds *zero* inputs there;
+  piercing finds sixteen. Those fields are all `label-hidden` with generated ids and no `name`, so
+  the filler recovers each field's identity from the `data-id` on an ancestor shadow host.
 - **Multi-step wizards** (Workday, Oracle, iCIMS — over half the feed) are filled **one step at a
   time**. The panel shows which step you're on, and when you click **Next** the following step is
   filled automatically. It never advances or submits a wizard for you, and on a non-final step it

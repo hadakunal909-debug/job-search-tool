@@ -409,8 +409,12 @@ function applyAts(url) {
     [/bamboohr\.com/, "bamboohr"], [/pinpointhq\.com/, "pinpoint"], [/rippling\.com/, "rippling"],
     [/avature\.net/, "avature"], [/jobdiva\.com/, "jobdiva"],
     [/myworkdayjobs\.com|myworkdaysite\.com/, "workday"], [/oraclecloud\.com/, "oracle"],
-    [/jibeapply\.com/, "jibe"], [/icims\.com/, "icims"], [/successfactors\.com/, "successfactors"],
+    [/jibeapply\.com/, "jibe"], [/icims\.com/, "icims"], 
     [/phenompeople\.com/, "phenom"], [/jobvite\.com/, "jobvite"],
+    // SuccessFactors' applicant portal is on sapsf.com / successfactors.eu, not just .com;
+    // Salesforce Experience Cloud is how Allegis (Actalent) runs apply.
+    [/sapsf\.com|successfactors\./, "successfactors"],
+    [/force\.com|my\.site\.com|actalentservices\.com/, "salesforce"],
     // scrapers that were missing from this list, plus the platforms filler.js can fingerprint
     [/amazon\.jobs/, "amazon"], [/paylocity\.com/, "paylocity"], [/metacareers\.com/, "meta"],
     [/taleo\.net/, "taleo"], [/brassring\.com/, "brassring"],

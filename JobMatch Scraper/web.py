@@ -4989,12 +4989,19 @@ _FILLABLE_HOSTS = (
     "recruitee.com", "breezy.hr", "personio.com", "workable.com",
     "ultipro.com", "bamboohr.com", "pinpointhq.com", "rippling.com",
     "avature.net", "jobdiva.com", "myworkdayjobs.com", "myworkdaysite.com",
-    "oraclecloud.com", "jibeapply.com", "icims.com", "successfactors.com",
+    "oraclecloud.com", "jibeapply.com", "icims.com", "successfactors.",
     "phenompeople.com", "jobvite.com",
     # Scrapers that existed in SOURCES but were never listed here, plus the platforms filler.js can
     # now fingerprint. amazon.jobs alone is 1,479 rows — the largest single host in the corpus.
     "amazon.jobs", "paylocity.com", "metacareers.com",
     "taleo.net", "brassring.com", "dayforcehcm.com", "workforcenow.adp.com",
+    # SuccessFactors' RCM applicant portal — where the actual form is — runs on sapsf.com and
+    # successfactors.EU as well as .com (verified live: career41.sapsf.com, career5.successfactors.eu),
+    # so match the bare "successfactors." rather than the .com host only.
+    "sapsf.com",
+    # Salesforce Experience Cloud: Allegis (Actalent/TEKsystems/Aerotek) runs its whole apply flow
+    # there. apply.actalentservices.com alone is 1,368 rows, the 2nd largest host in the corpus.
+    "force.com", "my.site.com", "actalentservices.com",
 )
 
 # Never queued, whatever the caller asks for: aggregators list a posting they don't host, so the
