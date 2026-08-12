@@ -243,7 +243,7 @@ check("no event handler inside any real tag",
 check("ampersands are escaped", "R&amp;D" in out)
 check("the only tags are ours",
       set(re.findall(r"</?([a-z0-9]+)", out)) <= {"p", "ul", "li", "h4", "mark", "details",
-                                                  "summary"},
+                                                  "summary", "dl", "dt", "dd"},
       repr(sorted(set(re.findall(r"</?([a-z0-9]+)", out)))))
 check("a term containing & still marks", 'class="kw-miss">R&amp;D</mark>' in out,
       "escaping runs AFTER the match, so an entity cannot be matched into")
@@ -314,6 +314,56 @@ for src, want, why in [
     check("strip_md(%s)" % repr(src)[:34], jdrender.strip_md(src) == want, why)
 check("escapes are gone from rendered output",
       "\\" not in jdrender.render_jd("Own the end\\-to\\-end lifecycle.\n"))
+
+# ---------------------------------------------------------------------------------------------
+print("\nA STACKED METADATA HEADER BECOMES A FIELD LIST, NOT A LADDER OF PARAGRAPHS")
+# Some boards emit the header one line at a time with a blank between each, so every label and
+# every value became its own <p>. Only 12 of 18,087 cached descriptions do this, which is exactly
+# why the labels are matched against a VOCABULARY: the values ("None", "Angular", "Software
+# Engineering") are shaped just like the labels, so a structural guess would invert the pairs.
+KV = ("Clearance Level\n\nNone\n\nCategory\n\nSoftware Engineering\n\n"
+      "Location\n\nRemote, Working from the USA\n\n"
+      "Key Skills For Success\n\nAmazon Web Services (AWS)\n\nAngular\n\nJava (Programming Language)\n\n"
+      "##### **Your Impact**\n\nOwn your opportunity to work alongside federal civilian agencies.\n")
+kv_nodes = jdrender.jd_nodes(KV)
+kv_html = jdrender.render_jd(KV, have=["java", "aws"])
+kinds = [k for k, _v in kv_nodes]
+fields = dict(v for k, v in kv_nodes if k == "kv")
+check("each label is paired with its value", fields.get("Clearance Level") == ["None"], repr(fields)[:90])
+check("and so is the next one", fields.get("Category") == ["Software Engineering"])
+check("a label with SEVERAL values keeps all of them",
+      fields.get("Key Skills For Success") ==
+      ["Amazon Web Services (AWS)", "Angular", "Java (Programming Language)"], repr(fields.get("Key Skills For Success")))
+check("the header does not leak into the description below",
+      kinds[-2:] == ["h", "p"], repr(kinds))
+check("consecutive fields render as ONE definition list", kv_html.count("<dl") == 1, repr(kv_html[:60]))
+check("values are highlighted — they are the skills the reader is scanning for",
+      '<mark class="kw-have">AWS</mark>' in kv_html and '<mark class="kw-have">Java</mark>' in kv_html)
+check("no field text is lost",
+      re.sub(r"[^0-9a-z]+", "", re.sub(r"<[^>]+>", " ", kv_html).lower()) ==
+      re.sub(r"[^0-9a-z]+", "", re.sub(r"[*#\\]", " ", KV).lower()),
+      "alphanumeric projection")
+# The two ways this could misfire, both checked rather than assumed.
+UNKNOWN = "Favourite Colour\n\nBlue\n\nSecond Thing\n\nGreen\n"
+check("an UNKNOWN label is left exactly as it renders today",
+      "<dl" not in jdrender.render_jd(UNKNOWN), "vocabulary only, never a shape guess")
+LATE = ("We are hiring a developer for our platform team and this is a real sentence.\n\n"
+        "Location\n\nBoston\n")
+check("a field name appearing AFTER the description starts is not pulled out of context",
+      "<dl" not in jdrender.render_jd(LATE), "the header parser stops once prose begins")
+# Some boards mark a FIELD up as a heading: "##### **REQ#:****RQ225292**".
+ASHEAD = ("Clearance Level\n\nNone\n\n##### **REQ#:****RQ225292**\n\n"
+          "##### **Public Trust:****Other**\n\n##### **Your Impact**\n\n"
+          "Own your opportunity to work with federal agencies.\n\nWhy Join Us: The Team\n\nWe build things.\n")
+ah = dict(v for k, v in jdrender.jd_nodes(ASHEAD) if k == "kv")
+ah_kinds = [k for k, _v in jdrender.jd_nodes(ASHEAD)]
+check("a field dressed up as a heading joins the field list", ah.get("REQ#") == ["RQ225292"], repr(ah))
+check("...and so does the next one", ah.get("Public Trust") == ["Other"])
+check("a REAL heading is still a heading", "Your Impact" in
+      [v for k, v in jdrender.jd_nodes(ASHEAD) if k == "h"])
+check("a heading that merely CONTAINS a colon is left alone",
+      "Why Join Us: The Team" in [v for k, v in jdrender.jd_nodes(ASHEAD) if k == "h"],
+      "not every 'x: y' is a field — only a known field name is")
 
 print()
 if FAILS:
