@@ -25,6 +25,12 @@
     "e3": "Has filed E-3 applications (Australian nationals).",
     "h1b1": "Has filed H-1B1 applications (Chile / Singapore nationals)."
   };
+  // The ONE chip a card shows, keyed by j.visa_likely. Three values, not five: green_card, e3
+  // and h1b1 collapse into "sponsor" because E-3 and H-1B1 are gated on nationality and were
+  // never worth naming on a card. Also a strict JSON literal — feed_parity.py lifts this and
+  // asserts it equals core.SPONSOR_LIKELY_LABELS, so the chip and the server cannot drift.
+  var SPONSOR_LIKELY_LABELS = {"h1b": "H-1B Likely", "sponsor": "Sponsor Likely",
+                               "stem_opt": "STEM-OPT Likely"};
 
   var q = document.getElementById("q"), minR = document.getElementById("min"),
       minLab = document.getElementById("minlab"), sortSel = document.getElementById("sort"),
@@ -179,13 +185,29 @@
   // the full weight of the text around it, and a screen reader read "Stripe middle dot
   // Boston comma MA". Wrapped, it can recede in CSS and be skipped in the accessible name.
   var SEP = '<span class="sep" aria-hidden="true">·</span>';
+  // A TRAFFIC LIGHT: green at 70 and up, amber from 40 to 69, red below 40. The thresholds are
+  // here and the three colours are in style.css (.ring-strong / .ring-good / .ring-low), so
+  // neither side can be re-tuned by accident from the other.
+  //
+  // 70 and 40 are the reader's numbers, not the old 55/42 pair, which came from the score
+  // DISTRIBUTION rather than from what a percentage means to someone deciding whether to read
+  // a posting. Note the feed's own default floor is 45, so an amber ring is the common case and
+  // red only appears once the minimum-match slider is pulled below it.
   function scoreRing(s) {
-    var cls = s >= 55 ? 'ring-strong' : s >= 42 ? 'ring-good' : 'ring-low';
+    var cls = s >= 70 ? 'ring-strong' : s >= 40 ? 'ring-good' : 'ring-low';
     var off = (113.1 * (1 - s / 100)).toFixed(1);
     return '<svg class="score-ring ' + cls + '" width="46" height="46" viewBox="0 0 46 46" aria-label="' + s + '% match">' +
+      // An OPAQUE disc behind the arc. The card is washed with its route colour now, so
+      // without this a green ring sat on the green STEM-OPT fill and disappeared. A
+      // translucent veil would tint differently on each of the five washes and could not be
+      // contrast-tested; a solid surface is one known background for all of them. r=21 in a
+      // 46 box leaves the 2px the arc's round cap needs.
+      '<circle cx="23" cy="23" r="21" fill="var(--match-pill)"/>' +
       '<circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-track)" stroke-width="4.5"/>' +
       '<circle cx="23" cy="23" r="18" fill="none" stroke="var(--ring-color)" stroke-width="4.5" stroke-dasharray="113.1" stroke-dashoffset="' + off + '" stroke-linecap="round" transform="rotate(-90 23 23)"/>' +
-      '<text x="23" y="27" text-anchor="middle" font-size="10" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">' + s + '%</text>' +
+      // 700, not 800: the type scale tops out at bold and 800 is not one of its weights, so it
+      // was asking Inter for a face the rest of the product never uses.
+      '<text x="23" y="27" text-anchor="middle" font-size="10" font-weight="700" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">' + s + '%</text>' +
       '</svg>';
   }
   // The score cell for a card/detail: the % ring, OR a neutral "JD pending" chip when the job's
@@ -223,10 +245,54 @@
       setTimeout(function () { t.remove(); }, 300);
     }, undoFn ? 6000 : 2300);   // longer window when there's something to undo
   }
+  // A row's date arrives in one of TWO shapes, and they mean different things.
+  //
+  //   "2026-08-04"        somebody STATED this. Parsed at LOCAL midnight, so "Today" means
+  //                       the reader's today and a UTC-stamped date doesn't read as tomorrow.
+  //   "2026-08-04 14:00"  DERIVED. core.is_trusted_date documents this shape as the marker:
+  //                       either the scrape stamp for a board that publishes no date at all,
+  //                       or _workday_date() converting "Posted 3 Days Ago". Parsed as UTC,
+  //                       because the scraper writes a naive datetime.now() from GitHub
+  //                       Actions. Guessing local would shift it by the reader's offset and
+  //                       could put it in the future.
+  //
+  // relTime used to do `new Date(s + "T00:00:00")` unconditionally, so the second shape built
+  // "2026-08-04 14:00T00:00:00", failed to parse, and fell through to printing the raw string.
+  function parseRowDate(s) {
+    s = String(s || "");
+    if (!s) return null;
+    var m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/.exec(s);
+    var d = m ? new Date(m[1] + "T" + m[2] + ":" + m[3] + ":00Z")
+              : new Date(s.slice(0, 10) + "T00:00:00");
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function hasClock(s) { return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(s || "")); }
+  // Whole days since a row's date, or null. The "New" badge asks THIS rather than comparing
+  // relTime()'s output against the string "Today": that was a string equality standing in for
+  // a date computation, and it would have silently stopped firing the moment relTime learned
+  // to answer "3h ago" — the same shape of defect as the #filterrail bug, where a proxy check
+  // kept passing after the thing it stood for had moved.
+  function daysAgo(s) {
+    var d = parseRowDate(s);
+    return d ? Math.floor((Date.now() - d.getTime()) / 86400000) : null;
+  }
   function relTime(s) {
     if (!s) return "";
-    var d = new Date(s + "T00:00:00"); if (isNaN(d.getTime())) return s;
-    var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    var d = parseRowDate(s);
+    if (!d) return s;
+    var ms = Date.now() - d.getTime();
+    // The stamp is written by whichever machine ran the scrape, so a row can sit a few
+    // minutes in the future. "in 2h" would read as a bug, and a negative hour count as a
+    // worse one.
+    if (ms < 0) ms = 0;
+    var days = Math.floor(ms / 86400000);
+    // HOURS, and only here: the row has to actually carry a clock, and it has to be inside a
+    // day. A stated posting date has no time in it anywhere in this corpus, so an hour count
+    // on one would be invented rather than measured.
+    if (days < 1 && hasClock(s)) {
+      var hrs = Math.floor(ms / 3600000);
+      return hrs < 1 ? "Just now" : hrs + "h ago";
+    }
     if (days <= 0) return "Today";
     if (days === 1) return "Yesterday";
     if (days < 7) return days + "d ago";
@@ -246,6 +312,15 @@
           // "Added today" reads better than "Added Today"; older values are already lowercase.
           ps[i].textContent = "Added " + (rel === "Today" || rel === "Yesterday" ? rel.toLowerCase() : rel);
           ps[i].title = "This employer publishes no posting date. First seen in your feed on " + s + ".";
+        } else if (ps[i].getAttribute("data-approx")) {
+          // A DERIVED date, per core.is_trusted_date. Deliberately NOT relabelled "Added":
+          // this shape covers both the scrape stamp AND _workday_date() converting a relative
+          // "Posted 3 Days Ago", the two are indistinguishable once stored, and calling a
+          // derived posting date an arrival date would be its own misattribution. The label
+          // stays neutral and the tooltip carries the hedge, which is true of both.
+          ps[i].textContent = rel;
+          ps[i].title = "Approximate. This board publishes no exact posting date, so this is " +
+            "derived either from a relative date it showed or from when we pulled the job (" + s + ").";
         } else {
           ps[i].textContent = rel;
           ps[i].title = (ps[i].getAttribute("data-verified") ? "Verified posting date · " : "Posted ") + s;
@@ -294,9 +369,9 @@
   //
   // Escaping is not weakened by the anchor: encodeURIComponent runs FIRST, so it has already
   // percent-encoded &, ", ', < and > before H() ever sees the value, and esc() still owns the
-  // visible label. No click handler is needed either — the feed's delegated handler bails on any
-  // <a> before it reaches openModal, so this navigates instead of opening the job panel. Don't
-  // "fix" that with a stopPropagation: the same branch is what auto-logs an Apply click.
+  // visible label. No click handler is needed either — the feed's delegated handler returns early
+  // on any <a>, so this navigates natively. Don't "fix" that with a stopPropagation: the same
+  // branch is what auto-logs an Apply click.
   function companyLink(name) {
     if (!name) return esc("Unknown company");
     if (COMPANY) return esc(name);
@@ -312,37 +387,36 @@
     // Deliberately j.date only, NOT rowDate(): "New" means newly POSTED, and for a job with no
     // publisher date we don't know that. Firing on first_seen would also paint hundreds of badges
     // at once every time the extension re-imports a board like Tesla wholesale.
-    var newFlag = (relTime(j.date) === "Today") ? '<span class="newflag">New</span>' : '';
+    // Asks daysAgo() for a number instead of comparing relTime()'s words to "Today". The old
+    // string test broke the instant relTime could answer "3h ago" for a same-day row — which is
+    // now the common case for the 41% of dated rows that carry a clock — and it would have
+    // broken SILENTLY, taking the badge off every fresh card.
+    var d0 = daysAgo(j.date);
+    var newFlag = (d0 !== null && d0 <= 0) ? '<span class="newflag">New</span>' : '';
     var badges = "";
     if (j.intern)
       badges += '<span class="intl" title="OPT &amp; STEM-OPT eligible">Internship</span>';
-    // Visa routes this employer has actually filed for (DOL LCA + PERM + E-Verify). Capped at
-    // three chips: a big sponsor carries all five, and with Internship / No-lottery / Agency /
-    // experience / pay / Remote alongside them one card could otherwise show a dozen.
+    // ONE chip, hedged. core.sponsor_likely is the single definition and the server ran it on
+    // the tuple ALREADY narrowed by this posting's own text, so a JD that closes a route can
+    // never surface a chip for it.
     //
-    // NO tooltips on these. "H-1B" and "Green Card" say what they are, and a paragraph of
-    // caveats on every chip of every card was a wall of hover text. The caveats didn't go away:
-    // the detail panel still shows every route WITH its VISA_TIPS sentence, which is the right
-    // home for them — one view, read once, instead of forty times down a feed.
-    // Ordered so the routes THIS user is filtering on come first. A big sponsor carries all
-    // five and only three fit, so an unranked list can push the one route that matters to the
-    // reader into the "+2". This is the payoff for asking the sponsorship question at all:
-    // the chips answer "can I take this job" rather than "what has this employer ever filed".
-    var vt = rankVisa(j.visa || []);
-    for (var vi = 0; vi < vt.length && vi < 3; vi++) {
-      var vk = vt[vi];
-      badges += '<span class="vt vt-' + H(vk) + '">' + esc(VISA_LABELS[vk] || vk) +
-        (vk === "h1b" && j.strength === "high" ? ", top sponsor" : "") + '</span>';
-    }
-    // This one KEEPS its tooltip: the chip is the only place the remaining routes are named.
-    // "+2 more" rather than a bare "+2", which read as a stray symbol in a row of words and
-    // gave no clue it was a control you could hover for the rest.
-    if (vt.length > 3)
-      badges += '<span class="vt vt-more" title="' + H(vt.map(function (k) {
-        return VISA_LABELS[k] || k; }).join(", ")) + '">+' + (vt.length - 3) + ' more</span>';
-    // Fallback for when visa_tags.json hasn't been built: the old name-list H-1B flag.
-    if (!vt.length && j.sponsors_h1b === "yes")
-      badges += '<span class="h1b">H1B' + (j.strength === 'high' ? ' (top sponsor)' : '') + '</span>';
+    // It used to render up to three chips plus a "+2 more", so First Solar read
+    // "H-1B · Green Card · H-1B1". That is not three facts, it is one fact spread thin, and it
+    // claimed a confidence one quarter of DOL filings cannot support. "Likely" is the entire
+    // claim: this employer has a federal record for this route. The job page names all five
+    // routes, shows the ones with no record AS no record, and carries the caveats.
+    //
+    // NO tooltip, per the same reasoning that removed them from the old chips: a paragraph of
+    // hover text on every card was a wall, and the detail page is the right place to read it
+    // once instead of forty times down a feed.
+    // ONE branch. The pre-visa_tags.json seed-list fallback used to be a second one here; it is
+    // folded into visa_likely server-side now, because it has to know whether the INDEX exists
+    // and whether the JD blocked the posting, and neither fact reaches this file. It was
+    // rendering "H1B (top sponsor)" next to "No sponsorship" on the live feed.
+    var vtop = j.visa_likely || "";
+    if (vtop)
+      badges += '<span class="vt vt-' + H(vtop) + '">' + esc(SPONSOR_LIKELY_LABELS[vtop] || vtop) +
+        (vtop === "h1b" && j.strength === "high" ? ", top sponsor" : "") + '</span>';
     if (j.cap_exempt)
       badges += '<span class="cx">No lottery</span>';
     if (j.agency)
@@ -373,26 +447,39 @@
     // out as "Added <iso>" so there's no flash of a bare date before formatDates() runs.
     var posted = '';
     if (j.date) {
+      // data-approx marks a DERIVED date so formatDates can hedge its tooltip instead of
+      // announcing "Posted <our own scrape time>", which is the mislabelling
+      // scraper/verify_dates.py's docstring complains about. It is also the only shape that
+      // carries a clock, so it is the only one that can ever read "3h ago".
       posted = SEP + '<span class="posted" data-d="' + H(j.date) + '"' +
-        (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>';
+        (j.date_verified ? ' data-verified="1"' : '') +
+        (j.date_trusted ? '' : ' data-approx="1"') + '>' + H(j.date) + '</span>';
     } else if (j.first_seen) {
       posted = SEP + '<span class="posted added" data-d="' + H(j.first_seen) +
         '" data-added="1">Added ' + H(j.first_seen) + '</span>';
     }
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "");
-    // THE ROUTE RAIL. One attribute; the 3px rule down the card's left edge is drawn in CSS.
+    // THE ROUTE WASH. One attribute; the whole card is tinted in CSS.
     //
-    // vt is already ranked by what this reader is filtering on, so vt[0] is the best route
-    // AVAILABLE TO THEM rather than whatever the employer files most of. That is the whole
-    // point: down a four-column grid the rail answers "can I take this job" before a single
-    // word is read, which is the question this audience actually opened the page with.
+    // Reads the SAME field the chip's label came from, so the colour and the words are one
+    // fact and cannot drift. They used to be derived separately from a ranked list that looked
+    // personalised and wasn't: with no Sponsorship filter set rankVisa returned early and
+    // vt[0] was just the first route in VISA_TAGS order, an undocumented precedence; and with
+    // a filter set visaHit had already NARROWED the feed to rows carrying that route, so it
+    // was hoisted onto every survivor and the whole grid turned one colour. Neither state
+    // carried information.
     //
     // A JD that rules sponsorship out wins over the employer's filing history, because for
     // THIS posting the route is shut no matter what the company has filed before. Anything
     // with no record at all gets the quiet grey, never red: core.py documents absence as
     // "no record, not a refusal", and it is a routine fact here, not an error.
-    var route = j.sponsor_jd === "blocked" ? "blocked" : (vt.length ? vt[0] : "none");
+    //
+    // One deliberate exception, do not "fix" it: a posting blocked with a generic "no visa
+    // sponsorship" keeps stem_opt, so the chip reads STEM-OPT Likely on a grey blocked card.
+    // That is right, and the adjacent "No sponsorship" chip makes the pair read as
+    // "no sponsorship, but STEM-OPT".
+    var route = j.sponsor_jd === "blocked" ? "blocked" : (vtop || "none");
     return '<article class="' + cls + '"' +
       ' data-route="' + H(route) + '"' +
       ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' +
@@ -407,14 +494,14 @@
         newFlag +
         scoreCell(j) +
       '</div>' +
-      // A REAL BUTTON, not a styled div. The card is an <article> with a click handler and no
-      // tabindex, no role and no key handler, so until now a keyboard or screen-reader user
-      // could not open a job at all — every posting in the feed was mouse-only.
-      //
-      // The title is the right thing to promote: it is what the panel is about, it is already
-      // the largest target on the card, and a <button> fires click on both Enter and Space
-      // natively, so the existing delegation below opens the panel with no new listener.
-      '<button type="button" class="ctitle">' + esc(j.title) + '</button>' +
+      // A REAL LINK to a real page. It was a <button> that opened the modal, which was itself a
+      // fix for the card being an <article> with a click handler and no tabindex — the feed used
+      // to be mouse-only. An <a href> keeps all of that and adds what a button structurally
+      // cannot: middle-click, ctrl-click, Open in New Tab, a status-bar preview of where you are
+      // about to go, and a target the browser's own history can return to. The #feed delegate's
+      // existing early return for <a> (below) means navigation is native and no JS runs.
+      '<a class="ctitle" href="/job?u=' + H(encodeURIComponent(j.url)) + '">' +
+        esc(j.title) + '</a>' +
       // TWO parts, not one inline run. Identity (company, place, when) is a single line that
       // truncates; the chips are a wrapping row below it.
       //
@@ -606,18 +693,12 @@
     }
   }
 
-  // Highlight any control set to a non-default value (so active filters are obvious at a glance).
-  // Routes the user has ticked in the Sponsorship filter, hoisted to the front. Stable
-  // otherwise, so a card with no filter set looks exactly as it did.
-  var _wantVisa = [];
-  function rankVisa(vt) {
-    if (!_wantVisa.length || vt.length < 2) return vt;
-    var first = [], rest = [];
-    for (var i = 0; i < vt.length; i++)
-      (_wantVisa.indexOf(vt[i]) >= 0 ? first : rest).push(vt[i]);
-    return first.concat(rest);
-  }
+  // rankVisa() and its _wantVisa cache lived here. Both are gone: the card names ONE route now
+  // and the server chooses it (core.sponsor_likely), so there is no list left to re-order. The
+  // hoisting it did was also never worth what it looked like — see the data-route comment in
+  // cardHTML for why it carried no information in either of its two states.
 
+  // Highlight any control set to a non-default value (so active filters are obvious at a glance).
   function setFlag(el, on) { if (el) el.classList.toggle("fset", !!on); }
 
   // How many NARROWING filters are on: the ones behind the "Filters" chip. Search, track and
@@ -878,7 +959,6 @@
   // (data-paged) fetches each page from /api/feed so the payload stays small at any scale.
   function render(reset) {
     markFilters();
-    _wantVisa = visaWanted();          // once per render, not once per card
     if (PAGED) renderServer(reset); else renderLocal(reset);
   }
 
@@ -1178,309 +1258,13 @@
       }
       return;
     }
-    var c = e.target.closest ? e.target.closest(".card") : null;
-    if (c) openModal(c);
+    // Everything else on a card is inert now. The title is a real <a href="/job?u=...">
+    // and the <a> branch above already returned, so there is no whole-card click target:
+    // a card whose background is ALSO a link, wrapping a link, three buttons and a company
+    // link, is a nested-interactive mess. .ctitle:hover underlines so the card still
+    // visibly responds to the pointer.
   });
 
-  // ---- job detail modal ----
-  var modal = document.getElementById("jobmodal"), mUrl = "";
-  function $(id) { return document.getElementById(id); }
-
-  // The panel header, BUILT from the row rather than copied out of the card.
-  //
-  // It used to be `$("m-meta").textContent = card.querySelector(".cmeta").textContent`, which
-  // flattened the badge <span>s into one unbroken run — "Irving, TX3d agoH-1BGreen CardE-3
-  // $120k-$150k" — because their only separator was a CSS margin that .textContent discards.
-  // Three FACTS live here; every badge belongs in the chip row below, which already lays them
-  // out with a real flex gap (and was rendering the visa routes a second time regardless).
-  function metaHTML(j) {
-    if (!j) return "";
-    var parts = [companyLink(j.company), esc(j.location || "Location not stated")];
-    // The card's own markup, so formatDates() renders it identically here — "3d ago" with the
-    // posted/verified tooltip, or the italic "Added <date>" for employers who publish none.
-    if (j.date)
-      parts.push('<span class="posted" data-d="' + H(j.date) + '"' +
-                 (j.date_verified ? ' data-verified="1"' : '') + '>' + H(j.date) + '</span>');
-    else if (j.first_seen)
-      parts.push('<span class="posted added" data-d="' + H(j.first_seen) +
-                 '" data-added="1">Added ' + H(j.first_seen) + '</span>');
-    return parts.join(SEP);
-  }
-
-  // ---- job description: plain text -> a readable document ----
-  // /api/job returns the JD verbatim (db.get_job_jd, truncated at 7,000 chars) and this is its
-  // only consumer, so the shaping lives here beside every other bit of card/modal markup.
-  //
-  // SAFETY: every fragment goes through esc() BEFORE it is placed inside a tag, and no substring
-  // of the JD is ever concatenated into innerHTML unescaped — esc() is the only door in. If URL
-  // linkification is ever added it must run on the ALREADY-ESCAPED string; getting that order
-  // backwards is the one way this function becomes an XSS hole.
-  var JD_BULLET = /^\s*(?:[•·▪●◦‣⁃*–—-]|\(?\d{1,2}[.)])\s+/;
-  var JD_HEAD = /^(?:about|responsibilit|qualificat|requirement|what you|who you|the role|your role|benefit|perks|compensation|skills|experience|education|duties|essential|preferred|minimum|basic|nice to have|equal (?:employment )?opportunity|eeo|how to apply|why join|our team|job (?:summary|description|details))/i;
-
-  function isJdHeading(t) {
-    if (!t || t.length > 70 || JD_BULLET.test(t)) return false;
-    var letters = t.replace(/[^A-Za-z]/g, "");
-    if (letters.length >= 3 && t === t.toUpperCase()) return true;   // short ALL-CAPS line
-    if (/:$/.test(t) && t.split(/\s+/).length <= 8) return true;     // "Requirements:"
-    // A known section name with no colon. Digits and $ disqualify, or "Salary: $120,000" —
-    // which matches /^salary/ — would be promoted from a fact to a heading.
-    return JD_HEAD.test(t) && t.split(/\s+/).length <= 8 &&
-           !/[.;,]$/.test(t) && !/[\d$]/.test(t);
-  }
-
-  // ---- splitting a description that arrives as ONE unbroken run of text ----
-  // Measured on the live corpus: 5 of 6 sampled descriptions contain ZERO newlines. Workday,
-  // iCIMS and Amazon all hand us the whole posting as a single ~4,000-character string, so the
-  // line-based pass below has nothing to work with and emitted one enormous paragraph. These
-  // split that run the only two ways its own text allows: on the section names every ATS
-  // template repeats, then on sentence boundaries.
-  //
-  // Two tiers, because precision matters more than recall here — a false heading mid-sentence
-  // is far uglier than a missed one. STRONG names are unambiguous enough to match on a colon OR
-  // a following capital ("Overview This is a hybrid role" is how iCIMS writes it). WEAK ones
-  // are ordinary words that appear constantly in prose ("5 years of experience"), so they need
-  // an explicit colon before they count as a heading.
-  var JD_SECTION_STRONG = "job description|position purpose|position summary|role summary|" +
-    "essential (?:functions?|duties)|basic qualifications|minimum qualifications|" +
-    "preferred qualifications|additional qualifications|key responsibilities|" +
-    "primary responsibilities|what you(?:'|\u2019)ll (?:do|bring)|what you will do|" +
-    "what you bring|what we(?:'|\u2019)re looking for|what we offer|who you are|" +
-    "about (?:us|the role|the team|the company|the job|this role)|required skills|" +
-    "day in the life|nice to have|how to apply|why join(?: us)?|our team|" +
-    "equal (?:employment )?opportunity(?: employer)?|eeo statement|" +
-    "pay range|salary range|compensation range|overview";
-  var JD_SECTION_WEAK = "summary|responsibilities|requirements|qualifications|benefits|perks|" +
-    "compensation|education|experience|skills|duties";
-  var JD_SECTION = new RegExp(
-    "\\b(" + JD_SECTION_STRONG + ")\\b(?::\\s+|\\s+(?=[A-Z]))" +
-    "|\\b(" + JD_SECTION_WEAK + ")\\b:\\s+", "gi");
-  var JD_PARA_MAX = 360;          // chars; above this a run is split on sentence boundaries
-
-  // ---- lists that lost their bullets AND their punctuation ----
-  // The iCIMS/Workday "Essential Functions" idiom: a dozen requirement lines concatenated with
-  // no bullet, no newline and no full stop — "…algorithmic solutions Demonstrated ability to
-  // serve as a lead software engineer Ability to decompose functional requirements…". Measured:
-  // 5,748 of 17,004 descriptions over 800 chars (34%) carry fewer than 6 sentence stops per
-  // 1,000 characters, which is that shape.
-  //
-  // The boundary is a capital following a lowercase word — but splitting on ANY capital would
-  // wreck real prose, because the most frequent capitals in that position across the corpus are
-  // proper nouns: Boeing (2,164), Capital (2,037), Company, Engineering, One, States. So we
-  // split only before words that actually START a requirement, and only inside a run that has
-  // already failed the punctuation test. Deliberately excluded despite being common bullet
-  // openers: Lead, Support, Design, Manage, Build, Drive, Track — each is an ordinary noun that
-  // shows up capitalised mid-title ("team Lead Engineer"), and a false cut reads far worse than
-  // a missed one.
-  var JD_ITEM_START =
-    "Demonstrated|Demonstrates|Ability|Abilities|Proven|Proficien(?:cy|t|cies)|Familiarity|" +
-    "Knowledge|Understanding|Excellent|Strong|Solid|Exceptional|Experience|Expertise|" +
-    "Bachelor'?s?|Master'?s?|Minimum|Preferred|Required|Must|Should|Responsible|Working|" +
-    "Assists?|Develops?|Ensures?|Maintains?|Performs?|Provides?|Coordinates?|Participates?|" +
-    "Collaborates?|Implements?|Analyzes?|Prepares?|Monitors?|Reviews?|Conducts?|Evaluates?|" +
-    "Recommends?|Identifies|Identify|Communicates?|Translates?|Oversees?|Establishes?|" +
-    "Contributes?|Executes?|Delivers?|Partners?|Serves?|Troubleshoots?|Utilizes?";
-  // Keep the matched preceding character and mark the cut with a control char, rather than
-  // using a lookbehind: Safari only shipped those recently and this file is ES5 throughout.
-  // U+0001 cannot occur in a description, so splitting on it is unambiguous.
-  var JD_ITEM_RE = new RegExp("([a-z)\\]])\\s+(?=(?:" + JD_ITEM_START + ")\\b)", "g");
-  var JD_CUT = "";
-  var JD_ITEM_MIN = 25;           // a real requirement line is long; a short piece means a bad cut
-  // A cut is wrong if the text before it ends on a word that cannot end a sentence. Measured
-  // over 600 real descriptions, this is the whole of the remaining false-positive class:
-  // "a Bachelor's degree in Engineering" cut after "of a", and "NDAs, SOWs, and Master Service
-  // Agreements" cut after "and" — both because Bachelor/Master legitimately start a bullet too.
-  // Cheaper and more general than dropping those words, which would lose the real cuts.
-  var JD_DANGLING = /\b(?:a|an|the|and|or|of|with|to|for|in|on|at|by|from|as|plus|per|our|your|their|its|this|that|these|those|is|are|be|been|has|have|had|will|shall|may|any|all|each|other|including|includes|include)$/i;
-
-  function jdFlatList(t) {
-    // Punctuation gate first: prose that already has sentences must go to the sentence splitter.
-    var stops = (t.match(/[.!?]/g) || []).length;
-    if (stops / (t.length / 1000) >= 6) return null;
-    var raw = t.replace(JD_ITEM_RE, "$1" + JD_CUT).split(JD_CUT);
-    // Heal the bad cuts by gluing a dangling piece back onto the one after it, rather than
-    // throwing the whole split away — one wrong boundary shouldn't cost the other eleven.
-    var parts = [];
-    for (var i = 0; i < raw.length; i++) {
-      var piece = raw[i].trim();
-      if (!piece) continue;
-      while (JD_DANGLING.test(piece) && i + 1 < raw.length) piece += " " + raw[++i].trim();
-      parts.push(piece);
-    }
-    if (parts.length < 4) return null;                 // a lead-in plus at least 3 items
-    // From 1, not 0: parts[0] is whatever preceded the first item, not an item itself, and it
-    // is routinely a stub — Garmin's list opens mid-phrase on "0 as a general rule)". Holding
-    // the lead-in to the item length threw away the whole list for a fragment that is simply
-    // the tail of the sentence above it.
-    for (var j = 1; j < parts.length; j++)
-      if (parts[j].length < JD_ITEM_MIN) return null;  // cut mid-sentence — abandon it
-    return parts;
-  }
-
-  // One run of prose -> one or more blocks. Never emits a paragraph much longer than
-  // JD_PARA_MAX unless a single sentence is.
-  function jdChunk(t) {
-    t = (t || "").trim();
-    if (!t) return "";
-    // Some boards flatten a real <ul> into "• a • b • c" on one line. Two or more bullets is a
-    // list; a single one is just a stray glyph inside a sentence.
-    if ((t.match(/\u2022/g) || []).length >= 2) {
-      var parts = t.split(/\s*\u2022\s*/), lead = "", items = "";
-      if (parts.length && parts[0].trim() && t.charAt(0) !== "\u2022")
-        lead = "<p>" + esc(parts.shift().trim()) + "</p>";
-      for (var b = 0; b < parts.length; b++)
-        if (parts[b].trim()) items += "<li>" + esc(parts[b].trim()) + "</li>";
-      return lead + (items ? "<ul>" + items + "</ul>" : "");
-    }
-    if (t.length <= JD_PARA_MAX) return "<p>" + esc(t) + "</p>";
-    // A requirements list that lost its bullets AND its full stops. Rendered as a real <ul>,
-    // because that is what it is \u2014 the first piece is the lead-in sentence before the list.
-    var flat = jdFlatList(t);
-    if (flat) {
-      var head = "<p>" + esc(flat.shift().trim()) + "</p>", li = "";
-      for (var f = 0; f < flat.length; f++) li += "<li>" + esc(flat[f].trim()) + "</li>";
-      return head + "<ul>" + li + "</ul>";
-    }
-    var sent = t.match(/[^.!?]+(?:[.!?]+["'\u2019)\]]*|$)/g) || [t];
-    var out = "", buf = "";
-    for (var i = 0; i < sent.length; i++) {
-      var s = sent[i].trim();
-      if (!s) continue;
-      if (buf && buf.length + s.length > JD_PARA_MAX) { out += "<p>" + esc(buf) + "</p>"; buf = ""; }
-      buf = buf ? buf + " " + s : s;
-    }
-    return out + (buf ? "<p>" + esc(buf) + "</p>" : "");
-  }
-
-  function jdParagraphs(text) {
-    var t = String(text || "").trim();
-    if (!t) return "";
-    var out = "", last = 0, m;
-    JD_SECTION.lastIndex = 0;        // module-level regex carrying /g: its state is shared
-    while ((m = JD_SECTION.exec(t)) !== null) {
-      if (m.index === JD_SECTION.lastIndex) { JD_SECTION.lastIndex++; continue; }  // no progress
-      // Not a heading if it is finishing the sentence in front of it — "Cintas Corporation is
-      // proud to be an" / "Equal Opportunity Employer" is one sentence, and lifting the tail
-      // out of it leaves a paragraph dangling on "an".
-      if (JD_DANGLING.test(t.slice(last, m.index).trim())) continue;
-      out += jdChunk(t.slice(last, m.index));
-      out += '<h4 class="jdh">' + esc(m[1] || m[2]) + "</h4>";
-      last = JD_SECTION.lastIndex;
-    }
-    return out + jdChunk(t.slice(last));
-  }
-
-  function jdHTML(text) {
-    var src = String(text == null ? "" : text).replace(/\r\n?/g, "\n").replace(/ /g, " ");
-    var lines = src.split("\n"), out = [], para = [], list = null;
-    // jdParagraphs, not a bare <p>: on most boards a "line" here is the ENTIRE posting.
-    function flushPara() { if (para.length) out.push(jdParagraphs(para.join(" "))); para = []; }
-    function flushList() { if (list && list.length) out.push("<ul>" + list.join("") + "</ul>"); list = null; }
-    for (var i = 0; i < lines.length; i++) {
-      var t = lines[i].trim();
-      if (!t) { flushPara(); flushList(); continue; }   // a blank ends the block; runs of them vanish
-      var bm = t.match(JD_BULLET);
-      if (bm) {
-        flushPara();
-        if (!list) list = [];
-        list.push("<li>" + esc(t.slice(bm[0].length).trim()) + "</li>");
-        continue;
-      }
-      if (isJdHeading(t)) {
-        flushPara(); flushList();
-        out.push('<h4 class="jdh">' + esc(t.replace(/:$/, "")) + "</h4>");
-        continue;
-      }
-      flushList();
-      // Hard-wrapped prose: a long previous line that doesn't end a sentence is mid-paragraph,
-      // so join onto it. Otherwise start a new <p>, so separate one-line statements — which is
-      // how most bullet-less JDs are written — don't get glued into a wall.
-      var prev = para.length ? para[para.length - 1] : "";
-      if (prev && !(prev.length > 62 && !/[.:;!?]$/.test(prev))) flushPara();
-      para.push(t);
-    }
-    flushPara(); flushList();
-    return out.join("");
-  }
-  function openModal(card) {
-    if (!modal) return;
-    mUrl = card.getAttribute("data-url");
-    // The panel inherits the card's route, so its Apply button is the same colour as the one
-    // that was just clicked. Without this the detail view would be the single place in the
-    // product where the primary action forgets what the job offers.
-    modal.setAttribute("data-route", card.getAttribute("data-route") || "");
-    var lg = card.querySelector(".logo");
-    $("m-logo").innerHTML = lg ? lg.innerHTML : ""; $("m-logo").style.background = lg ? lg.style.background : "";
-    var mlImg = $("m-logo").querySelector(".logo-img");
-    if (mlImg) { mlImg.removeAttribute("data-fb-wired"); wireLogoFallback(mlImg); }
-    $("m-title").textContent = card.querySelector(".ctitle") ? card.querySelector(".ctitle").textContent : "";
-    var mm = $("m-meta");
-    mm.innerHTML = metaHTML(byUrl[mUrl]);
-    formatDates(mm);
-    $("m-chip").innerHTML = '<span class="shim shim-chip"></span>';
-    $("m-skills").innerHTML = '<div class="shim-row"><span class="shim shim-tag"></span><span class="shim shim-tag"></span><span class="shim shim-tag" style="width:88px"></span></div>' +
-      '<span class="shim shim-bar w75"></span><span class="shim shim-bar w55"></span>';
-    $("m-jd").innerHTML = '<div class="loading-jd"><span class="spin"></span>Loading description…</div>';
-    $("m-apply").href = /^https?:\/\//i.test(mUrl) ? mUrl : "#";
-    $("m-tailor").href = "/brain?job=" + encodeURIComponent(mUrl);
-    syncModal((byUrl[mUrl] && byUrl[mUrl].status) || "");
-    modal.classList.add("open"); document.body.style.overflow = "hidden";
-    fetch("/api/job?url=" + encodeURIComponent(mUrl)).then(function (r) { return r.json(); }).then(function (j) {
-      if (!j || !j.ok) { $("m-jd").textContent = "Couldn't load details."; return; }
-      $("m-chip").innerHTML = scoreCell(j);
-      var sk = "";
-      if (j.missing && j.missing.length) sk += '<div class="sechdr">Add these to your résumé</div><div class="kw">' + j.missing.map(function (k) { return '<span class="tag miss">' + esc(k) + '</span>'; }).join("") + '</div>';
-      if (j.have && j.have.length) sk += '<div class="sechdr">Skills you already match</div><div class="kw">' + j.have.map(function (k) { return '<span class="tag have">' + esc(k) + '</span>'; }).join("") + '</div>';
-      // Every badge lives in this ONE row — the header above carries facts only, so nothing is
-      // rendered twice. Pay, Remote, Internship and Closed ride on the feed row rather than the
-      // /api/job payload, which doesn't carry them; before this they reached the panel only via
-      // the broken .textContent header copy, so pay would have vanished with it.
-      var row = byUrl[mUrl] || {};
-      var spn = "";
-      if (row.salary_label) spn += '<span class="pay">' + H(row.salary_label) + '</span>';
-      if (row.remote) spn += '<span class="rem">Remote</span>';
-      if (row.intern) spn += '<span class="intl">Internship</span>';
-      if (j.exp_years !== "" && j.exp_years != null) {
-        var ey = parseInt(j.exp_years, 10);
-        var ec = ey >= 6 ? "exp-hi" : ey >= 3 ? "exp-mid" : "exp-lo";
-        // Same chip the card uses. It said "5+ yrs experience" here and "5+ yrs" there, so
-        // the two disagreed about their own wording on the same job.
-        spn += '<span class="exp ' + ec + '" title="The description asks for ' + ey +
-          ' years of experience or more.">' + ey + '+ yrs</span>';
-      }
-      // The modal has room, so it shows every route rather than the card's top three — and it
-      // is where the "past filings, not a promise" caveat now lives, since the card's chips
-      // dropped their tooltips.
-      var mvt = j.visa || [];
-      for (var mi = 0; mi < mvt.length; mi++)
-        spn += '<span class="vt vt-' + H(mvt[mi]) + '" title="' + H(VISA_TIPS[mvt[mi]] || "") +
-          '">' + esc(VISA_LABELS[mvt[mi]] || mvt[mi]) + '</span>';
-      if (j.cap_exempt) spn += '<span class="cx">Likely cap-exempt, no H-1B lottery</span>';
-      if (j.agency) spn += '<span class="agency">Agency</span>';
-      // Fixed label, specific reason in the tooltip — the same shape cardHTML uses, so the card
-      // and the panel can never word this differently. The label is decided HERE rather than by
-      // editing core._SPONSOR_BLOCK's messages, because those strings are substring-matched by
-      // core._BLOCKS_EVERYONE to decide whether a blocked posting keeps STEM-OPT or loses every
-      // route — rewording them would quietly put "H-1B · Green Card" back on citizens-only
-      // roles. Fixing it at the render layer is also the only fix that is correct for the
-      // reasons ALREADY stored in the sponsor_reason column.
-      if (j.sponsor_jd === "blocked")
-        spn += '<span class="nospon" title="' + H(j.sponsor_reason || "") + '">No sponsorship</span>';
-      else if (j.sponsor_jd === "open")
-        spn += '<span class="spon" title="' + H(j.sponsor_reason || "") + '">Sponsors</span>';
-      if (row.closed) spn += '<span class="closed">Closed</span>';
-      if (spn) sk = '<div class="kw" style="margin-bottom:10px">' + spn + '</div>' + sk;
-      var skEl = $("m-skills"), jdEl = $("m-jd");
-      skEl.style.opacity = "0"; jdEl.style.opacity = "0";
-      skEl.innerHTML = sk;
-      jdEl.innerHTML = jdHTML(j.jd) ||
-        "<p>" + esc("No description stored. Click Apply to read it on the company site.") + "</p>";
-      requestAnimationFrame(function () {
-        skEl.style.transition = "opacity .25s"; skEl.style.opacity = "1";
-        jdEl.style.transition = "opacity .25s"; jdEl.style.opacity = "1";
-      });
-    }).catch(function () { $("m-jd").textContent = "Couldn't load details."; });
-  }
   // ---- "More about this employer" panel (company page only) ----
   // Server-rendered and static, so this is just a show/hide — no fetch, no template in JS.
   // Every reference is guarded: the feed has no such button and must not throw.
@@ -1501,34 +1285,6 @@
     });
   }
 
-  function closeModal() { if (modal) { modal.classList.remove("open"); document.body.style.overflow = ""; } }
-  function syncModal(status) {
-    var l = $("m-like"), h = $("m-hide");
-    if (l) l.textContent = status === "liked" ? "Saved" : "Save";
-    if (h) h.textContent = status === "hidden" ? "Unhide" : "Hide";
-  }
-  if (modal) {
-    $("m-close").addEventListener("click", closeModal);
-    modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
-    $("m-like").addEventListener("click", function () {
-      var j = byUrl[mUrl]; if (!j) return; var next = j.status === "liked" ? "" : "liked";
-      doAction(mUrl, next).then(function (ok) { if (ok) { toast(actLabel(next)); j.status = next; syncModal(next); afterAction(j); } });
-    });
-    $("m-hide").addEventListener("click", function () {
-      var j = byUrl[mUrl]; if (!j) return; var next = j.status === "hidden" ? "" : "hidden";
-      doAction(mUrl, next).then(function (ok) { if (ok) { toast(next ? "Hidden" : "Unhidden"); j.status = next; closeModal(); afterAction(j); } });
-    });
-    $("m-apply").addEventListener("click", function () {
-      var j = byUrl[mUrl];
-      // where:"modal" vs "card" answers whether the detail panel is where people decide, or
-      // just a reference they read past. If nobody ever applies from here, its action buttons
-      // are dead weight; if nobody opens it at all, /api/job and the JD storage aren't earning.
-      if (j) EV("apply_click", { co: j.company, sc: j.score, where: "modal" });
-      if (j && j.status !== "applied")
-        doAction(mUrl, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); j.status = "applied"; syncModal("applied"); afterAction(j); } });
-    });
-  }
 
   // ---- Update-jobs: trigger the scrape + live progress bar (polls /api/scrape_status) ----
   var sBar = document.getElementById("scrapebar"), sLabel = document.getElementById("sb-label"),

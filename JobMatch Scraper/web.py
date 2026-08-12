@@ -15,6 +15,7 @@ import sys
 import json
 import time
 import html
+import threading
 import hmac
 import hashlib
 import secrets
@@ -54,6 +55,7 @@ from flask import (Flask, request, session, redirect, url_for,
 import core
 import db
 import auth
+import jdrender
 
 try:
     import analytics
@@ -708,6 +710,44 @@ def _build_row(j, score):
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
     # sponsorship must not carry sponsorship badges (see core.visa_tags_for_posting).
     vtags = core.visa_tags_for_posting(core.visa_tags(c, visa_index()), sv, sreason)
+    # THE DATE, and whether it is a posting date at all.
+    #
+    # A trusted value is a bare ISO date and stays sliced to 10 chars. An UNTRUSTED one is
+    # "YYYY-MM-DD HH:MM", which core.is_trusted_date documents as this codebase's marker for a
+    # derived value — the scrape stamp for boards that publish no date, or _workday_date()
+    # converting "Posted 3 Days Ago". Those used to be sliced too, throwing away the only
+    # hour-precision timestamp in the corpus, and then rendered as if they were posting dates,
+    # which is exactly what verify_dates.py's docstring complains about. Keep the time and let
+    # the card label it "Added <n>h ago": hours where hours genuinely exist, and honest about
+    # whose clock they came from.
+    #
+    # Safe for every consumer: _row_date() feeds string ">= cutoff" comparisons and a
+    # descending sort, and "2026-08-04 14:00" both clears a "2026-07-12" cutoff and sorts
+    # after a bare "2026-08-04", which is the correct order rather than an accident.
+    trusted = core.is_trusted_date(j.get("found_date"), j.get("posted_verified"))
+    draw = (j.get("posted_verified") or j.get("found_date")) or ""
+    date = draw[:10] if trusted else draw
+    # THE ONE CHIP, including the legacy fallback, decided here rather than in app.js.
+    #
+    # The fallback is the pre-visa_tags.json seed-list flag (jobs.sponsors_h1b). app.js used to
+    # own it as a second branch reading `if (!chip && j.sponsors_h1b === "yes")`, and that had
+    # two faults now that the card shows a single hedged chip:
+    #
+    #   1. It ignored the JD narrowing. A posting whose own text says "no visa sponsorship"
+    #      empties vtags, which made the branch fire — so cards rendered "H1B (top sponsor)"
+    #      and "No sponsorship" side by side. That is precisely the contradiction
+    #      core.visa_tags_for_posting exists to prevent, and it was visible on the live feed.
+    #   2. It fired whenever vtags was empty, not when the INDEX was missing, which is all it
+    #      was ever meant to cover. sponsors_h1b fuzzy-matches a 621-name list at
+    #      token_set_ratio >= 90 and scores "Northeastern University" 95.65 against
+    #      "northwestern university", so trusting it over a built index is backwards.
+    #
+    # So: only when the index genuinely isn't there, and never over a blocked posting. One
+    # field reaches the client and app.js has a single code path.
+    vlikely = core.sponsor_likely(vtags)
+    if (not vlikely and not visa_index() and sv != "blocked"
+            and j.get("sponsors_h1b") == "yes"):
+        vlikely = "h1b"
     # A too-thin/truncated JD can't be scored honestly (see core.analyze_jd) — surface it as
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
     # rather than sitting at a fake ~100% on top of the feed. Read from the same analysis
@@ -739,14 +779,15 @@ def _build_row(j, score):
             "url": u, "apply_url": u if (u or "").startswith(("http://", "https://")) else "#",
             "sponsors_h1b": j.get("sponsors_h1b", ""),
             # date = the real posting date (verify_dates) when we have it, else found_date.
-            # The "New" badge is derived client-side from this date (it shows iff it reads "Today").
-            "date": ((j.get("posted_verified") or j.get("found_date")) or "")[:10],
+            # Carries "YYYY-MM-DD HH:MM" when date_trusted is false; see the block above.
+            # The "New" badge is derived client-side from this date and date_trusted.
+            "date": date,
             "date_verified": bool(j.get("posted_verified")),
             # Broader than date_verified: "somebody STATED this date" rather than "the lookup
             # service confirmed it". core.is_trusted_date is the one definition; the feed's
             # verifiedonly filter reads this, and app.js just checks the flag rather than
             # re-deriving the string-shape rule.
-            "date_trusted": core.is_trusted_date(j.get("found_date"), j.get("posted_verified")),
+            "date_trusted": trusted,
             # Which role families this title belongs to. Computed here rather than in JS so the
             # phrase vocabulary has ONE definition; app.js just intersects two lists.
             "roles": list(core.roles_for_title(j.get("title"))),
@@ -759,7 +800,18 @@ def _build_row(j, score):
             "cap_exempt": core.is_cap_exempt(c),
             # Which immigration routes this employer has actually filed for (DOL LCA + PERM
             # + E-Verify). A missing tag means "no record", never "won't sponsor".
+            #
+            # KEEP THE FULL LIST even though the card now renders only one chip. Three things
+            # need every route: the visa filter (core.visa_tags_match / app.js visaHit, which
+            # NARROWS — filtering on the single chip would hide every green-card employer whose
+            # chip reads H-1B), core.sponsor_rank for sort=sponsor, and the everify derivation
+            # just below. The job page names all five too.
             "visa": vtags,
+            # The ONE hedged route the card names. core.sponsor_likely is the single definition
+            # and it runs on the ALREADY-NARROWED tuple, so a posting whose text closes a route
+            # cannot show a chip for it. Also drives data-route, so the chip and the card's
+            # colour are one field and cannot disagree.
+            "visa_likely": vlikely,
             # stem_opt IS the E-Verify fact; the everify.txt path stays as a fallback for
             # anyone who built that file (it has never existed in this repo).
             "everify": ("stem_opt" in vtags) or core.is_everify(c, _EVERIFY_INDEX),
@@ -1379,12 +1431,20 @@ def _research_for(display):
     byd.com. The name index is cached, since the miss path is the common one until the KB fills
     up and it would otherwise re-read the table on every company page view.
     """
-    try:
-        rec = db.get_brain_company(logodomain(display))
-        if rec:
-            return rec
-    except Exception:
-        pass
+    # BOTH domain guesses, because they disagree and each is the right key some of the time.
+    # research._norm_name strips inc|llc|ltd|corp|co|company|the before building a domain and
+    # logodomain does not, and their hand-written domain maps are different sets. So the crawler
+    # files "Amazon.com Services LLC" under one spelling while this lookup asks for the other,
+    # and on-demand research would appear to silently do nothing for a whole class of employers.
+    for dom in (logodomain(display), _research_domain(display)):
+        if not dom:
+            continue
+        try:
+            rec = db.get_brain_company(dom)
+            if rec:
+                return rec
+        except Exception:
+            pass
     idx = _research_cache["by_name"]
     if idx is None or time.time() - _research_cache["at"] > _RESEARCH_TTL:
         try:
@@ -1565,6 +1625,338 @@ def company():
                            visa_tips=core.VISA_TAG_TIPS)
 
 
+# --------------------------- one job ---------------------------
+_SKILL_SHOWN = 18            # matched/missing chips; /api/job used 30 and nothing needed more
+# INLINE highlights are capped far lower than the chip lists, and this is the whole difference
+# between a useful page and an unreadable one. core.score_against returns terms sorted by
+# descending IDF weight, so the head of the list is the signal and the tail is words like
+# "least", "based", "services" and "source" that happen to be in the description. At 24 terms a
+# real Capital One posting came back with 71 marks and read as a highlighter accident; the top
+# ten of each carry the meaning. The chips below the description can afford to be longer because
+# a list is scanned, not read through.
+_HL_TERMS = 10
+
+
+def _hl_terms(terms, company):
+    """The subset worth marking inline: weight order preserved, generic words dropped.
+
+    Also drops the employer's own name. It is genuinely one of the description's highest-weighted
+    terms and marking it says nothing: "Capital One" was highlighted six times in one posting.
+    """
+    stop = set(_SKILL_STOP)
+    stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
+    out = []
+    for t in terms:
+        low = (t or "").strip().lower()
+        if len(low) < 3 or low in stop:
+            continue
+        # A multi-word term made only of stopwords ("work experience") is no better than its parts.
+        if all(w in stop or len(w) < 3 for w in low.split()):
+            continue
+        out.append(t)
+        if len(out) >= _HL_TERMS:
+            break
+    return out
+
+
+def _company_brief(display, open_rows):
+    """The company block on a JOB page: what they do, plus the facts that exist for everyone.
+
+    Deliberately NOT _company_profile(). That one iterates the ENTIRE get_jobs() corpus and calls
+    job_analysis() on every one of this employer's postings to rank their skills, which is fine
+    once per company page and not fine on a page somebody opens for one job. web.py's own
+    docstring at the streaming unpack measures a full feed's scoring at ~1.05s, so an employer
+    with 500 openings would put tens of milliseconds of pure CPU on every job view for a chip row
+    that /company already shows one click away.
+
+    So: no jd_terms aggregation and no per-year history bars. Everything here is either already
+    on the rows we were handed or a dict lookup.
+    """
+    try:
+        research = _research_for(display) or {}
+    except Exception:
+        research = {}
+    strength, scount = core.sponsor_strength(display, sponsor_counts())
+    states = collections.Counter(r["loc_state"] for r in open_rows if r.get("loc_state"))
+    return {
+        "research": research,
+        "researched": bool(research.get("what_they_do") or research.get("about")
+                           or research.get("mission")),
+        # Same key name and the same cleaning as the company page, for the reason spelled out in
+        # _company_profile: Jinja resolves `about.values` to dict.values() and hands the template
+        # a bound method that then fails to iterate.
+        "company_values": _clean_research_list(research.get("values"), no_digits=True),
+        "initiatives": _clean_research_list(research.get("initiatives"), hi=160, cap=6),
+        "tech_stack": _clean_research_list(research.get("tech_stack"), hi=28, cap=12),
+        "n_open": len(open_rows),
+        "states": states.most_common(4),
+        "remote": sum(1 for r in open_rows if r.get("remote")),
+        "strength": strength, "strength_n": scount,
+        "site": (research.get("pages") or [None])[0],
+        "fetched_at": research.get("fetched_at"),
+    }
+
+
+def _and_list(items):
+    """['a','b','c'] -> 'a, b and c'. Jinja's join() can only repeat one separator, so
+    `narrowed|join(' and ')` rendered "H-1B and Green Card and E-3 and H-1B1"."""
+    items = [str(i) for i in (items or []) if str(i).strip()]
+    if len(items) <= 1:
+        return items[0] if items else ""
+    return "%s and %s" % (", ".join(items[:-1]), items[-1])
+
+
+def _route_of(row):
+    """The data-route value, server-side. Mirrors the one expression in app.js cardHTML.
+
+    Duplicated deliberately rather than shared: it is one ternary, and the alternative is
+    shipping a computed field the card does not need. scripts/test_job_page.py asserts the page
+    and the card agree for every combination.
+    """
+    if (row.get("sponsor_jd") or "") == "blocked":
+        return "blocked"
+    return row.get("visa_likely") or "none"
+
+
+@app.route("/job")
+@login_required
+def job_page():
+    """One posting, in full: routes, the company, the description and the keywords.
+
+    Replaces the slide-in modal. A job now has a URL, so it can be linked, bookmarked, reopened
+    from history and left with the Back button, none of which an overlay could do.
+
+    The identifier travels as ?u= for the reason /company documents at length: job URLs are full
+    of slashes and on cPanel/Passenger behind Apache a %2F inside a path segment is 404'd before
+    Flask ever sees it. ?url= is accepted too, because that is what /api/job used and somebody
+    will have it in a bookmark.
+
+    The row comes from ranked_rows, NOT from get_jobs() plus a fresh _build_row. Three reasons,
+    and the third is a correctness bug rather than a preference: it is the same cached list the
+    feed and /company read, so the score, the chip and the route are the same objects the card
+    showed; the scan is a linear pass over ~19k dicts comparing one string, which /company
+    already pays twice per render; and ranked_rows applies _dedupe_rows, which DROPS rows, so a
+    page built from get_jobs() would happily render a posting the feed deliberately collapsed
+    away, complete with a live Apply button.
+    """
+    url = (request.args.get("u") or request.args.get("url") or "").strip()
+    if not url:
+        return redirect(url_for("feed"))
+    user = session["user"]
+    rows = ranked_rows(user, current_profile())
+    row = next((r for r in rows if r.get("url") == url), None)
+
+    if row is None:
+        # Not in the ranked list. Either it was deduped away (the same posting reached us from
+        # two hosts and the feed kept the other copy) or it is gone. Send the duplicate to its
+        # survivor so an old bookmark lands on the employer's own host rather than a 404, and
+        # 302 rather than 301 because that preference is decided at render time and reversible.
+        raw = next((j for j in get_jobs() if j.get("url") == url), None)
+        if raw is not None:
+            key = _dupe_key(_build_row(raw, 0))
+            twin = next((r for r in rows if key is not None and _dupe_key(r) == key), None)
+            if twin is not None:
+                return redirect(url_for("job_page", u=twin["url"]))
+        # 404, not a redirect with a flash: a redirect breaks the Back button and hides the
+        # reason. 404 rather than 410 because some caches treat Gone as permanent, and the
+        # 30-day pruner is not a permanent judgment about a URL.
+        #
+        # No analytics event here on purpose. Firing job_open with a flag, or inventing a
+        # near-duplicate name, is exactly how this project's usage numbers were distorted
+        # before; "how often do people land on dead jobs" deserves its own event or nothing.
+        return render_template("job.html", gone=True, gone_url=url), 404
+
+    company = row.get("company") or ""
+    jd = db.get_job_jd(url) or ""
+    # The card's OWN analysis wherever we have it, so the number here is the number the card
+    # showed and the keywords are the terms that produced it. Only a job the scorer never
+    # reached falls back to analysing the JD we just fetched.
+    resume = current_profile()
+    raw = next((j for j in get_jobs() if j.get("url") == url), None) or {}
+    analyzed = job_analysis(raw)
+    if not analyzed.get("terms"):
+        analyzed = jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"]
+    have, missing = [], []
+    if resume and analyzed.get("terms"):
+        _score, have, missing = core.score_against(resume.lower(), analyzed)
+    have, missing = list(have)[:_SKILL_SHOWN], list(missing)[:_SKILL_SHOWN]
+
+    vtags = row.get("visa") or ()
+    # EMPLOYER-level routes, so the page can say "they have filed for Green Card, but this
+    # posting rules it out" — information visa_tags_for_posting destroys at card level with no
+    # way to recover it.
+    all_tags = core.visa_tags(company, visa_index())
+    routes = [{"key": k, "label": core.VISA_TAG_LABELS[k], "tip": core.VISA_TAG_TIPS[k],
+               "on": k in vtags, "employer": k in all_tags} for k in core.VISA_TAGS]
+    narrowed = _and_list([core.VISA_TAG_LABELS[k] for k in all_tags if k not in vtags])
+    # The band's headline. "No Record on File" is only true when there is genuinely nothing:
+    # a blocked posting at an employer with four filings on record would otherwise announce
+    # exactly the opposite of what the five rows underneath it say.
+    chip_label = core.SPONSOR_LIKELY_LABELS.get(row.get("visa_likely") or "")
+    if not chip_label:
+        chip_label = ("Ruled Out by This Posting" if (row.get("sponsor_jd") == "blocked"
+                                                      and all_tags)
+                      else "No Record on File")
+
+    same_company = [r for r in rows
+                    if db.block_key(r.get("company") or "") == db.block_key(company)
+                    and not r.get("closed")]
+    brief = _company_brief(company, same_company)
+    # Offer the crawl only when there is nothing on file AND it is actually startable: the
+    # decision needs the index, the guessed domain, the failure cooldown, the Supabase check and
+    # the kill switch, none of which jobpage.js can see. It does not start here — the page must
+    # not wait on a 12-second crawl — jobpage.js POSTs and then polls.
+    research_pending = bool(not brief["researched"] and _research_eligible(company))
+
+    # Byte-identical name and props to the event /api/job used to fire, so the two eras of this
+    # metric stay comparable. Do not rename, do not add fields.
+    pending = bool(row.get("score_pending"))
+    analytics.emit(user, getattr(g, "sid", ""), "job_open", job_url=url,
+                   company=company, source=_host(raw or row),
+                   score=0 if pending else int(row.get("score") or 0), pending=pending)
+    return render_template(
+        "job.html", row=row, route=_route_of(row), routes=routes, narrowed=narrowed,
+        jd_html=jdrender.render_jd(jd, have=_hl_terms(have, company),
+                                   missing=_hl_terms(missing, company)),
+        jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
+        sec_labels=jdrender.SEC_LABELS,
+        have=have, missing=missing, has_resume=bool(resume),
+        about=brief, researching=research_pending, research_pending=research_pending,
+        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE)
+
+
+# --------------------------- on-demand company research ---------------------------
+# The crawler is synchronous and budgeted at 12 wall-clock seconds (research._CRAWL_BUDGET), and
+# cPanel/Passenger typically runs a pool of 2 to 6 processes. Running it inside a page request
+# means two people opening two unresearched employers can stall the app, which is exactly what
+# /brain does today and why the tailor page hangs. So: a daemon thread, with the same reasoning
+# analytics._start() already documents for this platform. Under Passenger the worst case is a
+# recycled idle worker losing one crawl, and the next view retries; db.put_brain_company is a
+# single idempotent upsert, so nothing is left half-written.
+_research_lock = threading.Lock()
+_research_inflight = {}          # domain -> started_at
+_research_fail = {}              # domain -> don't-retry-until
+_RESEARCH_MAX = 2                # concurrent crawls per worker
+# NOT optional. resolve_domain GUESSES a domain from the company name, so a large share of
+# employers resolve to one that does not exist; without a negative cooldown every visitor to
+# every posting at that employer starts a doomed crawl forever, which is an outbound request
+# storm from a shared host.
+_RESEARCH_COOLDOWN = int(os.environ.get("RESEARCH_COOLDOWN", 6 * 3600))
+# The one feature that makes this app fetch arbitrary third-party sites on a user action, so the
+# off switch must not require a deploy.
+_RESEARCH_ON = (os.environ.get("RESEARCH_ON_DEMAND", "1") or "1").lower() not in ("0", "false", "no")
+
+
+def _research_domain(company):
+    try:
+        from resume_brain import research
+        return research.resolve_domain(company, "")
+    except Exception:
+        return ""
+
+
+def _research_eligible(company):
+    """Should this page offer to crawl `company`? Returns the domain, or ""."""
+    if not _RESEARCH_ON or not company:
+        return ""
+    # Only against Supabase. The local fallback (db.py's *_local.json path) is an unlocked
+    # read-modify-write of a whole JSON file, so two workers crawling two employers can lose a
+    # record. One condition removes the only data-loss path this feature has.
+    try:
+        if not db.using_supabase():
+            return ""
+    except Exception:
+        return ""
+    dom = _research_domain(company)
+    if not dom:
+        return ""
+    now = time.time()
+    with _research_lock:
+        if _research_fail.get(dom, 0) > now:
+            return ""
+        if dom in _research_inflight:
+            return dom
+    return dom
+
+
+def _research_crawl(domain, company):
+    """The crawl itself, on a background thread.
+
+    Takes PLAIN ARGUMENTS and touches no request-scoped state: no flask.g, no session, no
+    request. That is the classic bug in this pattern, and db.put_brain_company needs no app
+    context (it posts through a module-level requests session).
+    """
+    ok = False
+    try:
+        from resume_brain import research
+        pages = research.crawl_company(domain)
+        if pages:
+            rec = research.extract_company_knowledge(pages, company)
+            rec["domain"] = domain
+            db.put_brain_company(domain, rec)
+            ok = True
+    except Exception:
+        ok = False
+    finally:
+        with _research_lock:
+            _research_inflight.pop(domain, None)
+            if ok:
+                # Bust the 300-second name index, or a successful crawl keeps reading as a miss
+                # for five minutes and the poll gives up on work that already finished.
+                _research_cache.update({"by_name": None, "at": 0})
+            else:
+                _research_fail[domain] = time.time() + _RESEARCH_COOLDOWN
+
+
+def _research_start(company):
+    """Launch a crawl for `company` unless one is already running or the slots are full."""
+    dom = _research_eligible(company)
+    if not dom:
+        return False
+    with _research_lock:
+        if dom in _research_inflight:
+            return True
+        if len(_research_inflight) >= _RESEARCH_MAX:
+            return False
+        _research_inflight[dom] = time.time()
+    t = threading.Thread(target=_research_crawl, args=(dom, company), daemon=True)
+    t.start()
+    return True
+
+
+def _research_fragment(company):
+    """The research block for `company`, as HTML, for both the page and the poll."""
+    dom = _research_domain(company)
+    running = False
+    with _research_lock:
+        running = dom in _research_inflight
+    rows = [r for r in ranked_rows(session["user"], current_profile())
+            if db.block_key(r.get("company") or "") == db.block_key(company)
+            and not r.get("closed")]
+    return render_template("_jobresearch.html", about=_company_brief(company, rows),
+                           row={"company": company, "url": (rows[0]["url"] if rows else "")},
+                           researching=running)
+
+
+@app.route("/job/research", methods=["GET", "POST"])
+@login_required
+def job_research():
+    """Start a company crawl (POST), or read the section back (GET).
+
+    The GET returns the SAME Jinja partial the page rendered rather than JSON, so the markup and
+    its escaping live in one template and the two cannot drift.
+    """
+    company = (request.args.get("c") or request.form.get("c") or "").strip()
+    if not company:
+        return "", 400
+    if request.method == "POST":
+        if not _check_csrf():
+            return "", 403
+        _research_start(company)
+        return "", 204
+    return _research_fragment(company), 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 def _page_args(p, default_limit=60):
     """(offset, limit) from the query string, clamped."""
     try:
@@ -1731,56 +2123,12 @@ def _ev_feed_view(user, args, rows, total, offset):
         pass
 
 
-@app.route("/api/job")
-@login_required
-def api_job():
-    """Full job detail for the slide-in panel: JD text + matched/missing skills."""
-    url = request.args.get("url", "")
-    job = next((j for j in get_jobs() if j.get("url") == url), None)
-    if not job:
-        return {"ok": False}, 404
-    resume = current_profile()           # whole-profile match, consistent with the feed
-    jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
-    # The card's OWN analysis wherever we have it, so the ring in this panel is the same number
-    # the card showed and "Add these to your résumé" is drawn from the same terms that produced
-    # it. Only a job the scorer has never reached falls back to analyzing the JD we just
-    # fetched — better information than nothing, and the card shows match_score meanwhile.
-    analyzed = job_analysis(job)
-    if not analyzed.get("terms"):
-        analyzed = jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"]
-    if resume and analyzed.get("terms"):
-        score, have, missing = core.score_against(resume.lower(), analyzed)
-    else:
-        try:
-            score = int(job.get("match_score") or 0)
-        except Exception:
-            score = 0
-        have, missing = [], []
-    # Read the SAME stored fields the card does, so the panel and the card can never disagree.
-    # They used to: the card read jdmeta.json (empty in production) while this route re-parsed
-    # the JD per request, which is why a "<=2 yrs" filter would let a job through and then its
-    # detail panel would announce "8+ yrs".
-    exp_y, _exp_lvl, sv, sreason = _jd_fields(job)
-    pending = bool(analyzed.get("thin"))
-    # company/source/score are stamped on the event rather than looked up later: the 30-day
-    # pruner deletes this row, and match_score is rewritten every scoring run.
-    analytics.emit(session["user"], getattr(g, "sid", ""), "job_open", job_url=url,
-                   company=job.get("company"), source=_host(job),
-                   score=0 if pending else int(score or 0), pending=pending)
-    return {"ok": True, "title": job.get("title", ""), "company": job.get("company", ""),
-            "location": job.get("location", ""), "date": (job.get("found_date") or "")[:10],
-            "url": url, "sponsors_h1b": job.get("sponsors_h1b", ""),
-            "score": 0 if pending else int(score or 0), "score_pending": pending,
-            "sponsor_jd": sv, "sponsor_reason": sreason,
-            "agency": core.is_agency(job.get("company", "")),
-            "cap_exempt": core.is_cap_exempt(job.get("company", "")),
-            # Keep in step with _build_row — the modal and the card must not disagree.
-            "visa": core.visa_tags_for_posting(
-                core.visa_tags(job.get("company", ""), visa_index()), sv, sreason),
-            "everify": ("stem_opt" in core.visa_tags(job.get("company", ""), visa_index()))
-                       or core.is_everify(job.get("company", ""), _EVERIFY_INDEX),
-            "exp_years": exp_y if exp_y is not None else "",
-            "have": list(have)[:30], "missing": list(missing)[:30], "jd": jd[:7000]}
+# /api/job lived here. It served the job-detail MODAL and had no other caller anywhere in the
+# repo (static, templates, extension, scripts, web/src all checked). The modal was replaced by
+# the server-rendered /job page, which reads the same row out of ranked_rows and the JD out of
+# db.get_job_jd directly, so the endpoint had nothing left to do. Its analytics.emit for
+# job_open moved into job_page() with the same name and the same five props, so the metric
+# spans both eras.
 
 
 @app.route("/api/action", methods=["POST"])
@@ -3208,8 +3556,22 @@ def admin_block():
 @app.route("/action", methods=["POST"])
 @login_required
 def action():
+    """Save / Mark Applied / Hide as a real form POST, so they work with JavaScript off.
+
+    No longer unreferenced: templates/job.html posts here. That is also why it now checks CSRF.
+    It had none — protected only by SameSite=Lax and `form-action 'self'`, which was a defensible
+    bar for a route nothing called, and is not the bar for one on every job page.
+
+    `via` distinguishes this page from the feed's XHR. A new VALUE in the existing dimension, not
+    a new event: 'api' and 'form' already exist, 'job' joins them, and the old modal's traffic
+    simply stops appearing, which is interpretable rather than confusing.
+    """
+    if not _check_csrf():
+        flash("That form expired. Reload the page and try again.")
+        return redirect(request.referrer or url_for("feed"))
     url = request.form.get("url", "")
     status = request.form.get("status", "")          # liked|hidden|applied|'' (clear)
+    via = "job" if request.form.get("via") == "job" else "form"
     user = session["user"]
     try:
         prev = user_statuses(user).get(url, "")
@@ -3220,9 +3582,7 @@ def action():
         _status_cache.pop(user, None)                # reflect the change on the next feed render
         if status == "applied":
             _autolog_application(user, url)
-        # via='form' is how this route earns its keep or gets deleted: nothing in app.js, any
-        # template, or the extension references it. Thirty days of zero and it can go.
-        _ev_action(user, url, prev, status, "form")
+        _ev_action(user, url, prev, status, via)
     except Exception:
         flash("Couldn't save that action. Try again.")
     return redirect(request.referrer or url_for("feed"))

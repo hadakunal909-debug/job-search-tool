@@ -53,9 +53,25 @@ TEXT_PAIRS = [
     ("--visa-blocked-text", "--visa-blocked-bg"),
     ("--visa-unknown-text", "--visa-unknown-bg"),
     ("--posting-agency-text", "--posting-agency-bg"),
-    # The match ramp is read as a value ramp, so only the ends carry meaning as text.
-    ("--match-strong", "--bg-surface"),
-    ("--match-good", "--bg-surface"),
+    # THE MATCH METER. All three, against the opaque disc they are actually drawn on rather
+    # than against --bg-surface in the abstract. --match-weak used to be exempt as a
+    # "quantitative ramp end, never used as body text"; that stopped being true on 2026-08-11,
+    # when the ramp became a traffic light and the arc colour started painting the percentage
+    # INSIDE the ring. It is 10px type on a 46px disc, so it is text and it is small.
+    ("--match-strong", "--match-pill"),
+    ("--match-good", "--match-pill"),
+    ("--match-weak", "--match-pill"),
+    # APPLY, ON EVERY ROUTE. Five button backgrounds that carried a hardcoded color:#fff and
+    # were therefore invisible to this file until --route-on-ink existed. 14px label on a
+    # filled button, so it is held to the text minimum.
+    ("--route-on-ink", "--route-h1b-ink"),
+    ("--route-on-ink", "--route-gc-ink"),
+    ("--route-on-ink", "--route-stem-ink"),
+    ("--route-on-ink", "--route-blocked-ink"),
+    ("--route-on-ink", "--route-none-ink"),
+    # Keyword marks inside a description: real body text at --text-sm, so the text minimum.
+    ("--kw-have-text", "--kw-have-bg"),
+    ("--kw-miss-text", "--bg-sunken"),
     # The tooltip is an INVERTED bubble: it paints --text-primary as its background and
     # --bg-surface as its text, so the pair has to be checked in that order or the one
     # surface in the app that reverses the ramp goes unchecked.
@@ -67,12 +83,13 @@ UI_PAIRS = [
     ("--border-strong", "--bg-surface"),
     ("--border-strong", "--bg-canvas"),
     ("--accent", "--bg-surface"),
+    # The underline that carries the whole "to add" signal, since that mark has no fill.
+    ("--kw-miss-rule", "--bg-sunken"),
 ]
 
 EXEMPT = {
     "--border-subtle": "row divider on one surface, not a control boundary",
     "--border-default": "field hairline, paired with a 3:1 --border-strong on focus",
-    "--match-weak": "quantitative ramp end, never used as body text",
     "--match-none": "empty-track fill, never used as text",
     "--match-track": "unfilled arc, never used as text",
 }

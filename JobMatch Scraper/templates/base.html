@@ -140,7 +140,11 @@ if(mq.addEventListener)mq.addEventListener('change',onmq);else if(mq.addListener
     if(!a||a.target||!a.href)return;
     var href=a.getAttribute('href')||'';
     if(href.charAt(0)==='#'||a.hostname!==location.hostname)return;
-    if(a.id==='m-apply'||a.id==='m-tailor'||a.hasAttribute('data-apply'))return;
+    /* data-apply is an OUTBOUND link to an employer, so the progress bar would run for a
+       navigation that never completes in this tab. The #m-apply / #m-tailor ids that used to
+       be excluded here died with the job modal; Tailor View is an ordinary internal link now
+       and SHOULD show progress, because it is genuinely slow. */
+    if(a.hasAttribute('data-apply'))return;
     start();
   });
   document.addEventListener('submit',function(e){

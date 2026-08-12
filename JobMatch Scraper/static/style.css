@@ -98,10 +98,22 @@
      scrolls past hundreds of times a week, not an error and not something they did
      wrong. Red is reserved for destructive controls only.
 
-     Match strength is a NEUTRAL value ramp, not three hues. Encoding one continuous
-     variable with three categorical colours was wrong, and two of those hues were
-     already spoken for by actions and by H-1B. Magnitude reads from the arc and the
-     number; that is what frees the accent to mean "this is an action" everywhere. */
+     MATCH STRENGTH IS A TRAFFIC LIGHT, 2026-08-11. It was a neutral value ramp, on the
+     argument that one continuous variable should not be encoded with three categorical
+     colours. Overridden deliberately: match is the second question every card gets asked
+     and a percentage is slower to read than a colour, so the arc now says "worth reading"
+     before the number is parsed. Green at 70 and up, amber from 40 to 69, red below 40.
+
+     The two objections that made it neutral are answered rather than ignored. Neither
+     green nor red is spoken for elsewhere on a card: the accent is ink, "No sponsorship"
+     is deliberately not red, and STEM-OPT's green is a chip's text-on-tint, never a
+     46px arc. And the ring sits on --match-pill, an OPAQUE surface disc, so it is read
+     against a known neutral instead of against whichever route wash the card is wearing
+     (a green arc on the STEM-OPT wash was the failure mode). That also makes it
+     contrast-testable, which a translucent veil over five different tints would not be.
+
+     --match-track stays neutral. Colouring the unfilled remainder would say the missing
+     percentage means something, and it doesn't. */
   --visa-h1b-text:var(--blue-700);   --visa-h1b-bg:var(--blue-50);
   --visa-e3-text:var(--blue-700);    --visa-e3-bg:var(--blue-50);
   --visa-h1b1-text:var(--blue-700);  --visa-h1b1-bg:var(--blue-50);
@@ -109,9 +121,19 @@
   --visa-stem-text:#0f7a43;          --visa-stem-bg:#e6f6ec;
   --visa-blocked-text:var(--gray-700); --visa-blocked-bg:var(--gray-100);
   --visa-unknown-text:var(--gray-650); --visa-unknown-bg:var(--gray-100);
-  --match-track:var(--gray-200);  --match-strong:var(--gray-900);
-  --match-good:var(--gray-600);   --match-weak:var(--gray-400);
+  --match-track:var(--gray-200);  --match-strong:var(--green-700);
+  --match-good:var(--amber-700);  --match-weak:var(--red-700);
   --match-none:var(--gray-300);
+  /* Opaque, not a veil: the arc must read the same on all five route washes. */
+  --match-pill:var(--bg-surface);
+  /* Keyword marks inside a description. NO NEW HUE, on purpose: the colour rule spends the whole
+     chromatic budget on sponsorship, and green is already STEM-OPT's, so a green highlight in a
+     description on a plum-routed page would be saying two things at once. Matched is an ink tint
+     under a solid rule, to-add is unfilled under a dotted one. mark's UA default is yellow on
+     black, so both properties have to be set in both themes or dark mode renders black on grey. */
+  --kw-have-bg:var(--gray-200);   --kw-have-text:var(--text-primary);
+  --kw-have-rule:var(--text-primary);
+  --kw-miss-text:var(--text-primary); --kw-miss-rule:var(--border-strong);
   --posting-agency-text:var(--gray-700); --posting-agency-bg:var(--gray-100);
 
   /* THE ROUTE PALETTE. The whole card is coloured by the best sponsorship route open to
@@ -153,6 +175,19 @@
   --route-stem-fill:#d6efe0;    --route-stem-line:#a2d8bd;    --route-stem-ink:#0f7a43;
   --route-blocked-fill:#e7e9ee; --route-blocked-line:#c8ccd6; --route-blocked-ink:#4e5462;
   --route-none-fill:#f6f7f9;    --route-none-line:#e2e5ea;    --route-none-ink:#4e5462;
+  /* The label on an -ink button. White in BOTH themes, which is why it is its own token rather
+     than the on-accent one, which flips to near-black in dark mode because the accent there is
+     light ink. The route inks stay saturated in both themes and would render dark text on
+     mid-blue. A token rather than a hardcoded #fff so test_contrast.py can see the pair at all;
+     five ink backgrounds carried an unchecked literal until now.
+
+     Careful writing comments in here. test_contrast.py's tokens() regex reads every
+     declaration it finds inside the :root block, comments included, and its value run reaches
+     to the next semicolon. So writing a token name followed by a colon in prose either
+     redefines that token as a sentence or swallows the real declarations after it. Both
+     happened while this comment was being written. Never write a double-dash name followed by
+     a colon in here. */
+  --route-on-ink:#fff;
 
   /* Seniority is one continuous variable, so it gets a neutral VALUE ramp rather than
      three hues. The three classes previously resolved to identical greys, which meant
@@ -308,8 +343,14 @@
   --visa-stem-text:#5fd08a; --visa-stem-bg:#0f2b1c;
   --visa-blocked-text:#9ea5b8; --visa-blocked-bg:#232738;
   --visa-unknown-text:#9ea5b8; --visa-unknown-bg:#232738;
-  --match-track:#2c3045; --match-strong:#ebedf3; --match-good:#9ea5b8;
-  --match-weak:#6b7280;  --match-none:#454d5d;
+  /* The traffic light, lifted for a dark surface. Same three values the status tokens use,
+     which are already carried at this weight elsewhere in the theme. */
+  --match-track:#2c3045; --match-strong:#6ee7a0; --match-good:#f0c05a;
+  --match-weak:#f5a3a3;  --match-none:#454d5d;
+  --match-pill:var(--bg-surface);
+  --kw-have-bg:var(--bg-active);  --kw-have-text:var(--text-primary);
+  --kw-have-rule:var(--text-primary);
+  --kw-miss-text:var(--text-primary); --kw-miss-rule:var(--border-strong);
   --posting-agency-text:#9ea5b8; --posting-agency-bg:#232738;
   /* On a #0c0e14 canvas a tint has to be a LIFT rather than a wash, so each route's fill
      is its hue mixed up out of the surface rather than down out of white. The inks stay
@@ -317,11 +358,22 @@
   /* Dark mode inverts the method rather than the values: the fill is the hue mixed UP out of
      the canvas instead of down out of white, so a card still sits above the page and the type
      on it is still the theme's own light text. */
-  --route-h1b-fill:#18253f;     --route-h1b-line:#2d4a7f;     --route-h1b-ink:#3b76ef;
-  --route-gc-fill:#241a3c;      --route-gc-line:#4b3080;      --route-gc-ink:#8b5cf6;
-  --route-stem-fill:#132c20;    --route-stem-line:#255c40;    --route-stem-ink:#1f9d55;
+  /* The three inks are a touch darker than they look like they should be. That is deliberate
+     and measured: white on the values they used to carry (#3b76ef, #8b5cf6, #1f9d55) came to
+     4.18, 4.23 and 3.49 to 1, all under the 4.5 this theme enforces everywhere else, so the
+     Apply label on a dark-mode card had been failing since the route palette shipped. Nobody
+     noticed because the pairs were unreachable by test_contrast.py until --route-on-ink
+     replaced a hardcoded white. These are the nearest darker values that clear 4.5 while
+     staying above 3:1 against their own card fill, which is why they were not darkened
+     further. */
+  --route-h1b-fill:#18253f;     --route-h1b-line:#2d4a7f;     --route-h1b-ink:#3870e3;
+  --route-gc-fill:#241a3c;      --route-gc-line:#4b3080;      --route-gc-ink:#8558ec;
+  --route-stem-fill:#132c20;    --route-stem-line:#255c40;    --route-stem-ink:#1b8749;
   --route-blocked-fill:#1c1f28; --route-blocked-line:#39404f; --route-blocked-ink:#5f6779;
   --route-none-fill:#171a22;    --route-none-line:#282d3a;    --route-none-ink:#5f6779;
+  /* Still white. Restated rather than inherited so the value is visible next to the inks it
+     has to sit on, which is where anyone darkening one of them will be looking. */
+  --route-on-ink:#fff;
   --exp-entry-text:#8a90a2;  --exp-entry-bg:#1c2030;
   --exp-mid-text:#a8afc2;    --exp-mid-bg:#232738;
   --exp-senior-text:#c5cbdb; --exp-senior-bg:#2c3045;
@@ -688,21 +740,23 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    each one is realised. 186px is the measured resting height of a two-line title. */
 .card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;will-change:transform;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 186px}
 
-/* ---- THE ROUTE RAIL ----------------------------------------------------------------
-   The 3px rule down a card's left edge, coloured by the best sponsorship route open to
-   this reader. app.js sets data-route from the SAME ranked list it uses to pick which
-   three chips fit, so the rail and the chips can never disagree.
+/* ---- THE ROUTE WASH ----------------------------------------------------------------
+   The whole card is tinted by the sponsorship route it names. app.js sets data-route from
+   j.visa_likely, the SAME field the chip's label comes from, so the wash and the chip are
+   one fact and cannot disagree.
 
    Scoped on the ATTRIBUTE, not on .card. Resume Brain reuses the .card class for its
-   panels, and a bare `.card::before` would have grown rails on all of them.
+   panels, and a bare `.card` rule would have tinted all of them.
 
-   It is inset from the corners rather than running the full height because a rounded
-   card with a full-bleed edge stripe reads as a rendering error, and it is 3px because
-   at 2px the plum and the blue stop being separable on a low-contrast laptop panel. */
+   THREE ROUTES, not five. core.sponsor_likely collapses green_card, e3 and h1b1 into
+   "sponsor", so there is no data-route="e3" or "h1b1" any more: E-3 and H-1B1 are gated on
+   nationality and were never worth a colour of their own on a card. "sponsor" takes the
+   Green Card plum because a PERM filing is what it means for almost every employer in that
+   bucket. Anything unrecognised falls through to the no-record neutral, which is what makes
+   a stale cached app.js degrade to grey rather than to nothing. */
 .card[data-route]{background:var(--route-none-fill);border-color:var(--route-none-line)}
-.card[data-route="h1b"],.card[data-route="e3"],.card[data-route="h1b1"]{
-  background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
-.card[data-route="green_card"]{background:var(--route-gc-fill);border-color:var(--route-gc-line)}
+.card[data-route="h1b"]{background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
+.card[data-route="sponsor"]{background:var(--route-gc-fill);border-color:var(--route-gc-line)}
 .card[data-route="stem_opt"]{background:var(--route-stem-fill);border-color:var(--route-stem-line)}
 .card[data-route="blocked"]{background:var(--route-blocked-fill);border-color:var(--route-blocked-line)}
 
@@ -715,15 +769,22 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    it loudly, and between them no black is left anywhere in the grid. Blocked and no-record
    get a neutral ink because there is no route to name, but they still get a FILLED button:
    a hollow one reads as disabled, and neither state means you cannot apply. */
-.card[data-route] .btn.primary{background:var(--route-none-ink);border-color:var(--route-none-ink);color:#fff}
-.card[data-route="h1b"] .btn.primary,.card[data-route="e3"] .btn.primary,
-.card[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink)}
-.card[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink)}
-.card[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink)}
-.card[data-route="blocked"] .btn.primary{background:var(--route-blocked-ink);border-color:var(--route-blocked-ink)}
+/* Scoped on [data-apply] rather than on .btn.primary, and on the ATTRIBUTE rather than on
+   .card. Two reasons.
+   - The /job page carries data-route on its wrapper, so its two Apply buttons inherit these
+     rules with no second selector list. There used to be a .card list and an identical
+     .modal-overlay list doing the same job; that was the drift waiting to happen.
+   - Not every primary button under a route is an Apply. The job page's "Tailor for X" is a
+     primary action too, and painting it with the sponsorship colour would say something about
+     the route that the button has nothing to do with. data-apply marks precisely the outbound
+     link to the employer, on the card and on the page alike. */
+[data-route] .btn.primary[data-apply]{background:var(--route-none-ink);border-color:var(--route-none-ink);color:var(--route-on-ink)}
+[data-route="h1b"] .btn.primary[data-apply]{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink)}
+[data-route="sponsor"] .btn.primary[data-apply]{background:var(--route-gc-ink);border-color:var(--route-gc-ink)}
+[data-route="stem_opt"] .btn.primary[data-apply]{background:var(--route-stem-ink);border-color:var(--route-stem-ink)}
+[data-route="blocked"] .btn.primary[data-apply]{background:var(--route-blocked-ink);border-color:var(--route-blocked-ink)}
 /* One veil rather than a second shade per route, so adding a route later needs no new token. */
-.card[data-route] .btn.primary:hover,
-.modal-overlay[data-route] .btn.primary:hover{background-image:linear-gradient(var(--ink-veil),var(--ink-veil))}
+[data-route] .btn.primary[data-apply]:hover{background-image:linear-gradient(var(--ink-veil),var(--ink-veil))}
 
 /* Everything that was drawn for a plain white surface and now sits on a tint. Grouped here
    so there is one place to look when a new element is added to a card and comes out as a
@@ -735,7 +796,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 /* The NEUTRAL chips go translucent. The ROUTE chips keep their own colours, because those
    agree with the card rather than competing with it. */
 .card[data-route] .pay,.card[data-route] .rem,.card[data-route] .exp,.card[data-route] .intl,
-.card[data-route] .vt-more,.card[data-route] .agency,.card[data-route] .closed{
+.card[data-route] .agency,.card[data-route] .closed{
   background:var(--on-card-veil)}
 .card[data-route] .logo{box-shadow:0 0 0 1px color-mix(in srgb,var(--text-primary) 10%,transparent)}
 
@@ -786,14 +847,16 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .newflag{margin-left:auto}
 .logo{width:42px;height:42px;border-radius:var(--radius-md);color:#fff;font-weight:700;font-size:var(--text-md);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;flex:0 0 auto;box-shadow:0 0 0 1px var(--line)}
 .logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:3px}
-/* The title is a real <button> now, so everything a button brings and this element does not
-   want has to be undone: the UA font, the border, the padding, the centre alignment. What it
-   keeps is the two-line clamp and, crucially, the focus ring — which is the entire reason
-   for the change. Never add outline:none here without a focus-visible replacement. */
-.ctitle{display:-webkit-box;width:100%;padding:0;border:0;background:none;text-align:left;
-  font:inherit;font-weight:600;font-size:var(--text-base);line-height:1.35;letter-spacing:-.01em;
+/* The title is a real <a href="/job?u=..."> now. It was a <button> opening the modal, and before
+   that a bare <article> click handler that no keyboard could reach. The button resets are gone
+   with the button; what stays is the two-line clamp, the inherited ink colour, and CRUCIALLY the
+   focus ring, which is the entire reason the title was promoted to a control in the first place.
+   Never add outline:none here without a focus-visible replacement. */
+.ctitle{display:-webkit-box;width:100%;text-align:left;text-decoration:none;
+  font-weight:600;font-size:var(--text-base);line-height:1.35;letter-spacing:-.01em;
   color:var(--ink);cursor:pointer;text-wrap:balance;
   -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:42px}
+.ctitle:hover{text-decoration:underline}
 .ctitle:focus-visible{outline:none;box-shadow:var(--focus);border-radius:var(--radius-xs)}
 /* Reaching any control inside a card lifts the whole card, so a keyboard user sees the same
    "this one" the mouse gets on hover instead of a ring floating on an otherwise flat grid. */
@@ -858,7 +921,11 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .vt-e3,.vt-h1b1{background:var(--visa-e3-bg);color:var(--visa-e3-text);opacity:.85}
 .vt-green_card{background:var(--visa-gc-bg);color:var(--visa-gc-text)}
 .vt-stem_opt{background:var(--visa-stem-bg);color:var(--visa-stem-text)}
-.vt-more{background:var(--visa-unknown-bg);color:var(--visa-unknown-text)}
+/* The card's collapsed "Sponsor Likely" chip. Takes the Green Card plum because a PERM filing
+   is what it means for almost every employer in that bucket; e3 and h1b1 fold in behind it.
+   The five raw keys above are still rendered by the company page and the detail view, which
+   have room to name each route, so they stay. .vt-more is gone with the "+2 more" chip. */
+.vt-sponsor{background:var(--visa-gc-bg);color:var(--visa-gc-text)}
 .fnote{font-size:var(--text-2xs);line-height:1.45;color:var(--muted);margin:6px 0 0}
 /* Update-jobs live progress bar */
 .scrapebar{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;box-shadow:var(--e1)}
@@ -947,8 +1014,12 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    title, score and Apply button scrolled away above the text you were reading. Bounded here,
    the description scrolls under a header that stays put. overscroll-behavior stops a flick at
    the bottom of the JD from carrying on and scrolling the page behind the modal. */
-.jd{font-size:var(--text-sm);line-height:1.65;color:var(--ink);max-height:46vh;overflow:auto;
-    overscroll-behavior:contain;background:var(--surface2);border:1px solid var(--line);
+/* No max-height and no overflow any more. Those belonged to the modal, where the description
+   shared a fixed-height panel with a header and a footer. On /job the page IS the scroll
+   container, and a nested one there gives you two scrollbars and a description that stops
+   moving when the pointer leaves a box you cannot see the edge of. */
+.jd{font-size:var(--text-sm);line-height:1.65;color:var(--ink);
+    background:var(--bg-sunken);border:1px solid var(--line);
     border-radius:var(--r);padding:14px 16px}
 .jd p{margin:0 0 11px}
 /* Matched to .sechdr above on purpose: the JD's own section titles should read as siblings of
@@ -958,6 +1029,98 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .jd li{margin:0 0 5px}
 .jd > :first-child{margin-top:0}
 .jd > :last-child{margin-bottom:0}
+/* The employer's own section labels, normalised by BUCKET and not by text: jdrender keeps their
+   wording ("Basic Qualifications" is not the same promise as "Preferred Qualifications") and
+   tags it, so the three recognised kinds can be told apart without rewriting anybody's words. */
+.jd h4.jdh[data-sec]{color:var(--ink);border-left:3px solid var(--border-strong);padding-left:9px}
+.jd h4.jdh[data-sec="req"]{border-left-color:var(--accent)}
+.jdjump{display:flex;flex-wrap:wrap;gap:var(--space-100);margin:0 0 10px}
+.jdjump a{font-size:var(--text-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  text-decoration:none;color:var(--muted);background:var(--surface2);border:1px solid var(--line);
+  border-radius:var(--radius-full);padding:4px 11px}
+.jdjump a:hover{color:var(--ink);border-color:var(--border-strong)}
+/* EEO and legal notices, collapsed. <details> already has global styling, so this only needs to
+   sit apart from the description above it. */
+.jdlegal{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.jdlegal summary{font-size:var(--text-2xs);color:var(--muted);font-weight:600}
+.jdlegal p,.jdlegal li{font-size:var(--text-2xs);color:var(--muted)}
+/* MATCHED and MISSING keywords, inline in the description. No new hue: the colour rule gives the
+   whole chromatic budget to sponsorship, and green in particular is already STEM-OPT's, so a
+   green mark inside a description on a plum-routed page would be saying two things at once.
+   Matched is an ink tint with a solid ink rule; to-add is unfilled with a dotted one, which is
+   the same logic .tag.miss already uses to read as a to-do rather than a fault. */
+mark.kw-have{background:var(--kw-have-bg);color:var(--kw-have-text);
+  box-shadow:inset 0 -2px 0 var(--kw-have-rule);border-radius:2px;padding:0 1px}
+mark.kw-miss{background:transparent;color:var(--kw-miss-text);
+  box-shadow:inset 0 -2px 0 var(--kw-miss-rule);border-radius:2px;padding:0 1px}
+.kwlegend{font-size:var(--text-2xs);color:var(--muted);margin:0 0 8px}
+
+/* ---- THE JOB PAGE ------------------------------------------------------------------------
+   A reading page, so --layout-page-max rather than the feed's much wider --layout-feed-max.
+   DOM order equals the narrow-viewport order, which is why there is no `order` anywhere here:
+   reordering with CSS would leave tab order following the source and reading order following the
+   screen, and the two would disagree. */
+.jobwrap{max-width:var(--layout-page-max);margin:0 auto;padding:0 var(--space-200) var(--space-600)}
+.jobhead{display:flex;gap:var(--space-200);align-items:flex-start;margin:0 0 var(--space-300)}
+.jobhead .logo{width:56px;height:56px;font-size:var(--text-lg);border-radius:var(--radius-md)}
+.jobhead h1{margin:0;line-height:1.15;font-size:var(--text-xl);letter-spacing:var(--tracking-tight)}
+.jobident{color:var(--muted);font-size:var(--text-sm);margin-top:5px;display:flex;flex-wrap:wrap;
+  align-items:center;gap:4px}
+.jobident a{color:var(--ink);font-weight:600;text-decoration:none}
+.jobident a:hover{text-decoration:underline}
+/* Every date on this page is absolute and set in the data face. There is no relTime twin here on
+   purpose: formatDates lives in app.js, which this page does not load. */
+.jobdate{font-family:var(--font-data);font-variant-numeric:tabular-nums;font-size:var(--text-xs)}
+.jobcols{display:grid;grid-template-columns:1fr;gap:var(--space-400)}
+.jobmain{min-width:0;max-width:var(--layout-prose-max)}
+.jobaside{min-width:0}
+@media (min-width:1040px){
+  .jobcols{grid-template-columns:minmax(0,1fr) 320px}
+  /* Sticky, but only where there is room. On a phone a sticky aside would eat the viewport. */
+  .jobaside{position:sticky;top:calc(var(--topbar-h) + var(--space-200));align-self:start}
+}
+/* The route band carries the card's own wash, so walking from the feed to this page does not
+   change colour underneath the reader. The rest of the page stays a plain reading surface: a
+   tint under 7,000 characters of description is a different proposition from a tint on a card. */
+.jobrail{background:var(--route-none-fill);border:1px solid var(--route-none-line);
+  border-radius:var(--radius-lg);padding:var(--space-200);margin:0 0 var(--space-300)}
+[data-route="h1b"] .jobrail{background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
+[data-route="sponsor"] .jobrail{background:var(--route-gc-fill);border-color:var(--route-gc-line)}
+[data-route="stem_opt"] .jobrail{background:var(--route-stem-fill);border-color:var(--route-stem-line)}
+[data-route="blocked"] .jobrail{background:var(--route-blocked-fill);border-color:var(--route-blocked-line)}
+.jobrail-facts{display:flex;flex-wrap:wrap;gap:var(--space-400);margin-bottom:var(--space-200)}
+.jobrail .eyebrow{display:block;font-family:var(--font-data);font-size:var(--text-3xs);
+  text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--muted);margin-bottom:2px}
+.jobroute b{font-size:var(--text-md);font-weight:var(--weight-semibold);color:var(--ink)}
+.jobstat b{font-family:var(--font-data);font-size:var(--text-2xl);
+  font-weight:var(--weight-semibold);font-variant-numeric:tabular-nums;
+  letter-spacing:var(--tracking-tight);line-height:1.1;display:block}
+/* Same three values the card's arc uses, so a 72% reads the same colour in both places. */
+.jobstat b.meter-strong{color:var(--match-strong)}
+.jobstat b.meter-good{color:var(--match-good)}
+.jobstat b.meter-weak{color:var(--match-weak)}
+.jobnote{font-size:var(--text-xs);color:var(--muted);margin:2px 0 0;max-width:34ch;line-height:1.45}
+.jobacts{display:flex;flex-wrap:wrap;gap:var(--space-100);align-items:center}
+.jobact-form{display:flex;flex-wrap:wrap;gap:var(--space-100);margin:0}
+.jobchips{margin:var(--space-150) 0 0}
+/* Neutral chips on a tinted band, the same treatment cards get. */
+.jobrail .pay,.jobrail .rem,.jobrail .exp,.jobrail .intl,.jobrail .agency,.jobrail .closed,
+.jobrail .cx{background:var(--on-card-veil)}
+.jobrail .btn:not(.primary){background:transparent}
+.jobrail .btn:not(.primary):hover{background:var(--on-card-veil)}
+/* ALL FIVE ROUTES, always, including the ones with no record. The card shows one chip; this list
+   shows five rows and the empty ones are visibly empty, which is what makes "no record, not a
+   refusal" honest rather than defensive. */
+.routelist{list-style:none;margin:0 0 var(--space-200);padding:0}
+.routerow{display:flex;gap:var(--space-150);align-items:baseline;padding:7px 0;
+  border-bottom:1px solid var(--border-subtle)}
+.routerow:last-child{border-bottom:0}
+.routerow .vt{flex:0 0 auto}
+.routewhy{font-size:var(--text-xs);color:var(--muted);line-height:1.45}
+.routerow.off{opacity:var(--opacity-deemphasis)}
+.jobaside-apply{width:100%;justify-content:center;margin-bottom:var(--space-200)}
+.jobgone-url{font-family:var(--font-mono);font-size:var(--text-xs);word-break:break-all;
+  color:var(--muted)}
 .modal-foot{display:flex;gap:var(--space-100);align-items:center;padding:14px 24px 20px;border-top:1px solid var(--line);margin-top:12px;position:sticky;bottom:0;background:var(--surface)}
 
 /* toasts */
@@ -987,20 +1150,16 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{display:inline-block;width:16px;height:16px;border:2.5px solid var(--line);border-top-color:var(--brand);border-radius:var(--radius-full);animation:spin .7s linear infinite;vertical-align:middle;flex-shrink:0}
 @keyframes shimmer{0%{background-position:-600px 0}100%{background-position:600px 0}}
-/* The job modal's shimmer primitive. Named .shim, NOT .skel: this block used to redefine
-   .skel, .skel-chip and .skel-bar, which _feedgrid.html was already using for the feed's
-   loading CARD. Same names, two different components, and this one came later in the file
-   so it won. The feed skeleton has been rendering as an inline-block shimmer with a card
-   border bolted on ever since. Renamed 2026-08-09; .skel* now belongs to the feed card only. */
-.shim{display:inline-block;background:linear-gradient(90deg,var(--surface2) 25%,var(--line) 50%,var(--surface2) 75%);background-size:1200px 100%;animation:shimmer 1.4s infinite linear;border-radius:var(--radius-sm)}
-.shim-chip{width:46px;height:46px;border-radius:var(--radius-full)}
-.shim-tag{width:72px;height:26px;border-radius:var(--radius-full)}
-.shim-bar{height:12px;border-radius:var(--radius-xs);display:block;margin:6px 0}
-.shim-bar.w55{width:55%}.shim-bar.w75{width:75%}.shim-bar.w100{width:100%}
-.shim-row{display:flex;flex-wrap:wrap;gap:var(--space-100);margin:6px 0 14px}
-@media (prefers-reduced-motion:reduce){.shim{animation:none}}
+/* .shim / .shim-chip / .shim-tag / .shim-bar / .shim-row lived here: the job modal's loading
+   shimmer, whose only caller was openModal(). The modal is gone and /job is server-rendered,
+   so there is nothing left to shim. @keyframes shimmer above STAYS: the feed's own .skel
+   loading card uses it. (Those two used to share names, which is why .shim was renamed.) */
 
 /* score ring */
+/* THE MATCH METER. Green at 70 and up, amber 40 to 69, red below 40 — the thresholds live in
+   scoreRing() in app.js and the colours live here, so neither can be changed by accident from
+   the other side. The class names are magnitude, not hue, so re-tuning a colour never means
+   renaming a class. */
 .ring-strong{--ring-color:var(--match-strong);--ring-track:var(--match-track)}
 .ring-good{--ring-color:var(--match-good);--ring-track:var(--match-track)}
 .ring-low{--ring-color:var(--match-weak);--ring-track:var(--match-track)}

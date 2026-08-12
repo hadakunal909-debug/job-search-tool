@@ -1,0 +1,37 @@
+{# The company-research block, rendered BOTH inline by job.html and as the body of the
+   /job/research poll response.
+
+   One template for both on purpose. The alternative is a Jinja version and a JS version of the
+   same markup, which is two escaping stories and two chances to drift; this way the poll swaps
+   in bytes produced by the same code path that produced the page.
+
+   Two sources, kept visibly apart, which is the principle company.html states and the reason
+   that page is trustworthy: the prose comes from the Resume Brain crawler and is missing for
+   most employers, while everything else is read off this employer's own live postings and exists
+   for all of them. Saying which is which matters more than filling the space.
+
+   Callers set: about (from web._company_brief), row.company, and optionally researching. #}
+{% if about.researched %}
+<p class="coprose">{{ about.research.what_they_do or about.research.about }}</p>
+{% if about.research.mission %}
+<p class="coprose small"><strong>Mission.</strong> {{ about.research.mission }}</p>
+{% endif %}
+{% if about.site %}
+<p class="coprose small"><a href="{{ about.site }}" target="_blank" rel="noopener nofollow">Their
+  site<span class="ic ic-external" aria-hidden="true"></span></a>
+  {%- if about.fetched_at %} <span class="muted">Researched {{ about.fetched_at }}</span>{% endif %}</p>
+{% endif %}
+
+{% elif researching %}
+{# The crawl is running in a background thread. jobpage.js polls this same endpoint and swaps
+   the result in, so this state resolves without a reload. #}
+<p class="coprose"><span class="spin" aria-hidden="true"></span> Reading
+  {{ row.company }}'s own site for what they do. This takes a few seconds.</p>
+
+{% else %}
+<p class="coprose">Nothing researched for this employer yet. What they do, their mission, values
+  and initiatives come from Resume Brain, which crawls a company's own site.
+  <a href="{{ url_for('brain_home') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a>
+  and it lands here. Everything else on this page is read from their live postings and needs no
+  research.</p>
+{% endif %}
