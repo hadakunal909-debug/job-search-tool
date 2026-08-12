@@ -1,16 +1,21 @@
 {% extends "base.html" %}
 {# ONE POSTING, in full. Replaces the #jobmodal overlay.
 
-   The reading column is capped at --layout-prose-max and the aside is sticky; DOM order equals
-   the narrow-viewport order, so tab order needs no CSS `order` and no tabindex anywhere.
+   ORDER IS THE DESIGN HERE. Somebody opening a job wants the description; they did not click
+   through to read a primer on visa categories or a summary of the employer's other postings. So:
+   identity, then the one-line verdict plus the actions, then the DESCRIPTION, then the keywords
+   and the tailoring hand-off. The employer and their filing history come last, because they are
+   context for a decision already being made, and anyone who wants them in depth has /company.
+
+   The right rail is for jumping sideways: Apply, and the employer's other openings ranked by
+   match. Nothing is duplicated between the rail and the column.
 
    data-route on the wrapper is what colours Apply. It carries the SAME value the card carried
-   (web._route_of mirrors the one expression in app.js cardHTML), so walking from the feed to
-   this page never changes the colour of the button you were about to press.
+   (web._route_of mirrors the one expression in app.js cardHTML), so walking from the feed to this
+   page never changes the colour of the button you were about to press.
 
    Deliberately does NOT load app.js. Its DOM contract is #feed / #feeddata / #loadmore, none of
-   which exist here, and the score ring, the relative dates and the chips are all rendered
-   server-side on this page. static/jobpage.js carries the little this page does need. #}
+   which exist here, and the score, the dates and the chips are all rendered server-side. #}
 {% block content %}
 
 {% if gone %}
@@ -21,7 +26,7 @@
      nothing about what happened. Postings leave the corpus after 30 days without being seen. #}
   <p class="coprose">Jobs drop out about thirty days after they stop appearing on the employer's
     own board, so this one has most likely been filled or withdrawn. The link you followed was
-    <span class="mono jobgone-url">{{ gone_url }}</span>.</p>
+    <span class="jobgone-url">{{ gone_url }}</span>.</p>
   <p class="coprose"><a class="btn primary" href="{{ url_for('feed') }}">Back to the Feed</a></p>
 </div>
 {% else %}
@@ -35,20 +40,15 @@
            src="https://t0.gstatic.com/faviconV2?client=SOCIAL&amp;type=FAVICON&amp;fallback_opts=TYPE,SIZE,URL&amp;size=64&amp;url=http://{{ row.logo_domain }}"></div>
     <div class="u-grow-min">
       <h1>{{ row.title }}</h1>
-      {# The date is rendered SERVER-side and absolutely. formatDates() lives in app.js, which
-         this page does not load, and adding a Python relTime twin would be a fourth
-         server/client pair to keep in step. On a page about one job "Posted 2026-08-04" also
-         simply beats "1w ago". The approximate case says so rather than implying a real date:
-         core.is_trusted_date's "YYYY-MM-DD HH:MM" shape is either our scrape stamp or a
-         converted "Posted 3 Days Ago", never something the employer published. #}
+      {# The date is rendered SERVER-side and absolutely. formatDates() lives in app.js, which this
+         page does not load, and a Python relTime twin would be a fourth server/client pair to keep
+         in step. "Approximately" is the honest word for core.is_trusted_date's derived shape: it is
+         either our scrape stamp or a converted "Posted 3 Days Ago", never a published date. #}
       <div class="jobident">
         <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">{{ row.company }}</a>
         {%- if row.location %}<span class="sep" aria-hidden="true">·</span><span>{{ row.location }}</span>{% endif %}
         {%- if row.date %}<span class="sep" aria-hidden="true">·</span>
-        <span class="jobdate">
-          {%- if row.date_verified %}Posted {{ row.date[:10] }}
-          {%- elif row.date_trusted %}Posted {{ row.date[:10] }}
-          {%- else %}Approximately {{ row.date[:10] }}{% endif %}</span>
+        <span class="jobdate">{{ 'Posted' if row.date_trusted else 'Approximately' }} {{ row.date[:10] }}</span>
         {%- elif row.first_seen %}<span class="sep" aria-hidden="true">·</span>
         <span class="jobdate">Added {{ row.first_seen }}</span>{% endif %}
       </div>
@@ -58,7 +58,7 @@
   <div class="jobcols">
     <div class="jobmain">
 
-      {# ---- the route band: the answer to "can I take this job", above the fold ---- #}
+      {# ---- 1. the verdict and the actions. Everything needed to decide, above the fold. ---- #}
       <div class="jobrail">
         <div class="jobrail-facts">
           <div class="jobroute">
@@ -68,8 +68,8 @@
           <div class="jobstat">
             <span class="eyebrow">Profile Match</span>
             {# No score ring. scoreRing() builds its SVG in JS and a server-side twin would be a
-               fourth implementation with arithmetic in it. The two other states become
-               sentences, which are clearer than a dashed empty circle ever was. #}
+               fourth implementation with arithmetic in it. The two other states become sentences,
+               which are clearer than a dashed empty circle ever was. #}
             {% if not has_resume %}
             <p class="jobnote">No profile yet. Add a résumé in
               <a href="{{ url_for('brain_home') }}">Resume Brain</a> to see how this job matches you.</p>
@@ -87,8 +87,8 @@
           {% endif %}
           <a class="btn" href="{{ url_for('brain_home') }}?job={{ row.url|urlencode }}">Tailor View</a>
           {# Real form POSTs to the route that already exists, so Save and Hide work with
-             JavaScript switched off. /action reads the previous status, auto-logs an
-             application and busts the status cache; none of that is reimplemented here. #}
+             JavaScript switched off. /action reads the previous status, auto-logs an application
+             and busts the status cache; none of that is reimplemented here. #}
           <form method="post" action="{{ url_for('action') }}" class="jobact-form">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <input type="hidden" name="url" value="{{ row.url }}">
@@ -110,60 +110,7 @@
         </div>
       </div>
 
-      {# ---- Sponsorship Routes: the whole reason the card only shows one chip ----
-         All five, ALWAYS, including the ones with no record. The card names one route; this
-         table shows five rows and the empty ones are visibly empty, so absence is presented as
-         absence rather than as an omission. That is what makes the caveat below honest instead
-         of defensive. #}
-      <h2 class="sechdr">Sponsorship Routes</h2>
-
-      {% if row.sponsor_jd == 'blocked' %}
-      <p class="coprose"><strong>This posting rules sponsorship out.</strong></p>
-      {% elif row.sponsor_jd == 'open' %}
-      <p class="coprose"><strong>This posting offers sponsorship.</strong></p>
-      {% else %}
-      <p class="coprose"><strong>This posting says nothing either way about sponsorship.</strong></p>
-      {% endif %}
-      {# The stored reason as visible prose. The modal hid the single most decision-relevant
-         sentence on the page inside a title= attribute. #}
-      {% if row.sponsor_reason %}<p class="coprose small">Detected in the description:
-        {{ row.sponsor_reason }}.</p>{% endif %}
-
-      <ul class="routelist">
-        {% for r in routes %}
-        <li class="routerow{{ '' if r.on else ' off' }}">
-          <span class="vt vt-{{ r.key }}">{{ r.label }}</span>
-          <span class="routewhy">{% if r.on %}{{ r.tip }}{% elif r.employer %}This employer has filed for it, but this posting's own text rules it out.{% else %}No record.{% endif %}</span>
-        </li>
-        {% endfor %}
-      </ul>
-
-      {% if narrowed %}
-      <p class="coprose small">This employer has filed for {{ narrowed }}, but this posting's own
-        text closes those routes. That history is a fact about the company, not about this job.</p>
-      {% endif %}
-
-      <div class="costats">
-        <div class="costat">
-          <b>{{ '{:,}'.format(about.strength_n) if about.strength_n else 'None' }}</b>
-          <span>H-1B approvals<br>FY2019-23</span></div>
-        <div class="costat"><b>{{ about.n_open }}</b><span>open roles at this<br>employer in your feed</span></div>
-      </div>
-      <p class="fnote">From past federal filings. {{ absence_note }}
-        <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">See the year by year history</a>.</p>
-
-      {# ---- what the company does ---- #}
-      <h2 class="sechdr">What This Employer Does</h2>
-      {# data-pending is set only when the SERVER decided a crawl is worth starting; jobpage.js
-         does nothing without it. data-csrf rather than an inline script, so this page needs no
-         nonce and the file stays cacheable. #}
-      <div id="coresearch" data-research="{{ row.company }}"
-           data-pending="{{ '1' if research_pending else '' }}"
-           data-csrf="{{ csrf_token() }}">
-        {% include "_jobresearch.html" %}
-      </div>
-
-      {# ---- the description ---- #}
+      {# ---- 2. THE DESCRIPTION. This is what the click was for, so it comes first. ---- #}
       <h2 class="sechdr">Job Description</h2>
       {% if not has_jd %}
       <p class="coprose">No description is stored for this posting yet. Open Apply to read it on
@@ -175,31 +122,66 @@
       </nav>
       {% endif %}
       {% if have or missing %}
-      <p class="kwlegend">Highlighted below:
-        <mark class="kw-have">keywords you already match</mark> and
-        <mark class="kw-miss">keywords worth adding</mark>.</p>
+      <p class="kwlegend"><mark class="kw-have">Green</mark> is a keyword you already match.
+        <mark class="kw-miss">Red</mark> is one worth adding.</p>
       {% endif %}
       <div class="jd">{{ jd_html|safe }}</div>
       {% endif %}
 
-      {# ---- the keywords, AFTER the description so they read as its continuation ---- #}
+      {# ---- 3. the keywords, as lists, after the prose they refer to ---- #}
       {% if have or missing %}
       <h2 class="sechdr">Keywords in This Description</h2>
       {% if missing %}
-      <p class="coprose small">Keywords to add</p>
+      <p class="coprose small">Worth adding to your résumé</p>
       <div class="kw">{% for k in missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
       {% endif %}
       {% if have %}
-      <p class="coprose small">Keywords you already match</p>
+      <p class="coprose small">Already in your profile</p>
       <div class="kw">{% for k in have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
       {% endif %}
       {% endif %}
 
       <h2 class="sechdr">Tailor Your Résumé</h2>
-      <p class="coprose">Resume Brain reads this description, ranks your stored résumés and
-        stories against it, and drafts the rewrite. It also researches the employer, which is
-        what fills the section above.</p>
+      <p class="coprose">Resume Brain reads this description, ranks your stored résumés and stories
+        against it, and drafts the rewrite. It also researches the employer, which is what fills the
+        section below.</p>
       <p><a class="btn primary" href="{{ url_for('brain_home') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a></p>
+
+      {# ---- 4. the employer, LAST. Context for a decision, not the reason for the visit. ---- #}
+      <h2 class="sechdr">About {{ row.company }}</h2>
+      <div id="coresearch" data-research="{{ row.company }}"
+           data-pending="{{ '1' if research_pending else '' }}"
+           data-csrf="{{ csrf_token() }}">
+        {% include "_jobresearch.html" %}
+      </div>
+      <p class="coprose small">
+        {{ about.n_open }} open role{{ '' if about.n_open == 1 else 's' }} in your feed
+        {%- if about.states %} across {{ about.states | map(attribute=0) | join(', ') }}{% endif %}
+        {%- if about.remote %}, {{ about.remote }} of them remote{% endif %}.
+        {%- if about.tech_stack %} Their site names {{ about.tech_stack[:6] | join(', ') }}.{% endif %}
+      </p>
+
+      {# ---- 5. sponsorship history, condensed to a statement ----
+         Two sentences, no per-route glossary. What this employer has filed for is a fact about the
+         company, and the posting's own text is the fact about this job; those are the only two
+         things worth saying here. The company page carries the per-route detail and the year by
+         year chart for anyone who wants them. #}
+      <h2 class="sechdr">Sponsorship History</h2>
+      <p class="coprose">
+        {%- if filed %}{{ row.company }} has a federal filing history for {{ filed }}.
+        {%- else %}There is no federal filing record on file for {{ row.company }}.{% endif %}
+        {%- if about.strength_n %} {{ '{:,}'.format(about.strength_n) }} H-1B approvals across
+        FY2019-23.{% endif %}
+      </p>
+      <p class="coprose">
+        {%- if row.sponsor_jd == 'blocked' %}<strong>This posting rules sponsorship out.</strong>
+        {%- if narrowed %} The history above is about the company, not this job.{% endif %}
+        {%- elif row.sponsor_jd == 'open' %}<strong>This posting offers sponsorship.</strong>
+        {%- else %}This posting says nothing either way about sponsorship.{% endif %}
+        {%- if row.sponsor_reason %} <span class="muted">({{ row.sponsor_reason }}.)</span>{% endif %}
+      </p>
+      <p class="fnote">From past federal filings. {{ absence_note }}
+        <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">See the year by year history</a>.</p>
     </div>
 
     <aside class="jobaside">
@@ -208,30 +190,27 @@
          rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>
       {% endif %}
 
-      <h2 class="sechdr">About This Employer</h2>
-      <div class="costats">
-        {% if about.states %}<div class="costat"><b>{{ about.states|length }}</b><span>states hiring:<br>{{ about.states | map(attribute=0) | join(', ') }}</span></div>{% endif %}
-        {% if about.remote %}<div class="costat"><b>{{ about.remote }}</b><span>remote roles<br>open now</span></div>{% endif %}
-      </div>
-      {% if about.tech_stack %}
-      <p class="coprose small">Tech named on their site</p>
-      <div class="kw">{% for s in about.tech_stack %}<span class="tag miss">{{ s }}</span>{% endfor %}</div>
+      {# Other openings at the same employer, best match first. ranked_rows is already in score
+         order, so this is the head of a filtered list rather than a sort. The rail is the right
+         home for it: it is a sideways jump, not part of reading this posting. #}
+      {% if similar %}
+      <h2 class="sechdr">More Roles at {{ row.company }}</h2>
+      <ul class="simlist">
+        {% for s in similar %}
+        <li class="simrow" data-route="{{ s.visa_likely if s.sponsor_jd != 'blocked' else 'blocked' }}">
+          <a class="simtitle" href="{{ url_for('job_page') }}?u={{ s.url|urlencode }}">{{ s.title }}</a>
+          <span class="simmeta">
+            {%- if has_resume and not s.score_pending %}
+            <b class="{{ 'meter-strong' if s.score >= 70 else ('meter-good' if s.score >= 40 else 'meter-weak') }}">{{ s.score }}%</b>
+            {%- endif %}
+            {%- if s.loc_state %}<span>{{ s.loc_state }}</span>{% endif %}
+            {%- if s.remote %}<span>Remote</span>{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
       {% endif %}
-      {% if about.company_values %}
-      <p class="coprose small">Stated values</p>
-      <div class="kw">{% for s in about.company_values %}<span class="tag">{{ s }}</span>{% endfor %}</div>
-      {% endif %}
-      {% if about.initiatives %}
-      <p class="coprose small">Projects and initiatives</p>
-      <ul class="colist">{% for s in about.initiatives %}<li>{{ s }}</li>{% endfor %}</ul>
-      {% endif %}
-      <p><a class="btn sm" href="{{ url_for('company') }}?c={{ row.company|urlencode }}">More About This Employer</a></p>
-
-      {# Verbatim and exempt from the house copy rules, same as welcome.html. It sits in the
-         aside so it is on screen while the routes above are being read. #}
-      <div class="callout legal"><strong>Not immigration advice.</strong> Anything this app
-        works out from dates you type in asserts nothing about your eligibility. Confirm anything
-        that matters with your school's international-student office (DSO) and uscis.gov.</div>
+      <p><a class="btn sm" href="{{ url_for('company') }}?c={{ row.company|urlencode }}">All {{ about.n_open }} Roles at {{ row.company }}</a></p>
     </aside>
   </div>
 </div>

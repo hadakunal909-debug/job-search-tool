@@ -154,7 +154,7 @@ check("the JD is rendered as blocks, not one blob",
 # Against the TEXT, not the raw HTML. Highlighting can insert a <mark> mid-phrase ("What
 # <mark>We Offer</mark>"), which breaks a substring search on markup while leaving every word on
 # the page — the first version of this assertion failed for exactly that reason.
-body_text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", body))
+body_text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", body))  # noqa: E501  (reused below)
 check("the employer's own heading wording survives",
       "Basic Qualifications" in body_text and "What We Offer" in body_text,
       "not rewritten to a canonical label")
@@ -168,14 +168,29 @@ check("the JD is not inside its own scroll box",
       "a page-level description must not nest a scroll container")
 
 print()
-print("SPONSORSHIP")
-check("all five routes are listed", sum(body.count('class="vt vt-%s"' % k)
-                                       for k in core.VISA_TAGS) >= 5,
-      "the card shows one chip; the page shows every route including the empty ones")
-check("the absence caveat is verbatim from core", core.VISA_ABSENCE_NOTE in body,
+print("ORDER: the description comes before the employer and the sponsorship history")
+# The whole point of the 2026-08-11 reorder. Somebody opening a job wants the description, not a
+# primer on visa categories, and asserting on POSITION is the only way that stays true.
+pos = {k: body_text.find(v) for k, v in (
+    ("jd", "Job Description"), ("kw", "Keywords in This Description"),
+    ("tailor", "Tailor Your R"), ("about", "About Acme"), ("spon", "Sponsorship History"))}
+check("all five sections are present", all(v >= 0 for v in pos.values()), repr(pos))
+check("Job Description is first", pos["jd"] < min(pos["kw"], pos["about"], pos["spon"]))
+check("the employer comes after the keywords", pos["about"] > pos["kw"])
+check("sponsorship history is last", pos["spon"] == max(pos.values()))
+
+print()
+print("SPONSORSHIP, condensed to statements")
+check("no per-route glossary table", "routelist" not in body and "routewhy" not in body,
+      "five rows explaining what H-1B means is not what a job page is for")
+check("the filing history is one statement",
+      "has a federal filing history for" in body_text or "no federal filing record" in body_text)
+check("the absence caveat is still verbatim from core", core.VISA_ABSENCE_NOTE in body,
       repr(core.VISA_ABSENCE_NOTE))
-check("the immigration-advice callout survives verbatim",
-      "Not immigration advice." in body and "(DSO)" in body and "uscis.gov" in body)
+# Removed from THIS page on request. It stays on /welcome and /profile, which is where somebody is
+# actually entering the dates it warns about; test_onboarding.py still asserts it there.
+check("the immigration-advice callout is NOT on the job page",
+      "Not immigration advice." not in body)
 
 print()
 print("ANALYTICS, the assertion this file exists for")

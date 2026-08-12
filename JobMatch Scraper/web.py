@@ -1637,24 +1637,51 @@ _SKILL_SHOWN = 18            # matched/missing chips; /api/job used 30 and nothi
 _HL_TERMS = 10
 
 
-def _hl_terms(terms, company):
-    """The subset worth marking inline: weight order preserved, generic words dropped.
+# Words that are never a skill but score well because a job description repeats them. Grown from
+# a real Capital One posting, which offered "regarding criminal", "background inquiries",
+# "applicable federal", "york", "posted", "state" and "laws" as keywords to add to a résumé. The
+# boilerplate rule below catches most of that class by shape; these are the leftovers that sit in
+# ordinary prose.
+_KEYWORD_STOP = frozenset("""
+posted posting position role job company employer candidate applicant applicants
+state states city york county country federal laws law legal notice notices least
+website site email phone contact address information available provide provided
+please based employment technology technologies tools services service solutions
+business teams environment opportunity support various including needs help
+""".split())
 
-    Also drops the employer's own name. It is genuinely one of the description's highest-weighted
-    terms and marking it says nothing: "Capital One" was highlighted six times in one posting.
+
+def _useful_terms(terms, company, jd, cap):
+    """Keywords worth showing a reader, weight order preserved.
+
+    Four things get dropped, in cheapness order:
+      * the generic-skill stoplist _company_profile already uses, plus the ones above
+      * the employer's own name. It is genuinely one of the highest-weighted terms in any
+        description and says nothing: "Capital One" was marked six times in one posting.
+      * anything under three characters, or a multi-word term made only of stopwords
+      * TERMS THAT ONLY EVER APPEAR IN LEGAL BOILERPLATE. analyze_jd reads the whole
+        description, EEO notice included, so the raw list contains phrases from it. Subtracting
+        the boilerplate text is a property of this posting rather than a blacklist to maintain,
+        and it is what stops the page advising somebody to put "regarding criminal" on a résumé.
     """
-    stop = set(_SKILL_STOP)
+    stop = set(_SKILL_STOP) | _KEYWORD_STOP
     stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
+    try:
+        body, boiler = jdrender.text_halves(jd or "")
+    except Exception:
+        body, boiler = (jd or "").lower(), ""
     out = []
     for t in terms:
         low = (t or "").strip().lower()
         if len(low) < 3 or low in stop:
             continue
-        # A multi-word term made only of stopwords ("work experience") is no better than its parts.
         if all(w in stop or len(w) < 3 for w in low.split()):
             continue
+        # In the notice but not in the rest of the posting: it is a legal phrase, not a skill.
+        if boiler and low in boiler and low not in body:
+            continue
         out.append(t)
-        if len(out) >= _HL_TERMS:
+        if len(out) >= cap:
             break
     return out
 
@@ -1779,15 +1806,24 @@ def job_page():
     have, missing = [], []
     if resume and analyzed.get("terms"):
         _score, have, missing = core.score_against(resume.lower(), analyzed)
-    have, missing = list(have)[:_SKILL_SHOWN], list(missing)[:_SKILL_SHOWN]
+    # Filtered, not just truncated. The chip lists and the inline marks share one filter and
+    # differ only in how many they keep: a list is scanned, so it can be longer, while forty
+    # marks in a description is a highlighter accident rather than a signal.
+    have = _useful_terms(have, company, jd, _SKILL_SHOWN)
+    missing = _useful_terms(missing, company, jd, _SKILL_SHOWN)
 
     vtags = row.get("visa") or ()
-    # EMPLOYER-level routes, so the page can say "they have filed for Green Card, but this
-    # posting rules it out" — information visa_tags_for_posting destroys at card level with no
-    # way to recover it.
+    # EMPLOYER-level routes, so the page can say "they have filed for Green Card, but this posting
+    # rules it out" — information visa_tags_for_posting destroys at card level with no way to
+    # recover it.
+    #
+    # TWO STRINGS, not a five-row table with a paragraph of explanation per route. The table
+    # answered "what does H-1B mean", which is not the question somebody who opened a job
+    # description is asking, and it pushed the description itself below the fold. What is left is
+    # the filing history as one statement; anyone who wants the per-route detail has the company
+    # page, which is built for it.
     all_tags = core.visa_tags(company, visa_index())
-    routes = [{"key": k, "label": core.VISA_TAG_LABELS[k], "tip": core.VISA_TAG_TIPS[k],
-               "on": k in vtags, "employer": k in all_tags} for k in core.VISA_TAGS]
+    filed = _and_list([core.VISA_TAG_LABELS[k] for k in all_tags])
     narrowed = _and_list([core.VISA_TAG_LABELS[k] for k in all_tags if k not in vtags])
     # The band's headline. "No Record on File" is only true when there is genuinely nothing:
     # a blocked posting at an employer with four filings on record would otherwise announce
@@ -1801,6 +1837,10 @@ def job_page():
     same_company = [r for r in rows
                     if db.block_key(r.get("company") or "") == db.block_key(company)
                     and not r.get("closed")]
+    # Other roles at this employer for the rail, BEST MATCH FIRST. ranked_rows is already in score
+    # order, so this needs no sort of its own — it just drops the posting being read and takes the
+    # head. Six because the rail has to stay shorter than the description beside it.
+    similar = [r for r in same_company if r.get("url") != url][:6]
     brief = _company_brief(company, same_company)
     # Offer the crawl only when there is nothing on file AND it is actually startable: the
     # decision needs the index, the guessed domain, the failure cooldown, the Supabase check and
@@ -1815,9 +1855,9 @@ def job_page():
                    company=company, source=_host(raw or row),
                    score=0 if pending else int(row.get("score") or 0), pending=pending)
     return render_template(
-        "job.html", row=row, route=_route_of(row), routes=routes, narrowed=narrowed,
-        jd_html=jdrender.render_jd(jd, have=_hl_terms(have, company),
-                                   missing=_hl_terms(missing, company)),
+        "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
+        similar=similar,
+        jd_html=jdrender.render_jd(jd, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
         jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
         sec_labels=jdrender.SEC_LABELS,
         have=have, missing=missing, has_resume=bool(resume),
