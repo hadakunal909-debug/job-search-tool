@@ -2630,6 +2630,32 @@ AMAZON_QUERIES = (
     "quality assurance engineer", "cloud support engineer",
     # internships / co-ops (OPT-eligible)
     "intern", "internship", "co-op",
+    # ---- AUDIT, 2026-08-12 -------------------------------------------------------------------
+    # Prompted by the supply-chain-manager miss above: if one family was unreachable, which
+    # others were? Every one of the 198 INCLUDE keywords that was not already a query term (167
+    # of them) was put through amazon.jobs and scored the way this project judges any keyword:
+    # not by rows it RETURNS but by rows it ALONE admits. A posting counted only if it cleared
+    # the title filter, the years gate, the US-location gate and the freshness window, AND was
+    # not already in the corpus. Ranked GREEDILY by marginal contribution, because raw counts put
+    # a dozen synonyms of "project manager" on top while they all return the same jobs.
+    #
+    # Result: 57 of the 167 would add something; together 968 rows Amazon was serving and we
+    # were never asking for. The 28 below are the ones worth >= 10 rows each, which is 859 of
+    # those 968 for about 136 extra requests a run. The other 29 average 4 rows apiece and were
+    # left out; "computer science" is the shape of what was rejected — 3,434 hits, ten pages, 3
+    # new rows.
+    #
+    # Marginal gain of the top few, for anyone re-tuning: software dev engineer 81, systems
+    # engineer 69, sde 67, security engineer 59, data science 57, software quality 51,
+    # software development 43, automation engineer 40. "sde" is Amazon's own abbreviation and
+    # reaches 67 rows the spelled-out terms do not.
+    "software dev engineer", "systems engineer", "sde", "security engineer", "data science",
+    "software quality", "software development", "automation engineer", "big data",
+    "full stack", "program management", "early career", "business intelligence",
+    "computer vision", "product management", "business operations", "software engineering",
+    "operations management", "embedded software", "software developer", "test engineer",
+    "product operations", "engagement manager", "program lead", "machine learning",
+    "infrastructure engineer", "technical program manager", "devops",
 )
 
 
