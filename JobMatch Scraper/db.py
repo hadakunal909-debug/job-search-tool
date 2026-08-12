@@ -1048,12 +1048,21 @@ def set_user_disabled(username, disabled=True):
 def bump_token_epoch(username):
     """Invalidate every browser-extension token this user holds, by changing the value folded
     into their token's HMAC. Read-then-write: PostgREST has no atomic increment without an RPC,
-    and a lost update here costs nothing worse than one extra click to revoke again."""
-    cur = 0
-    try:
-        cur = int((get_user(username, "token_epoch") or {}).get("token_epoch") or 0)
-    except Exception:
-        pass
+    and a lost update BETWEEN TWO RACING BUMPS costs nothing worse than one extra click to
+    revoke again.
+
+    A failed READ is a different case and must not be swallowed. This used to default `cur` to 0
+    and write 1, so a user sitting at epoch 5 was rolled back to 1 — which silently RE-VALIDATES
+    every token signed under epochs 1-4, i.e. exactly the tokens the user just asked to revoke.
+    A revoke that quietly un-revokes is worse than one that fails, so this raises instead. Both
+    call sites in web.py already catch and surface it ("Couldn't revoke that token"), and
+    get_user() raises on a transport error while returning None only when there is genuinely no
+    such row — so the two cases stay distinguishable.
+    """
+    row = get_user(username, "token_epoch")
+    if row is None:
+        raise RuntimeError("no such user %r: refusing to reset token_epoch to 1" % username)
+    cur = int(row.get("token_epoch") or 0)
     _patch_user(username, {"token_epoch": cur + 1})
     return cur + 1
 

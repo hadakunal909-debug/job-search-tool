@@ -15,6 +15,7 @@
    the EEO note moved onto the EEO heading where it applies. #}
 <p class="sub">These answers auto-fill application forms via the browser extension.</p>
 <form method="post">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <div class="pgrid">
     <label class="full">Default résumé file name <span class="dim">we fill this into your tracker each time you apply</span>
       <input name="default_resume" value="{{ prof.default_resume or '' }}" placeholder="e.g. Kunal_PM_Resume.pdf"></label>

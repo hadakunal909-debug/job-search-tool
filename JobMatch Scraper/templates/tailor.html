@@ -37,6 +37,7 @@
     {% endif %}
   </div>
   <form method="post" action="{{ url_for('tailor_ai') }}" id="aiform">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="url" value="{{ job.url }}">
     <div id="keysaved" class="muted" {% if not ai_ready %}style="display:none"{% endif %}>Gemini key saved on this browser · <a href="#" id="changekey">change</a></div>
     <input class="keyin u-hide" type="password" name="api_key" id="aikey" placeholder="Gemini API key (AIza…)" autocomplete="off"{% if ai_ready %}{% endif %}>

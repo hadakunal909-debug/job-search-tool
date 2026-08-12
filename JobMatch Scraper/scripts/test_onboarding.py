@@ -306,7 +306,7 @@ try:
     RESUMES.clear()
     c = client()
     c.post("/brain/resume/save",
-           data={"resume_file": (io.BytesIO(doc), "PM résumé v2.docx")},
+           data={"_csrf": token(c), "resume_file": (io.BytesIO(doc), "PM résumé v2.docx")},
            content_type="multipart/form-data")
     check("Resume Brain accepts an upload too",
           RESUMES and "Globex" in RESUMES[-1]["content"])
@@ -316,7 +316,7 @@ try:
 
     RESUMES.clear()
     c = client()
-    c.post("/brain/resume/save", data={"name": "", "content": ""},
+    c.post("/brain/resume/save", data={"_csrf": token(c), "name": "", "content": ""},
            content_type="multipart/form-data")
     check("an empty submit saves nothing", not RESUMES)
 except ImportError:

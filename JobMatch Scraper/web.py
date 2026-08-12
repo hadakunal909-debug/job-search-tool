@@ -481,12 +481,50 @@ def current_profile():
     return txt
 
 
+# The profiles ROW, which is NOT what _profile_cache above holds — that one caches the profile
+# TEXT from db.profile_text(). Different call, different shape, and the row was uncached entirely.
+#
+# Measured on a warm GET /: the SAME row was fetched twice in one render, 46 ms + 54 ms for 1,431
+# bytes each — 100 ms of a 197 ms request, and on a process-per-request pool that is 100 ms a
+# worker spends holding a slot while doing nothing. Once via _user_prefs, once for the visa nudge.
+#
+# Same TTL and the same bust points as the other per-user caches. Every write goes through
+# _save_profile() below, so a save is never followed by a stale read.
+_profile_row_cache = {}      # username -> (profile dict, fetched_at)
+
+
+def _profile_row(user):
+    """This user's profiles row, from a short-lived per-worker cache."""
+    if not user:
+        return {}
+    hit = _profile_row_cache.get(user)
+    if hit and time.time() - hit[1] < _RESUME_TTL:
+        return hit[0]
+    try:
+        row = db.get_profile(user) or {}
+    except Exception:
+        return hit[0] if hit else {}        # serve stale rather than lose the page
+    _profile_row_cache[user] = (row, time.time())
+    return row
+
+
+def _save_profile(user, fields):
+    """db.save_profile + drop this user's cached row. The ONLY way web.py should write a profile:
+    a bare db.save_profile would leave the cache serving the pre-save value for up to _RESUME_TTL,
+    which reads to the user as 'I saved it and nothing happened'."""
+    ok, msg = db.save_profile(user, fields)
+    _profile_row_cache.pop(user, None)
+    return ok, msg
+
+
 def _bust_profile(user=None):
     """Drop cached profile + scores after a résumé/story/lesson edit so the feed updates."""
     if user:
         _profile_cache.pop(user, None)
+        _profile_row_cache.pop(user, None)
     else:
         _profile_cache.clear()
+        _profile_row_cache.clear()
     _score_cache.clear()
     _rows_cache.clear()
 
@@ -1013,7 +1051,7 @@ def _user_prefs(user):
     """The user's saved search, always a complete valid dict (defaults if never saved or if
     the search_prefs column hasn't been migrated yet)."""
     try:
-        return core.normalize_prefs((db.get_profile(user) or {}).get("search_prefs"))
+        return core.normalize_prefs((_profile_row(user) or {}).get("search_prefs"))
     except Exception:
         return dict(core.DEFAULT_PREFS)
 
@@ -1651,7 +1689,7 @@ def feed():
     # Work-authorization nudge. visa_alert returns None unless something is actually close, so
     # a user with no dates entered — or with months of runway — sees nothing at all.
     try:
-        vprof = db.get_profile(user) or {}
+        vprof = _profile_row(user) or {}
         vtl = core.visa_timeline(vprof)
         visa = core.visa_alert(vtl)
         visa_ctx = _visa_badge_context(vprof, vtl)
@@ -1708,6 +1746,10 @@ def _clean_research_list(items, lo=2, hi=48, cap=14, no_digits=False):
 
 _research_cache = {"at": 0.0, "by_name": None}
 _RESEARCH_TTL = 300
+# Employers we have already looked up and found nothing for: {(domain guesses) -> when}. Bounded
+# so a long-lived worker cannot grow it without limit; the contents are worthless once cold.
+_research_miss = {}
+_RESEARCH_MISS_MAX = 4000
 
 
 def _research_for(display):
@@ -1719,20 +1761,33 @@ def _research_for(display):
     byd.com. The name index is cached, since the miss path is the common one until the KB fills
     up and it would otherwise re-read the table on every company page view.
     """
+    # NEGATIVE CACHE. Measured on a warm GET /job: this function made TWO Supabase round trips,
+    # 49 ms + 43 ms, to fetch 180 bytes each and discover that the employer has no record — and it
+    # did that on every render of every job at that employer, forever. Most employers have no
+    # record, so the miss path is the common one. A hit is still read live; only the ABSENCE is
+    # remembered, and only for _RESEARCH_TTL, so a crawl that lands mid-window is picked up within
+    # five minutes rather than never.
+    doms = tuple(d for d in (logodomain(display), _research_domain(display)) if d)
+    miss_at = _research_miss.get(doms)
+    if miss_at is not None and time.time() - miss_at < _RESEARCH_TTL:
+        doms = ()                       # known-absent and still fresh: skip both round trips
     # BOTH domain guesses, because they disagree and each is the right key some of the time.
     # research._norm_name strips inc|llc|ltd|corp|co|company|the before building a domain and
     # logodomain does not, and their hand-written domain maps are different sets. So the crawler
     # files "Amazon.com Services LLC" under one spelling while this lookup asks for the other,
     # and on-demand research would appear to silently do nothing for a whole class of employers.
-    for dom in (logodomain(display), _research_domain(display)):
-        if not dom:
-            continue
+    for dom in doms:
         try:
             rec = db.get_brain_company(dom)
             if rec:
+                _research_miss.pop(doms, None)
                 return rec
         except Exception:
             pass
+    if doms:                            # both guesses missed — remember that, not the emptiness
+        if len(_research_miss) >= _RESEARCH_MISS_MAX:
+            _research_miss.clear()      # bounded; cheap to refill, worthless once cold
+        _research_miss[doms] = time.time()
     idx = _research_cache["by_name"]
     if idx is None or time.time() - _research_cache["at"] > _RESEARCH_TTL:
         try:
@@ -2235,6 +2290,10 @@ def _research_crawl(domain, company):
                 # Bust the 300-second name index, or a successful crawl keeps reading as a miss
                 # for five minutes and the poll gives up on work that already finished.
                 _research_cache.update({"by_name": None, "at": 0})
+                # Same reasoning for the negative cache: this employer was just recorded as absent
+                # by whatever page triggered the crawl, and without this the poll would keep being
+                # told "no record" for the rest of the TTL — for work that finished a second ago.
+                _research_miss.clear()
             else:
                 _research_fail[domain] = time.time() + _RESEARCH_COOLDOWN
 
@@ -2310,7 +2369,7 @@ def save_prefs():
     user = session["user"]
     body = request.get_json(silent=True) or request.form.to_dict() or {}
     prefs = core.normalize_prefs(dict(_user_prefs(user), **body))
-    ok, msg = db.save_profile(user, {"search_prefs": prefs})
+    ok, msg = _save_profile(user, {"search_prefs": prefs})
     if not ok:
         return jsonify({"ok": False, "error": msg[:200]}), 200
     _rows_cache.clear()          # the first-paint count is derived from prefs
@@ -4594,6 +4653,126 @@ def _ext_user(token):
     return username
 
 
+# ----------------------------- CSRF on cookie-authenticated writes -----------------------------
+# A token check existed and was applied to six routes; twenty-two others — every one of them
+# cookie-authenticated and state-changing — had none. The worst was POST /profile, which rebuilds
+# all 39 profile fields from the submitted form and BLANKS everything it omits, so a single-field
+# cross-site POST wiped the profile. /board/delete, /application/delete and seven /brain/*/delete
+# routes were in the same set.
+#
+# SameSite=Lax and CSP form-action 'self' were already real mitigations, which is why this was a
+# moderate finding rather than a critical one. They are not a reason to skip the token: Lax still
+# permits top-level cross-site GET navigations, and one browser quirk away it is the only thing
+# standing between a link and a wiped profile.
+#
+# Enforced HERE, in one hook, rather than by decorating twenty-two routes — the same argument
+# admin_required already makes for centralising it. A route added next year is covered by default
+# and has to opt OUT deliberately, which is the safe direction for this kind of check.
+_CSRF_EXEMPT = frozenset((
+    "/login",      # no session exists yet; enforcing here breaks a legitimate sign-in, and
+                   # login CSRF is a nuisance rather than a compromise
+    "/api/ev",     # public, no-ops without a session, writes nothing a forger benefits from
+    "/logout",     # clearing your own session is not worth a token; see the note in the report
+))
+
+
+@app.before_request
+def _require_csrf():
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    p = request.path
+    # Bearer-token routes are not cookie-authenticated, so a cross-site page cannot attach the
+    # victim's credential and CSRF does not apply. They have their own limiter above.
+    if p.startswith("/api/ext/") or p in _CSRF_EXEMPT:
+        return None
+    if not session.get("user"):
+        return None                # nothing to forge on behalf of an anonymous caller
+    if _check_csrf():
+        return None
+    from flask import jsonify
+    # Answer in the shape the caller can actually read. A fetch() that gets a 302 to an HTML page
+    # fails silently in the console; a browser form that gets JSON shows the user raw text. Treat
+    # anything programmatic — an /api/ path, a JSON body, an XHR marker, or a caller that tried to
+    # send the header at all — as wanting JSON.
+    programmatic = (request.path.startswith("/api/") or request.is_json
+                    or request.headers.get("X-CSRF-Token") is not None
+                    or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+                    or "application/json" in (request.headers.get("Accept") or ""))
+    if programmatic:
+        return jsonify({"ok": False,
+                        "error": "That page has been open a while and its security token expired. "
+                                 "Reload and try again."}), 400
+    flash("That page has been open a while and its security token expired. Reload and try again.")
+    return redirect(request.referrer or url_for("feed"))
+
+
+# ----------------------------- extension API rate limiting -----------------------------
+# The /api/ext/* routes are CORS-open and bearer-token authenticated, and until now NOTHING
+# throttled them. A leaked token — and these never expire, and travel in query strings on GET
+# routes, so leaking is realistic — bought unbounded spend on the OPERATOR's Anthropic/Gemini
+# keys, unbounded rows into the shared jobs table, and unbounded appends to an unrotated
+# ext_debug_log.jsonl. Login has had a limiter for exactly this reason; these did not.
+#
+# ONE before_request hook rather than a decorator on each of the sixteen routes, for the same
+# reason admin_required centralises CSRF: a route added next year cannot forget to opt in.
+#
+# Limits are per (class, token) and deliberately generous for normal use — the batch filler
+# legitimately walks 50 jobs in a sitting. They bite on the abuse shapes, not on real work.
+_ext_hits = {}                       # (class, key) -> [timestamps]
+_EXT_MAX_KEYS = 5000                 # bound the dict; cleared wholesale when exceeded
+_EXT_CLASSES = (
+    # (path suffixes, calls, window seconds, label)
+    (("tailor", "answer", "vision"), 40, 3600,
+     "AI calls — these spend the server's API keys, and tailor also spawns a LaTeX process"),
+    (("bulk_jobs", "jds", "debug", "detect_board"), 120, 3600,
+     "bulk writes into shared tables and the unrotated debug log"),
+)
+_EXT_DEFAULT = (900, 3600, "extension API")
+
+
+def _ext_rate_key():
+    """Throttle by TOKEN where we have one, else by client address so an unauthenticated
+    sprayer is bounded too. The token is not validated here — that is _ext_user's job; this
+    only needs a stable string to count against."""
+    tok = (request.args.get("token") or "").strip()
+    if not tok:
+        try:
+            body = request.get_json(silent=True) or {}
+            tok = str(body.get("token") or "").strip()
+        except Exception:
+            tok = ""
+    return ("t:" + tok[:64]) if tok else ("ip:" + (request.remote_addr or "?"))
+
+
+@app.before_request
+def _ext_rate_limit():
+    if not request.path.startswith("/api/ext/") or request.method == "OPTIONS":
+        return None                  # CORS preflight carries no credentials and does no work
+    from flask import jsonify
+    leaf = request.path.rsplit("/", 1)[-1]
+    cap, window, label = _EXT_DEFAULT
+    for names, c, w, lbl in _EXT_CLASSES:
+        if leaf in names:
+            cap, window, label = c, w, lbl
+            break
+    key = (label, _ext_rate_key())
+    now = time.time()
+    if len(_ext_hits) > _EXT_MAX_KEYS:
+        _ext_hits.clear()
+    hist = [t for t in _ext_hits.get(key, ()) if now - t < window]
+    if len(hist) >= cap:
+        _ext_hits[key] = hist
+        retry = int(window - (now - hist[0])) + 1
+        resp = jsonify({"ok": False, "error": "Rate limit reached for %s. Try again in %d min."
+                                              % (label, max(retry // 60, 1))})
+        resp.status_code = 429
+        resp.headers["Retry-After"] = str(retry)
+        return _cors(resp)           # CORS-open route: the browser must be able to READ the 429
+    hist.append(now)
+    _ext_hits[key] = hist
+    return None
+
+
 @app.route("/profile/tracking", methods=["POST"])
 @login_required
 def profile_tracking():
@@ -4617,7 +4796,7 @@ def profile_tracking():
         extra = {}
     off = bool(request.form.get("ev_off"))
     extra["ev_off"] = off
-    ok, msg = db.save_profile(user, {"extra": json.dumps(extra)})
+    ok, msg = _save_profile(user, {"extra": json.dumps(extra)})
     analytics._optout["at"] = 0.0            # take effect now, not in five minutes
     flash("Usage recording is now %s for your account." % ("off" if off else "on")
           if ok else "Couldn't save that: " + msg[:120])
@@ -4770,7 +4949,7 @@ def _save_extra(user, updates):
     writing {'onboarded': True} on its own would silently drop ev_off (the analytics opt-out)."""
     e = _extra(user)
     e.update(updates)
-    return db.save_profile(user, {"extra": e})
+    return _save_profile(user, {"extra": e})
 
 
 def _needs_onboarding(user):
@@ -4914,21 +5093,21 @@ def welcome():
             # normalize_prefs. Merged over the stored prefs the same way POST /profile merges
             # the alert settings, or saving here would reset the rest of the search.
             picked = ",".join(core.parse_roles_pref(f.getlist("roles") or f.get("roles")))
-            db.save_profile(user, {"search_prefs": core.normalize_prefs(
+            _save_profile(user, {"search_prefs": core.normalize_prefs(
                 dict(_user_prefs(user), roles=picked))})
             _rows_cache.clear()                # the first-paint count is derived from prefs
             answered = bool(picked) or f.get("all_roles") == "1"
         elif step == 3:
             payload = dict(SPONSORSHIP_ANSWERS.get(f.get("sponsorship") or "", {}))
             if payload:
-                ok, msg = db.save_profile(user, payload)
+                ok, msg = _save_profile(user, payload)
                 if not ok:
                     flash("Couldn't save: " + msg[:120])
             answered = bool(payload)
         elif step == 4:
             loc = "" if f.get("anywhere") == "1" else (f.get("location") or "").strip()
             if loc or f.get("anywhere") == "1":
-                ok, msg = db.save_profile(user, {"location": loc[:120]})
+                ok, msg = _save_profile(user, {"location": loc[:120]})
                 if not ok:
                     flash("Couldn't save: " + msg[:120])
             answered = bool(loc) or f.get("anywhere") == "1"
@@ -4994,7 +5173,7 @@ def profile():
             payload["search_prefs"] = core.normalize_prefs(dict(
                 _user_prefs(user),
                 alerts=f.get("alerts", ""), alert_min=f.get("alert_min", "") or 0))
-        ok, msg = db.save_profile(user, payload)
+        ok, msg = _save_profile(user, payload)
         flash("Saved." if ok else ("Couldn't save: " + msg[:120]))
         return redirect(url_for("profile"))
     try:

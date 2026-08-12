@@ -16,6 +16,7 @@
 <details class="addapp">
   <summary>Add an application (from LinkedIn, a company site, anywhere)</summary>
   <form method="post" action="{{ url_for('application_save') }}" class="appform">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="id" value="">
     <div class="grid2">
       <label>Company<input name="company" required></label>
@@ -51,6 +52,7 @@
     </div>
     <div class="approw">
       <form method="post" action="{{ url_for('application_save') }}" class="appedit">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <input type="hidden" name="id" value="{{ a.id }}">
         <input type="hidden" name="company" value="{{ a.company or '' }}">
         <input type="hidden" name="title" value="{{ a.title or '' }}">
@@ -62,6 +64,7 @@
         <button class="btn sm" type="submit">Save</button>
       </form>
       <form method="post" action="{{ url_for('application_delete') }}" class="dform">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <input type="hidden" name="id" value="{{ a.id }}">
         <button class="btn sm danger" type="submit">Delete</button>
       </form>

@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  {# Read by static/app.js, which is a static file and so cannot use Jinja itself. #}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JobMatch</title>
   {# Ink, matching the palette. The mark is a filing stamp: a rounded square with a ring

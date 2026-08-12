@@ -1,0 +1,102 @@
+name: python tests
+
+# THE GAP THIS CLOSES. web-build.yml is path-filtered to 'JobMatch Scraper/web/**' and
+# 'static/dist/**', so until now a change to web.py (5,852 lines), core.py, db.py or
+# scraper/__init__.py triggered NO workflow at all. The repo has 21 self-contained suites and
+# roughly 400 assertions — most of which encode a real production incident and explain why the
+# naive fix was wrong — and not one of them had ever run in CI.
+#
+# Its own workflow rather than a job inside scrape.yml, for the reason that file already gives:
+# scrape.yml runs on a metered cron budget and the free Actions minutes have been hit before.
+# This one is path-filtered and finishes in about two minutes, so it costs ~nothing per month.
+#
+# EVERY suite listed below was verified to run with the network physically blocked (sockets
+# patched to raise) and no .env present, which is what a CI runner looks like. Three suites are
+# deliberately NOT here — test_prefs.py, test_saved_search.py and test_ext_contract.py need a
+# live Supabase. test_ext_contract.py is the important one: without credentials it prints
+# "No accounts; nothing to test against" and exits 0, so running it in CI would add a green tick
+# that proves nothing.
+
+on:
+  push:
+    paths:
+      - 'JobMatch Scraper/**.py'
+      - 'JobMatch Scraper/static/app.js'
+      - 'JobMatch Scraper/static/style.css'
+      - 'JobMatch Scraper/templates/**'
+      - '.github/workflows/python-tests.yml'
+  pull_request:
+    paths:
+      - 'JobMatch Scraper/**.py'
+      - 'JobMatch Scraper/static/app.js'
+      - 'JobMatch Scraper/static/style.css'
+      - 'JobMatch Scraper/templates/**'
+
+concurrency:
+  # A push that lands while the previous run is still going supersedes it — the older result is
+  # about code nobody has any more.
+  group: python-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12          # hard cap so a hung suite cannot drain the Actions budget
+    env:
+      EV_OFF: '1'                # never write analytics rows from a CI run
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Pinned to 3.12 for the same reason scrape.yml pins it: python-jobspy 1.1.82 requires
+          # numpy==1.26.3, which has no wheels past cp312.
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 'JobMatch Scraper/requirements-cpanel.txt'
+
+      # feed_parity.py, test_card_meta.py and test_filter_memory.py lift the pure functions out of
+      # static/app.js BY SOURCE TEXT and evaluate them in node, so a copy cannot drift from what
+      # actually ships. That needs node on PATH.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install
+        working-directory: 'JobMatch Scraper'
+        run: pip install -r requirements-cpanel.txt
+
+      - name: root suites (dedup, dates, scoring, title filter, passwords, uploads)
+        working-directory: 'JobMatch Scraper'
+        run: |
+          set -e
+          for t in test_canonical_url test_jobspy_adapter test_resume_upload test_date_sources \
+                   test_title_filter test_verify_queue test_workday_date test_password_rule \
+                   test_scoring; do
+            echo "::group::$t"
+            python "$t.py"
+            echo "::endgroup::"
+          done
+
+      - name: script suites (render, search, visa, parsers, contrast, job page, onboarding)
+        working-directory: 'JobMatch Scraper'
+        run: |
+          set -e
+          for t in test_contrast test_visa test_paylocity test_peoplesoft test_jdrender \
+                   test_search_and_similar test_job_page test_onboarding test_notify; do
+            echo "::group::$t"
+            python "scripts/$t.py"
+            echo "::endgroup::"
+          done
+
+      # The highest-value gate in the repo: web.py's _filter_rows and app.js's matches() are
+      # deliberate twins, and below/above 4,000 jobs the feed switches between them. Nothing but
+      # this test keeps them in step.
+      - name: server/client parity (needs node)
+        working-directory: 'JobMatch Scraper'
+        run: |
+          set -e
+          python scripts/test_card_meta.py
+          python scripts/test_filter_memory.py
+          python scripts/feed_parity.py
