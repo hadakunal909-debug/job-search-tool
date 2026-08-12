@@ -775,6 +775,22 @@ VISA_TAG_TIPS = {
     "h1b1": "This employer has filed H-1B1 applications (Chile / Singapore nationals).",
 }
 
+# The absence caveat, in ONE place. It shipped in two different wordings (feed.html and
+# company.html said it differently), which is how a load-bearing legal sentence drifts: each
+# template edited it locally and neither knew about the other. This is feed.html's wording,
+# byte for byte, because it was the shorter of the two. Every surface renders THIS constant.
+VISA_ABSENCE_NOTE = "No route shown means no record, not a refusal."
+
+# What ONE hedged chip on a card is allowed to say. Deliberately not five labels and not a
+# count: see sponsor_likely() below.
+SPONSOR_LIKELY_LABELS = {"h1b": "H-1B Likely", "sponsor": "Sponsor Likely",
+                         "stem_opt": "STEM-OPT Likely"}
+# green_card, e3 and h1b1 all collapse into "sponsor". Naming them separately on a card was
+# the problem: E-3 and H-1B1 are gated on nationality (Australia, Chile / Singapore), so for
+# almost every reader they are noise, and a green card is real sponsorship evidence but a
+# later-stage route than the one you get hired on. The job page names all five.
+_SPONSOR_LIKELY_OTHER = frozenset(("green_card", "e3", "h1b1"))
+
 
 def load_visa_tags(path="visa_tags.json"):
     """{normalized name: bitmask} from visa_tags.json. {} when the file is absent, so every
@@ -850,6 +866,39 @@ def visa_tags_for_posting(tags, sponsor_jd, reason=""):
     if any(k in low for k in _BLOCKS_EVERYONE):
         return ()
     return tuple(t for t in tags if t == "stem_opt")
+
+
+def sponsor_likely(tags):
+    """The ONE hedged claim a card makes about sponsorship. Returns a key, or "".
+
+    Pass the tags ALREADY narrowed by visa_tags_for_posting(), so a posting whose own text
+    closes a route can never surface a chip for it.
+
+    The card used to show up to three chips plus a "+2 more". Three chips is not three facts,
+    it is one fact spread thin, and it read far more confidently than one quarter of federal
+    filings can support — hence "Likely", which is the whole claim: this employer has a
+    federal record for this route. Not that they will sponsor you, and not that they file
+    this route more than the others.
+
+    The order is by what a route is WORTH to a reader who needs sponsorship, not by filing
+    volume (the index carries no counts, and volume across programs is not comparable anyway
+    — an LCA is filed per position and often re-filed yearly, a PERM once per worker):
+
+      h1b       an H-1B record is the route you actually get hired on.
+      sponsor   any other certified filing is real sponsorship evidence.
+      stem_opt  E-Verify enrolment, and the weakest of the three by a wide margin: only
+                3.3% of the 32,012 enrolled employers file LCAs at all, the rest enrolled
+                for I-9 compliance. It is necessary for the STEM-OPT extension and close to
+                useless as evidence anyone hires international workers.
+    """
+    tags = frozenset(tags or ())
+    if "h1b" in tags:
+        return "h1b"
+    if tags & _SPONSOR_LIKELY_OTHER:
+        return "sponsor"
+    if "stem_opt" in tags:
+        return "stem_opt"
+    return ""
 
 
 def parse_visa_pref(s):

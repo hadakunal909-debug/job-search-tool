@@ -66,6 +66,9 @@ ROW_KEYS = {
     "score_pending", "date", "date_verified", "date_trusted", "first_seen", "sponsor_jd",
     "sponsors_h1b", "everify", "visa", "roles", "agency", "cap_exempt", "intern", "track",
     "exp_years", "exp_level",
+    # The one route the card names. Read by the chip and by data-route, so a vacuous None here
+    # would let the card colour and the chip drift apart unnoticed.
+    "visa_likely",
     # Read only by the sponsor sort. Without them here the sponsor case would pass VACUOUSLY:
     # strength_n is None server-side and undefined in JS, both rank everything identically, and
     # the diff is empty however badly the two disagree.
@@ -136,6 +139,10 @@ def _row(rng, n, title, company, state, **over):
     # so a failing case is reproducible.
     r["visa"] = _visa_for(n, sj, reason)
     r["everify"] = "stem_opt" in r["visa"]
+    # Derived by the REAL function on the REAL narrowed list, not hand-written: the point is to
+    # catch app.js and core disagreeing about which single route a card names, and a hardcoded
+    # value here would just test the fixture against itself.
+    r["visa_likely"] = web.core.sponsor_likely(r["visa"])
     # Derived from strength_n by the same thresholds core.sponsor_strength uses, so the tier and
     # the count can never disagree the way two independent rng picks would.
     n_ = r["strength_n"]
@@ -149,6 +156,13 @@ def _row(rng, n, title, company, state, **over):
     r["roles"] = list(web.core.roles_for_title(title))
     r["date_trusted"] = rng.random() < 0.6
     r["date_verified"] = r["date_trusted"] and rng.random() < 0.17
+    # date and date_trusted are COUPLED in _build_row: an untrusted date is the derived
+    # "YYYY-MM-DD HH:MM" shape (scrape stamp, or _workday_date reading "Posted 3 Days Ago") and
+    # keeps its time, while a trusted one is a bare ISO date. The fixture used a bare date for
+    # both, so the parity run never saw the string shape 41% of the live corpus actually carries
+    # and could not have caught a filter or sort that mishandled the extra five characters.
+    if not r["date_trusted"] and r["date"]:
+        r["date"] = "%s %02d:%02d" % (r["date"], rng.randrange(24), rng.randrange(60))
     r.update(over)
     return r
 
@@ -534,6 +548,20 @@ def run_js(rows, cases, cuts, scratch):
     if js_labels != dict(web.core.VISA_TAG_LABELS):
         raise SystemExit("feed_parity: VISA_LABELS differs between app.js and core.py:\n  js=%r\n  py=%r"
                          % (js_labels, dict(web.core.VISA_TAG_LABELS)))
+    # The single chip every card now shows. The KEY is chosen server-side by
+    # core.sponsor_likely and the LABEL is looked up client-side, so a card can mislabel a
+    # route without any row-level diff noticing — the two halves live in different files.
+    js_likely = js_json(src, "SPONSOR_LIKELY_LABELS")
+    if js_likely != dict(web.core.SPONSOR_LIKELY_LABELS):
+        raise SystemExit("feed_parity: SPONSOR_LIKELY_LABELS differs between app.js and core.py:"
+                         "\n  js=%r\n  py=%r" % (js_likely, dict(web.core.SPONSOR_LIKELY_LABELS)))
+    # And every key the server can emit must HAVE a label, or the chip falls back to printing
+    # the raw key ("stem_opt") at the reader.
+    for _tags in ([], ["h1b"], ["green_card"], ["e3"], ["h1b1"], ["stem_opt"]):
+        _k = web.core.sponsor_likely(_tags)
+        if _k and _k not in js_likely:
+            raise SystemExit("feed_parity: core.sponsor_likely(%r) returns %r, which app.js's "
+                             "SPONSOR_LIKELY_LABELS cannot label" % (_tags, _k))
     driver = DRIVER_PREAMBLE % {"hours": hours, "visa_tags": json.dumps(js_tags)}
     for fn in JS_FUNCS:
         driver += "\n" + js_function(src, fn) + "\n"
