@@ -51,6 +51,10 @@ APP_JS = os.path.join(ROOT, "static", "app.js")
 # node hoists function declarations. Lifted from app.js BY SOURCE TEXT, so a name that no longer
 # exists there is a hard SystemExit from js_function(), not a silent skip.
 JS_FUNCS = ["locHit", "annualize", "rowDate", "rolesWanted", "roleHit", "visaWanted", "visaHit",
+            # The search twins. searchHit decides IF a row matches (typo-tolerant), searchRank
+            # decides WHERE it lands. Both are mirrored in web.py and both are lifted here rather
+            # than re-typed, for the same reason sortCmp is.
+            "searchSplit", "_within", "_withinMemo", "searchTol", "termHit", "searchHit", "searchRank",
             "matches",
             # The sort comparator, lifted rather than re-typed. It used to be hand-copied into
             # DRIVER_MAIN below, which meant a third implementation nobody remembered to update
@@ -405,6 +409,19 @@ def build_cases():
         ("mgmt track + interns + agencies", {"track": "mgmt", "intern": "only", "hideagency": "",
                                              "min": "0", "date": "any"}),
         ("dev track + search + exp", {"track": "dev", "q": "engineer", "exp": "5", "min": "0"}),
+        # TYPO-TOLERANT SEARCH. The cases above all spell the query correctly, so they only ever
+        # exercise the substring fast path and would have agreed even if searchHit existed on one
+        # side alone. These force the fuzzy branch, where the two implementations of bounded edit
+        # distance have to agree row for row, and the relevance pass has to order them the same.
+        ("search typo: enginer", {"q": "enginer", "min": "0", "date": "any"}),
+        ("search typo: manger", {"q": "manger", "min": "0", "date": "any"}),
+        ("search typo: two terms, one wrong", {"q": "sofware engineer", "min": "0", "date": "any"}),
+        ("search typo + newest sort", {"q": "anaylst", "sort": "newest", "min": "0", "date": "any"}),
+        ("search typo: scientst", {"q": "scientst", "min": "0", "date": "any"}),
+        # Under the 4-character floor no typo is forgiven, so a 3-letter term must behave exactly
+        # as it always did: substring only. "eng" hits the Engineer titles and nothing else.
+        ("search short term, substring only", {"q": "eng", "min": "0", "date": "any"}),
+        ("search phrase still wins", {"q": "project manager", "min": "0", "date": "any"}),
     ]
     for name, over in mixes:
         c = dict(base)
@@ -525,6 +542,11 @@ IN.cases.forEach(function (cs) {
   // sortCmp is lifted from app.js by JS_FUNCS, not re-typed here. It used to be copied inline,
   // which made the parity harness itself carry a third implementation of the comparator.
   matched.sort(function (a, b) { return sortCmp(a, b, sortBy); });
+  // Relevance band on top while searching — the same second stable pass renderLocal() does.
+  // Without it here the harness would compare a sorted server list against an unsorted client
+  // one and report a divergence that only exists inside the harness.
+  var qs = (p.q || "").trim().toLowerCase();
+  if (qs) matched.sort(function (a, b) { return searchRank(b, qs) - searchRank(a, qs); });
   out.push({ name: cs.name, urls: matched.map(function (j) { return j.url; }) });
 });
 process.stdout.write(JSON.stringify(out));

@@ -248,6 +248,60 @@ check("the only tags are ours",
 check("a term containing & still marks", 'class="kw-miss">R&amp;D</mark>' in out,
       "escaping runs AFTER the match, so an entity cannot be matched into")
 
+# ---------------------------------------------------------------------------------------------
+print("\nMARKDOWN SOURCE IS RENDERED AS MARKUP, NOT PRINTED")
+# 2.0% of the 18,087 cached descriptions are stored as Markdown, and we used to put the source on
+# the page: "**Job description**" over a row of dashes, bare "**" lines, ----- separators.
+MD = ("Location: Dallas\n"
+      "\n"
+      "**Job description**\n"
+      "-------------------\n"
+      "\n"
+      "Requisition ID: 1725348\n"
+      "\n"
+      "**Location**\n"
+      "------------\n"
+      "\n"
+      "Dallas, Chicago, Atlanta\n"
+      "\n"
+      "**\n"
+      "\n"
+      "## About the job\n"
+      "\n"
+      "The role you are considering**\n"
+      "\n"
+      "----------------------------------\n"
+      "\n"
+      "* Lead **cross-functional** teams\n"
+      "* Own the __roadmap__\n")
+md_nodes = jdrender.jd_nodes(MD)
+md_html = jdrender.render_jd(MD)
+heads = [v for k, v in md_nodes if k == "h"]
+check("a bold line over a rule becomes a heading", "Job description" in heads, repr(heads))
+check("so does the one the screenshot showed", "Location" in heads)
+check("an ATX '## Heading' becomes a heading", "About the job" in heads)
+check("no asterisk survives anywhere in the output", "*" not in md_html)
+check("no underscore emphasis survives", "__" not in md_html)
+check("no rule of dashes survives", not re.search(r"-{3,}", md_html))
+check("a bare '**' line leaves nothing behind",
+      not re.search(r"<p>\s*</p>", md_html), "and no empty paragraph in its place")
+check("emphasis inside a bullet is unwrapped, not dropped",
+      "cross-functional" in md_html and "roadmap" in md_html)
+check("a trailing stray marker is stripped, text kept",
+      re.search(r"considering\s*<", md_html) is not None, repr(md_html[-150:]))
+# Not asserted: WHICH tag it lands in. Stripping the trailing "**" lets the pre-existing
+# is_jd_heading() heuristic see a short, unpunctuated line and call it a heading — which is what
+# the emphasis was signalling anyway. Pinning <p> here would freeze an unrelated heuristic.
+# The load-bearing one: punctuation may go, words may not.
+_proj = lambda s: re.sub(r"[^0-9a-z]+", "", re.sub(r"<[^>]+>", " ", s).lower())
+check("every WORD of the markdown source survives",
+      _proj(md_html) == _proj(re.sub(r"[*_#-]", " ", MD)),
+      "alphanumeric projection, so only markers differ")
+# A rule under a long paragraph is a separator, not a title for it.
+LONGP = ("x" * 140) + "\n" + ("-" * 20) + "\n"
+check("a rule under a LONG paragraph does not promote it to a heading",
+      not [v for k, v in jdrender.jd_nodes(LONGP) if k == "h"])
+
 print()
 if FAILS:
     print("FAILURES (%d):" % len(FAILS))

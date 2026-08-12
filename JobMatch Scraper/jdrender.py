@@ -209,6 +209,35 @@ def jd_paragraphs(text):
     return out
 
 
+# ---------------------------------------------------------------------------------------------
+# Markdown artefacts. Some boards store the description as MARKDOWN and we were rendering the
+# source: "**Job description**" over a row of dashes, stray "**" on their own line, and rules of
+# ----- used as separators all reached the page verbatim. Measured over the 18,087 cached
+# descriptions: 362 (2.0%) contain **bold**, 234 a trailing **, 44 a rule of dashes, 45 an ATX
+# heading. Small, but it is the ugliest thing on the page when it happens.
+#
+# These are handled as MARKUP, not deleted as noise: "**Location**" followed by "-----------" is a
+# setext heading, so it becomes a real heading node and joins the jump strip, rather than being
+# stripped to a bare line of text. Only the punctuation ever disappears, so the no-text-is-dropped
+# check (which projects to alphanumerics) still holds by construction.
+MD_RULE = re.compile(r"^\s*([-=_*])\1{2,}\s*$")          # ----- / ===== / _____ / *****
+MD_ATX = re.compile(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$")      # ## Heading
+MD_BOLD_LINE = re.compile(r"^\s*(?:\*\*|__)(?=\S)(.+?)(?<=\S)(?:\*\*|__)\s*:?\s*$")
+MD_BOLD = re.compile(r"(?:\*\*|__)(?=\S)(.+?)(?<=\S)(?:\*\*|__)", re.S)
+MD_STRAY = re.compile(r"\*\*|__(?=\s|\Z)")
+# A setext underline only promotes a SHORT line. A rule under a 300-character paragraph is a
+# separator, not a title for it, and turning that paragraph into a heading would be worse than
+# leaving the dashes in.
+MD_SETEXT_MAX = 90
+
+
+def strip_md(t):
+    """Drop emphasis markers, keeping the words. Runs on every line that survives as text."""
+    t = MD_BOLD.sub(r"\1", t)
+    t = MD_STRAY.sub("", t)
+    return t.strip()
+
+
 def jd_nodes(text):
     """The whole of pass 1: raw description -> typed nodes."""
     src = str("" if text is None else text).replace("\r\n", "\n").replace("\r", "\n") \
@@ -226,23 +255,54 @@ def jd_nodes(text):
             out.append(("ul", lst))
         lst = None
 
-    for line in src.split("\n"):
-        t = line.strip()
+    def add_heading(txt):
+        flush_para()
+        flush_list()
+        out.append(("h", re.sub(r":\Z", "", txt).strip()))
+
+    lines = src.split("\n")
+    i = 0
+    while i < len(lines):
+        t = lines[i].strip()
+        i += 1
         if not t:                        # a blank ends the block; runs of them vanish
             flush_para()
             flush_list()
+            continue
+        # A rule on its own line. Its text (if any) was consumed by the setext branch below, so
+        # anything reaching here is a bare separator: end the block and drop the punctuation.
+        if MD_RULE.match(t):
+            flush_para()
+            flush_list()
+            continue
+        if MD_STRAY.fullmatch(t):        # a line that is only "**" \u2014 pure noise
+            continue
+        m = MD_ATX.match(t)
+        if m:
+            add_heading(strip_md(m.group(1)))
+            continue
+        # Setext: this line is titled by the rule UNDER it. Consume both.
+        nxt = lines[i].strip() if i < len(lines) else ""
+        if nxt and MD_RULE.match(nxt) and len(t) <= MD_SETEXT_MAX and not JD_BULLET.match(t):
+            add_heading(strip_md(t))
+            i += 1
+            continue
+        m = MD_BOLD_LINE.match(t)        # "**Location**" alone is a heading even with no rule
+        if m:
+            add_heading(strip_md(m.group(1)))
             continue
         bm = JD_BULLET.match(t)
         if bm:
             flush_para()
             if lst is None:
                 lst = []
-            lst.append(t[bm.end():].strip())
+            lst.append(strip_md(t[bm.end():].strip()))
+            continue
+        t = strip_md(t)
+        if not t:                        # was nothing but emphasis punctuation
             continue
         if is_jd_heading(t):
-            flush_para()
-            flush_list()
-            out.append(("h", re.sub(r":\Z", "", t)))
+            add_heading(t)
             continue
         flush_list()
         # Hard-wrapped prose: a long previous line that doesn't end a sentence is mid-paragraph,
