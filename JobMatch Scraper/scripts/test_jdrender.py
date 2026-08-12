@@ -301,6 +301,19 @@ check("every WORD of the markdown source survives",
 LONGP = ("x" * 140) + "\n" + ("-" * 20) + "\n"
 check("a rule under a LONG paragraph does not promote it to a heading",
       not [v for k, v in jdrender.jd_nodes(LONGP) if k == "h"])
+# Backslash escapes. A writer typing "cross-functional" into a Markdown field gets it stored as
+# "cross\-functional", which we printed verbatim. Only PUNCTUATION is unescaped: a backslash
+# before a letter is a regex or a Windows path (\S, \D and friends are in 24 cached descriptions)
+# and losing it would corrupt real text rather than tidy it.
+for src, want, why in [
+    ("cross\\-functional and end\\-to\\-end", "cross-functional and end-to-end", "hyphens, the case on screen"),
+    ("a \\*literal asterisk\\* stays", "a *literal asterisk* stays", "the escaped char itself survives"),
+    ("regex \\S and \\D survive", "regex \\S and \\D survive", "backslash before a LETTER is not an escape"),
+    ("path C:\\Users\\kunal", "path C:\\Users\\kunal", "nor in a Windows path"),
+]:
+    check("strip_md(%s)" % repr(src)[:34], jdrender.strip_md(src) == want, why)
+check("escapes are gone from rendered output",
+      "\\" not in jdrender.render_jd("Own the end\\-to\\-end lifecycle.\n"))
 
 print()
 if FAILS:
