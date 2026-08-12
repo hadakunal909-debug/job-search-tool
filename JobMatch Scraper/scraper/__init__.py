@@ -2604,6 +2604,21 @@ AMAZON_QUERIES = (
     # wider net — Amazon's search is query-driven, so new terms = new pages fetched
     "product manager", "supply chain analyst", "operations specialist",
     "product owner", "project planner",
+    # "supply chain manager" added 2026-08-12, from a posting that was missing:
+    # amazon.jobs/en/jobs/10461857 "Supply Chain Manager, SSD". Measured against the live
+    # feed that day, and the numbers are the argument:
+    #   "supply chain manager"  178 US hits -> 116 clear the title filter and the years gate
+    #   "supply chain analyst"    8 US hits ->   2
+    # The analyst term was standing in for this whole family and could not: 8 hits total, and
+    # the SSD posting is not among them. It IS #7 of 178 for "manager". Nothing else in this
+    # list reaches it either — checked "operations manager" (688 hits) and "program manager"
+    # (739), neither returns it at any offset. So the filter never got a vote; the row was
+    # never fetched. Costs 2 extra requests per run.
+    #
+    # THE GENERAL LESSON: Amazon is the one first-party source whose coverage is bounded by
+    # this list rather than by the title filter. A job family with no term here is invisible
+    # no matter how well it would score, and the symptom is silence rather than an error.
+    "supply chain manager",
     # project controls / scheduling / PMO family
     "project controls", "project scheduler", "pmo", "portfolio manager",
     # software engineering (2026-08-01) — Amazon's feed is query-driven too. "software
