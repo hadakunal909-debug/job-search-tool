@@ -19,3 +19,6 @@ USCIS H-1B Data Hub/
 JobMatch Scraper/web/node_modules/
 JobMatch Scraper/web/dist/
 JobMatch Scraper/web/.vite/
+
+# Local-only dev dep for scripts/test_ats_adapters.js (npm i jsdom). Never deployed.
+JobMatch Scraper/node_modules/

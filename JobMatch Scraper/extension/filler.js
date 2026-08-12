@@ -7,10 +7,83 @@
 //   returns { found, ats, filled, total, unfilled:[{label,reason}], fileAttached, submitSelector,
 //             captcha, login }
 //
-// Adapters cover Greenhouse / Lever / Ashby / SmartRecruiters precisely; a GENERIC adapter then
-// fills ANY standard application form (file upload + email + submit) via autocomplete/type/label
-// heuristics, so it works far beyond the named ATS. Login/CAPTCHA-walled flows (Workday, iCIMS,
-// Oracle, Taleo) are detected and reported as walls — they can't be auto-filled.
+// Adapters cover Workday / Oracle Cloud / iCIMS / Greenhouse / Lever / Ashby / SmartRecruiters
+// precisely; a GENERIC adapter then fills ANY standard application form (file upload + email +
+// submit) via autocomplete/type/label heuristics, so it works far beyond the named ATS. Workday,
+// Oracle and iCIMS are account-walled multi-step wizards: we fill the CURRENT step and never
+// advance it — jmWizardStep reports where you are, and the overlay re-fills when you click Next.
+
+// Which ATS is this page? Fingerprints the PAGE, not the hostname — 29% of our corpus sits on
+// employer vanity domains (careers.airbnb.com, jobs.sap.com, careers-inc.nttdata.com) that front a
+// stock ATS, so a host allow-list can never enumerate them. Each marker is a DOM/script tell the
+// platform emits on every tenant; ordered most-specific first. Also reads same-origin iframe SRCs
+// (iCIMS/Greenhouse/Workable embed the form that way) without touching their contents.
+// Self-contained (injected on its own). Returns "" when nothing matches.
+function jmDetectAts() {
+  var host = (location.hostname || "").toLowerCase();
+  var href = location.href || "";
+  // iframe srcs + script srcs: a vanity page that embeds its ATS names it here even when the
+  // surrounding DOM is all marketing markup.
+  var refs = "";
+  try {
+    var nodes = document.querySelectorAll("iframe[src], script[src], link[href]");
+    for (var i = 0; i < nodes.length && i < 400; i++) {
+      refs += " " + (nodes[i].getAttribute("src") || nodes[i].getAttribute("href") || "");
+    }
+    refs = refs.toLowerCase();
+  } catch (e) {}
+  function has(sel) { try { return !!document.querySelector(sel); } catch (e) { return false; } }
+  // [name, host/url regex, DOM selector, iframe/script src substring]
+  var M = [
+    // Workday's data-automation-id is unique to it and present on every tenant, incl. vanity hosts.
+    ["workday", /myworkdayjobs\.com|myworkdaysite\.com|wd\d+\.myworkday/,
+      '[data-automation-id="jobPostingHeader"], [data-automation-id="applyButton"], [data-automation-id="progressBar"], [data-automation-id="legalNameSection_firstName"], [data-automation-id="bottom-navigation-next-button"], [data-automation-id="adventureButton"]', "myworkdayjobs.com"],
+    ["icims", /icims\.com/, '.iCIMS_MainWrapper, #icims_content_iframe, .iCIMS_ApplyOnline, [id^="icims_"]', "icims.com"],
+    // Oracle Recruiting (ORC): Oracle JET custom elements + the candidate-experience path.
+    ["oracle", /oraclecloud\.com|\/hcmui\/candidateexperience/i,
+      'oj-input-text, .oj-inputtext-input, .job-details__apply-button, #apply-flow, [data-ojkey]', "oraclecloud.com"],
+    ["greenhouse", /greenhouse\.io/, '#grnhse_app, #application_form, #s3_upload_for_resume, [id^="job_application_"]', "greenhouse.io"],
+    ["lever", /lever\.co/, '.application-form, [data-qa="btn-submit"], form[action*="lever"]', "lever.co"],
+    ["ashby", /ashbyhq\.com/, 'input[name^="_systemfield_"]', "ashbyhq.com"],
+    ["smartrecruiters", /smartrecruiters\.com/, '[data-test*="application"], form[action*="smartrecruiters"]', "smartrecruiters.com"],
+    // data-ph-at-id is Phenom's signature attribute.
+    ["phenom", /phenompeople\.com/, '[data-ph-at-id], .phenom-widget', "phenompeople.com"],
+    ["successfactors", /successfactors\.|jobs2web/, '[id*="careersection"], tr.data-row, .jobDescriptionTable', "rmkcdn.successfactors.com"],
+    ["taleo", /taleo\.net/, '#requisitionDescriptionInterface, [id*="requisitionDescription"]', "taleo.net"],
+    ["jibe", /jibeapply\.com|talemetry/, '[class*="jibe" i]', "jibeapply.com"],
+    ["avature", /avature\.net/, "#atsForm, li.listSingleColumnItem", "avature.net"],
+    ["jobdiva", /jobdiva\.com/, "", "jobdiva.com"],
+    ["ultipro", /recruiting\d*\.ultipro\.com/, ".opportunity-container, #Opportunity", "ultipro.com"],
+    ["workable", /workable\.com/, '[data-ui="application-form"]', "workable.com"],
+    ["breezy", /breezy\.hr/, ".application-form", "breezy.hr"],
+    ["bamboohr", /bamboohr\.com/, ".ApplicantForm", "bamboohr.com"],
+    ["pinpoint", /pinpointhq\.com/, "", "pinpointhq.com"],
+    ["rippling", /ats\.rippling\.com/, "", "rippling.com"],
+    ["recruitee", /recruitee\.com/, "", "recruitee.com"],
+    ["personio", /personio\./, "", "personio."],
+    ["jobvite", /jobvite\.com/, ".jv-page, [class^='jv-']", "jobvite.com"],
+    ["peoplesoft", /HRS_HRAM_FL/, '[id^="HRS_"]', ""],
+    ["brassring", /brassring\.com/, "", "brassring.com"],
+    ["adp", /workforcenow\.adp\.com|myjobs\.adp\.com/, "", "adp.com"],
+    ["dayforce", /dayforcehcm\.com/, "", "dayforcehcm.com"],
+    ["paylocity", /paylocity\.com/, "", "paylocity.com"],
+    ["paycom", /paycomonline\.net/, "", "paycomonline.net"],
+    ["eightfold", /eightfold\.ai/, "", "eightfold.ai"],
+    ["workatastartup", /workatastartup\.com/, "", ""]
+  ];
+  for (var m = 0; m < M.length; m++) {
+    var name = M[m][0], hre = M[m][1], sel = M[m][2], src = M[m][3];
+    if (hre && hre.test(host)) return name;
+    if (hre && hre.test(href)) return name;
+    if (sel && has(sel)) return name;
+    if (src && refs.indexOf(src) >= 0) return name;
+  }
+  // Workday fallback: a tenant whose markers above are all absent still sprays data-automation-id
+  // across the page. Require several so one stray attribute on an unrelated site can't win.
+  try { if (document.querySelectorAll("[data-automation-id]").length >= 4) return "workday"; } catch (e) {}
+  return "";
+}
+
 async function jmFillApplication(payload) {
   payload = payload || {};
   var F = payload.fields || {};
@@ -68,6 +141,11 @@ async function jmFillApplication(payload) {
     if (alby) alby.split(/\s+/).forEach(function (id) { var n = document.getElementById(id); if (n) parts.push(n.textContent); });
     if (el.getAttribute("placeholder")) parts.push(el.getAttribute("placeholder"));
     if (el.name) parts.push(el.name);
+    // Workday names every field with a data-automation-id ("phone-device-type", "addressSection_city")
+    // and often gives the visible <label> no `for=`. Humanising the id recovers the question when
+    // nothing else does, and it's the SAME id on every tenant.
+    var aid = el.getAttribute("data-automation-id");
+    if (aid) parts.push(aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " "));
     var c = el.closest("fieldset, .field, [class*=field], [class*=question]");
     if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) parts.push(lg.textContent); }
     return parts.join(" ").replace(/\s+/g, " ").trim().toLowerCase();
@@ -190,15 +268,77 @@ async function jmFillApplication(payload) {
       email: ['#email', 'input[name="email"]', 'input[type=email]'], phone: ['#phoneNumber', 'input[name="phoneNumber"]', 'input[type=tel]'],
       resumeFile: ['input[type=file]'],
       submit: 'button[type=submit], button[data-test*="submit"], button[aria-label*="submit" i]'
+    },
+    // Workday — 35% of our feed. Every tenant emits the SAME data-automation-id attributes, so these
+    // selectors are tenant-independent and work on vanity hosts too. Multi-step wizard behind an
+    // account: `submit` is deliberately the final Submit only, never bottom-navigation-next-button,
+    // so the review panel can't advance a step on your behalf.
+    workday: {
+      test: function () {
+        return /myworkdayjobs\.com|myworkdaysite\.com/.test(location.hostname) ||
+          document.querySelectorAll("[data-automation-id]").length >= 4;
+      },
+      name: {
+        first: ['[data-automation-id="legalNameSection_firstName"]', '[data-automation-id="firstName"]', 'input[data-automation-id*="firstName" i]'],
+        last: ['[data-automation-id="legalNameSection_lastName"]', '[data-automation-id="lastName"]', 'input[data-automation-id*="lastName" i]'],
+        full: []
+      },
+      email: ['[data-automation-id="email"]', '[data-automation-id="userName"]', 'input[type=email]'],
+      phone: ['[data-automation-id="phone-number"]', '[data-automation-id="phoneNumber"]', 'input[data-automation-id*="phone" i]', 'input[type=tel]'],
+      resumeFile: ['[data-automation-id="file-upload-input-ref"]', 'input[type=file][data-automation-id]', 'input[type=file]'],
+      submit: '[data-automation-id="bottom-navigation-submit-button"]'
+    },
+    // Oracle Cloud Recruiting (ORC) — 11.5%. Oracle JET widgets (oj-*) wrap real inputs, so text
+    // fields fill normally once found; the dropdowns need the oj-listbox handler below. Reached both
+    // on *.oraclecloud.com and behind employer vanity domains (careers.americanexpress.com).
+    oracle: {
+      test: function () {
+        return /oraclecloud\.com/.test(location.hostname) || /\/hcmUI\/CandidateExperience/i.test(location.href) ||
+          !!document.querySelector("oj-input-text, .oj-inputtext-input, [data-ojkey]");
+      },
+      name: {
+        first: ['input[id*="firstName" i]', 'input[name*="firstName" i]', 'oj-input-text[id*="first" i] input'],
+        last: ['input[id*="lastName" i]', 'input[name*="lastName" i]', 'oj-input-text[id*="last" i] input'],
+        full: ['input[id*="fullName" i]', 'input[id*="candidateName" i]']
+      },
+      email: ['input[id*="email" i]', 'input[name*="email" i]', 'input[type=email]'],
+      phone: ['input[id*="phoneNumber" i]', 'input[id*="phone" i]', 'input[type=tel]'],
+      resumeFile: ['input[type=file]'],
+      submit: 'button[data-affordance="submit"], .apply-flow__submit, button[title="Submit" i]'
+    },
+    // iCIMS — 4.5%, and the #2 host in the corpus. Two generations live side by side: the classic
+    // portal (lowercase ids, often inside the #icims_content_iframe on an employer domain — we run in
+    // all frames so the inner frame gets its own pass) and the newer camelCase Talent Cloud form.
+    icims: {
+      test: function () {
+        return /icims\.com/.test(location.hostname) ||
+          !!document.querySelector('.iCIMS_MainWrapper, #icims_content_iframe, .iCIMS_ApplyOnline, [id^="icims_"]');
+      },
+      name: {
+        first: ['#firstname', 'input[name="firstname"]', 'input[name="firstName"]', 'input[id*="firstname" i]'],
+        last: ['#lastname', 'input[name="lastname"]', 'input[name="lastName"]', 'input[id*="lastname" i]'],
+        full: ['input[name="fullname"]']
+      },
+      email: ['#email', 'input[name="email"]', 'input[type=email]'],
+      phone: ['#phone', '#mobilephone', '#homephone', 'input[name*="phone" i]', 'input[type=tel]'],
+      resumeFile: ['#icims_addResumeSection input[type=file]', 'input[type=file][name*="resume" i]', 'input[type=file]'],
+      submit: '#icims_button_apply, .iCIMS_ActionButton, input[name="submit"]'
     }
   };
+  // Most-specific FIRST, and explicitly ordered rather than relying on object key order: several of
+  // the older tests are loose enough to steal a page they don't own (ashby matches any
+  // form[class*=application], greenhouse any #first_name), which would shadow the wizard adapters.
+  var ORDER = ["workday", "oracle", "icims", "greenhouse", "lever", "ashby", "smartrecruiters"];
 
   // pick the most specific adapter; else GENERIC if the page looks like an application form
   function looksLikeForm() {
     return !!(firstSel(GENERIC.resumeFile) && firstSel(GENERIC.email));
   }
   var ats = null, A = null;
-  for (var nm in ADAPTERS) { try { if (ADAPTERS[nm].test()) { ats = nm; A = ADAPTERS[nm]; break; } } catch (e) {} }
+  for (var oi = 0; oi < ORDER.length; oi++) {
+    var nm = ORDER[oi];
+    try { if (ADAPTERS[nm] && ADAPTERS[nm].test()) { ats = nm; A = ADAPTERS[nm]; break; } } catch (e) {}
+  }
   if (!A) {
     if (!looksLikeForm()) return { found: false, ats: null };
     ats = "generic"; A = GENERIC;
@@ -229,22 +369,38 @@ async function jmFillApplication(payload) {
   // 3) fuzzy label matching: links + common custom questions + EEO
   var links = F.links || {}, work = F.work_auth || {}, eeo = F.eeo || {}, comp = F.comp || {}, addr = F.address || {};
   var RULES = [
+    // ORDER IS THE DISAMBIGUATION — ruleValues takes the first hit, so anything whose wording overlaps
+    // a looser rule has to sit above it. Four Workday fields forced this layout:
+    //   phone-device-type / country-phone-code   both contain "phone" -> must beat the phone rule,
+    //                                            or the phone NUMBER gets stuffed into a dropdown
+    //   "...authorized to work in this country?"  contains "country"  -> must beat the country rule,
+    //                                            or a Yes/No question gets answered "United States"
+    //   addressSection_countryRegion             contains "country"   -> must beat the country rule:
+    //                                            in Workday countryRegion is the STATE/province field,
+    //                                            while the actual country field is countryDropdown.
+    { re: /phone (device )?type|device type/, val: ["Mobile", "Cell Phone", "Cell", "Home"] },
+    { re: /country (phone )?code|phone code|dial code/, val: ["United States of America (+1)", "United States (+1)", "+1"] },
+    { re: /authoriz|legally (eligible|able) to work|work authorization|eligible to work/, val: work.authorized ? "Yes" : "No" },
+    { re: /sponsor|work permit|need.*visa|require.*visa|visa.*(need|require|sponsor)/, val: work.requires_sponsorship ? "Yes" : "No" },
+    // "country ?region" matches Workday's humanised countryRegion id but NOT a plain "Country/Region"
+    // label (slash, no space), which really does mean country and falls through to the rule below.
+    { re: /\bstate\b|province|country ?region/, val: addr.state },
+    { re: /country|nationality/, val: addr.country },
     { re: /\bphone\b|mobile number|cell( phone)?/, val: F.phone },
     { re: /preferred (first )?name/, val: F.first_name }, { re: /preferred last name/, val: F.last_name },
     { re: /linkedin/, val: links.linkedin },
     { re: /github/, val: links.github },
     { re: /portfolio|personal (web)?site|website/, val: links.portfolio || links.website },
-    { re: /how did you (hear|find)/, val: [F.how_did_you_hear, "LinkedIn", "Job board", "Company website", "Other"] },
+    // "^source$" catches Workday's source dropdown on tenants that give it no visible label (labelText
+    // then falls back to the humanised data-automation-id). Anchored so an "open source" question can't match.
+    { re: /how did you (hear|find)|^source$|referral source/, val: [F.how_did_you_hear, "LinkedIn", "Job board", "Company website", "Other"] },
     { re: /desired (salary|compensation|pay)|salary expectation/, val: comp.desired_salary },
     { re: /start date|available|availability/, val: F.start_date },
     { re: /willing to relocate|open to relocat|relocat/, val: F.relocate ? "Yes" : "No", onlyIf: F.relocate !== "" && F.relocate != null },
-    // Yes/No dropdowns: feed "Yes"/"No", NOT the status label (which never matches Yes/No options).
-    { re: /authoriz|legally (eligible|able) to work|work authorization|eligible to work/, val: work.authorized ? "Yes" : "No" },
-    { re: /sponsor|work permit|need.*visa|require.*visa|visa.*(need|require|sponsor)/, val: work.requires_sponsorship ? "Yes" : "No" },
     { re: /gender/, val: eeo.gender }, { re: /hispanic|latino/, val: eeo.hispanic_latino },
     { re: /race|ethnic/, val: eeo.race }, { re: /veteran/, val: eeo.veteran }, { re: /disab/, val: eeo.disability },
-    { re: /city/, val: addr.city }, { re: /\bstate\b|province/, val: addr.state },
-    { re: /zip|postal/, val: addr.postal }, { re: /country/, val: addr.country }, { re: /address/, val: addr.line1 }
+    { re: /city/, val: addr.city },
+    { re: /zip|postal/, val: addr.postal }, { re: /address/, val: addr.line1 }
   ];
   function coreMatch(el) {
     return [A.name.first, A.name.last, A.name.full, A.email, A.phone].some(function (ss) {
@@ -323,6 +479,126 @@ async function jmFillApplication(payload) {
     try { el.blur(); } catch (e) {}
     return false;
   }
+
+  // Workday dropdown: a <button aria-haspopup="listbox"> whose options render in a PORTAL at body
+  // level (NOT inside the button's container, so a scoped query finds nothing). The chosen value
+  // becomes the button's own text — that's both how we skip an already-answered field and how we
+  // verify the pick landed, so a miss stays honestly empty instead of silently wrong.
+  function listboxSelected(btn) {
+    var sel = btn.querySelector('[data-automation-id="selectedItem"]');
+    var t = ((sel ? sel.textContent : btn.textContent) || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return /^(select one|select\.\.\.|select|search|choose one|choose)?$/.test(t) ? "" : t;
+  }
+  // Closing matters more than it looks. These menus render in a portal at BODY level, so a menu left
+  // open from the previous field is indistinguishable from the current field's menu — optionNodes()
+  // would hand back the stale options and we'd answer this dropdown from the last one's list. So:
+  // Escape on the control, Escape on the document, and if something is still open, toggle the control
+  // to shut it. Verified, not assumed.
+  function menuOpen() {
+    return optionNodes().length > 0 || !!document.querySelector(".oj-listbox-drop");
+  }
+  async function closeMenu(el) {
+    for (var a = 0; a < 2 && menuOpen(); a++) {
+      try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
+      try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
+      await sleep(90);
+      if (menuOpen()) { try { el.click(); } catch (e) {} await sleep(90); }
+    }
+  }
+  // The open menu's option nodes, by MOST-SPECIFIC selector first. One combined selector would return
+  // matches in DOCUMENT order across all of them, so on a menu where an <li role=option> wraps the real
+  // clickable [data-automation-id=promptOption] the wrapper sorts first and the click lands on the
+  // wrapper — missing the handler and silently leaving the field empty. Taking the first selector that
+  // matches anything keeps us on the platform's own option node.
+  function optionNodes() {
+    var SELS = ['[data-automation-id="promptOption"]', 'ul[role="listbox"] li[role="option"]',
+                '[role="listbox"] [role="option"]', '[role="option"]'];
+    for (var i = 0; i < SELS.length; i++) {
+      var n = document.querySelectorAll(SELS[i]);
+      if (n.length) return n;
+    }
+    return [];
+  }
+  async function fillListbox(btn, vals) {
+    for (var c = 0; c < vals.length; c++) {
+      var want = String(vals[c] || "").toLowerCase().trim();
+      if (!want) continue;
+      var cur = listboxSelected(btn);
+      if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
+      try { btn.click(); } catch (e) {}
+      var pick = null, sawOpts = false;
+      for (var t = 0; t < 10 && !pick; t++) {
+        await sleep(150);
+        var opts = optionNodes();
+        if (opts.length) sawOpts = true;
+        var exact = null, starts = null, partial = null;
+        for (var k = 0; k < opts.length; k++) {
+          var ot = ((opts[k].getAttribute && opts[k].getAttribute("data-automation-label")) ||
+                    opts[k].textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+          if (!ot) continue;
+          if (ot === want) { exact = opts[k]; break; }
+          if (!starts && ot.indexOf(want) === 0) starts = opts[k];
+          if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k];
+        }
+        pick = exact || starts || partial;
+        if (!pick && !sawOpts && t >= 3) break;              // menu never opened — don't burn the budget
+      }
+      if (pick) {
+        try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {}
+        pick.click();
+        await sleep(200);
+        var got = listboxSelected(btn);
+        if (got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0)) return true;
+      }
+      await closeMenu(btn);      // leave no menu open, or it poisons the next field's options
+    }
+    return false;
+  }
+
+  // Oracle JET select (oj-select-single / oj-combobox-one): the control is a div[role=combobox] and
+  // the options render in .oj-listbox-drop at body level, filtered by a search box when present.
+  function ojSelected(root) {
+    var c = root.querySelector(".oj-select-chosen, .oj-combobox-chosen, [class*='chosen']");
+    var t = ((c ? c.textContent : "") || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return /^(select a value|select\.\.\.|select|choose)?$/.test(t) ? "" : t;
+  }
+  async function fillOjSelect(root, vals) {
+    for (var c = 0; c < vals.length; c++) {
+      var want = String(vals[c] || "").toLowerCase().trim();
+      if (!want) continue;
+      var cur = ojSelected(root);
+      if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
+      var opener = root.querySelector(".oj-select-choice, .oj-combobox-choice, [role=combobox]") || root;
+      try { opener.click(); } catch (e) {}
+      await sleep(200);
+      var search = document.querySelector(".oj-listbox-drop input.oj-listbox-input, .oj-listbox-search input");
+      if (search) { try { setNativeValue(search, String(vals[c])); } catch (e) {} }
+      var pick = null;
+      for (var t = 0; t < 10 && !pick; t++) {
+        await sleep(150);
+        var opts = [], OSEL = [".oj-listbox-drop .oj-listbox-result-label", ".oj-listbox-drop li[role=option]",
+                               ".oj-listbox-result", ".oj-listbox-drop [role=option]"];
+        for (var oq = 0; oq < OSEL.length && !opts.length; oq++) opts = document.querySelectorAll(OSEL[oq]);
+        var exact = null, partial = null;
+        for (var k = 0; k < opts.length; k++) {
+          var ot = (opts[k].textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+          if (!ot) continue;
+          if (ot === want) { exact = opts[k]; break; }
+          if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k];
+        }
+        pick = exact || partial;
+      }
+      if (pick) {
+        pick.click();
+        await sleep(200);
+        var got = ojSelected(root);
+        if (got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0)) return true;
+      }
+      await closeMenu(opener);
+    }
+    return false;
+  }
+
   var allFields = Array.prototype.slice.call(document.querySelectorAll("input, select, textarea"));
   for (var afi = 0; afi < allFields.length; afi++) {
     var fel = allFields[afi];
@@ -334,6 +610,23 @@ async function jmFillApplication(payload) {
     else if (fel.tagName === "SELECT") { for (var sv = 0; sv < fvals.length; sv++) if (setSelectByText(fel, fvals[sv])) break; }
     else if (fel.tagName === "TEXTAREA" || (fel.tagName === "INPUT" && /^(text|url|tel|number|search|)$/.test(fel.type))) setText(fel, fvals[0]);
   }
+  // 3b) dropdowns that are NOT <input>/<select> at all, so the sweep above can never see them:
+  // Workday renders every one as <button aria-haspopup="listbox"> and Oracle as <oj-select-single>.
+  // This is not a nicety — on Workday the REQUIRED fields (phone device type, country, source,
+  // EEO) are exactly these, so without this pass its first step can't be completed.
+  var widgets = Array.prototype.slice.call(document.querySelectorAll(
+    'button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one'));
+  for (var wi = 0; wi < widgets.length; wi++) {
+    var wel = widgets[wi];
+    if (!vis(wel)) continue;
+    var wlbl = labelText(wel); if (!wlbl) continue;
+    var wvals = ruleValues(wlbl); if (!wvals) continue;
+    var isOj = /^OJ-/.test(wel.tagName);
+    if (isOj ? ojSelected(wel) : listboxSelected(wel)) continue;      // already answered — don't clobber
+    var wok = isOj ? await fillOjSelect(wel, wvals) : await fillListbox(wel, wvals);
+    track(wok, wlbl.slice(0, 60), isRequired(wel), true);
+  }
+
   // radio/checkbox groups (work auth, sponsorship, EEO, relocate)
   document.querySelectorAll("fieldset, [role=radiogroup], .field, [class*=question]").forEach(function (g) {
     var t = (g.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -361,15 +654,47 @@ async function jmFillApplication(payload) {
       if (!unfilled.some(function (u) { return u.label === lab; })) unfilled.push({ label: lab, reason: "required" });
     }
   });
+  // ...and the same for the button/oj dropdowns, or a required Workday step would report "nothing
+  // left for you" while its dropdowns sat empty and Next stayed disabled.
+  widgets.forEach(function (w) {
+    if (!vis(w) || !isRequired(w)) return;
+    if (/^OJ-/.test(w.tagName) ? ojSelected(w) : listboxSelected(w)) return;
+    var lab = labelText(w) || "dropdown";
+    if (!unfilled.some(function (u) { return u.label === lab; })) unfilled.push({ label: lab, reason: "required" });
+  });
 
   // walls a human must clear (the runner parks the job on any of these)
   var captcha = visibleChallenge();                 // only a VISIBLE challenge, not invisible reCAPTCHA
   var login = !!document.querySelector("input[type=password]") ||
     /\/(login|sign[_-]?in|signin|auth|account\/new|users\/sign)/i.test(location.href);
 
+  // Where are we in a multi-step wizard? Drives the review panel: on a non-final step it must NOT
+  // offer "Submit application" (there's nothing to submit yet) — it tells you to click Next instead,
+  // and re-fills automatically when you do.
+  var wizard = null;
+  try {
+    var steps = document.querySelectorAll('[data-automation-id="progressBar"] [data-automation-id="progressBarStep"], ' +
+      '[data-automation-id="progressBar"] li, .apply-flow__progress li, ol[class*="progress"] li, [role="tablist"] [role="tab"]');
+    if (steps.length > 1) {
+      var active = -1;
+      for (var si = 0; si < steps.length; si++) {
+        var s = steps[si], cls = (s.className || "") + " " + (s.getAttribute("data-automation-id") || "");
+        if (s.getAttribute("aria-current") || s.getAttribute("aria-selected") === "true" ||
+            /active|current|selected/i.test(cls)) { active = si; break; }
+      }
+      var hasSubmit = !!document.querySelector('[data-automation-id="bottom-navigation-submit-button"], button[data-affordance="submit"]');
+      wizard = {
+        index: active >= 0 ? active + 1 : 0, total: steps.length,
+        step: active >= 0 ? (steps[active].textContent || "").replace(/\s+/g, " ").trim().slice(0, 60) : "",
+        isLast: hasSubmit || (active >= 0 && active === steps.length - 1)
+      };
+    }
+  } catch (e) {}
+
   return {
     found: true, ats: ats, filled: filled, total: total, unfilled: unfilled.slice(0, 25),
-    fileAttached: fileAttached, submitSelector: A.submit, captcha: captcha, login: login
+    fileAttached: fileAttached, submitSelector: A.submit, captcha: captcha, login: login,
+    wizard: wizard, href: location.href
   };
 }
 
@@ -397,7 +722,15 @@ function jmClickSubmit(selector) {
 // with JS after load, often inside web components — so pierce shadow DOM.) Self-contained.
 function jmFormReady() {
   var sel = 'input[type=file], input[type=email], input[autocomplete="email"], #first_name, ' +
-            'input[name*="email" i], input[name*="first" i]';
+            'input[name*="email" i], input[name*="first" i], ' +
+            // Workday/Oracle/iCIMS: the wizard steps often carry NO type=email and no name=first —
+            // Workday's email input is a plain text field identified only by its automation id, and a
+            // later step (Experience, Questions) may have neither. Match the platform's own markers so
+            // a mid-wizard page still counts as "form ready".
+            '[data-automation-id="legalNameSection_firstName"], [data-automation-id="email"], ' +
+            '[data-automation-id="userName"], [data-automation-id="bottom-navigation-next-button"], ' +
+            'oj-input-text, .oj-inputtext-input, .iCIMS_ApplyOnline, #icims_addResumeSection, ' +
+            'button[aria-haspopup="listbox"]';
   function find(root) {
     if (!root || !root.querySelector) return false;
     if (root.querySelector(sel)) return true;
@@ -438,6 +771,13 @@ function jmClickApply() {
         /apply manually|autofill with resume|use my last application/i.test(x.textContent || "");
     });
   if (hasChooser) return false;
+  // Platform-specific gates first — these are unambiguous, so we don't have to reason about button
+  // text at all. (Workday's "Apply" is an <a data-automation-id="adventureButton">; iCIMS puts its
+  // gate in a styled link; Oracle's is a button on the job-details panel.)
+  var known = document.querySelector(
+    '[data-automation-id="adventureButton"], [data-automation-id="applyButton"], ' +
+    '#icims_apply_button, .iCIMS_ApplyOnlineButton, .job-details__apply-button');
+  if (known && known.offsetParent !== null) { known.click(); return true; }
   var els = Array.prototype.slice.call(document.querySelectorAll('a, button, [role=button], input[type=submit]'));
   var b = els.filter(function (x) {
     var t = (x.textContent || x.value || "").replace(/\s+/g, " ").trim();
@@ -526,6 +866,26 @@ function jmSnapshotForm() {
     if (type === "select") rec.options = Array.prototype.map.call(el.options, function (o) { return (o.textContent || "").trim(); }).filter(Boolean).slice(0, 40);
     out.push(rec);
   });
+  // Workday <button aria-haspopup=listbox> / Oracle <oj-select-single> dropdowns. Reported with NO
+  // options list on purpose: their options don't exist in the DOM until the menu is opened, and
+  // opening every one to enumerate it would be slow and visibly disruptive. jmMatchLearned therefore
+  // passes a saved value straight through — safe here because jmApplyAnswers VERIFIES the pick landed
+  // and reports failure, so a stale answer ends up honestly empty rather than silently wrong.
+  document.querySelectorAll('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
+    .forEach(function (el) {
+      if (!vis(el)) return;
+      var oj = /^OJ-/.test(el.tagName);
+      var chosen = el.querySelector(oj ? ".oj-select-chosen, .oj-combobox-chosen" : '[data-automation-id="selectedItem"]');
+      var ctext = ((chosen ? chosen.textContent : (oj ? "" : el.textContent)) || "").replace(/\s+/g, " ").trim();
+      if (ctext && !/^(select one|select a value|select\.\.\.|select|search|choose one|choose)$/i.test(ctext)) return;  // answered
+      var t2 = lbl(el);
+      // Workday often gives these no <label for=>; the humanised data-automation-id is the fallback.
+      var aid = el.getAttribute("data-automation-id");
+      if (!t2 && aid) t2 = aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ");
+      if (!t2) return;
+      var key2 = "jmk" + (i++); el.setAttribute("data-jmk", key2);
+      out.push({ key: key2, label: t2.slice(0, 200), type: oj ? "ojselect" : "listbox" });
+    });
   // radio/checkbox QUESTIONS — robust to forms with NO <fieldset>/<legend> (e.g. Tesla: a question
   // line + styled Yes/No radios). Group options by `name`/nearest container, SKIP already-answered
   // groups, tag the options' common ancestor (so the apply step's clickRadio can click within it),
@@ -570,6 +930,8 @@ function jmSnapshotForm() {
     var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
     var cand = [];
     document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+      if (el.getAttribute("aria-haspopup") || el.hasAttribute("data-jmk") ||
+              (el.closest && el.closest("oj-select-single, oj-combobox-one"))) return;   // a popup DROPDOWN, not a toggle option
       if (!vis(el) || el.querySelector("input")) return;
       var t = (el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
       if (!t || t.length > 30 || NAV.test(t.toLowerCase())) return;
@@ -706,13 +1068,74 @@ async function jmApplyAnswers(answers) {
     for (var j = 0; j < opts.length; j++) { if (opts[j].querySelector("input")) continue; var ot = (opts[j].textContent || opts[j].getAttribute("aria-label") || "").toLowerCase().replace(/\s+/g, " ").trim(); if (!ot) continue; if (ot === w || (w && ot.indexOf(w) >= 0) || (w === "yes" && /\byes\b/.test(ot)) || (w === "no" && /\bno\b/.test(ot))) { opts[j].click(); return true; } }
     return false;
   }
+  // Workday listbox button / Oracle oj-select — same mechanics as jmFillApplication (options render in
+  // a portal at body level, so they can't be queried through the control). Verify-then-report, so a
+  // saved answer the dropdown no longer offers fails visibly instead of landing on the wrong option.
+  function pickedText(el, oj) {
+    var c = el.querySelector(oj ? ".oj-select-chosen, .oj-combobox-chosen" : '[data-automation-id="selectedItem"]');
+    var t = ((c ? c.textContent : (oj ? "" : el.textContent)) || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return /^(select one|select a value|select\.\.\.|select|search|choose one|choose)?$/.test(t) ? "" : t;
+  }
+  async function fillPopupSelect(el, v, oj) {
+    var want = String(v).toLowerCase().trim(); if (!want) return false;
+    var cur = pickedText(el, oj);
+    if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
+    var opener = oj ? (el.querySelector(".oj-select-choice, .oj-combobox-choice, [role=combobox]") || el) : el;
+    try { opener.click(); } catch (e) {}
+    await sleep(200);
+    if (oj) {
+      var sb = document.querySelector(".oj-listbox-drop input.oj-listbox-input, .oj-listbox-search input");
+      if (sb) { try { setNativeValue(sb, String(v)); } catch (e) {} }
+    }
+    // Most-specific selector first — see optionNodes() in jmFillApplication: a combined selector
+    // returns document order, so an <li role=option> wrapping the real clickable node would win and
+    // the click would miss the handler.
+    var SELS = oj
+      ? [".oj-listbox-drop .oj-listbox-result-label", ".oj-listbox-drop li[role=option]", ".oj-listbox-result"]
+      : ['[data-automation-id="promptOption"]', 'ul[role="listbox"] li[role="option"]', '[role="option"]'];
+    var pick = null;
+    for (var t = 0; t < 10 && !pick; t++) {
+      await sleep(150);
+      var opts = [];
+      for (var sq = 0; sq < SELS.length && !opts.length; sq++) opts = document.querySelectorAll(SELS[sq]);
+      var exact = null, partial = null;
+      for (var k2 = 0; k2 < opts.length; k2++) {
+        var ot = ((opts[k2].getAttribute && opts[k2].getAttribute("data-automation-label")) || opts[k2].textContent || "")
+          .replace(/\s+/g, " ").trim().toLowerCase();
+        if (!ot) continue;
+        if (ot === want) { exact = opts[k2]; break; }
+        if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k2];
+      }
+      pick = exact || partial;
+    }
+    if (pick) { try { pick.scrollIntoView({ block: "nearest" }); } catch (e) {} pick.click(); await sleep(200); }
+    var got = pickedText(el, oj);
+    if (got && (got === want || got.indexOf(want) >= 0 || want.indexOf(got) >= 0)) return true;
+    // Shut the menu before the next answer is applied. These render in a body-level portal, so one
+    // left open would have its options read as the NEXT dropdown's options. Escape, then toggle.
+    for (var a = 0; a < 2; a++) {
+      var stillOpen = false;
+      for (var sq2 = 0; sq2 < SELS.length && !stillOpen; sq2++) stillOpen = document.querySelectorAll(SELS[sq2]).length > 0;
+      if (!stillOpen) break;
+      try { opener.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
+      try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
+      await sleep(90);
+      try { opener.click(); } catch (e) {}
+      await sleep(90);
+    }
+    return false;
+  }
   var applied = 0, keys = Object.keys(answers || {});
   for (var i = 0; i < keys.length; i++) {
     var k = keys[i], v = answers[k];
     if (v == null || String(v).trim() === "") continue;
     var el = document.querySelector('[data-jmk="' + k + '"]'); if (!el) continue;
     var ok = false;
-    if (el.tagName === "SELECT") ok = setSelect(el, v);
+    // The popup-select checks come FIRST: a Workday control can carry role=combobox too, and the
+    // react-select path below would then try to drive it with the wrong mechanics and fail.
+    if (/^OJ-(SELECT|COMBOBOX)/.test(el.tagName)) ok = await fillPopupSelect(el, v, true);
+    else if (el.matches && el.matches('button[aria-haspopup="listbox"], [aria-haspopup="listbox"]')) ok = await fillPopupSelect(el, v, false);
+    else if (el.tagName === "SELECT") ok = setSelect(el, v);
     else if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || (el.closest && el.closest(".select__container, [class*=select__]"))) ok = await fillCombo(el, v);
     else if (el.querySelector && el.querySelector('input[type=radio], input[type=checkbox], button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]')) ok = clickRadio(el, v);
     else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") ok = setText(el, v);
@@ -900,6 +1323,23 @@ function jmCaptureFilled() {
     if (seen[label]) return; seen[label] = 1;
     out.push({ label: label, type: type, value: value, options: options });
   });
+  // Workday / Oracle popup dropdowns (a <button aria-haspopup=listbox> or <oj-select-single>, never an
+  // <input>) — without this the answer bank could never learn the fields that make up most of a
+  // Workday application, so every new Workday form would start from scratch.
+  document.querySelectorAll('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
+    .forEach(function (el) {
+      if (!vis(el)) return;
+      var oj = /^OJ-/.test(el.tagName);
+      var c = el.querySelector(oj ? ".oj-select-chosen, .oj-combobox-chosen" : '[data-automation-id="selectedItem"]');
+      var value = ((c ? c.textContent : (oj ? "" : el.textContent)) || "").replace(/\s+/g, " ").trim();
+      if (!value || /^(select one|select a value|select\.\.\.|select|search|choose one|choose)$/i.test(value)) return;
+      var label = lbl(el);
+      var aid = el.getAttribute("data-automation-id");
+      if (!label && aid) label = aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ");
+      if (!label || SENSITIVE.test(label) || seen[label]) return;
+      seen[label] = 1;
+      out.push({ label: label.slice(0, 200), type: oj ? "ojselect" : "listbox", value: value, options: null });
+    });
   // radio / checkbox / ARIA-choice QUESTIONS. Robust to forms with NO <fieldset>/<legend> (e.g.
   // Tesla renders each question as a plain <div>: a question line followed by styled Yes/No radios).
   // Group options by the radio `name` (or nearest group container / ARIA radiogroup), then recover
@@ -948,6 +1388,8 @@ function jmCaptureFilled() {
     var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
     var cand = [];
     document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+      if (el.getAttribute("aria-haspopup") || el.hasAttribute("data-jmk") ||
+              (el.closest && el.closest("oj-select-single, oj-combobox-one"))) return;   // a popup DROPDOWN, not a toggle option
       if (!vis(el) || el.querySelector("input")) return;
       var t = (el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
       if (!t || t.length > 30 || NAV.test(t.toLowerCase())) return;

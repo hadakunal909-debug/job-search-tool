@@ -4978,10 +4978,12 @@ def ext_tailor():
     return _cors(jsonify({"ok": True, **payload}))
 
 
-# Every ATS the scraper feeds, so the apply queue covers all our boards (keep in sync with
-# scraper/__init__.py detect_board + popup.js applyAts). greenhouse/lever/ashby/smartrecruiters have
-# tuned filler.js adapters; the rest rely on the GENERIC adapter (best-effort). Login/account-walled
-# ones (workday/oracle/icims) are included by request — you review each open tab and sign in if needed.
+# Every ATS the scraper feeds (keep in sync with scraper/__init__.py detect_board + popup.js applyAts).
+# workday/oracle/icims/greenhouse/lever/ashby/smartrecruiters have tuned filler.js adapters; the rest
+# rely on the GENERIC adapter (best-effort). Workday/Oracle/iCIMS are account-walled multi-step
+# wizards: the tab opens, you sign in, and the filler fills each step as you advance it.
+# This list is no longer the gate for what may be queued — _queue_fillable admits any non-aggregator
+# host — but it still marks the ones we can identify from the URL alone.
 _FILLABLE_HOSTS = (
     "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com",
     "recruitee.com", "breezy.hr", "personio.com", "workable.com",
@@ -4989,6 +4991,10 @@ _FILLABLE_HOSTS = (
     "avature.net", "jobdiva.com", "myworkdayjobs.com", "myworkdaysite.com",
     "oraclecloud.com", "jibeapply.com", "icims.com", "successfactors.com",
     "phenompeople.com", "jobvite.com",
+    # Scrapers that existed in SOURCES but were never listed here, plus the platforms filler.js can
+    # now fingerprint. amazon.jobs alone is 1,479 rows — the largest single host in the corpus.
+    "amazon.jobs", "paylocity.com", "metacareers.com",
+    "taleo.net", "brassring.com", "dayforcehcm.com", "workforcenow.adp.com",
 )
 
 # Never queued, whatever the caller asks for: aggregators list a posting they don't host, so the
@@ -5004,10 +5010,20 @@ _QUEUE_SKIP_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassd
 _QUEUE_PER_COMPANY = 3
 
 
-def _queue_fillable(url, wide=False):
-    """Is this a page the filler should open? Known ATS always; with `wide`, any employer-hosted
-    career site too. The corpus is now mostly company domains running Phenom/SuccessFactors/iCIMS
-    behind a custom hostname, which no host list can enumerate — hence the opt-in wide net."""
+def _queue_fillable(url, wide=True):
+    """Is this a page the filler should open?
+
+    The default is now YES for anything that isn't an aggregator, because of how the corpus is
+    built: every URL here was produced by scraping an employer's own career board, so a row that
+    isn't an aggregator redirect IS an application page by construction. Measured on the live
+    snapshot, 5,750 of 19,529 jobs (29%) sit on employer vanity hostnames — careers.airbnb.com,
+    jobs.sap.com, careers-inc.nttdata.com — that front a stock ATS. No host list can ever enumerate
+    those, and the extension identifies the platform from the PAGE anyway (filler.js jmDetectAts),
+    so gating them on a hostname match here only hid a third of the feed from the runner.
+
+    `wide=False` restores the old behaviour — known ATS hosts only — for callers that want just the
+    high-confidence pages.
+    """
     from urllib.parse import urlparse
     try:
         host = (urlparse(url).hostname or "").lower()
@@ -5055,7 +5071,10 @@ def ext_apply_queue():
         limit = max(1, min(int(request.args.get("limit", 50)), 200))
     except Exception:
         limit = 50
-    wide = (request.args.get("all") or "") in ("1", "true", "yes", "on")
+    # Employer career domains are IN by default (see _queue_fillable). `all=0` opts back down to the
+    # tuned ATS host list; `all=1` is still accepted so older extension builds keep working.
+    _all = (request.args.get("all") or "").strip().lower()
+    wide = _all not in ("0", "false", "no", "off")
     try:
         statuses = user_statuses(user)
     except Exception:
