@@ -32,7 +32,24 @@ function jmDetectAts() {
     }
     refs = refs.toLowerCase();
   } catch (e) {}
-  function has(sel) { try { return !!document.querySelector(sel); } catch (e) { return false; } }
+  // Pierces shadow DOM. Salesforce Lightning mounts its components inside nested shadow roots, so a
+  // plain document.querySelector misses them entirely — the page would only be identified when its
+  // bundle URL happened to give it away, which is not something to rely on.
+  function has(sel) {
+    try { if (document.querySelector(sel)) return true; } catch (e) { return false; }
+    var stack = [document], seen = 0;
+    while (stack.length && seen < 400) {
+      var root = stack.pop(); seen++;
+      var all;
+      try { all = root.querySelectorAll("*"); } catch (e) { continue; }
+      for (var i = 0; i < all.length; i++) {
+        if (!all[i].shadowRoot) continue;
+        try { if (all[i].shadowRoot.querySelector(sel)) return true; } catch (e) {}
+        stack.push(all[i].shadowRoot);
+      }
+    }
+    return false;
+  }
   // [name, host/url regex, DOM selector, iframe/script src substring]
   var M = [
     // Workday's data-automation-id is unique to it and present on every tenant, incl. vanity hosts.
@@ -48,7 +65,14 @@ function jmDetectAts() {
     ["smartrecruiters", /smartrecruiters\.com/, '[data-test*="application"], form[action*="smartrecruiters"]', "smartrecruiters.com"],
     // data-ph-at-id is Phenom's signature attribute.
     ["phenom", /phenompeople\.com/, '[data-ph-at-id], .phenom-widget', "phenompeople.com"],
-    ["successfactors", /successfactors\.|jobs2web/, '[id*="careersection"], tr.data-row, .jobDescriptionTable', "rmkcdn.successfactors.com"],
+    // Salesforce Experience Cloud (Actalent / TEKsystems / Aerotek). Sits above successfactors because
+    // its pages are ordinary employer domains with no ATS-looking hostname at all — the Lightning
+    // custom elements are the only tell, and they're unambiguous.
+    ["salesforce", /\/sfsites\/|force\.com/, "lightning-input, lightning-button-menu, flowruntime-flow", "/sfsites/"],
+    // sapsf.com and successfactors.eu are the RCM applicant portals (career41.sapsf.com,
+    // career5.successfactors.eu) — verified live by following an Apply link. Matching only
+    // "successfactors.com" missed both, i.e. missed the host where the actual form lives.
+    ["successfactors", /successfactors\.|sapsf\.com|jobs2web/, '[id*="careersection"], tr.data-row, .jobDescriptionTable', "rmkcdn.successfactors.com"],
     ["taleo", /taleo\.net/, '#requisitionDescriptionInterface, [id*="requisitionDescription"]', "taleo.net"],
     ["jibe", /jibeapply\.com|talemetry/, '[class*="jibe" i]', "jibeapply.com"],
     ["avature", /avature\.net/, "#atsForm, li.listSingleColumnItem", "avature.net"],
@@ -90,6 +114,42 @@ async function jmFillApplication(payload) {
   var file = payload.file || null;
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+  // ----------------------------- shadow DOM -----------------------------
+  // Salesforce Experience Cloud (Actalent alone is 1,368 rows, 7% of the corpus) renders its whole
+  // application inside Lightning web components, so `document.querySelectorAll("input")` returns
+  // literally ZERO — measured on a live page: 0 in the light DOM, 16 when piercing. Every query below
+  // therefore goes through qsa(). Roots are cached because collecting them walks every element, and
+  // invalidated by dirty() after any click that can mount new components (an opened menu).
+  var ROOTS = null;
+  function dirty() { ROOTS = null; }
+  function allRoots() {
+    if (ROOTS) return ROOTS;
+    var out = [document], i = 0;
+    while (i < out.length && out.length < 500) {
+      var r = out[i++], all;
+      try { all = r.querySelectorAll("*"); } catch (e) { continue; }
+      for (var k = 0; k < all.length; k++) if (all[k].shadowRoot) out.push(all[k].shadowRoot);
+    }
+    ROOTS = out;
+    return out;
+  }
+  function qsa(sel) {
+    var rs = allRoots(), out = [];
+    for (var i = 0; i < rs.length; i++) {
+      try {
+        var n = rs[i].querySelectorAll(sel);
+        for (var j = 0; j < n.length; j++) if (out.indexOf(n[j]) < 0) out.push(n[j]);
+      } catch (e) {}
+    }
+    return out;
+  }
+  function qs(sel) { var a = qsa(sel); return a.length ? a[0] : null; }
+  // The element's own document-or-shadow root, for scoped label[for=] lookups.
+  function rootOf(el) {
+    try { var r = el.getRootNode ? el.getRootNode() : document; return r && r.querySelector ? r : document; }
+    catch (e) { return document; }
+  }
+
   // ----------------------------- low-level DOM helpers -----------------------------
   function vis(el) {
     if (!el) return false;
@@ -123,31 +183,67 @@ async function jmFillApplication(payload) {
   }
   function firstSel(selectors) {
     for (var i = 0; i < (selectors || []).length; i++) {
-      var nodes = document.querySelectorAll(selectors[i]);
+      var nodes = qsa(selectors[i]);
       for (var j = 0; j < nodes.length; j++) if (vis(nodes[j])) return nodes[j];
     }
     return null;
   }
+  // Turn an identifier into words: "phone-device-type"/"countryRegion"/"StateShow" -> readable text,
+  // so the same RULES that match a visible label also match an id or a run-together button caption.
+  function humanize(s) {
+    return String(s || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ");
+  }
   function labelText(el) {
     var parts = [];
     if (el.id) {
-      var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]');
+      // try/catch, not optimism: Salesforce's Aura framework LOCKS DOWN methods on ShadowRoot and
+      // throws "Disallowed method" — hit live on apply.actalentservices.com, where an unguarded call
+      // aborted the whole fill. Fall back to the document, which is always safe.
+      var lab = null;
+      try { lab = rootOf(el).querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); } catch (e) {}
+      if (!lab) { try { lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); } catch (e2) {} }
       if (lab) parts.push(lab.textContent);
     }
     var wrap = el.closest("label");
     if (wrap) parts.push(wrap.textContent);
     if (el.getAttribute("aria-label")) parts.push(el.getAttribute("aria-label"));
     var alby = el.getAttribute("aria-labelledby");   // new Greenhouse labels comboboxes this way
-    if (alby) alby.split(/\s+/).forEach(function (id) { var n = document.getElementById(id); if (n) parts.push(n.textContent); });
+    if (alby) alby.split(/\s+/).forEach(function (id) {
+      var n = null;
+      try { var rr = rootOf(el); n = rr.getElementById ? rr.getElementById(id) : null; } catch (e) {}   // Aura blocks this
+      if (!n) { try { n = document.getElementById(id); } catch (e2) {} }
+      if (n) parts.push(n.textContent);
+    });
     if (el.getAttribute("placeholder")) parts.push(el.getAttribute("placeholder"));
     if (el.name) parts.push(el.name);
     // Workday names every field with a data-automation-id ("phone-device-type", "addressSection_city")
     // and often gives the visible <label> no `for=`. Humanising the id recovers the question when
     // nothing else does, and it's the SAME id on every tenant.
     var aid = el.getAttribute("data-automation-id");
-    if (aid) parts.push(aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " "));
+    if (aid) parts.push(humanize(aid));
     var c = el.closest("fieldset, .field, [class*=field], [class*=question]");
     if (c) { var lg = c.querySelector("legend, label, .label, [class*=label]"); if (lg) parts.push(lg.textContent); }
+    // Shadow-DOM forms carry the field's identity on an ANCESTOR HOST, not on the input. Measured on
+    // Actalent: every input is <input class="slds-input" id="input-85" variant="label-hidden"> with no
+    // name, no label and a generated id — the only thing that says what it is, is the data-id on the
+    // c-lwc-text-inputs host two levels out (zipcode / city / street1 / email / phone). closest() stops
+    // at the shadow boundary, so walk the host chain explicitly.
+    var node = el, hops = 0;
+    while (node && hops < 8) {
+      var host = null;
+      try { var rt = node.getRootNode ? node.getRootNode() : null; host = rt && rt.host; } catch (e) {}
+      if (!host || !host.getAttribute) break;
+      ["data-id", "label", "aria-label", "data-name", "data-field", "name"].forEach(function (a) {
+        var v = host.getAttribute(a);
+        if (v) parts.push(humanize(v));
+      });
+      node = host; hops++;
+    }
+    // Last resort for button-shaped widgets, whose caption IS the label ("Select a StateShow menu").
+    // Nested spans concatenate without spaces, hence humanize().
+    if (!parts.length && (el.tagName === "BUTTON" || el.getAttribute("role") === "button")) {
+      parts.push(humanize((el.textContent || "").slice(0, 80)));
+    }
     return parts.join(" ").replace(/\s+/g, " ").trim().toLowerCase();
   }
   function isRequired(el) {
@@ -194,18 +290,13 @@ async function jmFillApplication(payload) {
   // visibility here — just find an enabled <input type=file>.
   function findFileInput(selectors) {
     for (var i = 0; i < (selectors || []).length; i++) {
-      var nodes = document.querySelectorAll(selectors[i]);
+      var nodes = qsa(selectors[i]);
       for (var j = 0; j < nodes.length; j++) if (nodes[j].type === "file" && !nodes[j].disabled) return nodes[j];
     }
-    // fallback: pierce shadow DOM (SmartRecruiters / Ashby wrap the input in web components)
-    var stack = [document];
-    while (stack.length) {
-      var root = stack.pop();
-      var files = root.querySelectorAll ? root.querySelectorAll("input[type=file]") : [];
-      for (var k = 0; k < files.length; k++) if (!files[k].disabled) return files[k];
-      var all = root.querySelectorAll ? root.querySelectorAll("*") : [];
-      for (var m = 0; m < all.length; m++) if (all[m].shadowRoot) stack.push(all[m].shadowRoot);
-    }
+    // qsa() already pierces shadow DOM, so a bare sweep catches the web-component wrappers
+    // (SmartRecruiters / Ashby / Salesforce) that hide the real <input type=file>.
+    var any = qsa("input[type=file]");
+    for (var k = 0; k < any.length; k++) if (!any[k].disabled) return any[k];
     return null;
   }
   // Only a REAL, visible challenge is a wall. The invisible reCAPTCHA v3 BADGE (the floating logo,
@@ -213,10 +304,10 @@ async function jmFillApplication(payload) {
   // job. A hard challenge = hCaptcha/Turnstile widget, a reCAPTCHA image popup (api2/bframe), or a
   // v2 "I'm not a robot" checkbox that is NOT the badge.
   function visibleChallenge() {
-    var hard = document.querySelectorAll(
+    var hard = qsa(
       'iframe[src*="recaptcha/api2/bframe"], iframe[src*="hcaptcha.com"], iframe[src*="challenges.cloudflare.com"], .h-captcha, .cf-turnstile');
     for (var i = 0; i < hard.length; i++) { var r = hard[i].getBoundingClientRect(); if (r.width > 10 && r.height > 10) return true; }
-    var anchors = document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"]');
+    var anchors = qsa('iframe[src*="recaptcha/api2/anchor"]');
     for (var j = 0; j < anchors.length; j++) {
       if (anchors[j].closest(".grecaptcha-badge")) continue;     // floating v3 badge — ignore
       var rr = anchors[j].getBoundingClientRect();
@@ -240,7 +331,7 @@ async function jmFillApplication(payload) {
   };
   var ADAPTERS = {
     greenhouse: {
-      test: function () { return /greenhouse/.test(location.hostname) || document.querySelector('#first_name, #s3_upload_for_resume, form[action*="greenhouse"], #application_form'); },
+      test: function () { return /greenhouse/.test(location.hostname) || qs('#first_name, #s3_upload_for_resume, form[action*="greenhouse"], #application_form'); },
       name: { first: ['#first_name', 'input[name="job_application[first_name]"]'], last: ['#last_name', 'input[name="job_application[last_name]"]'], full: [] },
       email: ['#email', 'input[type=email]'],
       phone: ['#phone', 'input[type=tel]', 'input[autocomplete="tel"]', 'input[name*="phone" i]'],
@@ -248,14 +339,14 @@ async function jmFillApplication(payload) {
       submit: '#submit_app, button[type=submit], input[type=submit]'
     },
     lever: {
-      test: function () { return /lever\.co/.test(location.hostname) || document.querySelector('form[action*="lever"], .application-form'); },
+      test: function () { return /lever\.co/.test(location.hostname) || qs('form[action*="lever"], .application-form'); },
       name: { first: [], last: [], full: ['input[name="name"]', '#name'] },   // Lever uses one Name field
       email: ['input[name="email"]', 'input[type=email]'], phone: ['input[name="phone"]', 'input[type=tel]'],
       resumeFile: ['input[name="resume"]', 'input[type=file]'],
       submit: '#btn-submit, button[type=submit], .postings-btn[type=submit], button[data-qa="btn-submit"]'
     },
     ashby: {
-      test: function () { return /ashbyhq\.com/.test(location.hostname) || document.querySelector('[class*="ashby" i], form[class*="application" i] [data-highlight]'); },
+      test: function () { return /ashbyhq\.com/.test(location.hostname) || qs('[class*="ashby" i], form[class*="application" i] [data-highlight]'); },
       name: { first: ['input[name*="first" i]'], last: ['input[name*="last" i]'], full: ['input[name="_systemfield_name"]', 'input[name*="name" i]', 'input[aria-label*="name" i]'] },
       email: ['input[name="_systemfield_email"]', 'input[type=email]', 'input[aria-label*="email" i]'],
       phone: ['input[name="_systemfield_phone"]', 'input[type=tel]', 'input[aria-label*="phone" i]'],
@@ -263,7 +354,7 @@ async function jmFillApplication(payload) {
       submit: 'button[type=submit], button[aria-label*="submit" i]'
     },
     smartrecruiters: {
-      test: function () { return /smartrecruiters\.com/.test(location.hostname) || document.querySelector('[data-test*="application"], form[action*="smartrecruiters"]'); },
+      test: function () { return /smartrecruiters\.com/.test(location.hostname) || qs('[data-test*="application"], form[action*="smartrecruiters"]'); },
       name: { first: ['#firstName', 'input[name="firstName"]', '[data-test="field-firstName"] input'], last: ['#lastName', 'input[name="lastName"]', '[data-test="field-lastName"] input'], full: [] },
       email: ['#email', 'input[name="email"]', 'input[type=email]'], phone: ['#phoneNumber', 'input[name="phoneNumber"]', 'input[type=tel]'],
       resumeFile: ['input[type=file]'],
@@ -276,7 +367,7 @@ async function jmFillApplication(payload) {
     workday: {
       test: function () {
         return /myworkdayjobs\.com|myworkdaysite\.com/.test(location.hostname) ||
-          document.querySelectorAll("[data-automation-id]").length >= 4;
+          qsa("[data-automation-id]").length >= 4;
       },
       name: {
         first: ['[data-automation-id="legalNameSection_firstName"]', '[data-automation-id="firstName"]', 'input[data-automation-id*="firstName" i]'],
@@ -294,7 +385,7 @@ async function jmFillApplication(payload) {
     oracle: {
       test: function () {
         return /oraclecloud\.com/.test(location.hostname) || /\/hcmUI\/CandidateExperience/i.test(location.href) ||
-          !!document.querySelector("oj-input-text, .oj-inputtext-input, [data-ojkey]");
+          !!qs("oj-input-text, .oj-inputtext-input, [data-ojkey]");
       },
       name: {
         first: ['input[id*="firstName" i]', 'input[name*="firstName" i]', 'oj-input-text[id*="first" i] input'],
@@ -312,7 +403,7 @@ async function jmFillApplication(payload) {
     icims: {
       test: function () {
         return /icims\.com/.test(location.hostname) ||
-          !!document.querySelector('.iCIMS_MainWrapper, #icims_content_iframe, .iCIMS_ApplyOnline, [id^="icims_"]');
+          !!qs('.iCIMS_MainWrapper, #icims_content_iframe, .iCIMS_ApplyOnline, [id^="icims_"]');
       },
       name: {
         first: ['#firstname', 'input[name="firstname"]', 'input[name="firstName"]', 'input[id*="firstname" i]'],
@@ -323,12 +414,60 @@ async function jmFillApplication(payload) {
       phone: ['#phone', '#mobilephone', '#homephone', 'input[name*="phone" i]', 'input[type=tel]'],
       resumeFile: ['#icims_addResumeSection input[type=file]', 'input[type=file][name*="resume" i]', 'input[type=file]'],
       submit: '#icims_button_apply, .iCIMS_ActionButton, input[name="submit"]'
+    },
+    // Salesforce Experience Cloud / Lightning — how Allegis runs Actalent, TEKsystems and Aerotek.
+    // apply.actalentservices.com alone is 1,368 rows (7% of the corpus). Everything here was read off
+    // the live page: the form is entirely inside Lightning web components (0 inputs in the light DOM,
+    // 16 when piercing), every input is `variant="label-hidden"` with a generated id like "input-85"
+    // and NO name attribute, so selectors can only go through .slds-input + the placeholder. The field's
+    // real identity lives on an ancestor shadow host as data-id (email / phone / city / zipcode /
+    // street1) — labelText() walks the host chain to recover it, which is what actually matches here.
+    salesforce: {
+      test: function () {
+        return !!qs("lightning-input, lightning-button-menu, flowruntime-flow, c-lwc-text-inputs") ||
+          /\/sfsites\/|siteforce/.test(document.documentElement.innerHTML.slice(0, 60000));
+      },
+      name: {
+        first: ['input[placeholder*="First Name" i]', 'input[name*="first" i]'],
+        last: ['input[placeholder*="Last Name" i]', 'input[name*="last" i]'],
+        full: ['input[placeholder*="Full Name" i]']
+      },
+      // Deliberately NOT a generic "input.slds-input[required]" fallback: every Lightning text field
+      // carries those, so it matched the ZIP box too — and coreMatch() then excluded zip (and every
+      // other required text field) from the label-matching pass as "already handled as email". Caught
+      // on the live page: address and city filled, zip stayed empty. Placeholder/type only.
+      email: ['input[placeholder*="Email" i]', 'input[type=email]'],
+      phone: ['input[type=tel]', 'input[placeholder*="Phone" i]'],
+      resumeFile: ['input[type=file]'],
+      submit: '[data-test-button="Submit"], button.slds-button[aria-label*="submit" i]'
+    },
+    // SAP SuccessFactors. Two hosts, both reached from an employer vanity domain: the RMK front-end
+    // (jobs.sap.com, jobs.netapp.com, careers.teradyne.com — a LISTING site whose "Apply now" is a
+    // bootstrap dropdown toggle, handled in jmClickApply) and the RCM applicant portal where the real
+    // form lives — measured as career41.sapsf.com and career5.successfactors.eu, i.e. NOT just
+    // successfactors.com. RCM is account-walled, so the first thing the filler meets is the login /
+    // registration form; these selectors cover that and the standard candidate fields behind it.
+    successfactors: {
+      test: function () {
+        return /successfactors\.|sapsf\.com|jobs2web/.test(location.hostname) ||
+          !!qs('[id*="careersection"], .jobDescriptionTable, [name="loginBox"], form[name="applyForm"]');
+      },
+      name: {
+        first: ['input[name*="firstName" i]', 'input[id*="firstName" i]', 'input[name="firstname"]'],
+        last: ['input[name*="lastName" i]', 'input[id*="lastName" i]', 'input[name="lastname"]'],
+        full: ['input[name*="fullName" i]']
+      },
+      email: ['input[name*="email" i]', 'input[id*="email" i]', 'input[type=email]', "input#j_username"],
+      phone: ['input[name*="phone" i]', 'input[id*="phone" i]', 'input[type=tel]'],
+      resumeFile: ['input[type=file]'],
+      submit: 'input[type=submit], button[type=submit], .button-primary'
     }
   };
   // Most-specific FIRST, and explicitly ordered rather than relying on object key order: several of
   // the older tests are loose enough to steal a page they don't own (ashby matches any
   // form[class*=application], greenhouse any #first_name), which would shadow the wizard adapters.
-  var ORDER = ["workday", "oracle", "icims", "greenhouse", "lever", "ashby", "smartrecruiters"];
+  var ORDER = ["workday", "oracle", "icims", "salesforce", "successfactors",
+               "greenhouse", "lever", "ashby", "smartrecruiters"];
 
   // pick the most specific adapter; else GENERIC if the page looks like an application form
   function looksLikeForm() {
@@ -400,7 +539,7 @@ async function jmFillApplication(payload) {
     { re: /gender/, val: eeo.gender }, { re: /hispanic|latino/, val: eeo.hispanic_latino },
     { re: /race|ethnic/, val: eeo.race }, { re: /veteran/, val: eeo.veteran }, { re: /disab/, val: eeo.disability },
     { re: /city/, val: addr.city },
-    { re: /zip|postal/, val: addr.postal }, { re: /address/, val: addr.line1 }
+    { re: /zip|postal/, val: addr.postal }, { re: /address|street/, val: addr.line1 }
   ];
   function coreMatch(el) {
     return [A.name.first, A.name.last, A.name.full, A.email, A.phone].some(function (ss) {
@@ -454,7 +593,7 @@ async function jmFillApplication(payload) {
       var pick = null, sawOpts = false;
       for (var t = 0; t < 9 && !pick; t++) {                        // poll ~1.5s, but bail fast if no menu
         await sleep(160);
-        var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+        var opts = qsa('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
         if (opts.length) sawOpts = true;
         var exact = null, starts = null, partial = null;
         for (var k = 0; k < opts.length; k++) {
@@ -487,7 +626,11 @@ async function jmFillApplication(payload) {
   function listboxSelected(btn) {
     var sel = btn.querySelector('[data-automation-id="selectedItem"]');
     var t = ((sel ? sel.textContent : btn.textContent) || "").replace(/\s+/g, " ").trim().toLowerCase();
-    return /^(select one|select\.\.\.|select|search|choose one|choose)?$/.test(t) ? "" : t;
+    // Placeholder captions vary per platform ("Select One" on Workday, "Select a State...Show menu" on
+    // Salesforce), so match the PREFIX rather than an exact list — otherwise an empty dropdown reads as
+    // answered and is skipped forever. The word boundary keeps a real answer like
+    // "Selected: Mobile" from being mistaken for a placeholder.
+    return (!t || /^(select|choose|search|please select|--)\b/.test(t)) ? "" : t;
   }
   // Closing matters more than it looks. These menus render in a portal at BODY level, so a menu left
   // open from the previous field is indistinguishable from the current field's menu — optionNodes()
@@ -495,14 +638,14 @@ async function jmFillApplication(payload) {
   // Escape on the control, Escape on the document, and if something is still open, toggle the control
   // to shut it. Verified, not assumed.
   function menuOpen() {
-    return optionNodes().length > 0 || !!document.querySelector(".oj-listbox-drop");
+    return optionNodes().length > 0 || !!qs(".oj-listbox-drop");
   }
   async function closeMenu(el) {
     for (var a = 0; a < 2 && menuOpen(); a++) {
       try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
       try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
       await sleep(90);
-      if (menuOpen()) { try { el.click(); } catch (e) {} await sleep(90); }
+      if (menuOpen()) { try { el.click(); } catch (e) {} dirty(); await sleep(90); }
     }
   }
   // The open menu's option nodes, by MOST-SPECIFIC selector first. One combined selector would return
@@ -512,9 +655,11 @@ async function jmFillApplication(payload) {
   // matches anything keeps us on the platform's own option node.
   function optionNodes() {
     var SELS = ['[data-automation-id="promptOption"]', 'ul[role="listbox"] li[role="option"]',
-                '[role="listbox"] [role="option"]', '[role="option"]'];
+                '[role="listbox"] [role="option"]', '[role="option"]',
+                // Salesforce Lightning menus use menuitem, not option
+                '.slds-dropdown [role="menuitem"]', '[role="menu"] [role="menuitem"]', '[role="menuitem"]'];
     for (var i = 0; i < SELS.length; i++) {
-      var n = document.querySelectorAll(SELS[i]);
+      var n = qsa(SELS[i]);
       if (n.length) return n;
     }
     return [];
@@ -526,6 +671,7 @@ async function jmFillApplication(payload) {
       var cur = listboxSelected(btn);
       if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
       try { btn.click(); } catch (e) {}
+      dirty();                    // the menu may mount new shadow roots
       var pick = null, sawOpts = false;
       for (var t = 0; t < 10 && !pick; t++) {
         await sleep(150);
@@ -570,15 +716,16 @@ async function jmFillApplication(payload) {
       if (cur && (cur === want || cur.indexOf(want) >= 0 || want.indexOf(cur) >= 0)) return true;
       var opener = root.querySelector(".oj-select-choice, .oj-combobox-choice, [role=combobox]") || root;
       try { opener.click(); } catch (e) {}
+      dirty();                    // the menu may mount new shadow roots
       await sleep(200);
-      var search = document.querySelector(".oj-listbox-drop input.oj-listbox-input, .oj-listbox-search input");
+      var search = qs(".oj-listbox-drop input.oj-listbox-input, .oj-listbox-search input");
       if (search) { try { setNativeValue(search, String(vals[c])); } catch (e) {} }
       var pick = null;
       for (var t = 0; t < 10 && !pick; t++) {
         await sleep(150);
         var opts = [], OSEL = [".oj-listbox-drop .oj-listbox-result-label", ".oj-listbox-drop li[role=option]",
                                ".oj-listbox-result", ".oj-listbox-drop [role=option]"];
-        for (var oq = 0; oq < OSEL.length && !opts.length; oq++) opts = document.querySelectorAll(OSEL[oq]);
+        for (var oq = 0; oq < OSEL.length && !opts.length; oq++) opts = qsa(OSEL[oq]);
         var exact = null, partial = null;
         for (var k = 0; k < opts.length; k++) {
           var ot = (opts[k].textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -599,7 +746,7 @@ async function jmFillApplication(payload) {
     return false;
   }
 
-  var allFields = Array.prototype.slice.call(document.querySelectorAll("input, select, textarea"));
+  var allFields = Array.prototype.slice.call(qsa("input, select, textarea"));
   for (var afi = 0; afi < allFields.length; afi++) {
     var fel = allFields[afi];
     if (!vis(fel) || /hidden|file|submit|button|password/.test(fel.type) || fel.type === "radio" || fel.type === "checkbox") continue;
@@ -614,8 +761,9 @@ async function jmFillApplication(payload) {
   // Workday renders every one as <button aria-haspopup="listbox"> and Oracle as <oj-select-single>.
   // This is not a nicety — on Workday the REQUIRED fields (phone device type, country, source,
   // EEO) are exactly these, so without this pass its first step can't be completed.
-  var widgets = Array.prototype.slice.call(document.querySelectorAll(
-    'button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one'));
+  var widgets = Array.prototype.slice.call(qsa(
+    'button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], ' +
+    'button[aria-haspopup="true"], button[aria-haspopup="menu"], oj-select-single, oj-combobox-one'));
   for (var wi = 0; wi < widgets.length; wi++) {
     var wel = widgets[wi];
     if (!vis(wel)) continue;
@@ -628,7 +776,7 @@ async function jmFillApplication(payload) {
   }
 
   // radio/checkbox groups (work auth, sponsorship, EEO, relocate)
-  document.querySelectorAll("fieldset, [role=radiogroup], .field, [class*=question]").forEach(function (g) {
+  qsa("fieldset, [role=radiogroup], .field, [class*=question]").forEach(function (g) {
     var t = (g.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
     if (!t || !g.querySelector("input[type=radio], input[type=checkbox]")) return;
     var val = null;
@@ -641,7 +789,7 @@ async function jmFillApplication(payload) {
   });
 
   // 4) remaining required-but-empty fields (for the report / submit gate)
-  document.querySelectorAll("input, select, textarea").forEach(function (el) {
+  qsa("input, select, textarea").forEach(function (el) {
     if (!vis(el) || /hidden|submit|button|search/.test(el.type)) return;
     if (el.type === "file") {
       if (isRequired(el) && (!el.files || !el.files.length) && !fileAttached) unfilled.push({ label: labelText(el) || "Résumé", reason: "no file" });
@@ -665,7 +813,7 @@ async function jmFillApplication(payload) {
 
   // walls a human must clear (the runner parks the job on any of these)
   var captcha = visibleChallenge();                 // only a VISIBLE challenge, not invisible reCAPTCHA
-  var login = !!document.querySelector("input[type=password]") ||
+  var login = !!qs("input[type=password]") ||
     /\/(login|sign[_-]?in|signin|auth|account\/new|users\/sign)/i.test(location.href);
 
   // Where are we in a multi-step wizard? Drives the review panel: on a non-final step it must NOT
@@ -673,7 +821,7 @@ async function jmFillApplication(payload) {
   // and re-fills automatically when you do.
   var wizard = null;
   try {
-    var steps = document.querySelectorAll('[data-automation-id="progressBar"] [data-automation-id="progressBarStep"], ' +
+    var steps = qsa('[data-automation-id="progressBar"] [data-automation-id="progressBarStep"], ' +
       '[data-automation-id="progressBar"] li, .apply-flow__progress li, ol[class*="progress"] li, [role="tablist"] [role="tab"]');
     if (steps.length > 1) {
       var active = -1;
@@ -682,7 +830,7 @@ async function jmFillApplication(payload) {
         if (s.getAttribute("aria-current") || s.getAttribute("aria-selected") === "true" ||
             /active|current|selected/i.test(cls)) { active = si; break; }
       }
-      var hasSubmit = !!document.querySelector('[data-automation-id="bottom-navigation-submit-button"], button[data-affordance="submit"]');
+      var hasSubmit = !!qs('[data-automation-id="bottom-navigation-submit-button"], button[data-affordance="submit"]');
       wizard = {
         index: active >= 0 ? active + 1 : 0, total: steps.length,
         step: active >= 0 ? (steps[active].textContent || "").replace(/\s+/g, " ").trim().slice(0, 60) : "",
@@ -730,7 +878,10 @@ function jmFormReady() {
             '[data-automation-id="legalNameSection_firstName"], [data-automation-id="email"], ' +
             '[data-automation-id="userName"], [data-automation-id="bottom-navigation-next-button"], ' +
             'oj-input-text, .oj-inputtext-input, .iCIMS_ApplyOnline, #icims_addResumeSection, ' +
-            'button[aria-haspopup="listbox"]';
+            'button[aria-haspopup="listbox"], ' +
+            // Salesforce Lightning (label-hidden inputs, so match the component + SLDS class) and the
+            // SuccessFactors RCM login/registration form.
+            'lightning-input, input.slds-input, [name="loginBox"], form[name="applyForm"]';
   function find(root) {
     if (!root || !root.querySelector) return false;
     if (root.querySelector(sel)) return true;
@@ -778,6 +929,26 @@ function jmClickApply() {
     '[data-automation-id="adventureButton"], [data-automation-id="applyButton"], ' +
     '#icims_apply_button, .iCIMS_ApplyOnlineButton, .job-details__apply-button');
   if (known && known.offsetParent !== null) { known.click(); return true; }
+
+  // SuccessFactors' RMK listing sites (jobs.sap.com, jobs.netapp.com, careers.teradyne.com...) make
+  // "Apply now" a BOOTSTRAP DROPDOWN TOGGLE, not a link — verified live. Clicking it only opens a
+  // menu, so a caller that clicks once and then waits for a form waits forever. Open it, then click
+  // the plain "Apply Now" item inside (never "Start apply with LinkedIn", which is an SSO popup).
+  var toggle = document.querySelector(
+    '[data-toggle="dropdown"][aria-label*="apply" i], button[aria-label*="apply now" i][aria-haspopup]');
+  if (toggle && toggle.offsetParent !== null) {
+    toggle.click();
+    var items = Array.prototype.slice.call(
+      document.querySelectorAll('.dropdown-menu a, [role=menu] a, [role=menuitem]'));
+    var item = items.filter(function (a) {
+      var t = (a.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+      if (!t || a.offsetParent === null) return false;
+      if (/\bwith\b|linkedin|indeed|google|facebook/.test(t)) return false;   // SSO, not the form
+      return /^apply\b|^start (your )?application$/.test(t);
+    })[0];
+    if (item) { item.click(); return true; }
+    return true;                       // menu is open; the caller's next poll picks up what it reveals
+  }
   var els = Array.prototype.slice.call(document.querySelectorAll('a, button, [role=button], input[type=submit]'));
   var b = els.filter(function (x) {
     var t = (x.textContent || x.value || "").replace(/\s+/g, " ").trim();
@@ -826,6 +997,26 @@ function jmApplyState(prevHref) {
 // Snapshot the still-EMPTY fields (label, type, options) and tag each with data-jmk so the AI's
 // answers can be applied back by key. Self-contained. Returns [{key,label,type,options?}].
 function jmSnapshotForm() {
+  // Shadow-piercing query: Salesforce Lightning (and Ashby/SmartRecruiters web components) put the
+  // whole form inside shadow roots, where document.querySelectorAll cannot reach it.
+  function jmRoots() {
+    var out = [document], i = 0;
+    while (i < out.length && out.length < 500) {
+      var r = out[i++], all;
+      try { all = r.querySelectorAll("*"); } catch (e) { continue; }
+      for (var k = 0; k < all.length; k++) if (all[k].shadowRoot) out.push(all[k].shadowRoot);
+    }
+    return out;
+  }
+  function dqa(sel) {
+    var rs = jmRoots(), out = [];
+    for (var i = 0; i < rs.length; i++) {
+      try { var n = rs[i].querySelectorAll(sel); for (var j = 0; j < n.length; j++) if (out.indexOf(n[j]) < 0) out.push(n[j]); } catch (e) {}
+    }
+    return out;
+  }
+  function dq(sel) { var a = dqa(sel); return a.length ? a[0] : null; }
+
   function vis(el) {
     if (!el || el.disabled || el.readOnly) return false;
     if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;   // react-select value-mirror
@@ -834,7 +1025,7 @@ function jmSnapshotForm() {
   }
   function lbl(el) {
     var p = [];
-    if (el.id) { var l = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
+    if (el.id) { var l = dq('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
     var w = el.closest("label"); if (w) p.push(w.textContent);
     if (el.getAttribute("aria-label")) p.push(el.getAttribute("aria-label"));
     var alby = el.getAttribute("aria-labelledby");
@@ -854,7 +1045,7 @@ function jmSnapshotForm() {
     return c ? !!c.querySelector(".select__single-value, [class*='singleValue'], [class*='single-value'], .select__multi-value, [class*='multiValue']") : false;
   }
   var out = [], i = 0;
-  document.querySelectorAll("input, select, textarea").forEach(function (el) {
+  dqa("input, select, textarea").forEach(function (el) {
     if (!vis(el) || /hidden|file|submit|button|password/.test(el.type) || el.type === "radio" || el.type === "checkbox") return;
     var filled = el.tagName === "SELECT" ? (el.selectedIndex > 0 && el.value)
       : (isCombo(el) ? comboSel(el) : String(el.value || "").trim());
@@ -871,7 +1062,7 @@ function jmSnapshotForm() {
   // opening every one to enumerate it would be slow and visibly disruptive. jmMatchLearned therefore
   // passes a saved value straight through — safe here because jmApplyAnswers VERIFIES the pick landed
   // and reports failure, so a stale answer ends up honestly empty rather than silently wrong.
-  document.querySelectorAll('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
+  dqa('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
     .forEach(function (el) {
       if (!vis(el)) return;
       var oj = /^OJ-/.test(el.tagName);
@@ -892,11 +1083,11 @@ function jmSnapshotForm() {
   // and recover the question text by walking up from that anchor. Mirrors jmCaptureFilled so the
   // learned-answer + AI pass can actually FILL these, not just learn them.
   (function () {
-    function optEl(inp) { return inp.closest("label") || (inp.id && document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
+    function optEl(inp) { return inp.closest("label") || (inp.id && dq('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
     function otxt(el) { return ((el && el.getAttribute && el.getAttribute("aria-label")) || (el && el.textContent) || "").replace(/\s+/g, " ").trim(); }
     var groups = {}, gc = 0, cmap = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
     function ckey(c) { if (!c) return "c0"; if (cmap) { if (!cmap.has(c)) cmap.set(c, "c" + (++gc)); return cmap.get(c); } if (!c.__jmd) c.__jmd = "c" + (++gc); return c.__jmd; }
-    Array.prototype.forEach.call(document.querySelectorAll("input[type=radio], input[type=checkbox]"), function (inp) {
+    Array.prototype.forEach.call(dqa("input[type=radio], input[type=checkbox]"), function (inp) {
       var le = optEl(inp); if (!vis(inp) && !vis(le)) return;
       var key = inp.name ? ("n:" + inp.name) : ckey(inp.closest("fieldset, [role=radiogroup], [role=group]") || inp.parentElement);
       var g = groups[key] || (groups[key] = { inputs: [], texts: [], checked: false });
@@ -929,7 +1120,7 @@ function jmSnapshotForm() {
     if (typeof Map === "undefined") return;
     var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
     var cand = [];
-    document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+    dqa('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
       if (el.getAttribute("aria-haspopup") || el.hasAttribute("data-jmk") ||
               (el.closest && el.closest("oj-select-single, oj-combobox-one"))) return;   // a popup DROPDOWN, not a toggle option
       if (!vis(el) || el.querySelector("input")) return;
@@ -997,6 +1188,26 @@ function jmMatchLearned(fields, learned) {
 
 // Apply saved/learned answers (keyed by data-jmk) to the form. Self-contained, async (combobox needs waits).
 async function jmApplyAnswers(answers) {
+  // Shadow-piercing query: Salesforce Lightning (and Ashby/SmartRecruiters web components) put the
+  // whole form inside shadow roots, where document.querySelectorAll cannot reach it.
+  function jmRoots() {
+    var out = [document], i = 0;
+    while (i < out.length && out.length < 500) {
+      var r = out[i++], all;
+      try { all = r.querySelectorAll("*"); } catch (e) { continue; }
+      for (var k = 0; k < all.length; k++) if (all[k].shadowRoot) out.push(all[k].shadowRoot);
+    }
+    return out;
+  }
+  function dqa(sel) {
+    var rs = jmRoots(), out = [];
+    for (var i = 0; i < rs.length; i++) {
+      try { var n = rs[i].querySelectorAll(sel); for (var j = 0; j < n.length; j++) if (out.indexOf(n[j]) < 0) out.push(n[j]); } catch (e) {}
+    }
+    return out;
+  }
+  function dq(sel) { var a = dqa(sel); return a.length ? a[0] : null; }
+
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function setNativeValue(el, value) {
     var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -1043,7 +1254,7 @@ async function jmApplyAnswers(answers) {
     var pick = null, sawOpts = false;
     for (var t = 0; t < 9 && !pick; t++) {
       await sleep(160);
-      var opts = document.querySelectorAll('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
+      var opts = dqa('.select__option, [class*="__option"], [id*="-option-"], [role="option"]');
       if (opts.length) sawOpts = true;
       var exact = null, starts = null, partial = null;
       for (var k = 0; k < opts.length; k++) { var ot = (opts[k].textContent || "").toLowerCase().trim(); if (!ot) continue; if (ot === want) { exact = opts[k]; break; } if (!starts && ot.indexOf(want) === 0) starts = opts[k]; if (!partial && (ot.indexOf(want) >= 0 || want.indexOf(ot) >= 0)) partial = opts[k]; }
@@ -1062,7 +1273,7 @@ async function jmApplyAnswers(answers) {
   }
   function clickRadio(g, v) {
     var w = String(v).toLowerCase().trim(), radios = g.querySelectorAll("input[type=radio], input[type=checkbox]");
-    for (var i = 0; i < radios.length; i++) { var rl = radios[i].closest("label") || (radios[i].id && document.querySelector('label[for="' + radios[i].id + '"]')); var t = ((rl ? rl.textContent : radios[i].value) || "").toLowerCase(); if (t.indexOf(w) >= 0 || (w === "yes" && /\byes\b/.test(t)) || (w === "no" && /\bno\b/.test(t))) { radios[i].click(); return true; } }
+    for (var i = 0; i < radios.length; i++) { var rl = radios[i].closest("label") || (radios[i].id && dq('label[for="' + radios[i].id + '"]')); var t = ((rl ? rl.textContent : radios[i].value) || "").toLowerCase(); if (t.indexOf(w) >= 0 || (w === "yes" && /\byes\b/.test(t)) || (w === "no" && /\bno\b/.test(t))) { radios[i].click(); return true; } }
     // custom toggle/segmented buttons (no <input>): click the option whose text matches the value.
     var opts = g.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]');
     for (var j = 0; j < opts.length; j++) { if (opts[j].querySelector("input")) continue; var ot = (opts[j].textContent || opts[j].getAttribute("aria-label") || "").toLowerCase().replace(/\s+/g, " ").trim(); if (!ot) continue; if (ot === w || (w && ot.indexOf(w) >= 0) || (w === "yes" && /\byes\b/.test(ot)) || (w === "no" && /\bno\b/.test(ot))) { opts[j].click(); return true; } }
@@ -1084,7 +1295,7 @@ async function jmApplyAnswers(answers) {
     try { opener.click(); } catch (e) {}
     await sleep(200);
     if (oj) {
-      var sb = document.querySelector(".oj-listbox-drop input.oj-listbox-input, .oj-listbox-search input");
+      var sb = dq(".oj-listbox-drop input.oj-listbox-input, .oj-listbox-search input");
       if (sb) { try { setNativeValue(sb, String(v)); } catch (e) {} }
     }
     // Most-specific selector first — see optionNodes() in jmFillApplication: a combined selector
@@ -1097,7 +1308,7 @@ async function jmApplyAnswers(answers) {
     for (var t = 0; t < 10 && !pick; t++) {
       await sleep(150);
       var opts = [];
-      for (var sq = 0; sq < SELS.length && !opts.length; sq++) opts = document.querySelectorAll(SELS[sq]);
+      for (var sq = 0; sq < SELS.length && !opts.length; sq++) opts = dqa(SELS[sq]);
       var exact = null, partial = null;
       for (var k2 = 0; k2 < opts.length; k2++) {
         var ot = ((opts[k2].getAttribute && opts[k2].getAttribute("data-automation-label")) || opts[k2].textContent || "")
@@ -1115,7 +1326,7 @@ async function jmApplyAnswers(answers) {
     // left open would have its options read as the NEXT dropdown's options. Escape, then toggle.
     for (var a = 0; a < 2; a++) {
       var stillOpen = false;
-      for (var sq2 = 0; sq2 < SELS.length && !stillOpen; sq2++) stillOpen = document.querySelectorAll(SELS[sq2]).length > 0;
+      for (var sq2 = 0; sq2 < SELS.length && !stillOpen; sq2++) stillOpen = dqa(SELS[sq2]).length > 0;
       if (!stillOpen) break;
       try { opener.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
       try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true })); } catch (e) {}
@@ -1129,7 +1340,7 @@ async function jmApplyAnswers(answers) {
   for (var i = 0; i < keys.length; i++) {
     var k = keys[i], v = answers[k];
     if (v == null || String(v).trim() === "") continue;
-    var el = document.querySelector('[data-jmk="' + k + '"]'); if (!el) continue;
+    var el = dq('[data-jmk="' + k + '"]'); if (!el) continue;
     var ok = false;
     // The popup-select checks come FIRST: a Workday control can carry role=combobox too, and the
     // react-select path below would then try to drive it with the wrong mechanics and fail.
@@ -1282,6 +1493,26 @@ async function jmApplyVision(plan) {
 // jmCaptureFilled: return [{label,type,value,options?}] for every FILLED field on the page, so the
 // backend can learn how this user answers each question. Sensitive fields are skipped. Self-contained.
 function jmCaptureFilled() {
+  // Shadow-piercing query: Salesforce Lightning (and Ashby/SmartRecruiters web components) put the
+  // whole form inside shadow roots, where document.querySelectorAll cannot reach it.
+  function jmRoots() {
+    var out = [document], i = 0;
+    while (i < out.length && out.length < 500) {
+      var r = out[i++], all;
+      try { all = r.querySelectorAll("*"); } catch (e) { continue; }
+      for (var k = 0; k < all.length; k++) if (all[k].shadowRoot) out.push(all[k].shadowRoot);
+    }
+    return out;
+  }
+  function dqa(sel) {
+    var rs = jmRoots(), out = [];
+    for (var i = 0; i < rs.length; i++) {
+      try { var n = rs[i].querySelectorAll(sel); for (var j = 0; j < n.length; j++) if (out.indexOf(n[j]) < 0) out.push(n[j]); } catch (e) {}
+    }
+    return out;
+  }
+  function dq(sel) { var a = dqa(sel); return a.length ? a[0] : null; }
+
   function vis(el) {
     if (!el || el.disabled) return false;
     if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;
@@ -1290,7 +1521,7 @@ function jmCaptureFilled() {
   }
   function lbl(el) {
     var p = [];
-    if (el.id) { var l = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
+    if (el.id) { var l = dq('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]'); if (l) p.push(l.textContent); }
     var w = el.closest("label"); if (w) p.push(w.textContent);
     if (el.getAttribute("aria-label")) p.push(el.getAttribute("aria-label"));
     var alby = el.getAttribute("aria-labelledby");
@@ -1310,7 +1541,7 @@ function jmCaptureFilled() {
   }
   var SENSITIVE = /password|social security|\bssn\b|card number|cvv|cvc|routing|account number|date of birth|\bdob\b/i;
   var out = [], seen = {};
-  document.querySelectorAll("input, select, textarea").forEach(function (el) {
+  dqa("input, select, textarea").forEach(function (el) {
     if (/hidden|submit|button|password|file/.test(el.type)) return;
     if (el.type === "radio" || el.type === "checkbox") return;
     if (!vis(el)) return;
@@ -1326,7 +1557,7 @@ function jmCaptureFilled() {
   // Workday / Oracle popup dropdowns (a <button aria-haspopup=listbox> or <oj-select-single>, never an
   // <input>) — without this the answer bank could never learn the fields that make up most of a
   // Workday application, so every new Workday form would start from scratch.
-  document.querySelectorAll('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
+  dqa('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
     .forEach(function (el) {
       if (!vis(el)) return;
       var oj = /^OJ-/.test(el.tagName);
@@ -1349,15 +1580,15 @@ function jmCaptureFilled() {
   (function () {
     var groups = {}, gid = 0, cmap = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
     function ckey(c) { if (!c) return "c0"; if (cmap) { if (!cmap.has(c)) cmap.set(c, "c" + (++gid)); return cmap.get(c); } if (!c.__jmg) c.__jmg = "c" + (++gid); return c.__jmg; }
-    function optEl(inp) { return inp.closest("label") || (inp.id && document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
+    function optEl(inp) { return inp.closest("label") || (inp.id && dq('label[for="' + (window.CSS && CSS.escape ? CSS.escape(inp.id) : inp.id) + '"]')) || inp; }
     function txt(el) { return ((el && el.getAttribute && el.getAttribute("aria-label")) || (el && el.textContent) || "").replace(/\s+/g, " ").trim(); }
     function add(key, el, t, on) { var g = groups[key] || (groups[key] = { els: [], texts: [], on: [] }); if (el) g.els.push(el); if (t) g.texts.push(t); if (on && t) g.on.push(t); }
-    Array.prototype.forEach.call(document.querySelectorAll("input[type=radio], input[type=checkbox]"), function (inp) {
+    Array.prototype.forEach.call(dqa("input[type=radio], input[type=checkbox]"), function (inp) {
       var le = optEl(inp); if (!vis(inp) && !vis(le)) return;           // accept hidden input if its label shows
       var key = inp.name ? ("n:" + inp.name) : ckey(inp.closest("fieldset, [role=radiogroup], [role=group]") || inp.parentElement);
       add(key, le, txt(le) || String(inp.value || "").trim(), inp.checked);
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[role=radio], [role=checkbox], [role=switch]'), function (el) {
+    Array.prototype.forEach.call(dqa('[role=radio], [role=checkbox], [role=switch]'), function (el) {
       if (!vis(el)) return;
       add(ckey(el.closest("[role=radiogroup], [role=group]") || el.parentElement), el, txt(el),
           el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true");
@@ -1387,7 +1618,7 @@ function jmCaptureFilled() {
     if (typeof Map === "undefined") return;
     var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
     var cand = [];
-    document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+    dqa('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
       if (el.getAttribute("aria-haspopup") || el.hasAttribute("data-jmk") ||
               (el.closest && el.closest("oj-select-single, oj-combobox-one"))) return;   // a popup DROPDOWN, not a toggle option
       if (!vis(el) || el.querySelector("input")) return;

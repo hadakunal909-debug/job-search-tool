@@ -52,6 +52,17 @@ function makePage(url, html) {
     return { width: 180, height: 30, top: 10, left: 10, bottom: 40, right: 190 };
   };
   w.Element.prototype.scrollIntoView = function () {};
+  // Same reason as the rect stub: jsdom has no layout, so offsetParent is ALWAYS null. The filler uses
+  // `offsetParent !== null` as its is-this-on-screen test for buttons, so without this every gate and
+  // submit button reads as hidden and nothing is ever clicked.
+  Object.defineProperty(w.HTMLElement.prototype, "offsetParent", {
+    configurable: true,
+    get: function () {
+      var s = w.getComputedStyle(this);
+      if (s.display === "none" || s.visibility === "hidden") return null;
+      return this.parentElement || w.document.body;
+    }
+  });
   vm.runInContext(FILLER, dom.getInternalVMContext());
   return w;
 }
@@ -307,6 +318,69 @@ async function main() {
   const r2 = await s2.jmApplyAnswers(s2.jmMatchLearned(snap2, { "preferred pronouns": { value: "Ze/Zir" } }));
   eq(r2.applied, 0, "a stale saved option is reported as NOT applied");
   eq(s2.document.getElementById("q3").textContent.trim(), "Select One", "and the dropdown is left untouched");
+
+  // ------------------------------------------------- 8. Salesforce Experience Cloud (shadow DOM)
+  // Reproduces what was read off apply.actalentservices.com: the form lives inside nested shadow
+  // roots, every input is label-hidden with a generated id and NO name, and the only thing that says
+  // what a field is, is data-id on an ancestor shadow HOST. A light-DOM-only filler sees nothing here.
+  console.log("\nSalesforce Experience Cloud — the whole form is inside shadow roots");
+  const sf = makePage("https://apply.actalentservices.com/v1/s?opco=ENS", "<div id='root'></div>");
+  (function buildLwcForm() {
+    const D = sf.document, root = D.getElementById("root");
+    function field(dataId, placeholder, type) {
+      const outer = D.createElement("c-lwc-text-inputs");
+      if (dataId) outer.setAttribute("data-id", dataId);
+      const os = outer.attachShadow({ mode: "open" });
+      const li = D.createElement("lightning-input");
+      li.setAttribute("variant", "label-hidden");
+      const is = li.attachShadow({ mode: "open" });
+      const inp = D.createElement("input");
+      inp.className = "slds-input";
+      inp.type = type || "text";
+      inp.id = "input-" + Math.floor(Math.random() * 9000 + 1000);
+      if (placeholder) inp.setAttribute("placeholder", placeholder);
+      is.appendChild(inp); os.appendChild(li); root.appendChild(outer);
+      return inp;
+    }
+    sf.__f = {
+      first: field(null, "First Name"), last: field(null, "Last Name"),
+      email: field("email", "Email Address"), phone: field("phone", "Phone Number", "tel"),
+      street: field("street1", "123 Main St."), city: field("city", "Beverly Hills"),
+      zip: field("zipcode", "90210")
+    };
+  })();
+  eq(sf.jmDetectAts(), "salesforce", "detected from the Lightning custom elements alone");
+  eq(sf.document.querySelectorAll("input").length, 0, "light DOM really does contain zero inputs");
+  const sres = await sf.jmFillApplication(PROFILE);
+  eq(sres.ats, "salesforce", "salesforce adapter selected");
+  eq(sf.__f.first.value, "Kunal", "first name (by placeholder)");
+  eq(sf.__f.last.value, "Hada", "last name (by placeholder)");
+  eq(sf.__f.email.value, "hada.k@northeastern.edu", "email");
+  eq(sf.__f.phone.value, "+1 617 555 0134", "phone");
+  eq(sf.__f.street.value, "12 Fenway", 'address (host data-id="street1")');
+  eq(sf.__f.city.value, "Boston", 'city (host data-id="city")');
+  eq(sf.__f.zip.value, "02115", 'zip (host data-id="zipcode") — not swallowed by the email selector');
+
+  // ------------------------------------------------- 9. SuccessFactors hosts + the dropdown gate
+  console.log("\nSuccessFactors — applicant portal hosts and the Apply dropdown");
+  eq(makePage("https://career41.sapsf.com/careers?company=teradynein", "<div>x</div>").jmDetectAts(),
+     "successfactors", "sapsf.com is SuccessFactors (verified live: this is where the form is)");
+  eq(makePage("https://career5.successfactors.eu/careers?company=paccarinc", "<div>x</div>").jmDetectAts(),
+     "successfactors", "successfactors.EU too, not just .com");
+  const rmk = makePage("https://jobs.netapp.com/job/Bellevue-Principal-Software-Engineer/1408968500", `
+    <button class="btn btn-primary dropdown-toggle" data-toggle="dropdown"
+            aria-haspopup="true" aria-label="Apply now">Apply now</button>
+    <ul class="dropdown-menu">
+      <li><a href="#" id="li-apply">Start apply with LinkedIn</a></li>
+      <li><a href="#" id="plain-apply">Apply Now</a></li>
+    </ul>
+  `);
+  let clickedId = "";
+  ["li-apply", "plain-apply"].forEach((id) => {
+    rmk.document.getElementById(id).addEventListener("click", function () { clickedId = id; });
+  });
+  eq(rmk.jmClickApply(), true, "the RMK dropdown gate is handled");
+  eq(clickedId, "plain-apply", 'clicks "Apply Now", never "Start apply with LinkedIn" (an SSO popup)');
 
   console.log("\n" + (fail ? "FAILED " + fail + " of " + (pass + fail) : "All " + pass + " ATS-adapter checks passed"));
   process.exit(fail ? 1 : 0);
