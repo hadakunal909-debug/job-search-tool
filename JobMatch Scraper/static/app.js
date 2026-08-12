@@ -621,6 +621,126 @@
       if (have.indexOf(wanted[i]) !== -1) return true;
     return false;
   }
+  // ---- search: typo-tolerant matching + relevance ----
+  // TWIN ALERT: web.py has byte-for-byte equivalents (searchHit / searchRank / _within), and
+  // scripts/feed_parity.py runs both over the same corpus. Change one, change the other.
+  // A function, not a module-level const: feed_parity.py lifts app.js's pure functions by
+  // source text, and a bare `var RE = /.../` would not travel with them.
+  function searchSplit(s) { return s.split(/[^a-z0-9+#.]+/).filter(Boolean); }
+  // Damerau (optimal string alignment), not plain Levenshtein: an adjacent SWAP is the commonest
+  // typo and plain Levenshtein charges two edits for it, so "anaylst" would never have reached
+  // "analyst" at a 7-character term's tolerance of 1. Bounded, with an early exit.
+  function _within(a, b, k) {
+    var la = a.length, lb = b.length, i, j;
+    if (Math.abs(la - lb) > k) return false;
+    if (a === b) return true;
+    var inf = k + 1, prev2 = null, prev = [], cur;
+    for (j = 0; j <= lb; j++) prev[j] = j;
+    for (i = 1; i <= la; i++) {
+      cur = [];
+      for (j = 0; j <= lb; j++) cur[j] = inf;
+      cur[0] = i;
+      var lo = Math.max(1, i - k), hi = Math.min(lb, i + k), best = inf;
+      for (j = lo; j <= hi; j++) {
+        var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        var v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        if (i > 1 && j > 1 && a.charAt(i - 1) === b.charAt(j - 2) && a.charAt(i - 2) === b.charAt(j - 1))
+          v = Math.min(v, prev2[j - 2] + 1);  // the transposition
+        cur[j] = v;
+        if (v < best) best = v;
+      }
+      if (best > k) return false;             // no cell on this row can still reach k
+      prev2 = prev; prev = cur;
+    }
+    return prev[lb] <= k;
+  }
+  function searchTol(term) {                  // typos forgiven, by length. Under 4: none.
+    var n = term.length;
+    return n >= 8 ? 2 : (n >= 4 ? 1 : 0);
+  }
+  // Shared by searchHit (does this row match?) and searchRank (where does it go?), so the two can
+  // never disagree about what counted as a match.
+  // _within is pure and its arguments repeat enormously: across a whole corpus the same handful
+  // of title words is compared against the same query term thousands of times. Bounded, and
+  // cleared wholesale rather than evicted one by one — the contents are worthless once cold.
+  // The cache hangs off the function itself and is created on first call, so this stays a single
+  // self-contained declaration — feed_parity.py lifts app.js's pure functions by source text, and
+  // a companion `var CACHE = {}` outside the function would not travel with it.
+  function _withinMemo(a, b, k) {
+    if (!_withinMemo.c) { _withinMemo.c = Object.create(null); _withinMemo.n = 0; }
+    var key = a + " " + b + " " + k, hit = _withinMemo.c[key];
+    if (hit === undefined) {
+      if (_withinMemo.n >= 60000) { _withinMemo.c = Object.create(null); _withinMemo.n = 0; }
+      hit = _withinMemo.c[key] = _within(a, b, k);
+      _withinMemo.n++;
+    }
+    return hit;
+  }
+  function termHit(hay, words, term) {
+    if (hay.indexOf(term) !== -1) return true; // covers prefixes and infixes for free
+    var tol = searchTol(term);
+    if (!tol) return false;
+    for (var w = 0; w < words.length; w++) {
+      var word = words[w];
+      // Length window is free (edit distance is at least the length difference); the first-letter
+      // gate trades forgiving a typo in character one — the rare case — for removing ~95% of
+      // candidate words before any distance is computed.
+      if (word.charAt(0) !== term.charAt(0)) continue;
+      if (Math.abs(word.length - term.length) > tol) continue;
+      if (_withinMemo(word, term, tol)) return true;
+    }
+    return false;
+  }
+  // `words` is the haystack already tokenised. matches() passes a per-row cache; everyone else
+  // omits it and it is computed LAZILY, so a correctly spelled query — where every term is a
+  // plain substring — never tokenises anything at all.
+  function searchHit(hay, q, words) {
+    if (!q) return true;
+    if (hay.indexOf(q) !== -1) return true;   // phrase match: the old behaviour, still first
+    var terms = searchSplit(q);
+    if (!terms.length) return false;
+    if (words === undefined) words = null;
+    for (var i = 0; i < terms.length; i++) {
+      if (hay.indexOf(terms[i]) !== -1) continue;
+      if (words === null) words = searchSplit(hay);
+      if (!termHit(hay, words, terms[i])) return false;
+    }
+    return true;
+  }
+  // BAND says where the query was answered (title phrase > title words > employer/city > typo
+  // only); COVERAGE inside the band says how much of the title the query explains, which is what
+  // keeps "Senior Data Scientist" above "Staff Scientist - Real World Evidence and Data" for
+  // "data scientst". Integer floor division, not rounding: the Python twin has to produce the
+  // identical number and the two languages round halves differently.
+  function searchRank(j, q) {
+    if (!q) return 0;
+    var title = (j.title || "").toLowerCase();
+    var hay = title + " " + (j.company || "").toLowerCase() + " " + (j.location || "").toLowerCase();
+    var terms = searchSplit(q), twords = searchSplit(title), i, band = 0;
+    if (title.indexOf(q) !== -1) band = 4;
+    else {
+      var allTitle = terms.length > 0;
+      for (i = 0; i < terms.length; i++) if (!termHit(title, twords, terms[i])) { allTitle = false; break; }
+      if (allTitle) band = 3;
+      else if (hay.indexOf(q) !== -1) band = 2;
+      else {
+        var allHay = terms.length > 0;
+        for (i = 0; i < terms.length; i++) if (hay.indexOf(terms[i]) === -1) { allHay = false; break; }
+        band = allHay ? 1 : 0;
+      }
+    }
+    var cov = 0;
+    if (twords.length && terms.length) {
+      var m = 0;
+      for (var w = 0; w < twords.length; w++) {
+        for (i = 0; i < terms.length; i++) {
+          if (termHit(twords[w], [twords[w]], terms[i])) { m++; break; }
+        }
+      }
+      cov = Math.min(Math.floor(m * 100 / twords.length), 99);
+    }
+    return band * 100 + cov;
+  }
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
@@ -631,9 +751,15 @@
     // SEE Deloitte's jobs, not have them hidden because they score 40%.
     else ok = (st !== "hidden") && (searching || ignoreMin || sc >= minVal);
     // Search covers LOCATION too — "boston" and "remote" are things people type in here.
-    if (ok && searching)
-      ok = ((j.title || "") + " " + (j.company || "") + " " + (j.location || ""))
-        .toLowerCase().indexOf(q.value.toLowerCase().trim()) !== -1;
+    if (ok && searching) {
+      // Cached on the row: DATA outlives every keystroke, so the searchable text and its tokens
+      // are built once per job rather than once per character typed.
+      if (j._sh === undefined) {
+        j._sh = ((j.title || "") + " " + (j.company || "") + " " + (j.location || "")).toLowerCase();
+        j._sw = searchSplit(j._sh);
+      }
+      ok = searchHit(j._sh, q.value.toLowerCase().trim(), j._sw);
+    }
     if (ok && cut) { var dt = rowDate(j); if (dt && dt < cut) ok = false; }
     if (ok && hideNo && hideNo.checked && j.sponsor_jd === "blocked") ok = false;
     // date_trusted is computed server-side by core.is_trusted_date, so this reads a flag
@@ -679,6 +805,12 @@
     var cut = dateCutoff(), matched = [];
     for (var i = 0; i < DATA.length; i++) if (matches(DATA[i], cut)) matched.push(DATA[i]);
     matched.sort(function (a, b) { return sortCmp(a, b, sortBy); });
+    // RELEVANCE FIRST while a search is active, the chosen sort within each band. A separate
+    // stable pass rather than a compound comparator, so the sort you picked still fully decides
+    // the order inside a band and this costs nothing when the box is empty. Array.prototype.sort
+    // is stable (ES2019), which is what makes the two-pass form equal to a compound key.
+    var qs = q && q.value.trim().toLowerCase();
+    if (qs) matched.sort(function (a, b) { return searchRank(b, qs) - searchRank(a, qs); });
     // One row = one card, so `limit` paginates jobs directly.
     var slice = matched.slice(0, limit), html = "";
     for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);

@@ -1151,6 +1151,11 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
   font-size:var(--text-3xs);color:var(--muted)}
 .simmeta b{font-family:var(--font-data);font-variant-numeric:tabular-nums;
   font-size:var(--text-2xs);font-weight:var(--weight-semibold)}
+/* Employer name in the "Similar Roles" rail. It is the one field that varies down that list and
+   the reason to click a row, so it reads darker than the rest of the meta line and is allowed to
+   take the space, with the numbers and location holding their own width beside it. */
+.simco{color:var(--ink);font-weight:var(--weight-medium);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;max-width:11em;flex:0 1 auto}
 .simmeta b.meter-strong{color:var(--match-strong)}
 .simmeta b.meter-good{color:var(--match-good)}
 .simmeta b.meter-weak{color:var(--match-weak)}

@@ -22,6 +22,7 @@ import secrets
 import datetime
 import functools
 import collections
+import math
 
 import gzip as _gzip
 
@@ -899,6 +900,105 @@ def ranked_rows(username, resume):
     return rows
 
 
+# --------------------------- similar roles, across employers ---------------------------
+# The job page's rail only ever offered "more roles at THIS employer", which is the wrong axis:
+# somebody reading a Technical Project Manager posting usually wants technical project management,
+# not more Capgemini. This finds the same ROLE somewhere else.
+#
+# Similarity is cosine over IDF-WEIGHTED title tokens. Raw word overlap does not work on this
+# corpus, and not marginally: "manager" is in 3,000+ titles and "senior" in more, so unweighted
+# matching calls every Manager job equally similar to every other and the rail fills with noise.
+# Weighting by inverse document frequency makes the defining words ("playwright", "pega", "scrum",
+# "salesforce") carry the score while the filler carries almost none.
+_TITLE_WORD = re.compile(r"[a-z0-9][a-z0-9+#.]*")
+# Deliberately short. Seniority and level words ("senior", "ii", "lead") are NOT stopped: they are
+# a real part of what makes two roles similar, and IDF already discounts them for being common.
+_TITLE_STOP = frozenset((
+    "the", "a", "an", "of", "and", "or", "for", "to", "in", "at", "with", "on", "by",
+    "job", "jobs", "role", "roles", "position", "opening", "openings", "career", "careers",
+    "new", "us", "usa", "u.s", "remote", "hybrid", "onsite", "f", "m", "d",
+))
+_title_idx = {"fp": None, "idf": None, "toks": None}
+
+
+def _title_tokens(title):
+    return frozenset(w for w in _TITLE_WORD.findall((title or "").lower())
+                     if len(w) > 1 and w not in _TITLE_STOP)
+
+
+def _title_index(rows):
+    """({token: idf}, {url: tokens}) over every title in the corpus.
+
+    Cached against the jobs fingerprint rather than per user: scores are personal, titles are
+    not. Without the cache this tokenises ~19.5k titles on every job-page render.
+    """
+    fp = _jobs_cache.get("fp")
+    if _title_idx["idf"] is not None and _title_idx["fp"] == fp:
+        return _title_idx["idf"], _title_idx["toks"]
+    toks, df = {}, collections.Counter()
+    for r in rows:
+        t = _title_tokens(r.get("title"))
+        toks[r.get("url")] = t
+        df.update(t)
+    n = max(len(rows), 1)
+    # +1 in the denominator so a token appearing in every title lands at 0 rather than negative.
+    idf = {w: math.log(n / (1.0 + c)) for w, c in df.items()}
+    _title_idx.update(fp=fp, idf=idf, toks=toks)
+    return idf, toks
+
+
+def _similar_roles(row, rows, k=6, min_sim=0.34):
+    """Up to k postings whose TITLE is closest to this one, at OTHER employers, best first."""
+    idf, toks = _title_index(rows)
+    mine = toks.get(row.get("url")) or _title_tokens(row.get("title"))
+    if not mine:
+        return []
+    w_mine = {t: idf.get(t, 0.0) for t in mine}
+    norm_mine = math.sqrt(sum(v * v for v in w_mine.values()))
+    if not norm_mine:
+        return []
+    home = db.block_key(row.get("company") or "")
+    seen, scored = set(), []
+    for r in rows:
+        if r.get("url") == row.get("url") or r.get("closed"):
+            continue
+        # Same employer is excluded on purpose: those get their own rail immediately below, and
+        # duplicating them would spend this list's six slots saying the same thing twice.
+        if db.block_key(r.get("company") or "") == home:
+            continue
+        rt = toks.get(r.get("url"))
+        if not rt:
+            continue
+        shared = mine & rt
+        if not shared:
+            continue
+        # One shared word is a coincidence once titles get long. "Software Engineer, ML Tech
+        # Transfer" and "Paying Transfer Agent Operations Specialist" share only "transfer", which
+        # is rare enough that IDF alone scored it well above the threshold. Short titles are exempt:
+        # "Scrum Master" has two tokens and must still match "Scrum Master".
+        if len(shared) < 2 and len(mine) >= 3 and len(rt) >= 3:
+            continue
+        norm = math.sqrt(sum(idf.get(t, 0.0) ** 2 for t in rt))
+        if not norm:
+            continue
+        # The dot product of two idf-weighted vectors is the sum of idf SQUARED over the shared
+        # tokens. Summing plain idf here scored two identical titles at 0.30 instead of 1.00 --
+        # every exact match fell under the threshold and the rail came back empty.
+        sim = sum(w_mine[t] * w_mine[t] for t in shared) / (norm_mine * norm)
+        if sim < min_sim:
+            continue
+        # One row per (title, employer). The corpus stores one posting per LOCATION, so without
+        # this the rail is routinely six copies of one job in six cities. `rows` arrives in score
+        # order, so the copy kept is the best-scoring one.
+        key = (r.get("title", "").strip().lower(), db.block_key(r.get("company") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        scored.append((sim, r.get("score") or 0, r))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    return [r for _sim, _sc, r in scored[:k]]
+
+
 def _date_cutoff(date_param):
     """ISO date N days ago for the 'Posted within' filter, or '' for 'any'."""
     if not date_param or date_param == "any":
@@ -990,6 +1090,188 @@ def _row_date(r):
 _row_sponsor_rank = core.sponsor_rank
 
 
+# --------------------------- search: typo-tolerant matching + relevance ---------------------------
+# The search box used to be one `q in title+company+location` substring test, so a single slipped
+# key returned nothing at all and there was no notion of a better or worse match — results came
+# back in score order regardless of how well they answered what you typed.
+#
+# TWIN ALERT: app.js has byte-for-byte equivalents of searchHit/searchRank/_within, and
+# scripts/feed_parity.py runs both over the same corpus. Change one, change the other.
+_SEARCH_SPLIT_RE = re.compile(r"[^a-z0-9+#.]+")
+
+
+def searchSplit(s):
+    """Query/haystack -> terms. A function rather than an inline split so it reads the
+    same as its JS twin, which has to be a function to survive feed_parity's lifting."""
+    return [t for t in _SEARCH_SPLIT_RE.split(s) if t]
+
+
+def _within(a, b, k):
+    """Is the edit distance between a and b at most k? Bounded, with an early exit.
+
+    Damerau (optimal string alignment), not plain Levenshtein, because an adjacent SWAP is the
+    most common typo there is and plain Levenshtein charges two edits for it: "anaylst" is one
+    transposition away from "analyst" but two substitutions, so at a 7-character term's tolerance
+    of 1 it would not have matched. Same for "amazno", "teh", "recieve".
+    """
+    la, lb = len(a), len(b)
+    if abs(la - lb) > k:
+        return False
+    if a == b:
+        return True
+    inf = k + 1
+    prev2 = None
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [inf] * (lb + 1)
+        cur[0] = i
+        lo, hi = max(1, i - k), min(lb, i + k)
+        for j in range(lo, hi + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            v = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                v = min(v, prev2[j - 2] + 1)          # the transposition
+            cur[j] = v
+        if min(cur[lo:hi + 1] or [inf]) > k:
+            return False                       # no cell on this row can still reach k
+        prev2, prev = prev, cur
+    return prev[lb] <= k
+
+
+def _search_tol(term):
+    """How many typos to forgive, by term length. Short terms get none: at three letters an edit
+    of one turns 'api' into 'app' and the results stop meaning anything."""
+    n = len(term)
+    if n >= 8:
+        return 2
+    if n >= 4:
+        return 1
+    return 0
+
+
+# _within is pure and its arguments repeat enormously: over a 20k-row corpus the same handful of
+# title words ("engineer", "manager", "analyst") is compared against the same query term tens of
+# thousands of times. Measured on "software engineer": 17,622 calls, a few hundred distinct pairs.
+# Bounded so a long-lived worker cannot grow without limit; cleared wholesale rather than evicted
+# one at a time, because the contents are worth nothing once they stop being hot.
+_WITHIN_MEMO = {}
+_WITHIN_MEMO_MAX = 60000
+
+
+def _within_memo(a, b, k):
+    key = (a, b, k)
+    hit = _WITHIN_MEMO.get(key)
+    if hit is None:
+        if len(_WITHIN_MEMO) >= _WITHIN_MEMO_MAX:
+            _WITHIN_MEMO.clear()
+        hit = _WITHIN_MEMO[key] = _within(a, b, k)
+    return hit
+
+
+def termHit(hay, words, term):
+    """Does one query term appear in this haystack, allowing a typo? Shared by searchHit (which
+    decides IF a row matches) and searchRank (which decides where it lands), so the two can never
+    disagree about what counted as a match."""
+    if term in hay:
+        return True                            # covers prefixes and infixes for free
+    tol = _search_tol(term)
+    if not tol:
+        return False
+    for w in words:
+        # Two cheap gates before the expensive part. The length window is free (edit distance is
+        # at least the length difference). The first-letter gate is a real trade: a typo in the
+        # FIRST character is not forgiven, which is the rare case, and in exchange ~95% of
+        # candidate words are dropped before any distance is computed.
+        if w[0] != term[0] or abs(len(w) - len(term)) > tol:
+            continue
+        if _within_memo(w, term, tol):
+            return True
+    return False
+
+
+# The searchable text of every row, tokenised once per corpus rather than once per request. The
+# split was measured at 133ms of a 488ms search over 20k rows -- pure repeated work, since the
+# titles do not change between keystrokes. Keyed on the jobs fingerprint like _title_index.
+_hay_idx = {"fp": None, "hay": None, "words": None}
+
+
+def _row_haystack(row):
+    """(searchable text, its words) for one row, cached corpus-wide."""
+    fp = _jobs_cache.get("fp")
+    # `is None` on the store, not just a fingerprint comparison: the fingerprint is itself None
+    # before the first snapshot read, so comparing fingerprints alone leaves the maps unbuilt.
+    if _hay_idx["hay"] is None or _hay_idx["fp"] != fp:
+        _hay_idx.update(fp=fp, hay={}, words={})
+    u = row.get("url")
+    h = _hay_idx["hay"].get(u)
+    if h is None:
+        h = ((row.get("title") or "") + " " + (row.get("company") or "") + " " +
+             (row.get("location") or "")).lower()
+        _hay_idx["hay"][u] = h
+        _hay_idx["words"][u] = searchSplit(h)
+    return h, _hay_idx["words"][u]
+
+
+def searchHit(hay, q, words=None):
+    """Does this haystack answer the query? Substring first, then per-term, then typo-tolerant.
+
+    `words` is the haystack already tokenised. Callers with a cache pass it; everyone else leaves
+    it out and it is computed LAZILY, so a correctly spelled query -- where every term is a plain
+    substring -- never tokenises anything at all.
+    """
+    if not q:
+        return True
+    if q in hay:
+        return True                            # phrase match: the old behaviour, still first
+    terms = searchSplit(q)
+    if not terms:
+        return False
+    for term in terms:
+        if term in hay:
+            continue
+        if words is None:
+            words = searchSplit(hay)
+        if not termHit(hay, words, term):
+            return False
+    return True
+
+
+def searchRank(row, q):
+    """Where a matching row belongs in the results, highest first.
+
+    Two parts. The BAND says where the query was answered -- the title as a phrase beats the title
+    as separate words, which beats the employer or city, which beats a match only reachable by
+    forgiving a typo. The COVERAGE inside a band says how much of the title the query actually
+    explains, which is what stops "Staff Scientist - Real World Evidence and Data" outranking
+    "Senior Data Scientist" for "data scientst": both contain both words, but one of them is
+    two-thirds about them and the other is two-sevenths.
+
+    Integer arithmetic throughout, and floor division rather than rounding, because the JS twin
+    has to produce the identical number and the two languages round halves differently.
+    """
+    if not q:
+        return 0
+    title = (row.get("title") or "").lower()
+    hay = title + " " + (row.get("company") or "").lower() + " " + (row.get("location") or "").lower()
+    terms = searchSplit(q)
+    twords = searchSplit(title)
+    if q in title:
+        band = 4
+    elif terms and all(termHit(title, twords, t) for t in terms):
+        band = 3
+    elif q in hay:
+        band = 2
+    elif terms and all(t in hay for t in terms):
+        band = 1
+    else:
+        band = 0
+    cov = 0
+    if twords and terms:
+        m = sum(1 for w in twords if any(termHit(w, (w,), t) for t in terms))
+        cov = min((m * 100) // len(twords), 99)
+    return band * 100 + cov
+
+
 def _filter_rows(rows, statuses, p):
     """Server-side mirror of app.js matches() + sort: filter the ranked rows by the feed
     controls and return a list of (row, status) in display order. `p` is the query args."""
@@ -1028,9 +1310,10 @@ def _filter_rows(rows, statuses, p):
             if not (searching or r["score"] >= minv):   # search bypasses the match floor
                 continue
         # Search covers LOCATION too — "boston" and "remote" are things people type here.
-        if searching and q not in (r["title"] + " " + r["company"] + " " +
-                                   (r.get("location") or "")).lower():
-            continue
+        if searching:
+            _hay, _words = _row_haystack(r)
+            if not searchHit(_hay, q, _words):
+                continue
         if cut:
             rdate = _row_date(r)
             if rdate and rdate < cut:
@@ -1088,6 +1371,11 @@ def _filter_rows(rows, statuses, p):
         out.sort(key=lambda rs: _row_date(rs[0]), reverse=True)
     elif sort == "sponsor":
         out.sort(key=lambda rs: _row_sponsor_rank(rs[0]))
+    # RELEVANCE FIRST while a search is active, the chosen sort within each band. A separate
+    # stable pass rather than a compound key, so the sort you picked still fully decides the
+    # order inside a band and this adds nothing at all when the box is empty.
+    if searching:
+        out.sort(key=lambda rs: -searchRank(rs[0], q))
     return out                                  # else already in score order (rows pre-sorted)
 
 
@@ -1841,6 +2129,9 @@ def job_page():
     # order, so this needs no sort of its own — it just drops the posting being read and takes the
     # head. Six because the rail has to stay shorter than the description beside it.
     similar = [r for r in same_company if r.get("url") != url][:6]
+    # The same ROLE elsewhere, which is usually the more useful sideways jump of the two — so it
+    # sits ABOVE the employer list in the rail. Cheap: the title index is cached corpus-wide.
+    similar_roles = _similar_roles(row, rows)
     brief = _company_brief(company, same_company)
     # Offer the crawl only when there is nothing on file AND it is actually startable: the
     # decision needs the index, the guessed domain, the failure cooldown, the Supabase check and
@@ -1856,7 +2147,7 @@ def job_page():
                    score=0 if pending else int(row.get("score") or 0), pending=pending)
     return render_template(
         "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
-        similar=similar,
+        similar=similar, similar_roles=similar_roles,
         jd_html=jdrender.render_jd(jd, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
         jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
         sec_labels=jdrender.SEC_LABELS,

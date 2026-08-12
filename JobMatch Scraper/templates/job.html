@@ -190,6 +190,29 @@
          rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>
       {% endif %}
 
+      {# The same ROLE at other employers, closest title first. Above the employer list because it
+         is usually the more useful jump: someone reading a Technical Project Manager posting is
+         normally after technical project management, not after more of this company. Employer is
+         shown on every row here — it is the one thing that varies and the reason to click. #}
+      {% if similar_roles %}
+      <h2 class="sechdr">Similar Roles</h2>
+      <ul class="simlist">
+        {% for s in similar_roles %}
+        <li class="simrow" data-route="{{ s.visa_likely if s.sponsor_jd != 'blocked' else 'blocked' }}">
+          <a class="simtitle" href="{{ url_for('job_page') }}?u={{ s.url|urlencode }}">{{ s.title }}</a>
+          <span class="simmeta">
+            <span class="simco">{{ s.company }}</span>
+            {%- if has_resume and not s.score_pending %}
+            <b class="{{ 'meter-strong' if s.score >= 70 else ('meter-good' if s.score >= 40 else 'meter-weak') }}">{{ s.score }}%</b>
+            {%- endif %}
+            {%- if s.loc_state %}<span>{{ s.loc_state }}</span>{% endif %}
+            {%- if s.remote %}<span>Remote</span>{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
       {# Other openings at the same employer, best match first. ranked_rows is already in score
          order, so this is the head of a filtered list rather than a sort. The rail is the right
          home for it: it is a sideways jump, not part of reading this posting. #}
