@@ -34,7 +34,8 @@ your **Applications** tracker, and imports jobs the server-side scraper can't re
   dev/management track, staffing agencies), closed postings are dropped, repeat listings from one
   employer are collapsed, and anything already marked applied is skipped. Newest first. Each job
   opens in its own tab, gets filled, and **stays open** for you to upload the résumé and submit.
-  Tick **Include company career sites beyond the known ATS** for the wider, best-effort net.
+  Employer career domains are now included by default (aggregators like Adzuna/Indeed never are —
+  they only link to a posting they don't host, so there's no form to fill).
 - **📝 Save my answers from this page (train)** — reads how *you* filled the current form and
   saves it to your answer bank, so the next form with the same question fills itself. This also
   happens **passively**: whenever you submit or advance an application form anywhere, the answers
@@ -56,12 +57,27 @@ your **Applications** tracker, and imports jobs the server-side scraper can't re
   they get real match scores. *More tools* shows the last run plus a manual button.
 
 ## Coverage and limits
-- **Tuned adapters:** Greenhouse, Lever, Ashby, SmartRecruiters. Everything else — Workday,
-  iCIMS, Oracle, SuccessFactors, Phenom, Workable, UltiPro, BambooHR, Pinpoint, Rippling,
-  Avature, JobDiva, Recruitee, Breezy, Personio, Jobvite — goes through the **generic adapter**,
-  which handles standard forms plus React comboboxes and custom Yes/No toggle widgets.
-- **Login/account walls** (Workday, iCIMS, Oracle) aren't bypassed. Those jobs still queue by
-  request — the tab opens, you sign in, and the fill runs on what's there.
+- **Tuned adapters:** Workday, Oracle Cloud, iCIMS, Greenhouse, Lever, Ashby, SmartRecruiters —
+  together **~62% of the feed**. Everything else — SuccessFactors, Phenom, Workable, UltiPro,
+  BambooHR, Pinpoint, Rippling, Avature, JobDiva, Recruitee, Breezy, Personio, Jobvite — goes
+  through the **generic adapter**, which handles standard forms plus React comboboxes and custom
+  Yes/No toggle widgets.
+- **Vanity career domains are recognised by fingerprint, not hostname.** About 29% of the corpus
+  sits on employer hostnames (`careers.airbnb.com`, `jobs.sap.com`, `careers-inc.nttdata.com`)
+  fronting a stock ATS, which no host list can enumerate. The extension reads the platform off the
+  page's own markers instead, so the right adapter is used and the Fill button appears even on the
+  job-description page, before the Apply gate is clicked.
+- **Multi-step wizards** (Workday, Oracle, iCIMS — over half the feed) are filled **one step at a
+  time**. The panel shows which step you're on, and when you click **Next** the following step is
+  filled automatically. It never advances or submits a wizard for you, and on a non-final step it
+  doesn't offer Submit at all — there's nothing to submit yet.
+- **Workday specifics:** its dropdowns are `<button aria-haspopup=listbox>` widgets, not `<select>`s,
+  whose options exist only while open and render in a portal at document level. Those are exactly
+  the required fields (phone device type, country, state, source), so they're driven directly — and
+  a pick is only reported filled once the control confirms it, so a miss stays honestly empty rather
+  than silently wrong. They also feed the learned-answer bank like any other field.
+- **Login/account walls** (Workday, iCIMS, Oracle) aren't bypassed. Those jobs still queue — the tab
+  opens, you sign in, and the fill runs on what's there.
 - **CAPTCHAs** are never bypassed. The panel says one is present; you solve it.
 - **Questions it hasn't seen** stay blank until you answer them once — after that they're in your
   bank and fill themselves. The filler self-improves without a model.

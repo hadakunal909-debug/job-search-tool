@@ -60,6 +60,23 @@
       if (seen[label]) return; seen[label] = 1;
       out.push({ label: label, type: type, value: value, options: options });
     });
+    // Workday / Oracle popup dropdowns (<button aria-haspopup=listbox> / <oj-select-single>, never an
+    // <input>). Mirrors the same pass in filler.js jmCaptureFilled — this is what lets the bank learn
+    // a Workday application as you submit it, so the next Workday form fills itself.
+    document.querySelectorAll('button[aria-haspopup="listbox"], [role=combobox][aria-haspopup="listbox"], oj-select-single, oj-combobox-one')
+      .forEach(function (el) {
+        if (!vis(el)) return;
+        var oj = /^OJ-/.test(el.tagName);
+        var c = el.querySelector(oj ? ".oj-select-chosen, .oj-combobox-chosen" : '[data-automation-id="selectedItem"]');
+        var value = ((c ? c.textContent : (oj ? "" : el.textContent)) || "").replace(/\s+/g, " ").trim();
+        if (!value || /^(select one|select a value|select\.\.\.|select|search|choose one|choose)$/i.test(value)) return;
+        var label = lbl(el);
+        var aid = el.getAttribute("data-automation-id");
+        if (!label && aid) label = aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ");
+        if (!label || SENSITIVE.test(label) || seen[label]) return;
+        seen[label] = 1;
+        out.push({ label: label.slice(0, 200), type: oj ? "ojselect" : "listbox", value: value, options: null });
+      });
     // radio / checkbox / ARIA-choice QUESTIONS — robust to forms with no <fieldset>/<legend>.
     (function () {
       var groups = {}, gid = 0, cmap = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
@@ -102,6 +119,8 @@
       var NAV = /\b(submit|continue|next|back|previous|prev|apply|save|cancel|add|remove|delete|upload|browse|edit|search|close|menu|skip|sign in|log in|login)\b/;
       var cand = [];
       document.querySelectorAll('button, [role=radio], [role=button], [role=tab], [role=option], [role=switch]').forEach(function (el) {
+        if (el.getAttribute("aria-haspopup") || el.hasAttribute("data-jmk") ||
+                (el.closest && el.closest("oj-select-single, oj-combobox-one"))) return;   // a popup DROPDOWN, not a toggle option
         if (!vis(el) || el.querySelector("input")) return;
         var t = (el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
         if (!t || t.length > 30 || NAV.test(t.toLowerCase())) return;

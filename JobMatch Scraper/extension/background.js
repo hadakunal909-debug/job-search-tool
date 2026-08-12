@@ -44,6 +44,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }).then((r) => r.json()).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
+  // The review overlay noticed the page move to the next wizard step (Workday/Oracle/iCIMS split one
+  // application across My Information -> Experience -> Questions -> Disclosures). Re-fill the step that
+  // is now on screen. We do it here rather than in the overlay because filling needs MAIN-world
+  // injection, which a content script can't do itself. We never click Next — the user does.
+  if (msg && msg.type === "jm_fill_step") {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (!tabId) { sendResponse({ ok: false, error: "no tab" }); return true; }
+    jmContext().then((ctx) => {
+      if (!ctx) { sendResponse({ ok: false, error: "not signed in" }); return; }
+      return jmFillPass(tabId, ctx.fields || {}, ctx.defaults || {}, ctx.learned || {})
+        .then((r) => sendResponse({ ok: !!r.found, result: r }));
+    }).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
   // Passive "training" capture (autocapture.js): a submitted/advanced application form's answers.
   // We POST from here so the request isn't subject to the apply page's CSP, and we read the token
   // from storage (the content script never sees it). Dropped silently when not signed in. This is how
@@ -106,6 +120,51 @@ async function jmInjectReview(tab, cfg, item, res) {
   } catch (e) {}
 }
 
+// One fill of whatever form is currently on the tab: deterministic profile pass, then the learned-answer
+// pass over what it left empty. No AI, no file, no submit. Shared by the batch runner and by the
+// overlay's wizard step-watcher — a Workday/Oracle/iCIMS step is just another form, so advancing the
+// wizard and re-filling needs no special case beyond running this again.
+async function jmFillPass(tabId, fields, defaults, learned) {
+  const target = { tabId: tabId, allFrames: true };
+  const o1 = await chrome.scripting.executeScript({
+    target: target, world: "MAIN", func: jmFillApplication, args: [{ fields: fields, defaults: defaults }]
+  });
+  let r = (o1 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
+  if (r.found && r.unfilled && r.unfilled.length) {
+    try {
+      const snap = await chrome.scripting.executeScript({ target: target, world: "MAIN", func: jmSnapshotForm });
+      let snapFields = [];
+      (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) snapFields = snapFields.concat(o.result); });
+      JM_Q.lastFields = snapFields;                      // captured for auto-diagnostics on failure
+      const answers = jmMatchLearned(snapFields, learned);        // client-side, NO AI
+      if (Object.keys(answers).length) {
+        await chrome.scripting.executeScript({ target: target, world: "MAIN", func: jmApplyAnswers, args: [answers] });
+        const o2 = await chrome.scripting.executeScript({
+          target: target, world: "MAIN", func: jmFillApplication, args: [{ fields: fields, defaults: defaults }]
+        });
+        r = (o2 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || r;
+      }
+    } catch (e) {}
+  }
+  return r;
+}
+
+// Profile + learned bank, fetched once and reused. The step-watcher fires on every wizard page, and
+// re-fetching the whole bank for each one would be wasteful; 5 min is short enough that answers you
+// just trained still show up on the next step.
+const JM_CTX = { at: 0, ctx: null };
+async function jmContext(force) {
+  if (!force && JM_CTX.ctx && Date.now() - JM_CTX.at < 300000) return JM_CTX.ctx;
+  const st = await new Promise((r) => chrome.storage.local.get(["token", "apibase"], r));
+  if (!st || !st.token) return null;
+  try {
+    const ctx = await fetch(jmApiBase(st.apibase) + "/api/ext/profile_fields?token=" + encodeURIComponent(st.token))
+      .then((r) => r.json());
+    if (ctx && ctx.fields) { JM_CTX.ctx = ctx; JM_CTX.at = Date.now(); return ctx; }
+  } catch (e) {}
+  return null;
+}
+
 async function jmProcessOne(item, cfg) {
   const fields = (cfg.ctx && cfg.ctx.fields) || {};
   const defaults = (cfg.ctx && cfg.ctx.defaults) || {};
@@ -141,33 +200,7 @@ async function jmProcessOne(item, cfg) {
 
     // FILL: deterministic profile pass, then the learned-answer pass for whatever it left empty. No AI,
     // no file — résumé upload + submit are the user's.
-    async function fillPass() {
-      const o1 = await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true }, world: "MAIN",
-        func: jmFillApplication, args: [{ fields: fields, defaults: defaults }]
-      });
-      let r = (o1 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || { found: false };
-      if (r.found && r.unfilled && r.unfilled.length) {
-        try {
-          const snap = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmSnapshotForm });
-          let snapFields = [];
-          (snap || []).forEach((o) => { if (o && Array.isArray(o.result)) snapFields = snapFields.concat(o.result); });
-          JM_Q.lastFields = snapFields;                  // captured for auto-diagnostics on failure
-          const answers = jmMatchLearned(snapFields, learned);   // client-side, NO AI
-          if (Object.keys(answers).length) {
-            await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmApplyAnswers, args: [answers] });
-            const o2 = await chrome.scripting.executeScript({
-              target: { tabId: tab.id, allFrames: true }, world: "MAIN",
-              func: jmFillApplication, args: [{ fields: fields, defaults: defaults }]
-            });
-            r = (o2 || []).map((o) => o && o.result).filter(Boolean).find((x) => x && x.found) || r;
-          }
-        } catch (e) {}
-      }
-      return r;
-    }
-
-    const res = await fillPass();
+    const res = await jmFillPass(tab.id, fields, defaults, learned);
     if (res.login) return { status: "needs_you", reason: "login or account wall. Open the tab to finish" };
     if (!res.found) return { status: "skipped", reason: "no supported form on page" };
 

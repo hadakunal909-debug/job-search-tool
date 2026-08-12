@@ -299,9 +299,18 @@ async function init() {
     const blbl = bulkSiteLabel(tab && tab.url);    // show "import all jobs" only on supported sites
     if (blbl) { $("bulklbl").textContent = blbl; $("bulkwrap").style.display = "block"; }
     else { $("bulkwrap").style.display = "none"; }
-    // Show "Fill" on any known ATS, OR any page where a real application form is detected
-    // (covers company career domains that embed a board + ATS we don't host-match yet).
+    // Show "Fill" on any known ATS host, OR any page that FINGERPRINTS as one, OR any page with a
+    // real application form. The middle test is what covers the ~29% of our feed that lives on
+    // employer vanity domains (careers.airbnb.com, jobs.sap.com) fronting a stock ATS: the hostname
+    // tells you nothing, but the page's own markers do — and it fires on the job-description page,
+    // before the Apply gate is clicked, which jmFormReady alone can't do.
     let showFill = !!applyAts(tab && tab.url);
+    if (!showFill && tab && tab.id) {
+      try {
+        const dd = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: jmDetectAts });
+        showFill = (dd || []).some((o) => o && o.result);
+      } catch (e) {}
+    }
     if (!showFill && tab && tab.id) {
       try {
         const fr = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: jmFormReady });
@@ -388,10 +397,11 @@ function applyAts(url) {
   let h = "";
   try { h = new URL(url).hostname.toLowerCase(); } catch (e) { return ""; }
   // Every ATS the scraper feeds (keep in sync with scraper/__init__.py detect_board + web.py _FILLABLE_HOSTS).
-  // greenhouse/lever/ashby/smartrecruiters have tuned adapters; the rest fall back to filler.js's GENERIC adapter.
-  // This list is only a FAST PATH — most of the corpus now sits on employer domains running
-  // Phenom/SuccessFactors/iCIMS under their own hostname, which no list can enumerate, so init()
-  // also offers the Fill button on any page where jmFormReady finds a real application form.
+  // workday/oracle/icims/greenhouse/lever/ashby/smartrecruiters have tuned adapters; the rest fall back
+  // to filler.js's GENERIC adapter. This list is only a FAST PATH — most of the corpus sits on employer
+  // domains running Workday/Phenom/SuccessFactors/iCIMS under their own hostname, which no list can
+  // enumerate, so init() also fingerprints the page (jmDetectAts) and finally looks for a form
+  // (jmFormReady) before deciding whether to offer the Fill button.
   var ATS = [
     [/greenhouse\.io/, "greenhouse"], [/lever\.co/, "lever"], [/ashbyhq\.com/, "ashby"],
     [/smartrecruiters\.com/, "smartrecruiters"], [/recruitee\.com/, "recruitee"], [/breezy\.hr/, "breezy"],
@@ -400,7 +410,11 @@ function applyAts(url) {
     [/avature\.net/, "avature"], [/jobdiva\.com/, "jobdiva"],
     [/myworkdayjobs\.com|myworkdaysite\.com/, "workday"], [/oraclecloud\.com/, "oracle"],
     [/jibeapply\.com/, "jibe"], [/icims\.com/, "icims"], [/successfactors\.com/, "successfactors"],
-    [/phenompeople\.com/, "phenom"], [/jobvite\.com/, "jobvite"]
+    [/phenompeople\.com/, "phenom"], [/jobvite\.com/, "jobvite"],
+    // scrapers that were missing from this list, plus the platforms filler.js can fingerprint
+    [/amazon\.jobs/, "amazon"], [/paylocity\.com/, "paylocity"], [/metacareers\.com/, "meta"],
+    [/taleo\.net/, "taleo"], [/brassring\.com/, "brassring"],
+    [/dayforcehcm\.com/, "dayforce"], [/workforcenow\.adp\.com/, "adp"]
   ];
   for (var i = 0; i < ATS.length; i++) if (ATS[i][0].test(h)) return ATS[i][1];
   return "";
