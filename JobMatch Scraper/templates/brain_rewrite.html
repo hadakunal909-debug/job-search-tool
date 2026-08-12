@@ -16,6 +16,7 @@
   <div class="card">
     <div class="row between"><h2>Tailored Résumé</h2><button class="btn" type="button" data-copy="#resumeText">Copy</button></div>
     <form method="post" action="{{ url_for('brain_export_resume') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <textarea id="resumeText" name="content" rows="22" class="mono">{{ out.tailored_resume }}</textarea>
       <input type="hidden" name="title" value="{{ ctx.name or 'Tailored Résumé' }}">
       <div class="row">
@@ -29,6 +30,7 @@
   <div class="card">
     <div class="row between"><h2>Cover Letter</h2><button class="btn" type="button" data-copy="#coverText">Copy</button></div>
     <form method="post" action="{{ url_for('brain_export_cover') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <textarea id="coverText" name="content" rows="16">{{ out.cover_letter }}</textarea>
       <div class="row"><button class="btn primary" type="submit">Download .docx</button></div>
     </form>

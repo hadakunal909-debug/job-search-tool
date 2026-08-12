@@ -11,6 +11,7 @@
   </div>
 {% endif %}
 <form method="post" class="addform">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <input name="url" placeholder="https://job-boards.greenhouse.io/figma" required>
   <input name="name" placeholder="Company name (optional)">
   <button class="btn primary" type="submit">Check &amp; add</button>
@@ -22,6 +23,7 @@
   <div><b>{{ b.company or 'None' }}</b><br><span class="muted">{{ b.url }}</span></div>
   <span class="muted">{{ b.ats_type }}</span>
   <form method="post" action="{{ url_for('board_delete') }}" class="inline">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="url" value="{{ b.url }}"><button class="btn" type="submit">Remove</button>
   </form>
 </div>

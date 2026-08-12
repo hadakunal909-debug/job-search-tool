@@ -22,6 +22,7 @@
      never arrives, which fails silently rather than erroring. #}
   <form id="add-resume" class="addbox" method="post" enctype="multipart/form-data"
         action="{{ url_for('brain_resume_save') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label>Name <input type="text" name="name" placeholder="e.g. PM-focused résumé"></label>
     <label>Upload a file <span class="muted">(PDF, Word or plain text. The text is extracted and the
       file itself is not stored)</span>
@@ -41,11 +42,13 @@
         <div class="row-actions">
           <button type="button" class="btn sm edit-toggle" data-target="ed-r-{{ r.id }}">Edit</button>
           <form method="post" action="{{ url_for('brain_resume_delete') }}" class="inline" data-confirm="Delete this résumé?">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <input type="hidden" name="id" value="{{ r.id }}"><button class="btn sm danger" type="submit">Delete</button>
           </form>
         </div>
       </div>
       <form id="ed-r-{{ r.id }}" class="addbox" method="post" action="{{ url_for('brain_resume_save') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <input type="hidden" name="id" value="{{ r.id }}">
         <label>Name <input type="text" name="name" value="{{ r.name }}"></label>
         <label>Content <textarea name="content" rows="12" class="mono">{{ r.content }}</textarea></label>
@@ -71,6 +74,7 @@
     relevant stories per job and weaves them into your tailored résumé.</p>
 
   <form id="add-story" class="addbox" method="post" action="{{ url_for('brain_story_save') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label>Title <input type="text" name="title" placeholder="e.g. Government automation project"></label>
     <label>Tags <span class="muted">(comma-separated)</span>
       <input type="text" name="tags" placeholder="agile, stakeholders, fintech"></label>
@@ -92,11 +96,13 @@
         <div class="row-actions">
           <button type="button" class="btn sm edit-toggle" data-target="ed-s-{{ s.id }}">Edit</button>
           <form method="post" action="{{ url_for('brain_story_delete') }}" class="inline" data-confirm="Delete this story?">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <input type="hidden" name="id" value="{{ s.id }}"><button class="btn sm danger" type="submit">Delete</button>
           </form>
         </div>
       </div>
       <form id="ed-s-{{ s.id }}" class="addbox" method="post" action="{{ url_for('brain_story_save') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <input type="hidden" name="id" value="{{ s.id }}">
         <label>Title <input type="text" name="title" value="{{ s.title }}"></label>
         <label>Tags <input type="text" name="tags" value="{{ s.tags | join(', ') }}"></label>
@@ -124,6 +130,7 @@
     automatically from your feedback on the Tailor page.</p>
 
   <form id="add-lesson" class="addbox" method="post" action="{{ url_for('brain_lesson_save') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label>Rule <input type="text" name="text" placeholder="e.g. Always quantify results with % or $."></label>
     <label>Apply when job mentions <span class="muted">(comma-separated; blank = always)</span>
       <input type="text" name="triggers" placeholder="fintech, payments"></label>
@@ -140,6 +147,7 @@
           {% if l.triggers %}<div class="muted small">when job mentions: {{ l.triggers | join(', ') }}</div>{% endif %}</div>
         <div class="row-actions">
           <form method="post" action="{{ url_for('brain_lesson_delete') }}" class="inline" data-confirm="Delete this lesson?">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <input type="hidden" name="id" value="{{ l.id }}"><button class="btn sm danger" type="submit">Remove</button>
           </form>
         </div>

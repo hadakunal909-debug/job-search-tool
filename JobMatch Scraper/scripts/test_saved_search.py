@@ -32,10 +32,17 @@ db.get_profile = lambda u: dict(STORE)
 db.save_profile = lambda u, payload: (STORE.update(payload), (True, ""))[1]
 
 
+# Cookie-authenticated writes now require a CSRF token (web.py _require_csrf), exactly as a real
+# browser sends one — from a hidden _csrf field on forms, or an X-CSRF-Token header from fetch().
+# Seed the same value both ways so these tests exercise the path the app actually uses.
+CSRF = "test-token"
+
+
 def client():
     c = web.app.test_client()
     with c.session_transaction() as s:
         s["user"] = USER
+        s["_csrf"] = CSRF
     return c
 
 
@@ -56,7 +63,7 @@ print("=" * 78)
 print("POST /prefs saves a search")
 print("=" * 78)
 c = client()
-r = c.post("/prefs", json={"min": 35, "loc": "boston", "remote": False, "minsal": 0,
+r = c.post("/prefs", headers={"X-CSRF-Token": CSRF}, json={"min": 35, "loc": "boston", "remote": False, "minsal": 0,
                            "hideagency": True, "everify": False, "hidenospon": True,
                            "exp": "5", "intern": "no", "date": "90", "sort": "newest"})
 check("200", r.status_code == 200)
@@ -110,7 +117,7 @@ print()
 print("=" * 78)
 print("garbage from a browser can't poison the saved search")
 print("=" * 78)
-r = client().post("/prefs", json={"min": "9999", "exp": "'; drop table jobs;--",
+r = client().post("/prefs", headers={"X-CSRF-Token": CSRF}, json={"min": "9999", "exp": "'; drop table jobs;--",
                                   "loc": "x" * 900, "date": "banana", "alerts": "hourly"})
 p = (r.get_json() or {}).get("prefs") or {}
 check("min clamped", p.get("min") == 100, repr(p.get("min")))
@@ -125,7 +132,8 @@ print("profile page alert controls round-trip into search_prefs")
 print("=" * 78)
 STORE.clear()
 c = client()
-r = c.post("/profile", data={"alerts": "daily", "alert_min": "55", "email": "me@example.test"})
+r = c.post("/profile", data={"_csrf": CSRF, "alerts": "daily", "alert_min": "55",
+                            "email": "me@example.test"})
 check("redirects", r.status_code in (302, 303))
 sp = core.normalize_prefs(STORE.get("search_prefs"))
 check("alerts=daily stored", sp.get("alerts") == "daily", repr(sp.get("alerts")))
@@ -140,7 +148,7 @@ print("saving a profile must not clobber an existing saved search")
 print("=" * 78)
 STORE.clear()
 STORE["search_prefs"] = {"alerts": "daily", "min": 33, "loc": "boston"}
-client().post("/profile", data={"alerts": "daily", "email": "me@example.test"})
+client().post("/profile", data={"_csrf": CSRF, "alerts": "daily", "email": "me@example.test"})
 sp = core.normalize_prefs(STORE.get("search_prefs"))
 check("loc survived a profile save", sp.get("loc") == "boston", repr(sp.get("loc")))
 check("min survived a profile save", sp.get("min") == 33, repr(sp.get("min")))

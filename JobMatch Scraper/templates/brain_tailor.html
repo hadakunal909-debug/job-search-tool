@@ -13,6 +13,7 @@
 </div>
 
 <form method="post" action="{{ url_for('brain_tailor') }}" id="tailorForm" class="card">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <h2>Tailor to a Job</h2>
   <p class="muted small u-mt-050">Paste a job description or pick one from your feed below.</p>
 
@@ -67,6 +68,7 @@
     <h2>Stories to Feature</h2>
     <p class="muted small">Check the ones you'll use and the brain weights them for jobs like this from now on. Add a note to teach it something specific.</p>
     <form method="post" action="{{ url_for('brain_feedback') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="jd_terms" value="{{ r.jd_terms | join(',') }}">
       <input type="hidden" name="company" value="{{ data.company_name }}">
       {% if r.stories %}
@@ -89,6 +91,7 @@
     <h2>Write it for me <span class="muted small">(optional AI)</span></h2>
     <p class="muted small">Turn the plan into a finished tailored résumé <em>and</em> cover letter, grounded in your real material. Uses your Gemini key; the matching core stays AI-free.</p>
     <form method="post" action="{{ url_for('brain_rewrite') }}" id="rewriteForm">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="company" value="{{ inputs.company }}">
       <input type="hidden" name="company_url" value="{{ inputs.company_url }}">
       <input type="hidden" name="job_url" value="{{ inputs.job_url }}">

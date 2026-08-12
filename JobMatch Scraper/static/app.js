@@ -741,6 +741,14 @@
     }
     return band * 100 + cov;
   }
+  // CSRF. The server now requires a token on cookie-authenticated state changes; forms carry a
+  // hidden _csrf field, and these fetch() calls send the same value as a header. Read from the
+  // meta tag in base.html because this file is static and cannot be templated.
+  function csrfToken() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute("content") : "";
+  }
+
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
@@ -1153,7 +1161,7 @@
   }
 
   function doAction(url, next) {
-    return fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next }) })
+    return fetch("/api/action", { method: "POST", headers: { "X-CSRF-Token": csrfToken(),  "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next }) })
       .then(function (r) { return r.json(); }).then(function (j) {
         if (!j || !j.ok) { toast("Couldn't save. Try again."); return false; }
         return true;
@@ -1335,7 +1343,7 @@
     savePrefsBtn.classList.add("is-loading");
     savePrefsBtn.setAttribute("aria-busy", "true");
     fetch("/prefs", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "X-CSRF-Token": csrfToken(),  "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }).then(function (r) { return r.json(); }).then(function (d) {
       doneSaving();
@@ -1472,7 +1480,7 @@
     e.preventDefault();
     if (sBtn) sBtn.disabled = true;
     if (sBar) { setShown(sBar, true); indet(true); if (sLabel) sLabel.textContent = "Starting…"; if (sMeta) sMeta.textContent = ""; }
-    fetch("/scrape", { method: "POST", headers: { "X-Requested-With": "fetch" } }).then(function (r) { return r.json(); }).then(function (j) {
+    fetch("/scrape", { method: "POST", headers: { "X-CSRF-Token": csrfToken(),  "X-Requested-With": "fetch" } }).then(function (r) { return r.json(); }).then(function (j) {
       if (!j || !j.ok) { toast((j && j.msg) || "Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; setShown(sBar, false); return; }
       toast("Scrape started on GitHub Actions."); startScrapePolling();
     }).catch(function () { toast("Couldn't start the scrape."); if (sBtn) sBtn.disabled = false; setShown(sBar, false); });
