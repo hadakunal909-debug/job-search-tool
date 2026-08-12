@@ -110,36 +110,45 @@
         </div>
       </div>
 
-      {# ---- 2. THE DESCRIPTION. This is what the click was for, so it comes first. ---- #}
-      <h2 class="sechdr">Job Description</h2>
-      {% if not has_jd %}
-      <p class="coprose">No description is stored for this posting yet. Open Apply to read it on
-        the employer's own site.</p>
-      {% else %}
-      {% if jd_jumps %}
-      <nav class="jdjump" aria-label="Jump to a section of the description">
-        {% for key, label in jd_jumps %}<a href="#jdsec-{{ key }}">{{ label }}</a>{% endfor %}
-      </nav>
-      {% endif %}
-      {% if have or missing %}
-      <p class="kwlegend"><mark class="kw-have">Green</mark> is a keyword you already match.
-        <mark class="kw-miss">Red</mark> is one worth adding.</p>
-      {% endif %}
-      <div class="jd">{{ jd_html|safe }}</div>
-      {% endif %}
+      {# ---- 2. THE DESCRIPTION, with the keywords beside it on a wide screen ----
+         One grid, two children, and the DOM order is the narrow order: description then keywords.
+         Beside is better than below for these lists — they are reference material you want in view
+         WHILE reading the description, not a footnote after it — and it is what stops a capped
+         reading measure leaving a hole in the middle of a 1920px page. #}
+      <div class="jdcols">
+        <div class="jdcol-main">
+          <h2 class="sechdr">Job Description</h2>
+          {% if not has_jd %}
+          <p class="coprose">No description is stored for this posting yet. Open Apply to read it on
+            the employer's own site.</p>
+          {% else %}
+          {% if jd_jumps %}
+          <nav class="jdjump" aria-label="Jump to a section of the description">
+            {% for key, label in jd_jumps %}<a href="#jdsec-{{ key }}">{{ label }}</a>{% endfor %}
+          </nav>
+          {% endif %}
+          {% if have or missing %}
+          <p class="kwlegend"><mark class="kw-have">Green</mark> is a keyword you already match.
+            <mark class="kw-miss">Red</mark> is one worth adding.</p>
+          {% endif %}
+          <div class="jd">{{ jd_html|safe }}</div>
+          {% endif %}
+        </div>
 
-      {# ---- 3. the keywords, as lists, after the prose they refer to ---- #}
-      {% if have or missing %}
-      <h2 class="sechdr">Keywords in This Description</h2>
-      {% if missing %}
-      <p class="coprose small">Worth adding to your résumé</p>
-      <div class="kw">{% for k in missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
-      {% endif %}
-      {% if have %}
-      <p class="coprose small">Already in your profile</p>
-      <div class="kw">{% for k in have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
-      {% endif %}
-      {% endif %}
+        {% if have or missing %}
+        <div class="jdcol-kw">
+          <h2 class="sechdr">Keywords in This Description</h2>
+          {% if missing %}
+          <p class="coprose small">Worth adding to your résumé</p>
+          <div class="kw">{% for k in missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
+          {% endif %}
+          {% if have %}
+          <p class="coprose small">Already in your profile</p>
+          <div class="kw">{% for k in have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
 
       <h2 class="sechdr">Tailor Your Résumé</h2>
       <p class="coprose">Resume Brain reads this description, ranks your stored résumés and stories
