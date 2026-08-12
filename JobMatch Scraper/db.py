@@ -791,10 +791,58 @@ def row_age_date(r):
             or str(r.get("first_seen") or "")[:10])
 
 
-def stale_urls(days=30):
+# ------------------------------------------------------------------
+# THE FRESHNESS POLICY'S SHARED HALF.
+#
+# Two gates enforce one policy: scraper.MAX_AGE_DAYS refuses stale postings on the way IN, and
+# prune_old_jobs deletes stale rows already stored. scraper's own comment is emphatic that if the
+# two numbers disagree the corpus drifts to whichever is looser, so the EXEMPTION has to live
+# somewhere both can read. That is here, in the lower layer both import.
+#
+# Getting this one-sided is not a small bug, it is a silent no-op: intake would admit a 44-day-old
+# Amazon row and the prune at the end of the very same run would delete it again, for ever, with
+# nothing in either log looking wrong.
+#
+# WHAT EARNS A LONGER WINDOW. Both properties have to hold, or an old date cannot be interpreted:
+#   * the source publishes a REAL posting date, not a derived guess, so the age is measurable at
+#     all (see core.is_trusted_date for what a derived date looks like)
+#   * the source only serves LIVE requisitions, so an old date means "open a long time" rather
+#     than "nobody took the listing down"
+# amazon.jobs/search.json satisfies both: it stamps an exact posted_date and its search only
+# returns open reqs. Amazon also routinely leaves a req open for months, which is why 60% of its
+# supply-chain family was being dropped on age alone (measured 2026-08-12: 70 of 116).
+#
+# Do NOT add a generic ATS host here. Greenhouse, Lever and the rest happily serve a board whose
+# owner never closed a filled role, which is exactly what the 30-day default is for.
+LONG_LIVED_HOSTS = frozenset({"www.amazon.jobs", "amazon.jobs"})
+AGE_LONG_DAYS = int(os.environ.get("MAX_AGE_DAYS_LONG", "90") or 0)
+
+
+def _url_host(u):
+    try:
+        from urllib.parse import urlparse
+        return (urlparse(u or "").hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def is_long_lived(url):
+    """Does this posting's source get the longer freshness window?"""
+    return _url_host(url) in LONG_LIVED_HOSTS
+
+
+def stale_urls(days=30, long_days=None):
     """URLs whose row_age_date is older than `days`. Rows with no date of any kind are left
-    alone — we can't prove they're stale, so we don't guess."""
+    alone — we can't prove they're stale, so we don't guess.
+
+    Rows from LONG_LIVED_HOSTS are judged against `long_days` instead (default AGE_LONG_DAYS).
+    Pass long_days=0 to hold everything to the one window.
+    """
+    if long_days is None:
+        long_days = AGE_LONG_DAYS
     cutoff = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
+    long_cutoff = ((datetime.date.today() - datetime.timedelta(days=int(long_days))).isoformat()
+                   if long_days else cutoff)
     if using_supabase():
         rows = None
         # first_seen / posted_verified may not exist yet (see SUPABASE_PENDING_MIGRATION.sql);
@@ -812,18 +860,22 @@ def stale_urls(days=30):
     out = []
     for r in rows:
         u, d = r.get("url"), row_age_date(r)
-        if u and d and d < cutoff:
+        if u and d and d < (long_cutoff if is_long_lived(u) else cutoff):
             out.append(u)
     return out, cutoff
 
 
-def prune_old_jobs(days=60, dry_run=False, protect_flagged=True, progress=None):
+def prune_old_jobs(days=60, dry_run=False, protect_flagged=True, progress=None, long_days=None):
     """Delete jobs older than `days` (by row_age_date), EXCEPT any a user has flagged — keeps
     the corpus fresh and the DB bounded as the wider net grows it. Returns how many were
     removed, or would be for dry_run. Defensive: never raises (a failed prune must not abort
-    the scrape)."""
+    the scrape).
+
+    `long_days` is the window for LONG_LIVED_HOSTS and must match the one the intake gate used;
+    see the note above stale_urls for why a mismatch is a silent no-op rather than a small bug.
+    """
     try:
-        old, _cut = stale_urls(days)
+        old, _cut = stale_urls(days, long_days=long_days)
         to_delete = list(old)
         if protect_flagged:
             flagged = all_flagged_urls()               # protect liked/applied/hidden

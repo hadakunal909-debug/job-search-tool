@@ -31,16 +31,24 @@ def main():
     ap.add_argument("--apply", action="store_true", help="actually delete (default: dry run)")
     ap.add_argument("--include-flagged", action="store_true",
                     help="also delete jobs you've liked / applied to / hidden")
+    # Defaults to db.AGE_LONG_DAYS so a hand-run purge cannot quietly undo the exemption the
+    # scrape's intake gate applied. --long-days 0 holds every source to --days.
+    ap.add_argument("--long-days", type=int, default=db.AGE_LONG_DAYS,
+                    help="window for long-lived boards (%s); 0 = same as --days"
+                         % ", ".join(sorted(db.LONG_LIVED_HOSTS)))
     a = ap.parse_args()
 
     total = len(db.existing_urls())
-    stale, cutoff = db.stale_urls(a.days)
+    stale, cutoff = db.stale_urls(a.days, long_days=a.long_days)
     flagged = db.all_flagged_urls()
     protected = [u for u in stale if u in flagged]
     doomed = stale if a.include_flagged else [u for u in stale if u not in flagged]
 
     print("rows in table      : %d" % total)
     print("cutoff             : %s  (older than %d days)" % (cutoff, a.days))
+    if a.long_days and a.long_days != a.days:
+        print("long-lived cutoff  : %d days for %s"
+              % (a.long_days, ", ".join(sorted(db.LONG_LIVED_HOSTS))))
     print("stale              : %d" % len(stale))
     print("  saved/applied/hidden among them: %d  (%s)"
           % (len(protected), "WILL BE DELETED" if a.include_flagged else "protected"))
