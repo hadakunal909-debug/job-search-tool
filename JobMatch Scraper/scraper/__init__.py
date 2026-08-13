@@ -4925,21 +4925,39 @@ def _norm_name(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
-def build_sponsor_index(names):
-    """Pre-normalize the sponsor list once so per-job lookups are fast."""
-    return {"raw": names, "norm": {_norm_name(n) for n in names}}
+def build_sponsor_index(names, wide=None):
+    """Pre-normalize the sponsor list once so per-job lookups are fast.
+
+    `wide` is an optional set of ALREADY-NORMALISED keys from the federal indexes
+    (visa_tags + sponsor_counts). It is matched EXACTLY and never fuzzily. At 77k/118k
+    entries a fuzzy pass is both too slow to run per company and far too eager: the
+    nearest key to "Affinity" is "affinity aeronautical solutions" and the nearest to
+    "Adaptive Innovations" is "adaptive health" — different companies, both would flag.
+    """
+    return {"raw": names, "norm": {_norm_name(n) for n in names}, "wide": set(wide or ())}
 
 
 _sponsor_cache = {}
 
 def sponsors_h1b(company, sponsor_index):
-    """True if `company` looks like a known H1B sponsor. Normalized exact match is
-    the fast path (works even on a huge DOL list); for a SMALL list we also try
-    fuzzy matching so e.g. 'Meta' still matches 'Meta Platforms'. Cached per company."""
+    """True if `company` looks like a known H1B sponsor. Cached per company.
+
+    Three tiers, cheapest first:
+      1. exact normalised match against sponsors.txt;
+      2. exact normalised match against the federal indexes (`wide`), which is where
+         nearly all the coverage lives — sponsors.txt holds ~620 names against
+         visa_tags' ~77k. Measured over the live corpus, tier 1 alone resolved 277 of
+         1,682 employers and tier 2 adds 973 more. Without it every cap-exempt
+         university and hospital we scrape stores 'no', which is the opposite of the
+         truth for exactly the employers an F-1 candidate should be looking at;
+      3. fuzzy, and ONLY over the small curated list, so "Meta" still reaches
+         "Meta Platforms" and "Oak Ridge National Laboratory" still reaches
+         "Ut Battelle LLC Oak Ridge National Laboratory".
+    """
     if company in _sponsor_cache:
         return _sponsor_cache[company]
     norm = _norm_name(company)
-    hit = bool(norm) and norm in sponsor_index["norm"]
+    hit = bool(norm) and (norm in sponsor_index["norm"] or norm in sponsor_index["wide"])
     if not hit and norm and len(sponsor_index["raw"]) <= 5000:
         try:
             from rapidfuzz import fuzz
@@ -5381,10 +5399,25 @@ def main():
     print(f"\n=== Job scrape @ {stamp} ===")
 
     sponsors = load_sponsors()
-    sponsor_index = build_sponsor_index(sponsors) if sponsors else None
+    # The two federal indexes, read ONCE and used for two different jobs: widening the
+    # sponsor flag here, and the JobSpy record gate further down. They used to be loaded
+    # only when an aggregator sweep was on, which left the flag reading a ~620-name file
+    # while a 77k-name index sat on disk unused — so every cap-exempt university and
+    # hospital we scrape stored sponsors_h1b='no'. ~5 MB resident, paid once per scrape.
+    try:
+        visa_index = core.load_visa_tags()
+        sponsor_counts = core.load_sponsor_counts()
+    except Exception as e:
+        # A missing data file must never take a scrape down; the flag just narrows back
+        # to sponsors.txt, which is exactly the old behaviour.
+        print("  note: federal sponsor records unavailable (%s)" % str(e)[:70])
+        visa_index = sponsor_counts = None
+    wide = set(visa_index or ()) | set(sponsor_counts or ())
+    sponsor_index = build_sponsor_index(sponsors, wide) if (sponsors or wide) else None
     if sponsor_index:
         action = "dropping non-sponsors" if REQUIRE_SPONSOR else "flag only"
-        print(f"Loaded {len(sponsors)} sponsor names from {SPONSORS_FILE} ({action}).")
+        print("Sponsor flag: %d name(s) from %s + %d from visa_tags/sponsor_counts (%s)."
+              % (len(sponsors or []), SPONSORS_FILE, len(wide), action))
     else:
         print(f"No {SPONSORS_FILE} found — keeping all entry-level jobs, "
               f"sponsor status marked 'unknown'.")
@@ -5426,21 +5459,14 @@ def main():
     else:
         seen = {canonical_url(u).lower() for u in db.existing_urls()}
 
-    # Federal sponsorship records, loaded once, for the JobSpy gate below. Two files: visa_tags
-    # (DOL LCA + PERM + the E-Verify employer list) and sponsor_counts (USCIS H-1B Data Hub).
-    # Only read when an aggregator sweep is actually on — together they are ~5 MB resident.
-    visa_index = sponsor_counts = None
-    if JOBSPY_BOARDS and JOBSPY_REQUIRE_VISA_RECORD:
-        try:
-            visa_index = core.load_visa_tags()
-            sponsor_counts = core.load_sponsor_counts()
-            print("Sponsor records: %d employer(s) with a visa tag, %d with USCIS approvals."
-                  % (len(visa_index or {}), len(sponsor_counts or {})))
-        except Exception as e:
-            # A missing data file must not take a scrape down; without it the gate simply
-            # does not fire and every row is kept, which is the pre-gate behaviour.
-            print("  note: sponsor records unavailable (%s); JobSpy gate off" % str(e)[:70])
-            visa_index = sponsor_counts = None
+    # The JobSpy record gate reuses the indexes already loaded at the top of this run.
+    # It stays OPT-IN, and the guard is the point: now that those files are read on every
+    # scrape for the sponsor flag, gating on "did they load" would silently switch this
+    # gate on for every aggregator row, which is a drop rule, not a flag.
+    jobspy_visa_gate = bool(JOBSPY_BOARDS and JOBSPY_REQUIRE_VISA_RECORD and visa_index)
+    if jobspy_visa_gate:
+        print("Sponsor records: %d employer(s) with a visa tag, %d with USCIS approvals."
+              % (len(visa_index or {}), len(sponsor_counts or {})))
 
     # Companies an admin blocked from /admin/data. Loaded once per run, next to `seen`, because
     # the keep loop below consults it per posting. Returns an empty set on ANY failure — a
@@ -5555,7 +5581,7 @@ def main():
         # the ones it found had no record in ANY federal file, against 10% for the corpus. The
         # direct boards are exempt because those employers were chosen deliberately, and several
         # are cap-exempt universities and hospitals this test would wrongly drop.
-        if visa_index is not None and j.get("_src") == "jobspy":
+        if jobspy_visa_gate and j.get("_src") == "jobspy":
             co = j.get("company") or ""
             if not core.visa_tags(co, visa_index) and not core.sponsor_strength(
                     co, sponsor_counts)[0]:
