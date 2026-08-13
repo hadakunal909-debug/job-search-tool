@@ -230,16 +230,45 @@ def _load_extra(args):
     return names
 
 
+def _known_sources():
+    """(names, urls) for everything we already scrape — the built-in list AND the boards table.
+
+    custom_sources() is the half this used to miss. Boards added through the app or a probe
+    live ONLY in the `boards` table, never in SOURCES, so every one of them read as unknown:
+    the sweep re-probed them, paid the network time, and reported them as fresh discoveries.
+    scraper.discover._candidates() has always consulted both; this now matches it.
+
+    Names AND urls, because neither alone is sufficient:
+      * name only — "Raytheon" probes to the URL already in SOURCES under RTX, and
+        "Deere & Company" to John Deere's. Different labels, same board.
+      * url only  — Mount Sinai's Oracle site is a different URL from the Jibe board we
+        already scrape it through. Same employer, two platforms.
+    """
+    names, urls = set(), set()
+    try:
+        rows = list(scraper.SOURCES) + list(scraper.custom_sources())
+    except Exception:
+        rows = list(scraper.SOURCES)       # no DB is not a reason to skip the sweep
+    for u, _a, c in rows:
+        k = scraper._norm_name(c or "")
+        if k:
+            names.add(k)
+            names.add(k.replace(" ", ""))  # "JPMorganChase" vs "JPMorgan Chase"
+        if u:
+            urls.add(u.rstrip("/").lower())
+    return names, urls
+
+
 def main():
     targets = list(CURATED_MAJORS) + _load_extra(sys.argv[1:])
-    have = {scraper._norm_name(c) for _, _, c in scraper.SOURCES}
+    have, have_urls = _known_sources()
     todo, seen = [], set()
     for c in targets:
         nm = scraper._norm_name(c)
         if not nm or nm in seen:
             continue
         seen.add(nm)
-        if nm in have:
+        if nm in have or nm.replace(" ", "") in have:
             continue                       # already scraped
         if _BODYSHOP_RE.search(c):
             continue                       # body-shop guard
@@ -249,8 +278,9 @@ def main():
     _orig_session = scraper.SESSION
     scraper.SESSION = _fast_session()
 
-    print("Probing %d employers (not already in SOURCES)...\n" % len(todo), flush=True)
-    found, lowconf, misses = [], [], []
+    print("Probing %d employers (not already in SOURCES or the boards table)...\n" % len(todo),
+          flush=True)
+    found, lowconf, misses, dupes = [], [], [], []
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
             futs = {ex.submit(discover, c): c for c in todo}
@@ -260,7 +290,14 @@ def main():
                     company, url, ats, cnt, conf = fut.result(timeout=45)  # cap a slow host
                 except Exception:
                     url, ats, cnt, conf = None, "timeout", 0, ""
-                if not url:
+                if url and url.rstrip("/").lower() in have_urls:
+                    # The name was unknown but the BOARD is not. Reporting this as a discovery
+                    # is what put Raytheon (RTX's URL) and Deere & Company (John Deere's) in a
+                    # paste-ready block: nine "hits", one genuinely new.
+                    dupes.append((company, url, ats))
+                    print("  ==  %-28s already scraped under another name  %s"
+                          % (company[:28], url[:52]), flush=True)
+                elif not url:
                     misses.append(company)
                     print("  --  %-28s needs deeper lookup (web-search Workday/Oracle tenant)"
                           % company[:28], flush=True)
@@ -274,8 +311,16 @@ def main():
     finally:
         scraper.SESSION = _orig_session
 
-    print("\n%d HIGH-confidence, %d low-confidence, %d need deeper lookup (of %d).\n"
-          % (len(found), len(lowconf), len(misses), len(todo)))
+    print("\n%d HIGH-confidence, %d low-confidence, %d already-scraped board(s) under another "
+          "name, %d need deeper lookup (of %d).\n"
+          % (len(found), len(lowconf), len(dupes), len(misses), len(todo)))
+    if dupes:
+        # Named, not just counted: a repeat offender here is a missing alias in SOURCES,
+        # which is worth fixing at the source rather than re-filtering every sweep.
+        print("# Already scraped under a different label — NOT new:")
+        for company, url, ats in dupes:
+            print("#   %-28s %-14s %s" % (company[:28], ats, url[:58]))
+        print()
 
     # paste-ready, grouped by destination list
     groups = {}
