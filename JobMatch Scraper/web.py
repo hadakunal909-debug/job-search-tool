@@ -298,14 +298,21 @@ def _ev_page_view(resp):
 
 # ----------------------------- caches -----------------------------
 _jobs_cache = {"rows": None, "at": 0}
-_score_cache = {}            # (username, resume_md5) -> {url: score}
-_rows_cache = {}             # (username, resume_md5) -> [row dict w/o status], sorted by score desc
+# OrderedDict rather than dict so eviction can drop the LEAST RECENTLY USED entry. A plain dict
+# can only cheaply drop the oldest INSERTED one, which is a different thing and the wrong one:
+# 64 sign-ins in a row would evict somebody still scrolling and charge them a full ~1 s rebuild,
+# no matter how recently they had asked for a page.
+_score_cache = collections.OrderedDict()   # (username, resume_md5) -> {url: score}
+_rows_cache = collections.OrderedDict()    # (username, resume_md5) -> [row w/o status], by score desc
 _SCORE_CACHE_MAX = 64        # cap so a long-lived process doesn't grow unbounded across profiles
 # Above this many jobs, the feed stops shipping EVERY job inline and switches to top-N inline +
 # server-side search/paging (/api/feed), so the payload + browser parse stay small at any corpus
 # size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
 _FEED_INLINE_MAX = int(os.environ.get("FEED_INLINE_MAX", "4000"))
-_FEED_TOPN = int(os.environ.get("FEED_TOPN", "400"))      # how many top-match jobs to inline when paged
+# How many rows to inline as PAGE ONE when paged. 60 because that is app.js's PAGE size, so the
+# bootstrap is exactly the page /api/feed would have returned for offset=0. It was 400, which was
+# both too many (the browser discarded them) and the wrong rows (unfiltered).
+_FEED_TOPN = int(os.environ.get("FEED_TOPN", "60"))
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
 _jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
                               # jdmeta.json (built by the cron scorer) so cold renders skip recompute
@@ -518,15 +525,28 @@ def _save_profile(user, fields):
 
 
 def _bust_profile(user=None):
-    """Drop cached profile + scores after a résumé/story/lesson edit so the feed updates."""
+    """Drop cached profile + scores after a résumé/story/lesson edit so the feed updates.
+
+    ONE user's entries, not everyone's. _score_cache and _rows_cache are keyed on
+    (username, md5(resume)), so an edit changes the KEY: the stale entry is unreachable the
+    instant the new one is written, and this pop only reclaims its memory. Clearing every OTHER
+    user was the expensive half — it invalidated entries that were already correct and charged
+    each of those users a full corpus rebuild (~1 s apiece) on their next page. Measured at
+    12.2 s of worker CPU for a single résumé save, which is what a stalled site is made of.
+
+    Scanning the dict is bounded by _SCORE_CACHE_MAX (64), not by the number of users."""
     if user:
         _profile_cache.pop(user, None)
         _profile_row_cache.pop(user, None)
+        for cache in (_score_cache, _rows_cache):
+            for k in [k for k in cache if k[0] == user]:
+                cache.pop(k, None)
     else:
+        # No user named: an admin-level reset (see /reload), where wiping everything is the point.
         _profile_cache.clear()
         _profile_row_cache.clear()
-    _score_cache.clear()
-    _rows_cache.clear()
+        _score_cache.clear()
+        _rows_cache.clear()
 
 
 def sponsor_signal(job):
@@ -651,6 +671,31 @@ def _invalidate_jobs():
         pass
 
 
+_job_idx = {"fp": None, "by_url": None}
+
+
+def _job_for(url):
+    """The raw job row for one url, or None.
+
+    This replaced eight copies of a `next(j for j in get_jobs() if j["url"] == url)` generator —
+    a linear walk of the whole ~20k-row corpus to find one row, paid on the job page (twice),
+    both tailor routes, the application autolog, and once just to attach a company name to an
+    analytics event. A dict costs one pass to build and answers every later lookup in O(1).
+
+    Keyed on the jobs fingerprint, exactly like _title_index and _hay_idx: the corpus only moves
+    on a scrape, and which row owns a url has nothing to do with who is asking. Rebuilding on a
+    fingerprint change (rather than never) is what keeps a re-scraped or PATCHed row visible.
+    """
+    if not url:
+        return None
+    rows = get_jobs()                       # must come first: it is what refreshes the fingerprint
+    fp = _jobs_cache.get("fp")
+    if _job_idx["by_url"] is None or _job_idx["fp"] != fp:
+        _job_idx["by_url"] = {j.get("url"): j for j in rows if j.get("url")}
+        _job_idx["fp"] = fp
+    return _job_idx["by_url"].get(url)
+
+
 def user_statuses(user):
     """{url: status} for this user's liked/hidden/applied jobs, from a short-lived cache so a
     warm feed render needs no DB round-trip. Busted immediately on every like/hide/apply."""
@@ -690,6 +735,7 @@ def user_scores(username, resume):
     (core.skill_match); falls back to the precomputed baseline when no résumé/JD."""
     key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest())
     if key in _score_cache:
+        _score_cache.move_to_end(key)        # a read is a use: keeps active users out of the evictor
         return _score_cache[key]
     resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
     scores = {}
@@ -726,7 +772,7 @@ def user_scores(username, resume):
             # number, because it teaches the user to distrust every other one on the card.
             scores[u] = 0
     if len(_score_cache) >= _SCORE_CACHE_MAX:
-        _score_cache.pop(next(iter(_score_cache)), None)   # drop oldest; bounds memory growth
+        _score_cache.popitem(last=False)     # drop least-recently-used; bounds memory growth
     _score_cache[key] = scores
     return scores
 
@@ -927,13 +973,14 @@ def ranked_rows(username, resume):
     and immutable. Cheap to filter in Python even at tens of thousands of rows."""
     key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest())
     if key in _rows_cache:
+        _rows_cache.move_to_end(key)         # a read is a use: see _score_cache
         return _rows_cache[key]
     scores = user_scores(username, resume)
     rows = [_build_row(j, scores.get(j.get("url"), 0)) for j in get_jobs() if j.get("url")]
     rows = _dedupe_rows(rows)
     rows.sort(key=lambda r: r["score"], reverse=True)
     if len(_rows_cache) >= _SCORE_CACHE_MAX:
-        _rows_cache.pop(next(iter(_rows_cache)), None)
+        _rows_cache.popitem(last=False)      # least-recently-used, not oldest-inserted
     _rows_cache[key] = rows
     return rows
 
@@ -1680,12 +1727,22 @@ def feed():
         prefs = dict(prefs, min=0, sort="newest")
     default_min = prefs["min"]
     paged = total > _FEED_INLINE_MAX
-    inline = rows[:_FEED_TOPN] if paged else rows
-    # Default ("Recommended") count so the header + Load-more are right without a first fetch.
-    # Must apply the SAME filters the toolbar ships with, now that those come from prefs, or
-    # the "N of M" on first paint disagrees with what the user actually sees.
-    default_total = len(_filter_rows(rows, statuses, _prefs_as_params(prefs)))
-    feed_rows = [dict(r, status=statuses.get(r["url"], "")) for r in inline]   # overlay status (copy)
+    # The default ("Recommended") view under the user's saved search. This pass used to run for
+    # its len() alone and then be thrown away — after which the browser spent a whole round trip
+    # asking /api/feed to compute the very same thing. Keep the rows: the first page of THIS is
+    # exactly what /api/feed?offset=0 would have answered, so shipping it inline removes a
+    # serial network round trip (~650 ms on this host) from first paint.
+    default_rows = _filter_rows(rows, statuses, _prefs_as_params(prefs))
+    default_total = len(default_rows)
+    if paged:
+        # _filter_rows hands back (row, status) PAIRS in display order. Unpacked exactly the way
+        # api_feed unpacks its own page, so the bootstrap is the same shape and the same rows
+        # that /api/feed?offset=0 would have returned — that equivalence is the whole point.
+        feed_rows = [dict(r, status=st) for (r, st) in default_rows[:_FEED_TOPN]]
+    else:
+        # Unpaged corpora still inline EVERYTHING, unfiltered: app.js filters those client-side
+        # and needs the whole set to do it.
+        feed_rows = [dict(r, status=statuses.get(r["url"], "")) for r in rows]
     # Work-authorization nudge. visa_alert returns None unless something is actually close, so
     # a user with no dates entered — or with months of runway — sees nothing at all.
     try:
@@ -2121,7 +2178,7 @@ def job_page():
         # two hosts and the feed kept the other copy) or it is gone. Send the duplicate to its
         # survivor so an old bookmark lands on the employer's own host rather than a 404, and
         # 302 rather than 301 because that preference is decided at render time and reversible.
-        raw = next((j for j in get_jobs() if j.get("url") == url), None)
+        raw = _job_for(url)
         if raw is not None:
             key = _dupe_key(_build_row(raw, 0))
             twin = next((r for r in rows if key is not None and _dupe_key(r) == key), None)
@@ -2142,7 +2199,7 @@ def job_page():
     # showed and the keywords are the terms that produced it. Only a job the scorer never
     # reached falls back to analysing the JD we just fetched.
     resume = current_profile()
-    raw = next((j for j in get_jobs() if j.get("url") == url), None) or {}
+    raw = _job_for(url) or {}
     analyzed = job_analysis(raw)
     if not analyzed.get("terms"):
         analyzed = jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"]
@@ -2372,7 +2429,11 @@ def save_prefs():
     ok, msg = _save_profile(user, {"search_prefs": prefs})
     if not ok:
         return jsonify({"ok": False, "error": msg[:200]}), 200
-    _rows_cache.clear()          # the first-paint count is derived from prefs
+    # No cache bust here. _rows_cache holds the corpus scored and sorted for this user with NO
+    # filters applied — prefs are neither in its key nor in its contents. The first-paint count
+    # IS derived from prefs, but it is recomputed per request from the freshly-read profile, so
+    # clearing the corpus cache never changed it; it just charged every user on this worker a
+    # rebuild for a saved search that was not theirs.
     # Which keys they actually moved off the defaults — the saved-search adoption signal.
     analytics.emit(user, getattr(g, "sid", ""), "prefs_save",
                    keys=[k for k, v in prefs.items() if v != core.DEFAULT_PREFS.get(k)][:12])
@@ -2553,7 +2614,7 @@ def api_action():
 def _ev_action(user, url, prev, status, via):
     """One like/hide/apply, with the job's company, board and score attached."""
     try:
-        job = next((j for j in get_jobs() if j.get("url") == url), None) or {}
+        job = _job_for(url) or {}
         try:
             score = int(job.get("match_score") or 0)
         except Exception:
@@ -2676,6 +2737,11 @@ def _accounts(force=False):
     read; callers treat that as "can't tell" and fail open.
     """
     c = _accounts_cache
+    if force:
+        # Every caller that forces this is an admin who just created, disabled, deleted or
+        # re-keyed an account. _account_state answers from its own per-user cache now, so
+        # without this a disabled account would keep working for up to _ACCOUNT_TTL.
+        _account_cache.clear()
     if force or c["map"] is None or time.time() - c["at"] > _ACCOUNTS_TTL:
         try:
             c["map"] = {(u.get("username") or ""): u for u in (db.list_users() or [])}
@@ -2687,13 +2753,45 @@ def _accounts(force=False):
     return c["map"]
 
 
+_ACCOUNT_TTL = 60
+_ACCOUNT_CACHE_MAX = 2000
+_account_cache = {}          # username -> (row or None, fetched_at)
+
+
 def _account_state(username):
     """The users row for `username`. None when the account is genuinely gone; {} when we can't
-    tell. Callers fail CLOSED on None and OPEN on {} — see _accounts."""
-    m = _accounts()
-    if m is None:
-        return {}
-    return m.get(username)
+    tell. Callers fail CLOSED on None and OPEN on {} — see _session_dead.
+
+    A POINT LOOKUP, not a table scan. login_required calls this on every single request, and it
+    used to be answered out of _accounts(), which downloads the ENTIRE users table once a minute
+    per worker process — a full-table read to answer one question about one person. At 1,000
+    accounts that is roughly 1.15 GB/day against a 5 GB/month egress budget, and the refresh
+    lands on whichever unlucky request happens to cross the 60 s boundary rather than on a
+    background thread.
+
+    Only the admin columns are selected. db.get_user's default `*` drags the résumé text and the
+    brain_kb jsonb along with it, which is a great many bytes to answer "is this one disabled?".
+    """
+    now = time.time()
+    hit = _account_cache.get(username)
+    if hit is not None and now - hit[1] <= _ACCOUNT_TTL:
+        return hit[0]
+    row, ok = None, False
+    for cols in db._USER_COLS:          # widest-first, the same ladder list_users falls down
+        try:
+            row, ok = db.get_user(username, cols), True
+            break
+        except Exception:
+            continue
+    if not ok:
+        # Serve the last good answer rather than invent one: a transient Supabase blip must not
+        # read as "this account was deleted" and sign somebody out of their own app. {} when we
+        # have never had an answer at all, which callers treat as "can't tell" and fail open.
+        return hit[0] if hit is not None else {}
+    if len(_account_cache) >= _ACCOUNT_CACHE_MAX:
+        _account_cache.clear()          # bounds a long-lived worker; a rebuild is one row each
+    _account_cache[username] = (row, now)
+    return row
 
 
 def _session_dead(username):
@@ -4017,7 +4115,7 @@ def _save_ai_key(key):
 @login_required
 def tailor():
     url = request.args.get("url", "")
-    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    job = _job_for(url)
     if not job:
         return redirect(url_for("feed"))
     resume = current_resume()
@@ -4043,7 +4141,7 @@ def tailor_ai():
     if key_in:
         _save_ai_key(key_in)
     key = _ai_key_for(user)
-    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    job = _job_for(url)
     if not job:
         return redirect(url_for("feed"))
     resume = current_resume()
@@ -4079,7 +4177,7 @@ def api_tailor():
     if key_in:
         _save_ai_key(key_in)
     key = _ai_key_for(session["user"])
-    job = next((j for j in get_jobs() if j.get("url") == url), None)
+    job = _job_for(url)
     if not job:
         return {"ok": False, "error": "Job not found."}, 404
     resume = current_resume()
@@ -4097,10 +4195,6 @@ def api_tailor():
 
 
 # ----------------------------- Resume Brain (the tailoring brain) -----------------------------
-def _job_for(url):
-    return next((j for j in get_jobs() if j.get("url") == url), None)
-
-
 def _csvf(s):
     return [x.strip() for x in (s or "").replace("\n", ",").split(",") if x.strip()]
 
@@ -4504,7 +4598,7 @@ def _autolog_application(user, url):
     try:
         if not url or db.find_application_by_url(user, url):
             return
-        job = next((j for j in get_jobs() if j.get("url") == url), None)
+        job = _job_for(url)
         if not job:
             return
         import datetime

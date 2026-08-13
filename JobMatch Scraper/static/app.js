@@ -138,6 +138,16 @@
     }
     return s;
   }
+  // A comparable snapshot of every filter control. Reads _ctlMap() so there stays exactly ONE
+  // definition of "what the filters are" — a control added there is covered here for free.
+  function _snapState() {
+    var m = _ctlMap(), s = {}, k;
+    for (k in m) if (m[k]) s[k] = (m[k].type === "checkbox") ? !!m[k].checked : String(m[k].value);
+    return JSON.stringify(s);
+  }
+  // Captured BEFORE applyFilterState() overwrites the controls, so this is the filter state the
+  // server actually built its inline first page from. renderServer compares against it.
+  var SERVER_STATE = _snapState();
   // Runs BEFORE sortBy/minVal/tab are read below, so those pick up the restored values rather
   // than the server-rendered ones. Cards come from feed_rows|tojson and are drawn by JS, so
   // only the controls repaint — there is no card flash.
@@ -153,6 +163,10 @@
   // empty and everything stays client-side (instant) exactly as before.
   var PAGED = feed.getAttribute("data-paged") === "1";
   var HAS_RESUME = feed.getAttribute("data-hasresume") === "1";
+  // How many rows match the default view, counted server-side. null when the page didn't send
+  // it, which is the signal that the inline bootstrap can't be trusted as a full page one.
+  var _totalAttr = feed.getAttribute("data-total");
+  var TOTAL = (_totalAttr === null || _totalAttr === "") ? null : (parseInt(_totalAttr, 10) || 0);
 
   // Without a résumé every score is the same flat baseline, so "Best match" sorts on noise
   // while looking authoritative. user_scores already suppresses the number on the card; this
@@ -1130,7 +1144,36 @@
   function buildParams(offset) {
     return filterParams() + "&offset=" + offset + "&limit=" + PAGE;
   }
+  var _bootUsed = false;
   function renderServer(reset) {
+    // FIRST PAINT ONLY. The server already filtered, sorted and rendered page one into
+    // #feeddata — it is byte-for-byte what /api/feed?offset=0 would answer — so drawing it here
+    // removes a whole serial round trip (~650 ms to this host) before the user sees a job.
+    //
+    // Only valid while the controls still say what they said when the server rendered.
+    // applyFilterState() runs before this and may have restored a DIFFERENT filter set from
+    // localStorage, and the tab must be the one the server filtered by. Anything unexpected
+    // falls through to the fetch below, which is the unchanged old path — so the failure mode
+    // of this optimisation is "no optimisation", never "wrong jobs".
+    if (reset && !_bootUsed) {
+      _bootUsed = true;
+      if (DATA.length && TOTAL !== null && tab === "recommended"
+          && _snapState() === SERVER_STATE) {
+        var boot = "";
+        for (var bi = 0; bi < DATA.length; bi++) boot += cardHTML(DATA[bi]);
+        feed.innerHTML = boot;
+        shown = DATA.length;
+        formatDates(); wireLogos();
+        setCount(TOTAL);
+        setShown(emptyEl, !TOTAL);
+        if (moreBtn) {
+          var bmore = TOTAL > shown;
+          setShown(moreBtn, bmore);
+          if (bmore) moreBtn.textContent = "Load more (" + (TOTAL - shown) + " more)";
+        }
+        return;
+      }
+    }
     if (reset) { shown = 0; feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
     var mySeq = ++_seq;                                   // ignore out-of-order responses
     fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) { return r.json(); }).then(function (d) {

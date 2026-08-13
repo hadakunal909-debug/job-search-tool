@@ -155,7 +155,11 @@ if(mq.addEventListener)mq.addEventListener('change',onmq);else if(mq.addListener
   });
 })();
 </script>
-<script src="{{ static_v('perf.js') }}"></script>
+{# Opt-in with ?perf=1. It used to load on every page for every user, which cost two requests
+   per page view — the script itself, and the /healthz round trip it fires to get a DB-free
+   server baseline — to print a table into a console nobody had open. Diagnostics you can turn
+   on are worth keeping; diagnostics everyone pays for are not. #}
+{% if request.args.get('perf') %}<script src="{{ static_v('perf.js') }}"></script>{% endif %}
 {# Loaded for everyone, logged in or not: the login page has no tooltips today but the
    promotion is lazy, so an app with none costs one listener registration and nothing else. #}
 <script src="{{ static_v('tip.js') }}"></script>

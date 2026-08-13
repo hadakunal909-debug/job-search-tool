@@ -21,6 +21,11 @@
      {# Without a résumé there is nothing to match against, so the cards show no percentage at
         all rather than a number derived from somebody else's CV. #}
      data-hasresume="{{ '1' if has_resume else '' }}"
+     {# How many rows match the DEFAULT view server-side. With it, app.js can render the inline
+        bootstrap as page one — header count, Load-more count and all — instead of fetching
+        /api/feed just to learn a number the server already knew. Absent on pages that don't
+        compute it (company.html), where the bootstrap path is unused anyway. #}
+     {%- if default_total is defined %} data-total="{{ default_total }}"{% endif %}
      {%- if company_arg %} data-company="{{ company_arg }}"{% endif %}>
   {% for _ in range(8) %}
   <div class="skel" aria-hidden="true">
