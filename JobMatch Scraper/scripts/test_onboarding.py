@@ -329,6 +329,31 @@ print("=" * 74)
 # no résumé. That column is computed against the SCRAPER's resume.txt, so a brand-new account
 # saw a feed of confident 62-64% rings derived from another person's CV, drawn identically to a
 # real personalised match.
+#
+# The corpus here is SYNTHETIC, and has to be. The baseline check below is an anti-vacuity one
+# — "every score was suppressed" proves nothing unless the rows really did carry baselines that
+# could have leaked — so reading the live table made this section pass only for whoever had
+# Supabase credentials. python-tests.yml passes none, jobs.csv and user_jobs.json are both
+# gitignored, so in CI get_jobs() returned [] and BOTH assertions failed against an empty
+# corpus rather than against the behaviour they describe. This file's docstring already
+# promised "no credentials, no database"; this section was the one place that broke it.
+STUB_JOBS = [
+    {"url": "https://example.com/jobs/%d" % i,
+     "title": "Project Manager", "company": "Example Corp",
+     # The baseline that must never reach a résumé-less viewer. Deliberately VARIED per row,
+     # which is what makes the "not the baseline" check below decisive: every row carries the
+     # same jd_terms, so a real analysis scores them all identically and only a fallback to
+     # match_score could produce a spread.
+     "match_score": 60 + (i % 20),
+     # Weighted terms chosen to overlap RESUME_TEXT below, so the "with a résumé" case
+     # scores > 0 through core.score_against rather than through the baseline fallback.
+     "jd_terms": core.pack_analyzed({"weight": {"project": 10.0, "manager": 8.0,
+                                                "delivery": 6.0, "stakeholder": 4.0}})}
+    for i in range(150)
+]
+RESUME_TEXT = "project manager with six years of delivery experience"
+web.get_jobs = lambda force=False: STUB_JOBS
+web._jdmeta = {}          # job_analysis prefers jdmeta.json; keep the stub's jd_terms in charge
 web.current_profile = lambda: ""
 web._score_cache.clear()
 jobs = web.get_jobs()
@@ -341,8 +366,16 @@ check("...and the corpus really does carry baselines it could have leaked",
       baseline > 100, "%d rows have a stored match_score" % baseline)
 
 web._score_cache.clear()
-with_resume = web.user_scores("nobody", "project manager with six years of delivery experience")
+with_resume = web.user_scores("nobody", RESUME_TEXT)
 check("a user WITH a résumé still gets scores", any(with_resume.values()))
+# ...and through the ANALYSIS, not by falling back to the baseline. Without this, a stub whose
+# jd_terms failed to unpack would still "pass" the line above on somebody else's number, which
+# is the exact bug this section exists to catch. Identical jd_terms across rows means a real
+# analysis returns ONE value; the varied baselines mean a fallback returns many.
+check("...scored against the JD's terms, not the stored baseline",
+      len(set(with_resume.values())) == 1
+      and all(s != j["match_score"] for s, j in zip(with_resume.values(), STUB_JOBS)),
+      "distinct scores: %s" % sorted(set(with_resume.values()))[:5])
 web._score_cache.clear()
 
 src = open(os.path.join(APP_DIR, "static", "app.js"), encoding="utf-8").read()
