@@ -662,7 +662,8 @@ def check_routes(rows, statuses, cases):
     above deliberately cannot see: that clause is server-only (it runs before _filter_rows, so
     matches() has no twin to compare against), which means nothing else in this file tests it.
     """
-    orig = (web.ranked_rows, web.user_statuses, web.current_profile, web._accounts)
+    orig = (web.ranked_rows, web.user_statuses, web.current_profile, web._accounts,
+            web._account_state, web._session_dead)
     web.ranked_rows = lambda u, r: rows
     web.user_statuses = lambda u: statuses
     web.current_profile = lambda: "parity harness profile"
@@ -670,7 +671,14 @@ def check_routes(rows, statuses, cases):
     # synthetic "parity" user is now correctly bounced to /login and every route returns 302.
     # That app behaviour is deliberate; the harness just has to present an account that exists,
     # the same way it already presents rows and statuses.
+    #
+    # Stub the ACCOUNT-STATE BOUNDARY, not just the cache behind it. _account_state used to read
+    # the whole users map from _accounts(); it is a per-user point lookup now, so stubbing
+    # _accounts alone stopped covering it — and this file is meant to need no Supabase at all
+    # (see the module docstring), which a live db.get_user would quietly break.
     web._accounts = lambda force=False: {"parity": {"username": "parity"}}
+    web._account_state = lambda u: {"username": u}
+    web._session_dead = lambda u: ""
     fails = 0
     try:
         web.app.config["TESTING"] = True
@@ -732,7 +740,8 @@ def check_routes(rows, statuses, cases):
                 print("FAIL route     /api/feed?company=%s matched nothing (vacuous)" % co)
                 fails += 1
     finally:
-        web.ranked_rows, web.user_statuses, web.current_profile, web._accounts = orig
+        (web.ranked_rows, web.user_statuses, web.current_profile, web._accounts,
+         web._account_state, web._session_dead) = orig
     print("routes:     %s" % ("/api/feed pages + company narrowing agree"
                               if not fails else "%d failure(s)" % fails))
     return fails
