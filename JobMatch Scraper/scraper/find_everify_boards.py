@@ -143,6 +143,15 @@ def _simple_ats(company):
     return None
 
 
+# No closing \b after "universit": the word continues into "university"/"universities", so a
+# trailing boundary can never match and this silently detected nothing.
+_EDU_WORDS = re.compile(r"\b(universit|college\b|institute of technology|school of)", re.I)
+# "University of X" and "X University" both reduce to X, which is the .edu second-level
+# domain for most name-brand institutions (duke, purdue, rice, tufts, brown, columbia).
+_EDU_STRIP = re.compile(r"^(the\s+)?university\s+of\s+|\s+(university|college|"
+                        r"institute\s+of\s+technology)\s*$", re.I)
+
+
 def _careers_candidates(company):
     # Only the LIGHT ATS-style subdomains (careers./jobs.). We deliberately DROP
     # www.<co>.com/careers — big-company marketing roots sit behind bot-walls that hang.
@@ -152,6 +161,22 @@ def _careers_candidates(company):
     for s in dict.fromkeys([slug, hyph]):
         if s:
             out += ["https://careers.%s.com" % s, "https://jobs.%s.com" % s]
+
+    # EDUCATION IS A .EDU, AND NOTHING ABOVE WOULD EVER FIND IT. "Duke University" became
+    # careers.dukeuniversity.com, so every university silently failed this probe — which is
+    # why none of them were ever discovered despite being large, standing H-1B sponsors.
+    # They matter disproportionately: a university is cap-exempt, so it skips the lottery.
+    #
+    # The bare root IS included here, unlike the .com branch above. That exclusion exists
+    # because corporate marketing roots bot-wall crawlers; .edu roots generally do not, and
+    # Brown is only reachable as brown.edu/careers with no careers./jobs. subdomain at all.
+    if _EDU_WORDS.search(company or ""):
+        base = _EDU_STRIP.sub("", (company or "").strip())
+        edu = re.sub(r"[^a-z0-9]", "", base.lower())
+        if edu:
+            out += ["https://careers.%s.edu" % edu, "https://jobs.%s.edu" % edu,
+                    "https://%s.edu/careers" % edu, "https://employment.%s.edu" % edu,
+                    "https://hr.%s.edu/careers" % edu]
     return out
 
 
