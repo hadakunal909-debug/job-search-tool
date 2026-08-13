@@ -1269,6 +1269,20 @@ WORKDAY_BOARDS = [
     # --- Added 2026-06-18: Snap — careers.snap.com is a SPA but its apply links go to Workday
     # (the public external site is 'snap'). Found while assessing Eightfold (Snap isn't Eightfold). ---
     ("https://snapchat.wd1.myworkdayjobs.com/snap",                     "workday", "Snap"),                 # ~138
+    # --- Added 2026-08-12 (grad.jobs H-1B sponsor list -> find_everify_boards). The probe's
+    # own careers-chain found only Oregon State; the rest came from a second pass that SUPPLIES
+    # the domain instead of deriving it from the name. That rule reduces "X University" to X,
+    # which is right for duke/brown/purdue and wrong for every institution whose domain is an
+    # abbreviation — iastate.edu, ucsf.edu, ohsu.edu, chop.edu. All cap-exempt (university,
+    # university-affiliated hospital, or government lab), so they skip the H1B lottery. ---
+    ("https://ochsner.wd1.myworkdayjobs.com/Ochsner",                   "workday", "Ochsner Health"),       # ~1,925 (cap-exempt)
+    ("https://chop.wd108.myworkdayjobs.com/CHOPExternalCareers",        "workday", "Children's Hospital of Philadelphia"), # ~286 (cap-exempt)
+    ("https://oregonstate.wd501.myworkdayjobs.com/OSU_Careers_Site",    "workday", "Oregon State University"), # ~134 (cap-exempt)
+    ("https://isu.wd1.myworkdayjobs.com/IowaStateJobs",                 "workday", "Iowa State University"), # ~73 (cap-exempt)
+    # Not a typo and not a truncation: the site name really is "Externa". /External and
+    # /ExternalCareers both probe 0 — checked before this went in.
+    ("https://bnl.wd1.myworkdayjobs.com/Externa",                       "workday", "Brookhaven National Laboratory"), # ~59 (cap-exempt)
+    ("https://hhmi.wd1.myworkdayjobs.com/External",                     "workday", "Howard Hughes Medical Institute"), # ~45 (cap-exempt)
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -1294,6 +1308,10 @@ SF_BOARDS = [
     # this jobs2web/RMK SF site renders results client-side, so scrape_successfactors
     # falls back to the sitemap path and keeps only US (North America) postings. ---
     ("https://jobs.engie.com",             "successfactors", "Engie"),              # ~82 US
+    # --- Added 2026-08-12 (grad.jobs H-1B sponsor list). ORNL is a DOE lab run by UT-Battelle;
+    # jobs.ornl.gov is its own board, separate from the Battelle Memorial Institute board
+    # already in the boards table (jobs.battelle.org) — different postings, not a duplicate. ---
+    ("https://jobs.ornl.gov",              "successfactors", "Oak Ridge National Laboratory"), # ~111 (cap-exempt)
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -1408,6 +1426,11 @@ ORACLE_BOARDS = [
      "oracle", "Mayo Clinic"),                                # ~1,317 (cap-exempt)
     ("https://eppr.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2",
      "oracle", "Northwell Health"),                           # ~1,505 (cap-exempt)
+    # --- Added 2026-08-12 (grad.jobs H-1B sponsor list). Mount Sinai's Oracle site turned up
+    # in the same sweep and is deliberately NOT here: it is already scraped via Jibe below,
+    # which carries inline JDs. ---
+    ("https://iazuqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "University of California, San Francisco"),    # ~860 (cap-exempt)
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -1433,6 +1456,9 @@ JIBE_BOARDS = [
     ("https://fedexfreight.jibeapply.com", "jibe", "FedEx Freight"),        # ~697
     ("https://careers.rivian.com",       "jibe", "Rivian"),                 # ~562 (deeper probe)
     ("https://careers.emory.edu",        "jibe", "Emory University"),       # ~1,840 (cap-exempt; iCIMS/Jibe)
+    # --- Added 2026-08-12 (grad.jobs H-1B sponsor list). OHSU is a public health & science
+    # university, so it is cap-exempt as an institution in its own right. ---
+    ("https://jobs.ohsu.edu",            "jibe", "Oregon Health & Science University"), # ~533 (cap-exempt)
 ]
 
 # Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
