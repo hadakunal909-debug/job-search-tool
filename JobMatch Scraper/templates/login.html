@@ -23,9 +23,23 @@
     </div>
     <div class="field">
       <label class="field-label" for="login-pass">Password</label>
-      <input id="login-pass" name="password" type="password" aria-label="Password" required
-             autocomplete="current-password" spellcheck="false"
-             {% if bad_login %}aria-invalid="true" aria-describedby="login-err"{% endif %}>
+      {# The reveal button sits INSIDE this wrapper, not after the input, so the label, the
+         field and the error stay one column and the form's flex gap is untouched.
+
+         It ships `hidden` and the script at the foot of this page unhides it. A reveal
+         control that cannot reveal is worse than no control, so the affordance only
+         appears once the handler that makes it work is known to have run. #}
+      <div class="pw-field">
+        <input id="login-pass" name="password" type="password" aria-label="Password" required
+               autocomplete="current-password" spellcheck="false"
+               {% if bad_login %}aria-invalid="true" aria-describedby="login-err"{% endif %}>
+        {# type="button" is load-bearing: a bare <button> inside a form submits it, so
+           without this the first reveal would post the half-typed form instead. #}
+        <button type="button" class="pw-toggle" id="login-pass-toggle" hidden
+                aria-controls="login-pass" aria-pressed="false" aria-label="Show password">
+          <span class="ic ic-eye" aria-hidden="true"></span>
+        </button>
+      </div>
       {% if bad_login %}
       {# aria-live so the failure is announced when it arrives, not only when focus lands. #}
       <p class="field-error" id="login-err" role="alert">Check your username and password, then try again.</p>
@@ -34,4 +48,39 @@
     <button class="btn primary" type="submit">Log In</button>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+/* Show/hide for the password field.
+
+   aria-pressed and aria-label are both rewritten because they answer different questions:
+   pressed reports the CURRENT state, the label names the NEXT action. A reader that
+   announces only one of them still gets a complete sentence either way.
+
+   The caret is saved and restored around the swap. Assigning to `type` collapses the
+   selection to the end of the value in every engine, so revealing a password to check
+   one character in the middle of it would move the cursor away from that character —
+   which is the exact moment someone reaches for this control. selectionStart has to be
+   read BEFORE the type changes and is wrapped because a few engines refuse the property
+   on a password field outright rather than returning null. */
+(function(){
+  var input=document.getElementById('login-pass'),
+      btn=document.getElementById('login-pass-toggle');
+  if(!input||!btn)return;
+  btn.hidden=false;
+  btn.addEventListener('click',function(){
+    var show=input.type==='password',start=null,end=null;
+    try{start=input.selectionStart;end=input.selectionEnd;}catch(e){}
+    input.type=show?'text':'password';
+    btn.setAttribute('aria-pressed',show?'true':'false');
+    btn.setAttribute('aria-label',show?'Hide password':'Show password');
+    btn.firstElementChild.className='ic '+(show?'ic-eye-off':'ic-eye');
+    /* Focus returns to the input, not the button: the pointer already put focus on the
+       button, and leaving it there means the next keystroke goes nowhere. */
+    input.focus();
+    if(start!==null){try{input.setSelectionRange(start,end);}catch(e){}}
+  });
+})();
+</script>
 {% endblock %}
