@@ -55,6 +55,7 @@ from flask import (Flask, request, session, redirect, url_for,
 
 import core
 import db
+import dbproxy
 import auth
 import jdrender
 
@@ -3337,6 +3338,25 @@ _ADMIN_HEALTH_TTL = 300
 _admin_health_cache = {"data": None, "at": 0.0}
 
 
+@app.route("/api/db", methods=["POST"])
+def api_db():
+    """The scraper's way in, when the database is local to this machine and it is not.
+
+    Deliberately thin: every decision — signature, freshness, table allowlist, and whether the
+    operation is one this codebase ever performs — lives in dbproxy.handle and pgrest.build, so
+    it can all be tested without a web server. See dbproxy.py for why this is not a remote SQL
+    console.
+
+    Off unless DB_PROXY_SECRET is set, so an install that has never heard of the proxy answers
+    503 rather than exposing a route that merely fails authentication.
+    """
+    from flask import jsonify
+    status, payload = dbproxy.handle(
+        request.get_data(), request.headers.get("X-DB-Ts"), request.headers.get("X-DB-Sig"),
+        os.environ.get("DB_PROXY_SECRET") or "", db._http)
+    return jsonify(payload), status
+
+
 @app.route("/admin/data")
 @admin_required
 def admin_data():
@@ -4801,6 +4821,9 @@ _CSRF_EXEMPT = frozenset((
                    # login CSRF is a nuisance rather than a compromise
     "/api/ev",     # public, no-ops without a session, writes nothing a forger benefits from
     "/logout",     # clearing your own session is not worth a token; see the note in the report
+    "/api/db",     # HMAC-signed, never cookie-authenticated — a cross-site page cannot forge a
+                   # signature, and the CSRF check below would never fire on it anyway (no
+                   # session). Listed explicitly so that stays true if the guard changes.
 ))
 
 

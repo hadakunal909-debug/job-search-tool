@@ -61,11 +61,16 @@ class _LazyHTTP:
     def __getattr__(self, name):
         global _http_session
         if _http_session is None:
+            # Three transports, one interface, checked most-specific first. PG_DSN wins because
+            # a process that can reach the database directly should never route through HTTP to
+            # reach itself — the cPanel app sets PG_DSN, the scraper sets DB_PROXY_*, and
+            # neither should ever have both.
             if PG_DSN:
                 import pgrest
                 _http_session = pgrest.Session(PG_DSN)
             else:
-                _http_session = _make_http()
+                import dbproxy
+                _http_session = dbproxy.client_from_env() or _make_http()
         return getattr(_http_session, name)
 
 
@@ -232,7 +237,7 @@ def using_supabase():
     to choose between the network path and jobs.csv, and a direct-Postgres backend belongs on
     the network side of that question. Renaming it would touch ~40 call sites for no behavioural
     change, so the docstring carries the meaning instead."""
-    if PG_DSN:
+    if PG_DSN or (os.environ.get("DB_PROXY_URL") and os.environ.get("DB_PROXY_SECRET")):
         return True
     url, key = _creds()
     return bool(url and key)
@@ -240,7 +245,7 @@ def using_supabase():
 
 def _rest(path=""):
     url, _ = _creds()
-    if PG_DSN and not url:
+    if (PG_DSN or os.environ.get("DB_PROXY_URL")) and not url:
         # pgrest.Session only reads the part after /rest/v1/ to find the table, so the host is
         # a placeholder. Keeping the same shape means _rest()'s callers stay identical.
         return "pg://local/rest/v1/%s" % path
