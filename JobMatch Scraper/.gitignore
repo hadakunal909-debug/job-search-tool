@@ -76,3 +76,9 @@ jd_backfill_*.log
 
 # Generated Postgres DSN (contains the database password).
 .pg_dsn
+
+# Supabase session-pooler URL (contains the database password).
+.supabase_dsn
+
+# Shared secret for the scraper -> /api/db transport.
+.db_proxy_secret

@@ -95,7 +95,7 @@ def _check_target(table):
     return None if table in ALLOWED_TABLES else "table not allowed: %s" % table
 
 
-def handle(raw, ts, sig, secret, backend, now=None):
+def handle(raw, ts, sig, secret, backend, now=None, local_ok=True):
     """Server side. Returns (http_status, response_dict).
 
     `backend` is anything with the five verbs — on the cPanel app that is db._http, which is a
@@ -110,6 +110,13 @@ def handle(raw, ts, sig, secret, backend, now=None):
     ok, why = verify(secret, ts, raw, sig, now)
     if not ok:
         return 401, {"error": why}
+    # AFTER the signature, deliberately. `local_ok` is false when this app has no database of
+    # its own (no PG_DSN), and proxying would then mean a caller asking us to call Supabase for
+    # them — slower than the direct call they already have, and a write path nobody intended.
+    # Checking it BEFORE the signature, as the first version did, told every anonymous caller
+    # what this server is configured with. Configuration state is for authenticated callers.
+    if not local_ok:
+        return 503, {"error": "proxy has no local database (PG_DSN unset)"}
     try:
         env = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
     except Exception:
@@ -173,9 +180,25 @@ class Session:
         self._http = None
 
     def _session(self):
+        """A session that retries CONNECTIONS but never STATUSES.
+
+        Deliberately not db._make_http(), whose policy retries 429/500/502/503/504 — right for
+        Supabase, wrong here. This endpoint answers 4xx and 5xx to say things: 401 bad
+        signature, 403 table not allowed, 503 no local database. Retrying those three times and
+        then raising RetryError replaces the server's explanation with "too many 502 error
+        responses", which is exactly how the first live test wasted a debugging round: the
+        server was reporting the real problem the whole time and the client was eating it.
+        """
         if self._http is None:
-            import db
-            self._http = db._make_http()      # same retry/backoff policy as every other call
+            import requests
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            s = requests.Session()
+            s.mount("https://", HTTPAdapter(max_retries=Retry(
+                total=2, connect=2, read=2, status=0, backoff_factor=0.5)))
+            s.mount("http://", HTTPAdapter(max_retries=Retry(
+                total=2, connect=2, read=2, status=0, backoff_factor=0.5)))
+            self._http = s
         return self._http
 
     def _run(self, method, url, headers=None, params=None, data=None, timeout=None):

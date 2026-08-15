@@ -106,6 +106,16 @@ st, body = call(envelope(table="pg_shadow"), sig="0" * 64)
 check("an unsigned request is refused before its content is judged",
       st == 401 and "table" not in body["error"], (st, body))
 
+st, body = dbproxy.handle(raw, "1", "bad-sig", SECRET, FakeBackend(), local_ok=False)
+check("an unsigned caller cannot learn whether the proxy has a database",
+      st == 401 and "PG_DSN" not in body["error"], (st, body))
+
+st, body = call(raw, backend=FakeBackend(), now=None)
+check("...while a SIGNED caller gets the real 503 when it doesn't",
+      dbproxy.handle(raw, "%d" % int(time.time()),
+                     dbproxy.sign(SECRET, "%d" % int(time.time()), raw),
+                     SECRET, FakeBackend(), local_ok=False)[0] == 503, st)
+
 print()
 print("=" * 74)
 print("WHAT IT REFUSES TO PROXY")
