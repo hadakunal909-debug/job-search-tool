@@ -64,7 +64,16 @@ FILES = [
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
 # contract core.load_sponsor_counts / load_everify already have — so a missing one is fine.
-OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "visa_tags.json"]
+#
+# resume.txt is NOT optional in the same sense, and it is here because leaving it out broke
+# something silently. score_jobs aborts with "No resume.txt found — scores would all be 0" and
+# EXITS 0, so a scheduled run scrapes, logs a success, and never scores a thing. That was
+# invisible while scoring only ran on GitHub Actions, which gets the file from the repo
+# checkout; the moment a cPanel cron started scoring, the deploy bundle became the thing that
+# had to carry it. Listed as optional rather than required only so a build without it still
+# produces a bundle — the site runs fine, it just cannot score.
+OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "visa_tags.json",
+                  "resume.txt"]
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
