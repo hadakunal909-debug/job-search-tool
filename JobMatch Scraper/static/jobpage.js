@@ -67,3 +67,25 @@
   }).then(function () { setTimeout(poll, EVERY); })
     .catch(function () { /* the section keeps its "not researched yet" copy */ });
 })();
+
+// Company-logo fallback, the same contract app.js gives the feed and the company page.
+//
+// This page deliberately does not load app.js, so it never got one. The logo is a coloured
+// tile with the company's initial, and the favicon <img> sits absolutely on top of it with a
+// white background — so when the favicon 404s (the domain is guessed from the company name and
+// is often wrong), the failed image stays a WHITE SQUARE covering the letter that was supposed
+// to be the fallback. Hiding the <img> lets the tile behind it show.
+//
+// In JS rather than an inline onerror= so the CSP can keep forbidding inline handlers.
+(function () {
+  var imgs = document.querySelectorAll(".logo-img");
+  for (var i = 0; i < imgs.length; i++) {
+    (function (img) {
+      function fail() { img.style.display = "none"; }
+      img.addEventListener("error", fail);
+      // An image cached as broken, or one that failed before this ran, never fires "error".
+      // complete && naturalWidth === 0 is how you detect that after the fact.
+      if (img.complete && img.naturalWidth === 0) fail();
+    })(imgs[i]);
+  }
+})();
