@@ -44,6 +44,16 @@ def _make_http():
 _http_session = None
 
 
+# Set PG_DSN and this module talks to a Postgres server DIRECTLY instead of to Supabase's
+# PostgREST — for a self-hosted database (cPanel, a VPS) or any managed Postgres that isn't
+# Supabase. pgrest.py implements the five HTTP verbs over psycopg and translates the query
+# language, so none of the 75 functions below change and neither does anything that calls them.
+# Unset it and you are back on Supabase, which is what makes it safe to try.
+#
+#   PG_DSN="postgresql://user:pw@localhost:5432/dbname"
+PG_DSN = os.environ.get("PG_DSN") or ""
+
+
 class _LazyHTTP:
     """Defers building the requests.Session (and the ~1 s `import requests`) until the
     first actual DB call, so importing db.py stays cheap on a cold Passenger start. All
@@ -51,7 +61,11 @@ class _LazyHTTP:
     def __getattr__(self, name):
         global _http_session
         if _http_session is None:
-            _http_session = _make_http()
+            if PG_DSN:
+                import pgrest
+                _http_session = pgrest.Session(PG_DSN)
+            else:
+                _http_session = _make_http()
         return getattr(_http_session, name)
 
 
@@ -212,12 +226,24 @@ def _creds():
 
 
 def using_supabase():
+    """True when there is a REMOTE database to talk to, of either kind.
+
+    The name is historical and now reads as "not the local CSV fallback" — every caller uses it
+    to choose between the network path and jobs.csv, and a direct-Postgres backend belongs on
+    the network side of that question. Renaming it would touch ~40 call sites for no behavioural
+    change, so the docstring carries the meaning instead."""
+    if PG_DSN:
+        return True
     url, key = _creds()
     return bool(url and key)
 
 
 def _rest(path=""):
     url, _ = _creds()
+    if PG_DSN and not url:
+        # pgrest.Session only reads the part after /rest/v1/ to find the table, so the host is
+        # a placeholder. Keeping the same shape means _rest()'s callers stay identical.
+        return "pg://local/rest/v1/%s" % path
     return "%s/rest/v1/%s" % (url, path)
 
 

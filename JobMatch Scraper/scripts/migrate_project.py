@@ -69,14 +69,51 @@ CORE_TABLES = ["users", "profiles", "user_jobs", "applications", "resumes", "boa
 # table in the database.
 EXTRA_TABLES = ["events", "events_daily", "tailored_cache"]
 
-_target = {"url": None, "key": None}
+# The conflict key per table, READ OUT OF db.py's own on_conflict= params rather than guessed.
+# Real PostgREST infers the key from the primary key when you omit it, so db.py can be sloppy in
+# places and still work; pgrest.py refuses to guess, because inferring the wrong key on a bulk
+# merge is how you silently collapse rows. A table that isn't listed is loaded with
+# ignore-duplicates instead, which needs no key and makes a re-run safe either way.
+CONFLICT_KEYS = {"jobs": "url", "user_jobs": "username,url", "profiles": "username",
+                 "boards": "url", "blocked_companies": "name_key", "applications": "id",
+                 "resumes": "id", "brain_companies": "domain", "tailored_cache": "id",
+                 "learned_answers": "username,key", "scrape_status": "id"}
+
+_target = {"url": None, "key": None, "sess": None}
+
+
+def session():
+    """The thing that talks to the TARGET.
+
+    Either a Supabase project (db's requests session) or a Postgres server (pgrest.Session,
+    which implements the same five verbs over psycopg). Both answer .head/.post identically, so
+    every push below is written once and works for both destinations.
+
+    The Postgres path is what makes a cPanel migration cheap: run this script ON the cPanel box
+    with TARGET_PG_DSN pointed at localhost, and the rows never cross the internet at all.
+    """
+    if _target["sess"] is None:
+        dsn = os.environ.get("TARGET_PG_DSN") or ""
+        if dsn:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            import pgrest
+            _target["sess"] = pgrest.Session(dsn)
+        else:
+            _target["sess"] = db._http
+    return _target["sess"]
 
 
 def target_creds():
+    dsn = os.environ.get("TARGET_PG_DSN") or ""
+    if dsn:
+        # pgrest only reads the table out of the path, so the host half is a placeholder — the
+        # DSN is what actually locates the database.
+        return "pg://local", ""
     url = (os.environ.get("TARGET_SUPABASE_URL") or "").rstrip("/")
     key = os.environ.get("TARGET_SUPABASE_KEY") or ""
     if not (url and key):
-        sys.exit("Set TARGET_SUPABASE_URL and TARGET_SUPABASE_KEY to the NEW project first.")
+        sys.exit("Set TARGET_SUPABASE_URL + TARGET_SUPABASE_KEY (a Supabase project), or "
+                 "TARGET_PG_DSN (a Postgres server) first.")
     src, _ = db._creds()
     # The one mistake this script must make impossible. Pointing the target at the source turns
     # every "migration" below into a no-op upsert over the live table -- which would look like a
@@ -101,8 +138,8 @@ def trest(path=""):
 def tcount(table):
     """Row count on the TARGET, via a HEAD — no body, so it costs nothing on either side."""
     try:
-        r = db._http.head(trest(table), headers=theaders({"Prefer": "count=exact"}),
-                          params={"select": "*"}, timeout=30)
+        r = session().head(trest(table), headers=theaders({"Prefer": "count=exact"}),
+                           params={"select": "*"}, timeout=30)
         if r.status_code >= 400:
             return None
         rng = r.headers.get("Content-Range") or ""
@@ -143,8 +180,14 @@ def push(table, rows, chunk=100, apply=False, label=""):
         if not apply:
             sent += len(batch)
             continue
-        r = db._http.post(trest(table), headers=theaders(
-            {"Prefer": "resolution=merge-duplicates,return=minimal"}),
+        # A known key merges (re-running overwrites with the same values, which is correct —
+        # the local snapshot IS the source of truth here). An unknown one falls back to
+        # ON CONFLICT DO NOTHING, so a resumed run still cannot duplicate a row.
+        conflict = CONFLICT_KEYS.get(table)
+        r = session().post(trest(table), headers=theaders(
+            {"Prefer": ("resolution=merge-duplicates,return=minimal" if conflict
+                        else "resolution=ignore-duplicates,return=minimal")}),
+            params=({"on_conflict": conflict} if conflict else {}),
             data=json.dumps(batch).encode("utf-8"), timeout=90)
         if r.status_code >= 400:
             print("  FAILED at row %d: HTTP %s %s" % (sent, r.status_code, (r.text or "")[:300]))
