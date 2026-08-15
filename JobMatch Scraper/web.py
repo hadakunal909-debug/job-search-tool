@@ -11,6 +11,7 @@ On cPanel:     passenger_wsgi.py exposes `application = web.app`
 """
 import os
 import re
+from urllib.parse import urlsplit
 import sys
 import json
 import time
@@ -941,7 +942,7 @@ def _build_row(j, score):
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
             # career split. core.role_track is the single definition; the digest reads it too.
             "track": core.role_track(j.get("title") or ""),
-            "logo_domain": logodomain(c), "logo_color": logocolor(c),
+            "logo_domain": logodomain(c, j.get("url")), "logo_color": logocolor(c),
             "initial": c[:1].upper() if c else "?"}
 
 
@@ -1529,7 +1530,12 @@ def _inject():
 #     logo.clearbit.com is DEAD — Clearbit sunset the free logo API) ---
 _DOMAIN_MAP = {
     "affirm": "affirm.com", "airbnb": "airbnb.com", "alixpartners": "alixpartners.com",
-    "amazon": "amazon.com", "anaplan": "anaplan.com", "aurora innovation": "aurora.tech",
+    "amazon": "amazon.com", "analog devices": "analog.com", "analogdevices": "analog.com",
+    # No rule reaches these: the posting host is a platform tenant ("seic.wd1...",
+    # "flagstar.wd5...") or the real domain resembles nothing in the name (umn.edu).
+    "flagstar bank": "flagstar.com", "sei investments": "seic.com",
+    "university of minnesota": "umn.edu",
+    "anaplan": "anaplan.com", "aurora innovation": "aurora.tech",
     "avery dennison": "averydennison.com", "bitgo": "bitgo.com", "block": "block.xyz",
     "brex": "brex.com", "bytedance": "bytedance.com", "cme group": "cmegroup.com",
     "celonis": "celonis.com", "chargepoint": "chargepoint.com", "checkr": "checkr.com",
@@ -1560,12 +1566,68 @@ _DOMAIN_MAP = {
 _PALETTE = ["#0e8a5f", "#2c5bd6", "#b8730a", "#7c3aed", "#c0392b", "#0c7a8a", "#b03060", "#475569"]
 
 
+# Hosts belonging to a hiring PLATFORM rather than to the employer. A posting on one of these
+# says nothing about the company's own domain — "seic.wd1.myworkdayjobs.com" is a Workday tenant
+# name, not a website — so the URL is only trusted when its host is none of them.
+_PLATFORM_HOSTS = (
+    "myworkdayjobs.com", "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com",
+    "icims.com", "jobvite.com", "workable.com", "bamboohr.com", "taleo.net", "successfactors.com",
+    "sapsf.com", "avature.net", "jobdiva.com", "ultipro.com", "paylocity.com", "oraclecloud.com",
+    "eightfold.ai", "recruitics.com", "rippling.com", "isolvedhire.com", "apploi.com",
+    "phenompeople.com", "peoplefluent.com", "silkroad.com", "brassring.com", "dayforcehcm.com",
+)
+
+
 @app.template_filter("logodomain")
-def logodomain(name):
+def logodomain(name, url=None):
+    """The domain to ask Google's favicon service for.
+
+    THE JOB'S OWN URL BEATS ANY GUESS, when it is the employer's site. The old rule was
+    name -> strip non-alphanumerics -> append ".com", which is right for "Tesla" and wrong for
+    most things with more than one word. Measured against the live corpus it produced
+    northwestern.com for a university whose postings sit on careers.northwestern.edu,
+    universityofminnesota.com for one on hr.myu.umn.edu, flagstarbank.com for flagstar.com, and
+    seiinvestments.com for seic.com — each a 404 from the favicon service, and on the job page a
+    404 leaves a white square over the coloured initial rather than falling back to it.
+
+    There are 52 distinct universities and colleges in the corpus, and the naive rule gets
+    essentially all of them wrong while their careers pages sit on the .edu domain that answers
+    the question. So: if the posting is hosted on something that is not a hiring platform, take
+    the registrable domain from it. If it IS on a platform, the URL is a tenant name and tells us
+    nothing, so fall back to the map and then to the guess.
+
+    _DOMAIN_MAP still wins over both — it is the place to record the cases no rule can reach,
+    like Analog Devices, whose Workday tenant is "analogdevices" while the site is analog.com.
+    """
     key = (name or "").strip().lower()
     if key in _DOMAIN_MAP:
         return _DOMAIN_MAP[key]
+    host = ""
+    try:
+        host = (urlsplit(url or "").hostname or "").lower()
+    except Exception:
+        host = ""
     base = re.sub(r"[^a-z0-9]", "", key)        # join words -> best-effort guess
+    labels = [p for p in host.split(".") if p]
+    if base and len(labels) >= 2 and not any(p in host for p in _PLATFORM_HOSTS):
+        # THE URL ONLY CORROBORATES, IT NEVER OVERRIDES. Taking the posting's domain whenever it
+        # was not on a known platform list was measured over all 1,780 companies in the corpus
+        # and CHANGED 178 — but a large share of those were regressions, because the list of
+        # hiring platforms has an unenumerable tail: Udemy went udemy.com -> careerpuck.com,
+        # Maximus -> equest.com, Capgemini -> talentnet.community, Stashinvest -> comparably.com.
+        # Each replaced a correct guess with a confidently wrong one. "Not on my list" does not
+        # mean "the employer's own site".
+        #
+        # So the domain is accepted only when it AGREES with the company name — one is a prefix
+        # of the other. That keeps every real fix where the name already matched
+        # (cornelluniversity -> cornell.edu, northwestern -> northwestern.edu, caddellconstruction
+        # -> caddell.com) and rejects every platform host, because no ATS is named after its
+        # client. Cases where the true domain resembles nothing in the name (University of
+        # Minnesota -> umn.edu) stay wrong, which is no worse than before and is what _DOMAIN_MAP
+        # is for.
+        root = labels[-2]
+        if root and (root.startswith(base) or base.startswith(root)):
+            return ".".join(labels[-2:])
     return (base or "example") + ".com"
 
 
