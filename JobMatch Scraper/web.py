@@ -316,8 +316,26 @@ _FEED_INLINE_MAX = int(os.environ.get("FEED_INLINE_MAX", "4000"))
 # both too many (the browser discarded them) and the wrong rows (unfiltered).
 _FEED_TOPN = int(os.environ.get("FEED_TOPN", "60"))
 _sponsor_cache = {}          # url -> (verdict, reason) read from the JD (same for everyone)
-_jdmeta = core.load_jdmeta()  # url -> {analyzed, exp_years, exp_level, sponsor_jd}; prewarmed from
-                              # jdmeta.json (built by the cron scorer) so cold renders skip recompute
+# url -> {analyzed, exp_years, exp_level, sponsor_jd}. OFF unless JDMETA=1.
+#
+# Every field this file holds is also a COLUMN on the jobs table — jd_terms, exp_max_years,
+# sponsor_jd, sponsor_reason — and both readers below already prefer the column and fall back to
+# here (_analyzed_of, _jd_fields). Their own comments say only the column reaches the live site,
+# "jdmeta.json is gitignored and never deployed", which was true while the scorer only ever ran
+# on an ephemeral GitHub runner.
+#
+# MOVING THE SCRAPER ONTO THE APP SERVER BROKE THAT ASSUMPTION SILENTLY. The scorer writes
+# jdmeta.json wherever it runs, so the file now appears next to the app — and this line loaded it
+# into EVERY Passenger worker at import. Measured: 29 MB on disk becomes 94 MB of Python objects,
+# per worker, permanently, to duplicate columns the same query already returns. On a 2 GB account
+# where a warmed worker is 310 MB, that is most of a worker's footprint spent on a fallback for a
+# case that cannot happen in production: the file and the columns are written by the SAME run, so
+# it is never fresher than they are.
+#
+# Left switchable rather than deleted because the fallback is genuinely wanted on a developer's
+# machine, where a scoring run may have written the file while the database write failed. Set
+# JDMETA=1 there.
+_jdmeta = core.load_jdmeta() if (os.environ.get("JDMETA") or "").strip() in ("1", "true", "yes") else {}
 # Shape for a job with no precomputed JD analysis (a job added since the last cron score run).
 # The feed list no longer carries JD text, so such a job simply shows no JD-derived badges and
 # its baseline match_score until the next cron run refreshes jdmeta.json.
@@ -2734,7 +2752,11 @@ def reload_jobs():
     _status_cache.clear()
     _sponsor_cache.clear()
     _jdmeta.clear()
-    _jdmeta.update(core.load_jdmeta())       # re-pull the cron's latest precompute from disk
+    # Same JDMETA gate as the import-time load above. Without it, /reload would pull 94 MB back
+    # into the worker that served it and quietly undo the saving — and only for that one worker,
+    # which is the kind of asymmetry that makes a memory graph impossible to read.
+    if (os.environ.get("JDMETA") or "").strip() in ("1", "true", "yes"):
+        _jdmeta.update(core.load_jdmeta())   # re-pull the cron's latest precompute from disk
     core._reset_idf_cache()
     flash("Jobs reloaded.")
     return redirect(url_for("feed"))
