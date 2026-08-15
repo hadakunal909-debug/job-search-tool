@@ -3351,9 +3351,11 @@ def api_db():
     503 rather than exposing a route that merely fails authentication.
     """
     from flask import jsonify
+    # local_ok gates on this app having a database of its own; handle() checks it AFTER the
+    # signature, so an anonymous caller cannot use this endpoint to read our configuration.
     status, payload = dbproxy.handle(
         request.get_data(), request.headers.get("X-DB-Ts"), request.headers.get("X-DB-Sig"),
-        os.environ.get("DB_PROXY_SECRET") or "", db._http)
+        os.environ.get("DB_PROXY_SECRET") or "", db._http, local_ok=bool(db.PG_DSN))
     return jsonify(payload), status
 
 
