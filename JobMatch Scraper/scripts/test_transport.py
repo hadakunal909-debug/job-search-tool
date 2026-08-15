@@ -13,9 +13,11 @@ real processes never do.
 
     python scripts/test_transport.py
 """
+import io
 import os
 import subprocess
 import sys
+import tempfile
 
 APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -91,13 +93,31 @@ check("both set: PG_DSN wins",
 # using_supabase() is the "is there a remote database at all" gate, and every db function uses
 # it to choose between the network and the local CSV. A transport that is configured but reports
 # False would silently drop the whole application onto jobs.csv.
-import tempfile
 with tempfile.TemporaryDirectory() as empty:
     check("no credentials of any kind: the CSV fallback",
           transport(_cwd=empty, SUPABASE_URL="", SUPABASE_KEY=""), ("requests.sessions", False))
     check("...and a PG_DSN still wins there",
           transport(_cwd=empty, SUPABASE_URL="", SUPABASE_KEY="",
                     PG_DSN="host=127.0.0.1 dbname=d"), ("pgrest", True))
+
+# CONFIGURED VIA .env, NOT THE ENVIRONMENT. cPanel has no place to set process environment
+# variables for a Passenger app, so every setting arrives through the app directory's .env --
+# and PG_DSN was originally a module constant read ~45 lines BEFORE db.py loads that file. The
+# app therefore ignored its own configuration and kept talking to Supabase, silently, with
+# matching row counts because the two databases are identical copies. This is the regression
+# test for that: same value, delivered the way the live app actually delivers it.
+def write_env(directory, text):
+    with io.open(os.path.join(directory, ".env"), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
+with tempfile.TemporaryDirectory() as d:
+    write_env(d, "PG_DSN=host=127.0.0.1 dbname=d user=u password=p\n")
+    check("PG_DSN from a .env file is honoured",
+          transport(_cwd=d, SUPABASE_URL="", SUPABASE_KEY=""), ("pgrest", True))
+    write_env(d, "DB_PROXY_URL=https://x/api/db\nDB_PROXY_SECRET=s\n")
+    check("DB_PROXY_* from a .env file are honoured",
+          transport(_cwd=d, SUPABASE_URL="", SUPABASE_KEY=""), ("dbproxy", True))
 
 print()
 if fails:

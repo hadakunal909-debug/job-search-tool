@@ -44,16 +44,6 @@ def _make_http():
 _http_session = None
 
 
-# Set PG_DSN and this module talks to a Postgres server DIRECTLY instead of to Supabase's
-# PostgREST — for a self-hosted database (cPanel, a VPS) or any managed Postgres that isn't
-# Supabase. pgrest.py implements the five HTTP verbs over psycopg and translates the query
-# language, so none of the 75 functions below change and neither does anything that calls them.
-# Unset it and you are back on Supabase, which is what makes it safe to try.
-#
-#   PG_DSN="postgresql://user:pw@localhost:5432/dbname"
-PG_DSN = os.environ.get("PG_DSN") or ""
-
-
 class _LazyHTTP:
     """Defers building the requests.Session (and the ~1 s `import requests`) until the
     first actual DB call, so importing db.py stays cheap on a cold Passenger start. All
@@ -96,6 +86,22 @@ def _load_env_file(path=".env"):
 
 
 _load_env_file()       # db is imported first by every entry point (web, scraper, scorer)
+
+# READ AFTER _load_env_file(), and that is the whole point of it being here rather than beside
+# _LazyHTTP where it logically belongs. This was a module constant assigned ~45 lines above the
+# call that loads .env, so a PG_DSN set in .env -- which is exactly how cPanel configures the
+# app -- was read as empty every time, and the app silently kept talking to Supabase while its
+# configuration said otherwise. Nothing failed; the row counts even matched, because the two
+# databases are identical copies. DB_PROXY_* escaped the same bug only by accident: they are
+# read inside functions, at call time, rather than at import.
+# Set PG_DSN and this module talks to a Postgres server DIRECTLY instead of to Supabase's
+# PostgREST — for a self-hosted database (cPanel, a VPS) or any managed Postgres that isn't
+# Supabase. pgrest.py implements the five HTTP verbs over psycopg and translates the query
+# language, so none of the 75 functions below change and neither does anything that calls them.
+# Unset it and you are back on Supabase, which is what makes it safe to try.
+#
+#   PG_DSN="postgresql://user:pw@localhost:5432/dbname"
+PG_DSN = os.environ.get("PG_DSN") or ""
 
 JOBS_CSV = "jobs.csv"
 ACTIONS_FILE = "user_jobs.json"
