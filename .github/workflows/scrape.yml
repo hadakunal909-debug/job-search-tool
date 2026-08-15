@@ -29,8 +29,17 @@ name: Scrape jobs
 # invisible to the match filter. Only the second run scores in cheap new-only mode.)
 on:
   schedule:
-    - cron: "0 16 * * 1-5"      # 12pm ET Mon-Fri (11am under EST) — the heavy pass runs here
-    - cron: "0 20 * * 1-5"      #  4pm ET Mon-Fri ( 3pm under EST) — feed refresh + new-only scoring
+    # ONE run a day now, not two. The database moved to cPanel and a cron on that box covers the
+    # other two slots, so the day is split three ways rather than both halves landing here:
+    #
+    #   09:00 ET  THIS workflow      heavy pass — verify_dates, analytics rollup, digest email
+    #   13:00 ET  cPanel cron        scrape + new-only score
+    #   17:00 ET  cPanel cron        scrape + new-only score
+    #
+    # Actions keeps the 9am slot deliberately: it is the pass that emails the digest and runs
+    # verify_dates against a rate-limited service, and a GitHub runner is a whole machine for
+    # 45 minutes, whereas the cPanel box has to serve the website at the same time.
+    - cron: "0 13 * * 1-5"      # 9am ET Mon-Fri (8am under EST) — the heavy pass
   workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
@@ -83,26 +92,17 @@ jobs:
         run: |
           H=$(TZ=America/New_York date +%-H)          # current Eastern hour, no leading zero
           D=$(TZ=America/New_York date +%u)           # Eastern day of week, 1=Mon .. 7=Sun
-          RUN=yes; HEAVY=no
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            # 2pm Eastern splits the day's two runs. Deliberately a boundary BETWEEN them
-            # rather than an exact hour, because the cron times are fixed UTC and the ET hour
-            # they land on shifts with DST: the 16:00 UTC run is 12pm ET under EDT and 11am
-            # under EST, and the 20:00 UTC one is 4pm/3pm. Every one of those four hours falls
-            # on the correct side of 14, so this picks the right run without caring about DST.
-            #
-            # NOTE the boundary must sit strictly between the two — an earlier version tested
-            # `-lt 12`, which was correct only while the first run was at 10am. Moving that run
-            # to 12pm would have put it exactly ON the boundary and quietly turned the daily
-            # heavy pass off. If the cron times change again, move this number too.
-            if [ "$H" -lt 14 ]; then HEAVY=yes; fi
-            # ...plus Friday afternoon. There is no weekend run, so without this anything the
-            # Friday PM scrape finds goes un-verified and unemailed until Monday. One extra
-            # heavy pass a week buys a digested Friday batch.
-            if [ "$D" = "5" ] && [ "$H" -ge 14 ]; then HEAVY=yes; fi
-          else
-            HEAVY=yes                                   # manual / app-button run: full pass
-          fi
+          # EVERY run here is the heavy pass now. This workflow used to fire twice a day and the
+          # gate picked which half was heavy off the Eastern hour; the afternoon slot has moved
+          # to the cPanel cron, so there is exactly one scheduled run and it is always the heavy
+          # one. The hour/day arithmetic that chose between them — including the Friday-afternoon
+          # special case that existed only to digest the Friday PM batch before the weekend — is
+          # deleted rather than left to evaluate to the right answer by accident. A dead branch
+          # in a gate is worse than no gate: the next person to change the cron time reads it as
+          # load-bearing and reasons from it.
+          #
+          # If a second scheduled slot is ever added back here, this needs a real decision again.
+          RUN=yes; HEAVY=yes
           echo "run=$RUN"     >> "$GITHUB_OUTPUT"
           echo "heavy=$HEAVY" >> "$GITHUB_OUTPUT"
           echo "ET $(TZ=America/New_York date '+%a %H:%M') (dow=$D hour=$H)  event=${{ github.event_name }}  ->  run=$RUN heavy=$HEAVY"
