@@ -127,7 +127,7 @@ def main(argv):
 
     print("jobs rows: %d | rows with a JD: %d | user_jobs rows: %d"
           % (len(rows), len(with_jd), len(statuses)))
-    print("backend: %s\n" % ("Supabase" if db.using_supabase() else "local files"))
+    print("backend: %s\n" % db.backend_name())
 
     groups = collections.defaultdict(list)
     for r in rows:

@@ -279,7 +279,7 @@ def main():
     if limit is not None:
         cands = cands[:limit]
     n = len(cands)
-    where = "Supabase" if db.using_supabase() else "jobs.csv"
+    where = db.backend_name()
     budget = ("%g min budget" % budget_min) if budget_min > 0 else "no budget"
     print("%d jobs total; %d to verify (%s)%s, %d workers, %s -> %s"
           % (len(rows), n, "--all" if do_all else "derived/fallback",
