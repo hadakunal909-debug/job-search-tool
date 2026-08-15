@@ -56,7 +56,9 @@ def main():
     print("would remain       : %d" % (total - len(doomed)))
 
     if doomed:
-        rows = {r["url"]: r for r in db.load_jobs() if r.get("url")}
+        # url+company only: this prints who the doomed rows belong to, and a bare load_jobs()
+        # would buy every description in the corpus (~130 MB) to render a top-10 list.
+        rows = {r["url"]: r for r in db.load_jobs(cols="url,company") if r.get("url")}
         by_co = collections.Counter((rows.get(u, {}).get("company") or "?") for u in doomed)
         print("\nbiggest contributors:")
         for c, n in by_co.most_common(10):

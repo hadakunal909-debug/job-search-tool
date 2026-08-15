@@ -20,7 +20,7 @@ for name, want in [("Amazon", "high"), ("Cognizant Technology Solutions", "high"
     ok = "ok " if (want is None or tier == want) else "FAIL"
     print("  %s %-32s -> %-6s %8s   (want %s)" % (ok, name, tier or "''", format(n, ","), want))
 
-rows = db.load_jobs()
+rows = db.load_jobs(cols=db.COLS_COMPANY)     # names only: a bare load_jobs() is ~130 MB
 companies = collections.Counter((r.get("company") or "").strip() for r in rows if (r.get("company") or "").strip())
 resolved = tiers = 0
 tier_ct = collections.Counter()

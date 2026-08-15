@@ -233,7 +233,7 @@ def our_universe():
     names = set()
     try:
         import db
-        for r in db.load_jobs():
+        for r in db.load_jobs(cols=db.COLS_COMPANY):   # names only: a bare load_jobs() is ~130 MB
             c = (r.get("company") or "").strip()
             if c:
                 names.add(c)

@@ -7,9 +7,25 @@ for ln in open(".env", encoding="utf-8"):
     if ln and not ln.startswith("#") and "=" in ln:
         k, v = ln.split("=", 1); os.environ.setdefault(k.strip(), v.strip())
 import core, db
+from scraper.score_jobs import _load_jd_cache
 
-rows = db.load_jobs()
+# THE DESCRIPTIONS COME OFF DISK, NOT THE WIRE. This checker does need every JD — parse_salary
+# runs over all of them and parse_location reads the JD for remote/relocation wording — but
+# db.load_jobs() would download the lot on every run (~130 MB at 20k rows, on a metered free
+# tier) to re-read text that CANNOT have changed: a stored JD is written once, and the scheduled
+# pass only ever fetches rows that have none. score_jobs already keeps that corpus in
+# jd_cache.json.gz for exactly this reason, so reuse it and buy only url+location.
+#
+# A row whose JD is not cached reads as "" — the same thing an unfetched JD has always looked
+# like here — so the location figures are unaffected and the salary section simply reports over
+# the rows it has. If the counts look low, run `python -m scraper.score_jobs` to refresh the
+# cache; the gate percentages below are stated per-row, not as absolutes.
+rows = db.load_jobs(cols="url,location")
+jds = _load_jd_cache()
+for r in rows:
+    r["jd"] = jds.get(r.get("url") or "", "")
 n = len(rows)
+print("jd corpus: %d of %d rows have a cached description" % (sum(1 for r in rows if r["jd"]), n))
 print("=" * 72)
 print("parse_location over %d rows" % n)
 print("=" * 72)

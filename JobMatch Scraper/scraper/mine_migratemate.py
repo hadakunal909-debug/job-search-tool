@@ -162,7 +162,7 @@ def main():
     in_sources = set()
     for _u, _t, c in list(scraper.SOURCES) + list(scraper.custom_sources()):
         in_sources |= keys(c)
-    rows = db.load_jobs()
+    rows = db.load_jobs(cols=db.COLS_COMPANY)     # names only: a bare load_jobs() is ~130 MB
     in_db = set()
     for r in rows:
         in_db |= keys(r.get("company") or "")

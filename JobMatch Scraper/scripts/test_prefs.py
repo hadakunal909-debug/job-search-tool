@@ -153,7 +153,16 @@ print("=" * 78)
 print("digest_row builds the shape prefs_match needs, from a RAW db job")
 print("=" * 78)
 import db
-raw = next(j for j in db.load_jobs() if (j.get("jd") or "").strip() and j.get("location"))
+# 50 rows, not 20,000. This wants ONE real job to prove digest_row's shape against; asking for
+# it with `next(j for j in db.load_jobs() ...)` downloaded every description in the corpus
+# (~130 MB) and discarded all but one, on a suite that runs several times an hour and — because
+# it needs live credentials — only ever on a developer's machine, where nothing meters it.
+# order=url makes the sample stable, so this test picks the same job tomorrow.
+_pool = db.sample_jobs(50, cols="*", jd="not.is.null")
+raw = next((j for j in _pool if (j.get("jd") or "").strip() and j.get("location")), None)
+if raw is None:
+    print("  FAIL  no sampled row had both a description and a location")
+    sys.exit(1)
 dr = core.digest_row(raw, 55, core.load_everify(), core.load_visa_tags())
 for k in ("title", "company", "url", "location", "score", "loc_state", "loc_metro", "remote",
           "salary_min", "salary_period", "salary_label", "sponsors_h1b", "sponsor_jd",

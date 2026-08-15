@@ -57,7 +57,7 @@ def main():
               [t for t in core.VISA_TAGS if t in core.visa_tags(c, idx)]
               for c in ("Amazon", "Google", "Deloitte")))
 
-    rows = db.load_jobs()
+    rows = db.load_jobs(cols=db.COLS_COMPANY)     # names only: a bare load_jobs() is ~130 MB
     comps = collections.Counter((r.get("company") or "").strip() for r in rows)
     comps.pop("", None)
     per_co, per_job = collections.Counter(), collections.Counter()

@@ -570,6 +570,22 @@ _JOBS_TTL = 3600             # jobs change only on the daily scrape; force-refre
 # the old per-worker behaviour rather than failing a request.
 _JOBS_SNAPSHOT = os.environ.get("JOBS_SNAPSHOT") or os.path.join(_APP_DIR, "jobs_snapshot.json.gz")
 
+# How old a snapshot may be and still be worth REVALIDATING (not serving blind — see get_jobs).
+# Correctness comes from the fingerprint, so this is not a freshness limit; it is a bound on the
+# one thing the fingerprint cannot see. jobs_fingerprint() is (row count, max first_seen), and
+# update_job_fields moves NEITHER, so a run that only PATCHes existing rows — the scorer writing
+# match_score, a JD backfill — is invisible to it. Inserts move both, and the weekday scrapes
+# insert, so in practice the probe is right twice a day and this cap only binds across a quiet
+# weekend. A day is deliberately shorter than the exposure the in-memory path already carries
+# (a long-lived worker revalidates by fingerprint with no age bound at all).
+#
+# Raise it on a DEVELOPMENT machine, where the snapshot is routinely days old because nobody
+# opened the feed over the weekend, and where a real corpus carrying last week's match_scores is
+# perfectly good to run the suite against: JOBS_SNAPSHOT_MAX_AGE=604800 turns the ~14.5 MB cold
+# read that every local run of test_prefs and test_onboarding pays into a fingerprint probe.
+# Leave it at the default in production, where the scores are what the page actually shows.
+_SNAPSHOT_MAX_AGE = int(os.environ.get("JOBS_SNAPSHOT_MAX_AGE") or 24 * 3600)
+
 
 def _snapshot_read(max_age):
     """(rows, fingerprint) from the shared snapshot if it exists and is younger than max_age
@@ -618,14 +634,32 @@ def get_jobs(force=False):
             _jobs_cache["rows"], _jobs_cache["fp"] = rows, fp
             _jobs_cache["at"] = time.time()
             return rows
-        # Past the TTL but possibly unchanged. The probe costs ~nothing against the full read it
-        # can avoid; an unavailable probe returns (None, "") and falls through to the re-read.
-        if _jobs_cache["rows"] is not None:
+
+        # Past the TTL — but OLD IS NOT WRONG, and the fingerprint is what knows the difference.
+        # Revalidate whatever rows we can reach, in order of what they cost to reach: this
+        # worker's own memory (free), then the stale snapshot on disk (a local file read).
+        #
+        # THE SECOND HALF IS THE ONE THAT MATTERS. Until it existed, only a worker that already
+        # held rows could revalidate; a worker that started cold skipped straight to the full
+        # ~13 MB read whenever the snapshot had aged past an hour. That is the normal state of
+        # this app — Passenger recycles workers freely, the corpus moves only on the two
+        # weekday scrapes, and traffic is thin enough that the snapshot is usually stale by the
+        # time anyone asks. So the standing cost was a full corpus read per cold worker per
+        # quiet hour, for rows that had not changed since yesterday. It is now a HEAD.
+        stale_rows, stale_fp = (None, None)
+        if _jobs_cache["rows"] is None:
+            stale_rows, stale_fp = _snapshot_read(_SNAPSHOT_MAX_AGE)
+        have_rows = _jobs_cache["rows"] if _jobs_cache["rows"] is not None else stale_rows
+        have_fp = _jobs_cache.get("fp") if _jobs_cache["rows"] is not None else stale_fp
+        # An unavailable probe returns (None, "") and falls through to the re-read, which is
+        # the only safe reading of "don't know" — see db.jobs_fingerprint.
+        if have_rows is not None and have_fp:
             fp = db.jobs_fingerprint()
-            if fp[0] is not None and fp == _jobs_cache.get("fp"):
+            if fp[0] is not None and fp == have_fp:
+                _jobs_cache["rows"], _jobs_cache["fp"] = have_rows, fp
                 _jobs_cache["at"] = time.time()
-                _snapshot_write(_jobs_cache["rows"], fp)   # refresh mtime for the other workers
-                return _jobs_cache["rows"]
+                _snapshot_write(have_rows, fp)             # refresh mtime for the other workers
+                return have_rows
 
     try:
         # include_jd=False: the feed never shows the JD; the detail panel fetches one JD on
