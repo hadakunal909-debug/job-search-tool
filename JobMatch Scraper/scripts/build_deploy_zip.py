@@ -60,6 +60,10 @@ import zipfile
 FILES = [
     "web.py", "core.py", "db.py", "auth.py", "analytics.py", "jdrender.py",
     "passenger_wsgi.py",
+    # The two storage transports. db.py imports pgrest when PG_DSN is set and web.py
+    # imports dbproxy unconditionally, so a bundle without them is a site that ImportErrors
+    # on the first request. The check below caught exactly that and refused to build.
+    "pgrest.py", "dbproxy.py",
     "requirements-cpanel.txt", "idf.json", "careers_us.md", "sponsors.txt",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
