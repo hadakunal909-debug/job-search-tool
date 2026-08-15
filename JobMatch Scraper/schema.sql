@@ -11,6 +11,9 @@ set client_min_messages = warning;
 --   supabase_vault
 --   uuid-ossp
 
+-- sequences, before the tables whose defaults call nextval() on them
+create sequence if not exists "public"."events_id_seq";
+
 create table if not exists "public"."admin_audit" (
   "id" text not null,
   "at" timestamp with time zone default now(),
@@ -213,6 +216,9 @@ create table if not exists "public"."users" (
   constraint "users_pkey" PRIMARY KEY (username)
 );
 
+-- sequence ownership
+alter sequence "public"."events_id_seq" owned by "public"."events"."id";
+
 -- foreign keys, after every table exists
 do $$ begin if not exists (select 1 from pg_constraint where conname = 'applications_username_fkey') then alter table "public"."applications" add constraint "applications_username_fkey" FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE; end if; end $$;
 do $$ begin if not exists (select 1 from pg_constraint where conname = 'learned_answers_username_fkey') then alter table "public"."learned_answers" add constraint "learned_answers_username_fkey" FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE; end if; end $$;
@@ -221,16 +227,16 @@ do $$ begin if not exists (select 1 from pg_constraint where conname = 'resumes_
 do $$ begin if not exists (select 1 from pg_constraint where conname = 'user_jobs_username_fkey') then alter table "public"."user_jobs" add constraint "user_jobs_username_fkey" FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE; end if; end $$;
 
 -- indexes (primary keys and uniques already came through as constraints)
-C;
-C;
-C;
-C;
-C;
-C;
-C;
-C;
-C;
-C;
+CREATE INDEX IF NOT EXISTS admin_audit_at_idx ON public.admin_audit USING btree (at DESC);
+CREATE INDEX IF NOT EXISTS applications_user_idx ON public.applications USING btree (username);
+CREATE INDEX IF NOT EXISTS events_ts_idx ON public.events USING btree (ts DESC);
+CREATE INDEX IF NOT EXISTS events_user_ts_idx ON public.events USING btree (username, ts DESC);
+CREATE INDEX IF NOT EXISTS jobs_company_idx ON public.jobs USING btree (company);
+CREATE INDEX IF NOT EXISTS jobs_is_active_idx ON public.jobs USING btree (is_active);
+CREATE INDEX IF NOT EXISTS jobs_loc_state_idx ON public.jobs USING btree (loc_state);
+CREATE INDEX IF NOT EXISTS learned_answers_user_idx ON public.learned_answers USING btree (username);
+CREATE INDEX IF NOT EXISTS resumes_user_idx ON public.resumes USING btree (username);
+CREATE INDEX IF NOT EXISTS tailored_cache_user_idx ON public.tailored_cache USING btree (username);
 
 -- functions (db_stats/ev_usage back the admin panels; trigger functions below)
 CREATE OR REPLACE FUNCTION public.db_stats()
