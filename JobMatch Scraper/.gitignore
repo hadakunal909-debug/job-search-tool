@@ -70,3 +70,6 @@ SOURCES_lines*.txt
 
 # run logs
 jd_backfill_*.log
+
+# cPanel API token — read by scripts/cpanel_setup.py, never committed.
+.cpanel_token
