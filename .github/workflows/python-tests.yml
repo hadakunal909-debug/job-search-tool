@@ -85,7 +85,7 @@ jobs:
           set -e
           for t in test_contrast test_visa test_paylocity test_peoplesoft test_jdrender \
                    test_search_and_similar test_job_page test_onboarding test_notify \
-                   test_jobs_cache test_pgrest test_dbproxy; do
+                   test_jobs_cache test_pgrest test_dbproxy test_transport; do
             echo "::group::$t"
             python "scripts/$t.py"
             echo "::endgroup::"
