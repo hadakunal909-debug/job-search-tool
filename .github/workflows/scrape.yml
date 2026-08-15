@@ -41,6 +41,31 @@ jobs:
   scrape:
     runs-on: ubuntu-latest          # Linux = 1x minute billing (Windows is 2x, macOS 10x)
     timeout-minutes: 45             # hard cap so a stuck run can never silently drain the budget
+
+    # WHERE THE DATABASE IS. Set at JOB level rather than repeated across the five steps below,
+    # because unlike SUPABASE_* — which some steps genuinely don't need — this pair decides the
+    # transport for every one of them and must never differ between two steps of the same run.
+    #
+    # db.py picks its transport in this order: PG_DSN (a local Postgres), then DB_PROXY_* (this
+    # pair), then Supabase. So while these two secrets DO NOT EXIST, GitHub renders them as
+    # empty strings, db.py sees nothing, and the scraper keeps talking to Supabase exactly as it
+    # does today. Adding these lines changes nothing on its own; it is the SECRETS that switch
+    # the scraper over.
+    #
+    # ORDERING, and it is the whole reason this comment is long. Creating the two secrets flips
+    # the scraper to the cPanel app on its very next run. If PG_DSN is not yet set on that app,
+    # /api/db answers 503 and the scrape step FAILS — which is the safe direction to fail: the
+    # sweep is stateless and re-scrapes from the boards next run, so a failed run costs a cycle
+    # and loses nothing. The unsafe order is the opposite one (PG_DSN set while the scraper
+    # still writes to Supabase), because then the app reads a database that is quietly missing
+    # everything the scraper found in between, and closing that gap needs a second migration.
+    #
+    # So: create the secrets, then set PG_DSN promptly. A failed run in the window is expected
+    # and harmless; a silently stale feed is neither.
+    env:
+      DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
+      DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}
+
     steps:
       # v5/v6 rather than v4/v5: the older majors ship a Node 20 entrypoint, which the
       # runners now force onto Node 24 with a deprecation warning and will eventually stop
