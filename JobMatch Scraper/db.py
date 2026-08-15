@@ -16,6 +16,7 @@ import os
 import csv
 import json
 import re
+import sys
 import time
 import datetime
 
@@ -451,6 +452,55 @@ That applies to the three JD-derived columns exactly as it does to the six locat
 omit them and `have.get(k)` is None on every row forever, so every row carrying any experience
 or sponsorship signal diffs as changed on every one of the ~3 runs a day, permanently."""
 
+COLS_COMPANY = "company"
+"""Just the employer name, repeated once per posting — 22 B/row, ~0.4 MB for the whole corpus.
+
+The narrowest useful read there is, and it has the widest use: every sponsorship and directory
+tool works on the SET of employers we hold, not on the postings. Four of them
+(scraper/build_sponsor_counts, scraper/build_visa_tags, scraper/mine_migratemate,
+scripts/verify_visa_tags) reached for a bare load_jobs() to build that set, which downloads
+every job description — ~130 MB to read one short string per row, a 300x overcharge on a
+metered allowance, and the largest single item on the 2026-08-14 egress overage.
+
+Deliberately NOT de-duplicated server-side: PostgREST has no DISTINCT, and every caller wants
+the per-company job COUNT as well as the name, so the duplicates are the data."""
+
+
+_warned_full_jd = False
+
+
+def _warn_full_jd_read():
+    """Say out loud that this call is about to download every stored description.
+
+    THE MOST EXPENSIVE THING THIS CODEBASE CAN DO is also what `load_jobs()` does when called
+    with no arguments — ~6.6 KB a row, ~130 MB at 20k rows, against a metered free-tier egress
+    allowance. That is the shape a new script naturally reaches for, and four of them
+    (mine_migratemate, build_sponsor_counts, build_visa_tags, prune_stale) were pulling the
+    whole corpus, descriptions and all, to read the `company` column. Nothing in their output
+    said so, so nothing ever prompted anyone to look; the cost only ever surfaced as a billing
+    email at the end of the month, by which point it cannot be traced to a command.
+
+    NOT an exception, and NOT a changed default. scraper/score_jobs.py genuinely needs every
+    JD — it builds IDF over the whole corpus — and flipping the default would hand it a
+    partial corpus, which does not fail, it silently scores jobs against different weights than
+    yesterday's run. So a wrong call stays the caller's to fix; this only makes it impossible
+    to miss. Once per process, and the count rides a HEAD, which returns no body.
+    """
+    global _warned_full_jd
+    if _warned_full_jd:
+        return
+    _warned_full_jd = True
+    try:
+        f = sys._getframe(2)                   # _warn_full_jd_read <- load_jobs <- the caller
+        where = "%s:%d" % (os.path.basename(f.f_code.co_filename), f.f_lineno)
+    except Exception:
+        where = "unknown caller"
+    n = table_count(TABLE)
+    size = ("~%.0f MB" % (n * 6664 / 1048576.0)) if n else "~130 MB at 20k rows"
+    print("  [egress] %s is reading EVERY job description (%s). If it only needs a few\n"
+          "           columns, pass cols= (see db.COLS_* / scripts/egress_probe)." % (where, size),
+          file=sys.stderr)
+
 
 def load_jobs(include_jd=True, cols=None):
     """All jobs. The web FEED passes include_jd=False to skip the large `jd` text column — the
@@ -469,6 +519,8 @@ def load_jobs(include_jd=True, cols=None):
                 return _fetch_all(TABLE, {"select": cols})
             except Exception:
                 pass                     # fall through to the wider, always-supported select
+        if include_jd:
+            _warn_full_jd_read()
         sel = "*" if include_jd else _FEED_COLS
         try:
             return _fetch_all(TABLE, {"select": sel})
@@ -554,6 +606,41 @@ def load_jobs_by_urls(urls, include_jd=True):
     for r in rows:                       # fold like/hide/applied in, as load_jobs does
         r["status"] = actions.get(r["url"], r.get("status", ""))
     return rows
+
+
+def sample_jobs(n=5, cols=None, **filters):
+    """The first `n` rows matching `filters` — for a checker or a probe that wants a REAL row
+    rather than the corpus.
+
+    `next(j for j in load_jobs() if ...)` is the natural way to write "give me one job with a
+    description", and it is a ~130 MB request that throws away 19,999 rows. Two places did it:
+    scripts/test_prefs.py, which runs on a developer's machine several times an hour, and db.py's
+    own `python db.py` connectivity check — the command SUPABASE_SETUP.md tells you to run when
+    your credentials are NOT working, so it gets run repeatedly, in exactly the situation where
+    nobody is thinking about bandwidth.
+
+    Unlike _fetch_all this does NOT page: `limit` is honoured as written, one request, at most n
+    rows. Filters are passed through in PostgREST spelling (`jd="not.is.null"`,
+    `company="eq.Acme"`) and `order=url` makes the answer stable, so a test that samples a row
+    gets the same row tomorrow.
+
+    Raises on a failed request rather than returning [] — the connectivity check needs the
+    exception text to tell you WHICH of url/key/table is wrong, and a caller that would rather
+    have nothing can catch it.
+    """
+    n = max(1, int(n))
+    if not using_supabase():
+        # No filter language off-line; "not.is.null" is read as "this column must be non-empty",
+        # which is what every caller here means by it.
+        want = [k for k, v in filters.items() if "null" in str(v)]
+        rows = [r for r in _read_csv() if all((r.get(k) or "").strip() for k in want)]
+        return rows[:n]
+    p = {"select": cols or _FEED_COLS, "limit": n, "order": "url"}
+    p.update({k: v for k, v in filters.items() if v})
+    r = _http.get(_rest(TABLE), headers=_headers(), params=p, timeout=30)
+    r.raise_for_status()
+    rows = r.json()
+    return rows if isinstance(rows, list) else []
 
 
 def urls_missing_jd():
@@ -2251,9 +2338,14 @@ if __name__ == "__main__":
         print("Jobs available:", len(load_jobs()))
     else:
         try:
-            n = len(load_jobs())
+            # One row proves the url, the key and the table; the count then rides a HEAD, which
+            # returns no body at all. This used to be len(load_jobs()) — every row WITH its
+            # description, ~130 MB, to print one integer, from the command the setup guide hands
+            # you when your credentials are broken and you are about to run it several times.
+            sample_jobs(1, cols="url")
+            n = table_count(TABLE)
             print("Storage backend: Supabase (connected OK)")
-            print("Jobs in table:", n)
+            print("Jobs in table:", n if n is not None else "?")
         except Exception as e:
             print("Storage backend: Supabase configured, but a request FAILED:")
             print("   ", repr(e))

@@ -260,7 +260,9 @@ def main():
     corpus = set()
     try:
         import db
-        corpus = {(r.get("company") or "").strip() for r in db.load_jobs()}
+        # cols=: this wants employer names, and a bare load_jobs() buys every JD to get them.
+        corpus = {(r.get("company") or "").strip()
+                  for r in db.load_jobs(cols=db.COLS_COMPANY)}
         corpus.discard("")
         print("\ncorpus companies: %d" % len(corpus))
     except Exception as e:
