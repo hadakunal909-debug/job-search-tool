@@ -50,6 +50,37 @@ class PgRestError(Exception):
     note above."""
 
 
+class JsonValue:
+    """A body value bound for a jsonb column.
+
+    psycopg cannot bind a bare dict — `can't adapt type 'dict'` — and this codebase has seven
+    jsonb columns (profiles.search_prefs, admin_audit.detail, events.props, scrape_status.data,
+    learned_answers.options, tailored_cache.data, profiles.extra). PostgREST hands them back as
+    dicts and lists, so they arrive here needing a wrapper.
+
+    A marker rather than a global `register_adapter(dict, Json)` because a global adapter cannot
+    tell the two meanings of a Python LIST apart: a list in a request body is jsonb, but a list
+    in a WHERE argument is the operand of `in.(...)`, which must bind as a Postgres ARRAY for
+    `= ANY(%s)`. Adapting those to jsonb would break every load_jobs_by_urls call. Only body
+    values get wrapped, at the point where we still know which is which.
+    """
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __eq__(self, other):                    # so the translation tests can assert on args
+        return self.value == (other.value if isinstance(other, JsonValue) else other)
+
+    def __repr__(self):
+        return "JsonValue(%r)" % (self.value,)
+
+
+def bind(v):
+    """Body value -> what should be bound for it."""
+    return JsonValue(v) if isinstance(v, (dict, list)) else v
+
+
 def ident(name):
     """A validated SQL identifier. Every table and column here comes from db.py's own constants,
     never from a user, so this is a tripwire for a typo or a future caller doing something
@@ -267,7 +298,7 @@ def build(method, table, params, body, prefer):
                 raise PgRestError("bulk insert rows must share identical keys")
         collist = ", ".join(ident(c) for c in cols)
         ph = ", ".join("(%s)" % ", ".join(["%s"] * len(cols)) for _ in rows)
-        args = [r[c] for r in rows for c in cols]
+        args = [bind(r[c]) for r in rows for c in cols]
         sql = "INSERT INTO %s (%s) VALUES %s" % (ident(table), collist, ph)
         conflict = params.get("on_conflict")
         if "resolution=merge-duplicates" in prefer:
@@ -291,7 +322,7 @@ def build(method, table, params, body, prefer):
         cols = list(body.keys())
         sql = "UPDATE %s SET %s%s" % (ident(table),
                                       ", ".join("%s = %%s" % ident(c) for c in cols), w)
-        args = [body[c] for c in cols] + wargs
+        args = [bind(body[c]) for c in cols] + wargs
         if not minimal:
             sql += " RETURNING *"
         return sql, args, not minimal
@@ -360,6 +391,16 @@ class Session:
             self._v3 = False
         return self._conn
 
+    def _json(self, marked):
+        """JsonValue -> the driver's jsonb wrapper. Both drivers need one; neither can bind a
+        bare dict, and psycopg2's error for that ("can't adapt type 'dict'") names the Python
+        type rather than the column, so it is worth knowing this is where it comes from."""
+        if self._v3:
+            from psycopg.types.json import Jsonb
+            return Jsonb(marked.value)
+        import psycopg2.extras
+        return psycopg2.extras.Json(marked.value)
+
     def _cursor(self, conn):
         if self._v3:
             import psycopg.rows
@@ -383,7 +424,8 @@ class Session:
         conn = self._connect()
         try:
             with self._cursor(conn) as cur:
-                cur.execute(sql, args)
+                cur.execute(sql, [self._json(a) if isinstance(a, JsonValue) else a
+                                  for a in args])
                 rows = []
                 if wants and cur.description:
                     rows = [{k: jsonify(v) for k, v in dict(r).items()} for r in cur.fetchall()]

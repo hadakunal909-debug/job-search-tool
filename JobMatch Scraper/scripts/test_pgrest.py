@@ -175,6 +175,30 @@ check("nested dict/list are converted too",
 check("a jsonb value passes through unchanged",
       pgrest.jsonify({"w": {"excel": 12.46}}) == {"w": {"excel": 12.46}})
 
+
+print()
+print("=" * 74)
+print("JSONB — dicts in a body, lists in a filter, told apart")
+print("=" * 74)
+s, a = sql_of("POST", "profiles", {"on_conflict": "username"},
+              [{"username": "u", "search_prefs": {"min": 40, "states": ["MA"]}}],
+              "resolution=merge-duplicates,return=minimal")
+check("a dict body value is wrapped for jsonb",
+      isinstance(a[1], pgrest.JsonValue) and a[1].value == {"min": 40, "states": ["MA"]}, a)
+check("...and a plain string beside it is not", not isinstance(a[0], pgrest.JsonValue))
+
+_, a = sql_of("GET", "jobs", {"select": "*", "url": 'in.("a","b")'})
+check("a list in a WHERE arg stays a bare list (it binds as a Postgres array)",
+      isinstance(a[0], list) and not isinstance(a[0], pgrest.JsonValue), a)
+
+s, a = sql_of("PATCH", "scrape_status", {"id": "eq.last"}, {"data": {"ok": True}}, "return=minimal")
+check("patch wraps its dict too", isinstance(a[0], pgrest.JsonValue), a)
+check("...and the WHERE arg after it does not", a[1] == "last" and not isinstance(a[1], pgrest.JsonValue))
+
+_, a = sql_of("POST", "events", {}, [{"props": ["a", "b"]}], "return=minimal")
+check("a LIST body value is jsonb as well (jsonb arrays exist)",
+      isinstance(a[0], pgrest.JsonValue), a)
+
 print()
 if fails:
     print("FAILED (%d): %s" % (len(fails), "; ".join(fails)))

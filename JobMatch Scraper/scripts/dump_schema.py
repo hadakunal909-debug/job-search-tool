@@ -71,10 +71,24 @@ def main():
     out.append("-- extensions present on the SOURCE (create by hand if the destination needs one):")
     out += ["--   %s" % e[0] for e in exts] + [""]
 
+    # SEQUENCES FIRST. A `serial` column carries `default nextval('events_id_seq'::regclass)`,
+    # and pg_get_expr prints that default happily whether or not the sequence exists -- so
+    # emitting tables without their sequences produced `relation "events_id_seq" does not exist`
+    # and took the whole events table (and everything referencing it) down with it. Ownership is
+    # attached after the tables exist, which is what makes the column behave as a real serial:
+    # dropping the table then takes its sequence with it.
+    seqs = [r[0] for r in q(cur, """
+        select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = %s and c.relkind = 'S' order by c.relname""", (S,))]
+    if seqs:
+        out.append("-- sequences, before the tables whose defaults call nextval() on them")
+        out += ['create sequence if not exists "%s"."%s";' % (S, s) for s in seqs]
+        out.append("")
+
     tables = [r[0] for r in q(cur, """
         select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where n.nspname = %s and c.relkind = 'r' order by c.relname""", (S,))]
-    print("tables: %d" % len(tables))
+    print("tables: %d, sequences: %d" % (len(tables), len(seqs)))
 
     for t in tables:
         cols = q(cur, """
@@ -110,6 +124,22 @@ def main():
         out.append('create table if not exists "%s"."%s" (\n%s\n);' % (S, t, ",\n".join(lines)))
         out.append("")
 
+    # Sequence ownership, now that both ends exist. Without it the sequence is a free-standing
+    # object that survives a dropped table.
+    owned = q(cur, """
+        select s.relname, t.relname, a.attname
+        from pg_class s
+        join pg_depend d on d.objid = s.oid and d.classid = 'pg_class'::regclass
+        join pg_class t on t.oid = d.refobjid
+        join pg_attribute a on a.attrelid = t.oid and a.attnum = d.refobjsubid
+        join pg_namespace n on n.oid = s.relnamespace
+        where s.relkind = 'S' and n.nspname = %s and d.deptype = 'a'""", (S,))
+    if owned:
+        out.append("-- sequence ownership")
+        out += ['alter sequence "%s"."%s" owned by "%s"."%s"."%s";' % (S, sq, S, tb, col)
+                for sq, tb, col in owned]
+        out.append("")
+
     out.append("-- foreign keys, after every table exists")
     for t in tables:
         for name, definition in q(cur, """
@@ -129,7 +159,10 @@ def main():
         where schemaname = %s
           and not exists (select 1 from pg_constraint c where c.conname = i.indexname)
         order by tablename, indexname""", (S,))
-    out += [d[0].replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
+    # NOT d[0] -- the identical mistake as the functions above, made twice in one file and
+    # missed the first time because the output still had the right NUMBER of lines. It emitted
+    # ten lines reading "C;" and PG rejected them all with `syntax error at or near "C"`.
+    out += [d.replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
             .replace("CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1) + ";"
             for (d,) in idx]
     out.append("")

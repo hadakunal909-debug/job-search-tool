@@ -77,7 +77,15 @@ EXTRA_TABLES = ["events", "events_daily", "tailored_cache"]
 CONFLICT_KEYS = {"jobs": "url", "user_jobs": "username,url", "profiles": "username",
                  "boards": "url", "blocked_companies": "name_key", "applications": "id",
                  "resumes": "id", "brain_companies": "domain", "tailored_cache": "id",
-                 "learned_answers": "username,key", "scrape_status": "id"}
+                 "learned_answers": "username,key", "scrape_status": "id",
+                 # users is the one db.py never spells out (create_user INSERTs rather than
+                 # upserting), but username is its primary key and user_jobs/profiles/resumes
+                 # all carry a foreign key to it -- which is also why it must load first.
+                 "users": "username"}
+
+# Stable column to page by, for tables with no entry above. Guessed conflict keys would be
+# dangerous (a wrong one silently merges rows); a wrong sort column only changes row order.
+ORDER_KEYS = {"admin_audit": "id", "events": "id", "events_daily": "day"}
 
 _target = {"url": None, "key": None, "sess": None}
 
@@ -333,8 +341,15 @@ def cmd_tables(apply, extras):
     print("=" * 74)
     total = 0
     for t in names:
+        # ORDER EXPLICITLY. db._fetch_all pages with `order=url` unless told otherwise, and
+        # `url` exists on only three of these tables -- asking Supabase to order `users` by it
+        # returns 400, which then cascaded: users never loaded, so user_jobs failed its
+        # username foreign key at row 0. Order by the table's own key instead; it has to be a
+        # stable column or the paged walk can repeat or skip rows between requests.
+        order = ((CONFLICT_KEYS.get(t) or ORDER_KEYS.get(t) or "").split(",")[0]) or None
         try:
-            rows = db._fetch_all(t, {"select": "*"})
+            rows = db._fetch_all(t, {"select": "*", "order": order} if order
+                                 else {"select": "*"})
         except Exception as e:
             print("  %-20s skipped (%s)" % (t, str(e)[:60]))
             continue

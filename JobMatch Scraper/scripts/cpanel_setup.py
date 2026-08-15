@@ -151,11 +151,22 @@ def main():
                   "  reported above rather than duplicated).")
             return 1
 
-    # localhost, deliberately: the app runs on this same machine, so the database never needs to
-    # accept a connection from the internet. That is the whole security argument for putting it
-    # here, and a DSN naming the public host would quietly throw it away.
-    dsn = "postgresql://%s:%s@localhost:5432/%s" % (
-        urllib.parse.quote(dbuser, safe=""), urllib.parse.quote(pw, safe=""), dbname)
+    # key=value ("conninfo") form, NOT a postgresql:// URI. Both psycopg and psql accept either,
+    # but the URI has a grammar and this password goes in the middle of it: a generated password
+    # produced `FATAL: no pg_hba.conf entry` from libpq while the very same credentials connected
+    # fine through -U/-d flags, and a deliberately wrong password through the same URI produced a
+    # normal auth failure. So libpq was mis-reading the URI on the password's characters, and the
+    # error it chose to report pointed at pg_hba -- which sent us looking for a missing server
+    # rule that was never missing. conninfo has no userinfo section, so no character in a password
+    # can change how the host or database is read.
+    #
+    # 127.0.0.1 rather than localhost: localhost resolves to ::1 first, and cPanel's pg_hba has no
+    # IPv6 rule -- that one IS a genuine "no entry".
+    #
+    # Either way it stays local. The app runs on this machine, so the database never has to accept
+    # a connection from the internet; that is the whole security argument for putting it here, and
+    # naming the public host would throw it away in one line.
+    dsn = "host=127.0.0.1 port=5432 dbname=%s user=%s password=%s" % (dbname, dbuser, pw)
     with open(DSN_FILE, "w", encoding="utf-8") as fh:
         fh.write(dsn + "\n")
     print("\n  Wrote %s — the generated password lives there and nowhere else." % DSN_FILE)
