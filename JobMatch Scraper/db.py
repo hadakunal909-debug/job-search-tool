@@ -249,6 +249,29 @@ def using_supabase():
     return bool(url and key)
 
 
+def backend_name():
+    """Where writes are actually going, for anything that prints it.
+
+    Four scripts ended a run with `"Supabase" if db.using_supabase() else "jobs.csv"`, which was
+    true when Supabase was the only remote there was. It is now the wrong question: that helper
+    means "is there a remote database at all" and answers yes for all three transports, so a run
+    writing 714 descriptions into a Postgres on cPanel still signed off with "-> Supabase". The
+    log was the only record of that run, and it named the wrong database.
+
+    Short enough to sit at the end of a summary line, specific enough to be worth reading.
+    """
+    if PG_DSN:
+        for part in PG_DSN.split():
+            if part.startswith("dbname="):
+                return "Postgres (%s)" % part.split("=", 1)[1]
+        return "the local Postgres"
+    proxy = os.environ.get("DB_PROXY_URL") or ""
+    if proxy and os.environ.get("DB_PROXY_SECRET"):
+        host = proxy.split("://", 1)[-1].split("/")[0]
+        return "the app at %s" % host if host else "the app proxy"
+    return "Supabase" if using_supabase() else JOBS_CSV
+
+
 def _rest(path=""):
     url, _ = _creds()
     if (PG_DSN or os.environ.get("DB_PROXY_URL")) and not url:
@@ -2381,10 +2404,11 @@ if __name__ == "__main__":
             # you when your credentials are broken and you are about to run it several times.
             sample_jobs(1, cols="url")
             n = table_count(TABLE)
-            print("Storage backend: Supabase (connected OK)")
+            print("Storage backend: %s (connected OK)" % backend_name())
             print("Jobs in table:", n if n is not None else "?")
         except Exception as e:
-            print("Storage backend: Supabase configured, but a request FAILED:")
+            print("Storage backend: %s configured, but a request FAILED:"
+                  % backend_name())
             print("   ", repr(e))
             print("Check: did you run the CREATE TABLE sql, and are the URL + key correct?")
             sys.exit(1)

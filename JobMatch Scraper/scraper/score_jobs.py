@@ -1059,7 +1059,7 @@ def main():
                      row_jd, current_rows=rows, jdmeta=jdmeta, idf=idf)
     if scores:
         vals = list(scores.values())
-        where = "Supabase" if db.using_supabase() else "jobs.csv"
+        where = db.backend_name()
         print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s), %d date(s) -> %s."
               % (len(vals), sum(vals) // len(vals), max(vals),
                  len(fetched), len(dates), where))
