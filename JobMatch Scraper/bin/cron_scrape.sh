@@ -59,7 +59,17 @@ echo "===== $(date -u +%FT%TZ) scrape end rc=$rc =====" >> "$LOG"
 # Score only what the sweep just found. Without this the new rows carry no description and no
 # match score, so they are invisible to the feed's filter — the sweep alone is half a job.
 # new-only mode reuses the stored IDF instead of re-reading every description.
-if [ $rc -eq 0 ]; then
+if [ $rc -eq 0 ] && [ ! -f "$APP/resume.txt" ]; then
+    # score_jobs aborts without this file and EXITS 0, so the run logs a success and silently
+    # never scores. That is how the first cron test looked fine: scrape end rc=0, score start
+    # and score end on the same second, nothing in between. Say it loudly instead — an
+    # unscored job carries no match score and is invisible to the feed's filter, so a scraper
+    # that cannot score is doing half a job while reporting a whole one.
+    echo "$(date -u +%FT%TZ) WARNING: no resume.txt — SCORING DISABLED, new jobs will show" \
+         "as 'JD pending' with no match score. Deploy resume.txt to $APP." >> "$LOG"
+fi
+
+if [ $rc -eq 0 ] && [ -f "$APP/resume.txt" ]; then
     export SCORE_NEW_ONLY=yes
     export SCORE_MAX_FETCH=400
     export SCORE_BUDGET_MIN=8
