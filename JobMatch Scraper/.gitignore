@@ -73,3 +73,6 @@ jd_backfill_*.log
 
 # cPanel API token — read by scripts/cpanel_setup.py, never committed.
 .cpanel_token
+
+# Generated Postgres DSN (contains the database password).
+.pg_dsn
