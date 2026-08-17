@@ -44,10 +44,92 @@ def _text(raw):
     return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
 
 
-def jd_map_for(board_url, ats):
-    """Return {job_url: jd_text} for one board, using the JD the API already returns."""
+# Phenom's jobDetail widget is ONE POST PER JOB, so it is capped per run and backfills across
+# runs rather than spending a whole budget at once. Actalent alone is 1,461 rows.
+PHENOM_JD_DETAILS_MAX = int(os.environ.get("PHENOM_JD_DETAILS_MAX") or 400)
+PHENOM_JD_WORKERS = 6
+
+
+def _phenom_jd_map(board_url, needed):
+    """{applyUrl: full description} for a Phenom board.
+
+    Phenom is the one ATS where the LIST feed is not enough and the stored URL is not the
+    Phenom page. Each job's `applyUrl` is where the candidate actually applies, and that is
+    what the scraper stores — for Actalent it is a Salesforce Lightning app, which is why
+    1,461 rows held 46 characters of "Loading ... Sorry to interrupt CSS Error Refresh"
+    instead of a description. The list feed only carries a ~390-char teaser; the real text is
+    behind the jobDetail widget, one POST per job.
+
+    So: page the cheap search feed to pair applyUrl -> jobId, then fetch details ONLY for the
+    URLs this run is actually missing, capped so one big board cannot eat the whole budget.
+    """
+    origin = board_url.rstrip("/")
+    pairs = {}
+    for off in range(0, scraper.PHENOM_MAX_JOBS, 50):
+        try:
+            r = scraper._safe_post(origin + "/widgets", scraper._phenom_body(off, 50), timeout=20)
+            if r.status_code != 200:
+                break
+            jobs = (((r.json() or {}).get("refineSearch") or {}).get("data") or {}).get("jobs") or []
+        except Exception:
+            break
+        if not jobs:
+            break
+        for j in jobs:
+            u, jid = (j.get("applyUrl") or "").strip(), j.get("jobId")
+            if u and jid:
+                # Key on the CANONICAL url. The scraper canonicalises before storing, and for
+                # Actalent the feed and the stored row differ by exactly one character —
+                # ".../v1/s/?opco=" from the feed against ".../v1/s?opco=" in the table. A raw
+                # key matches nothing at all, which is how this returned 0 JDs on the first try.
+                pairs[scraper.canonical_url(u)] = jid
+        if len(jobs) < 50:
+            break
+        # Stop paging once we already have a full run's worth of jobs we actually need. A
+        # board like Actalent advertises 5,219 postings; without this the cheap feed alone
+        # costs 104 requests every run just to rediscover pairs we will not use.
+        if needed is not None and \
+                sum(1 for u in pairs if u in needed) >= PHENOM_JD_DETAILS_MAX:
+            break
+
+    want = [(u, jid) for u, jid in pairs.items() if needed is None or u in needed]
+    want = want[:PHENOM_JD_DETAILS_MAX]
+    if not want:
+        return {}
+
+    def _detail(item):
+        u, jid = item
+        try:
+            body = scraper._phenom_body(0, 1)
+            body.update({"ddoKey": "jobDetail", "jobId": jid,
+                         "pageName": "job-details", "pageId": "page-job-details"})
+            r = scraper._safe_post(origin + "/widgets", body, timeout=20)
+            if r.status_code != 200:
+                return u, ""
+            job = (((r.json() or {}).get("jobDetail") or {}).get("data") or {}).get("job") or {}
+            return u, _text(job.get("description") or "")
+        except Exception:
+            return u, ""
+
+    out = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=PHENOM_JD_WORKERS) as ex:
+        for u, jd in ex.map(_detail, want):
+            if jd:
+                out[u] = jd
+    return out
+
+
+def jd_map_for(board_url, ats, needed=None):
+    """Return {job_url: jd_text} for one board, using the JD the API already returns.
+
+    `needed` is the set of URLs this run is still missing. Most branches ignore it — their
+    feed returns every description in one call anyway — but Phenom costs one request per job,
+    so it uses it to avoid fetching thousands of descriptions we already hold.
+    """
     slug = scraper._slug(board_url)
     out = {}
+    if ats == "phenom":
+        return _phenom_jd_map(board_url, needed)
     if ats == "greenhouse":
         d = scraper._get_json(
             "https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true" % slug)
@@ -180,10 +262,12 @@ def _board_has_missing(board_url, ats, missing_urls):
         return any("amazon.jobs" in u for u in missing_urls)
     if ats == "jobdiva":
         return any("jobdiva.com" in u for u in missing_urls)
-    if ats == "jibe":
-        # Jibe rows store the APPLY url, whose host varies per tenant (icims.com,
-        # Oracle, ...) — there's no cheap URL test, and there are only a few jibe
-        # boards, so always re-read their feeds when anything at all is missing.
+    if ats in ("jibe", "phenom"):
+        # These rows store the APPLY url, whose host varies per tenant (icims.com, Oracle,
+        # Salesforce, ...) — there's no cheap URL test. Actalent is the case that matters:
+        # its board is careers.actalentservices.com but every row it produces is stored under
+        # apply.actalentservices.com, so the slug/host test below answers False and the board
+        # is skipped forever. That is why 1,461 rows sat on a "Loading ..." shell.
         return True
     if ats == "pinpoint":
         host = scraper._sub(board_url).lower() + ".pinpointhq.com"
@@ -963,7 +1047,7 @@ def main():
         boards = scraper.SOURCES + scraper.custom_sources()
         bulk = [(b, a, c) for b, a, c in boards
                 if a in ("greenhouse", "lever", "ashby", "amazon",
-                         "jibe", "pinpoint", "jobdiva")
+                         "jibe", "pinpoint", "jobdiva", "phenom")
                 and _board_has_missing(b, a, missing)]
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))
@@ -974,7 +1058,7 @@ def main():
                     return company, {}, None      # out of time: skip, retry next run
                 try:
                     time.sleep(random.uniform(0, 0.8))
-                    return company, jd_map_for(board_url, ats), None
+                    return company, jd_map_for(board_url, ats, missing), None
                 except Exception as e:
                     return company, {}, str(e)
 
