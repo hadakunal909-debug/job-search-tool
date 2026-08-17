@@ -49,6 +49,9 @@ def main():
                     help="only write when the new JD is this many times longer")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--board", help="board URL to pull descriptions from in bulk, when the "
+                                    "stored per-job URL cannot be read on its own")
+    ap.add_argument("--board-ats", help="ats_type for --board (e.g. phenom)")
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args()
 
@@ -69,7 +72,24 @@ def main():
     if not thin:
         return 0
 
+    # BOARD MODE. Some rows can never be repaired one URL at a time, because the URL we store
+    # is not a readable page: Actalent's rows are Salesforce Lightning apply links, and the
+    # description only exists behind its Phenom board's jobDetail widget. score_jobs' own bulk
+    # path cannot reach them either — its `missing` set is rows whose jd is EMPTY, and these
+    # hold junk — so the board map has to be driven from here.
+    board_map = {}
+    if a.board:
+        from scraper.score_jobs import jd_map_for
+        want = {r["url"] for r in thin}
+        print("\npulling descriptions from %s (%s) for %d needed url(s)..."
+              % (a.board, a.board_ats, len(want)), flush=True)
+        board_map = jd_map_for(a.board, a.board_ats, want) or {}
+        print("board returned %d description(s)" % len(board_map))
+
     def work(r):
+        jd = board_map.get(r["url"], "")
+        if jd:
+            return r, jd
         try:
             return r, (detail_jd(r["url"])[1] or "")
         except Exception:
@@ -104,7 +124,18 @@ def main():
         return 0
     if fixed:
         db.update_jds(fixed)
-        print("\nwrote %d JD(s)." % len(fixed))
+        print("\nwrote %d JD(s) to the database." % len(fixed))
+        # AND to the disk cache, or the repair does not take effect. There are two records of
+        # "we have this description" — jd_cache.json.gz and the `jd` column — and score_jobs
+        # reads the CACHE when deciding what text to analyse. Writing only the column leaves
+        # the scorer tokenising the old shell, which is how 621 rows carrying 7,000-character
+        # descriptions still scored 0 with jd_terms reading "css error", "interrupt css".
+        from scraper.score_jobs import _load_jd_cache, _save_jd_cache
+        bank = _load_jd_cache()
+        bank.update(fixed)
+        _save_jd_cache(bank)
+        print("refreshed %d entry/entries in the on-disk JD cache." % len(fixed))
+        print("\nNow run: python -m scraper.score_jobs   (recomputes jd_terms and rescores)")
     return 0
 
 
