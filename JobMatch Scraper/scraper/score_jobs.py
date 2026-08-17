@@ -231,6 +231,34 @@ def workable_detail_jd(url):
         return ""
 
 
+def workatastartup_detail_jd(url):
+    """Y Combinator's Work at a Startup — an Inertia.js app, so the page ships its whole
+    payload in a single `data-page` attribute and renders client-side.
+
+    This was the ONLY 'extractable-MISSING' class left in the JD backlog (38 rows): the host
+    answers 200 with 66-93 KB and the generic text extractor still pulls nothing, because the
+    description never exists as markup. audit_jd_coverage.py exists to separate exactly this
+    case from the 519 rows that are genuinely blocked or gone.
+
+    Takes descriptionHtml plus interviewProcessHtml — the interview stages name the stack and
+    the seniority bar, which is signal the scorer can use — and the company's tech blurb.
+    """
+    try:
+        r = scraper._safe_get(url, timeout=20)
+        if r.status_code != 200:
+            return ""
+        m = re.search(r'data-page="([^"]+)"', r.text)
+        if not m:
+            return ""
+        d = json.loads(html.unescape(m.group(1))).get("props") or {}
+        job, company = d.get("job") or {}, d.get("company") or {}
+        parts = [job.get("descriptionHtml"), job.get("interviewProcessHtml"),
+                 company.get("techDescriptionHtml"), company.get("description")]
+        return " ".join(_text(p) for p in parts if p).strip()
+    except Exception:
+        return ""
+
+
 _PHENOM_JOB_RE = re.compile(r"^(https?://[^/]+)/(?:[a-z]{2,6}/)?[a-z]{2}(?:_[a-z]{2})?/job/([^/?#]+)", re.I)
 
 
@@ -534,6 +562,8 @@ def detail_jd(url):
         jd = bamboo_detail_jd(url)
     if not jd and "ats.rippling.com" in url:
         jd = rippling_detail_jd(url)
+    if not jd and "workatastartup.com" in url:
+        jd = workatastartup_detail_jd(url)
     if not jd and _PHENOM_JOB_RE.match(url) and "/job/" in url:
         jd = phenom_detail_jd(url)
     if not jd and "HRS_HRAM_FL" in url:                              # PeopleSoft posting page
