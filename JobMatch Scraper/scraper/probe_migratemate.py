@@ -121,7 +121,12 @@ def grade(company, board_url, ats, reported, discover_conf=""):
     if (discover_conf or "").lower() == "high":
         return "confirmed", None
     slug = board_url.rstrip("/").rsplit("/", 1)[-1]
-    if len(slug) >= 5 and _squash(slug) == _squash(company):
+    # Compare the slug against the raw name AND the legal-suffix-stripped one. _squash keeps
+    # suffixes verbatim, which is right for a hand-curated list but rejects every row of the
+    # federal E-Verify export, where the legal form is always glued on: "Deepgram Inc" squashes
+    # to "deepgraminc" and never equals the slug "deepgram". Requiring exact equality at five
+    # characters or more keeps this strong evidence — a coincidence at that length is implausible.
+    if len(slug) >= 5 and _squash(slug) in (_squash(company), _squash(nm(company))):
         return "confirmed", None
     single_token = " " not in nm(company) or len(slug) < 6
     return ("guess" if single_token else "unverified"), None

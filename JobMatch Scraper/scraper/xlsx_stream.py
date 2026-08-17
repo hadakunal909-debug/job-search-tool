@@ -14,6 +14,7 @@ cells that reference it by index. We iterparse both and clear as we go.
         ...
 """
 import re
+import sys
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -88,14 +89,42 @@ def header_of(path):
     return []
 
 
+def _iter_csv_rows(path, want):
+    """Same {column_name: value} shape as the xlsx path, for .csv exports.
+
+    USCIS now offers the E-Verify employer list as CSV as well as xlsx, and the DOL
+    disclosure files are published both ways. Reading the BOM off the header matters:
+    utf-8 (not utf-8-sig) leaves a \\ufeff glued to the first column name, so "Employer"
+    silently stops matching `wanted` and every row comes back missing that field.
+    """
+    import csv as _csv
+    _csv.field_size_limit(min(2 ** 31 - 1, sys.maxsize))
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        for row in _csv.DictReader(f):
+            out = {}
+            for name, val in row.items():
+                if not name:
+                    continue
+                name = name.strip()
+                if want is None or name.lower() in want:
+                    out[name] = str(val or "").strip()
+            if any(out.values()):
+                yield out
+
+
 def iter_rows(path, wanted=None, stop_after_blank=500):
-    """Yield {column_name: value} per data row.
+    """Yield {column_name: value} per data row, from a .xlsx or .csv export.
 
     `wanted` limits which columns are carried (case-insensitive); None means all.
     `stop_after_blank` ends the scan after that many consecutive empty rows — the DOL sheets
     declare ~1M rows but only ~210k carry data, and without this the tail costs minutes.
+    (csv has no such padding, so the blank-run cutoff does not apply there.)
     """
     want = {w.strip().lower() for w in wanted} if wanted else None
+    if path.lower().endswith(".csv"):
+        for row in _iter_csv_rows(path, want):
+            yield row
+        return
     with zipfile.ZipFile(path) as z:
         shared = _shared_strings(z)
         idx, blanks = None, 0

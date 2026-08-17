@@ -22,3 +22,20 @@ JobMatch Scraper/web/.vite/
 
 # Local-only dev dep for scripts/test_ats_adapters.js (npm i jsdom). Never deployed.
 JobMatch Scraper/node_modules/
+
+# Review artifacts from the E-Verify+ / Adzuna probe pipeline. Each is REPRODUCIBLE from the
+# tree (scraper.classify_everify -> probe_everify_candidates -> adopt_everify_boards ->
+# report_companies_xlsx), and everify_categorised.csv alone is 3.1 MB of derived rows. The
+# durable outputs are the code, the boards table, and everify_insights.md — not these.
+JobMatch Scraper/everify_categorised.csv
+JobMatch Scraper/everify_board_probe*.csv
+JobMatch Scraper/everify_adoption.csv
+JobMatch Scraper/jobmatch_companies.xlsx
+JobMatch Scraper/adzuna_replacements.csv
+JobMatch Scraper/diag_out.json
+
+# Run logs from a local scrape/score/probe. Never source.
+JobMatch Scraper/*_run.log
+JobMatch Scraper/*_run2.log
+JobMatch Scraper/everify_probe*.log
+JobMatch Scraper/visa_tags_build.log
