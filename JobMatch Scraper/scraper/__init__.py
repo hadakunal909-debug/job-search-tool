@@ -1312,6 +1312,27 @@ SF_BOARDS = [
     # jobs.ornl.gov is its own board, separate from the Battelle Memorial Institute board
     # already in the boards table (jobs.battelle.org) — different postings, not a duplicate. ---
     ("https://jobs.ornl.gov",              "successfactors", "Oak Ridge National Laboratory"), # ~111 (cap-exempt)
+    # --- Added 2026-08-16, replacing Adzuna company boards. These two are the employers that
+    # turned out to have a scrapeable board of their own once someone looked: the detect chain in
+    # find_everify_boards found both on SuccessFactors CSB, and scripts/probe_adzuna_
+    # replacements.py has the full result for the other 64 (Google, Tesla, IBM, KPMG, Deloitte,
+    # Cognizant, CBRE, Zoom, Nutanix, Goldman Sachs, Verizon: no public board, still absent).
+    #
+    # Rows each ACTUALLY contributes, measured 2026-08-16 through the same US + title filters
+    # main() applies, against what Adzuna was contributing for the same employer:
+    #   Capgemini  211 rows  vs  19 via Adzuna     (from 981 scraped)
+    #   EY          19 rows  vs  46 via Adzuna     (from 152 scraped)
+    # EY is a DECREASE in count and was kept anyway, because 19 rows with a real description and
+    # an apply form beat 46 that link to an aggregator redirect and can never hold a JD. Count is
+    # the wrong axis; that was Adzuna's whole problem.
+    #
+    # Two were probed and REJECTED, and both rejections are the same lesson:
+    #   PwC        careers.pwc.com answers probe_board with 30 and scrape_successfactors with 0.
+    #   Birlasoft  622 postings scraped, 9 US, 0 past the title filter — an India board.
+    # A board that costs a full paged walk and yields nothing is worse than no board, because it
+    # reads as coverage in this list. Re-probe before adding either back.
+    ("https://careers.capgemini.com",      "successfactors", "Capgemini"),          # ~211 rows
+    ("https://careers.ey.com",             "successfactors", "EY"),                 # ~19 rows
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -1345,6 +1366,14 @@ AVATURE_BOARDS = [
     # filter — acceptable: the title filter still trims, and most Synopsys roles are engineer). ---
     ("https://bloomberg.avature.net/careers/SearchJobs", "avature", "Bloomberg"),    # ~438
     ("https://synopsys.avature.net/careers/SearchJobs", "avature", "Synopsys"),      # ~714
+    # --- Added 2026-08-16 (user request). careers.lululemon.com is a vanity host in front of
+    # lululemoninc.avature.net; either URL normalizes to the same portal, and the cards link to
+    # the careers.lululemon.com form either way, so this uses the host a person would paste.
+    # ~1,130 postings, ~92% of them retail floor roles (Educator / Community Specialist) that
+    # the title filter drops — the keepers are corporate PM/product/ops out of Vancouver and
+    # Seattle. It is also the board that exposed the subtitle-location gap in
+    # _avature_location; before that fix its Zurich and Mexico stores read as US. ---
+    ("https://careers.lululemon.com/en_US/careers/SearchJobs", "avature", "lululemon"),  # ~1130
 ]
 
 # UKG Pro Recruiting (UltiPro) boards — recruiting[N].ultipro.com/{CO}/JobBoard/{guid}.
@@ -1461,160 +1490,27 @@ JIBE_BOARDS = [
     ("https://jobs.ohsu.edu",            "jibe", "Oregon Health & Science University"), # ~533 (cap-exempt)
 ]
 
-# Employers whose OWN site blocks server-side scraping (e.g. Tesla sits behind Akamai's
-# bot wall — every request from a script or even headless Chrome gets 403/429). We pull
-# their US postings from the Adzuna aggregator API instead. board_url is "adzuna:<Company>"
-# — we search that name and keep only exact-employer matches. DORMANT until you set a free
-# Adzuna key (no credit card): https://developer.adzuna.com  ->  ADZUNA_APP_ID / ADZUNA_APP_KEY
-# (export them as env vars, or add them as GitHub Actions secrets for the scheduled run).
-# Adzuna calls made this process, and the set of urls we already hold.
+# Adzuna (the aggregator API) was REMOVED on 2026-08-16, along with its 40 company boards and
+# 27 role-phrase searches. It is recorded here rather than deleted silently because the reasons
+# it was added — Tesla behind Akamai, Google's robots.txt disallowing its own results pages —
+# are still true, and the next person to hit one of those will reach for the same answer.
 #
-# Adzuna publishes NO quota headers (verified 2026-08-09: no X-RateLimit-*, no Retry-After,
-# nothing) and documents no limits on developer.adzuna.com, so the "~250/day" figure in the
-# comments below is folklore — the only way to learn the ceiling is to be rejected by it. Since
-# the number is unknowable, don't tune to it: make the call count proportional to NEW jobs, and
-# print what was actually spent so it stops being a guess. Same lesson as the egress bug.
-ADZUNA_CALLS = [0]
-
-# A "stop paging once a page holds nothing new" early exit was built here and REMOVED after
-# measuring, because its premise is false. Two identical consecutive calls to the same query
-# overlapped on only 6 of 50 urls: Adzuna's corpus is large enough, and moving fast enough, that
-# page 1 carries ~44 postings we have never seen every single time. So later runs in the day are
-# not re-reading the same jobs, and there is no wasted call to reclaim — every call is productive.
-# Don't rebuild it. The only real lever on Adzuna spend is the deliberate one: pages x boards x
-# runs per day, which is a budget decision rather than a bug.
-
-
-def _adzuna_fail(label, page, exc):
-    """Report a failed Adzuna call, naming quota rejection explicitly when that's what it is."""
-    code = getattr(getattr(exc, "response", None), "status_code", None)
-    why = " (quota/rate limit?)" if code in (403, 429) else ""
-    print("  ! adzuna %s p%d failed: %s%s" % (label, page, str(exc)[:90], why))
-
-
-# Freshness controls shared by BOTH Adzuna paths.
+# What it actually cost, measured on the live corpus the day it came out:
+#   * 1,435 rows (6.4% of the feed) but 1,438 of the 3,816 rows with NO job description — 38%
+#     of the entire JD backlog from 6% of the jobs. Its search API returns a truncated blurb and
+#     its redirect pages block a server-side fetch, so an Adzuna row could never hold a real JD.
+#   * Every row linked to adzuna.com/land/ad/..., which is a redirect, not an application form:
+#     web._QUEUE_SKIP_HOSTS already refused to queue them for auto-apply, and _dupe_rank already
+#     ranked them last. The feed was carrying rows the rest of the app declined to use.
+#   * 564 of the 644 employers it contributed reached the feed ONLY through a phrase search, at
+#     1-2 rows each, and a large share were staffing resellers rather than sponsors.
 #
-# sort_by=date is the important one. Without it Adzuna returns its RELEVANCE ordering, and since
-# the free tier caps a pull at 250 results, a large employer's newest postings never appear on the
-# pages we fetch at all. Measured 2026-08-08 against Deloitte (15,167 matching US postings):
-# unsorted, the 50 rows on page 1 were 14-69 days old with NOTHING from the previous three days;
-# with sort_by=date every one of the 50 was posted that day. `count` is identical either way, so
-# this changes WHICH 250 rows we get, not how many exist. sort_direction is not needed — date
-# already comes back newest-first (verified).
-ADZUNA_SORT = "date"
-
-# The window is deliberately DIFFERENT for the two paths, because they answer different questions.
-#
-# Phrase searches ask "what was posted recently anywhere?" — there are ~162k US matches for
-# "project manager" alone, so a tight window costs nothing and keeps the newest work at the front.
-# 7 rather than 1 so a missed run (Actions minute cap, a timeout) doesn't lose that day for good;
-# re-seeing a few days is free because add_jobs dedupes on url.
-ADZUNA_MAX_DAYS_SEARCH = int(os.environ.get("ADZUNA_MAX_DAYS_SEARCH") or 7)
-# Company pulls ask "what is THIS employer advertising?", and a tight window starves the small
-# ones — measured 2026-08-08, Fortanix's phrase pull returns 54 postings all-time but only 1
-# within 7 days. Those niche sponsors are exactly the ones worth keeping for a visa-led search, so
-# this window is wide and sort_by=date does the freshness work: we still take their NEWEST first.
-# 30 matches the prune horizon, so nothing is fetched that is about to be deleted anyway.
-ADZUNA_MAX_DAYS_COMPANY = int(os.environ.get("ADZUNA_MAX_DAYS_COMPANY") or 30)
-
-ADZUNA_BOARDS = [
-    ("adzuna:Tesla", "adzuna", "Tesla"),
-    # Google: their careers site's robots.txt explicitly Disallows the jobs-results
-    # pages, so we do NOT scrape it directly — the aggregator is the sanctioned route.
-    ("adzuna:Google", "adzuna", "Google"),
-    # --- Added 2026-06-11: sponsors from the user's H1B LCA list whose own career
-    # sites expose NO public feed (custom portals / SuccessFactors / bot-walled).
-    # The aggregator is the only way to scrape them; each costs ~1 API call per run.
-    # CBRE's own careers site (Avature on careers.cbre.com) sits behind AWS WAF Bot Control:
-    # every URL, including the site root, answers 202 with a JS challenge and no job data. The
-    # aggregator is the sanctioned route, same as Google above. NOTE: Adzuna's `company` facet
-    # is empty for CBRE — scrape_adzuna's phrase fallback is what makes this entry work.
-    ("adzuna:CBRE",                 "adzuna", "CBRE"),
-    ("adzuna:IBM",                  "adzuna", "IBM"),
-    ("adzuna:CGI",                  "adzuna", "CGI"),
-    ("adzuna:Mphasis",              "adzuna", "Mphasis"),
-    ("adzuna:HCLTech",              "adzuna", "HCL America"),
-    ("adzuna:Tech Mahindra",        "adzuna", "Tech Mahindra"),
-    ("adzuna:Coforge",              "adzuna", "Coforge"),
-    ("adzuna:Brillio",              "adzuna", "Brillio"),
-    ("adzuna:L&T Technology Services", "adzuna", "L&T Technology Services"),
-    ("adzuna:Persistent Systems",   "adzuna", "Persistent Systems"),
-    ("adzuna:Birlasoft",            "adzuna", "Birlasoft"),
-    ("adzuna:Hexaware Technologies", "adzuna", "Hexaware"),
-    ("adzuna:Nagarro",              "adzuna", "Nagarro"),
-    ("adzuna:Cyient",               "adzuna", "Cyient"),
-    ("adzuna:HTC Global Services",  "adzuna", "HTC Global Services"),
-    ("adzuna:Movate",               "adzuna", "Movate"),
-    ("adzuna:Atos",                 "adzuna", "Atos Syntel"),
-    ("adzuna:Tencent",              "adzuna", "Tencent America"),
-    ("adzuna:Munich Re",            "adzuna", "Munich Re America"),
-    ("adzuna:Cornerstone OnDemand", "adzuna", "Cornerstone OnDemand"),
-    ("adzuna:Holtec International", "adzuna", "Holtec International"),
-    ("adzuna:Hendrickson",          "adzuna", "Hendrickson"),
-    ("adzuna:Saama Technologies",   "adzuna", "Saama Technologies"),
-    ("adzuna:CAST Software",        "adzuna", "Cast Software"),
-    ("adzuna:Ideagen",              "adzuna", "Ideagen"),
-    ("adzuna:Elemica",              "adzuna", "Elemica"),
-    ("adzuna:Fortanix",             "adzuna", "Fortanix"),
-    ("adzuna:Tigo Energy",          "adzuna", "Tigo Energy"),
-    # --- Added 2026-06-11: big consulting sponsors with NO public feed (custom /
-    # SuccessFactors / bot-walled careers sites). BCG + Accenture scrape directly.
-    ("adzuna:McKinsey & Company",   "adzuna", "McKinsey & Company"),
-    ("adzuna:Bain & Company",       "adzuna", "Bain & Company"),
-    ("adzuna:Deloitte",             "adzuna", "Deloitte"),
-    ("adzuna:EY",                   "adzuna", "EY"),
-    ("adzuna:PwC",                  "adzuna", "PwC"),
-    ("adzuna:KPMG",                 "adzuna", "KPMG"),
-    ("adzuna:Capgemini",            "adzuna", "Capgemini"),
-    # --- Added 2026-06-18: top FY2026-Q2 H1B sponsors whose own sites can't be scraped
-    # server-side — Eightfold/custom career portals behind bot-walls (403) or session-coupled
-    # Taleo. The aggregator is the sanctioned route for these (same as Tesla/Google). ---
-    ("adzuna:Verizon",              "adzuna", "Verizon"),            # Eightfold (Happydance), bot-walled
-    ("adzuna:Goldman Sachs",        "adzuna", "Goldman Sachs"),      # custom higher.gs.com
-    ("adzuna:Nutanix",              "adzuna", "Nutanix"),            # custom/Eightfold SPA
-    ("adzuna:Zoom",                 "adzuna", "Zoom Video Communications"),  # Greenhouse+Clinch behind AWS WAF
-]
-
-# Generic Adzuna role searches across ALL employers (not company-scoped) — the widest single
-# lever: pulls postings from the thousands of firms Adzuna indexes, including custom-portal
-# companies we can't scrape directly. Each phrase = up to 4 API pages; keep the list modest so
-# the daily run stays within Adzuna's free ~250 calls/day budget. DORMANT without a key.
-ADZUNA_SEARCH_BOARDS = [
-    ("adzuna-search:project manager",     "adzuna-search", "Adzuna"),
-    ("adzuna-search:program manager",     "adzuna-search", "Adzuna"),
-    ("adzuna-search:project coordinator", "adzuna-search", "Adzuna"),
-    ("adzuna-search:business analyst",    "adzuna-search", "Adzuna"),
-    ("adzuna-search:product manager",     "adzuna-search", "Adzuna"),
-    ("adzuna-search:operations analyst",  "adzuna-search", "Adzuna"),
-    ("adzuna-search:implementation manager", "adzuna-search", "Adzuna"),
-    ("adzuna-search:supply chain analyst", "adzuna-search", "Adzuna"),
-    # "project manager" already surfaces "assistant project manager"; add project controls
-    # explicitly so the aggregator pulls that family from employers we don't scrape directly.
-    ("adzuna-search:project controls",    "adzuna-search", "Adzuna"),
-    # Internship / co-op pulls — the LEGITIMATE stand-in for Handshake/university portals
-    # (those are login-gated, student-only, no public feed). Adzuna indexes thousands of the
-    # same employers; these intern-specific phrases surface the intern roles that the full-time
-    # role searches above bury. The title filter trims each pull to PM/controls/product/ops interns.
-    ("adzuna-search:project management intern", "adzuna-search", "Adzuna"),
-    ("adzuna-search:manager intern",       "adzuna-search", "Adzuna"),
-    ("adzuna-search:coordinator intern",   "adzuna-search", "Adzuna"),
-    ("adzuna-search:analyst intern",       "adzuna-search", "Adzuna"),
-    ("adzuna-search:operations intern",    "adzuna-search", "Adzuna"),
-    ("adzuna-search:management co-op",     "adzuna-search", "Adzuna"),
-    # Software engineering (2026-08-01). Deliberately a SHORT list of high-yield umbrella
-    # phrases rather than one per title — each phrase costs up to 4 of Adzuna's ~250
-    # free calls/day, and "software engineer" alone already surfaces the senior/junior/
-    # frontend/backend variants. Trim these first if the daily budget starts erroring.
-    ("adzuna-search:software engineer",    "adzuna-search", "Adzuna"),
-    ("adzuna-search:software developer",   "adzuna-search", "Adzuna"),
-    ("adzuna-search:full stack developer", "adzuna-search", "Adzuna"),
-    ("adzuna-search:data engineer",        "adzuna-search", "Adzuna"),
-    ("adzuna-search:data scientist",       "adzuna-search", "Adzuna"),
-    ("adzuna-search:machine learning engineer", "adzuna-search", "Adzuna"),
-    ("adzuna-search:devops engineer",      "adzuna-search", "Adzuna"),
-    ("adzuna-search:qa engineer",          "adzuna-search", "Adzuna"),
-    ("adzuna-search:software engineering intern", "adzuna-search", "Adzuna"),
-]
+# The replacement is employer-side, which is this file's whole premise: EY, Capgemini and
+# Birlasoft moved to their own SuccessFactors boards (see SF_BOARDS), and J.P. Morgan and
+# Centene turned out to be duplicates of boards already in ORACLE_BOARDS / WORKDAY_BOARDS.
+# The rest — Google, Tesla, IBM, KPMG, Deloitte, Cognizant, CBRE, Zoom, Nutanix, Goldman Sachs,
+# Verizon — were probed against the full detect chain (scripts/probe_adzuna_replacements.py)
+# and have no scrapeable public board. They are simply absent, which is honest.
 
 # ---- JobSpy: the market-side sweep (LinkedIn / Indeed / Glassdoor / Google / ZipRecruiter) ----
 # Every other source here is EMPLOYER-side: we only see a job if its company is already in
@@ -1719,13 +1615,21 @@ PAYLOCITY_BOARDS = [
      "paylocity", "West Cary Group"),                                                      # ~3
 ]
 
+# Michael Page — a recruitment AGENCY rather than an employer, so every row here carries
+# "Michael Page" as its company and the real employer is named only in the JD. Read the long
+# note above scrape_michaelpage before adding a second agency: it explains why these rows
+# read as non-sponsors and why they arrive as one large single-company group.
+MICHAELPAGE_BOARDS = [
+    ("https://www.michaelpage.com/jobs", "michaelpage", "Michael Page"),   # ~9/page of 30
+]
+
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
-# Avature + SuccessFactors + PeopleSoft + Adzuna + Meta.
+# Avature + SuccessFactors + PeopleSoft + Adzuna + Meta + Michael Page.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
-           + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS + ADZUNA_BOARDS
-           + ADZUNA_SEARCH_BOARDS + JOBSPY_BOARDS + METACAREERS_BOARDS)
+           + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
+           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -2804,153 +2708,6 @@ def scrape_jibe(board_url):
     return rows
 
 
-def scrape_adzuna(board_url):
-    """US postings for ONE employer via the Adzuna aggregator API — used for companies
-    whose own careers site blocks scraping (Tesla = Akamai bot-wall, returns 403/429 to
-    any script or headless browser). board_url is 'adzuna:<Company>'; we search that name
-    and keep only rows whose employer matches it (Adzuna's keyword search is broad).
-
-    DORMANT unless a free Adzuna key is configured (no credit card needed):
-        register at https://developer.adzuna.com  ->  set ADZUNA_APP_ID + ADZUNA_APP_KEY
-        (env vars locally, or GitHub Actions secrets for the scheduled scrape).
-    Returns [] (contributes nothing) when the key isn't set, so it never breaks a run."""
-    app_id  = os.environ.get("ADZUNA_APP_ID")
-    app_key = os.environ.get("ADZUNA_APP_KEY")
-    if not (app_id and app_key):
-        return []
-    company = board_url.split(":", 1)[1] if ":" in board_url else board_url
-    target  = _norm_name(company)
-    # 2026-08-01: software/data terms added alongside the PM ones so a company-scoped pull
-    # spends its 250-result budget on BOTH tracks.
-    what_or = ("project program analyst coordinator operations implementation "
-               "scrum consultant consulting software engineer developer "
-               "data scientist devops")
-
-    def pull(selector):
-        """One employer pull under a given selector, employer-verified. Returns (rows, count)."""
-        rows, seen, data = [], set(), {}
-        for page in range(1, 6):                      # up to 5 pages x 50 = 250 results
-            try:
-                data = _get_json(
-                    "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
-                    params=dict({"app_id": app_id, "app_key": app_key, "what_or": what_or,
-                                 "results_per_page": 50,
-                                 # Newest-first. Before this the pull had NO date controls at
-                                 # all, so it returned Adzuna's RELEVANCE ordering and a big
-                                 # employer's newest postings fell outside the 250-result cap
-                                 # entirely — Deloitte's page 1 was 14-69 days old.
-                                 "sort_by": ADZUNA_SORT,
-                                 "max_days_old": ADZUNA_MAX_DAYS_COMPANY,
-                                 "content-type": "application/json"},
-                                **selector))
-                ADZUNA_CALLS[0] += 1
-            except Exception as e:
-                # Say so. A silent `break` here is indistinguishable from "no more results", so a
-                # spent quota used to look like thin coverage.
-                ADZUNA_CALLS[0] += 1
-                _adzuna_fail(company, page, e)
-                break
-            results = data.get("results", [])
-            if not results:
-                break
-            for j in results:
-                co = ((j.get("company") or {}).get("display_name") or "").strip()
-                con = _norm_name(co)
-                if not con or not (con == target or con.startswith(target + " ")):
-                    continue                          # skip recruiters / unrelated keyword hits
-                url = j.get("redirect_url") or ""
-                # Keyed on the CANONICAL url: Adzuna can return the same advert twice in one
-                # pull under two different `se=` tokens, and the raw strings differ.
-                if not url or canonical_url(url) in seen:
-                    continue
-                seen.add(canonical_url(url))
-                rows.append({
-                    "title": (j.get("title") or "").strip(),
-                    "url": url,
-                    "location": ((j.get("location") or {}).get("display_name") or ""),
-                    "found_date": (j.get("created") or "")[:10],
-                })
-            if len(results) < 50 or page * 50 >= data.get("count", 0):
-                break
-            time.sleep(random.uniform(0.3, 0.7))
-        else:
-            # Ran all 5 pages with more still available. Deliberately NOT raised: Adzuna's free
-            # tier is ~250 calls/day and these company pulls already use most of it. This is a
-            # budget ceiling, not an oversight — but it should still be visible.
-            note_truncation("adzuna:" + company, len(seen), 250, data.get("count"),
-                            detail="(Adzuna free-tier budget)")
-        return rows
-
-    # company= returns ONLY this employer, so it's tried first — the keyword search matches
-    # mentions, and for Google that found 0 of its 3.8k listings.
-    rows = pull({"company": company})
-    if not rows:
-        # ...but Adzuna's company facet is not populated for every employer: CBRE has 4,068 US
-        # postings under its own display name and `company=CBRE` returns zero. Falling back to
-        # the phrase search recovers those, and it's safe here because every row is still
-        # verified against the employer's display name above — that guard is what makes a
-        # keyword search usable as an employer feed.
-        rows = pull({"what_phrase": company})
-    return rows
-
-
-def scrape_adzuna_search(board_url):
-    """Generic Adzuna search across ALL employers for a role phrase — the single WIDEST source:
-    it pulls jobs from the thousands of companies Adzuna indexes, including custom-portal employers
-    we can't scrape directly. board_url is 'adzuna-search:<phrase>' (e.g. 'adzuna-search:project
-    manager'). Each row carries its OWN employer (set here; scrape_all won't clobber it). main()'s
-    title + US filter still trims it.
-
-    DORMANT without an Adzuna key. Free-tier friendly: capped at 4 pages (200 results) per phrase
-    and recent postings only, so a handful of phrases stay within the ~250 calls/day budget."""
-    app_id  = os.environ.get("ADZUNA_APP_ID")
-    app_key = os.environ.get("ADZUNA_APP_KEY")
-    if not (app_id and app_key):
-        return []
-    query = board_url.split(":", 1)[1].strip() if ":" in board_url else board_url
-    rows, seen = [], set()
-    for page in range(1, 5):                          # up to 4 pages x 50 = 200 results per phrase
-        try:
-            data = _get_json(
-                "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
-                params={"app_id": app_id, "app_key": app_key,
-                        "what_phrase": query,         # exact phrase keeps results on-role
-                        "results_per_page": 50,
-                        # was max_days_old=30 with NO sort, which left ~20 of every 50 rows
-                        # outside the last three days
-                        "sort_by": ADZUNA_SORT,
-                        "max_days_old": ADZUNA_MAX_DAYS_SEARCH,
-                        "content-type": "application/json"})
-            ADZUNA_CALLS[0] += 1
-        except Exception as e:
-            ADZUNA_CALLS[0] += 1
-            _adzuna_fail("search '%s'" % query, page, e)
-            break
-        results = data.get("results", [])
-        if not results:
-            break
-        for j in results:
-            url = j.get("redirect_url") or ""
-            # Canonical, for the same reason as scrape_adzuna above.
-            if not url or canonical_url(url) in seen:
-                continue
-            seen.add(canonical_url(url))
-            rows.append({
-                "title": (j.get("title") or "").strip(),
-                "url": url,
-                "company": ((j.get("company") or {}).get("display_name") or "").strip(),
-                "location": ((j.get("location") or {}).get("display_name") or ""),
-                "found_date": (j.get("created") or "")[:10],
-            })
-        if len(results) < 50 or page * 50 >= data.get("count", 0):
-            break
-        time.sleep(random.uniform(0.3, 0.7))
-    else:
-        note_truncation("adzuna-search:" + query, len(seen), 200, data.get("count"),
-                        detail="(Adzuna free-tier budget)")
-    return rows
-
-
 # ---- JobSpy: one aggregator query per selector. Config and JOBSPY_BOARDS live up by SOURCES ----
 
 
@@ -3241,7 +2998,10 @@ def scrape_jsonld(board_url):
     rows = []
     for tag in soup.find_all("script", type="application/ld+json"):
         try:
-            data = json.loads(tag.string or "")
+            # strict=False: a raw newline inside a JSON string is illegal, and sites that
+            # paste an HTML description into their JSON-LD emit them constantly. Strict
+            # parsing drops the whole block over it; browsers don't, and neither should we.
+            data = json.loads(tag.string or "", strict=False)
         except Exception:
             continue
         items = data if isinstance(data, list) else [data]
@@ -3549,7 +3309,15 @@ def _csb_is_us(loc):
     'Walldorf, DE, 69190' / 'Bangalore, KA, IN, 562149'. A literal US token = US;
     any other alpha-2 code = foreign. Decided HERE because the generic US filter
     would read a German 'DE' or Indian 'IN' as Delaware/Indiana. One exception:
-    a 'City, ST' shape (state abbr as the LAST token, no zip after) stays US."""
+    a 'City, ST' shape (state abbr as the LAST token, no zip after) stays US.
+
+    ...and that exception is why the city list is consulted FIRST. Not every CSB tenant writes
+    the country token: Capgemini's board emits 'Casablanca, MA' and 'Buenos Aires, AR' with
+    nothing after the code, which is byte-for-byte the 'City, ST' shape the exception exists to
+    keep — so Morocco read as Massachusetts and Argentina as Arkansas, and 157 of that board's
+    516 supposedly-US rows (30%) were foreign. A named city outranks an ambiguous code."""
+    if _NON_US_RE.search((loc or "").lower()):
+        return False
     toks = [t.strip().upper() for t in (loc or "").split(",") if t.strip()]
     if "US" in toks or "USA" in toks:
         return True
@@ -3944,6 +3712,13 @@ def _avature_base(board_url):
     return "%s://%s/%s" % (p.scheme, p.netloc, "/".join(segs))
 
 
+# Words that mean an Avature card's header subtitle is posting metadata rather than a place.
+# Kept as a whole-word match so a real city is never vetoed by a substring (there is a Posted
+# Township in Kentucky as far as this regex is concerned, and "Employee" is not a place name).
+_META_SUB = re.compile(r"\b(job id|posted|employee|full[- ]time|part[- ]time|contract|"
+                       r"permanent|temporary|intern(ship)?|req(uisition)? ?id)\b", re.I)
+
+
 def _avature_location(card, href):
     """A card's location, handling both templates. The 'article--result' template (Bloomberg
     etc.) prints a single .list-item-location; the 'listSingleColumnItem' template (NVA) uses
@@ -3952,6 +3727,29 @@ def _avature_location(card, href):
     el = card.select_one(".list-item-location")
     if el:
         return el.get_text(" ", strip=True).rstrip(".").strip()
+    # A THIRD placement, found on lululemon 2026-08-16: same article--result template, but the
+    # location sits in the header subtitle as "country · region · city" rather than in
+    # .list-item-location. Without this the card read as location-''; blank passes
+    # is_us_location (it has to — a blank must not be dropped), so every one of their ~1,100
+    # postings entered the US feed, Zurich and Mexico included.
+    #
+    # THE SUBTITLE IS NOT ALWAYS A LOCATION, which is the whole reason for _META_SUB below:
+    # Synopsys renders "Job ID 13924 • Employee • Posted 02-Jan-2026" into the same slot, and
+    # it is bullet-separated exactly like lululemon's, so the separator cannot tell them apart.
+    # Reading it blindly turned Synopsys's honest blank into a location of "Posted 02-Jan-2026,
+    # Employee, Job ID 13924" — worse than blank, since it fails the US filter and would have
+    # quietly dropped that board. Match on what the text says, not how it is punctuated.
+    #
+    # Reversed to "city, region, country" to match the shape the rest of the corpus stores and
+    # that core's state parser expects.
+    el = card.select_one(".article__header__text__subtitle")
+    if el:
+        txt = el.get_text(" ", strip=True)
+        if not _META_SUB.search(txt):
+            parts = [p.strip().rstrip(".").strip()
+                     for p in re.split(r"[·•|]", txt) if p.strip()]
+            if parts:
+                return ", ".join(reversed(parts))
     city = state = ""
     for sp in card.select(".listSingleColumnItemMiscDataItem"):
         label, sep, val = sp.get_text(" ", strip=True).partition(":")
@@ -3981,13 +3779,97 @@ def _avature_date(card):
     return ""
 
 
+# The results header states the size of the whole board: <div class="list-controls__text__legend"
+# aria-label="409 results">1-12 of 409 results</div>. Knowing the total up front is what lets the
+# remaining offsets be fetched together instead of discovered one page at a time.
+_AVATURE_TOTAL_RE = re.compile(r'aria-label="\s*([\d,]+)\s+results?"', re.I)
+
+# Concurrent page fetches within ONE Avature board. Matches SCRAPE_PER_HOST: every one of these
+# hits the same tenant host, so going wider would be impolite rather than faster.
+AVATURE_WORKERS = 4
+
+
+def _avature_cards(html, base, seen, rows):
+    """Parse one results page into `rows`; returns how many NEW postings it contributed."""
+    cards = BeautifulSoup(html, "lxml").select(
+        "li.listSingleColumnItem, article.article--result")
+    new = 0
+    for c in cards:
+        a = c.select_one("a[href*='/JobDetail/']")
+        if not a or not a.get("href"):
+            continue                                        # 'no results' placeholder card
+        href = urljoin(base + "/", a["href"]).split("?")[0]
+        if href in seen:
+            continue
+        seen.add(href)
+        new += 1
+        row = {"title": a.get_text(" ", strip=True).strip(), "url": href,
+               "location": _avature_location(c, href)}
+        d = _avature_date(c)
+        if d:
+            row["found_date"] = d
+        rows.append(row)
+    return new, len(cards)
+
+
 def scrape_avature(board_url):
-    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Walks the whole
-    board via ?jobOffset=N, handling both card templates (listSingleColumnItem / article--result)
-    via _avature_location + _avature_date. The title (its /JobDetail/ link) is in both; the
-    title + US filter in main() trims the result."""
+    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Pages via ?jobOffset=N,
+    handling both card templates (listSingleColumnItem / article--result) via _avature_location +
+    _avature_date. The title (its /JobDetail/ link) is in both; the title + US filter in main()
+    trims the result.
+
+    Pages are fetched CONCURRENTLY. jobOffset is stateless — no cursor, no session — so once the
+    first page has told us the page size and the board total, every remaining offset is just a
+    known URL. Walking them one at a time made Avature the slowest scraper in the sweep and the
+    run's closing straggler: Bloomberg is 409 postings at 12 a page, i.e. 34 serial fetches of
+    ~1.6s plus a politeness sleep between each.
+
+    Falls back to the original serial walk when the total can't be read, so a template without
+    the results header still works.
+    """
     base = _avature_base(board_url)
-    rows, seen, offset = [], set(), 0
+    rows, seen = [], set()
+    try:
+        r = SESSION.get("%s/?jobOffset=0" % base, headers=HEADERS, timeout=25)
+    except Exception:
+        return rows
+    if r.status_code != 200:
+        return rows
+    _new, page_size = _avature_cards(r.text, base, seen, rows)
+    if not page_size:
+        return rows
+
+    m = _AVATURE_TOTAL_RE.search(r.text)
+    total = int(m.group(1).replace(",", "")) if m else 0
+    if total > page_size:
+        offsets = list(range(page_size, min(total, AVATURE_MAX_JOBS), page_size))
+
+        def _page(off):
+            # One retry. The serial walk used to STOP at the first bad page, so a blip cost the
+            # tail of the board and was at least visible as a short result; fetching offsets
+            # independently means a blip silently drops just that page's postings instead.
+            for attempt in (0, 1):
+                try:
+                    p = SESSION.get("%s/?jobOffset=%d" % (base, off),
+                                    headers=HEADERS, timeout=25)
+                    if p.status_code == 200:
+                        return p.text
+                except Exception:
+                    pass
+                if not attempt:
+                    time.sleep(random.uniform(0.4, 0.9))
+            return ""
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=AVATURE_WORKERS) as ex:
+            for html in ex.map(_page, offsets):
+                if html:
+                    _avature_cards(html, base, seen, rows)
+        if total > AVATURE_MAX_JOBS:
+            note_truncation(board_url, AVATURE_MAX_JOBS, AVATURE_MAX_JOBS, total)
+        return rows
+
+    # No total in the markup — walk it the old way, one page at a time until it runs dry.
+    offset = page_size
     while offset < AVATURE_MAX_JOBS:
         try:
             r = SESSION.get("%s/?jobOffset=%d" % (base, offset), headers=HEADERS, timeout=25)
@@ -3995,25 +3877,9 @@ def scrape_avature(board_url):
             break
         if r.status_code != 200:
             break
-        cards = BeautifulSoup(r.text, "lxml").select("li.listSingleColumnItem, article.article--result")
-        new = 0
-        for c in cards:
-            a = c.select_one("a[href*='/JobDetail/']")
-            if not a or not a.get("href"):
-                continue                                    # 'no results' placeholder card
-            href = urljoin(base + "/", a["href"]).split("?")[0]
-            if href in seen:
-                continue
-            seen.add(href)
-            new += 1
-            row = {"title": a.get_text(" ", strip=True).strip(), "url": href,
-                   "location": _avature_location(c, href)}
-            d = _avature_date(c)
-            if d:
-                row["found_date"] = d
-            rows.append(row)
-        offset += len(cards) or AVATURE_PAGE                # advance by the real page size
-        if not cards or new == 0:                           # reached the end of the board
+        new, n_cards = _avature_cards(r.text, base, seen, rows)
+        offset += n_cards or AVATURE_PAGE                   # advance by the real page size
+        if not n_cards or new == 0:                         # reached the end of the board
             break
         time.sleep(random.uniform(0.2, 0.4))
     else:
@@ -4244,6 +4110,89 @@ def scrape_paylocity(board_url):
     return rows
 
 
+# ============================================================
+# MICHAEL PAGE — the one RECRUITMENT AGENCY board here, and that is worth stating.
+#
+# Every other source is an employer publishing its own openings. This is PageGroup's US
+# agency site, so `company` is "Michael Page" on all of them and the actual employer is
+# named only inside the JD ("Our client is a growing General Contractor..."). Two
+# consequences to keep in mind before adding more agencies:
+#
+#   * SPONSORSHIP. The sponsor flag keys off the company name, so these rows flag against
+#     Michael Page, not the hiring employer — which is why they will read as non-sponsors
+#     almost across the board. That is not a bug in the flag, it is the truth about agency
+#     placements, and it is the reason this feed has otherwise stayed employer-side.
+#   * FLOOD. A few hundred rows all sharing one company name is exactly the shape the feed
+#     groups (web._dupe_rank / the employer grouping) rather than dedupes. Nothing to do
+#     here, but a second agency board doubles it.
+#
+# HOW IT IS READ. A plain Drupal view ("job_search"), rendered server-side: no JSON API, no
+# JS. `div.job-tile` carries title, /job-detail/ link, location, contract type and salary.
+# robots.txt allows /jobs and /job-detail and disallows /job-apply-external/ (the link shape
+# that prompted this) plus 3-deep /jobs/*/*/*/ facets — none of which this touches.
+#
+# sort_by=most_recent IS LOAD-BEARING, the same lesson Adzuna taught: the default sort is
+# relevance, and paging a relevance-sorted board with a cap returns an arbitrary slice that
+# barely changes between runs. Sorted by date, a bounded page budget always reads the fresh
+# end and the cap simply decides how far back it goes.
+#
+# COST is the reason for that budget. Measured 2026-08-16: 17s per page average (0.1s when
+# their CDN has it warm, 15-28s cold), 30 tiles a page, 31% of them clearing the title + US
+# filter. 12 pages is ~360 newest postings for ~3.5 min — several days of their posting rate
+# at 3 runs a day, and one of the slower boards in the sweep, so raise MICHAELPAGE_MAX_PAGES
+# only with SCRAPE_BUDGET_MIN in view.
+#
+# NO DATE ON THE CARD, deliberately left that way. The detail page's JSON-LD has a real
+# datePosted, but reading it costs one fetch per job; score_jobs' JD pass already visits
+# every detail page and picks the date up there (page_posted_date), so paying for it twice
+# would buy nothing.
+# ============================================================
+MICHAELPAGE_MAX_PAGES = int(os.environ.get("MICHAELPAGE_MAX_PAGES") or 12)
+
+
+def scrape_michaelpage(board_url):
+    """Michael Page's Drupal job search. Walks ?sort_by=most_recent&page=N newest-first and
+    stops at MICHAELPAGE_MAX_PAGES, an empty page, or a page that is all repeats."""
+    parts = urlsplit(board_url)
+    q = dict(parse_qsl(parts.query))
+    q["sort_by"] = "most_recent"                     # never page a relevance sort (see above)
+    rows, seen, page = [], set(), 0
+    while page < MICHAELPAGE_MAX_PAGES:
+        q["page"] = str(page)
+        url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), ""))
+        try:
+            # 40s, not the usual 25: their cold pages measured up to 28s, and a timeout here
+            # costs the whole rest of the board rather than one job.
+            r = SESSION.get(url, headers=HEADERS, timeout=40)
+        except Exception:
+            break
+        if r.status_code != 200:
+            break
+        tiles = BeautifulSoup(r.text, "lxml").select("div.job-tile")
+        new = 0
+        for t in tiles:
+            a = t.select_one("div.job-title a[href]")
+            if not a:
+                continue
+            href = urljoin(board_url, a["href"]).split("?")[0]
+            if href in seen:
+                continue                              # each tile links twice (title + View Job)
+            seen.add(href)
+            new += 1
+            loc = t.select_one(".job-location")
+            rows.append({"title": a.get_text(" ", strip=True),
+                         "url": href,
+                         "location": loc.get_text(" ", strip=True) if loc else ""})
+        page += 1
+        if not tiles or new == 0:                     # past the last page of results
+            break
+        time.sleep(random.uniform(0.2, 0.4))
+    else:
+        note_truncation(board_url, len(rows), MICHAELPAGE_MAX_PAGES * 30,
+                        detail="MICHAELPAGE_MAX_PAGES=%d" % MICHAELPAGE_MAX_PAGES)
+    return rows
+
+
 def detect_paylocity(url):
     """Recognize a Paylocity careers link, including a link to a SINGLE posting.
 
@@ -4291,8 +4240,6 @@ SCRAPERS = {
     "breezy": scrape_breezy,
     "personio": scrape_personio,
     "jsonld": scrape_jsonld,
-    "adzuna": scrape_adzuna,
-    "adzuna-search": scrape_adzuna_search,
     "jobspy": scrape_jobspy,
     "phenom": scrape_phenom,
     "oracle": scrape_oracle,
@@ -4307,6 +4254,7 @@ SCRAPERS = {
     "peoplesoft": scrape_peoplesoft,
     "paylocity": scrape_paylocity,
     "metacareers": scrape_metacareers,
+    "michaelpage": scrape_michaelpage,
 }
 
 
@@ -4488,8 +4436,17 @@ def detect_phenom(url):
         apply_url = (jobs[0].get("applyUrl") or "") if jobs else ""
         if "myworkdayjobs.com" in apply_url or "myworkdaysite.com" in apply_url:
             wd = detect_board(apply_url)
+            # Only hand off to Workday if that board actually HAS postings. The apply link on a
+            # Phenom job routes to whatever Workday site handles applications, which is not
+            # always the site the jobs are listed under: UVA's Phenom front-end serves 897 jobs
+            # while uva.wd1/UVAJobs behind it reports total=0. Returning the empty board made
+            # discover() probe 0 and drop the company, so a live 897-job board was invisible.
             if wd:
-                return wd
+                try:
+                    if (probe_board(wd[0], wd[1]) or 0) > 0:
+                        return wd
+                except Exception:
+                    pass
         host = p.netloc.split(":")[0]
         parts = [x for x in host.split(".")
                  if x not in ("www", "careers", "jobs", "career", "mycareer")]
@@ -4554,11 +4511,21 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.breezy\.hr
       | [a-z0-9-]+\.jobs\.personio\.com
       | [a-z0-9.-]+\.oraclecloud\.com/hcmUI/CandidateExperience[A-Za-z0-9_/.-]*/sites/[A-Za-z0-9_]+
-      | recruiting\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/[0-9a-fA-F-]{36}
+      | recruiting\d*\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/[0-9a-fA-F-]{36}
       | [a-z0-9-]+\.bamboohr\.com/careers
       | [a-z0-9-]+\.pinpointhq\.com
       | ats\.rippling\.com/[A-Za-z0-9_-]+
+      | [a-z0-9-]+\.avature\.net/[A-Za-z0-9_-]+
+      | www\d*\.jobdiva\.com/portal/\?a=[A-Za-z0-9]+
+      | recruiting\.paylocity\.com/recruiting/jobs/All/[0-9a-fA-F-]{36}/[A-Za-z0-9_-]+
     )""", re.X | re.I)
+# Four platforms we can already SCRAPE were missing from the link list above, so a careers page
+# that linked straight to one was read as "no board found":
+#   ultipro   the host is numbered — Starkey is recruiting2.ultipro.com — and the pattern was
+#             pinned to the bare `recruiting.` host, so every numbered tenant was invisible.
+#   avature / jobdiva / paylocity  had fetchers and detect_board support but no link pattern.
+# Found by fingerprinting the 71 careers-page-only companies from the E-Verify+ probe: the
+# platforms behind them were overwhelmingly ones we support, not ones we lack.
 
 
 def detect_linked_ats(url):
@@ -4747,8 +4714,6 @@ def probe_board(board_url, ats_type):
             return len(scrape_personio(board_url))
         if ats_type == "jsonld":
             return len(scrape_jsonld(board_url))
-        if ats_type == "adzuna":
-            return len(scrape_adzuna(board_url))
     except Exception:
         return None
     return None
@@ -4869,7 +4834,17 @@ NON_US = {"india", "united kingdom", "uk", "canada", "ireland", "germany", "fran
     "tel aviv", "sydney", "melbourne", "sao paulo", "mexico city", "tokyo", "shanghai",
     "beijing", "shenzhen", "seoul", "manila", "kuala lumpur", "jakarta", "bangkok",
     "costa rica", "guatemala", "el salvador", "honduras", "panama", "dominican",
-    "guadalajara", "monterrey", "bogota", "medellin", "lima", "cebu"}
+    "guadalajara", "monterrey", "bogota", "medellin", "lima", "cebu",
+    # --- Added 2026-08-16 after measuring the new Capgemini board: 157 of the 516 rows that
+    # passed the US filter (30%) were foreign, because a two-letter code is ambiguous and these
+    # cities carry ONLY the code. Casablanca reads as Massachusetts, Mississauga and Calgary as
+    # California, Buenos Aires as Arkansas, Kolkata as Indiana. Naming the city is what breaks
+    # the tie — every one of these is unambiguous, unlike (say) Ottawa, which is also a real
+    # town in Illinois and Kansas and is therefore deliberately NOT here.
+    "casablanca", "rabat", "marrakech", "sala al jadida", "buenos aires", "mississauga",
+    "calgary", "winnipeg", "edmonton", "ottawa, on", "quebec", "kolkata", "calcutta",
+    "ahmedabad", "kochi", "coimbatore", "jaipur", "santiago", "montevideo", "quito",
+    "san jose, cr", "cairo", "nairobi", "lagos"}
 
 _STATE_ABBR_RE = re.compile(r",\s*([A-Za-z]{2})\b")
 
@@ -4923,6 +4898,110 @@ def _norm_name(s):
     s = re.sub(r"[^a-z0-9 ]+", " ", s.lower())
     s = _LEGAL_SUFFIX.sub(" ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+# Legal suffixes safe to strip when matching a SELF-REPORTED federal row against the sponsor
+# indexes. Deliberately much shorter than _LEGAL_SUFFIX above: that one also eats "group",
+# "labs", "technologies" and "co". Dropping those is fine for our own hand-curated names, but
+# pointed at 35k rows of whatever an HR person typed at E-Verify enrolment it collapses
+# genuinely different companies onto a big-name key — "Target Labs INC" (5-9 staff, VA) becomes
+# "target" and inherits Target Corp's 1,411 filings; "Box Technology Group" becomes "box".
+_STRICT_SUFFIX = re.compile(
+    r"\b(?:inc|incorporated|llc|l l c|corp|corporation|ltd|limited|llp|plc|pllc)\b")
+
+# Upper bound of each USCIS "Workforce Size" band. None = open-ended (no plausibility cap).
+_WORKFORCE_CEILING = {
+    "5 to 9": 9, "10 to 19": 19, "20 to 99": 99, "100 to 499": 499, "500 to 999": 999,
+    "1,000 to 2,499": 2499, "2,500 to 4,999": 4999, "5,000 to 9,999": 9999,
+    "10,000 and over": None,
+}
+
+# How many cumulative filings we'll believe per head before calling a match a collision.
+# The indexes are ~15 years deep, so 3x the band's headcount ceiling is already generous.
+_PLAUSIBLE_FILINGS_PER_HEAD = 3
+
+# Words too generic to prove that an employer and its DBA are the same entity. Without these,
+# "CKS Pizza llc" claims Domino's filings through the shared word "pizza", and "North Wheeler
+# County Hospital District" claims Parkview Hospital's through "hospital".
+_GENERIC_NAME_WORDS = frozenset((
+    "pizza", "restaurant", "cafe", "coffee", "food", "hospital", "health", "healthcare",
+    "medical", "clinic", "care", "dental", "pharmacy", "group", "holdings", "holding",
+    "management", "services", "service", "systems", "system", "solutions", "center",
+    "centre", "auto", "parts", "tech", "technology", "technologies", "company", "enterprise",
+    "enterprises", "industries", "associates", "partners", "consulting", "international",
+    "national", "global", "american", "america", "usa", "the", "and", "of", "school",
+    "university", "college", "store", "market", "shop", "construction", "transport",
+    "trucking", "logistics", "staffing", "insurance", "bank", "financial",
+))
+
+
+def _strict_norm_name(s):
+    """_norm_name's cautious twin: lowercase and strip punctuation, but keep the words that
+    distinguish one company from another. 'Target Labs INC' -> 'target labs' (not 'target')."""
+    s = re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower())
+    s = _STRICT_SUFFIX.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _safe_sponsor_match(employer, counts, workforce_size=None, dba=None):
+    """Look up an employer's H-1B filing count with the two false positives guarded.
+
+    Returns (count, method) where method is one of:
+        "employer"       matched on the employer name, cautious normalisation
+        "employer_loose" only matched once the aggressive normaliser was allowed (see below)
+        "dba"            matched via Doing-Business-As, and the DBA is a variant of that name
+        "implausible"    a name matched but the volume is impossible for the headcount
+        ""               no match
+
+    Guards the three ways naive matching goes wrong on the federal E-Verify list:
+
+    1. SUFFIX COLLISIONS — handled by _strict_norm_name (see above).
+    2. FRANCHISEE INHERITANCE — most rows that match only through Doing-Business-As are
+       franchise operators, not the filer: "Balde Restaurant Group LLC" (dba McDonalds),
+       "Calixto Franchise Association" (dba Dominos Pizza), every 7-Eleven franchisee. So a
+       DBA match is only trusted when the DBA shares a word with the employer name, i.e. it
+       is the same entity under a shorter trading name ("Equinox Holdings, Inc" / "Equinox",
+       "University of Washington, College of Engineering" / "University of Washington").
+    3. IMPLAUSIBLE VOLUME — a backstop for whatever the first two miss. 320 filings against a
+       nine-person headcount ceiling is not believable regardless of how the name matched.
+
+    Note the asymmetry the loose fallback exists for: `counts` was keyed with _norm_name, so a
+    strict lookup alone silently MISSES real sponsors — "Ford Motor Company" is stored under
+    "ford motor". We therefore retry with _norm_name and let the size check adjudicate: Ford
+    (10,000+, uncapped) is kept, while "Target Labs INC" resolving to "target" is thrown out by
+    1,411 filings against a nine-person ceiling. Those retries are reported separately so a
+    reviewer can see which matches leaned on the risky normaliser.
+
+    `workforce_size` is the raw USCIS band string; pass None to skip the plausibility check.
+    """
+    if not counts or not employer:
+        return 0, ""
+    method = ""
+    n = 0
+    key = _strict_norm_name(employer)
+    if key:
+        n = int(counts.get(key) or 0)
+        if n:
+            method = "employer"
+    if not n:
+        loose = _norm_name(employer)
+        if loose and loose != key:
+            n = int(counts.get(loose) or 0)
+            if n:
+                method = "employer_loose"
+    if not n and dba:
+        dkey = _strict_norm_name(dba)
+        shared = (set(dkey.split()) & set(key.split())) - _GENERIC_NAME_WORDS
+        if dkey and dkey != key and shared:
+            n = int(counts.get(dkey) or 0)
+            if n:
+                method = "dba"
+    if not n:
+        return 0, ""
+    ceiling = _WORKFORCE_CEILING.get((workforce_size or "").strip())
+    if ceiling is not None and n > ceiling * _PLAUSIBLE_FILINGS_PER_HEAD:
+        return 0, "implausible"
+    return n, method
 
 
 def build_sponsor_index(names, wide=None):
@@ -5030,9 +5109,8 @@ SCRAPE_WORKERS = _env_num("SCRAPE_WORKERS", 16, int)
 SCRAPE_BUDGET_MIN = _env_num("SCRAPE_BUDGET_MIN", 22)
 # Concurrent fetches allowed against any ONE host. Worker count alone is the wrong control
 # here because boards are not evenly spread across hosts: 408 of them are on
-# job-boards.greenhouse.io, 128 on jobs.smartrecruiters.com, 113 on jobs.ashbyhq.com, and
-# every Adzuna entry is the same rate-limited API key against api.adzuna.com. Raising
-# workers without this would raise the peak load on exactly those few hosts.
+# job-boards.greenhouse.io, 128 on jobs.smartrecruiters.com and 113 on jobs.ashbyhq.com.
+# Raising workers without this would raise the peak load on exactly those few hosts.
 #
 # It costs the sweep nothing: the shared-host boards are the FAST ones (greenhouse ~0.5s),
 # so even 400 of them at 4-wide is under a minute, and the critical path is Workday, which
@@ -5096,13 +5174,11 @@ _PER_HOST_OVERRIDE = {"jobspy:linkedin": 1, "jobspy:glassdoor": 1}
 def _host_key(url, ats_type):
     """Which rate-limited thing this board actually talks to.
 
-    Usually the URL's host. The Adzuna entries are not URLs — they are selectors like
-    'adzuna:Tesla' — so they fall back to the ATS name, with the '-search' variant folded
-    in because 'adzuna' and 'adzuna-search' are two ways of querying ONE API key.
+    Usually the URL's host. A few entries are SELECTORS rather than URLs, and those fall back to
+    the ATS name so that everything sharing one API key shares one gate.
 
-    JobSpy selectors get one key PER SITE ('jobspy:indeed'), because unlike Adzuna's two entry
-    points these are five unrelated hosts with five separate reputation budgets — throttling
-    LinkedIn should not throttle Indeed.
+    JobSpy selectors get one key PER SITE ('jobspy:indeed'), because these are five unrelated
+    hosts with five separate reputation budgets — throttling LinkedIn should not throttle Indeed.
     """
     try:
         host = urlparse(url or "").netloc.lower()
@@ -5214,12 +5290,11 @@ CLOSED_AFTER_MISSES = 3
 RECONCILE_MIN_ROWS = 3
 RECONCILE_MIN_RATIO = 0.5
 # Search aggregators return a QUERY's results, not a board's full inventory — absence from
-# one run means nothing, so they can never close a row.
-# "adzuna-search" belongs here as much as "adzuna" does: reconcile_closed's whole premise is that
-# a board IS an employer's own listing, so absence from it means the posting is gone. An aggregator
-# phrase search is neither — its url prefix (adzuna.com/land/ad/...) spans every Adzuna row we
-# hold, so one query for "project manager" would be judged against the entire aggregator corpus.
-# The MIN_RATIO guard happens to reject that today, which is luck rather than intent.
+# one run means nothing, so they can never close a row. reconcile_closed's whole premise is that
+# a board IS an employer's own listing, so absence from it means the posting is gone; an
+# aggregator phrase search is neither, and its rows all share one url prefix, so a single query
+# for "project manager" would be judged against the entire aggregator corpus. (Adzuna's two
+# entry points were here for exactly this reason before the source was removed.)
 # Log-only until a real run has been checked against the shadow report's prediction. With this
 # off, main() PRINTS what it would have suppressed and stores the row anyway — the same dry-run
 # posture reconcile_closed uses, and the only safe way to calibrate a filter whose mistakes are
@@ -5272,7 +5347,7 @@ def fingerprint_duplicate(job, fingerprints):
     return None
 
 
-RECONCILE_SKIP_ATS = {"adzuna", "adzuna-search", "jobspy"}
+RECONCILE_SKIP_ATS = {"jobspy"}
 
 
 def _url_prefix(urls):
@@ -5508,12 +5583,9 @@ def main():
     board_results = []          # per-board outcome, for the closed-posting check below
     scraped = scrape_all(sources, progress=_progress, board_results=board_results)
     _progress(len(sources), len(sources), len(scraped), phase="saving", force=True)
-    # Adzuna's quota is undocumented and it returns no usage headers, so the only way to know what
-    # a run costs is to count. Print it every run: a number in the log beats the guess in a comment.
-    if ADZUNA_CALLS[0]:
-        print("Adzuna: %d API call(s) this run." % ADZUNA_CALLS[0])
-    # Same reasoning, same reason to print it: these sites publish no quota and the only honest
-    # way to know what a run spends against them is to count it.
+    # These sites publish no quota and return no usage headers, so the only honest way to know
+    # what a run spends against them is to count it. Print it every run: a number in the log
+    # beats the guess in a comment. (Adzuna was counted the same way until it was removed.)
     if JOBSPY_CALLS[0]:
         print("JobSpy: %d quer%s, %d raw row(s)."
               % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))

@@ -63,31 +63,6 @@ def jd_map_for(board_url, ats):
         d = scraper._get_json("https://api.ashbyhq.com/posting-api/job-board/%s" % slug)
         for j in d.get("jobs", []):
             out[j.get("jobUrl", "")] = j.get("descriptionPlain", "") or _text(j.get("descriptionHtml", ""))
-    elif ats == "adzuna":
-        # Adzuna's redirect pages often block our JD page-fetch, but its search API
-        # carries a (truncated) description per ad — far better than scoring against
-        # nothing. Reuses the same company query the scraper runs.
-        import os as _os
-        app_id, app_key = _os.environ.get("ADZUNA_APP_ID"), _os.environ.get("ADZUNA_APP_KEY")
-        company = board_url.split(":", 1)[1] if ":" in board_url else board_url
-        if app_id and app_key:
-            for page in range(1, 6):
-                try:
-                    data = scraper._get_json(
-                        "https://api.adzuna.com/v1/api/jobs/us/search/%d" % page,
-                        params={"app_id": app_id, "app_key": app_key, "company": company,
-                                "what_or": "project program analyst coordinator operations implementation scrum consultant consulting",
-                                "results_per_page": 50, "content-type": "application/json"})
-                except Exception:
-                    break
-                results = data.get("results", [])
-                for j in results:
-                    u = j.get("redirect_url") or ""
-                    desc = _text(j.get("description") or "")
-                    if u and desc:
-                        out[u] = desc
-                if len(results) < 50 or page * 50 >= data.get("count", 0):
-                    break
     elif ats == "jibe":
         # The /api/jobs feed carries each job's FULL description inline — one paged
         # pass over the board covers every posting (no per-job detail calls).
@@ -203,8 +178,6 @@ def _board_has_missing(board_url, ats, missing_urls):
     on the board slug / host), so we only bulk-fetch boards that can actually help."""
     if ats == "amazon":
         return any("amazon.jobs" in u for u in missing_urls)
-    if ats == "adzuna":
-        return any("adzuna.com" in u for u in missing_urls)
     if ats == "jobdiva":
         return any("jobdiva.com" in u for u in missing_urls)
     if ats == "jibe":
@@ -437,7 +410,14 @@ def page_posted_date(soup):
             return d
     for tag in soup.find_all("script", type="application/ld+json"):
         try:
-            data = json.loads(tag.string or "")
+            # strict=False, and it is not cosmetic: JSON forbids a raw newline inside a
+            # string, and a site that pastes an HTML job description straight into its
+            # JSON-LD emits exactly that. Michael Page does, on every posting — the block
+            # parses as far as the description and then raises, so with strict parsing this
+            # loop skipped a perfectly good datePosted (and, below, a 4.8k-char JD) and the
+            # job silently read as "JD pending" forever. Browsers and Google's parser are
+            # equally lenient here; matching them costs nothing on well-formed data.
+            data = json.loads(tag.string or "", strict=False)
         except Exception:
             continue
         for it in (data if isinstance(data, list) else [data]):
@@ -467,7 +447,7 @@ def microdata_jd(url):
                 return re.sub(r"\s{2,}", " ", txt), date
         for tag in soup.find_all("script", type="application/ld+json"):
             try:
-                data = json.loads(tag.string or "")
+                data = json.loads(tag.string or "", strict=False)   # see page_posted_date
             except Exception:
                 continue
             items = data if isinstance(data, list) else [data]
@@ -716,7 +696,7 @@ def _save_jd_cache(cache):
 
 
 def _jd_corpus(all_urls, full):
-    """(row_jd, missing) for a pass that needs EVERY stored description.
+    """(row_jd, missing, db_missing) for a pass that needs EVERY stored description.
 
     build_idf runs over the whole corpus and every row gets re-analyzed, so this pass genuinely
     needs all ~16k JDs — but it does NOT need to re-download them. A stored JD never changes:
@@ -727,12 +707,18 @@ def _jd_corpus(all_urls, full):
     This is the single biggest item on the egress bill — the full read measured ~128 MB at
     19,268 rows, daily. A cold or evicted cache falls back to exactly that read, so the worst
     case is today's cost and every subsequent run is near-free.
+
+    `missing` and `db_missing` are DIFFERENT SETS and both are returned because they answer
+    different questions — see the reconciliation in main(). `missing` is "no description on
+    disk", which is what governs fetching; `db_missing` is "no description in the database",
+    which is what the website actually renders.
     """
     cache = _load_jd_cache()
     before = len(cache)
     cache = {u: jd for u, jd in cache.items() if u in all_urls}   # forget pruned rows
     dropped = before - len(cache)
-    have_jd = all_urls - db.urls_missing_jd()
+    db_missing = db.urls_missing_jd() & all_urls
+    have_jd = all_urls - db_missing
     need = have_jd - set(cache)
     print("JD corpus: %d cached, %d dropped as pruned, %d to pull."
           % (len(cache), dropped, len(need)))
@@ -748,7 +734,7 @@ def _jd_corpus(all_urls, full):
     cache = {u: jd for u, jd in cache.items() if jd}
     # `missing` keeps its original meaning: rows with no stored description (or every row on
     # --full, which deliberately refetches the lot from the boards).
-    return dict(cache), (set(all_urls) if full else all_urls - set(cache))
+    return dict(cache), (set(all_urls) if full else all_urls - set(cache)), db_missing
 
 
 def _new_only_targets(known_urls, fetched):
@@ -819,9 +805,10 @@ def main():
         # here. urls_missing_jd() answers it directly with a urls-only select over just the
         # backlog — 2,940 rows rather than the 16,328 that already have one.
         row_jd = {}
-        missing = db.urls_missing_jd() & all_urls
+        db_missing = db.urls_missing_jd() & all_urls
+        missing = set(db_missing)
     else:
-        row_jd, missing = _jd_corpus(all_urls, full)
+        row_jd, missing, db_missing = _jd_corpus(all_urls, full)
     stored = len(all_urls) - len(missing)
 
     # Per-run fetch cap: a scheduled CI run does BOUNDED work so it always finishes inside
@@ -898,12 +885,54 @@ def main():
         except Exception as e:
             print("  (persist %d JDs failed: %s)" % (len(chunk), str(e)[:80]))
 
+    # ---- Reconcile the two stores BEFORE spending any network. -------------------------
+    #
+    # There are two records of "we have this job's description": jd_cache.json.gz on disk, and
+    # the `jd` column the website renders from. They are written at different moments — the
+    # cache once at the end of the run, the column in chunks during it — so they can disagree,
+    # and NOTHING used to notice when they did. A row whose JD was fetched, banked to disk, and
+    # then not written to the database (a dropped upsert, a run killed between the last flush
+    # and the cache save) was excluded from the fetch queue by the cache and from the site by
+    # the empty column, with no path back: _persist_jds only ever writes text fetched THIS run.
+    # It showed on the site as "description pending" forever.
+    #
+    # Measured 2026-08-16: 1,827 of the 3,816 rows reading as pending — 48% — had a full
+    # description sitting in the local cache, including all 79 lululemon postings (7.2k chars
+    # each) and 1,186 of Amazon's.
+    #
+    # New-only mode had the mirror of the same bug. There `missing` IS database-truth, so those
+    # rows were re-DOWNLOADED every single run: the fetch budget was being spent re-reading
+    # text already on disk, which is why the backlog grew while every run reported progress.
+    #
+    # One reconciliation fixes both directions, costs no network, and is idempotent.
+    if new_only and db_missing:
+        # New-only mode hasn't loaded the cache (it deliberately avoids the ~23 MB read), so
+        # read it here — but only when there is a backlog it could satisfy, and keep just the
+        # overlap rather than holding the whole corpus in memory for the rest of the run.
+        bank = _load_jd_cache()
+        repair = {u: bank[u] for u in (db_missing & set(bank)) if bank.get(u)}
+        del bank
+    else:
+        repair = {u: row_jd[u] for u in (db_missing & set(row_jd)) if row_jd.get(u)}
+    if repair:
+        print("Re-persisting %d cached JD(s) the database was missing (no fetch needed)..."
+              % len(repair))
+        items = list(repair.items())
+        for i in range(0, len(items), 300):
+            _persist_jds(dict(items[i:i + 300]))
+        row_jd.update(repair)
+        # NOT on --full, whose entire contract is to re-read every description from its board.
+        # Dropping the repaired rows from `missing` there would quietly turn a full refetch into
+        # a partial one, and the cached text --full exists to replace would survive.
+        if not full:
+            missing -= set(_flushed)
+
     if missing:
         # 2) Bulk-fetch boards whose list API already includes the JD — one request
         #    covers the whole board, so try these first. Boards run concurrently.
         boards = scraper.SOURCES + scraper.custom_sources()
         bulk = [(b, a, c) for b, a, c in boards
-                if a in ("greenhouse", "lever", "ashby", "amazon", "adzuna",
+                if a in ("greenhouse", "lever", "ashby", "amazon",
                          "jibe", "pinpoint", "jobdiva")
                 and _board_has_missing(b, a, missing)]
         if bulk:
