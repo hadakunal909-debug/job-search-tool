@@ -119,6 +119,11 @@ def _phenom_jd_map(board_url, needed):
     return out
 
 
+# Shortest plausible description from a RAW PAGE FETCH. Applies only to that last-resort path
+# in detail_jd — structured feeds and per-job APIs are trusted at any length.
+MIN_PAGE_JD_CHARS = 250
+
+
 def jd_map_for(board_url, ats, needed=None):
     """Return {job_url: jd_text} for one board, using the JD the API already returns.
 
@@ -658,6 +663,24 @@ def detail_jd(url):
         jd, date = microdata_jd(url)
     if not jd:                                      # last resort: fetch the page
         jd = core.fetch_jd(url)
+        # A raw page fetch is the ONLY step here that can SUCCEED AT READING THE WRONG THING.
+        # Every branch above is a structured feed or a per-job API, so it either returns that
+        # job's description or nothing. This one returns whatever the URL renders — and when
+        # the posting has closed, or the stored url is a JS app or an embed that draws the
+        # whole job LIST, that is a page title and a nav bar.
+        #
+        # Storing it is strictly worse than storing nothing: a non-empty `jd` drops the row
+        # out of `missing`, so nothing ever retries it, it reads blank in the feed, and it
+        # scores 0 forever. Every shell chased down on 2026-08-17 entered here — Suvoda's
+        # "Job Openings | Suvoda Careers Current Positions" (47), Actalent's 1,461 "Loading
+        # ... Sorry to interrupt CSS Error Refresh" (46), JobDiva's 352 "You need to enable
+        # JavaScript to run this app." (63), Michael Page's 29 title-plus-nav (97-122).
+        #
+        # The longest shell observed is 153 chars and the shortest real JD is well over 1,000,
+        # so this threshold has wide margin on both sides. Leaving the column empty keeps the
+        # row honest: it reads as "description pending" and stays retryable.
+        if len(jd or "") < MIN_PAGE_JD_CHARS:
+            jd = ""
     return url, jd, date
 
 
