@@ -101,13 +101,28 @@ stored floor is a number on a scale:
 - **v2** — the *percentile* of that value. Briefly shipped and wrong: it reads as "you are 96%
   qualified" while it means "this ranks above 96% of other jobs", so ordinary matches displayed in
   the high nineties. Rejected on sight by the person using it, correctly.
-- **v3, current** — coverage of the terms carrying the **top half of the JD's weight**
-  (`core.core_terms`): *of the skills this role emphasises, how many do I have.* Absolute, not
-  relative. Measured over 21,040 live postings: **0.2% score ≥90, 0.9% ≥80, 3.6% ≥70**, median 34.
-  A 100 additionally requires a clean sweep of every term, not just the core ones.
+- **v3, current** — coverage of the terms carrying the **heavy part of the JD's weight**
+  (`core.CORE_WEIGHT_FRACTION = 0.70`, `core.core_terms`): *of the skills this role emphasises,
+  how many do I have.* Absolute, not relative, and deliberately hard. Measured over 21,176 live
+  postings: **the best match in the whole corpus is 88**, only 16 reach 80, 92 reach 70, median
+  34. A 100 additionally requires a clean sweep of every term, not just the core ones.
 
-Default floor is **50** — "at least half the skills this job emphasises" — which passes ~26.5% of
-the corpus, roughly 270–360 new roles a day against 30–40 before.
+  Two guards make it honest rather than merely low:
+  - **The confidence cap.** A posting whose analysis yields few keywords cannot claim a strong
+    match — the ceiling is `100 × n/6` below six core terms. Found by inspection: a "Senior
+    Delivery Manager" read **100%** off a single term, and 9% of the corpus was being judged on
+    three terms or fewer.
+  - **Thin JDs score 0 in `score_against` itself**, not in each caller. The cron scorer already
+    refused them while the live per-user path in `web.py` did not, so one job could carry two
+    different numbers depending which reached it first. The keyword lists still come back —
+    emptying them deleted the job page's keyword panel, which `test_job_page` caught.
+
+  Raising `CORE_WEIGHT_FRACTION` makes it stricter, not looser: a wider set is more terms you must
+  actually hold. Narrowing it to 0.30 puts 12.8% of the corpus above 70; 1.00 puts 0.0% there and
+  has no usable top at all.
+
+Default floor is **50** — "at least half the skills this job emphasises" — which passes ~14.4% of
+the corpus, roughly 150–180 new roles a day against 30–40 before.
 
 `normalize_prefs` resets any floor saved under an older scale to the current default and stamps
 `min_scale`. **A stored 0 is preserved**: "no floor" means the same thing on every scale.
