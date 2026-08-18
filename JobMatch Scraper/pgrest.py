@@ -269,6 +269,40 @@ def limit_offset(params):
     return sql, args
 
 
+def build_rpc(fn, body):
+    """(sql, args) for one stored-procedure call, in PostgREST's named-argument style.
+
+    PostgREST posts an object and passes its keys as NAMED arguments, which is why
+    `ev_usage(days integer DEFAULT 7)` can be called with {"days": 30}. This shim used to emit a
+    bare `SELECT * FROM fn()` and throw the parsed body away, so db.ev_usage(30) silently became
+    a 7-day window — the function's own default answering a question nobody asked. Named
+    notation (rather than positional) is what makes that safe: the caller's key order is
+    irrelevant, and an argument the function does not declare is a loud error instead of a
+    value landing in the wrong parameter.
+    """
+    keys = sorted(body) if isinstance(body, dict) else []
+    argsql = ", ".join("%s => %%s" % ident(k) for k in keys)
+    return "SELECT * FROM %s(%s)" % (ident(fn), argsql), [body[k] for k in keys]
+
+
+def unwrap_rpc(fn, rows):
+    """The rows a stored procedure produced -> the body PostgREST would have returned.
+
+    `SELECT * FROM db_stats()` on a function returning `json` yields ONE row of ONE column named
+    after the function: [{"db_stats": {...}}]. PostgREST returns the scalar itself, so every
+    caller in db.py checks `isinstance(d, dict)` and got `{}` from the list — which is the whole
+    reason the admin panel's Tables section rendered empty against a database that was answering
+    correctly the entire time.
+
+    Only the single-row/single-column/name-matches case is unwrapped. A SETOF or TABLE function
+    legitimately returns an array and must pass through untouched.
+    """
+    if (isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
+            and len(rows[0]) == 1 and fn in rows[0]):
+        return rows[0][fn]
+    return rows
+
+
 def build(method, table, params, body, prefer):
     """(sql, args, wants_rows) for one translated request. Pure — no database, no connection —
     so scripts/test_pgrest.py can assert every statement this layer will ever produce without a
@@ -415,9 +449,10 @@ class Session:
         if data is not None:
             body = json.loads(data.decode("utf-8") if isinstance(data, bytes) else data)
 
-        if path.startswith("rpc/"):
-            fn = path[4:]
-            sql, args, wants = "SELECT * FROM %s()" % ident(fn), [], True
+        fn = path[4:] if path.startswith("rpc/") else ""
+        if fn:
+            sql, args = build_rpc(fn, body)
+            wants = True
         else:
             sql, args, wants = build(method, path, params, body, prefer)
 
@@ -442,9 +477,52 @@ class Session:
             n = (rows[0].get("n") if rows else 0) or 0
             rng = ("0-%d/%d" % (max(0, n - 1), n)) if n else "*/0"
             return Response(200, None, {"Content-Range": rng})
+        if fn:
+            # An RPC's status follows the verb it was called with (db.py posts), but its BODY is
+            # the function's return value, not a row list. See unwrap_rpc.
+            return Response(201 if method == "POST" else 200, unwrap_rpc(fn, rows))
         if method == "POST":
             return Response(201, rows if wants else None)
         return Response(200, rows if wants else None)
+
+    def repair_sequences(self):
+        """Advance every bigserial sequence past the largest id already in its table.
+
+        WHY THIS EXISTS. `scripts/migrate_project.py` copies rows WITH their ids and there is no
+        setval anywhere in the repo, so after the move to cPanel the `events` table held 13,293
+        rows numbered up to 13,481 while `events_id_seq` still pointed at 1. Every insert since
+        collided with `events_pkey`, and `db.insert_events` swallows failures by design — so
+        analytics went silent for three days and nothing said a word.
+
+        Deliberately NOT caller-parameterised: the table and column names come from pg_catalog,
+        never from an argument, so this cannot be pointed at anything. Idempotent — a sequence
+        that is already ahead is left alone by GREATEST.
+
+        Returns [(table, column, new_value), ...] so the caller can say what it did.
+        """
+        conn = self._connect()
+        found = []
+        with self._cursor(conn) as cur:
+            cur.execute("""
+                SELECT c.relname AS tbl, a.attname AS col,
+                       pg_get_serial_sequence(quote_ident(n.nspname) || '.'
+                                              || quote_ident(c.relname), a.attname) AS seq
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0
+                                     AND NOT a.attisdropped
+                 WHERE n.nspname = 'public' AND c.relkind = 'r'
+            """)
+            targets = [(r["tbl"], r["col"], r["seq"]) for r in cur.fetchall() if r["seq"]]
+        for tbl, col, seq in targets:
+            with self._cursor(conn) as cur:
+                # `is_called=true` (the default) means the NEXT nextval returns value+1, which is
+                # what we want: max(id) itself is taken.
+                cur.execute("SELECT setval(%%s, GREATEST((SELECT COALESCE(MAX(%s), 0) FROM %s), 1))"
+                            " AS v" % (ident(col), ident(tbl)), [seq])
+                row = cur.fetchone()
+                found.append((tbl, col, dict(row)["v"] if row else None))
+        return found
 
     # requests-compatible surface. `head` carries no body by definition; the count rides the
     # Content-Range header, exactly as PostgREST does it.

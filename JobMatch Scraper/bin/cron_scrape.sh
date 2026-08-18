@@ -50,6 +50,14 @@ export SCRAPE_BUDGET_MIN=12
 export MAX_AGE_DAYS=30
 export PRUNE_DAYS=30
 export DISCOVER_LIMIT=20          # board auto-discovery, small bite per run
+# CLOSED-POSTING RETIREMENT, ON. It defaulted to a dry run and the variable was never set
+# anywhere, so in the whole life of the project it has only ever printed what it would do --
+# leaving 5,178 rows sitting under the miss threshold and 404 postings reading as open. The
+# guards that made it worth being careful about are all in reconcile_closed and all still
+# apply: a failed fetch proves nothing, a board returning a small fraction of what we store is
+# skipped as having a bad day, and a posting must be missing three runs running before it is
+# marked closed. Rows are never deleted and Saved/Applied are unaffected.
+export RECONCILE_CLOSED=1
 
 echo "===== $(date -u +%FT%TZ) scrape start =====" >> "$LOG"
 "$PY" -u -m scraper >> "$LOG" 2>&1

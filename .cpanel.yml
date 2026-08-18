@@ -34,7 +34,7 @@ deployment:
     # E-Verify snapshot that turns on the STEM-OPT badge. Copied only if present so a missing
     # one can't fail the deploy — each feature stays dormant until its file exists, which is the
     # same contract core.load_sponsor_counts / load_sponsor_years / load_everify already have.
-    - for f in sponsor_counts.json sponsor_years.json visa_tags.json everify.txt; do test -f "$SRC/$f" && /bin/cp -f "$SRC/$f" $DEPLOYPATH/ || true; done
+    - for f in sponsor_counts.json sponsor_years.json visa_tags.json everify.txt company_domains.json score_calibration.json; do test -f "$SRC/$f" && /bin/cp -f "$SRC/$f" $DEPLOYPATH/ || true; done
     - /bin/cp -rf "$SRC/scraper" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/resume_brain" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/templates" $DEPLOYPATH/
