@@ -119,9 +119,125 @@ def _phenom_jd_map(board_url, needed):
     return out
 
 
+# JobDiva's list feed truncates every description at 400 chars + "...", so the full text is
+# one request per job like Phenom's. Same cap-and-backfill shape, same reason.
+JOBDIVA_JD_DETAILS_MAX = int(os.environ.get("JOBDIVA_JD_DETAILS_MAX") or 400)
+JOBDIVA_JD_WORKERS = 6
+
+
+_JOBDIVA_SESSIONS = {}       # portal token -> auth headers, one handshake per process
+
+
+def _jobdiva_job_id(url):
+    """The posting id out of a stored JobDiva URL. Its portal is hash-routed, so the id lives
+    in the FRAGMENT — .../portal?a=<token>#/jobs/<id> — which is also why canonical_url keeps
+    fragments on this host."""
+    m = re.search(r"#/jobs/(\d+)", url or "")
+    return m.group(1) if m else ""
+
+
+def _jobdiva_jd_map(board_url, needed=None):
+    """{job_url: full description} for one JobDiva portal.
+
+    Was a single paged pass over the feed, reading its inline jobDescription. That field is
+    TRUNCATED at 400 characters (measured: 196 of 200 rows exactly 403 chars, cut mid-word),
+    and 403 is three characters above core._MIN_JD_CHARS — so the teaser would have read as a
+    complete description and nothing would ever have retried it. The feed is now used only to
+    enumerate ids; the text comes from scraper.jobdiva_job_detail, one request per job, capped
+    per run and backfilling across runs exactly as Phenom does.
+
+    Falls back to the teaser when the detail call fails but the feed had something, because
+    400 characters of the real posting still beats an empty column.
+    """
+    token = scraper._jobdiva_token(board_url)
+    jh = scraper._jobdiva_session(token) if token else None
+    if not jh:
+        return {}
+    teaser, want = {}, []
+    for data in scraper._jobdiva_pages(token, jh):
+        for j in data:
+            jid = j.get("id")
+            if jid is None:
+                continue
+            u = scraper.canonical_url(
+                "https://www1.jobdiva.com/portal/?a=%s#/jobs/%s" % (token, jid))
+            if needed is not None and u not in needed:
+                continue
+            teaser[u] = _text(j.get("jobDescription") or "")
+            want.append((u, jid))
+            if len(want) >= JOBDIVA_JD_DETAILS_MAX:
+                break
+        if len(want) >= JOBDIVA_JD_DETAILS_MAX:
+            break
+
+    def _one(item):
+        u, jid = item
+        return u, _text(scraper.jobdiva_job_detail(jid, jh))
+
+    out = {}
+    if want:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=JOBDIVA_JD_WORKERS) as ex:
+            for u, jd in ex.map(_one, want):
+                out[u] = jd or teaser.get(u, "")
+    return {u: jd for u, jd in out.items() if jd}
+
+
+def jobdiva_detail_jd(url):
+    """One stored JobDiva row, repaired on its own — the per-job twin of _jobdiva_jd_map.
+
+    Needed as well as the bulk path because a single row can go thin (or arrive) without its
+    whole board being swept, and because refetch_thin_jds drives detail_jd, not jd_map_for.
+    The auth handshake is per portal token, so it is cached for the life of the process.
+    """
+    jid = _jobdiva_job_id(url)
+    token = scraper._jobdiva_token(url)
+    if not (jid and token):
+        return ""
+    jh = _JOBDIVA_SESSIONS.get(token)
+    if jh is None:
+        jh = _JOBDIVA_SESSIONS[token] = scraper._jobdiva_session(token) or {}
+    return _text(scraper.jobdiva_job_detail(jid, jh)) if jh else ""
+
+
 # Shortest plausible description from a RAW PAGE FETCH. Applies only to that last-resort path
 # in detail_jd — structured feeds and per-job APIs are trusted at any length.
 MIN_PAGE_JD_CHARS = 250
+
+
+def _canonical_keys(jd_map):
+    """Re-key a bulk JD map by canonical_url — the ONE place that reconciliation happens.
+
+    Every branch of jd_map_for BUILDS the job URL it returns, from whatever shape that ATS's
+    feed gives it. The `jobs` table stores scraper.canonical_url() of that URL. Nothing forced
+    the two to agree, and two of the eight branches did not. Both were the SAME rule biting a
+    URL that happens to carry a trailing slash before its query — canonical_url does
+    path.rstrip("/"), and these two branches build a path ending in "/":
+
+      * phenom   the feed's applyUrl ends ".../v1/s/?opco=" and the stored row is ".../v1/s?opco="
+      * jobdiva  we emit "/portal/?a=<token>#/jobs/<id>" and the row is "/portal?a=<token>#..."
+
+    The other six (greenhouse, lever, ashby, amazon, pinpoint, jibe) were verified canonical-
+    stable — so this is not a fix for two branches, it is the removal of a way for the NEXT one
+    to be wrong. `scripts/verify_parsers.py`-style checking cannot catch it, because both stores
+    look internally consistent.
+
+    A miss here is SILENT and expensive: the description is fetched, then dropped on the floor,
+    and the row keeps whatever shell it had — 352 JobDiva rows sat at 63 characters of "You
+    need to enable JavaScript to run this app." while every run downloaded their real text.
+
+    So this is applied at the boundary rather than in each branch. Branch nine gets it free.
+    """
+    if not jd_map:
+        return jd_map or {}
+    out = {}
+    for u, jd in jd_map.items():
+        out[scraper.canonical_url(u)] = jd
+        # Keep the raw key too when it differs. Costs a few dict slots and means a caller
+        # holding a NON-canonical URL (refetch_thin_jds passes `want` straight from the DB,
+        # but a board's own feed may be the source elsewhere) still matches.
+        if u not in out:
+            out[u] = jd
+    return out
 
 
 def jd_map_for(board_url, ats, needed=None):
@@ -134,7 +250,7 @@ def jd_map_for(board_url, ats, needed=None):
     slug = scraper._slug(board_url)
     out = {}
     if ats == "phenom":
-        return _phenom_jd_map(board_url, needed)
+        return _canonical_keys(_phenom_jd_map(board_url, needed))
     if ats == "greenhouse":
         d = scraper._get_json(
             "https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true" % slug)
@@ -199,18 +315,8 @@ def jd_map_for(board_url, ats, needed=None):
                         j.get("basic_qualifications"), j.get("preferred_qualifications")) if x)
                 offset += len(hits)
     elif ats == "jobdiva":
-        # The JobDiva list rows carry the full jobDescription inline — one paged pass
-        # over the portal covers every posting (no per-job detail calls).
-        token = scraper._jobdiva_token(board_url)
-        jh = scraper._jobdiva_session(token) if token else None
-        if jh:
-            for data in scraper._jobdiva_pages(token, jh):
-                for j in data:
-                    u = "https://www1.jobdiva.com/portal/?a=%s#/jobs/%s" % (token, j.get("id"))
-                    jd = _text(j.get("jobDescription") or "")
-                    if jd:
-                        out[u] = jd
-    return out
+        return _canonical_keys(_jobdiva_jd_map(board_url, needed))
+    return _canonical_keys(out)
 
 
 def sr_detail_jd(url):
@@ -288,7 +394,12 @@ def oracle_detail_jd(url):
     ~300-1000 chars, so fetch the per-job detail (full description + qualifications +
     responsibilities) instead. url: .../sites/{site}/job/{id}"""
     try:
-        m = re.search(r"/sites/(\w+)/job/(\d+)", url)
+        # ([\w-]+) for the id, not (\d+). Oracle requisition ids are only USUALLY numeric —
+        # Albertsons' are "W739723" — and a digits-only pattern silently returned "" for all 25
+        # of their rows, which read as "this host needs an extractor" when the extractor was
+        # fine. Verified: that tenant's detail response carries a 102,717-char
+        # ExternalDescriptionStr under exactly the keys already read below.
+        m = re.search(r"/sites/([\w-]+)/job/([\w-]+)", url)
         if not m:
             return ""
         origin = url.split("/hcmUI/")[0]
@@ -545,6 +656,150 @@ def page_posted_date(soup):
     return ""
 
 
+_GH_JID_RE = re.compile(r"[?&]gh_jid=(\d+)")
+# Greenhouse's own embed page names the board in its form action:
+#   <form action="/embed/job_app?for=fivetran&amp;token=7810450003">
+_GH_FOR_RE = re.compile(r"[?&]for=([A-Za-z0-9_-]+)")
+# careerpuck and friends put the board straight in the path: /job-board/lyft/job/<id>
+_GH_PATH_RE = re.compile(r"/job-board/([A-Za-z0-9_-]+)/")
+_GH_BOARDS = {}          # stored-url host -> greenhouse board token, resolved once per process
+
+
+def _gh_embed_html(jid):
+    """Greenhouse's tokenless embed page for one job id, or "". Works for ANY job id without
+    knowing the board, which is what makes it both the board-token oracle and the fallback."""
+    try:
+        r = scraper._safe_get(
+            "https://boards.greenhouse.io/embed/job_app?token=%s" % jid, timeout=20)
+        return r.text or "" if r.status_code == 200 else ""
+    except Exception:
+        return ""
+
+
+def _gh_board_token(url, embed_html):
+    """The Greenhouse board token for a company-hosted job page.
+
+    Read off GREENHOUSE, not off the employer's site, and not looked up in SOURCES. The whole
+    point of this extractor is the long tail of employers who embed Greenhouse on their own
+    domain; many are not boards we scrape, and several (Fivetran, careerpuck) render their page
+    client-side so the server HTML mentions Greenhouse nowhere at all. The embed page's form
+    action names the board for every job id, so one fetch we are making anyway answers it.
+
+    Cached per host: the board is a property of the employer, not of the posting.
+    """
+    from urllib.parse import urlparse
+    host = urlparse(url).netloc.lower()
+    if host in _GH_BOARDS:
+        return _GH_BOARDS[host]
+    token = ""
+    m = _GH_PATH_RE.search(url or "")
+    if m:
+        token = m.group(1)
+    if not token:
+        for cand in _GH_FOR_RE.findall(embed_html or ""):
+            if cand not in ("embed", "job_app"):
+                token = cand
+                break
+    # Cache only a SUCCESS. A closed posting's embed page 404s, so it names no board — caching
+    # that "" would poison every other row on the same host, which is how PathAI's 7 rows would
+    # have stayed unreadable because one of them happened to be tried first.
+    if token:
+        _GH_BOARDS[host] = token
+    return token
+
+
+def amazon_rematch_jd(url, title, location):
+    """A withdrawn amazon.jobs posting, matched to a LIVE requisition by title and location.
+
+    The only recovery route left for a 404 class. amazon.jobs returns 404 for 27 stored rows —
+    the req id is gone — but search.json still answers 200 with the full description, and Amazon
+    reposts the same role under a new id constantly. So the description very often still exists;
+    it is just not at the id we stored.
+
+    STRICT ON PURPOSE, and this is the whole design. Matching loosely would attach one posting's
+    description to a different row, which is worse than a blank: the score, the tailoring and
+    the "why this matched" highlights would all be about another job. So the title must be
+    EXACTLY equal after case/whitespace folding, the city must agree, and exactly ONE live req
+    may satisfy both. Two candidates means we cannot tell them apart, and we return "".
+
+    Returns "" unless all three hold — never a best guess.
+    """
+    if "amazon.jobs" not in (url or "") or not (title or "").strip():
+        return ""
+    want = " ".join((title or "").split()).lower()
+    # City only: the stored location is "Austin, Texas, USA" and the feed's is "US, TX, Austin",
+    # so the field orders never line up. The city is the part both spell the same way.
+    city = ""
+    for part in (location or "").replace("|", ",").split(","):
+        part = part.strip()
+        if part and not part.isupper() and len(part) > 2:
+            city = part.lower()
+            break
+    try:
+        d = scraper._get_json("https://www.amazon.jobs/en/search.json",
+                              params={"base_query": title, "country": "USA",
+                                      "result_limit": 20, "sort": "relevant"})
+    except Exception:
+        return ""
+    hits = []
+    for j in (d.get("jobs") or []):
+        if " ".join((j.get("title") or "").split()).lower() != want:
+            continue
+        if city and city not in (j.get("normalized_location") or j.get("location") or "").lower():
+            continue
+        jd = " ".join(_text(x) for x in (j.get("description"), j.get("basic_qualifications"),
+                                         j.get("preferred_qualifications")) if x).strip()
+        if len(jd) >= core._MIN_JD_CHARS:
+            hits.append(jd)
+    return hits[0] if len(hits) == 1 else ""
+
+
+def greenhouse_detail_jd(url):
+    """Greenhouse behind an employer's own domain, identified by gh_jid in the query string.
+
+    These pages render client-side, so microdata_jd finds no JobPosting and the page-text
+    fallback returns the nav bar — which is how 198 rows (Fivetran, Lyft via careerpuck, Cribl,
+    Orion, Aurora, PathAI, Revolution Medicines, Agility Robotics, MongoDB ...) came to hold
+    32-212 characters of chrome, or nothing at all. The id needed to ask Greenhouse directly
+    was sitting in the stored URL the whole time.
+
+    Two routes, in order of trust:
+      1. boards-api.greenhouse.io/v1/boards/<board>/jobs/<id> -> `content`, the description
+         alone. Measured 5,014 / 7,296 / 13,322 / 24,200 chars on these rows.
+      2. the embed page's own HTML. Its description sits INSIDE the <form>, so core.fetch_jd
+         cannot be reused — it decomposes forms and returns ~150 chars of button labels. Text
+         from here carries some application-form chrome, which is why it is second.
+
+    Empty from both means the posting is gone (Agility's and Aurora's sampled ids 404), and ""
+    is then the honest answer: the row stays retryable instead of scoring 0 on a nav bar.
+    """
+    m = _GH_JID_RE.search(url or "")
+    if not m:
+        return ""
+    jid = m.group(1)
+    from urllib.parse import urlparse
+    # Only pay for the embed fetch when this host's board is not already known.
+    embed = "" if urlparse(url or "").netloc.lower() in _GH_BOARDS else _gh_embed_html(jid)
+    token = _gh_board_token(url, embed)
+    if token:
+        try:
+            d = scraper._get_json(
+                "https://boards-api.greenhouse.io/v1/boards/%s/jobs/%s" % (token, jid))
+            jd = _text(d.get("content") or "")
+            if jd:
+                return jd
+        except Exception:
+            pass
+    if not embed:
+        embed = _gh_embed_html(jid)
+    if not embed:
+        return ""
+    soup = BeautifulSoup(embed, "lxml")
+    for t in soup(["script", "style", "nav", "header", "footer"]):
+        t.decompose()
+    return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
+
+
 def microdata_jd(url):
     """Generic deep fallback: many career sites (incl. every SuccessFactors CSB job
     page) mark the JD up with schema.org microdata (itemprop=description) or embed a
@@ -659,6 +914,10 @@ def detail_jd(url):
         jd = peoplesoft_detail_jd(url)
     if not jd and "recruiting.paylocity.com" in url:
         jd = paylocity_detail_jd(url)
+    if not jd and "jobdiva.com" in url:
+        jd = jobdiva_detail_jd(url)
+    if not jd and _GH_JID_RE.search(url):           # Greenhouse on the employer's own domain
+        jd = greenhouse_detail_jd(url)
     if not jd:                                      # structured data beats page text
         jd, date = microdata_jd(url)
     if not jd:                                      # last resort: fetch the page
@@ -830,6 +1089,189 @@ def _save_jd_cache(cache):
         os.replace(tmp, JD_CACHE_FILE)
     except Exception as e:
         print("  (jd cache not saved: %s)" % str(e)[:80])
+
+
+# ---- Thin descriptions: a bounded, self-scheduling retry -------------------------------
+#
+# A row can hold a description that is really a JavaScript loading shell or a page title plus a
+# nav bar. It scores 0 and reads blank in the feed, exactly like an empty one — but the fetch
+# queue is built from rows whose `jd` is EMPTY, so a junk value is STICKY: nothing ever tries
+# again. 1,533 rows (7.0% of the corpus) were in that state on 2026-08-17.
+#
+# The obvious fix, treating thin as missing, is a trap. Most of those rows sit on hosts that
+# genuinely cannot be read server-side (an Akamai 403, an AWS WAF challenge, a closed posting),
+# so a blanket retry spends the whole fetch budget re-failing the same rows every run. That is
+# the waste audit_jd_coverage.py's BLOCKED class exists to name.
+#
+# So the unit of memory is the HOST, not the row: the fact worth recording is "does this host's
+# extractor work", a property of ~200 hosts and of this file, not of 1,533 rows. Each heavy pass
+# probes a few rows from every host that is due; a host that fails backs off exponentially, and
+# a host that succeeds drains its backlog over the following runs.
+THIN_LEDGER_KEY = "jd_thin_hosts"
+THIN_PROBE_MAX = int(os.environ.get("SCORE_THIN_PROBE") or 150)      # per run, across all hosts
+THIN_PROBE_PER_HOST = int(os.environ.get("SCORE_THIN_PER_HOST") or 3)
+THIN_DRAIN_MAX = int(os.environ.get("SCORE_THIN_DRAIN") or 400)      # host that just worked
+THIN_BACKOFF_CAP = 6                                                 # 2**6 = 64 days
+
+
+def _is_thin_jd(jd):
+    """A stored description that is present but unusable.
+
+    ONE definition, shared by the scorer, the retry planner and scripts/refetch_thin_jds.py.
+    core._MIN_JD_CHARS is already the threshold at which core.analyze gives up and the feed
+    renders "description pending", so a second number here could only ever disagree with it.
+    """
+    t = (jd or "").strip()
+    return 0 < len(t) < core._MIN_JD_CHARS
+
+
+def _accept_jd(url, jd, thin_len):
+    """Should this freshly-fetched text replace what is stored?
+
+    A GAIN RULE, not a length test, and the distinction is the whole point: re-reading the same
+    46-character Salesforce shell must not count as a repair, while a genuine 7,000-character
+    description must. Requiring several times the old length separates them. A row that stored
+    NOTHING accepts whatever the extractor chain was willing to return — that path has its own
+    guard in MIN_PAGE_JD_CHARS.
+
+    Consequence worth stating plainly: a probe can never shorten or blank a description we
+    already hold, so the retry below cannot make the corpus worse.
+    """
+    if not jd:
+        return False
+    old = thin_len.get(url, 0)
+    if not old:
+        return True
+    return len(jd) >= core._MIN_JD_CHARS and len(jd) >= 3 * old
+
+
+def _extractor_rev():
+    """A fingerprint of the JD-extraction code, so shipping a working extractor re-opens every
+    host that had backed off, without anyone having to remember to clear a flag.
+
+    Hashes THIS FILE plus core.fetch_jd, rather than inspect.getsource over a list of extractor
+    functions. Two reasons, in order of importance:
+
+      * a name list is a thing to forget. Add branch nine to detail_jd, leave it out of the
+        list, and the mechanism silently keeps every host backed off — the exact failure it
+        exists to prevent, and invisible.
+      * reading live globals made the fingerprint depend on what was monkeypatched. The retry
+        tests replace detail_jd with a stub, which changed the hash and made a backed-off host
+        look due; the test caught it, but the same fragility would apply to any caller that
+        wraps an extractor.
+
+    The cost of hashing the whole file is one probe round — at most SCORE_THIN_PROBE fetches —
+    after any edit to it, including one that touches no extractor. That is a few seconds of a
+    nine-minute budget, and it buys a guarantee instead of a convention.
+    """
+    try:
+        import hashlib
+        with open(__file__, "rb") as fh:
+            src = fh.read()
+        try:
+            import inspect
+            src += inspect.getsource(core.fetch_jd).encode("utf-8", "replace")
+        except Exception:
+            pass
+        return hashlib.sha1(src).hexdigest()[:12]
+    except Exception:
+        return "nosrc"        # stable: fingerprint invalidation off, timed backoff still on
+
+
+def _load_thin_ledger():
+    """{"rev": <fingerprint>, "hosts": {host: {f, next, last, n, ok}}}.
+
+    Stored as one JSON blob in the scrape_status KV table — the same trick web.py uses for the
+    database-size history, and for the same reason: it earns no migration. ~20 KB, one read and
+    one write per heavy pass. get_kv never raises, so an absent table reads as an empty ledger,
+    which _thin_retry_plan is designed to survive.
+    """
+    led = db.get_kv(THIN_LEDGER_KEY) or {}
+    hosts = led.get("hosts")
+    return {"rev": led.get("rev") or "", "hosts": hosts if isinstance(hosts, dict) else {}}
+
+
+def _save_thin_ledger(led):
+    db.put_kv(THIN_LEDGER_KEY, {"rev": led.get("rev") or "", "hosts": led.get("hosts") or {}})
+
+
+def _thin_host(url):
+    from urllib.parse import urlparse
+    return (urlparse(url or "").netloc or "?").lower()
+
+
+def _thin_retry_plan(thin_urls, ledger, rev, today, seed=0):
+    """(urls to probe, hosts probed) for this run.
+
+    Pure, and `today`/`seed` are parameters rather than clock reads so a test can drive dates.
+
+    Bounded BY CONSTRUCTION rather than by the ledger: with no ledger at all — a fresh database,
+    an unreachable KV table, a cold CI runner — every host looks due and the result is still at
+    most THIN_PROBE_MAX urls. That is the property that makes this safe to schedule.
+    """
+    hosts = ledger.get("hosts") or {}
+    stale_rev = (ledger.get("rev") or "") != rev
+    by_host = {}
+    for u in thin_urls:
+        by_host.setdefault(_thin_host(u), []).append(u)
+
+    due = []
+    for h, us in by_host.items():
+        rec = hosts.get(h) or {}
+        if stale_rev or not rec or (rec.get("next") or "") <= today:
+            due.append((int(rec.get("f") or 0), -len(us), h))
+    # Fewest failures first (likeliest to work), then biggest backlog. Rotated by day so a long
+    # tail of equally-stale hosts cannot be starved behind the per-run cap forever.
+    due.sort()
+    if due and seed:
+        k = seed % len(due)
+        due = due[k:] + due[:k]
+
+    picked, probed, spent = [], [], 0
+    for fails, _neg, h in due:
+        rec = hosts.get(h) or {}
+        hot = int(rec.get("f") or 0) == 0 and int(rec.get("ok") or 0) > 0
+        take = sorted(by_host[h])[:(THIN_DRAIN_MAX if hot else THIN_PROBE_PER_HOST)]
+        if not take:
+            continue
+        probed.append(h)
+        picked.extend(take)
+        if not hot:
+            spent += len(take)
+        if spent >= THIN_PROBE_MAX:
+            break
+        if len(picked) >= THIN_DRAIN_MAX + THIN_PROBE_MAX:
+            break
+    return picked[:THIN_DRAIN_MAX + THIN_PROBE_MAX], probed
+
+
+def _record_thin_outcomes(ledger, probed_hosts, thin_urls, repaired, rev, today):
+    """Update the ledger from what the run actually managed. Mutates and returns it."""
+    import datetime as _dt
+    hosts = ledger.setdefault("hosts", {})
+    won = {_thin_host(u) for u in repaired}
+    counts = {}
+    for u in thin_urls:
+        h = _thin_host(u)
+        counts[h] = counts.get(h, 0) + 1
+    d0 = _dt.date.fromisoformat(today)
+    for h in probed_hosts:
+        rec = hosts.setdefault(h, {})
+        rec["n"] = counts.get(h, 0)
+        rec["last"] = today
+        if h in won:
+            rec["f"] = 0
+            rec["ok"] = int(rec.get("ok") or 0) + 1
+            rec["next"] = today                    # hot: drain the rest of it next run
+        else:
+            rec["f"] = int(rec.get("f") or 0) + 1
+            days = 2 ** min(rec["f"], THIN_BACKOFF_CAP)
+            rec["next"] = (d0 + _dt.timedelta(days=days)).isoformat()
+    # Forget hosts with no thin rows left — the 30-day prune retired them.
+    for h in [h for h in hosts if h not in counts and h not in won]:
+        hosts.pop(h, None)
+    ledger["rev"] = rev
+    return ledger
 
 
 def _jd_corpus(all_urls, full):
@@ -1064,6 +1506,54 @@ def main():
         if not full:
             missing -= set(_flushed)
 
+    # ---- Rows that HOLD a junk description, not rows that hold none. --------------------
+    #
+    # Heavy pass only. --new-only never loads the corpus, runs on a smaller budget and fires
+    # more often; giving it a second queue would be spending the cheap pass's budget on the
+    # expensive pass's problem.
+    thin_len, thin_probed = {}, []
+    ledger, rev, today = None, "", ""
+    if not new_only and not full:
+        thin = {u: len(jd.strip()) for u, jd in row_jd.items() if _is_thin_jd(jd)}
+        # VERIFY AGAINST THE DATABASE before queueing anything, and this is not optional.
+        # Today "cache junk == column junk" holds only by accident: nothing ever writes a thin
+        # row. Once repairs start, a run that writes the column and dies before _save_jd_cache
+        # leaves the shell on disk — and the scorer analyses the CACHE, so the row would keep
+        # scoring 0 while holding 7,000 characters. That is the 621-row half-repair of
+        # 2026-08-17, mirrored. One bounded read closes it, and where the database is already
+        # good this HEALS the cache for free, with no fetch at all.
+        if thin:
+            healed = 0
+            for r in (db.load_jobs_by_urls(sorted(thin)) or []):
+                u, jd = r.get("url"), (r.get("jd") or "")
+                if not u or u not in thin:
+                    continue
+                if not _is_thin_jd(jd) and jd.strip():
+                    row_jd[u] = jd                 # database is right, the cache was stale
+                    thin.pop(u, None)
+                    healed += 1
+            if healed:
+                print("Healed %d stale cache entr%s from the database (no fetch)."
+                      % (healed, "y" if healed == 1 else "ies"))
+        if thin:
+            import datetime as _thin_dt
+            _now = _thin_dt.date.today()
+            today, rev = _now.isoformat(), _extractor_rev()
+            ledger = _load_thin_ledger()
+            retry, thin_probed = _thin_retry_plan(sorted(thin), ledger, rev, today,
+                                                  seed=_now.timetuple().tm_yday)
+            retry = [u for u in retry if u in all_urls]
+            if retry:
+                thin_len = {u: thin[u] for u in retry}
+                # APPENDED to `order`, after the cap has already been applied — a probe must
+                # never displace a row that has no description at all. The existing deadline
+                # check inside the detail phase drains this tail for free when time runs out.
+                missing |= set(retry)
+                _have = set(order)
+                order += [u for u in retry if u not in _have]
+                print("Thin descriptions: %d row(s) hold a shell; probing %d across %d host(s) "
+                      "that are due." % (len(thin), len(retry), len(thin_probed)))
+
     if missing:
         # 2) Bulk-fetch boards whose list API already includes the JD — one request
         #    covers the whole board, so try these first. Boards run concurrently.
@@ -1090,7 +1580,8 @@ def main():
                     if err:
                         print("  FAIL %-16s %s" % (company, err))
                         continue
-                    hits = {u: jd for u, jd in m.items() if u in missing and jd}
+                    hits = {u: jd for u, jd in m.items()
+                            if u in missing and _accept_jd(u, jd, thin_len)}
                     fetched.update(hits)
                     print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), len(m)))
             _persist_jds(fetched)           # save bulk hits before the slower detail phase
@@ -1120,7 +1611,9 @@ def main():
             # re-sort so the bulk phase's hits drop out.
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
                 for u, jd, date in ex.map(_detail, [u for u in order if u in missing]):
-                    if jd:                  # a failed fetch must never blank a stored JD
+                    # _accept_jd, not `if jd`: a failed fetch must never blank a stored JD, and
+                    # re-reading the same shell must not count as a repair either.
+                    if _accept_jd(u, jd, thin_len):
                         fetched[u] = jd
                         buf[u] = jd
                         if len(buf) >= CHUNK:
@@ -1145,6 +1638,16 @@ def main():
             _save_jd_cache(bank)
     else:
         _save_jd_cache({u: jd for u, jd in row_jd.items() if jd})
+
+    # Which probed hosts actually yielded a description? A host that did goes hot and drains its
+    # backlog next run; a host that did not doubles its backoff. Written AFTER both JD stores, so
+    # a crash in between costs only the schedule — never a repair.
+    if ledger is not None and thin_probed:
+        repaired = [u for u in thin_len if u in fetched]
+        _record_thin_outcomes(ledger, thin_probed, sorted(thin_len), repaired, rev, today)
+        _save_thin_ledger(ledger)
+        print("Thin probe: repaired %d of %d; %d host(s) rescheduled."
+              % (len(repaired), len(thin_len), len(thin_probed)))
 
     # 4) IDF over the whole JD corpus (so common terms count less), then score.
     #    The FULL pass rebuilds it from every JD — it is a property of the corpus, and
@@ -1223,12 +1726,30 @@ def main():
     #    and JD, so a row nobody touched this run can only re-derive to what it already holds.
     _persist_derived({u: row_loc[u] for u in todo if u in row_loc} if new_only else row_loc,
                      row_jd, current_rows=rows, jdmeta=jdmeta, idf=idf)
-    if scores:
-        vals = list(scores.values())
-        where = db.backend_name()
+    # vals/where were assigned only under `if scores:` while the sign-off below sits outside it,
+    # so a run that scored NOTHING died with UnboundLocalError on its own summary line — after
+    # every JD and score it did produce had already been written. Reachable in production any
+    # time a scrape adds no new jobs; found by test_new_only_does_no_thin_probing.
+    vals = list(scores.values()) if scores else []
+    where = db.backend_name()
+
+    # ONE LINE that answers "how many jobs can actually be READ", which is not the same question
+    # as "how many have a jd". Coverage was reported at 97.4% while 7% of rows held a loading
+    # shell, because those two were conflated. Cheap — row_jd is already in memory.
+    if not new_only:
+        _usable = sum(1 for jd in row_jd.values() if jd and not _is_thin_jd(jd))
+        _thin_n = sum(1 for jd in row_jd.values() if _is_thin_jd(jd))
+        print("JD health: %d usable, %d thin (a shell), %d with none — %.1f%% of %d rows readable."
+              % (_usable, _thin_n, len(all_urls) - _usable - _thin_n,
+                 100.0 * _usable / max(len(all_urls), 1), len(all_urls)))
+
+    if vals:
         print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s), %d date(s) -> %s."
               % (len(vals), sum(vals) // len(vals), max(vals),
                  len(fetched), len(dates), where))
+    else:
+        print("Done. Nothing to score, %d new JD(s), %d date(s) -> %s."
+              % (len(fetched), len(dates), where))
 
     # Progress bar: everything finished — the feed page polls this and shows "Done".
     db.set_scrape_status({"phase": "done", "scored": len(scores),

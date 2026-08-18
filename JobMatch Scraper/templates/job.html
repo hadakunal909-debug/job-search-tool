@@ -73,6 +73,9 @@
             {% if not has_resume %}
             <p class="jobnote">No profile yet. Add a résumé in
               <a href="{{ url_for('brain_home') }}">Resume Brain</a> to see how this job matches you.</p>
+            {% elif row.jd_unavailable %}
+            <p class="jobnote">This employer doesn&rsquo;t publish a description we can read, so
+              this job can&rsquo;t be scored. Open the posting to read it.</p>
             {% elif row.score_pending %}
             <p class="jobnote">This description is too short to score reliably yet.</p>
             {% else %}

@@ -31,13 +31,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+import core
 import db
+import scraper.score_jobs as sj
 from scraper.score_jobs import detail_jd
 
-# Below this many characters a stored JD is assumed to be a shell rather than a description.
-# 400 is comfortably under the shortest real JD seen (Michael Page's genuine ones run 1,500+)
-# and comfortably over the longest shell (Salesforce's is ~46, JobDiva's ~63).
-THIN_UNDER = 400
+# ONE definition of "thin", shared with the scorer (core._MIN_JD_CHARS, 400). It used to be a
+# second constant here, which is a number that can disagree with the one the feed and the scorer
+# actually use. 400 is comfortably under the shortest real JD seen (Michael Page's genuine ones
+# run 1,500+) and comfortably over the longest shell (Salesforce's is ~46, JobDiva's ~63).
+THIN_UNDER = core._MIN_JD_CHARS
 
 
 def main():
@@ -57,7 +60,9 @@ def main():
 
     rows = db.load_jobs(["url", "jd", "company", "title"])
     thin = [r for r in rows
-            if (r.get("jd") or "").strip() and len(r["jd"]) < a.under and r.get("url")]
+            if r.get("url") and (sj._is_thin_jd(r.get("jd")) if a.under == THIN_UNDER
+                                 else ((r.get("jd") or "").strip()
+                                       and len(r["jd"]) < a.under))]
     if a.host:
         thin = [r for r in thin
                 if any(urlparse(r["url"]).netloc.endswith(h) for h in a.host)]
@@ -135,6 +140,23 @@ def main():
         bank.update(fixed)
         _save_jd_cache(bank)
         print("refreshed %d entry/entries in the on-disk JD cache." % len(fixed))
+        # A repair by hand has to clear the scorer's per-host backoff, or the OTHER rows on the
+        # host it just proved readable sit behind a 64-day timer that this run disproved. Failure
+        # count to 0 and next=today marks the host hot, so the next heavy pass drains it.
+        try:
+            import datetime
+            led = sj._load_thin_ledger()
+            today = datetime.date.today().isoformat()
+            hosts = {urlparse(u).netloc for u in fixed}
+            for h in hosts:
+                rec = led["hosts"].setdefault(h, {})
+                rec.update({"f": 0, "ok": int(rec.get("ok") or 0) + 1, "next": today,
+                            "last": today})
+            sj._save_thin_ledger(led)
+            print("cleared the retry backoff on %d host(s); the next heavy pass drains them."
+                  % len(hosts))
+        except Exception as e:
+            print("  (could not update the thin-retry ledger: %s)" % str(e)[:80])
         print("\nNow run: python -m scraper.score_jobs   (recomputes jd_terms and rescores)")
     return 0
 

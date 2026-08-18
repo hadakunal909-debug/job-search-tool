@@ -146,8 +146,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}    # aggregator boards (Tesla/Google/
-          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}  # IBM/...) stay dormant without these
           # FRESHNESS POLICY — keep only roughly the last month of postings.
           # A posting that has been up 30+ days is almost always filled, and on the Supabase
           # free tier every dead row costs space and slows the feed. MAX_AGE_DAYS refuses them
@@ -229,8 +227,7 @@ jobs:
           # extra page is another request against a site that can decide to stop answering.
           JOBSPY_RESULTS: "100"
           # 72h rather than 24h, so a skipped or failed run does not lose that day's postings
-          # permanently — the same reasoning as ADZUNA_MAX_DAYS_SEARCH=7. Re-seeing a posting is
-          # free, because the url key drops it.
+          # permanently. Re-seeing a posting is free, because the url key drops it.
           JOBSPY_HOURS_OLD: "72"
         run: python -m scraper
 
@@ -257,8 +254,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}    # for the JD backfill on Adzuna ads
-          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
           SCORE_MAX_FETCH: ${{ steps.gate.outputs.heavy == 'yes' && '3000' || '800' }}
           # Wall-clock stop for the JD fetch, for the same reason verify_dates has one: the
           # count cap does not bound the clock. A measured pass tried 2,640 detail fetches and
@@ -277,6 +272,36 @@ jobs:
           # retire the daily full re-score. Two plainly non-empty strings can't misbehave;
           # the Python side treats only 1/true/yes as on.
           SCORE_NEW_ONLY: ${{ steps.gate.outputs.heavy == 'yes' && 'no' || 'yes' }}
+          # THIN DESCRIPTIONS — rows that HOLD a JavaScript loading shell or a page title plus a
+          # nav bar instead of a description. They score 0 and read blank in the feed exactly
+          # like an empty one, but the fetch queue is built from rows whose `jd` is EMPTY, so a
+          # junk value used to be sticky forever. 1,533 rows (7.0% of the corpus) were in that
+          # state on 2026-08-17.
+          #
+          # These three are stated here rather than left to the code defaults because they are a
+          # POLICY, and the policy is "spend a little, every run, on finding out whether a host
+          # has become readable — never spend the budget re-failing the ones that have not."
+          #
+          # Not a blanket retry, deliberately. ~1,100 of those rows sit on hosts that genuinely
+          # cannot be read server-side (Akamai 403, an AWS WAF human-verification challenge, a
+          # withdrawn posting), so retrying all of them each run would consume the whole
+          # SCORE_MAX_FETCH above and starve the rows that CAN succeed. Instead score_jobs keeps
+          # a per-HOST ledger in the scrape_status KV row: 3 rows probed per due host, 150 per
+          # run, appended to the TAIL of the queue after the cap so a probe can never displace a
+          # row with no description at all. A host that yields real text goes hot and drains up
+          # to 400 rows on the following run; a host that fails doubles its backoff, 1 -> 64
+          # days. Steady state is ~10-40 extra fetches against the 3,000 cap.
+          #
+          # Editing scraper/score_jobs.py changes its fingerprint, which re-opens EVERY backed-off
+          # host for one round — so shipping a new extractor needs no flag-clearing and cannot be
+          # forgotten. That costs at most 150 fetches per deploy of that file.
+          #
+          # HEAVY PASS ONLY. The values are set unconditionally because main() already gates the
+          # whole mechanism on `not new_only`; the cheap pass never loads the corpus these are
+          # derived from. Set SCORE_THIN_PROBE to 0 to switch it off without a code change.
+          SCORE_THIN_PROBE: "150"
+          SCORE_THIN_PER_HOST: "3"
+          SCORE_THIN_DRAIN: "400"
         run: python -m scraper.score_jobs
 
       # Real posting dates -> posted_verified. The lookup service allows 60 requests a
