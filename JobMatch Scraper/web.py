@@ -191,7 +191,7 @@ _CSP_TEMPLATE = (
     "script-src 'self' 'nonce-%s'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
-    "img-src 'self' data: https://*.gstatic.com; "
+    "img-src 'self' data: https://*.gstatic.com https://img.logo.dev; "
     "connect-src 'self'; "
     "form-action 'self'; "
     "object-src 'none'; "
@@ -870,6 +870,7 @@ def _build_row(j, score):
     the same shape app.js renders. Built once per (profile) and cached in _rows_cache."""
     c = j.get("company") or ""
     u = j.get("url")
+    _ld = logodomain(c, u)
     exp_y, exp_lvl, sv, sreason = _jd_fields(j)
     strength, scount = core.sponsor_strength(c, sponsor_counts())
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
@@ -973,7 +974,12 @@ def _build_row(j, score):
             # field anywhere), so this is when the job first entered OUR database. Rendered as
             # "Added <x>", never as a posting date. "" until the migration has been run.
             "first_seen": str(j.get("first_seen") or "")[:10],
-            "score": 0 if pending else score, "score_pending": pending,
+            # CALIBRATED HERE AND NOWHERE ELSE. This is the single point every consumer of a
+            # feed score goes through -- _filter_rows compares it against the `min` floor, the
+            # score sort ranks by it (monotone, so the order is unchanged), and app.js::matches()
+            # reads this very field out of the JSON rather than computing its own. Calibrating
+            # before the twins means neither of them needs to know the scale exists.
+            "score": 0 if pending else core.calibrate_score(score), "score_pending": pending,
             "jd_unavailable": unavailable,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c),
@@ -1000,7 +1006,11 @@ def _build_row(j, score):
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
             # career split. core.role_track is the single definition; the digest reads it too.
             "track": core.role_track(j.get("title") or ""),
-            "logo_domain": logodomain(c, j.get("url")), "logo_color": logocolor(c),
+            # BOTH URLS, resolved server-side. logo_domain stays for anything still reading
+            # it; logo_src/logo_fallback are the chain app.js and jobpage.js walk on error.
+            "logo_domain": _ld, "logo_src": logosrc(_ld),
+            "logo_fallback": logofavicon(_ld) if LOGODEV_KEY else "",
+            "logo_color": logocolor(c),
             "initial": c[:1].upper() if c else "?"}
 
 
@@ -1636,6 +1646,26 @@ _PLATFORM_HOSTS = (
 )
 
 
+_VERIFIED_DOMAINS_PATH = "company_domains.json"
+_verified_cache = None
+
+
+def _verified_domains():
+    """{company lowercased: domain} from company_domains.json, or {} if it is not deployed.
+
+    Loaded once per worker and never reloaded — it is a build artefact, like idf.json, and a
+    file that changes under a running process is a source of two workers disagreeing.
+    """
+    global _verified_cache
+    if _verified_cache is None:
+        try:
+            with open(_VERIFIED_DOMAINS_PATH, encoding="utf-8") as fh:
+                _verified_cache = (json.load(fh) or {}).get("domains") or {}
+        except Exception:
+            _verified_cache = {}
+    return _verified_cache
+
+
 @app.template_filter("logodomain")
 def logodomain(name, url=None):
     """The domain to ask Google's favicon service for.
@@ -1660,6 +1690,13 @@ def logodomain(name, url=None):
     key = (name or "").strip().lower()
     if key in _DOMAIN_MAP:
         return _DOMAIN_MAP[key]
+    # THE VERIFIED MAP, ahead of every rule below it. Each entry answered an icon probe when
+    # scripts/build_company_domains.py built the file, which is the difference between this and
+    # everything else in this function: the rules guess, and 22% of what they guess is a 404
+    # that renders as a letter monogram. Absent file = absent entry = the old behaviour exactly.
+    hit = _verified_domains().get(key)
+    if hit:
+        return hit
     host = ""
     try:
         host = (urlsplit(url or "").hostname or "").lower()
@@ -1687,6 +1724,47 @@ def logodomain(name, url=None):
         if root and (root.startswith(base) or base.startswith(root)):
             return ".".join(labels[-2:])
     return (base or "example") + ".com"
+
+
+# WHY A LOGO SERVICE AND NOT A FAVICON SERVICE. gstatic's faviconV2 returns the TAB ICON:
+# 16-64px, and for roughly one brand in ten a monochrome black glyph designed to sit in browser
+# chrome. Composited onto the white tile in .logo img it reads as a black blob, and because the
+# response is HTTP 200 no error handler fires -- there is nothing a fallback chain can do about
+# it. Measured over 249 live domains: ~18% fell through to the letter monogram, ~10% came back
+# black, ~5% were a 16px icon upscaled to 42. logo.dev returns the actual brand mark.
+#
+# The key is PUBLISHABLE (pk_...), which is what makes it safe to put in HTML that any visitor
+# can read; logo.dev issues it for exactly this use. With no key set the chain degrades to the
+# favicon service alone, which is the behaviour that shipped before.
+LOGODEV_KEY = os.environ.get("LOGODEV_KEY") or ""
+_FAVICON_BASE = ("https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON"
+                 "&fallback_opts=TYPE,SIZE,URL&size=64&url=http://")
+
+
+@app.template_filter("logofavicon")
+def logofavicon(domain):
+    """The favicon URL for a domain. Second in the chain, and the whole chain when no key."""
+    return _FAVICON_BASE + (domain or "")
+
+
+@app.template_filter("logosrc")
+def logosrc(domain, size=128):
+    """The image to try FIRST for a domain.
+
+    `retina=true` and a 128px request rather than 64: the tile renders at 42-56 CSS px on a
+    display that is usually 2x, and asking for exactly the CSS size is what made the old icons
+    look soft.
+
+    `fallback=404` is deliberate. logo.dev will happily generate its own monogram, but ours is
+    already styled to the card (the palette in _PALETTE, the company initial) and matches the
+    rest of the design; a second, differently-shaped monogram would be worse than none. A 404
+    lets the img error handler fall through to the favicon and then to our own letter tile.
+    """
+    d = domain or ""
+    if not (LOGODEV_KEY and d):
+        return _FAVICON_BASE + d
+    return ("https://img.logo.dev/%s?token=%s&size=%d&format=png&retina=true&fallback=404"
+            % (d, LOGODEV_KEY, int(size)))
 
 
 @app.template_filter("logocolor")
@@ -2160,7 +2238,12 @@ def company():
         "visa": list(core.visa_tags(display, visa_index())),
         "agency": core.is_agency(display), "cap_exempt": core.is_cap_exempt(display),
         "strength": strength, "strength_n": scount,
-        "logo_domain": logodomain(display), "logo_color": logocolor(display),
+        # TAKEN FROM THE ROWS, not recomputed. logodomain() accepts the posting URL as
+        # corroboration and this call site never passed one, so for the 219 companies whose
+        # domain is fixed that way the employer page showed a DIFFERENT logo from the cards
+        # listed underneath it. The rows have already resolved it; reuse the answer.
+        "logo_domain": (rows[0].get("logo_domain") if rows else logodomain(display)),
+        "logo_color": logocolor(display),
         "initial": display[:1].upper() if display else "?",
     }
     analytics.emit(user, getattr(g, "sid", ""), "page_view", page="company",
@@ -3349,6 +3432,19 @@ def _admin_db(force=False):
     return out
 
 
+def _newest_event_age():
+    """(iso timestamp, hours ago) for the most recent analytics event, or ("", None)."""
+    ts = db.newest_event_ts()
+    if not ts:
+        return "", None
+    try:
+        when = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        now = datetime.datetime.now(when.tzinfo)
+        return str(ts)[:19], (now - when).total_seconds() / 3600.0
+    except Exception:
+        return str(ts)[:19], None
+
+
 def _check(name, ok, detail, fix="", warn=False):
     return {"name": name, "state": "pass" if ok else ("warn" if warn else "fail"),
             "detail": detail, "fix": fix}
@@ -3432,6 +3528,25 @@ def _health_checks():
                        ", ".join("%s: %s" % (t, n) for t, n in orphans.items())),
                       "delete_user() only cleared user_jobs + users; the rest was left behind."))
 
+    # ANALYTICS ARE WRITING. This check exists because they stopped for three days and nothing
+    # noticed: db.insert_events swallows failures so analytics can never break a request, which
+    # is right, but it meant a primary-key collision (events_id_seq left behind by the cPanel
+    # migration) was completely invisible. The freshest event's age is the signal that survives
+    # a worker restart; the in-process counter catches a failure happening right now.
+    fresh, age_h = _newest_event_age()
+    eh = db.events_health()
+    out.append(_check("Analytics writes",
+                      eh["failures"] == 0 and age_h is not None and age_h < 48,
+                      ("Newest event is %s (%.0f h ago)." % (fresh, age_h) if age_h is not None
+                       else "No events recorded at all.")
+                      + (" %d insert(s) failed in this worker: %s"
+                         % (eh["failures"], eh["last_error"]) if eh["failures"] else "")
+                      + (" Sequence was repaired." if eh["seq_repaired"] else ""),
+                      "Events stop silently when events_id_seq falls behind max(id) — every "
+                      "insert then collides with events_pkey. db.insert_events now repairs that "
+                      "itself on the first failure; if this stays red, check the app error log.",
+                      warn=True))
+
     tc = db.table_count("tailored_cache")
     out.append(_check("Unbounded tables", tc is not None and tc <= 5000,
                       "tailored_cache holds %s rows and has no expiry anywhere in the codebase."
@@ -3439,7 +3554,7 @@ def _health_checks():
                       "Needs an age-based prune; nothing deletes from it today.", warn=True))
 
     out.append(_check("brain_companies table", db.table_count("brain_companies") is not None,
-                      "Not present in Supabase. Resume Brain's company cache is local-file only, "
+                      "Not present in %s. Resume Brain's company cache is local-file only, " % db.backend_name() +
                       "so it is empty on the deployed app and not shared between machines.",
                       "Run the create-table SQL in BRAIN_SETUP.md.", warn=True))
 
@@ -3958,7 +4073,8 @@ def admin_user_disable():
                                   "extension token is revoked." if on else
                                   " They'll need a new extension token from their profile."))
         except Exception as e:
-            flash("Couldn't change that. Has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
+            flash("Couldn't change that against %s. Is the admin schema loaded? (%s)"
+                  % (db.backend_name(), e))
     return redirect(url_for("admin_users"))
 
 
@@ -4038,7 +4154,7 @@ def _require_supabase():
     refuse rather than no-op. The count probe doubles as the liveness check.
     """
     if not db.using_supabase():
-        return ("No Supabase credentials are configured. Refusing to run against the local-file "
+        return ("No database is configured. Refusing to run against the local-file "
                 "fallback. Nothing here would touch the real database.")
     if db.table_count(db.TABLE) is None:
         return ("Can't reach Supabase right now. Refusing to run a destructive action. "
@@ -4828,7 +4944,8 @@ def application_save():
     rec["resume_name"] = f.get("resume_name", "").strip()    # just the résumé file name you used
     ok, msg = db.save_application(session["user"], rec)
     if (not ok) and ("does not exist" in msg or "42P01" in msg or "could not find" in msg.lower()):
-        flash("One-time setup needed. Run the SQL at the bottom of this page in Supabase, then try again.")
+        flash("One-time setup needed. Run the SQL at the bottom of this page against %s,"
+              " then try again." % db.backend_name())
     elif ok:
         flash("Saved.")
     else:
@@ -5582,6 +5699,56 @@ def _ext_profile_fields(user, p=None):
     defaults = p.get("application_defaults")
     return {"fields": fields, "defaults": defaults if isinstance(defaults, dict) else {},
             "default_resume": g("default_resume")}
+
+
+# The extension is side-loaded unpacked: no update_url, no Web Store listing, no stable id, so
+# Chrome will never update it. What it CAN do is notice. EXT_MIN_VERSION is bumped by hand here
+# whenever a change to the /api/ext/* contract makes an older build wrong; the popup compares it
+# against its own manifest version and says so. Deliberately not a hard block -- an extension
+# that refuses to work because a number moved is worse than one that fills a form imperfectly.
+EXT_MIN_VERSION = "1.36.0"
+
+# A build identifier the extension can show, so "which copy of the app am I talking to" is
+# answerable without a deploy log. web.py's own mtime is the cheapest honest answer: the deploy
+# mechanism is a zip extraction, which rewrites it.
+def _app_build():
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M",
+                             time.gmtime(os.path.getmtime(os.path.abspath(__file__))))
+    except Exception:
+        return "unknown"
+
+
+def _vtuple(v):
+    """"1.35.0" -> (1, 35, 0), padded, so 1.9.0 sorts BELOW 1.35.0 rather than above it.
+    String comparison gets that backwards and would tell half the installs they are current."""
+    parts = [p for p in re.split(r"[^0-9]+", str(v or "")) if p != ""][:4]
+    nums = [int(p) for p in parts] + [0] * (4 - len(parts))
+    return tuple(nums[:4])
+
+
+@app.route("/api/ext/version", methods=["GET", "OPTIONS"])
+def ext_version():
+    """What the app expects of the extension. UNAUTHENTICATED, deliberately.
+
+    A stale extension may be stale precisely because its token contract moved, so requiring a
+    valid token to discover that would hide the message from the installs that most need it.
+    Nothing here is private: a build identifier and a version number the extension already has.
+    """
+    from flask import jsonify
+    if request.method == "OPTIONS":
+        return _cors(app.make_response(("", 204)))
+    have = request.args.get("v", "")
+    stale = bool(have) and _vtuple(have) < _vtuple(EXT_MIN_VERSION)
+    return _cors(jsonify({
+        "ok": True,
+        "min_version": EXT_MIN_VERSION,
+        "app_build": _app_build(),
+        "stale": stale,
+        "update_url": request.host_url.rstrip("/") + "/extension",
+        "how": ("Pull the repo and reload the extension at chrome://extensions."
+                if stale else ""),
+    }))
 
 
 @app.route("/api/ext/profile_fields", methods=["GET", "OPTIONS"])

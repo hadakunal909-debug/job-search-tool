@@ -28,7 +28,7 @@
   {% endif %}
 </div>
 <p class="muted u-subnote">
-  A floor, not the billed figure. Supabase counts the whole instance.
+  A floor, not the billed figure — it counts this app's own tables only.
 </p>
 
 <section class="panel">
@@ -60,7 +60,7 @@
 <div class="banner">
   <b>Size reporting needs one Postgres function.</b> PostgREST can't run arbitrary SQL, so
   <code>pg_database_size</code> is only reachable through a stored function. Paste this into
-  Supabase → SQL Editor → Run, then reload this page. Row counts below work without it.
+  Run it against the database, then reload this page. Row counts below work without it.
 </div>
 <section class="panel">
   <h2>Run this once</h2>

@@ -34,10 +34,21 @@ def check(name, cond, extra=""):
 
 
 web.app.config["TESTING"] = True
-USER = (db.list_users() or [{}])[0].get("username")
-if not USER:
-    print("No accounts; nothing to test against.")
-    raise SystemExit(0)
+try:
+    USER = (db.list_users() or [{}])[0].get("username")
+except Exception:
+    USER = None
+
+# NO DATABASE IS NOT THE SAME AS NOTHING TO CHECK. This used to exit 0 the moment it could not
+# find an account, which is why it was left out of CI -- there are no credentials there, so it
+# would have been permanently, silently green. But the failure this test exists to catch is a
+# web.py refactor that breaks _cors() or an OPTIONS branch, and NONE of that needs data. So the
+# route, auth-rejection and CORS sections always run; only the response-SHAPE section, which
+# genuinely needs a real account to return a body, is skipped.
+HAVE_DB = bool(USER)
+if not HAVE_DB:
+    print("No accounts reachable - running the data-free half of the contract only." + "\n")
+    USER = "contract-probe"
 
 with web.app.test_request_context():
     TOKEN = web._ext_token(USER)
@@ -58,8 +69,23 @@ print("auth: a bad token is refused, a good one is accepted")
 print("=" * 74)
 r = c.get("/api/ext/profile?user=%s&token=%s" % (USER, "not-a-real-token"))
 check("bad token rejected", r.status_code in (401, 403), "status=%s" % r.status_code)
-r = c.get("/api/ext/profile?user=%s&token=%s" % (USER, TOKEN))
-check("good token accepted", r.status_code == 200, "status=%s" % r.status_code)
+if HAVE_DB:
+    r = c.get("/api/ext/profile?user=%s&token=%s" % (USER, TOKEN))
+    check("good token accepted", r.status_code == 200, "status=%s" % r.status_code)
+
+# Unauthenticated ON PURPOSE (see web.ext_version): an extension stale enough to have a broken
+# token contract is exactly the one that needs to be told it is stale.
+r = c.get("/api/ext/version?v=0.1.0")
+check("version endpoint answers without a token", r.status_code == 200,
+      "status=%s" % r.status_code)
+if r.status_code == 200:
+    d = r.get_json() or {}
+    check("...and reports an old build stale", d.get("stale") is True, str(d.get("stale")))
+    check("...with the keys the popup reads",
+          {"ok", "min_version", "stale", "how"} <= set(d), str(sorted(d)))
+    cur = c.get("/api/ext/version?v=" + str(d.get("min_version") or "")).get_json() or {}
+    check("...and the current version is not stale", cur.get("stale") is False,
+          str(cur.get("stale")))
 
 print()
 print("=" * 74)
@@ -88,7 +114,7 @@ SHAPES = [
     ("/api/ext/learned", {"ok", "items"}),
     ("/api/ext/apply_queue", {"ok", "jobs", "count", "prefs_applied", "wide"}),
 ]
-for path, required in SHAPES:
+for path, required in (SHAPES if HAVE_DB else []):
     r = c.get("%s?user=%s&token=%s" % (path, USER, TOKEN))
     if r.status_code != 200:
         check("%s responds 200" % path, False, "status=%s" % r.status_code)

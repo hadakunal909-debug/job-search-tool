@@ -22,6 +22,13 @@
   <h3>🎯 JobMatch Helper</h3>
   <div class="tag">Fill job applications from your JobMatch profile</div>
 
+  <!-- Shown only when the app reports this build is behind. Chrome cannot update a side-loaded
+       extension, so the least this can do is not be silent about being stale. -->
+  <div id="stalewrap" style="display:none; margin:6px 0; padding:7px 9px; border-radius:7px;
+       background:#fef3c7; border:1px solid #fcd34d; font-size:11px; line-height:1.45">
+    <b>Update available.</b> <span id="stalemsg"></span>
+  </div>
+
   <div id="main" style="display:none">
 
     <!-- PRIMARY: fill the current application -->

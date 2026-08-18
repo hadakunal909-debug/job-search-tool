@@ -200,6 +200,49 @@ check("a LIST body value is jsonb as well (jsonb arrays exist)",
       isinstance(a[0], pgrest.JsonValue), a)
 
 print()
+print("=" * 74)
+print("STORED PROCEDURES  (rpc/)")
+print("=" * 74)
+# This branch had no coverage at all, and both of its bugs were live for the whole cPanel
+# migration: db_stats() came back as a one-row list that db.py threw away (so the admin panel's
+# Tables section rendered empty against a healthy database), and ev_usage(30) was called with no
+# arguments at all, silently answering for the function's 7-day default instead.
+s, a = pgrest.build_rpc("db_stats", {})
+check("a no-argument rpc calls the function", s == 'SELECT * FROM "db_stats"()', s)
+check("...and binds nothing", a == [], a)
+
+s, a = pgrest.build_rpc("ev_usage", {"days": 30})
+check("an argument is passed by NAME, as PostgREST does",
+      s == 'SELECT * FROM "ev_usage"("days" => %s)', s)
+check("...and its value is bound, not interpolated", a == [30], a)
+
+s, a = pgrest.build_rpc("f", {"b": 2, "a": 1})
+check("argument order is deterministic, so the bound list matches the placeholders",
+      s == 'SELECT * FROM "f"("a" => %s, "b" => %s)' and a == [1, 2], (s, a))
+
+try:
+    pgrest.build_rpc("f", {"a) ; drop table jobs --": 1})
+    check("an argument name that is not an identifier is refused", False)
+except pgrest.PgRestError:
+    check("an argument name that is not an identifier is refused", True)
+
+try:
+    pgrest.build_rpc("evil(); drop table jobs", {})
+    check("a function name that is not an identifier is refused", False)
+except pgrest.PgRestError:
+    check("a function name that is not an identifier is refused", True)
+
+# Unwrapping. `SELECT * FROM db_stats()` returns ONE row of ONE column named after the function;
+# PostgREST returns the scalar itself, and every caller in db.py checks isinstance(d, dict).
+check("a scalar-returning rpc is unwrapped to its value",
+      pgrest.unwrap_rpc("db_stats", [{"db_stats": {"db_bytes": 1}}]) == {"db_bytes": 1})
+check("a SETOF rpc keeps its row list",
+      pgrest.unwrap_rpc("f", [{"a": 1}, {"a": 2}]) == [{"a": 1}, {"a": 2}])
+check("a single row whose column is NOT the function name is left alone",
+      pgrest.unwrap_rpc("f", [{"x": 1}]) == [{"x": 1}])
+check("an empty result is left alone", pgrest.unwrap_rpc("f", []) == [])
+
+print()
 if fails:
     print("FAILED (%d): %s" % (len(fails), "; ".join(fails)))
     sys.exit(1)

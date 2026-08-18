@@ -81,7 +81,14 @@
   var imgs = document.querySelectorAll(".logo-img");
   for (var i = 0; i < imgs.length; i++) {
     (function (img) {
-      function fail() { img.style.display = "none"; }
+      // Walk the chain before giving up: logo.dev -> favicon -> the coloured letter tile.
+      // data-fallback is set server-side and is empty when there is no second provider, in
+      // which case this behaves exactly as it did before.
+      function fail() {
+        var fb = img.getAttribute("data-fallback");
+        if (fb && img.getAttribute("src") !== fb) { img.src = fb; return; }
+        img.style.display = "none";
+      }
       img.addEventListener("error", fail);
       // An image cached as broken, or one that failed before this ran, never fires "error".
       // complete && naturalWidth === 0 is how you detect that after the fact.

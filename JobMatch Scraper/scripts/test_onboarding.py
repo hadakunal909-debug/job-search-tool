@@ -194,7 +194,12 @@ print("=" * 74)
 # They FILTER the feed and the digest, so they have to live where the other filters live and go
 # through normalize_prefs. Saving them must merge over the stored search, not reset it.
 STORE.clear()
-STORE.update({"search_prefs": {"min": 60, "loc": "boston", "hideagency": True}})
+# min_scale marks this search as already written on the CALIBRATED scale, so the floor is the
+# user's own choice and must survive untouched. Without it normalize_prefs would (correctly)
+# treat 60 as a raw-coverage floor from before calibrate_score existed and reset it — which is
+# asserted separately below.
+STORE.update({"search_prefs": {"min": 60, "min_scale": core.MIN_SCALE,
+                               "loc": "boston", "hideagency": True}})
 c = client()
 post(c, 2, roles=["pm", "dataeng"])
 sp = STORE.get("search_prefs") or {}
@@ -202,6 +207,24 @@ check("roles land in search_prefs", sp.get("roles") == "pm,dataeng", json.dumps(
 check("the rest of the saved search survives",
       sp.get("min") == 60 and sp.get("loc") == "boston" and sp.get("hideagency") is True,
       json.dumps({k: sp.get(k) for k in ("min", "loc", "hideagency")}))
+
+print("\n" + "=" * 74)
+print("a floor saved before the score was calibrated is not reinterpreted")
+print("=" * 74)
+# The displayed score changed scale: raw coverage of 45 (the old default) was the 94th
+# percentile and is 94 now. Silently comparing a stored 45 against calibrated scores would
+# widen a user's feed from the top 6% to the top 55% without them touching anything, so a
+# pre-v2 floor is reset to the current default instead of translated.
+mig = core.normalize_prefs({"min": 45, "loc": "boston"})
+check("a pre-v2 floor is reset to the default",
+      mig["min"] == core.DEFAULT_PREFS["min"], str(mig["min"]))
+check("...and the rest of that search is still preserved", mig["loc"] == "boston", mig["loc"])
+check("...and it is stamped so it only ever happens once",
+      mig["min_scale"] == core.MIN_SCALE, str(mig["min_scale"]))
+check("a floor already on the new scale is left alone",
+      core.normalize_prefs({"min": 55, "min_scale": core.MIN_SCALE})["min"] == 55)
+check("zero means 'no floor' on every scale and survives",
+      core.normalize_prefs({"min": 0})["min"] == 0)
 check("and NOT in extra, where nothing reads them",
       "target_roles" not in (STORE.get("extra") or {}))
 
