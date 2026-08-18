@@ -285,6 +285,10 @@ def _requirements_text(jd_text):
 
 
 # Hard skills, tools, methods, and certs an ATS literally scans for — weighted highest.
+# The idf a term seen in roughly 30 postings of 20,000 earns. Anything rarer is capped
+# here unless it is a known hard skill -- see the note in analyze_jd.
+_RARE_W_CAP = 7.5
+
 ATS_KEYWORDS = {
     # tools
     "jira", "confluence", "asana", "trello", "smartsheet", "monday.com", "wrike", "clickup",
@@ -338,12 +342,26 @@ def analyze_jd(jd_text, idf=None):
     if not jd_terms:
         return {"terms": [], "weight": {}, "total": 0.0, "thin": True}
 
-    default_w = max(idf.values()) if idf else 1.0
+    # RARITY IS NOT IMPORTANCE, and treating it as such is why "caterpillar inc" outranked
+    # "pmp" in the terms a job was scored on. idf gives a term seen in ONE posting ~10.2 and one
+    # seen in a thousand ~4.0, and an UNKNOWN term used to take max(idf) -- the highest weight in
+    # the whole table -- so a company name or a one-off turn of phrase dominated the core set.
+    # Measured: 63% of the distinct terms being screened on appeared in exactly one posting, and
+    # no resume will ever contain them.
+    #
+    # Two corrections. An unknown term now takes the MEDIAN weight, because not having seen a
+    # term is evidence it is noise rather than evidence it is critical. And idf is capped for
+    # anything that is not a known hard skill, so a genuine specialism in ATS_KEYWORDS keeps its
+    # edge while boilerplate cannot buy one by being unusual.
+    known = sorted(idf.values()) if idf else []
+    default_w = known[len(known) // 2] if known else 1.0
 
     def wt(t):
         w = idf.get(t, default_w) if idf else 1.0
-        if t in ATS_KEYWORDS:        # hard skill / tool / cert — what an ATS weights most
+        if t in ATS_KEYWORDS:        # hard skill / tool / cert, what an ATS weights most
             w *= 2.5
+        else:
+            w = min(w, _RARE_W_CAP)
         if t in req_low:             # stated in the requirements/qualifications section
             w *= 1.6
         return w
@@ -354,38 +372,162 @@ def analyze_jd(jd_text, idf=None):
     return {"terms": terms, "weight": weight, "total": total, "thin": thin}
 
 
+# ---- matching the way a screening system does, not the way strcmp does -------------------
+#
+# WHAT WAS WRONG. Terms were compared as literal whole words, so `kpi` and `kpis` were two
+# different skills (488 and 402 postings respectively in the live corpus), `budgeting` in a
+# posting missed `budget` on a résumé, and "Project Manager" did not answer a JD asking for
+# "project management". None of that is a qualification gap; it is a spelling gap, and no real
+# applicant-tracking system screens that way.
+
+# Suffixes stripped to reach a comparable stem, longest first so "-ations" beats "-s".
+_SUFFIXES = ("ations", "ation", "ments", "ment", "ings", "ing", "ies", "ers", "er",
+             "ors", "or", "ed", "es", "s")
+# Words that must never be stemmed: short, or the stem collides with something unrelated.
+_NO_STEM = {"sas", "aws", "ios", "cms", "ops", "sales", "less", "gas", "bus", "analysis",
+            "business", "process", "access", "class", "series", "status", "campus"}
+
+
+def _stem(word):
+    """A conservative stem for matching. Deliberately NOT a full Porter stemmer: this only has
+    to make morphological variants of the same skill compare equal, and every extra rule is
+    another chance to collide two skills that are genuinely different.
+
+    "kpis"->"kpi", "budgeting"->"budget", "management"/"managing"/"manager"->"manag",
+    "analytics"->"analytic". A stem shorter than four characters is rejected and the original
+    kept, which is what stops "ops"->"op" and similar.
+    """
+    w = (word or "").lower()
+    if len(w) < 4 or w in _NO_STEM:
+        return w
+    for suf in _SUFFIXES:
+        if not w.endswith(suf):
+            continue
+        # A plural may leave three characters ("kpis" -> "kpi"); a heavier suffix must leave
+        # four, or "ration" would stem to "rat".
+        floor = 3 if suf in ("s", "es") else 4
+        if len(w) - len(suf) < floor:
+            continue
+        stem = w[:-len(suf)]
+        if suf == "ies":
+            stem += "y"
+        # "planning" -> "plann" -> "plan": undo the doubled consonant English adds.
+        elif suf in ("ing", "ings", "ed") and len(stem) > 4 and stem[-1] == stem[-2]                 and stem[-1] not in "aeiou":
+            stem = stem[:-1]
+        w = stem
+        break
+    # A TRAILING 'e' GOES LAST, AND UNCONDITIONALLY, because that is what unifies the family:
+    # "management" strips to "manage" but "manager" strips to "manag", and without this they
+    # stay two different skills — which is the exact bug being fixed. Applied to unstemmed
+    # words too, so "deliverable" and "deliverables" also land on the same stem.
+    if len(w) >= 5 and w.endswith("e"):
+        w = w[:-1]
+    return w
+
+
+# Skills that are the same thing under two names. An ATS carries a synonym ring per skill; this
+# is the short version, covering what actually appears in this corpus. Both sides are stemmed
+# after mapping, so only the canonical form needs listing.
+SKILL_ALIASES = {
+    "js": "javascript", "ts": "typescript", "py": "python", "k8s": "kubernetes",
+    "ms project": "microsoft project", "msproject": "microsoft project",
+    "powerbi": "power bi", "ms excel": "excel", "microsoft excel": "excel",
+    "ms office": "microsoft office", "gsheets": "google sheets",
+    "pm": "project management", "project mgmt": "project management",
+    "prog management": "program management", "sdlc": "software development lifecycle",
+    "ci/cd": "cicd", "ci cd": "cicd", "postgres": "postgresql", "ms sql": "sql server",
+    "gcp": "google cloud", "aws cloud": "aws", "rpa": "robotic process automation",
+    "ba": "business analysis", "qa": "quality assurance", "ux": "user experience",
+    "kanban board": "kanban", "agile methodology": "agile", "scrum master": "scrum",
+}
+
+
+# canonical skill -> every alias that names it. A JD asking for "microsoft project" has to be
+# answered by a resume that wrote "MS Project", which the forward map alone cannot do.
+_ALIAS_REVERSE = {}
+for _a, _c in SKILL_ALIASES.items():
+    _ALIAS_REVERSE.setdefault(_c, []).append(_a)
+
+
+def _canon_phrase(term):
+    """Alias -> canonical skill, unstemmed. The stemming happens per word at comparison time,
+    so this stays readable and can be used for display."""
+    return SKILL_ALIASES.get(term, term)
+
+
+def _alias_forms(term):
+    """Every spelling of a skill: the term, its canonical form, and every alias of that."""
+    canon = _canon_phrase(term)
+    return [term, canon] + _ALIAS_REVERSE.get(canon, [])
+
+
 @lru_cache(maxsize=8)
 def _resume_wordset(resume_low):
-    """The set of whole word-tokens in a (lowercased) résumé, memoized so user_scores can
-    reuse it across every job in its loop instead of re-tokenizing per job."""
-    return frozenset(WORD_RE.findall(resume_low))
+    """(whole word-tokens, their stems) for a lowercased résumé, memoized so user_scores can
+    reuse it across every job in its loop instead of re-tokenizing per job.
+
+    Returns a pair so the exact-match path stays exact — a stem is a fallback, not a
+    replacement, and checking the literal token first keeps the common case free.
+    """
+    toks = frozenset(WORD_RE.findall(resume_low))
+    return toks, frozenset(_stem(w) for w in toks)
 
 
 def _term_present(t, resume_low, words):
-    """Whether a JD term appears in the résumé as a WHOLE word — so "data" no longer matches
-    "database", "plan" no longer matches "planning". Multi-word phrases and terms carrying
-    special chars (e.g. "power bi", "ci/cd", "c++") are already specific, so a plain substring
-    test is safe for those and avoids brittle \\b handling around punctuation."""
+    """Whether a JD term is answered by the resume, the way a screening system would judge it.
+
+    Three passes, most exact first:
+      1. the literal term, whole-word (so "data" still does not match "database");
+      2. its canonical form, if it is a known alias ("ms project" -> "microsoft project");
+      3. stems, so "budgeting" is answered by "budget" and "project management" by a resume
+         that says "managed projects".
+
+    Stemming is a FALLBACK, never a replacement: an exact hit short-circuits, so the common
+    case costs what it always did, and nothing here can loosen a comparison the literal test
+    already settled.
+
+    `words` is the (tokens, stems) pair from _resume_wordset.
+    """
+    toks, stems = words if isinstance(words, tuple) else (words, frozenset())
     if " " in t or any(ch in t for ch in "+#./-"):
-        return t in resume_low
-    return t in words
+        if t in resume_low:
+            return True
+        if any(f != t and f in resume_low for f in _alias_forms(t)):
+            return True
+        canon = _canon_phrase(t)
+        # A phrase matches when EVERY word of it is present as a stem -- "project management"
+        # against "managed multiple projects". All of it, not any of it: "risk management" must
+        # never be answered by the word "management" on its own.
+        parts = [w for w in re.split(r"[^a-z0-9+#]+", canon) if w]
+        return bool(parts) and all(_stem(w) in stems for w in parts)
+    if t in toks:
+        return True
+    for f in _alias_forms(t):
+        if f in toks or _stem(f) in stems or (" " in f and f in resume_low):
+            return True
+    return False
 
 
 # HOW MUCH OF A POSTING COUNTS AGAINST YOU. Raising this makes the score STRICTER, because a
 # wider set means more terms you have to actually hold; lowering it is what makes a score
 # flatter, since matching two or three headline words then carries everything.
 #
-# Measured over 21,176 live postings, scores at or above 70:
-#     0.30 -> 12.8%      too easy; three words buys a strong-looking match
-#     0.50 ->  3.6%
-#     0.70 ->  0.4%      <- here
-#     1.00 ->  0.0%      every term including the boilerplate; nothing is ever a good match
+# Re-measured after the matcher learned stems and aliases, because fixing false misses raised
+# every score: a resume saying "budgets" was previously failing a JD asking for "budgeting", and
+# that is a spelling gap, not a qualification gap. Share of postings scoring 70 or more:
+#     0.70 -> 7.20%
+#     0.80 -> 4.00%
+#     0.90 -> 2.04%      <- here; the best match in 2,500 postings is 80
+#     1.00 -> 1.48%      every term including the boilerplate
+#
+# 1.00 is barely stricter than 0.90 now, because the weighting fix below already stops
+# boilerplate from carrying weight -- the two mechanisms had been doing the same job twice.
 #
 # 1.00 is the version this replaced, and its problem was not that it was strict but that it had
 # no top: an excellent match and an average one were fifteen points apart and NOTHING read well,
 # so the number could not tell you anything. 0.70 keeps the ceiling reachable in principle while
 # making it genuinely rare in practice.
-CORE_WEIGHT_FRACTION = 0.70
+CORE_WEIGHT_FRACTION = 0.90
 
 
 def core_terms(analyzed):

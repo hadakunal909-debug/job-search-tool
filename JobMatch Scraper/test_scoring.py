@@ -57,6 +57,46 @@ def test_score_is_floored_never_rounds_up_to_100():
     assert core.score_against("alpha beta gamma delta epsilon zeta", b)[0] == 100
 
 
+def test_matching_is_morphological_not_literal():
+    """A spelling gap is not a qualification gap. Every pair below was a MISS before: `kpi` and
+    `kpis` were two different skills across 890 live postings, and a resume saying "budgets"
+    failed a posting asking for "budgeting"."""
+    r = "project manager who managed budgets, built dashboards and tracked kpis"
+    w = core._resume_wordset(r)
+    for term in ("budgeting", "budget", "kpi", "kpis", "dashboard", "dashboards",
+                 "project management", "managing"):
+        assert core._term_present(term, r, w), term
+
+
+def test_a_phrase_needs_all_of_itself():
+    """"risk management" must not be answered by the word "management" on its own — the whole
+    point of scoring phrases is that they are more specific than their parts."""
+    r = "experienced in management of large teams"
+    w = core._resume_wordset(r)
+    assert core._term_present("management", r, w)
+    assert not core._term_present("risk management", r, w)
+    assert not core._term_present("stakeholder management", r, w)
+
+
+def test_aliases_resolve_in_both_directions():
+    """A posting asking for "microsoft project" is answered by a resume that wrote "MS Project",
+    and the reverse. A forward-only map gets exactly half of these."""
+    a = core._resume_wordset("delivered with ms project and power bi")
+    assert core._term_present("microsoft project", "delivered with ms project and power bi", a)
+    b = core._resume_wordset("delivered with microsoft project")
+    assert core._term_present("ms project", "delivered with microsoft project", b)
+
+
+def test_a_rare_word_does_not_outrank_a_real_skill():
+    """idf rewards rarity, and rarity in a job corpus usually means a company name or a one-off
+    turn of phrase. "caterpillar inc" outranking "pmp" is how 63% of the terms being screened on
+    came to be words appearing in exactly one posting."""
+    idf = {"pmp": 4.0, "caterpillar inc": 10.2, "budget": 3.0}
+    a = core.analyze_jd("PMP certification required. Manage budget for caterpillar inc.", idf)
+    assert "pmp" in a["weight"] and "caterpillar inc" in a["weight"]
+    assert a["weight"]["pmp"] > a["weight"]["caterpillar inc"], a["weight"]
+
+
 def test_a_posting_we_barely_read_cannot_claim_a_strong_match():
     """The confidence cap. A "Senior Delivery Manager" whose analysis yielded ONE term scored
     100% because the résumé held that term, and 9% of the live corpus was being judged on three
