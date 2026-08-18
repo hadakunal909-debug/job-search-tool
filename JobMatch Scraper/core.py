@@ -371,9 +371,52 @@ def _term_present(t, resume_low, words):
     return t in words
 
 
+CORE_WEIGHT_FRACTION = 0.50
+
+
+def core_terms(analyzed):
+    """The keywords carrying the top half of a JD's weight — the ones the role leans on.
+
+    WHY THE SCORE IS COMPUTED OVER THESE AND NOT OVER EVERY TERM. A job description names far
+    more terms than any résumé will contain: the stack it uses, the benefits, the legal
+    boilerplate, every adjacent technology. Scoring against all of them measures how exhaustive
+    the posting is as much as how well you fit it, and the arithmetic showed it — across 6,000
+    live postings the median was 28 and the 99th percentile 58, so a genuinely excellent match
+    and a mediocre one were fifteen points apart at the bottom of a scale that never reached
+    its own top.
+
+    Restricting to the heavy half asks the question a person actually means: OF THE SKILLS THIS
+    JOB EMPHASISES, how many do I have. It is stricter where it counts — a missing core skill
+    now costs real points instead of being diluted by forty pieces of boilerplate — and it lets
+    a true match read high honestly. Measured on the same 6,000 postings: median 34, and only
+    4.2% score 70 or more, 1.0% score 80 or more, 0.2% score 90 or more.
+
+    Terms are already weighted by idf, x2.5 for a hard ATS skill and x1.6 for appearing in the
+    requirements section (see analyze_jd), so "heaviest" already means "most role-defining".
+    """
+    terms = analyzed.get("terms") or []
+    weight = analyzed.get("weight") or {}
+    if not terms:
+        return []
+    goal = sum(weight.get(t, 0.0) for t in terms) * CORE_WEIGHT_FRACTION
+    out, acc = [], 0.0
+    for t in sorted(terms, key=lambda x: -weight.get(x, 0.0)):
+        out.append(t)
+        acc += weight.get(t, 0.0)
+        if acc >= goal:
+            break
+    return out
+
+
 def score_against(resume_low, analyzed):
-    """The résumé-DEPENDENT half: which of the JD's weighted keywords appear in the résumé.
+    """The résumé-DEPENDENT half: how much of what this JD EMPHASISES the résumé contains.
     `resume_low` must already be lowercased. Returns (score, keywords_have, keywords_to_add).
+
+    The score covers core_terms() only — see the note there for why, and why the previous
+    all-terms version could not tell a great match from an average one. The have/missing lists
+    still span EVERY term, because they feed the job page's keyword panel and the résumé
+    tailorer, which both want the full picture; they are weight-ordered, so the terms the score
+    is actually made of are the ones at the top of each list.
 
     Matching is whole-word (not substring), so coverage isn't inflated by terms that merely
     sit inside unrelated résumé words. The score is floored, not rounded, so a partial match
@@ -385,9 +428,16 @@ def score_against(resume_low, analyzed):
     words = _resume_wordset(resume_low)
     have = sorted((t for t in terms if _term_present(t, resume_low, words)), key=lambda t: -weight[t])
     missing = sorted((t for t in terms if not _term_present(t, resume_low, words)), key=lambda t: -weight[t])
-    pct = 100.0 * sum(weight[t] for t in have) / (analyzed["total"] or 1.0)
+    core = core_terms(analyzed)
+    core_total = sum(weight[t] for t in core) or 1.0
+    core_have = [t for t in core if _term_present(t, resume_low, words)]
+    pct = 100.0 * sum(weight[t] for t in core_have) / core_total
     score = int(pct)                 # floor: 99.6% stays 99, never a phantom round-up to 100
-    if score >= 100 and missing:     # only a genuine full sweep of the JD's terms may read 100
+    # 100 REQUIRES A CLEAN SWEEP OF THE WHOLE JD, not just of the core terms. Covering every
+    # core term is already the top fraction of a percent of postings and it earns 99; reserving
+    # the round number for "there is nothing in this posting you do not have" keeps it a claim
+    # nobody has to squint at. Missing one boilerplate term to sit at 99 is the right cost.
+    if score >= 100 and missing:
         score = 99
     return score, have, missing
 
@@ -400,84 +450,6 @@ def skill_match(resume_text, jd_text, idf=None):
     Thin wrapper = score_against(resume, analyze_jd(jd)) so the hot paths can cache the
     expensive JD-invariant half; numeric output is unchanged."""
     return score_against((resume_text or "").lower(), analyze_jd(jd_text, idf))
-
-
-# ---- the display scale ---------------------------------------------------------------------
-# score_against() answers "what share of THIS JD's weighted keywords does the resume contain",
-# and that number is structurally bounded: a full job description names far more terms than any
-# one resume carries, so nothing in a 22,424-row corpus ever scored above 69 and the mode sat at
-# 30-39. The default floor of 45 was therefore cutting through the middle of the distribution
-# rather than skimming its top -- 94.3% of the corpus fell below it, so a feed that ingested
-# 300-1,800 new rows a day showed 30-40 of them, and lowering the floor by five points changed
-# the answer by a factor of three. A control that twitchy is not a control.
-#
-# So the raw coverage stays in jobs.match_score (nothing is lost, and this is reversible), and
-# what a person READS is mapped through the curve below: the observed percentile of that raw
-# value across the corpus, pinned to 0 at the bottom. "72" now means "a better keyword match
-# than 72% of the open roles we track", which is the question being asked.
-#
-# ANCHORS ARE FROZEN, NOT RECOMPUTED PER CORPUS. A percentile recalculated live would keep
-# exactly 30% of the feed above any given floor forever -- a genuinely good week and a genuinely
-# bad one would look identical, and the number could never say "there is nothing for you today".
-# Rebuild them deliberately with scripts/build_score_calibration.py when the corpus or the
-# resume changes shape.
-SCORE_CALIBRATION_PATH = "score_calibration.json"
-
-# (raw, display). Measured 2026-08-18 over 22,424 scored rows. Monotone by construction.
-#
-# THE TAIL IS DELIBERATELY NOT THE PERCENTILE. Above raw 45 the percentile is already 94 and it
-# reaches 100 by raw 55, so a pure percentile curve maps every strong match to the same 100 --
-# and since the feed sorts on this number, the top of a user's feed became a wall of identical
-# 100s with the ranking between them destroyed. Measured on a real account: 40 of the top 40
-# rows read 100. So the last stretch is spread by hand instead, giving the best matches room to
-# differ from each other while still reading as near-perfect.
-_SCORE_ANCHORS_DEFAULT = [(0, 0), (5, 16), (10, 19), (15, 23), (20, 29), (25, 41), (30, 57),
-                          (35, 73), (40, 86), (45, 92), (50, 96), (55, 97), (60, 98),
-                          (65, 99), (75, 100)]
-_score_anchors = None
-
-
-def load_score_anchors(path=SCORE_CALIBRATION_PATH):
-    """The calibration curve, from disk if it is there, else the frozen defaults above.
-
-    Never raises and never returns something non-monotone: a broken file would otherwise make
-    a higher raw score display LOWER than a smaller one, which is worse than no calibration.
-    """
-    global _score_anchors
-    if _score_anchors is not None:
-        return _score_anchors
-    anchors = None
-    if os.path.exists(path):
-        try:
-            raw = json.load(open(path, encoding="utf-8"))
-            pairs = [(float(a), float(b)) for a, b in (raw.get("anchors") or [])]
-            xs = [a for a, _ in pairs]
-            ys = [b for _, b in pairs]
-            if len(pairs) >= 2 and xs == sorted(xs) and ys == sorted(ys):
-                anchors = pairs
-        except Exception:
-            anchors = None
-    _score_anchors = anchors or [(float(a), float(b)) for a, b in _SCORE_ANCHORS_DEFAULT]
-    return _score_anchors
-
-
-def calibrate_score(raw, path=SCORE_CALIBRATION_PATH):
-    """Raw keyword coverage -> the 0-100 number a person sees. Monotone, so every sort that
-    ranked by the raw score still ranks identically."""
-    if raw is None:
-        return 0
-    try:
-        x = float(raw)
-    except (TypeError, ValueError):
-        return 0
-    pts = load_score_anchors(path)
-    if x <= pts[0][0]:
-        return int(pts[0][1])
-    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-        if x <= x1:
-            span = (x1 - x0) or 1.0
-            return int(round(y0 + (y1 - y0) * (x - x0) / span))
-    return int(pts[-1][1])
 
 
 # ---- precomputed per-job metadata (jdmeta.json) -------------------------------------------
@@ -1674,18 +1646,23 @@ def posting_key(title, company, location, require_location=False):
 # are the saved answers — one shape, used both to seed the feed's controls and to decide what
 # lands in the email digest, so the two can never mean different things by "my search".
 # ------------------------------------------------------------
-# THE SCALE VERSION of the `min` floor below. Bumped when calibrate_score's meaning changes,
-# which invalidates every stored floor: a saved 45 meant "raw coverage >= 45" (the top 5.7% of
-# the corpus) and on the calibrated scale the same five characters mean the top 55%. Rather than
-# reinterpret a number whose meaning moved, normalize_prefs resets any pre-v2 floor to the
-# default below and stamps it — see the migration there.
-MIN_SCALE = 2
+# THE SCALE VERSION of the `min` floor below, bumped whenever the score's MEANING moves —
+# because a stored floor is a number on a scale, and reinterpreting it silently is how a saved
+# search quietly starts matching something else.
+#
+#   v1  raw coverage of EVERY term in the JD. Topped out near 69, mode 30-39.
+#   v2  the percentile of that value across the corpus. Briefly shipped, and wrong: it read as
+#       "you are 96% qualified" while it meant "this job ranks above 96% of the others", so
+#       ordinary matches displayed in the high nineties. Withdrawn.
+#   v3  coverage of the terms carrying the top half of the JD's weight — the skills the role
+#       actually emphasises. Absolute, not relative; 90+ is 0.2% of the corpus. See core_terms.
+MIN_SCALE = 3
 
 DEFAULT_PREFS = {
-    # On the CALIBRATED scale (see calibrate_score): "a better keyword match than 70% of the
-    # roles we track", which is raw coverage of about 34. The old default of 45 was on the raw
-    # scale and admitted 5.7% of the corpus -- 30-40 jobs a day out of 300-1,800 ingested.
-    "min": 70,            # minimum match %
+    # "I have at least half the skills this job emphasises." On the v3 scale that admits about
+    # a quarter of the corpus, against 5.7% for the old 45 — so the feed is far wider than it
+    # was without the number ever flattering anyone.
+    "min": 50,            # minimum match %
     "min_scale": MIN_SCALE,
     "loc": "",            # metro / city / 2-letter state / "remote"
     "remote": False,
@@ -1750,10 +1727,10 @@ def normalize_prefs(raw):
         return out
 
     # SCALE MIGRATION, ONCE PER PROFILE. A dict that carries a `min` but no `min_scale` was
-    # written before calibrate_score existed, so its floor is on the raw-coverage scale and
-    # cannot be compared with a calibrated score. Reset it to the current default rather than
-    # translating it: translating would faithfully preserve a floor that was showing 30-40 jobs
-    # a day, which is the problem being fixed.
+    # written against an older meaning of the score (see MIN_SCALE) and cannot be compared with
+    # the current one. Reset it to the current default rather than translating it: a translated
+    # floor faithfully preserves whatever the user was seeing, and what they were seeing is the
+    # thing being fixed.
     #
     # Safe against clobbering a live slider move because every save path merges over
     # _user_prefs(), whose output has already been through here and so carries min_scale.
@@ -1915,10 +1892,7 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
         "visa": vtags,
         "title": job.get("title") or "", "company": company,
         "url": job.get("url") or "", "location": job.get("location") or "",
-        # CALIBRATED, exactly as web._build_row does it, because prefs_match below compares
-        # this against the saved `min` floor -- which is now on the calibrated scale. Comparing
-        # a raw score against a calibrated floor would email almost nothing.
-        "score": calibrate_score(score),
+        "score": score,
         "loc_state": job.get("loc_state") or loc["state"],
         "loc_metro": job.get("loc_metro") or loc["metro"],
         "remote": bool(job.get("remote")) or loc["remote"],

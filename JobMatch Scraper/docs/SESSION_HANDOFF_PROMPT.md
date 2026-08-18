@@ -91,19 +91,31 @@ so is correct; only its wording was Supabase-era.
 **The scrape is healthy.** ~1,370 boards a sweep, ~366k postings scanned, **300–1,800 genuinely new
 rows a day**.
 
-**For most accounts and for the digest, the limiter was the match floor.** `core.score_against`
-answers "what share of this JD's weighted keywords does the résumé contain", which is structurally
-bounded — nothing in 22,424 rows scored above 69, the mode was 30–39, and the default floor of 45
-sat at the **94th percentile**. So the score is now calibrated (`core.calibrate_score`,
-`score_calibration.json`, rebuilt by `scripts/build_score_calibration.py`) and the default floor is
-**70 on the new scale** (`core.DEFAULT_PREFS["min"]`, `MIN_SCALE = 2`). Measured effect: **4.8×
-more rows visible** — e.g. 2026-08-16 went 28 → 158.
+**For most accounts and for the digest, the limiter was the match floor** — but the first fix for
+it was wrong and has been withdrawn. The history is in `core.MIN_SCALE`, and it matters because a
+stored floor is a number on a scale:
 
-Applied in exactly one place, `web._build_row`, so `_filter_rows` and `app.js::matches()` — the
-deliberate twins — inherit it and `scripts/feed_parity.py` still agrees 79/79.
+- **v1** — coverage of *every* term in the JD. Structurally bounded: a posting names far more terms
+  than any résumé holds, so nothing in 22,424 rows exceeded 69, the mode was 30–39, and the default
+  floor of 45 sat at the **94th percentile**.
+- **v2** — the *percentile* of that value. Briefly shipped and wrong: it reads as "you are 96%
+  qualified" while it means "this ranks above 96% of other jobs", so ordinary matches displayed in
+  the high nineties. Rejected on sight by the person using it, correctly.
+- **v3, current** — coverage of the terms carrying the **top half of the JD's weight**
+  (`core.core_terms`): *of the skills this role emphasises, how many do I have.* Absolute, not
+  relative. Measured over 21,040 live postings: **0.2% score ≥90, 0.9% ≥80, 3.6% ≥70**, median 34.
+  A 100 additionally requires a clean sweep of every term, not just the core ones.
 
-`normalize_prefs` migrates a pre-v2 stored floor to the new default once and stamps `min_scale`.
-**A stored 0 is preserved**: "no floor" means the same thing on every scale.
+Default floor is **50** — "at least half the skills this job emphasises" — which passes ~26.5% of
+the corpus, roughly 270–360 new roles a day against 30–40 before.
+
+`normalize_prefs` resets any floor saved under an older scale to the current default and stamps
+`min_scale`. **A stored 0 is preserved**: "no floor" means the same thing on every scale.
+
+**The stored `jobs.match_score` column is still v1** until a full scoring pass runs
+(`python -m scraper.score_jobs --full`). It only matters for the ~9% of rows that carry no
+`jd_terms` analysis — everyone else is scored live at render time — but until then those rows mix
+scales.
 
 **But your own account was never limited by the floor.** `Kunal08singh` has `min: 0` stored. Its
 real limiters are `date: "1"` (posted within ONE day) and `track: "mgmt"`, plus `exp: "2"` and
@@ -222,9 +234,11 @@ extractable-but-missing class left.
   text**, so a helper must be a top-level `function`, not a `var` const.
 - **`db._fetch_all` overwrites `limit`** with its 1000-row page size. Asking it for one row walks the
   whole table. `db.newest_event_ts()` is the shape to copy for a one-row select.
-- **A calibrated score that saturates destroys the feed's ranking.** The first curve mapped every
-  raw ≥ 60 to 100 and the top 40 rows of a real account all read 100 — the feed sorts on this
-  number. The tail above raw 45 is spread by hand for that reason.
+- **Do not make the match number relative.** A percentile answers a different question from the
+  one the label asks, and it inflates: "96% match" for a job you are averagely suited to. It also
+  saturates, and since the feed SORTS on this number, the top 40 rows of a real account all read
+  100 with their ranking destroyed. If the score needs rescaling again, rescale what it measures
+  (`core.core_terms`), not where it sits in a distribution.
 - **`db.list_users()` returning nothing is not "nothing to test".** That assumption is why the
   extension contract test sat outside CI.
 - **Verify by behaviour, not substring.** Several assertions in past sessions printed false failures
