@@ -211,10 +211,10 @@ check("the rest of the saved search survives",
 print("\n" + "=" * 74)
 print("a floor saved before the score was calibrated is not reinterpreted")
 print("=" * 74)
-# The displayed score changed scale: raw coverage of 45 (the old default) was the 94th
-# percentile and is 94 now. Silently comparing a stored 45 against calibrated scores would
-# widen a user's feed from the top 6% to the top 55% without them touching anything, so a
-# pre-v2 floor is reset to the current default instead of translated.
+# The score's MEANING has moved twice (see core.MIN_SCALE), and a stored floor is a number on
+# a scale. Silently comparing a floor saved under one meaning against scores computed under
+# another changes what a saved search matches without the user touching it, so a stale-scale
+# floor is reset to the current default instead of translated.
 mig = core.normalize_prefs({"min": 45, "loc": "boston"})
 check("a pre-v2 floor is reset to the default",
       mig["min"] == core.DEFAULT_PREFS["min"], str(mig["min"]))

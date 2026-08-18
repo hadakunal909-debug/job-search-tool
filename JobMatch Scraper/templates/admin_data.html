@@ -5,16 +5,39 @@
 {% endblock %}
 
 {% block admin %}
-{# ---- storage against the free-tier cap ---- #}
+{# ---- storage, against what actually limits this account ---- #}
 {% if dbi.have_rpc %}
 <div class="tiles">
-  <div class="tile{{ ' warn' if dbi.pct > 70 }}">
+  <div class="tile{{ ' warn' if dbi.pct and dbi.pct > 70 }}">
     <span class="tile-n">{{ dbi.pretty }}</span>
     <span class="tile-l">Database size</span>
-    <span class="tile-s">{{ '%.1f'|format(dbi.pct) }}% of the {{ dbi.cap_mb }} MB free tier</span>
+    {% if dbi.pct %}
+    <span class="tile-s">{{ '%.1f'|format(dbi.pct) }}% of the {{ dbi.budget_mb }} MB budget you set</span>
     <span class="hist-bar u-mt-100"><i style="width:{{ '%.1f'|format(dbi.pct if dbi.pct < 100 else 100) }}%"></i></span>
+    {% else %}
+    <span class="tile-s">on {{ dbi.backend }} &middot; no size cap</span>
+    {% endif %}
   </div>
-  <div class="tile{{ ' warn' if dbi.projection.state == 'growing' and dbi.projection.days_left < 90 }}">
+  {# THE NUMBER THAT CAN ACTUALLY STOP THIS ACCOUNT. Disk is unlimited here; inodes are not,
+     and they count FILES, so the age-based prune of old job rows does nothing for them. #}
+  {% if dbi.host and dbi.host.inode_pct is not none %}
+  <div class="tile{{ ' warn' if dbi.host.inode_pct > 80 }}">
+    <span class="tile-n">{{ '%.0f'|format(dbi.host.inode_pct) }}%</span>
+    <span class="tile-l">Inodes used</span>
+    <span class="tile-s">{{ '{:,}'.format(dbi.host.inodes|int) }} of {{ '{:,}'.format(dbi.host.inode_limit|int) }} files</span>
+    <span class="hist-bar u-mt-100"><i style="width:{{ '%.1f'|format(dbi.host.inode_pct if dbi.host.inode_pct < 100 else 100) }}%"></i></span>
+  </div>
+  {% endif %}
+  {% if dbi.host and dbi.host.disk_mb is not none %}
+  <div class="tile">
+    <span class="tile-n">{{ '%.2f'|format(dbi.host.disk_mb / 1024.0) }} GB</span>
+    <span class="tile-l">Account disk</span>
+    <span class="tile-s">{{ 'no quota — unlimited' if not dbi.host.disk_limit_mb else '%.0f MB limit'|format(dbi.host.disk_limit_mb) }}</span>
+  </div>
+  {% endif %}
+  {# days_left is None unless DB_SIZE_BUDGET_MB is set — there is no deadline to warn about
+     when nothing caps the size. Guard the comparison, not just the display. #}
+  <div class="tile{{ ' warn' if dbi.projection.state == 'growing' and dbi.projection.days_left and dbi.projection.days_left < 90 }}">
     <span class="tile-n u-text-md">{{ dbi.projection.verdict }}</span>
     <span class="tile-l">Growth</span>
     <span class="tile-s">{{ dbi.history|length }} daily sample{{ '' if dbi.history|length == 1 else 's' }} on record</span>
@@ -29,6 +52,17 @@
 </div>
 <p class="muted u-subnote">
   A floor, not the billed figure — it counts this app's own tables only.
+  {% if dbi.host and dbi.host.databases %}
+  This account holds {{ dbi.host.databases|length }} Postgres database{{ '' if dbi.host.databases|length == 1 else 's' }}
+  totalling {{ dbi.host.db_total_bytes|filesizeformat }}:
+  {% for d in dbi.host.databases %}<b>{{ d.name }}</b> {{ d.bytes|filesizeformat }}{{ ', ' if not loop.last }}{% endfor %}.
+  {% elif not dbi.host %}
+  Account-level disk and inode figures need <code>CPANEL_HOST</code>, <code>CPANEL_USER</code>
+  and <code>CPANEL_API_TOKEN</code> in the app environment — use a token restricted to
+  <code>Quota</code> and <code>Postgresql</code>.
+  {% elif dbi.host.errors %}
+  Could not read the host figures: {{ dbi.host.errors|join('; ') }}
+  {% endif %}
 </p>
 
 <section class="panel">
