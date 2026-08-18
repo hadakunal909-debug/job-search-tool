@@ -170,6 +170,14 @@ jobs:
           # timeout-minutes together, and check the job still fits in 45 overall.
           SCRAPE_WORKERS: "16"
           SCRAPE_BUDGET_MIN: "22"
+          # Retire postings that have vanished from their own board. This defaulted to a dry run
+          # and was never set here or in bin/cron_scrape.sh, so it has only ever PRINTED what it
+          # would do -- 5,178 rows are sitting under the miss threshold and 404 postings still
+          # read as open. reconcile_closed carries every guard that made caution sensible: a
+          # failed fetch proves nothing, a board returning a small fraction of what we store is
+          # skipped, and a posting must miss three consecutive runs before it is closed. Rows
+          # are never deleted; Saved and Applied are untouched.
+          RECONCILE_CLOSED: "1"
           # JOBSPY — the market-side sweep. Every other source here is employer-side: a job is
           # only visible if its company is already in SOURCES. This queries Indeed by role
           # phrase, so it surfaces employers we have never heard of.

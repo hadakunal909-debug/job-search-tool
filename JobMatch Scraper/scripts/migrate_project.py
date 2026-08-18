@@ -361,6 +361,24 @@ def cmd_tables(apply, extras):
     print("\n  ~%.1f MB read from the source in total." % (total / 1048576.0))
     if not apply:
         print("  DRY RUN. Re-run with --apply to write them.")
+        return 0
+    # SEQUENCES, LAST. Every row above was copied WITH its id, and inserting an explicit id does
+    # not advance the sequence that column defaults from -- so events_id_seq sat at 1 while the
+    # table already held ids up to 13,481. Every insert the live app made afterwards collided
+    # with events_pkey and was swallowed by db.insert_events, which is how analytics went silent
+    # for three days while this script reported a clean copy. Here is the only place that knows
+    # a bulk copy just happened.
+    sess = session()
+    if hasattr(sess, "repair_sequences"):
+        try:
+            fixed = sess.repair_sequences()
+            print("  sequences: %s" % (", ".join("%s.%s->%s" % f for f in fixed) or "none found"))
+        except Exception as e:
+            print("  sequences: REPAIR FAILED (%s) -- inserts into copied tables will collide"
+                  % str(e)[:80])
+    else:
+        print("  sequences: target is not a direct Postgres session. Run by hand:"
+              " SELECT setval('events_id_seq', (SELECT MAX(id) FROM events));")
     return 0
 
 

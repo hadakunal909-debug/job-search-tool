@@ -12,6 +12,7 @@ Only if you add a Workday/JS source:  pip install playwright  &&  playwright ins
 """
 
 import csv
+import html
 import json
 import os
 import sys
@@ -1627,13 +1628,20 @@ MICHAELPAGE_BOARDS = [
     ("https://www.michaelpage.com/jobs", "michaelpage", "Michael Page"),   # ~9/page of 30
 ]
 
+# Y Combinator's Work at a Startup. The company name here is only the board's label -- every row
+# scrape_workatastartup returns names the actual startup, and main()'s setdefault leaves it be.
+WORKATASTARTUP_BOARDS = [
+    ("https://www.workatastartup.com/jobs", "workatastartup", "Y Combinator"),   # ~250 across 10 roles
+]
+
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
 # Avature + SuccessFactors + PeopleSoft + Adzuna + Meta + Michael Page.
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
-           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS)
+           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
+           + WORKATASTARTUP_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -3021,16 +3029,92 @@ def scrape_jsonld(board_url):
             jl = it.get("jobLocation")
             loc = ("; ".join(_addr(x) for x in jl if _addr(x)) if isinstance(jl, list)
                    else _addr(jl))
-            rows.append({"title": (it.get("title") or "").strip(),
-                         "url": it.get("url") or board_url,
-                         "location": loc,
-                         "found_date": (str(it.get("datePosted") or ""))[:10]})
+            # found_date is OMITTED when the page states none, never set to "".
+            # main() fills it with the scrape stamp via setdefault, which a present-but-empty
+            # key silently defeats -- and db.add_jobs then strips the empty string, so the row
+            # lands with found_date NULL and renders with no date at all. Every jsonld board
+            # was affected; the 38 Work at a Startup rows are what made it visible.
+            row = {"title": (it.get("title") or "").strip(),
+                   "url": it.get("url") or board_url,
+                   "location": loc}
+            posted = (str(it.get("datePosted") or ""))[:10]
+            if posted:
+                row["found_date"] = posted
+            rows.append(row)
     # de-dupe by url; keep only http(s) links (a malicious page could embed a
     # "url": "javascript:..." in its JobPosting JSON, which we'd later render as a link)
     seen, out = set(), []
     for r in rows:
         if r["title"] and is_http_url(r["url"]) and r["url"] not in seen:
             seen.add(r["url"]); out.append(r)
+    return out
+
+
+# ---- Y Combinator's Work at a Startup ------------------------------------------------------
+# WHY THIS EXISTS. The corpus held 38 workatastartup.com rows, all filed under the single
+# company "Y Combinator's Work at a Startup" rather than the startups actually hiring, all with
+# NULL location and NULL date, half of them already 404, and not one of them clearing the match
+# floor. They were a one-off import by the generic jsonld scraper on 2026-08-02 and were never
+# swept again -- there has never been a Work at a Startup entry in SOURCES or in SCRAPERS.
+#
+# The site is an Inertia.js app: no server-rendered markup to parse, but the whole page payload
+# ships in a single `data-page` attribute, which is far better than HTML. Each job arrives with
+# companyName, location, salary and the batch, so rows land with the STARTUP as the employer.
+# score_jobs.workatastartup_detail_jd already reads the same attribute on the job page.
+#
+# PAGINATION IS BY ROLE, not by page number. `?page=2` returns byte-identical ids, and the
+# unfacetted /jobs is just the engineering facet -- measured: /jobs and /jobs/l/software-engineer
+# return the same 29 ids, while /jobs/l/sales-manager returns 26 with zero overlap. So the ten
+# role paths the page advertises in props.roleLinks ARE the pagination, and walking them is how
+# you see the whole board.
+WORKATASTARTUP_ROLES = ("software-engineer", "designer", "recruiting", "science",
+                        "product-manager", "operations", "sales-manager", "marketing",
+                        "legal", "finance")
+_WAAS_PAGE_RE = re.compile(r'data-page="([^"]+)"')
+
+
+def _waas_jobs(url):
+    """The `jobs` array out of one Work at a Startup page, or [] if the shape moved."""
+    try:
+        r = _safe_get(url, timeout=25)
+        if r.status_code != 200:
+            return []
+        m = _WAAS_PAGE_RE.search(r.text)
+        if not m:
+            return []
+        return (json.loads(html.unescape(m.group(1))).get("props") or {}).get("jobs") or []
+    except Exception:
+        return []
+
+
+def scrape_workatastartup(board_url):
+    """Every current Work at a Startup posting, one row per job, employer = the startup.
+
+    DELIBERATELY DOES NOT SET found_date. main() stamps the scrape date via setdefault, and a
+    scraper that sets the key to "" defeats that -- db.add_jobs strips empty strings, so the
+    row lands with found_date NULL. That is the bug the old jsonld rows carry, and it is why
+    every one of them shows no date at all.
+    """
+    base = (board_url or "https://www.workatastartup.com/jobs").rstrip("/")
+    root = base.rsplit("/jobs", 1)[0] or "https://www.workatastartup.com"
+    seen, out = set(), []
+    for role in ("",) + WORKATASTARTUP_ROLES:
+        for j in _waas_jobs(base if not role else "%s/jobs/l/%s" % (root, role)):
+            jid = j.get("id")
+            company = (j.get("companyName") or "").strip()
+            title = (j.get("title") or "").strip()
+            if not (jid and title and company) or jid in seen:
+                continue
+            seen.add(jid)
+            out.append({
+                "title": title,
+                # The canonical public page, NOT applyUrl -- that is an account.ycombinator.com
+                # sign-up redirect, which is neither stable nor readable, and it is this form
+                # that score_jobs.workatastartup_detail_jd knows how to fetch a description from.
+                "url": "%s/jobs/%s" % (root, jid),
+                "company": company,
+                "location": (j.get("location") or "").strip(),
+            })
     return out
 
 
@@ -4288,6 +4372,7 @@ SCRAPERS = {
     "paylocity": scrape_paylocity,
     "metacareers": scrape_metacareers,
     "michaelpage": scrape_michaelpage,
+    "workatastartup": scrape_workatastartup,
 }
 
 
@@ -4902,6 +4987,30 @@ def _fold(loc):
                    if not unicodedata.combining(c))
 
 
+_TITLE_PLACE_RE = re.compile(r"[(\[]([^)\]]{2,40})[)\]]\s*$")
+
+
+def _country_from_title(title):
+    """A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -> the
+    text inside. "" when the title has none, which leaves is_us_location's blank case alone.
+
+    Deliberately only the LAST bracketed group and only at the end."""
+    m = _TITLE_PLACE_RE.search(title or "")
+    return m.group(1).strip() if m else ""
+
+
+def title_says_non_us(title):
+    """True only when a title's trailing parenthetical NAMES a non-US place.
+
+    VETO ONLY, and that asymmetry is the point. Feeding the parenthetical to is_us_location
+    instead looks equivalent and is not: that function answers False for anything it does not
+    recognise as American, so "Data Analyst (Senior)" and "(Contract)" came back non-US and
+    would have been dropped. This asks the one question worth asking -- does this text match the
+    NON_US list -- and stays silent otherwise."""
+    place = _country_from_title(title)
+    return bool(place) and bool(_NON_US_RE.search(_fold(place)))
+
+
 def is_us_location(loc):
     """Heuristic: True if the location looks US-based. Unknown/blank -> kept."""
     if not loc:
@@ -5424,6 +5533,50 @@ def _norm_url(u):
     return re.sub(r"^[a-z]+://", "", (u or ""), flags=re.I)
 
 
+BOARD_HEALTH_KEY = "board_health"
+BOARD_HEALTH_RUNS = 8            # how many runs of history to keep per board
+
+
+def save_board_health(board_results):
+    """Record what every board returned this run, and print the ones worth looking at.
+
+    Keeps a short rolling window per board rather than one snapshot, because the question that
+    matters is not "did this board return 0 today" -- plenty legitimately do -- but "has it
+    returned 0 every run for a week", which is a board that has broken or been walled off.
+    """
+    if not board_results:
+        return
+    blob = db.get_kv(BOARD_HEALTH_KEY) or {}
+    boards = blob.get("boards") or {}
+    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    for br in board_results:
+        entry = br.get("entry") or ()
+        url = (entry[0] if len(entry) > 0 else "") or ""
+        ats = (entry[1] if len(entry) > 1 else "") or ""
+        company = br.get("company") or ""
+        n = len(br.get("urls") or ())
+        rec = boards.get(url) or {"company": company, "ats": ats, "runs": []}
+        rec["company"], rec["ats"] = company, ats
+        rec["runs"] = (rec.get("runs") or [])[-(BOARD_HEALTH_RUNS - 1):] + [
+            {"at": stamp, "n": n, "ok": bool(br.get("ok"))}]
+        boards[url] = rec
+    db.put_kv(BOARD_HEALTH_KEY, {"updated_at": stamp, "boards": boards})
+
+    # The triage list. A board erroring is louder than one returning zero, because zero can be
+    # honest and an error never is.
+    failed = [r for r in boards.values() if r["runs"] and not r["runs"][-1]["ok"]]
+    silent = [r for r in boards.values()
+              if len(r["runs"]) >= 3 and all(x["n"] == 0 and x["ok"] for x in r["runs"][-3:])]
+    print("\nBoard health: %d boards tracked, %d failed this run, %d returning 0 for 3+ runs"
+          % (len(boards), len(failed), len(silent)))
+    for label, group in (("FAILED", failed), ("SILENT", silent)):
+        for r in sorted(group, key=lambda x: x["company"])[:25]:
+            print("  %-6s %-30s %-16s last=%s" % (label, r["company"][:30], r["ats"],
+                                                  r["runs"][-1]["n"]))
+        if len(group) > 25:
+            print("  %-6s ...and %d more" % (label, len(group) - 25))
+
+
 def reconcile_closed(board_results, apply=False):
     """Mark jobs that have vanished from their own board as closed. Returns (closed, considered).
 
@@ -5667,7 +5820,14 @@ def main():
         if not keep:
             tally["off-target function title" if why.startswith("off-target")
                   else "no matching role keyword"] += 1
-        elif US_ONLY and not is_us_location(j.get("location", "")):
+        # WHEN THE LOCATION IS BLANK, ASK THE TITLE. is_us_location keeps an unknown location
+        # on purpose -- only 0.8% of the corpus has none, and dropping them would lose real US
+        # jobs from Uber, Synopsys and McKinsey, whose boards simply do not publish one. But a
+        # blank location does not mean the posting is silent about where it is: "Data Analyst
+        # (Remote, India)" arrived with an empty location field and the country in its title,
+        # and sailed straight through. It is a VETO ONLY -- see title_says_non_us.
+        elif US_ONLY and (not is_us_location(j.get("location", ""))
+                          or title_says_non_us(j.get("title", ""))):
             keep, why = False, "non-US location (%s)" % (j.get("location") or "n/a")
             tally["non-US location"] += 1
         if VERBOSE:
@@ -5790,6 +5950,21 @@ def main():
                 print(f"Marked {closed} posting(s) closed (rows kept; Saved/Applied unaffected).")
         except Exception as e:
             print("  (closed-posting check errored, scrape unaffected: %s)" % str(e)[:120])
+
+    # PER-BOARD HEALTH, PERSISTED. Until now the only record that a board returned nothing was
+    # a line of stdout: scrape_status holds a single overwritten row, the cPanel cron log is
+    # truncated at 5 MB, and Actions logs expire in 90 days. So "is every company still being
+    # scraped?" could not be answered without re-running the whole sweep, and a board that
+    # quietly went to zero looked exactly like a board that had no new jobs.
+    #
+    # Stored as a keyed blob in scrape_status rather than a new table, deliberately: there is no
+    # DDL path from the scraper to the database (the proxy allowlists tables, and the cPanel
+    # Postgres takes schema changes by hand), and this needs to work on the next run, not after
+    # a migration.
+    try:
+        save_board_health(board_results)
+    except Exception as e:
+        print("  (board health not saved, scrape unaffected: %s)" % str(e)[:120])
 
     # Any board that stopped at its paging cap rather than running out of results. Printed
     # BEFORE the new-jobs list so it can't scroll off the end of a long run's output.

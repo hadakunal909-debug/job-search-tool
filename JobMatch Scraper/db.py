@@ -500,7 +500,7 @@ with the feature dormant it keeps the narrow existing_urls() path and costs noth
 COLS_VERIFY = "url,posted_verified,posted_confidence,found_date"
 """scraper.verify_dates._candidates — reads exactly these four (verify_dates.py:132-145)."""
 
-COLS_SCORE = ("url,found_date,location,first_seen,"
+COLS_SCORE = ("url,found_date,location,first_seen,match_score,"
               "loc_state,loc_metro,remote,salary_min,salary_max,salary_period,"
               "exp_max_years,sponsor_jd,sponsor_reason")
 """scraper.score_jobs in new-only mode. The first four are read directly; the last NINE exist
@@ -2310,12 +2310,97 @@ def insert_events(rows):
     # the batch makes it reject the whole batch rather than defaulting that column.
     keys = sorted({k for r in rows for k in r})
     payload = [{k: r.get(k) for k in keys} for r in rows]
+    body = json.dumps(payload)
+    ok, why = _post_events(body)
+    if ok:
+        return True
+    # SELF-HEAL, ONCE. The migration to cPanel copied 13,293 rows with their ids and never
+    # advanced events_id_seq, so every insert since collided with events_pkey and this function
+    # -- which swallows failures so analytics can never break a request -- hid a three-day
+    # outage. A duplicate key here means the sequence is behind the data, and that is repairable
+    # without a human: advance it and retry the same batch.
+    if _seq_repair_once(why):
+        ok, why = _post_events(body)
+        if ok:
+            return True
+    _note_event_failure(why)
+    return False
+
+
+_events_failures = 0
+_events_last_error = ""
+_events_seq_repaired = False
+
+
+def _post_events(body):
+    """(ok, reason). Split out so the retry below posts byte-identical bytes."""
     try:
         resp = _http.post(_rest(EVENTS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
-                          data=json.dumps(payload), timeout=15)
-        return resp.status_code < 400
-    except Exception:
+                          data=body, timeout=15)
+        if resp.status_code < 400:
+            return True, ""
+        return False, (resp.text or "")[:300]
+    except Exception as e:
+        return False, str(e)[:300]
+
+
+def _seq_repair_once(why):
+    """True if a sequence repair was just performed and the caller should retry.
+
+    Gated on the error text AND on the direct-Postgres transport: pgrest.Session is the only
+    backend with a repair_sequences(), and a process reaching the database through the HTTP
+    proxy has no business rewriting sequence state on the far side.
+    """
+    global _events_seq_repaired
+    if _events_seq_repaired or not PG_DSN:
         return False
+    low = (why or "").lower()
+    if "duplicate key" not in low and "unique constraint" not in low:
+        return False
+    _events_seq_repaired = True
+    try:
+        fixed = _http.repair_sequences()
+    except Exception as e:
+        print("events: sequence repair failed: %s" % str(e)[:200], file=sys.stderr)
+        return False
+    print("events: id sequence was behind the data; repaired %s"
+          % ", ".join("%s.%s->%s" % f for f in fixed), file=sys.stderr)
+    return True
+
+
+def _note_event_failure(why):
+    """Count it, and say it ONCE. Silence is what made this cost three days."""
+    global _events_failures, _events_last_error
+    _events_failures += 1
+    _events_last_error = why or "unknown"
+    if _events_failures == 1:
+        print("events: insert failed, analytics will be incomplete: %s" % _events_last_error,
+              file=sys.stderr)
+
+
+def newest_event_ts():
+    """The most recent event's timestamp, or "".
+
+    A one-row ordered select, NOT _fetch_all — that helper overwrites `limit` with its 1000-row
+    page size and would walk the whole events table to answer a question about one row.
+    """
+    if not using_supabase():
+        return ""
+    try:
+        r = _http.get(_rest(EVENTS_TABLE), headers=_headers(),
+                      params={"select": "ts", "order": "ts.desc", "limit": 1}, timeout=15)
+        if r.status_code >= 400:
+            return ""
+        rows = r.json() or []
+        return (rows[0].get("ts") or "") if rows else ""
+    except Exception:
+        return ""
+
+
+def events_health():
+    """{failures, last_error, seq_repaired} for /admin/health.json."""
+    return {"failures": _events_failures, "last_error": _events_last_error,
+            "seq_repaired": _events_seq_repaired}
 
 
 def ev_usage(days=7):

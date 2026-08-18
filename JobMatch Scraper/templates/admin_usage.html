@@ -8,7 +8,7 @@
 {# ---- tracked behaviour (needs the events migration) ---- #}
 {% if not ev.have %}
 <div class="banner">
-  <b>Usage tracking isn't switched on yet.</b> Run <code>{{ ev.sql_file }}</code> in Supabase →
+  <b>Usage tracking isn't switched on yet.</b> Run <code>{{ ev.sql_file }}</code> against the database →
   SQL Editor. Everything below still works, because it is derived from data the app already stores,
   but the funnel, filter adoption and dead-route detection need event history, and that
   <b>starts the day you run it</b>. It can't be backfilled.

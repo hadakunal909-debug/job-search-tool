@@ -77,7 +77,16 @@ FILES = [
 # had to carry it. Listed as optional rather than required only so a build without it still
 # produces a bundle — the site runs fine, it just cannot score.
 OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "visa_tags.json",
-                  "resume.txt"]
+                  "resume.txt",
+                  # company -> verified domain, built by scripts/build_company_domains.py. The
+                  # app degrades to guessing a domain from the company name without it, which is
+                  # what shipped before and is wrong for 22% of companies. Optional in the same
+                  # sense as the rest: absent file, old behaviour, no crash.
+                  "company_domains.json",
+                  # raw match_score -> the 0-100 number a person reads (core.calibrate_score).
+                  # Absent, core falls back to the frozen anchors compiled into core.py, which
+                  # are the same curve — so this file is an update mechanism, not a dependency.
+                  "score_calibration.json"]
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
