@@ -64,6 +64,8 @@ FILES = [
     # imports dbproxy unconditionally, so a bundle without them is a site that ImportErrors
     # on the first request. The check below caught exactly that and refused to build.
     "pgrest.py", "dbproxy.py",
+    # read-only cPanel UAPI client; web.py imports it for the admin panel's host figures
+    "cpanelapi.py",
     "requirements-cpanel.txt", "idf.json", "careers_us.md", "sponsors.txt",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
@@ -82,11 +84,7 @@ OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "v
                   # app degrades to guessing a domain from the company name without it, which is
                   # what shipped before and is wrong for 22% of companies. Optional in the same
                   # sense as the rest: absent file, old behaviour, no crash.
-                  "company_domains.json",
-                  # raw match_score -> the 0-100 number a person reads (core.calibrate_score).
-                  # Absent, core falls back to the frozen anchors compiled into core.py, which
-                  # are the same curve — so this file is an update mechanism, not a dependency.
-                  "score_calibration.json"]
+                  "company_domains.json"]
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
