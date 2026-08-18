@@ -366,7 +366,11 @@
   // host is also better than four over HTTP/2, which multiplexes on a single connection.
   //
   // Mirrored in templates/company.html for the employer page. Keep the two in step.
-  var LOGO_BASE = "https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&size=64&url=http://";
+  // THE URL IS RESOLVED SERVER-SIDE NOW. It used to be built here from j.logo_domain, with the
+  // identical literal hand-copied into templates/company.html and templates/job.html — three
+  // copies to keep in step, and swapping the provider meant editing all three plus the CSP.
+  // web.py::logosrc/logofavicon own it; the row carries j.logo_src and j.logo_fallback, and
+  // wireLogoFallback below walks from one to the other to the letter tile.
 
   function wireLogoFallback(img) {
     if (!img || img.getAttribute("data-fb-wired")) return;
@@ -380,7 +384,10 @@
     if (img.complete && img.naturalWidth === 0) fail();
   }
   function wireLogos(root) {
-    var imgs = (root || feed).querySelectorAll(".logo-img");
+    // DOCUMENT, not `feed`. The company page's header tile and its employer modal are both
+    // outside the feed container, so they were never given a fallback at all — a failed logo
+    // there stayed a white square over the letter. wireLogoFallback is idempotent.
+    var imgs = (root || document).querySelectorAll(".logo-img");
     for (var i = 0; i < imgs.length; i++) wireLogoFallback(imgs[i]);
   }
 
@@ -509,7 +516,8 @@
       // paint containment that makes a long grid cheap to scroll would have clipped it.
       '<div class="cardtop">' +
         '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
-          '<img class="logo-img" src="' + LOGO_BASE + H(j.logo_domain) +
+          '<img class="logo-img" src="' + H(j.logo_src || "") +
+          '" data-fallback="' + H(j.logo_fallback || "") +
           '" alt="" width="42" height="42" loading="lazy"></div>' +
         newFlag +
         scoreCell(j) +

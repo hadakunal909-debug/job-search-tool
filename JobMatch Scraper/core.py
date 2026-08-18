@@ -402,6 +402,84 @@ def skill_match(resume_text, jd_text, idf=None):
     return score_against((resume_text or "").lower(), analyze_jd(jd_text, idf))
 
 
+# ---- the display scale ---------------------------------------------------------------------
+# score_against() answers "what share of THIS JD's weighted keywords does the resume contain",
+# and that number is structurally bounded: a full job description names far more terms than any
+# one resume carries, so nothing in a 22,424-row corpus ever scored above 69 and the mode sat at
+# 30-39. The default floor of 45 was therefore cutting through the middle of the distribution
+# rather than skimming its top -- 94.3% of the corpus fell below it, so a feed that ingested
+# 300-1,800 new rows a day showed 30-40 of them, and lowering the floor by five points changed
+# the answer by a factor of three. A control that twitchy is not a control.
+#
+# So the raw coverage stays in jobs.match_score (nothing is lost, and this is reversible), and
+# what a person READS is mapped through the curve below: the observed percentile of that raw
+# value across the corpus, pinned to 0 at the bottom. "72" now means "a better keyword match
+# than 72% of the open roles we track", which is the question being asked.
+#
+# ANCHORS ARE FROZEN, NOT RECOMPUTED PER CORPUS. A percentile recalculated live would keep
+# exactly 30% of the feed above any given floor forever -- a genuinely good week and a genuinely
+# bad one would look identical, and the number could never say "there is nothing for you today".
+# Rebuild them deliberately with scripts/build_score_calibration.py when the corpus or the
+# resume changes shape.
+SCORE_CALIBRATION_PATH = "score_calibration.json"
+
+# (raw, display). Measured 2026-08-18 over 22,424 scored rows. Monotone by construction.
+#
+# THE TAIL IS DELIBERATELY NOT THE PERCENTILE. Above raw 45 the percentile is already 94 and it
+# reaches 100 by raw 55, so a pure percentile curve maps every strong match to the same 100 --
+# and since the feed sorts on this number, the top of a user's feed became a wall of identical
+# 100s with the ranking between them destroyed. Measured on a real account: 40 of the top 40
+# rows read 100. So the last stretch is spread by hand instead, giving the best matches room to
+# differ from each other while still reading as near-perfect.
+_SCORE_ANCHORS_DEFAULT = [(0, 0), (5, 16), (10, 19), (15, 23), (20, 29), (25, 41), (30, 57),
+                          (35, 73), (40, 86), (45, 92), (50, 96), (55, 97), (60, 98),
+                          (65, 99), (75, 100)]
+_score_anchors = None
+
+
+def load_score_anchors(path=SCORE_CALIBRATION_PATH):
+    """The calibration curve, from disk if it is there, else the frozen defaults above.
+
+    Never raises and never returns something non-monotone: a broken file would otherwise make
+    a higher raw score display LOWER than a smaller one, which is worse than no calibration.
+    """
+    global _score_anchors
+    if _score_anchors is not None:
+        return _score_anchors
+    anchors = None
+    if os.path.exists(path):
+        try:
+            raw = json.load(open(path, encoding="utf-8"))
+            pairs = [(float(a), float(b)) for a, b in (raw.get("anchors") or [])]
+            xs = [a for a, _ in pairs]
+            ys = [b for _, b in pairs]
+            if len(pairs) >= 2 and xs == sorted(xs) and ys == sorted(ys):
+                anchors = pairs
+        except Exception:
+            anchors = None
+    _score_anchors = anchors or [(float(a), float(b)) for a, b in _SCORE_ANCHORS_DEFAULT]
+    return _score_anchors
+
+
+def calibrate_score(raw, path=SCORE_CALIBRATION_PATH):
+    """Raw keyword coverage -> the 0-100 number a person sees. Monotone, so every sort that
+    ranked by the raw score still ranks identically."""
+    if raw is None:
+        return 0
+    try:
+        x = float(raw)
+    except (TypeError, ValueError):
+        return 0
+    pts = load_score_anchors(path)
+    if x <= pts[0][0]:
+        return int(pts[0][1])
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x <= x1:
+            span = (x1 - x0) or 1.0
+            return int(round(y0 + (y1 - y0) * (x - x0) / span))
+    return int(pts[-1][1])
+
+
 # ---- precomputed per-job metadata (jdmeta.json) -------------------------------------------
 # Everything about a job that's the SAME for every user (depends only on the JD text + idf):
 # the analyzed keyword/weight structure, the experience floor + level, and the sponsorship
@@ -1596,8 +1674,19 @@ def posting_key(title, company, location, require_location=False):
 # are the saved answers — one shape, used both to seed the feed's controls and to decide what
 # lands in the email digest, so the two can never mean different things by "my search".
 # ------------------------------------------------------------
+# THE SCALE VERSION of the `min` floor below. Bumped when calibrate_score's meaning changes,
+# which invalidates every stored floor: a saved 45 meant "raw coverage >= 45" (the top 5.7% of
+# the corpus) and on the calibrated scale the same five characters mean the top 55%. Rather than
+# reinterpret a number whose meaning moved, normalize_prefs resets any pre-v2 floor to the
+# default below and stamps it — see the migration there.
+MIN_SCALE = 2
+
 DEFAULT_PREFS = {
-    "min": 45,            # minimum match %
+    # On the CALIBRATED scale (see calibrate_score): "a better keyword match than 70% of the
+    # roles we track", which is raw coverage of about 34. The old default of 45 was on the raw
+    # scale and admitted 5.7% of the corpus -- 30-40 jobs a day out of 300-1,800 ingested.
+    "min": 70,            # minimum match %
+    "min_scale": MIN_SCALE,
     "loc": "",            # metro / city / 2-letter state / "remote"
     "remote": False,
     "minsal": 0,          # annualized floor; 0 = any
@@ -1660,6 +1749,24 @@ def normalize_prefs(raw):
     if not isinstance(raw, dict):
         return out
 
+    # SCALE MIGRATION, ONCE PER PROFILE. A dict that carries a `min` but no `min_scale` was
+    # written before calibrate_score existed, so its floor is on the raw-coverage scale and
+    # cannot be compared with a calibrated score. Reset it to the current default rather than
+    # translating it: translating would faithfully preserve a floor that was showing 30-40 jobs
+    # a day, which is the problem being fixed.
+    #
+    # Safe against clobbering a live slider move because every save path merges over
+    # _user_prefs(), whose output has already been through here and so carries min_scale.
+    # ZERO IS SCALE-INVARIANT and must survive. "No floor at all" means the same thing on
+    # every scale, and it is the value the digest fixtures and any user who deliberately turned
+    # the filter off are holding. Remapping it to 70 would silently switch a filter back on.
+    try:
+        _stored_min = int(float(str(raw.get("min")).strip() or 0))
+    except (TypeError, ValueError):
+        _stored_min = 0
+    stale_scale = ("min" in raw and _stored_min > 0
+                   and int(raw.get("min_scale") or 1) < MIN_SCALE)
+
     for key, default in DEFAULT_PREFS.items():
         if key not in raw or raw[key] is None:
             continue
@@ -1679,6 +1786,10 @@ def normalize_prefs(raw):
                 out[key] = s
         else:
             out[key] = str(v).strip()[:80]
+    if stale_scale:
+        out["min"] = DEFAULT_PREFS["min"]
+        out["alert_min"] = 0          # also a raw-scale floor; 0 means "use min"
+    out["min_scale"] = MIN_SCALE
     out["min"] = min(out["min"], 100)
     # Migrate the retired "E-Verify only" checkbox onto the visa-tag filter. The clear is
     # load-bearing: save_prefs merges the posted body over the stored dict, so a browser
@@ -1804,7 +1915,10 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
         "visa": vtags,
         "title": job.get("title") or "", "company": company,
         "url": job.get("url") or "", "location": job.get("location") or "",
-        "score": score,
+        # CALIBRATED, exactly as web._build_row does it, because prefs_match below compares
+        # this against the saved `min` floor -- which is now on the calibrated scale. Comparing
+        # a raw score against a calibrated floor would email almost nothing.
+        "score": calibrate_score(score),
         "loc_state": job.get("loc_state") or loc["state"],
         "loc_metro": job.get("loc_metro") or loc["metro"],
         "remote": bool(job.get("remote")) or loc["remote"],

@@ -278,12 +278,34 @@ function collectAtsCandidates() {
   return Array.from(out).slice(0, 10);
 }
 
+// IS THIS BUILD STALE? Chrome only auto-updates extensions installed from the Web Store, and
+// this one is loaded unpacked, so there is nothing to hook. The app knows what version its
+// /api/ext/* contract expects; asking it costs one unauthenticated GET and turns a silent
+// mismatch -- forms filling wrongly, endpoints 404ing -- into a sentence.
+//
+// Failure here is ALWAYS silent: an old app with no /api/ext/version, an offline laptop, or a
+// changed host must never stop the popup from working.
+async function checkVersion(apibase) {
+  try {
+    const mine = chrome.runtime.getManifest().version;
+    const r = await fetch(apibase + "/api/ext/version?v=" + encodeURIComponent(mine),
+                          { cache: "no-store" });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d || !d.stale) return;
+    document.getElementById("stalemsg").textContent =
+      "You have " + mine + "; the app expects " + d.min_version + ". " + (d.how || "");
+    document.getElementById("stalewrap").style.display = "block";
+  } catch (e) { /* never block the popup on a version check */ }
+}
+
 async function init() {
   const saved = await get(["token", "apibase"]);
   cfg = Object.assign(cfg, saved);
   cfg.apibase = jmApiBase(cfg.apibase);
   if (cfg.apibase !== saved.apibase) await set({ apibase: cfg.apibase });  // heal the moved app URL
   $("apibase").value = cfg.apibase;
+  checkVersion(cfg.apibase);            // fire and forget; never awaited
   if (cfg.token) {
     $("setup").style.display = "none";
     $("main").style.display = "block";

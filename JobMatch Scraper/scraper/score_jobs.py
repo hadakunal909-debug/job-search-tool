@@ -1316,7 +1316,7 @@ def _jd_corpus(all_urls, full):
     return dict(cache), (set(all_urls) if full else all_urls - set(cache)), db_missing
 
 
-def _new_only_targets(known_urls, fetched):
+def _new_only_targets(known_urls, fetched, unscored=()):
     """URLs worth (re)scoring when we're not doing the whole corpus.
 
     A stored job's score can only move for three reasons: its JD changed, the résumé
@@ -1326,6 +1326,15 @@ def _new_only_targets(known_urls, fetched):
 
     `known_urls` is every url we hold a row for. It used to be the JD map, which is no longer
     loaded in new-only mode — the set of urls is all this ever needed from it.
+
+    `unscored` closes a hole that stranded rows permanently. This function used to look only at
+    what THIS run touched, on the stated grounds that the daily full pass catches everything
+    else. But a run that ingests more than SCORE_MAX_FETCH rows (843 and 1,833 on two days this
+    month, against a cap of 400 on cPanel) leaves the excess with a NULL match_score, and those
+    rows are in neither set — not fetched this run, and gone from last_new_jobs.json the moment
+    the next sweep overwrites it. The full pass that was supposed to sweep them up runs only in
+    the GitHub Actions job, which had been failing for four days, so 729 rows sat unscored and
+    therefore invisible to the feed's match filter no matter where the floor was set.
     """
     targets = set(fetched)                        # JDs that landed this run
     try:                                          # ...plus the postings this run added
@@ -1333,6 +1342,7 @@ def _new_only_targets(known_urls, fetched):
             targets.update(j.get("url") for j in (json.load(fh) or []) if j.get("url"))
     except Exception:
         pass                                      # no breadcrumb (manual run) -> just the JDs
+    targets.update(unscored)                      # ...plus anything a past run left unscored
     return targets & set(known_urls)              # never score a URL we hold no row for
 
 
@@ -1668,7 +1678,11 @@ def main():
         core.save_idf(idf)
     # Which jobs get re-analyzed. The full pass does all of them (and so also picks up résumé
     # edits since last run); new-only does just what this run pulled.
-    todo = _new_only_targets(all_urls, fetched) if new_only else set(row_jd)
+    # A stored score of NULL means no run has ever scored this row -- see _new_only_targets.
+    unscored = {r["url"] for r in rows if r.get("url") and r.get("match_score") is None}
+    if new_only and unscored:
+        print("Picking up %d row(s) a previous run left unscored." % len(unscored))
+    todo = _new_only_targets(all_urls, fetched, unscored) if new_only else set(row_jd)
     # New-only mode never read the jd column, so pull the text for just these rows. JDs this
     # run fetched itself are already in row_jd from the phase above; the on-disk corpus covers
     # most of the rest, so only genuinely-unseen rows cost a request.

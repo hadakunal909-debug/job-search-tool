@@ -13,11 +13,11 @@
 
   <div class="cohead">
     <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
-      {# Straight to gstatic, not through www.google.com/s2/favicons, which only 301-redirects
-         here and whose redirect caches for 30 minutes while the image caches for 7 days.
-         Mirrors LOGO_BASE in static/app.js; the reasoning is written up there. #}
+      {# web.py::logosrc owns the provider and the fallback order; jobpage.js/app.js walk the
+         chain on error. This used to carry a hand-copied gstatic literal. #}
       <img class="logo-img" alt="" loading="lazy"
-           src="https://t0.gstatic.com/faviconV2?client=SOCIAL&amp;type=FAVICON&amp;fallback_opts=TYPE,SIZE,URL&amp;size=64&amp;url=http://{{ info.logo_domain }}"></div>
+           src="{{ info.logo_domain | logosrc }}"
+           data-fallback="{{ info.logo_domain | logofavicon }}"></div>
     <div class="cohead-main">
       <h1>{{ info.name }}</h1>
       <div class="cosub">
@@ -48,7 +48,12 @@
 <div class="modal-overlay" id="comodal">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cotitle">
     <div class="modal-head">
-      <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}</div>
+      {# The <img> was missing here entirely, so this header was a letter tile even when the
+         employer's logo resolved fine two inches above it. #}
+      <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
+        <img class="logo-img" alt="" loading="lazy"
+             src="{{ info.logo_domain | logosrc }}"
+             data-fallback="{{ info.logo_domain | logofavicon }}"></div>
       <div class="u-grow-min">
         <h2 id="cotitle">{{ info.name }}</h2>
         <div class="cmeta">{{ info.n }} open role{{ '' if info.n == 1 else 's' }} in your feed</div>

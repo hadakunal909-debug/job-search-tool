@@ -12,10 +12,15 @@ name: python tests
 #
 # EVERY suite listed below was verified to run with the network physically blocked (sockets
 # patched to raise) and no .env present, which is what a CI runner looks like. Three suites are
-# deliberately NOT here — test_prefs.py, test_saved_search.py and test_ext_contract.py need a
-# live Supabase. test_ext_contract.py is the important one: without credentials it prints
-# "No accounts; nothing to test against" and exits 0, so running it in CI would add a green tick
-# that proves nothing.
+# deliberately NOT here — test_prefs.py and test_saved_search.py need a live database.
+#
+# test_ext_contract.py USED to be excluded for the same reason, and that was the wrong call: it
+# guards the eleven /api/ext/* routes the Chrome extension depends on, and nothing else does,
+# so a _cors() or OPTIONS refactor could ship green and surface days later as "the extension
+# stopped working". It was excluded because with no credentials it printed "No accounts" and
+# exited 0 — a green tick that proved nothing. It now runs its data-free half instead (route
+# registration, token rejection, the version endpoint, CORS preflight), none of which needs a
+# database, and skips only the response-shape section that genuinely does.
 
 on:
   push:
@@ -92,7 +97,8 @@ jobs:
           set -e
           for t in test_contrast test_visa test_paylocity test_peoplesoft test_jdrender \
                    test_search_and_similar test_job_page test_onboarding test_notify \
-                   test_jobs_cache test_pgrest test_dbproxy test_transport; do
+                   test_jobs_cache test_pgrest test_dbproxy test_transport \
+                   test_ext_contract; do
             echo "::group::$t"
             python "scripts/$t.py"
             echo "::endgroup::"

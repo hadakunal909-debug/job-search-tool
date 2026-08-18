@@ -37,7 +37,7 @@
   <div class="jobhead">
     <div class="logo" style="background:{{ row.logo_color }}">{{ row.initial }}
       <img class="logo-img" alt="" loading="lazy" width="56" height="56"
-           src="https://t0.gstatic.com/faviconV2?client=SOCIAL&amp;type=FAVICON&amp;fallback_opts=TYPE,SIZE,URL&amp;size=64&amp;url=http://{{ row.logo_domain }}"></div>
+           src="{{ row.logo_src }}" data-fallback="{{ row.logo_fallback }}"></div>
     <div class="u-grow-min">
       <h1>{{ row.title }}</h1>
       {# The date is rendered SERVER-side and absolutely. formatDates() lives in app.js, which this
