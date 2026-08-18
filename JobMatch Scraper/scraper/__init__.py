@@ -1320,11 +1320,15 @@ SF_BOARDS = [
     #
     # Rows each ACTUALLY contributes, measured 2026-08-16 through the same US + title filters
     # main() applies, against what Adzuna was contributing for the same employer:
-    #   Capgemini  211 rows  vs  19 via Adzuna     (from 981 scraped)
-    #   EY          19 rows  vs  46 via Adzuna     (from 152 scraped)
-    # EY is a DECREASE in count and was kept anyway, because 19 rows with a real description and
+    #   Capgemini  161 rows  vs  19 via Adzuna     (from 602 scraped)
+    #   EY          18 rows  vs  46 via Adzuna     (from 148 scraped)
+    # EY is a DECREASE in count and was kept anyway, because 18 rows with a real description and
     # an apply form beat 46 that link to an aggregator redirect and can never hold a JD. Count is
     # the wrong axis; that was Adzuna's whole problem.
+    #
+    # Capgemini's board is also what exposed the two-letter-country-code hole in _csb_is_us —
+    # 30% of its "US" rows were Morocco, Canada and Argentina. Read that fix before assuming a
+    # new CSB tenant's location strings mean what they look like.
     #
     # Two were probed and REJECTED, and both rejections are the same lesson:
     #   PwC        careers.pwc.com answers probe_board with 30 and scrape_successfactors with 0.
@@ -3316,7 +3320,7 @@ def _csb_is_us(loc):
     nothing after the code, which is byte-for-byte the 'City, ST' shape the exception exists to
     keep — so Morocco read as Massachusetts and Argentina as Arkansas, and 157 of that board's
     516 supposedly-US rows (30%) were foreign. A named city outranks an ambiguous code."""
-    if _NON_US_RE.search((loc or "").lower()):
+    if _NON_US_RE.search(_fold(loc)):
         return False
     toks = [t.strip().upper() for t in (loc or "").split(",") if t.strip()]
     if "US" in toks or "USA" in toks:
@@ -3632,6 +3636,35 @@ def _jobdiva_pages(token, jh):
         time.sleep(random.uniform(0.15, 0.35))
     else:
         note_truncation("jobdiva:%s" % str(token)[:20], frm, JOBDIVA_MAX_JOBS, total)
+
+
+def jobdiva_job_detail(jid, jh):
+    """One JobDiva posting's FULL description HTML, or "" — job/getdetailbyjobid/<id>.
+
+    The listall/getmore feed that scrape_jobdiva walks truncates jobDescription at 400
+    characters and appends "...", which is how 352 rows came to hold either a 63-character
+    "You need to enable JavaScript to run this app." shell or a teaser cut off mid-word.
+    Measured on the eTeam portal: 196 of 200 feed rows were EXACTLY 403 characters, while
+    this endpoint returns 561-3,366 (median 2,076) for the same postings.
+
+    403 is the dangerous number — three characters above core._MIN_JD_CHARS, so a truncated
+    teaser does not read as thin and nothing would ever retry it. Hence the full text is
+    fetched per job rather than taken from the feed.
+
+    The path form matters: getdetailbyjobid takes the id as a PATH SEGMENT (?jobid= 404s),
+    and the description is under the "job" key, not "data". Both were found by reading the
+    portal's own index_bundle.js. 404 means the posting has closed.
+    """
+    if not (jid and jh):
+        return ""
+    try:
+        r = SESSION.get(JOBDIVA_API + "job/getdetailbyjobid/%s?compid=" % jid,
+                        headers=jh, timeout=20)
+        if r.status_code != 200:
+            return ""
+        return ((r.json() or {}).get("job") or {}).get("jobDescription") or ""
+    except Exception:
+        return ""
 
 
 def scrape_jobdiva(board_url):
@@ -4856,11 +4889,24 @@ _NON_US_RE = re.compile(
                                     key=len, reverse=True)))
 
 
+def _fold(loc):
+    """Lowercased and stripped of accents, for matching against NON_US.
+
+    The list is written in ASCII and the boards are not: EY publishes 'Medellín, Antioquía, CO'
+    and 'medellin' does not match it, so the row fell through to the alpha-2 test and Colombia
+    read as Colorado. Folding here rather than adding accented spellings to the list, because
+    the accented forms are open-ended (Medellín, Bogotá, São Paulo, México, Málaga, Kraków…) and
+    a list you have to remember to double is a list that will be wrong again."""
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", (loc or "").lower())
+                   if not unicodedata.combining(c))
+
+
 def is_us_location(loc):
     """Heuristic: True if the location looks US-based. Unknown/blank -> kept."""
     if not loc:
         return True
-    low = loc.lower()
+    low = _fold(loc)                                # accent-folded: see _fold's docstring
     if re.search(r"\b\d+\s+locations?\b|multiple locations?", low):
         return True                                 # bare 'N Locations' count -> unknown, keep
     if _NON_US_RE.search(low):                      # explicit non-US signal -> drop

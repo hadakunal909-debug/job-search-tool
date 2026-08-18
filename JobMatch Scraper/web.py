@@ -838,6 +838,32 @@ _INTERN_RE = re.compile(
     r"\b(?:intern(?:s|ship|ships)?|co[-\s]?ops?|summer analyst|summer associate)\b", re.I)
 
 
+_JD_VERDICT_KEY = "jd_host_verdicts"
+_jd_blocked_hosts = None
+
+
+def _host_jd_blocked(url):
+    """True when this URL's host has been PROVED unreadable server-side.
+
+    Read from the jd_host_verdicts KV row that scripts/close_dead_jds.py writes after probing,
+    not guessed here: the distinction between "we have not fetched this yet" and "this host
+    refuses us" is a measurement, and putting a hostname list in the web layer would be a second
+    place for it to drift. Cached for the life of the worker — the verdict changes when someone
+    re-runs that script, not per request. Absent row -> nothing is blocked, i.e. today's copy.
+    """
+    global _jd_blocked_hosts
+    if _jd_blocked_hosts is None:
+        try:
+            hosts = (db.get_kv(_JD_VERDICT_KEY) or {}).get("hosts") or {}
+            _jd_blocked_hosts = {h for h, v in hosts.items()
+                                 if (v or {}).get("verdict") == "blocked"}
+        except Exception:
+            _jd_blocked_hosts = set()
+    if not _jd_blocked_hosts:
+        return False
+    return core.url_host(url) in _jd_blocked_hosts
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -891,7 +917,20 @@ def _build_row(j, score):
     # "JD pending" instead of a misleading number, and keep it at 0 so it sorts/filters low
     # rather than sitting at a fake ~100% on top of the feed. Read from the same analysis
     # user_scores scored against, so a card can't show a percentage AND call itself pending.
-    pending = bool(job_analysis(j).get("thin"))
+    # `or not _an`, and this is a second defect the badge work turned up. job_analysis returns
+    # {} when a row has no stored analysis at all, and {}.get("thin") is None — so the 521 rows
+    # with NO DESCRIPTION were falling through to a real score ring and rendering "0%". A job we
+    # cannot read is not a 0% match; it is unscoreable, and 0% is a false statement rather than a
+    # missing one. Measured before the change: jd_terms is NULL on exactly those 521 rows (2.37%)
+    # and every one of them already had match_score 0, so nothing else in the feed moves.
+    _an = job_analysis(j)
+    pending = bool(_an.get("thin")) or not _an
+    # "pending" and "will never arrive" are different facts and the feed used to conflate them.
+    # ~285 rows are real, open jobs on hosts that refuse every server-side read — Tesla behind
+    # Akamai, iCIMS behind an AWS WAF human-verification challenge — so telling the user "it'll
+    # get a match score once the full job description is fetched" is a promise that cannot be
+    # kept. scripts/close_dead_jds.py probes and records the per-host verdict; this reads it.
+    unavailable = pending and _host_jd_blocked(u)
     # Location: prefer the columns score_jobs derived (it had the JD, so its `remote` is
     # better informed), but fall back to parsing the raw string here so the "where" filter
     # works even before db.JOBS_DERIVED_SQL has been run. parse_location is memoized over
@@ -935,6 +974,7 @@ def _build_row(j, score):
             # "Added <x>", never as a posting date. "" until the migration has been run.
             "first_seen": str(j.get("first_seen") or "")[:10],
             "score": 0 if pending else score, "score_pending": pending,
+            "jd_unavailable": unavailable,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c),
             # Which immigration routes this employer has actually filed for (DOL LCA + PERM

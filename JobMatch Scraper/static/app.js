@@ -236,6 +236,12 @@
     // readers announced it. The tooltip carries the actual explanation.
     if (!HAS_RESUME)
       return '<span class="score-none" title="Add your résumé to see how well each job matches you. Until then there is nothing to compare against."></span>';
+    // Two different facts, and they were one chip until 2026-08-18. "pending" means we have not
+    // read the description YET; "unavailable" means this employer refuses every server-side read
+    // (Akamai, an AWS WAF challenge) so no run will ever change it. Promising a score that
+    // cannot arrive is worse than saying so.
+    if (j && j.jd_unavailable)
+      return '<span class="score-pending" title="This employer does not publish a description we can read, so this job cannot be scored against your r\u00e9sum\u00e9. Open the posting to read it.">No description</span>';
     if (j && j.score_pending)
       return '<span class="score-pending" title="This description is too short to score reliably yet. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);

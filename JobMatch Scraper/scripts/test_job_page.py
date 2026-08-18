@@ -30,6 +30,12 @@ LIVE = "https://boards.example.com/acme/1"
 DUPE_A = "https://boards.greenhouse.io/acme/jobs/77"      # aggregator host
 DUPE_B = "https://job-boards.greenhouse.io/acme/jobs/77"  # employer's own host
 GONE = "https://boards.example.com/acme/pruned"
+# Two rows with no usable description, and the page must NOT say the same thing about them.
+# PENDING has simply not been fetched yet; BLOCKED is on a host that refuses every server-side
+# read (Tesla behind Akamai, iCIMS behind an AWS WAF challenge), so no future run changes it and
+# "it'll get a match score once the full job description is fetched" is a promise we cannot keep.
+PENDING = "https://boards.example.com/acme/pending"
+BLOCKED = "https://www.walled-example.com/careers/9"
 
 JD = ("About the Role\n"
       "Build and operate the payments service.\n\n"
@@ -51,6 +57,12 @@ JOBS = [
     {"url": DUPE_B, "title": "Data Engineer", "company": "Acme Corp",
      "location": "Boston, MA", "found_date": "2026-08-02", "match_score": 55,
      "is_active": True, "jd": JD, "sponsors_h1b": "", "first_seen": "2026-08-02"},
+    {"url": PENDING, "title": "Backend Engineer", "company": "Acme Corp",
+     "location": "Boston, MA", "found_date": "2026-08-05", "match_score": 0,
+     "is_active": True, "jd": "", "sponsors_h1b": "", "first_seen": "2026-08-05"},
+    {"url": BLOCKED, "title": "Inference Engineer", "company": "Walled Co",
+     "location": "Palo Alto, CA", "found_date": "2026-08-05", "match_score": 0,
+     "is_active": True, "jd": "", "sponsors_h1b": "", "first_seen": "2026-08-05"},
 ]
 
 # Keep this test off the network and off the database.
@@ -65,6 +77,8 @@ db.get_job_jd = lambda url: next((j["jd"] for j in JOBS if j["url"] == url), "")
 db.using_supabase = lambda: False          # so no research thread is ever started
 db.get_brain_company = lambda dom: {}
 db.list_brain_companies = lambda: {}
+# scripts/close_dead_jds.py records this after probing; _host_jd_blocked reads it and caches.
+web._jd_blocked_hosts = {"www.walled-example.com"}
 web._rows_cache.clear()
 
 EMITS = []
@@ -219,6 +233,32 @@ CASES = [
 for row, want in CASES:
     got = web._route_of(row)
     check("route(%s, %r)" % (row["sponsor_jd"] or "-", row["visa_likely"]), got == want, got)
+
+print()
+print("=" * 88)
+print("NO-DESCRIPTION STATES")
+print("=" * 88)
+r = get(PENDING)
+body = r.data.decode("utf-8", "replace")
+check("a pending row renders and says the description is too short",
+      r.status_code == 200 and "too short to score" in body, str(r.status_code))
+check("a pending row does NOT claim the employer publishes nothing",
+      "doesn" not in body.split("Profile Match")[-1][:400].replace("doesn't publish", "X"))
+
+r = get(BLOCKED)
+body = r.data.decode("utf-8", "replace")
+check("a blocked row renders", r.status_code == 200, str(r.status_code))
+check("a blocked row says the employer publishes nothing we can read",
+      "publish a description we can read" in body)
+check("a blocked row does NOT promise a score is coming",
+      "too short to score" not in body,
+      "that copy ends 'once the full job description is fetched' — it never will be")
+
+rows = {j["url"]: web._build_row(j, 0) for j in JOBS if j["url"] in (PENDING, BLOCKED)}
+check("jd_unavailable is set only for the walled host",
+      rows[BLOCKED]["jd_unavailable"] is True and rows[PENDING]["jd_unavailable"] is False)
+check("both are still score_pending, so neither shows a fake 0%",
+      rows[BLOCKED]["score_pending"] and rows[PENDING]["score_pending"])
 
 print()
 print("LIST COPY")
