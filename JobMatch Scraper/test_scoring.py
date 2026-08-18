@@ -39,18 +39,46 @@ def test_whole_word_matching_not_substring():
     score, have, missing = core.score_against("i maintain a large database", a)
     assert have == [] and missing == ["data"] and score == 0      # "data" is not inside "database"
     score2, have2, _ = core.score_against("i analyze data every day", a)
-    assert have2 == ["data"] and score2 == 100                    # real whole-word hit
+    # The SCORE here is capped at 16 by the one-term confidence rule (covered separately);
+    # what this test is about is which side of have/missing the term lands on.
+    assert have2 == ["data"] and score2 > 0                       # real whole-word hit
 
 
 def test_score_is_floored_never_rounds_up_to_100():
-    # Résumé covers the heavy term but misses a tiny one: 1000/1001 = 99.9% must read 99, not 100.
-    a = {"terms": ["alpha", "beta"], "weight": {"alpha": 1000.0, "beta": 1.0},
-         "total": 1001.0, "thin": False}
-    assert core.score_against("alpha only", a)[0] == 99
+    # Enough terms to clear the confidence cap, so this tests the FLOORING rule and nothing else.
+    # Résumé covers the heavy terms but misses a tiny one: 99.9% must read 99, never 100.
+    heavy = {t: 1000.0 for t in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta")}
+    heavy["tiny"] = 1.0
+    a = {"terms": list(heavy), "weight": heavy, "total": sum(heavy.values()), "thin": False}
+    assert core.score_against("alpha beta gamma delta epsilon zeta", a)[0] == 99
     # A genuine full sweep of every term may legitimately read 100.
-    b = {"terms": ["alpha", "beta"], "weight": {"alpha": 1.0, "beta": 1.0},
-         "total": 2.0, "thin": False}
-    assert core.score_against("alpha and beta present", b)[0] == 100
+    even = {t: 1.0 for t in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta")}
+    b = {"terms": list(even), "weight": even, "total": 6.0, "thin": False}
+    assert core.score_against("alpha beta gamma delta epsilon zeta", b)[0] == 100
+
+
+def test_a_posting_we_barely_read_cannot_claim_a_strong_match():
+    """The confidence cap. A "Senior Delivery Manager" whose analysis yielded ONE term scored
+    100% because the résumé held that term, and 9% of the live corpus was being judged on three
+    terms or fewer. The ceiling now rises with how much of the role we could actually read."""
+    one = {"terms": ["python"], "weight": {"python": 1.0}, "total": 1.0, "thin": False}
+    assert core.score_against("python", one)[0] == 16          # 1 of 6
+    three = {"terms": ["python", "sql", "aws"],
+             "weight": {"python": 1.0, "sql": 1.0, "aws": 1.0}, "total": 3.0, "thin": False}
+    assert core.score_against("python sql aws", three)[0] == 50   # 3 of 6
+    six = {t: 1.0 for t in ("python", "sql", "aws", "docker", "kafka", "spark")}
+    full = {"terms": list(six), "weight": six, "total": 6.0, "thin": False}
+    assert core.score_against("python sql aws docker kafka spark", full)[0] == 100
+
+
+def test_thin_scores_zero_but_still_reports_keywords():
+    """A JD we could not analyse scores 0 — but the keyword lists still come back, because the
+    job page's panel and the résumé tailorer both read them and "cannot score" is not "found
+    nothing"."""
+    a = core.analyze_jd("Python SQL")            # too short: thin
+    score, have, missing = core.score_against("python sql", a)
+    assert score == 0
+    assert have or missing
 
 
 def test_is_agency():

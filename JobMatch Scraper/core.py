@@ -371,7 +371,21 @@ def _term_present(t, resume_low, words):
     return t in words
 
 
-CORE_WEIGHT_FRACTION = 0.50
+# HOW MUCH OF A POSTING COUNTS AGAINST YOU. Raising this makes the score STRICTER, because a
+# wider set means more terms you have to actually hold; lowering it is what makes a score
+# flatter, since matching two or three headline words then carries everything.
+#
+# Measured over 21,176 live postings, scores at or above 70:
+#     0.30 -> 12.8%      too easy; three words buys a strong-looking match
+#     0.50 ->  3.6%
+#     0.70 ->  0.4%      <- here
+#     1.00 ->  0.0%      every term including the boilerplate; nothing is ever a good match
+#
+# 1.00 is the version this replaced, and its problem was not that it was strict but that it had
+# no top: an excellent match and an average one were fifteen points apart and NOTHING read well,
+# so the number could not tell you anything. 0.70 keeps the ceiling reachable in principle while
+# making it genuinely rare in practice.
+CORE_WEIGHT_FRACTION = 0.70
 
 
 def core_terms(analyzed):
@@ -385,11 +399,10 @@ def core_terms(analyzed):
     and a mediocre one were fifteen points apart at the bottom of a scale that never reached
     its own top.
 
-    Restricting to the heavy half asks the question a person actually means: OF THE SKILLS THIS
-    JOB EMPHASISES, how many do I have. It is stricter where it counts — a missing core skill
-    now costs real points instead of being diluted by forty pieces of boilerplate — and it lets
-    a true match read high honestly. Measured on the same 6,000 postings: median 34, and only
-    4.2% score 70 or more, 1.0% score 80 or more, 0.2% score 90 or more.
+    Restricting to the heavy part asks the question a person actually means: OF THE SKILLS THIS
+    JOB EMPHASISES, how many do I have. A missing core skill costs real points instead of being
+    diluted by forty pieces of boilerplate. Measured over 21,176 live postings at the current
+    fraction: median 34, and only 0.4% score 70 or more, 0.1% score 80 or more.
 
     Terms are already weighted by idf, x2.5 for a hard ATS skill and x1.6 for appearing in the
     requirements section (see analyze_jd), so "heaviest" already means "most role-defining".
@@ -399,11 +412,18 @@ def core_terms(analyzed):
     if not terms:
         return []
     goal = sum(weight.get(t, 0.0) for t in terms) * CORE_WEIGHT_FRACTION
+    ordered = sorted(terms, key=lambda x: -weight.get(x, 0.0))
     out, acc = [], 0.0
-    for t in sorted(terms, key=lambda x: -weight.get(x, 0.0)):
+    for t in ordered:
         out.append(t)
         acc += weight.get(t, 0.0)
-        if acc >= goal:
+        # NEVER JUDGE A POSTING ON A HANDFUL OF WORDS. One term can carry the whole weight goal
+        # when the analysis produced few terms or one dominates -- an ATS keyword is worth 2.5x
+        # and 1.6x again in the requirements section -- and the result was a "Senior Delivery
+        # Manager" reading 100% because the résumé held its single core term. 9% of postings were
+        # being scored on three terms or fewer. A minimum makes the denominator honest: you are
+        # measured against at least this many of the role's skills whenever it names that many.
+        if acc >= goal and len(out) >= min(_MIN_JD_TERMS, len(ordered)):
             break
     return out
 
@@ -432,6 +452,21 @@ def score_against(resume_low, analyzed):
     core_total = sum(weight[t] for t in core) or 1.0
     core_have = [t for t in core if _term_present(t, resume_low, words)]
     pct = 100.0 * sum(weight[t] for t in core_have) / core_total
+    # CONFIDENCE CAP. A posting we could only extract a few keywords from cannot support a
+    # strong claim about anybody: a "Senior Delivery Manager" whose analysis yielded ONE term
+    # read 100% because the résumé happened to hold that term, and 9% of the corpus was being
+    # judged on three terms or fewer. The ceiling rises with how much of the role we could
+    # actually read — one term tops out at 16, three at 50, six or more is uncapped — so a thin
+    # posting can still rank, it just cannot claim to be a strong match.
+    cap = 100 if len(core) >= _MIN_JD_TERMS else int(100.0 * len(core) / _MIN_JD_TERMS)
+    pct = min(pct, cap)
+    # A JD too short or too sparse to analyse scores 0 HERE rather than in each caller: the cron
+    # scorer already refused to score a thin analysis while the live per-user path in web.py did
+    # not, so one job could carry two different numbers depending which reached it first. The
+    # keyword lists are still returned — the job page's panel and the résumé tailorer both want
+    # them, and "we cannot score this" is not "we found nothing in it".
+    if analyzed.get("thin"):
+        return 0, have, missing
     score = int(pct)                 # floor: 99.6% stays 99, never a phantom round-up to 100
     # 100 REQUIRES A CLEAN SWEEP OF THE WHOLE JD, not just of the core terms. Covering every
     # core term is already the top fraction of a percent of postings and it earns 99; reserving
@@ -1654,8 +1689,10 @@ def posting_key(title, company, location, require_location=False):
 #   v2  the percentile of that value across the corpus. Briefly shipped, and wrong: it read as
 #       "you are 96% qualified" while it meant "this job ranks above 96% of the others", so
 #       ordinary matches displayed in the high nineties. Withdrawn.
-#   v3  coverage of the terms carrying the top half of the JD's weight — the skills the role
-#       actually emphasises. Absolute, not relative; 90+ is 0.2% of the corpus. See core_terms.
+#   v3  coverage of the terms carrying the heavy part of the JD's weight — the skills the role
+#       actually emphasises. Absolute, not relative, and deliberately hard: measured over 21,176
+#       live postings the best match in the whole corpus is 88, only 16 reach 80, and the median
+#       is 34. See core_terms, and the confidence cap in score_against.
 MIN_SCALE = 3
 
 DEFAULT_PREFS = {

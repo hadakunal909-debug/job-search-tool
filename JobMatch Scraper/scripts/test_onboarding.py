@@ -370,8 +370,12 @@ STUB_JOBS = [
      "match_score": 60 + (i % 20),
      # Weighted terms chosen to overlap RESUME_TEXT below, so the "with a résumé" case
      # scores > 0 through core.score_against rather than through the baseline fallback.
+     # SIX terms, not four: below core._MIN_JD_TERMS the confidence cap pins the score to
+     # 100*n/6, which put it at 66 and collided with one of the baselines above — making this
+     # check fail on a coincidence rather than on the behaviour it guards.
      "jd_terms": core.pack_analyzed({"weight": {"project": 10.0, "manager": 8.0,
-                                                "delivery": 6.0, "stakeholder": 4.0}})}
+                                                "delivery": 6.0, "stakeholder": 4.0,
+                                                "experience": 3.0, "years": 2.0}})}
     for i in range(150)
 ]
 RESUME_TEXT = "project manager with six years of delivery experience"
