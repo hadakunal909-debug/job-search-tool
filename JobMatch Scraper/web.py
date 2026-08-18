@@ -974,12 +974,7 @@ def _build_row(j, score):
             # field anywhere), so this is when the job first entered OUR database. Rendered as
             # "Added <x>", never as a posting date. "" until the migration has been run.
             "first_seen": str(j.get("first_seen") or "")[:10],
-            # CALIBRATED HERE AND NOWHERE ELSE. This is the single point every consumer of a
-            # feed score goes through -- _filter_rows compares it against the `min` floor, the
-            # score sort ranks by it (monotone, so the order is unchanged), and app.js::matches()
-            # reads this very field out of the JSON rather than computing its own. Calibrating
-            # before the twins means neither of them needs to know the scale exists.
-            "score": 0 if pending else core.calibrate_score(score), "score_pending": pending,
+            "score": 0 if pending else score, "score_pending": pending,
             "jd_unavailable": unavailable,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c),
@@ -3307,10 +3302,24 @@ def admin():
 
 
 # ---- /admin/data — storage, growth, health ----------------------------------
-# Supabase's free tier caps the database at 500 MB. Nothing in this app has ever measured its
-# own size, and the only retention is age-based (PRUNE_DAYS, applied on every scrape), never
-# size-triggered — so the first warning of a full database would have been writes failing.
-_FREE_TIER_BYTES = 500 * 1024 * 1024
+# THERE IS NO 500 MB CAP ANY MORE, and reporting one was worse than reporting nothing. That
+# number was Supabase's free tier; the database moved to Postgres on cPanel on 2026-08-15 and
+# the account's disk quota is UNLIMITED — measured through cpanelapi on 2026-08-18,
+# `megabyte_limit: "0.00"`, which is how cPanel spells "no limit". So the panel was showing 25%
+# of a ceiling that does not exist, and a projection of the date it would hit it.
+#
+# What CAN actually stop this account is inodes: 44,305 used of a 200,000 limit on the same
+# reading. That is a file count, so pruning old job rows does nothing for it, and nothing here
+# had ever looked at it. See cpanelapi.account_usage.
+#
+# DB_SIZE_BUDGET_MB is opt-in and unset by default. Some shared hosts do cap a database even
+# with unlimited disk; if yours does, set it and the growth projection aims at it again.
+_DB_SIZE_BUDGET_MB = 0
+try:
+    _DB_SIZE_BUDGET_MB = int(os.environ.get("DB_SIZE_BUDGET_MB") or 0)
+except (TypeError, ValueError):
+    _DB_SIZE_BUDGET_MB = 0
+_DB_SIZE_BUDGET_BYTES = _DB_SIZE_BUDGET_MB * 1024 * 1024
 _SIZE_HISTORY_KEY = "db_size_history"
 _SIZE_HISTORY_MAX = 90          # ~3 months of daily points; the blob stays a few KB
 
@@ -3381,18 +3390,45 @@ def _size_projection(samples):
         return {"state": "flat", "per_day_mb": per_day / 1048576.0,
                 "verdict": "Flat or shrinking. The %s-day prune is keeping up."
                            % os.environ.get("PRUNE_DAYS", "30")}
-    days_left = (_FREE_TIER_BYTES - cur) / per_day
+    rate = per_day / 1048576.0
+    # WITH NO BUDGET SET, REPORT THE RATE AND STOP. Inventing a ceiling to count down to is what
+    # the 500 MB version did, and the countdown was the most prominent number on the page.
+    if not _DB_SIZE_BUDGET_BYTES:
+        return {"state": "growing", "per_day_mb": rate, "days_left": None,
+                "verdict": "+%.1f MB/day · %.1f GB/year at this rate · disk is unlimited"
+                           % (rate, rate * 365 / 1024.0)}
+    days_left = (_DB_SIZE_BUDGET_BYTES - cur) / per_day
     if days_left <= 0:
-        return {"state": "over", "per_day_mb": per_day / 1048576.0,
-                "verdict": "Already over the 500 MB free-tier cap."}
+        return {"state": "over", "per_day_mb": rate, "days_left": 0,
+                "verdict": "Already over the %d MB budget you set." % _DB_SIZE_BUDGET_MB}
     when = datetime.date.today() + datetime.timedelta(days=min(int(days_left), 3650))
-    return {"state": "growing", "per_day_mb": per_day / 1048576.0, "days_left": int(days_left),
-            "verdict": "+%.1f MB/day · reaches 500 MB around %s (%d days)"
-                       % (per_day / 1048576.0, when.isoformat(), int(days_left))}
+    return {"state": "growing", "per_day_mb": rate, "days_left": int(days_left),
+            "verdict": "+%.1f MB/day · reaches your %d MB budget around %s (%d days)"
+                       % (rate, _DB_SIZE_BUDGET_MB, when.isoformat(), int(days_left))}
 
 
 _ADMIN_DB_TTL = 300
 _admin_db_cache = {"data": None, "at": 0.0}
+_HOST_TTL = 900                 # 15 min; a quota does not move faster than that
+_host_cache = {"data": None, "at": 0.0}
+
+
+def _cpanel_usage(force=False):
+    """What the cPanel account is using, or None when CPANEL_* is not configured.
+
+    Cached hard and failure-tolerant: this is decoration on a dashboard, and an admin page that
+    hangs for 20 seconds because a stats API is slow is a worse page than one missing a tile.
+    """
+    c = _host_cache
+    if not force and c["data"] is not None and (time.time() - c["at"]) < _HOST_TTL:
+        return c["data"]
+    try:
+        import cpanelapi
+        data = cpanelapi.account_usage(timeout=8)      # two calls; 16 s worst case, once per TTL
+    except Exception as e:
+        data = {"errors": ["client failed: %s" % str(e)[:120]]}
+    c["data"], c["at"] = data, time.time()
+    return data
 
 
 def _admin_db(force=False):
@@ -3424,9 +3460,13 @@ def _admin_db(force=False):
                        "rows": counts.get(name)})
     out = {"have_rpc": bool(stats), "sql": db.DB_STATS_SQL,
            "bytes": nbytes, "pretty": stats.get("db_pretty") or "",
-           "pct": (100.0 * nbytes / _FREE_TIER_BYTES) if nbytes else 0.0,
-           "cap_mb": _FREE_TIER_BYTES // 1048576,
+           # Only a percentage when there is something real to be a percentage OF.
+           "pct": (100.0 * nbytes / _DB_SIZE_BUDGET_BYTES)
+                  if (_DB_SIZE_BUDGET_BYTES and nbytes) else None,
+           "budget_mb": _DB_SIZE_BUDGET_MB or None,
+           "backend": db.backend_name(),
            "tables": tables, "counts": counts,
+           "host": _cpanel_usage(),
            "history": hist, "projection": _size_projection(hist)}
     c["data"], c["at"] = out, time.time()
     return out
