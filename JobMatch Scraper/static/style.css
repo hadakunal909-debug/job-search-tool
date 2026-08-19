@@ -2314,3 +2314,11 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
   .rv-doc{font-size:var(--text-xs);padding:12px}
   .rvpdf{height:62vh}
 }
+
+/* One compact header line per stored file, replacing a borrowed .simrow list that duplicated the
+   filename the viewer already shows. Name, type, size, and the one action that makes sense. */
+.rvfilebar{display:flex;align-items:baseline;gap:var(--space-150);flex-wrap:wrap;
+  padding:10px 0 12px;border-bottom:1px solid var(--line);margin-bottom:var(--space-200)}
+.rvfilebar-n{font-weight:650;color:var(--text-primary);font-size:var(--text-sm)}
+.rvfilebar-m{font-size:var(--text-2xs);color:var(--muted);font-family:var(--font-data)}
+.rvfilebar-a{margin-left:auto;font-size:var(--text-2xs);font-weight:600}

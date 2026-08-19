@@ -303,27 +303,26 @@
       {% if files %}
       <p class="sub">The file exactly as you uploaded it. The Review tab shows the text an ATS
       extracts from it — if the two disagree, the extraction is what recruiters search.</p>
-      <div class="simlist">
-        {% for f in files %}
-        <a class="simrow" href="{{ url_for('brain_resume_file', fid=f.id) }}" target="_blank" rel="noopener">
-          <span class="simtitle">{{ f.filename or f.kind }}</span>
-          <span class="simmeta"><b>{{ f.kind|upper }}</b>
-            <span class="dim">{{ (f.size or 0) // 1024 }} KB</span></span>
-        </a>
-        {% endfor %}
+      {# An <iframe>, not an <object>: the CSP sets `object-src 'none'`, so every <object> fell
+         through to its fallback text. The file response overrides frame-ancestors and
+         X-Frame-Options for the same reason -- see brain_resume_file. #}
+      {% for f in files %}
+      {% set href = url_for('brain_resume_file', fid=f.id, name=f.filename or ('resume.' ~ f.kind)) %}
+      <div class="rvfilebar">
+        <span class="rvfilebar-n">{{ f.filename or f.kind }}</span>
+        <span class="rvfilebar-m">{{ f.kind|upper }} &middot; {{ (f.size or 0) // 1024 }} KB</span>
+        <a class="rvfilebar-a" href="{{ href }}" target="_blank" rel="noopener">Open in a new tab</a>
       </div>
-      {# An <iframe>, not an <object>. The CSP sets `object-src 'none'` -- deliberate hardening --
-         so every <object> silently fell back to its "your browser will not display the PDF" text,
-         which read as a browser problem and was actually our own header. An iframe is governed by
-         `frame-src`, which falls back to `default-src 'self'`, so a same-origin PDF renders with no
-         CSP change and no security given up. #}
-      {% for f in files %}{% if f.kind == 'pdf' %}
-      <iframe class="rvpdf" src="{{ url_for('brain_resume_file', fid=f.id) }}"
+      {% if f.kind == 'pdf' %}
+      {# #toolbar=0&navpanes=0 strips the browser's OWN pdf chrome -- a black bar with zoom, rotate,
+         download and print, plus a thumbnail rail. None of it belongs inside a panel that has its
+         own controls, and with the file id as the last path segment that bar was captioning the
+         user's résumé with a bare uuid. Firefox ignores these parameters, which is a fair
+         degradation: the document still renders, just with its toolbar. #}
+      <iframe class="rvpdf" src="{{ href }}#toolbar=0&amp;navpanes=0&amp;view=FitH"
               title="{{ f.filename or 'Your résumé' }}" loading="lazy"></iframe>
-      <p class="muted rvpdf-alt">Not rendering?
-        <a href="{{ url_for('brain_resume_file', fid=f.id) }}" target="_blank" rel="noopener">Open
-        the PDF in a new tab</a>.</p>
-      {% endif %}{% endfor %}
+      {% endif %}
+      {% endfor %}
       {% else %}
       <p class="u-m0">No original file stored for this résumé. Uploads kept only the extracted text
       before now — upload it again on the left and the file itself is kept too.</p>
