@@ -25,12 +25,13 @@ create table if not exists scrape_status (
 (Without this table, `set_scrape_status` falls back to a local file on whichever machine runs — fine
 for local testing, invisible across machines in production.)
 
-### 2. GitHub repo secrets — so the Action can write jobs + use Adzuna
+### 2. GitHub repo secrets — so the Action can write jobs
 GitHub → your repo → **Settings → Secrets and variables → Actions → New repository secret**, add:
 - `SUPABASE_URL` — `https://<project>.supabase.co`
 - `SUPABASE_KEY` — your Supabase secret key
-- `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` — from developer.adzuna.com (without these the Adzuna
-  boards/searches stay dormant; everything else still runs)
+
+(`ADZUNA_APP_ID` / `ADZUNA_APP_KEY` were needed here until 2026-08-16. The Adzuna source has been
+removed — see BOARDS_SETUP.md — so those two secrets can be deleted.)
 
 ### 3. cPanel `.env` — so the button can *launch* the Action
 Add a GitHub **fine-grained personal access token** (scoped to this repo, permission **Actions:

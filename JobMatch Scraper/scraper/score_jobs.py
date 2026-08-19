@@ -1113,6 +1113,15 @@ THIN_PROBE_PER_HOST = int(os.environ.get("SCORE_THIN_PER_HOST") or 3)
 THIN_DRAIN_MAX = int(os.environ.get("SCORE_THIN_DRAIN") or 400)      # host that just worked
 THIN_BACKOFF_CAP = 6                                                 # 2**6 = 64 days
 
+CURSOR_KEY = "score_cursor"
+"""Where a budget-truncated full pass stopped, so the next one resumes instead of restarting."""
+
+ANALYZE_CHUNK = 500
+"""Rows analyzed per banked upsert. The analysis is ~200 ms/row, so this is ~100 s of work at
+risk if the process is killed between flushes — against one extra upsert per 500 rows, which is
+~46 writes over a 23k-row corpus. Tuned for "lose a little", not for "write as rarely as
+possible": the whole point of this phase is that its work survives being cut off."""
+
 
 def _is_thin_jd(jd):
     """A stored description that is present but unusable.
@@ -1193,6 +1202,62 @@ def _load_thin_ledger():
 
 def _save_thin_ledger(led):
     db.put_kv(THIN_LEDGER_KEY, {"rev": led.get("rev") or "", "hosts": led.get("hosts") or {}})
+
+
+def _score_rev(resume):
+    """A fingerprint of what the match score MEANS: the three functions that define it, plus the
+    résumé it is measured against.
+
+    The cursor below is only safe to resume from while the answer would not have changed. Change
+    the algorithm or edit the résumé and every stored score is stale, so resuming mid-corpus
+    would leave the tail on the old scale indefinitely — the exact drift that made the manual
+    2026-08-18 re-score necessary. A changed rev throws the cursor away and restarts at the
+    newest row.
+
+    Named functions rather than the whole of core.py, which is the opposite of what
+    _extractor_rev does, and deliberately: core.py is also the web app's helper module, so
+    hashing it whole would reset the cursor on edits that cannot move a single score — and the
+    cost of a false reset here is a corpus that never finishes, not one extra probe round. The
+    trade is that editing a HELPER these three call will not reset it; `--full` and
+    SCORE_RESET_CURSOR=1 are the manual overrides for that case, and both are cheap."""
+    try:
+        import hashlib
+        import inspect
+        src = b""
+        for fn in (core.analyze_jd, core.score_against, core.job_meta):
+            try:
+                src += inspect.getsource(fn).encode("utf-8", "replace")
+            except Exception:
+                pass
+        # The tunables live at module scope, so a weight change is invisible to getsource above.
+        src += repr((getattr(core, "CORE_WEIGHT_FRACTION", ""), getattr(core, "MIN_SCALE", ""),
+                     getattr(core, "_MIN_JD_CHARS", ""))).encode("utf-8")
+        src += (resume or "").encode("utf-8", "replace")
+        return hashlib.sha1(src).hexdigest()[:12]
+    except Exception:
+        # Stable rather than random: a fingerprint we cannot compute must not silently restart
+        # the pass on every run, which would starve the tail exactly like no cursor at all.
+        return "norev"
+
+
+def _load_cursor(rev):
+    """The (first_seen, found_date, url) key the last truncated pass stopped after, or None.
+
+    None whenever the pass should start from the newest row: no cursor stored, a different rev,
+    or a stored shape we don't recognise. Never raises — get_kv doesn't, and a cursor is an
+    optimisation, so anything unexpected must degrade to "start at the top" rather than abort."""
+    cur = db.get_kv(CURSOR_KEY) or {}
+    if (cur.get("rev") or "") != rev:
+        return None
+    key = cur.get("key")
+    if isinstance(key, list) and len(key) == 3 and all(isinstance(x, str) for x in key):
+        return tuple(key)
+    return None
+
+
+def _save_cursor(rev, key):
+    """Store where to resume, or clear it when the pass completed (key=None)."""
+    db.put_kv(CURSOR_KEY, {} if key is None else {"rev": rev, "key": list(key)})
 
 
 def _thin_host(url):
@@ -1695,8 +1760,35 @@ def main():
         if need:
             row_jd.update({r["url"]: (r.get("jd") or "")
                            for r in db.load_jobs_by_urls(need) if r.get("url")})
-    print("Scoring %d of %d jobs with IDF weighting (%d terms in corpus)%s..."
-          % (len(todo), len(all_urls), len(idf), " [NEW ONLY]" if new_only else ""))
+    # THE ANALYSIS IS THE EXPENSIVE PHASE, and until now it was the only unbudgeted one.
+    # core.job_meta costs ~206 ms/row against a 622k-term idf (core.score_against is 2.5 ms —
+    # the cost is reading the posting, not comparing it to the résumé), so a full pass over
+    # 25k rows is ~79 minutes. Measured 2026-08-18.
+    #
+    # That number sat behind a `timeout-minutes: 14` step with the single db.update_scores()
+    # below it, which made the phase ALL-OR-NOTHING: killed mid-loop it banked the JDs it had
+    # fetched (those already persist in chunks) and not one score. The daily heavy re-score
+    # therefore cannot ever have completed on Actions, which is why stored scores were three
+    # scoring commits stale until a manual run rewrote them.
+    #
+    # So: its own clock, chunked writes, and a cursor. Deliberately a SEPARATE knob from
+    # SCORE_BUDGET_MIN rather than a shared deadline — that one is spent by the JD fetch ahead
+    # of this, and a fetch that used all of it would leave scoring zero time and bank nothing,
+    # turning one starved phase into two. 0 / unset = unlimited, which is what a manual
+    # backfill wants and what every existing caller gets.
+    analyze_min = 0.0
+    try:
+        analyze_min = float(os.environ.get("SCORE_ANALYZE_BUDGET_MIN") or 0)
+    except ValueError:
+        analyze_min = 0.0
+    for _a in sys.argv:
+        if _a.startswith("--analyze-budget-min="):
+            try:
+                analyze_min = float(_a.split("=", 1)[1])
+            except ValueError:
+                pass
+    analyze_deadline = (time.time() + analyze_min * 60) if analyze_min > 0 else 0
+
     # Compute each job's résumé-INDEPENDENT analysis ONCE, reuse it for the score, AND persist
     # it to jdmeta.json so the web app never recomputes it at request time (kills cold-load
     # regex/keyword work). score_against(resume, analyzed) == the old skill_match(resume, jd).
@@ -1705,8 +1797,82 @@ def main():
     # web app's precomputed cache for the whole corpus — writing back only the handful of
     # jobs we just scored would blank the other ~20k and push that work back to request time.
     jdmeta = (core.load_jdmeta() or {}) if new_only else {}
-    scores = {}
-    for u in todo:
+
+    # NEWEST FIRST, for the same reason the fetch queue is (see `order` above): a budget cuts
+    # the tail, so the order decides who gets starved. A set's iteration order would hand that
+    # decision to the hash seed. `u` is in the key so the sort is total and the cursor below
+    # can name one exact row.
+    def _skey(u):
+        return (row_seen.get(u) or "", row_date.get(u) or "", u)
+    todo_order = sorted(todo, key=_skey, reverse=True)
+
+    # RESUMING. A budget alone still starves the tail: every run would re-analyze the same
+    # newest rows and stop in the same place. The cursor is what turns repeated truncation into
+    # coverage — each run picks up below where the last one stopped, and clearing it on
+    # completion starts the next cycle from the top.
+    #
+    # Full pass only. New-only already targets a handful of rows it just fetched and must never
+    # skip any of them, and it is the mode that runs on the crons.
+    rev = _score_rev(resume) if not new_only else ""
+    cursor = None
+    if not new_only and analyze_deadline and not full:
+        if (os.environ.get("SCORE_RESET_CURSOR") or "").strip().lower() in ("1", "true", "yes"):
+            _save_cursor(rev, None)
+        else:
+            cursor = _load_cursor(rev)
+    if cursor:
+        resumed = [u for u in todo_order if _skey(u) < cursor]
+        # Empty means the previous run finished the tail. Fall through to the whole list rather
+        # than score nothing: that is the start of the next cycle, not a completed one.
+        if resumed:
+            todo_order = resumed
+            print("  resuming below %s (%d row(s) left in this cycle)."
+                  % ((cursor[0] or cursor[1] or "?"), len(todo_order)))
+        else:
+            cursor = None
+            _save_cursor(rev, None)
+            print("  previous cycle finished the corpus — starting a fresh pass.")
+
+    print("Scoring %d of %d jobs with IDF weighting (%d terms in corpus)%s%s..."
+          % (len(todo_order), len(all_urls), len(idf), " [NEW ONLY]" if new_only else "",
+             "" if not analyze_deadline else " (%g min budget)" % analyze_min))
+
+    scores, banked, last_key, unscored_left = {}, {}, None, 0
+    stopped_at = len(todo_order)      # index we stopped at; the whole list unless the budget cuts in
+    # The cursor must name the last row whose score actually REACHED the database, not the last
+    # one analyzed. Those differ exactly when a flush fails, and taking the analyzed row there
+    # would advance the cursor over rows that were never written — the next run would skip them
+    # and they would hold a stale score until the rev changed. A dict because this is assigned
+    # from inside _bank().
+    progress = {"key": None}
+
+    def _bank():
+        """Flush what we have. Called every ANALYZE_CHUNK and once at the end, so a run that is
+        killed or times out keeps everything up to its last flush."""
+        if not scores:
+            return
+        try:
+            db.update_scores(scores)
+            banked.update(scores)
+        except Exception as e:
+            # Keep them for the next flush rather than dropping: a transient proxy error must
+            # not silently cost the analysis we already paid ~200 ms/row for.
+            print("  (score flush of %d failed, retrying next chunk: %s)"
+                  % (len(scores), str(e)[:110]))
+            return
+        progress["key"] = last_key
+        scores.clear()
+        db.set_scrape_status({"phase": "scoring", "done": len(banked), "total": len(todo_order),
+                              "found": _prev.get("found", 0), "new": _prev.get("new", 0),
+                              "started_at": _started, "run": _prev.get("run", "")})
+
+    for i, u in enumerate(todo_order):
+        # Checked BEFORE the work, so the deadline is the last moment we START a row rather
+        # than a moment we hope to land on. The remainder stays queued: an unreached row keeps
+        # whatever score it already had, and the cursor sends the next run here.
+        if analyze_deadline and time.time() >= analyze_deadline:
+            unscored_left, stopped_at = len(todo_order) - i, i
+            break
         jd = row_jd.get(u)
         # An absent KEY means the by-url lookup above failed or the row vanished mid-run —
         # skip it and leave the stored score alone. An empty STRING is different and must
@@ -1719,11 +1885,38 @@ def main():
         # store 0 so it sorts/filters low and the feed shows it as "JD pending" (the web layer
         # keys off the same `thin` flag) instead of a misleading number.
         scores[u] = 0 if m["analyzed"].get("thin") else core.score_against(resume_low, m["analyzed"])[0]
-    core.save_jdmeta(jdmeta)
+        last_key = _skey(u)
+        if len(scores) >= ANALYZE_CHUNK:
+            _bank()
 
     # 5) Persist all scores. JDs were already uploaded incrementally in the fetch phase
-    #    (guaranteeing forward progress on a timeout); this just banks any residual.
-    db.update_scores(scores)
+    #    (guaranteeing forward progress on a timeout); this banks the final chunk.
+    _bank()
+    truncated = bool(unscored_left)
+    if truncated:
+        print("  analysis budget reached — %d row(s) left for next run (they keep their stored "
+              "score)." % unscored_left)
+    # New-only never touches the cursor: it is not walking the corpus, and its own leftovers are
+    # already picked up by the NULL-score path in _new_only_targets.
+    if not new_only:
+        # Cleared on ANY completed full pass, not just a budgeted one: an unlimited run (a manual
+        # backfill) leaves the whole corpus fresh, and a cursor surviving that would make the
+        # next budgeted run resume mid-corpus and skip the newest rows for a whole cycle.
+        _save_cursor(rev, progress["key"] if truncated else None)
+
+    # jdmeta is the web app's cache for the WHOLE corpus and save_jdmeta REPLACES the file, so a
+    # truncated pass must not write its partial map — that would blank the rows it never reached
+    # and push their analysis back to request time. Worse, _persist_derived recomputes
+    # core.job_meta for any row missing from this map, at the same ~206 ms each, so a partial
+    # map would hand the whole cost we just budgeted straight to the derived-fields phase.
+    # Carry the previous entries for rows still in the corpus; dead urls are still dropped.
+    if truncated and not new_only:
+        prior = core.load_jdmeta() or {}
+        for _u in all_urls:
+            if _u not in jdmeta and _u in prior:
+                jdmeta[_u] = prior[_u]
+    core.save_jdmeta(jdmeta)
+    scores = banked
     _persist_jds(fetched)
     if dates:                       # fill in real posting dates the list view omitted (e.g. SAP)
         db.update_job_fields([{"url": u, "found_date": d} for u, d in dates.items()])
@@ -1738,8 +1931,20 @@ def main():
     #    silent no-ops — every row read as "states nothing", which both filters keep.
     #    Narrowed to the same set in new-only mode: these are parsed from a row's own location
     #    and JD, so a row nobody touched this run can only re-derive to what it already holds.
-    _persist_derived({u: row_loc[u] for u in todo if u in row_loc} if new_only else row_loc,
-                     row_jd, current_rows=rows, jdmeta=jdmeta, idf=idf)
+    #
+    #    A budget-truncated pass narrows for the same reason PLUS a sharper one: this function
+    #    recomputes core.job_meta for any row absent from `jdmeta`, at the ~206 ms/row we just
+    #    spent a budget bounding. The merge above keeps that from biting while jdmeta.json is
+    #    warm, but on a cold cache (fresh checkout, a CI runner) every unreached row would be
+    #    re-analyzed here — handing the derived phase the whole cost the budget just refused.
+    #    Walked rows only, so the clock cannot escape through the back door.
+    if new_only:
+        _derive_src = {u: row_loc[u] for u in todo if u in row_loc}
+    elif truncated:
+        _derive_src = {u: row_loc[u] for u in todo_order[:stopped_at] if u in row_loc}
+    else:
+        _derive_src = row_loc
+    _persist_derived(_derive_src, row_jd, current_rows=rows, jdmeta=jdmeta, idf=idf)
     # vals/where were assigned only under `if scores:` while the sign-off below sits outside it,
     # so a run that scored NOTHING died with UnboundLocalError on its own summary line — after
     # every JD and score it did produce had already been written. Reachable in production any
@@ -1757,13 +1962,18 @@ def main():
               % (_usable, _thin_n, len(all_urls) - _usable - _thin_n,
                  100.0 * _usable / max(len(all_urls), 1), len(all_urls)))
 
+    # "Done" has to stop meaning "finished" when the budget cut in, or the log reads as a
+    # completed re-score while part of the corpus still holds scores from the previous scale —
+    # which is precisely the confusion that let three scoring commits sit unapplied.
+    _partial = (" PARTIAL: %d row(s) still on their previous score, resuming next run."
+                % unscored_left) if truncated else ""
     if vals:
-        print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s), %d date(s) -> %s."
+        print("Done. Scored %d jobs (avg %d%%, max %d%%), %d new JD(s), %d date(s) -> %s.%s"
               % (len(vals), sum(vals) // len(vals), max(vals),
-                 len(fetched), len(dates), where))
+                 len(fetched), len(dates), where, _partial))
     else:
-        print("Done. Nothing to score, %d new JD(s), %d date(s) -> %s."
-              % (len(fetched), len(dates), where))
+        print("Done. Nothing to score, %d new JD(s), %d date(s) -> %s.%s"
+              % (len(fetched), len(dates), where, _partial))
 
     # Progress bar: everything finished — the feed page polls this and shows "Done".
     db.set_scrape_status({"phase": "done", "scored": len(scores),

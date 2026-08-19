@@ -45,17 +45,21 @@ create table if not exists public.boards (
 
 Some companies (Tesla is the classic case) sit behind an Akamai bot-wall: every
 server-side request — plain `requests`, a Chrome TLS fingerprint, even headless or
-visible Playwright — gets `403`/`429`. They can't be added as a normal board. Two
-options bring their jobs in anyway:
+visible Playwright — gets `403`/`429`. They can't be added as a normal board.
 
-1. **Adzuna aggregator (automated).** The scraper has an `adzuna` source that pulls a
-   company's US postings from the free [Adzuna API](https://developer.adzuna.com)
-   (`ADZUNA_BOARDS` in `scraper/__init__.py` — Tesla is already listed). It stays
-   **dormant** until you set a free key (register, no credit card): export
-   `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` locally, or add them as **GitHub Actions
-   secrets** so the daily scrape picks Tesla up automatically. Aggregator data can lag
-   the careers site by a day or two.
-2. **Browser extension (manual, complete).** On **tesla.com/careers**, the JobMatch
+**The Adzuna aggregator used to be the answer here and no longer is** (removed
+2026-08-16). It worked, in the narrow sense that rows arrived — but its API returns a
+truncated blurb rather than a description and its redirect pages refuse a server-side
+fetch, so an Adzuna row could never carry a real JD or a real apply form. At 6% of the
+feed it was 38% of every job with no description. Don't reach for it again; the
+reasoning and the measurements are in the comment where `ADZUNA_BOARDS` used to live in
+`scraper/__init__.py`. Before assuming an employer needs an aggregator at all, run
+`python scripts/probe_adzuna_replacements.py` — it walks the full ATS detect chain and
+found real SuccessFactors boards for EY, Capgemini and Birlasoft that nobody had looked for.
+
+What actually works for a genuinely bot-walled employer:
+
+1. **Browser extension (manual, complete).** On **tesla.com/careers**, the JobMatch
    Helper extension's **Import all jobs on this page** button reads the full live
    listing from inside your own browser (which already passed the bot-wall) and pushes
    it into your feed. See `extension/README.md`. Most complete and current, but you run

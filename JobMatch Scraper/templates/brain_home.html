@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block content %}
+{#
+  Resume Brain — the review panel. Layout mirrors the job page (.jobcols / .jobmain / .jobaside),
+  the app's only real two-column pattern, with the tracks swapped so the rail is on the left.
+  Wrapped in .jobwrap to escape the 920px .rb cap every other Brain page sits under.
+#}
+<div class="jobwrap">
+{% include "_brainnav.html" %}
+<div class="rvcols">
+
+  {# ------------------------------------------------------------------ left rail #}
+  <aside class="rvrail">
+    <section class="rvbox">
+      <div class="rvbox-h">Your Résumés <span class="count-pill">{{ resumes|length }}</span></div>
+      {# Purpose-built rows rather than borrowing .simrow from the job page's "similar jobs" list.
+         That component is a title-plus-meta flex row sized for a 340px rail, and at 300px with a
+         name, a score and a LIVE badge it wrapped the score onto its own line — which read as
+         broken rather than as a layout. Score first, fixed width, then the name: the numbers line
+         up in a column you can scan. #}
+      {% if resumes %}
+      <div class="rvreslist">
+        {% for r in resumes %}
+        <a class="rvres{{ ' on' if r.open }}" href="{{ url_for('brain_home', r=r.id, level=level) }}"
+           {{ 'aria-current=true' if r.open }}>
+          <span class="rvres-n {{ 'meter-strong' if r.score and r.score>=85 else ('meter-good' if r.score and r.score>=70 else 'meter-weak') }}">{{ r.score if r.score is not none else '—' }}</span>
+          <span class="rvres-b">
+            <span class="rvres-t">{{ r.name }}</span>
+            <span class="rvres-m">{{ (r.chars / 1000)|round(1) }}k chars{% if r.active %} · <b>live</b>{% endif %}</span>
+          </span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="empty sm">No résumés yet. Upload one below.</p>
+      {% endif %}
+
+      <form class="rvupload" method="post" action="{{ url_for('brain_resume_save') }}"
+            enctype="multipart/form-data">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="back" value="brain_home">
+        <label class="rvfile">
+          <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md,.tex">
+          <span>Choose a PDF, Word, LaTeX or text file</span>
+        </label>
+        <button class="btn primary" type="submit">Upload &amp; Score</button>
+      </form>
+    </section>
+
+    {% if report %}
+    <section class="rvbox">
+      <div class="rvbox-h">Checks</div>
+      <p class="rvhint">Click any check to mark it in the document.</p>
+      {% for g in report.groups %}
+        {% set rows = report.checks | selectattr('group', 'equalto', g.name) | list %}
+        <details class="rvgroup"{{ ' open' if loop.first }}>
+          <summary>
+            <span class="rvg-name">{{ g.name }}</span>
+            <b class="{{ 'meter-strong' if g.score>=85 else ('meter-good' if g.score>=70 else 'meter-weak') }}">{{ g.score }}</b>
+          </summary>
+          {% for c in rows %}
+            {% if c.spans %}
+            {# data-count is the number of OFFENCES. It cannot be recovered by counting
+                 <mark> elements: overlapping spans were split into separate runs server-side,
+                 so "Responsible for" contributes two runs to one offence. #}
+            <button type="button" class="rvcheck" data-check="{{ c.key }}" aria-pressed="false"
+                    data-count="{{ c.spans|length }}" title="{{ c.detail }}">
+              <span class="rvc-name">{{ c.label }}</span>
+              <span class="rvc-n">{{ c.spans|length }}</span>
+            </button>
+            {% else %}
+            <div class="rvcheck flat" title="{{ c.detail }}">
+              <span class="rvc-name">{{ c.label }}</span>
+              <span class="rvc-n dim">{{ '—' if c.dormant else (c.score|round(0)|int ~ '/10') }}</span>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </details>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {# "Stories 0" and "Lessons 0" told the reader nothing — a count is only meaningful once you
+       know what the thing is, and every account currently reads zero. A one-line purpose turns two
+       dead numbers into two invitations. #}
+    <section class="rvbox">
+      <div class="rvbox-h">Your Library</div>
+      <a class="rvlink" href="{{ url_for('brain_teach') }}#stories">
+        <span class="rvlink-t">Stories <b>{{ stories|length }}</b></span>
+        <span class="rvlink-d">Reusable accounts of things you did. Tailoring pulls the ones that
+          fit a posting.</span>
+      </a>
+      <a class="rvlink" href="{{ url_for('brain_teach') }}#lessons">
+        <span class="rvlink-t">Lessons <b>{{ lessons|length }}</b></span>
+        <span class="rvlink-d">Rules you have taught it — “for fintech roles, lead with the
+          reconciliation work”.</span>
+      </a>
+    </section>
+  </aside>
+
+  {# ------------------------------------------------------------------ right pane #}
+  <div class="rvmain">
+    {% if not report %}
+      <div class="panel">
+        <h1>Start with a résumé</h1>
+        <p class="sub">Upload one on the left — PDF, Word, LaTeX or plain text. This page then grades
+        it against the checks recruiters screen on, shows the text an applicant tracking system
+        extracts, and marks every problem in the document itself.</p>
+        <ul class="rvsell">
+          <li><b>Every bullet, scored</b> — which lines are missing a verb, scope or a result, and
+            what kind of number to add to each one.</li>
+          <li><b>The keywords your roles expect</b> — measured against the real postings in your
+            feed, not a generic list.</li>
+          <li><b>Nothing leaves your account.</b> No AI, no upload to anyone else, instant.</li>
+        </ul>
+        <form method="post" action="{{ url_for('resume') }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <textarea name="resume" rows="16" placeholder="…or paste your résumé here"></textarea>
+          <button class="btn primary" type="submit">Save &amp; Score</button>
+        </form>
+      </div>
+    {% else %}
+    {% set r = report %}
+    {% set ring_cls = 'ring-strong' if r.score>=85 else ('ring-good' if r.score>=70 else 'ring-low') %}
+    {% set ring_off = (157.1 * (1 - r.score / 100))|round(1) %}
+    <div class="panel">
+      <div class="rs-head">
+        <svg class="score-ring {{ ring_cls }}" width="86" height="86" viewBox="0 0 62 62"
+             aria-label="Résumé score {{ r.score }} out of 100">
+          <circle cx="31" cy="31" r="25" fill="none" stroke="var(--ring-track)" stroke-width="5.5"/>
+          <circle cx="31" cy="31" r="25" fill="none" stroke="var(--ring-color)" stroke-width="5.5"
+                  stroke-dasharray="157.1" stroke-dashoffset="{{ ring_off }}" stroke-linecap="round"
+                  transform="rotate(-90 31 31)"/>
+          <text x="31" y="36" text-anchor="middle" font-size="15" font-weight="800"
+                fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">{{ r.score }}</text>
+        </svg>
+        <div class="rs-headtext">
+          {# An h1, not a styled div. The page had none once a résumé loaded, so the outline jumped
+             straight to h2 and there was nothing naming what you were looking at. The document's
+             own name is the honest title. #}
+          <h1 class="rvtitle">{{ chosen.name or 'Résumé' }}
+            <span class="rvtitle-s">{{ r.band }} · {{ r.score }}/100</span></h1>
+          <div class="muted">{{ r.checks|length }} checks against a <strong>{{ r.level }}-level</strong>
+            standard. This scale is ours alone — not comparable to any other tool's number.</div>
+          <div class="rs-levels">Grade as:
+            {% for lv in levels %}
+              {% if lv == r.level %}<span class="pill ok">{{ lv }}</span>
+              {% else %}<a class="count-pill" href="{{ url_for('brain_home', r=chosen.id, level=lv) }}">{{ lv }}</a>{% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      {% if r.impact_gated %}
+      {# A capped score has to explain itself. Without this the user sees clean group tiles, a low
+         total, and no way to reconcile the two except by diffing them and guessing. #}
+      <div class="banner rvgate">
+        <strong>Capped at {{ r.impact_ceiling }} by quantified impact.</strong>
+        Everything else here could be perfect and this résumé still would not score above
+        {{ r.impact_ceiling }}, because it mostly describes duties rather than results. Fifteen tidy
+        checks do not outweigh one missing number — a recruiter does not average, and neither does
+        this. Add metrics to your bullets and the ceiling lifts with them.
+      </div>
+      {% endif %}
+
+      {# role="tab" on its own is decoration. aria-controls, aria-selected, matching tabpanels and
+         arrow-key movement are what make it behave like a tabset for anyone not using a mouse. #}
+      <div class="rvtabs" role="tablist" aria-label="Résumé review">
+        <button type="button" class="rvtab on" data-tab="review" role="tab" id="tab-review"
+                aria-controls="panel-review" aria-selected="true" tabindex="0">Review</button>
+        <button type="button" class="rvtab" data-tab="bullets" role="tab" id="tab-bullets"
+                aria-controls="panel-bullets" aria-selected="false" tabindex="-1">Bullets{% if bullets and bullets.total %}<span class="rvtab-n">{{ bullets.complete }}/{{ bullets.total }}</span>{% endif %}</button>
+        <button type="button" class="rvtab" data-tab="keywords" role="tab" id="tab-keywords"
+                aria-controls="panel-keywords" aria-selected="false" tabindex="-1">Keywords</button>
+        <button type="button" class="rvtab" data-tab="original" role="tab" id="tab-original"
+                aria-controls="panel-original" aria-selected="false" tabindex="-1">Original file</button>
+        <button type="button" class="rvtab" data-tab="edit" role="tab" id="tab-edit"
+                aria-controls="panel-edit" aria-selected="false" tabindex="-1">Edit text</button>
+      </div>
+    </div>
+
+    {# ---- Review: the annotated document + the ranked fixes ---- #}
+    <div class="panel rvpanel" data-panel="review" id="panel-review" role="tabpanel"
+         aria-labelledby="tab-review" tabindex="0">
+      <div class="rvsplit">
+      <div class="rvsplit-a">
+      {% if r.top_fixes %}
+      <div class="section-head"><h2>Fix These First</h2>
+        <span class="count-pill">{{ r.top_fixes|sum(attribute='points_lost')|round(1) }} points recoverable</span></div>
+      <ol class="rs-fixes">
+        {% for c in r.top_fixes %}
+        <li{% if c.spans %} class="linked" data-check="{{ c.key }}"{% endif %}>
+          <div class="rs-fixhead"><strong>{{ c.label }}</strong>
+            <span class="count-pill">&minus;{{ c.points_lost }} pts</span>
+            <span class="muted">{{ c.score }}/10</span>
+            {% if c.spans %}<span class="rvjump">mark {{ c.spans|length }} in document</span>{% endif %}</div>
+          <div class="rs-detail">{{ c.detail }}</div>
+          <div class="rs-fix">{{ c.fix }}</div>
+          {% if c.offenders %}
+          <ul class="rs-off">{% for o in c.offenders %}<li>{{ o }}</li>{% endfor %}</ul>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="u-m0">Nothing material left to fix — every check is at or near full marks.</p>
+      {% endif %}
+
+      </div>
+      <div class="rvsplit-b">
+      <div class="section-head rvdoc-h"><h2>Your Résumé, Marked Up</h2>
+        <span class="count-pill" id="rvactive" role="status" aria-live="polite">nothing selected</span></div>
+      <pre class="rv-doc" id="rvdoc">{{ doc_html|safe }}</pre>
+      </div>
+      </div>
+    </div>
+
+    {# ---- Bullets: the three-part formula, line by line ---- #}
+    <div class="panel rvpanel" data-panel="bullets" id="panel-bullets" role="tabpanel"
+         aria-labelledby="tab-bullets" tabindex="0" hidden>
+      {% if bullets and bullets.total %}
+      <div class="section-head"><h2>Every Bullet, Line by Line</h2>
+        <span class="count-pill">{{ bullets.complete }} of {{ bullets.total }} complete
+          ({{ bullets.complete_pct }}%)</span></div>
+      <p class="sub">A bullet that works has three parts: a strong <strong>verb</strong>, the
+      <strong>scope</strong> of what you did, and a measurable <strong>result</strong>. Missing one is
+      the difference between an achievement and a duty. Worst first — this is a work queue, not an
+      inventory.</p>
+      <div class="tiles">
+        <div class="tile"><div class="tile-n {{ 'meter-strong' if bullets.complete_pct>=80 else ('meter-good' if bullets.complete_pct>=50 else 'meter-weak') }}">{{ bullets.complete_pct }}%</div><div class="tile-l">All three parts</div></div>
+        <div class="tile{{ ' warn' if bullets.missing_result }}"><div class="tile-n">{{ bullets.missing_result }}</div><div class="tile-l">No result</div></div>
+        <div class="tile"><div class="tile-n">{{ bullets.missing_scope }}</div><div class="tile-l">No scope</div></div>
+        <div class="tile"><div class="tile-n">{{ bullets.missing_verb }}</div><div class="tile-l">Weak opener</div></div>
+      </div>
+
+      <ol class="rvblist rvblist-2">
+        {% for b in bullets.bullets %}
+        <li class="rvb{{ ' good' if not b.missing }}">
+          <div class="rvb-head">
+            <span class="rvb-score {{ 'meter-strong' if b.score>=8.5 else ('meter-good' if b.score>=5 else 'meter-weak') }}">{{ b.score }}</span>
+            <span class="rvb-parts">
+              {% for part in ('verb','scope','result') %}
+              <span class="rvb-part{{ ' has' if b.has[part] }}">{{ part }}</span>
+              {% endfor %}
+            </span>
+          </div>
+          <div class="rvb-text">{{ b.text }}</div>
+          {% if b.problems %}
+          <ul class="rvb-probs">{% for p in b.problems %}<li>{{ p }}</li>{% endfor %}</ul>
+          {% endif %}
+          {% if b.swaps %}
+          <div class="rvb-fix"><b>Open with</b> {{ b.swaps|join(', ') }}</div>
+          {% endif %}
+          {% if b.metrics %}
+          <div class="rvb-fix"><b>Add one of</b> {{ b.metrics|join(' · ') }}</div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+
+      {% if bullets.missing_result %}
+      <details class="rvfind">
+        <summary>“I don’t have a number for this”</summary>
+        <ul>{% for f in bullets.find_a_number %}<li>{{ f }}</li>{% endfor %}</ul>
+      </details>
+      {% endif %}
+      {% else %}
+      <p class="u-m0">No experience bullets found to review.</p>
+      {% endif %}
+    </div>
+
+    {# ---- Keywords ---- #}
+    <div class="panel rvpanel" data-panel="keywords" id="panel-keywords" role="tabpanel"
+         aria-labelledby="tab-keywords" tabindex="0" hidden>
+      {% if keywords and keywords.total %}
+      <div class="section-head"><h2>Keywords Your Roles Expect</h2>
+        <span class="count-pill">{{ keywords.have|length }} of {{ keywords.total }}</span></div>
+      <p class="sub">Read from {{ keywords.total }} skills that <strong>{{ keywords.track }}</strong>-track
+      postings ask for most{% if keywords.source == 'corpus' %}, measured across the 25,036 real jobs in
+      your own corpus{% else %}, from the curated skill list (run
+      <code>scripts/build_resume_vocab.py</code> for the corpus version){% endif %}. A keyword only
+      counts when it appears in an <strong>accomplishment</strong> — pasting it into a skills list is
+      the habit recruiters read as filler.</p>
+      {% if keywords.missing %}
+      <h3>Missing ({{ keywords.missing|length }})</h3>
+      <div class="kw">{% for k in keywords.missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
+      {% endif %}
+      {% if keywords.have %}
+      <h3>Already Demonstrated ({{ keywords.have|length }})</h3>
+      <div class="kw">{% for k in keywords.have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
+      {% endif %}
+      {% else %}
+      <p class="u-m0">No keyword expectations available yet. Run
+      <code>python scripts/build_resume_vocab.py</code> to build them from your job corpus.</p>
+      {% endif %}
+    </div>
+
+    {# ---- Original file ---- #}
+    <div class="panel rvpanel" data-panel="original" id="panel-original" role="tabpanel"
+         aria-labelledby="tab-original" tabindex="0" hidden>
+      <div class="section-head"><h2>Original File</h2>
+        <span class="count-pill">{{ files|length }} stored</span></div>
+      {% if files %}
+      <p class="sub">The file exactly as you uploaded it. The Review tab shows the text an ATS
+      extracts from it — if the two disagree, the extraction is what recruiters search.</p>
+      <div class="simlist">
+        {% for f in files %}
+        <a class="simrow" href="{{ url_for('brain_resume_file', fid=f.id) }}" target="_blank" rel="noopener">
+          <span class="simtitle">{{ f.filename or f.kind }}</span>
+          <span class="simmeta"><b>{{ f.kind|upper }}</b>
+            <span class="dim">{{ (f.size or 0) // 1024 }} KB</span></span>
+        </a>
+        {% endfor %}
+      </div>
+      {# An <iframe>, not an <object>. The CSP sets `object-src 'none'` -- deliberate hardening --
+         so every <object> silently fell back to its "your browser will not display the PDF" text,
+         which read as a browser problem and was actually our own header. An iframe is governed by
+         `frame-src`, which falls back to `default-src 'self'`, so a same-origin PDF renders with no
+         CSP change and no security given up. #}
+      {% for f in files %}{% if f.kind == 'pdf' %}
+      <iframe class="rvpdf" src="{{ url_for('brain_resume_file', fid=f.id) }}"
+              title="{{ f.filename or 'Your résumé' }}" loading="lazy"></iframe>
+      <p class="muted rvpdf-alt">Not rendering?
+        <a href="{{ url_for('brain_resume_file', fid=f.id) }}" target="_blank" rel="noopener">Open
+        the PDF in a new tab</a>.</p>
+      {% endif %}{% endfor %}
+      {% else %}
+      <p class="u-m0">No original file stored for this résumé. Uploads kept only the extracted text
+      before now — upload it again on the left and the file itself is kept too.</p>
+      {% endif %}
+    </div>
+
+    {# ---- Edit ---- #}
+    <div class="panel rvpanel" data-panel="edit" id="panel-edit" role="tabpanel"
+         aria-labelledby="tab-edit" tabindex="0" hidden>
+      <div class="section-head"><h2>Edit Text</h2></div>
+      <p class="sub">This is what gets scored, and what the feed matches jobs against. Save to
+      re-score.</p>
+      <form method="post" action="{{ url_for('resume') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <textarea name="resume" rows="24">{{ chosen.content }}</textarea>
+        <button class="btn primary" type="submit">Save &amp; Re-score</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+</div>
+<script src="{{ url_for('static', filename='resume_review.js') }}" nonce="{{ csp_nonce }}" defer></script>
+{% endblock %}

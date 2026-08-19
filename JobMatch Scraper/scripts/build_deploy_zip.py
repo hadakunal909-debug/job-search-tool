@@ -66,6 +66,14 @@ FILES = [
     "pgrest.py", "dbproxy.py",
     # read-only cPanel UAPI client; web.py imports it for the admin panel's host figures
     "cpanelapi.py",
+    # the offline résumé rubric behind /resume; imports resume_brain, already in DIRS
+    "resume_score.py",
+    # the Skills category. Imported by resume_score, NOT by web.py, so the import guard below
+    # cannot infer it -- it has to be named here or the bundle ships a dormant check.
+    "resume_keywords.py",
+    # per-bullet review (the Bullets tab). Imported by web.py, so the guard below would catch
+    # a missing entry -- listed here anyway so the two deploy routes stay identical.
+    "resume_bullets.py",
     "requirements-cpanel.txt", "idf.json", "careers_us.md", "sponsors.txt",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
@@ -84,7 +92,11 @@ OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "v
                   # app degrades to guessing a domain from the company name without it, which is
                   # what shipped before and is wrong for 22% of companies. Optional in the same
                   # sense as the rest: absent file, old behaviour, no crash.
-                  "company_domains.json"]
+                  "company_domains.json",
+                  # Built by scripts/build_resume_vocab.py. Absent -> the spelling check and
+                  # the per-track keyword expectations go dormant (excluded from the score,
+                  # not awarded full marks), which is the same contract as everything above.
+                  "resume_vocab.json", "resume_keywords.json"]
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
@@ -160,6 +172,11 @@ def main():
         print("Not present, so not included: %s" % ", ".join(skipped))
     print("\nUpload it in cPanel -> File Manager -> the app's directory -> Upload,")
     print("then Extract, then touch tmp/restart.txt so Passenger reloads.")
+    # This bundle is CODE ONLY. Every document reader is imported lazily, so a host missing one
+    # boots fine and just loses the feature -- which is how a live server ended up answering
+    # "This server can't read .pdf files yet" with pypdf sitting unread in requirements.
+    print("\nIf requirements-cpanel.txt changed, also: Setup Python App -> Run Pip Install.")
+    print("What the host actually has: /brain/pdf_diag -> upload_readers.")
 
 
 if __name__ == "__main__":

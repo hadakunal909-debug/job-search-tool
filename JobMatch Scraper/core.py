@@ -285,6 +285,10 @@ def _requirements_text(jd_text):
 
 
 # Hard skills, tools, methods, and certs an ATS literally scans for — weighted highest.
+# The idf a term seen in roughly 30 postings of 20,000 earns. Anything rarer is capped
+# here unless it is a known hard skill -- see the note in analyze_jd.
+_RARE_W_CAP = 7.5
+
 ATS_KEYWORDS = {
     # tools
     "jira", "confluence", "asana", "trello", "smartsheet", "monday.com", "wrike", "clickup",
@@ -338,12 +342,26 @@ def analyze_jd(jd_text, idf=None):
     if not jd_terms:
         return {"terms": [], "weight": {}, "total": 0.0, "thin": True}
 
-    default_w = max(idf.values()) if idf else 1.0
+    # RARITY IS NOT IMPORTANCE, and treating it as such is why "caterpillar inc" outranked
+    # "pmp" in the terms a job was scored on. idf gives a term seen in ONE posting ~10.2 and one
+    # seen in a thousand ~4.0, and an UNKNOWN term used to take max(idf) -- the highest weight in
+    # the whole table -- so a company name or a one-off turn of phrase dominated the core set.
+    # Measured: 63% of the distinct terms being screened on appeared in exactly one posting, and
+    # no resume will ever contain them.
+    #
+    # Two corrections. An unknown term now takes the MEDIAN weight, because not having seen a
+    # term is evidence it is noise rather than evidence it is critical. And idf is capped for
+    # anything that is not a known hard skill, so a genuine specialism in ATS_KEYWORDS keeps its
+    # edge while boilerplate cannot buy one by being unusual.
+    known = sorted(idf.values()) if idf else []
+    default_w = known[len(known) // 2] if known else 1.0
 
     def wt(t):
         w = idf.get(t, default_w) if idf else 1.0
-        if t in ATS_KEYWORDS:        # hard skill / tool / cert — what an ATS weights most
+        if t in ATS_KEYWORDS:        # hard skill / tool / cert, what an ATS weights most
             w *= 2.5
+        else:
+            w = min(w, _RARE_W_CAP)
         if t in req_low:             # stated in the requirements/qualifications section
             w *= 1.6
         return w
@@ -354,24 +372,162 @@ def analyze_jd(jd_text, idf=None):
     return {"terms": terms, "weight": weight, "total": total, "thin": thin}
 
 
+# ---- matching the way a screening system does, not the way strcmp does -------------------
+#
+# WHAT WAS WRONG. Terms were compared as literal whole words, so `kpi` and `kpis` were two
+# different skills (488 and 402 postings respectively in the live corpus), `budgeting` in a
+# posting missed `budget` on a résumé, and "Project Manager" did not answer a JD asking for
+# "project management". None of that is a qualification gap; it is a spelling gap, and no real
+# applicant-tracking system screens that way.
+
+# Suffixes stripped to reach a comparable stem, longest first so "-ations" beats "-s".
+_SUFFIXES = ("ations", "ation", "ments", "ment", "ings", "ing", "ies", "ers", "er",
+             "ors", "or", "ed", "es", "s")
+# Words that must never be stemmed: short, or the stem collides with something unrelated.
+_NO_STEM = {"sas", "aws", "ios", "cms", "ops", "sales", "less", "gas", "bus", "analysis",
+            "business", "process", "access", "class", "series", "status", "campus"}
+
+
+def _stem(word):
+    """A conservative stem for matching. Deliberately NOT a full Porter stemmer: this only has
+    to make morphological variants of the same skill compare equal, and every extra rule is
+    another chance to collide two skills that are genuinely different.
+
+    "kpis"->"kpi", "budgeting"->"budget", "management"/"managing"/"manager"->"manag",
+    "analytics"->"analytic". A stem shorter than four characters is rejected and the original
+    kept, which is what stops "ops"->"op" and similar.
+    """
+    w = (word or "").lower()
+    if len(w) < 4 or w in _NO_STEM:
+        return w
+    for suf in _SUFFIXES:
+        if not w.endswith(suf):
+            continue
+        # A plural may leave three characters ("kpis" -> "kpi"); a heavier suffix must leave
+        # four, or "ration" would stem to "rat".
+        floor = 3 if suf in ("s", "es") else 4
+        if len(w) - len(suf) < floor:
+            continue
+        stem = w[:-len(suf)]
+        if suf == "ies":
+            stem += "y"
+        # "planning" -> "plann" -> "plan": undo the doubled consonant English adds.
+        elif suf in ("ing", "ings", "ed") and len(stem) > 4 and stem[-1] == stem[-2]                 and stem[-1] not in "aeiou":
+            stem = stem[:-1]
+        w = stem
+        break
+    # A TRAILING 'e' GOES LAST, AND UNCONDITIONALLY, because that is what unifies the family:
+    # "management" strips to "manage" but "manager" strips to "manag", and without this they
+    # stay two different skills — which is the exact bug being fixed. Applied to unstemmed
+    # words too, so "deliverable" and "deliverables" also land on the same stem.
+    if len(w) >= 5 and w.endswith("e"):
+        w = w[:-1]
+    return w
+
+
+# Skills that are the same thing under two names. An ATS carries a synonym ring per skill; this
+# is the short version, covering what actually appears in this corpus. Both sides are stemmed
+# after mapping, so only the canonical form needs listing.
+SKILL_ALIASES = {
+    "js": "javascript", "ts": "typescript", "py": "python", "k8s": "kubernetes",
+    "ms project": "microsoft project", "msproject": "microsoft project",
+    "powerbi": "power bi", "ms excel": "excel", "microsoft excel": "excel",
+    "ms office": "microsoft office", "gsheets": "google sheets",
+    "pm": "project management", "project mgmt": "project management",
+    "prog management": "program management", "sdlc": "software development lifecycle",
+    "ci/cd": "cicd", "ci cd": "cicd", "postgres": "postgresql", "ms sql": "sql server",
+    "gcp": "google cloud", "aws cloud": "aws", "rpa": "robotic process automation",
+    "ba": "business analysis", "qa": "quality assurance", "ux": "user experience",
+    "kanban board": "kanban", "agile methodology": "agile", "scrum master": "scrum",
+}
+
+
+# canonical skill -> every alias that names it. A JD asking for "microsoft project" has to be
+# answered by a resume that wrote "MS Project", which the forward map alone cannot do.
+_ALIAS_REVERSE = {}
+for _a, _c in SKILL_ALIASES.items():
+    _ALIAS_REVERSE.setdefault(_c, []).append(_a)
+
+
+def _canon_phrase(term):
+    """Alias -> canonical skill, unstemmed. The stemming happens per word at comparison time,
+    so this stays readable and can be used for display."""
+    return SKILL_ALIASES.get(term, term)
+
+
+def _alias_forms(term):
+    """Every spelling of a skill: the term, its canonical form, and every alias of that."""
+    canon = _canon_phrase(term)
+    return [term, canon] + _ALIAS_REVERSE.get(canon, [])
+
+
 @lru_cache(maxsize=8)
 def _resume_wordset(resume_low):
-    """The set of whole word-tokens in a (lowercased) résumé, memoized so user_scores can
-    reuse it across every job in its loop instead of re-tokenizing per job."""
-    return frozenset(WORD_RE.findall(resume_low))
+    """(whole word-tokens, their stems) for a lowercased résumé, memoized so user_scores can
+    reuse it across every job in its loop instead of re-tokenizing per job.
+
+    Returns a pair so the exact-match path stays exact — a stem is a fallback, not a
+    replacement, and checking the literal token first keeps the common case free.
+    """
+    toks = frozenset(WORD_RE.findall(resume_low))
+    return toks, frozenset(_stem(w) for w in toks)
 
 
 def _term_present(t, resume_low, words):
-    """Whether a JD term appears in the résumé as a WHOLE word — so "data" no longer matches
-    "database", "plan" no longer matches "planning". Multi-word phrases and terms carrying
-    special chars (e.g. "power bi", "ci/cd", "c++") are already specific, so a plain substring
-    test is safe for those and avoids brittle \\b handling around punctuation."""
+    """Whether a JD term is answered by the resume, the way a screening system would judge it.
+
+    Three passes, most exact first:
+      1. the literal term, whole-word (so "data" still does not match "database");
+      2. its canonical form, if it is a known alias ("ms project" -> "microsoft project");
+      3. stems, so "budgeting" is answered by "budget" and "project management" by a resume
+         that says "managed projects".
+
+    Stemming is a FALLBACK, never a replacement: an exact hit short-circuits, so the common
+    case costs what it always did, and nothing here can loosen a comparison the literal test
+    already settled.
+
+    `words` is the (tokens, stems) pair from _resume_wordset.
+    """
+    toks, stems = words if isinstance(words, tuple) else (words, frozenset())
     if " " in t or any(ch in t for ch in "+#./-"):
-        return t in resume_low
-    return t in words
+        if t in resume_low:
+            return True
+        if any(f != t and f in resume_low for f in _alias_forms(t)):
+            return True
+        canon = _canon_phrase(t)
+        # A phrase matches when EVERY word of it is present as a stem -- "project management"
+        # against "managed multiple projects". All of it, not any of it: "risk management" must
+        # never be answered by the word "management" on its own.
+        parts = [w for w in re.split(r"[^a-z0-9+#]+", canon) if w]
+        return bool(parts) and all(_stem(w) in stems for w in parts)
+    if t in toks:
+        return True
+    for f in _alias_forms(t):
+        if f in toks or _stem(f) in stems or (" " in f and f in resume_low):
+            return True
+    return False
 
 
-CORE_WEIGHT_FRACTION = 0.50
+# HOW MUCH OF A POSTING COUNTS AGAINST YOU. Raising this makes the score STRICTER, because a
+# wider set means more terms you have to actually hold; lowering it is what makes a score
+# flatter, since matching two or three headline words then carries everything.
+#
+# Re-measured after the matcher learned stems and aliases, because fixing false misses raised
+# every score: a resume saying "budgets" was previously failing a JD asking for "budgeting", and
+# that is a spelling gap, not a qualification gap. Share of postings scoring 70 or more:
+#     0.70 -> 7.20%
+#     0.80 -> 4.00%
+#     0.90 -> 2.04%      <- here; the best match in 2,500 postings is 80
+#     1.00 -> 1.48%      every term including the boilerplate
+#
+# 1.00 is barely stricter than 0.90 now, because the weighting fix below already stops
+# boilerplate from carrying weight -- the two mechanisms had been doing the same job twice.
+#
+# 1.00 is the version this replaced, and its problem was not that it was strict but that it had
+# no top: an excellent match and an average one were fifteen points apart and NOTHING read well,
+# so the number could not tell you anything. 0.70 keeps the ceiling reachable in principle while
+# making it genuinely rare in practice.
+CORE_WEIGHT_FRACTION = 0.90
 
 
 def core_terms(analyzed):
@@ -385,11 +541,10 @@ def core_terms(analyzed):
     and a mediocre one were fifteen points apart at the bottom of a scale that never reached
     its own top.
 
-    Restricting to the heavy half asks the question a person actually means: OF THE SKILLS THIS
-    JOB EMPHASISES, how many do I have. It is stricter where it counts — a missing core skill
-    now costs real points instead of being diluted by forty pieces of boilerplate — and it lets
-    a true match read high honestly. Measured on the same 6,000 postings: median 34, and only
-    4.2% score 70 or more, 1.0% score 80 or more, 0.2% score 90 or more.
+    Restricting to the heavy part asks the question a person actually means: OF THE SKILLS THIS
+    JOB EMPHASISES, how many do I have. A missing core skill costs real points instead of being
+    diluted by forty pieces of boilerplate. Measured over 21,176 live postings at the current
+    fraction: median 34, and only 0.4% score 70 or more, 0.1% score 80 or more.
 
     Terms are already weighted by idf, x2.5 for a hard ATS skill and x1.6 for appearing in the
     requirements section (see analyze_jd), so "heaviest" already means "most role-defining".
@@ -399,11 +554,18 @@ def core_terms(analyzed):
     if not terms:
         return []
     goal = sum(weight.get(t, 0.0) for t in terms) * CORE_WEIGHT_FRACTION
+    ordered = sorted(terms, key=lambda x: -weight.get(x, 0.0))
     out, acc = [], 0.0
-    for t in sorted(terms, key=lambda x: -weight.get(x, 0.0)):
+    for t in ordered:
         out.append(t)
         acc += weight.get(t, 0.0)
-        if acc >= goal:
+        # NEVER JUDGE A POSTING ON A HANDFUL OF WORDS. One term can carry the whole weight goal
+        # when the analysis produced few terms or one dominates -- an ATS keyword is worth 2.5x
+        # and 1.6x again in the requirements section -- and the result was a "Senior Delivery
+        # Manager" reading 100% because the résumé held its single core term. 9% of postings were
+        # being scored on three terms or fewer. A minimum makes the denominator honest: you are
+        # measured against at least this many of the role's skills whenever it names that many.
+        if acc >= goal and len(out) >= min(_MIN_JD_TERMS, len(ordered)):
             break
     return out
 
@@ -432,6 +594,21 @@ def score_against(resume_low, analyzed):
     core_total = sum(weight[t] for t in core) or 1.0
     core_have = [t for t in core if _term_present(t, resume_low, words)]
     pct = 100.0 * sum(weight[t] for t in core_have) / core_total
+    # CONFIDENCE CAP. A posting we could only extract a few keywords from cannot support a
+    # strong claim about anybody: a "Senior Delivery Manager" whose analysis yielded ONE term
+    # read 100% because the résumé happened to hold that term, and 9% of the corpus was being
+    # judged on three terms or fewer. The ceiling rises with how much of the role we could
+    # actually read — one term tops out at 16, three at 50, six or more is uncapped — so a thin
+    # posting can still rank, it just cannot claim to be a strong match.
+    cap = 100 if len(core) >= _MIN_JD_TERMS else int(100.0 * len(core) / _MIN_JD_TERMS)
+    pct = min(pct, cap)
+    # A JD too short or too sparse to analyse scores 0 HERE rather than in each caller: the cron
+    # scorer already refused to score a thin analysis while the live per-user path in web.py did
+    # not, so one job could carry two different numbers depending which reached it first. The
+    # keyword lists are still returned — the job page's panel and the résumé tailorer both want
+    # them, and "we cannot score this" is not "we found nothing in it".
+    if analyzed.get("thin"):
+        return 0, have, missing
     score = int(pct)                 # floor: 99.6% stays 99, never a phantom round-up to 100
     # 100 REQUIRES A CLEAN SWEEP OF THE WHOLE JD, not just of the core terms. Covering every
     # core term is already the top fraction of a percent of postings and it earns 99; reserving
@@ -1654,8 +1831,10 @@ def posting_key(title, company, location, require_location=False):
 #   v2  the percentile of that value across the corpus. Briefly shipped, and wrong: it read as
 #       "you are 96% qualified" while it meant "this job ranks above 96% of the others", so
 #       ordinary matches displayed in the high nineties. Withdrawn.
-#   v3  coverage of the terms carrying the top half of the JD's weight — the skills the role
-#       actually emphasises. Absolute, not relative; 90+ is 0.2% of the corpus. See core_terms.
+#   v3  coverage of the terms carrying the heavy part of the JD's weight — the skills the role
+#       actually emphasises. Absolute, not relative, and deliberately hard: measured over 21,176
+#       live postings the best match in the whole corpus is 88, only 16 reach 80, and the median
+#       is 34. See core_terms, and the confidence cap in score_against.
 MIN_SCALE = 3
 
 DEFAULT_PREFS = {
@@ -2188,7 +2367,7 @@ def fetch_jd(url, limit=8000):
 # ------------------------------------------------------------
 RESUME_UPLOAD_MAX_BYTES = 4 * 1024 * 1024      # a resume is a few pages; 4 MB is generous
 _RESUME_PDF_MAX_PAGES = 40                     # bound the work a crafted file can ask for
-RESUME_UPLOAD_EXTS = (".pdf", ".docx", ".txt", ".md")
+RESUME_UPLOAD_EXTS = (".pdf", ".docx", ".txt", ".md", ".tex")
 
 
 def _docx_to_text(data):
@@ -2203,6 +2382,22 @@ def _docx_to_text(data):
     return "\n".join(out)
 
 
+_PDF_SPLIT_HYPHEN_RE = re.compile(r"(\w) -(\w)")
+
+
+def _fix_pdf_artifacts(text):
+    """Undo the spacing damage PDF text extraction does.
+
+    Extraction reads glyph positions, so kerning around a hyphen becomes a real space: a résumé
+    reading "Excel-based" comes back as "Excel -based", and "RFID-based" as "RFID -based". Left
+    alone it breaks keyword matching (the compound no longer matches), trips the spacing check, and
+    reads as sloppy writing in a panel that is telling the user their writing is sloppy.
+
+    Only the no-space-after case is touched, so a real spaced dash (" - ") is left alone.
+    """
+    return _PDF_SPLIT_HYPHEN_RE.sub(r"\1-\2", text or "")
+
+
 def _pdf_to_text(data):
     from pypdf import PdfReader
     reader = PdfReader(BytesIO(data))
@@ -2211,8 +2406,46 @@ def _pdf_to_text(data):
             reader.decrypt("")                 # many resumes are "protected" with an empty owner
         except Exception:                      # password; a real one is a clear error below
             return ""
-    return "\n".join((p.extract_text() or "")
-                     for p in reader.pages[:_RESUME_PDF_MAX_PAGES])
+    return _fix_pdf_artifacts("\n".join((p.extract_text() or "")
+                                        for p in reader.pages[:_RESUME_PDF_MAX_PAGES]))
+
+
+_TEX_ITEM_RE = re.compile(r"^\s*\\item\s*", re.M)
+_TEX_CMD_ARG_RE = re.compile(r"\\(?:section|subsection|textbf|textit|emph|underline|href|texttt)"
+                             r"\*?(?:\[[^\]]*\])?\{([^{}]*)\}")
+_TEX_CMD_RE = re.compile(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?")
+_TEX_COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.M)
+
+
+def tex_to_text(src):
+    """LaTeX source -> the prose inside it.
+
+    Résumés written in LaTeX are a real input (resume_brain already RENDERS to .tex), but scoring
+    the source directly is meaningless: every \\textbf and \\begin{itemize} would read as prose,
+    the bullet glyphs are \\item rather than a dash, and the rubric would report a résumé made
+    almost entirely of unquantified non-verb lines.
+
+    Deliberately a stripper, not a parser. It keeps the argument of the few commands that wrap
+    VISIBLE text, turns \\item into a dash so the bullet detector sees bullets, and drops the rest.
+    A full TeX parser is not worth carrying to grade a document.
+    """
+    s = _TEX_COMMENT_RE.sub("", src or "")
+    s = re.sub(r"\\begin\{[^}]*\}(?:\[[^\]]*\])?|\\end\{[^}]*\}", "\n", s)
+    for _ in range(3):                       # nested \textbf{\href{..}{..}} needs a few passes
+        s, n = _TEX_CMD_ARG_RE.subn(r"\1", s)
+        if not n:
+            break
+    s = _TEX_ITEM_RE.sub("- ", s)
+    s = _TEX_CMD_RE.sub(" ", s)
+    # Escaped specials come back as themselves BEFORE the command stripper runs, and \$ matters
+    # most: dropping it turns "\$1.2M of licence cost" into ".2M" and the quantified-impact check
+    # loses the one number in the bullet.
+    for esc, plain in (("\\$", "$"), ("\\&", "&"), ("\\%", "%"), ("\\#", "#"), ("\\_", "_")):
+        s = s.replace(esc, plain)
+    s = s.replace("~", " ").replace("\\\\", "\n")
+    s = re.sub(r"[{}]", "", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return re.sub(r"\n{3,}", "\n\n", s).strip()
 
 
 def resume_text_from_upload(filename, data):
@@ -2238,11 +2471,16 @@ def resume_text_from_upload(filename, data):
             text = _pdf_to_text(data)
         elif ext == ".docx":
             text = _docx_to_text(data)
+        elif ext == ".tex":
+            text = tex_to_text(data.decode("utf-8", "replace"))
         else:
             text = data.decode("utf-8", "replace")
     except ImportError:
-        return "", ("This server can't read %s files yet (missing library). "
-                    "paste the text below instead." % ext)
+        # Names the fix, because "missing library" is the server's problem and the user cannot act
+        # on it — but whoever runs the server can, and they are usually the same person here.
+        return "", ("This server can't read %s files yet — its PDF/Word library isn't installed "
+                    "(cPanel: Setup Python App, Run Pip Install). Paste the text below "
+                    "instead." % ext)
     except Exception:
         # Malformed, encrypted, or not really the format its extension claims.
         return "", ("Couldn't read that %s. It may be password-protected or corrupted. "

@@ -13,6 +13,9 @@ USCIS H-1B Data Hub/
 
 # Deploy bundles built for cPanel uploads — reproducible from the tree, not source.
 *_deploy.zip
+# Dated deploy bundles (stemjobs1_<feature>_<date>.zip). Same artifact as above,
+# just named per release; eight of them had accumulated untracked at the root.
+stemjobs1_*.zip
 
 # React island workspace. node_modules is never deployed; static/dist IS committed on purpose
 # (cPanel runs no build step, so the bundle has to travel with the template that references it).

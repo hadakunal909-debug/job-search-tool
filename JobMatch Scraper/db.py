@@ -1218,7 +1218,8 @@ def _user_child_tables():
     """Tables keyed by username, children first. Resolved at CALL time on purpose:
     PROFILES_TABLE, APPLICATIONS_TABLE, RESUMES_TABLE and LEARNED_TABLE are all defined
     further down this file, so binding them at module level here would NameError on import."""
-    return (USERJOBS_TABLE, PROFILES_TABLE, APPLICATIONS_TABLE, RESUMES_TABLE, LEARNED_TABLE)
+    return (USERJOBS_TABLE, PROFILES_TABLE, APPLICATIONS_TABLE, RESUME_FILES_TABLE,
+            RESUMES_TABLE, LEARNED_TABLE)
 
 
 def delete_user(username, dry_run=False):
@@ -1678,7 +1679,9 @@ def delete_application(username, app_id):
 # ---- saved résumé versions (so you can record WHICH résumé you used per application) ----
 RESUMES_TABLE = "resumes"
 RESUMES_FILE = "resumes_local.json"     # local fallback {username: [recs]}
-RESUME_FIELDS = ("id", "username", "name", "content", "created_at")
+# `active` marks the ONE row that users.resume mirrors. It has to be listed here: save_resume
+# filters every payload to these keys and drops the rest without a word.
+RESUME_FIELDS = ("id", "username", "name", "content", "created_at", "active")
 
 
 def list_resumes(username):
@@ -1739,6 +1742,243 @@ def delete_resume(username, rid):
     if isinstance(data, dict) and username in data:
         data[username] = [a for a in data[username] if a.get("id") != rid]
         _dump_json(RESUMES_FILE, data)
+
+
+# ---- the active resume ----
+# The library row is the truth; users.resume is a CACHE of whichever row is active, kept only
+# because current_resume(), the feed's match %, core.score_against and db.profile_text all read
+# it. Writing both here is what stops the two stores drifting apart again.
+
+
+def get_active_resume(username):
+    """The user's live resume row, or None. Falls back to the newest row when nothing is flagged,
+    so a library that predates the `active` column still answers instead of returning nothing."""
+    rows = list_resumes(username) or []
+    if not rows:
+        return None
+    return next((r for r in rows if r.get("active")), rows[-1])
+
+
+def set_active_resume(username, rid):
+    """Flag one row active and mirror its text into users.resume. Returns the row, or None.
+
+    Clear-then-set across two writes rather than one statement, and deliberately NOT guarded by a
+    unique constraint: the window where a user momentarily has zero active rows is harmless (the
+    reader falls back to newest), whereas a constraint would make the clear half fail outright.
+    """
+    rows = list_resumes(username) or []
+    target = next((r for r in rows if r.get("id") == rid), None)
+    if target is None:
+        return None
+
+    def _flag(row, on):
+        # created_at is threaded back deliberately. save_resume stamps it whenever it is absent,
+        # and this is a PARTIAL update, so omitting it would quietly reset the résumé's creation
+        # date every time the user switched which one was active — and created_at is what
+        # get_active_resume's newest-row fallback and the library ordering both sort on.
+        save_resume(username, {"id": row["id"], "active": on,
+                               "created_at": row.get("created_at")})
+
+    for r in rows:
+        if r.get("active") and r.get("id") != rid:
+            _flag(r, False)
+    _flag(target, True)
+    target = dict(target, active=True)
+    # The mirror. If this half fails the library is still correct, so it must not take the
+    # activation down with it -- the next save repairs it.
+    try:
+        set_user_resume(username, target.get("content") or "")
+    except Exception:
+        pass
+    return target
+
+
+# ---- uploaded resume FILES (pdf / docx / tex) ----
+# A sibling table on purpose. list_resumes() selects *, brain.get_resume() re-lists every row to
+# fetch one, and profile_text() walks all rows behind a 60s cache -- a blob column on `resumes`
+# would ride along on all of it. Here the bytes are only read when something asks by id.
+#
+# `b64` is base64 in a TEXT column, never bytea: pgrest.jsonify() runs
+# bytes(v).decode("utf-8", "replace") over every value it returns, so a bytea column comes back
+# from the direct-Postgres transport full of U+FFFD with no error raised. Same encoding the
+# existing blob store already uses for tailored PDFs.
+RESUME_FILES_TABLE = "resume_files"
+RESUME_FILES_FILE = "resume_files_local.json"   # local fallback {username: [recs]}
+RESUME_FILE_FIELDS = ("id", "resume_id", "username", "kind", "filename", "mime",
+                      "b64", "size", "created_at")
+# Everything except the payload. Every listing uses this; only get_resume_file() asks for b64.
+RESUME_FILE_META = tuple(f for f in RESUME_FILE_FIELDS if f != "b64")
+# Mirrors core.RESUME_UPLOAD_EXTS. If a format can be uploaded it can be stored, or the
+# Original File tab is silently empty for it.
+RESUME_FILE_KINDS = ("pdf", "docx", "tex", "txt", "md")
+RESUME_FILES_TTL_DAYS = 365
+
+RESUME_FILES_SQL = """-- Resume Brain review panel: active-resume flag, the two Brain objects that
+-- were never created, and durable storage for uploaded resume files.
+-- Safe to re-run. Full version with the reasoning: MIGRATION_resume_files.sql
+alter table public.resumes add column if not exists active boolean default false;
+create index if not exists resumes_active_idx on public.resumes using btree (username) where active;
+
+alter table public.users add column if not exists brain_kb jsonb;
+create table if not exists public.brain_companies (
+  domain text primary key, data jsonb,
+  fetched_at timestamp with time zone default now());
+
+create table if not exists public.resume_files (
+  id text not null, resume_id text, username text not null,
+  kind text not null, filename text, mime text, b64 text, size integer,
+  created_at timestamp with time zone default now(),
+  constraint resume_files_pkey PRIMARY KEY (id));
+create index if not exists resume_files_resume_idx on public.resume_files using btree (resume_id);
+create index if not exists resume_files_created_idx on public.resume_files using btree (created_at);
+
+do $$ begin if not exists (select 1 from pg_constraint where conname = 'resume_files_username_fkey') then alter table public.resume_files add constraint resume_files_username_fkey FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE; end if; end $$;
+do $$ begin if not exists (select 1 from pg_constraint where conname = 'resume_files_resume_fkey') then alter table public.resume_files add constraint resume_files_resume_fkey FOREIGN KEY (resume_id) REFERENCES resumes(id) ON DELETE CASCADE; end if; end $$;
+
+update public.resumes t
+set active = true
+where t.active is not true
+  and not exists (select 1 from public.resumes a
+                  where a.username = t.username and a.active)
+  and t.id = (select r.id
+              from public.resumes r
+              left join public.users u on u.username = r.username
+              where r.username = t.username
+              order by (r.content = u.resume) desc nulls last, r.created_at desc
+              limit 1);
+
+update public.users u
+set resume = r.content
+from public.resumes r
+where r.username = u.username and r.active
+  and coalesce(u.resume, '') = '' and coalesce(r.content, '') <> '';
+
+notify pgrst, 'reload schema';"""
+
+
+def list_resume_files(username, resume_id=None):
+    """File METADATA for this user (or one resume). Never returns b64 -- see the note above."""
+    if using_supabase():
+        try:
+            params = {"username": "eq.%s" % username,
+                      "select": ",".join(RESUME_FILE_META), "order": "created_at.desc"}
+            if resume_id:
+                params["resume_id"] = "eq.%s" % resume_id
+            r = _http.get(_rest(RESUME_FILES_TABLE), headers=_headers(), params=params, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return []
+    data = _load_json(RESUME_FILES_FILE)
+    rows = data.get(username, []) if isinstance(data, dict) else []
+    if resume_id:
+        rows = [f for f in rows if f.get("resume_id") == resume_id]
+    return [{k: f.get(k) for k in RESUME_FILE_META} for f in rows]
+
+
+def get_resume_file(username, fid):
+    """One file WITH its bytes. The only read that pulls a payload."""
+    if using_supabase():
+        try:
+            r = _http.get(_rest(RESUME_FILES_TABLE), headers=_headers(),
+                          params={"id": "eq.%s" % fid, "username": "eq.%s" % username,
+                                  "select": "*", "limit": "1"}, timeout=30)
+            r.raise_for_status()
+            rows = r.json()
+            return rows[0] if rows else None
+        except Exception:
+            return None
+    data = _load_json(RESUME_FILES_FILE)
+    rows = data.get(username, []) if isinstance(data, dict) else []
+    return next((f for f in rows if f.get("id") == fid), None)
+
+
+def save_resume_file(username, rec):
+    """Store one uploaded artifact. Returns (ok, id_or_error).
+
+    One row per (resume_id, kind): re-uploading a PDF for the same resume REPLACES it rather than
+    growing the table, which is the half the existing blob store never had.
+    """
+    import uuid
+    rec = dict(rec)
+    rec["username"] = username
+    if rec.get("kind") not in RESUME_FILE_KINDS:
+        return False, "unsupported kind %r" % (rec.get("kind"),)
+    if not rec.get("id"):
+        rec["id"] = uuid.uuid4().hex
+    if not rec.get("created_at"):
+        rec["created_at"] = _now()
+    if rec.get("size") is None:
+        rec["size"] = len(rec.get("b64") or "")
+    payload = {k: rec.get(k) for k in RESUME_FILE_FIELDS if k in rec}
+    for old in list_resume_files(username, rec.get("resume_id")):
+        if old.get("kind") == rec["kind"] and old.get("id") != rec["id"]:
+            try:
+                delete_resume_file(username, old["id"])
+            except Exception:
+                pass
+    if using_supabase():
+        resp = _http.post(
+            _rest(RESUME_FILES_TABLE),
+            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+            params={"on_conflict": "id"}, data=json.dumps(payload), timeout=60)
+        if resp.status_code >= 400:
+            return False, "save_resume_file %s: %s" % (resp.status_code, resp.text[:300])
+        return True, rec["id"]
+    data = _load_json(RESUME_FILES_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault(username, []).append(payload)
+    _dump_json(RESUME_FILES_FILE, data)
+    return True, rec["id"]
+
+
+def delete_resume_file(username, fid):
+    if using_supabase():
+        resp = _http.delete(_rest(RESUME_FILES_TABLE),
+                            headers=_headers({"Prefer": "return=minimal"}),
+                            params={"id": "eq.%s" % fid, "username": "eq.%s" % username},
+                            timeout=30)
+        if resp.status_code >= 400:
+            raise RuntimeError("delete_resume_file %s: %s" % (resp.status_code, resp.text[:200]))
+        return
+    data = _load_json(RESUME_FILES_FILE)
+    if isinstance(data, dict) and username in data:
+        data[username] = [f for f in data[username] if f.get("id") != fid]
+        _dump_json(RESUME_FILES_FILE, data)
+
+
+def prune_resume_files(days=RESUME_FILES_TTL_DAYS):
+    """Age out stored artifacts. Returns rows removed (best effort).
+
+    This exists because the app already ships a health warning that the tailored-résumé cache "has
+    no expiry anywhere in the codebase". A blob store without a prune is a slow leak, so this one
+    gets its prune in the same change that creates it rather than a year later.
+    """
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(days=int(days))).isoformat()
+    if using_supabase():
+        try:
+            resp = _http.delete(_rest(RESUME_FILES_TABLE),
+                                headers=_headers({"Prefer": "return=representation"}),
+                                params={"created_at": "lt.%s" % cutoff, "select": "id"},
+                                timeout=60)
+            if resp.status_code >= 400:
+                return 0
+            return len(resp.json() or [])
+        except Exception:
+            return 0
+    data = _load_json(RESUME_FILES_FILE)
+    if not isinstance(data, dict):
+        return 0
+    n = 0
+    for user, rows in list(data.items()):
+        keep = [f for f in rows if (f.get("created_at") or "") >= cutoff]
+        n += len(rows) - len(keep)
+        data[user] = keep
+    if n:
+        _dump_json(RESUME_FILES_FILE, data)
+    return n
 
 
 # ---- Resume Brain knowledge base ----
