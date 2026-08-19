@@ -81,6 +81,12 @@ if [ $rc -eq 0 ] && [ -f "$APP/resume.txt" ]; then
     export SCORE_NEW_ONLY=yes
     export SCORE_MAX_FETCH=400
     export SCORE_BUDGET_MIN=8
+    # Bounds the ANALYSIS, which SCORE_BUDGET_MIN above does not — that one stops the JD fetch.
+    # core.job_meta is ~206 ms/row, so the 1,754 new rows of a big sweep are ~6 minutes of solid
+    # CPU on a shared box that is also serving the website. New-only leaves an unreached row's
+    # match_score NULL and _new_only_targets picks it up on the next run, so cutting this off
+    # costs a delay, never a score.
+    export SCORE_ANALYZE_BUDGET_MIN=4
     echo "----- $(date -u +%FT%TZ) score start -----" >> "$LOG"
     "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
     echo "----- $(date -u +%FT%TZ) score end rc=$? -----" >> "$LOG"
