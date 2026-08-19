@@ -2,17 +2,14 @@
 {% block content %}
 <div class="rb">
 
-<div class="cta-banner">
-  <div class="cta-text">
-    <h2>Teach Your Brain</h2>
-    <p>The more you add, the smarter your matches and tailoring get. Every résumé and story here
-      counts toward your feed scores and powers tailoring. Private to your account.</p>
-  </div>
-  <a class="btn" href="{{ url_for('brain_home') }}">Back to Tailor</a>
-</div>
+{% include "_brainnav.html" %}
+
+<h1>Library</h1>
+<p class="sub">Your résumés, the stories you can pull into one, and the rules the brain has learned.
+Everything here counts toward your feed match scores. Private to your account.</p>
 
 <!-- ============ Résumés ============ -->
-<section class="panel">
+<section class="panel" id="resumes">
   <div class="section-head">
     <h2>Résumés <span class="count-pill">{{ resumes|length }}</span></h2>
     <button type="button" class="btn primary lg add-toggle" data-target="add-resume">Add a Résumé</button>
@@ -24,9 +21,9 @@
         action="{{ url_for('brain_resume_save') }}">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label>Name <input type="text" name="name" placeholder="e.g. PM-focused résumé"></label>
-    <label>Upload a file <span class="muted">(PDF, Word or plain text. The text is extracted and the
-      file itself is not stored)</span>
-      <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md"></label>
+    <label>Upload a file <span class="muted">(PDF, Word, LaTeX or plain text. The text is scored,
+      and the original is kept so you can see it again)</span>
+      <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md,.tex"></label>
     <label>…or paste the content <span class="muted">(plain text)</span>
       <textarea name="content" rows="12" class="mono" placeholder="Paste this résumé version."></textarea></label>
     <div class="row">
@@ -65,7 +62,7 @@
 </section>
 
 <!-- ============ Stories ============ -->
-<section class="panel">
+<section class="panel" id="stories">
   <div class="section-head">
     <h2>Stories <span class="count-pill">{{ stories|length }}</span></h2>
     <button type="button" class="btn primary lg add-toggle" data-target="add-story">Write a Story</button>
@@ -121,7 +118,7 @@
 </section>
 
 <!-- ============ Lessons ============ -->
-<section class="panel">
+<section class="panel" id="lessons">
   <div class="section-head">
     <h2>Lessons <span class="count-pill">{{ lessons|length }}</span></h2>
     <button type="button" class="btn primary lg add-toggle" data-target="add-lesson">Teach a Lesson</button>

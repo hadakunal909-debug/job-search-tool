@@ -28,13 +28,13 @@ deployment:
     # jdrender.py is not optional: web.py imports it at module scope, so a copy without it is a
     # site that ImportErrors on its first request. scripts/build_deploy_zip.py now refuses to
     # build when this line and its own FILES list disagree about a module web.py imports.
-    - /bin/cp -f "$SRC/web.py" "$SRC/core.py" "$SRC/db.py" "$SRC/auth.py" "$SRC/analytics.py" "$SRC/jdrender.py" "$SRC/pgrest.py" "$SRC/dbproxy.py" "$SRC/cpanelapi.py" "$SRC/passenger_wsgi.py" "$SRC/requirements-cpanel.txt" "$SRC/idf.json" "$SRC/careers_us.md" "$SRC/sponsors.txt" $DEPLOYPATH/
+    - /bin/cp -f "$SRC/web.py" "$SRC/core.py" "$SRC/db.py" "$SRC/auth.py" "$SRC/analytics.py" "$SRC/jdrender.py" "$SRC/pgrest.py" "$SRC/dbproxy.py" "$SRC/cpanelapi.py" "$SRC/resume_score.py" "$SRC/resume_keywords.py" "$SRC/resume_bullets.py" "$SRC/passenger_wsgi.py" "$SRC/requirements-cpanel.txt" "$SRC/idf.json" "$SRC/careers_us.md" "$SRC/sponsors.txt" $DEPLOYPATH/
     # Optional data files: the H-1B filing counts that turn on the sponsor-strength tiers, the
     # per-year approvals history behind the company panel's chart, the visa-route index, and the
     # E-Verify snapshot that turns on the STEM-OPT badge. Copied only if present so a missing
     # one can't fail the deploy — each feature stays dormant until its file exists, which is the
     # same contract core.load_sponsor_counts / load_sponsor_years / load_everify already have.
-    - for f in sponsor_counts.json sponsor_years.json visa_tags.json everify.txt company_domains.json; do test -f "$SRC/$f" && /bin/cp -f "$SRC/$f" $DEPLOYPATH/ || true; done
+    - for f in sponsor_counts.json sponsor_years.json visa_tags.json everify.txt company_domains.json resume_vocab.json resume_keywords.json; do test -f "$SRC/$f" && /bin/cp -f "$SRC/$f" $DEPLOYPATH/ || true; done
     - /bin/cp -rf "$SRC/scraper" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/resume_brain" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/templates" $DEPLOYPATH/

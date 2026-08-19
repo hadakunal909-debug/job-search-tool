@@ -61,9 +61,9 @@ PROGRESS = "migrate_progress.json"
 
 # The small tables, in dependency order — users before anything that references a username, so a
 # restore against a schema carrying the admin-panel foreign keys does not trip over itself.
-CORE_TABLES = ["users", "profiles", "user_jobs", "applications", "resumes", "boards",
-               "blocked_companies", "brain_companies", "learned_answers", "scrape_status",
-               "admin_audit"]
+CORE_TABLES = ["users", "profiles", "user_jobs", "applications", "resumes", "resume_files",
+               "boards", "blocked_companies", "brain_companies", "learned_answers",
+               "scrape_status", "admin_audit"]
 # Opt-in. events/events_daily are analytics HISTORY and tailored_cache is a cache that rebuilds
 # itself; none of them changes how the app behaves, and events is usually the second-biggest
 # table in the database.
@@ -76,7 +76,8 @@ EXTRA_TABLES = ["events", "events_daily", "tailored_cache"]
 # ignore-duplicates instead, which needs no key and makes a re-run safe either way.
 CONFLICT_KEYS = {"jobs": "url", "user_jobs": "username,url", "profiles": "username",
                  "boards": "url", "blocked_companies": "name_key", "applications": "id",
-                 "resumes": "id", "brain_companies": "domain", "tailored_cache": "id",
+                 "resumes": "id", "resume_files": "id",
+                 "brain_companies": "domain", "tailored_cache": "id",
                  "learned_answers": "username,key", "scrape_status": "id",
                  # users is the one db.py never spells out (create_user INSERTs rather than
                  # upserting), but username is its primary key and user_jobs/profiles/resumes

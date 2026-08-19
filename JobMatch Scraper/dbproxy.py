@@ -54,6 +54,10 @@ ALLOWED_TABLES = {
     "jobs", "users", "profiles", "user_jobs", "applications", "resumes", "boards",
     "blocked_companies", "brain_companies", "learned_answers", "scrape_status",
     "admin_audit", "events", "events_daily", "tailored_cache",
+    # Listed for completeness so an admin probe can COUNT it. Nothing should ever route a
+    # base64 PDF through this transport: /api/db is an ordinary Flask route, so the real cap
+    # is MAX_CONTENT_LENGTH (6 MB), not MAX_BODY below, and it is untested above a few KB.
+    "resume_files",
 }
 # Stored procedures the admin panels call. Named individually for the same reason as the tables.
 ALLOWED_RPC = {"db_stats", "ev_usage"}

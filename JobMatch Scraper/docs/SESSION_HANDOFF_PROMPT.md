@@ -101,21 +101,59 @@ stored floor is a number on a scale:
 - **v2** — the *percentile* of that value. Briefly shipped and wrong: it reads as "you are 96%
   qualified" while it means "this ranks above 96% of other jobs", so ordinary matches displayed in
   the high nineties. Rejected on sight by the person using it, correctly.
-- **v3, current** — coverage of the terms carrying the **top half of the JD's weight**
-  (`core.core_terms`): *of the skills this role emphasises, how many do I have.* Absolute, not
-  relative. Measured over 21,040 live postings: **0.2% score ≥90, 0.9% ≥80, 3.6% ≥70**, median 34.
-  A 100 additionally requires a clean sweep of every term, not just the core ones.
+- **v3, current** — coverage of the terms carrying the **heavy part of the JD's weight**
+  (`core.CORE_WEIGHT_FRACTION = 0.70`, `core.core_terms`): *of the skills this role emphasises,
+  how many do I have.* Absolute, not relative, and deliberately hard. Measured over 21,176 live
+  postings: **the best match in the whole corpus is 88**, only 16 reach 80, 92 reach 70, median
+  34. A 100 additionally requires a clean sweep of every term, not just the core ones.
 
-Default floor is **50** — "at least half the skills this job emphasises" — which passes ~26.5% of
-the corpus, roughly 270–360 new roles a day against 30–40 before.
+  Two guards make it honest rather than merely low:
+  - **The confidence cap.** A posting whose analysis yields few keywords cannot claim a strong
+    match — the ceiling is `100 × n/6` below six core terms. Found by inspection: a "Senior
+    Delivery Manager" read **100%** off a single term, and 9% of the corpus was being judged on
+    three terms or fewer.
+  - **Thin JDs score 0 in `score_against` itself**, not in each caller. The cron scorer already
+    refused them while the live per-user path in `web.py` did not, so one job could carry two
+    different numbers depending which reached it first. The keyword lists still come back —
+    emptying them deleted the job page's keyword panel, which `test_job_page` caught.
+
+  Raising `CORE_WEIGHT_FRACTION` makes it stricter, not looser: a wider set is more terms you must
+  actually hold.
+
+- **The matcher screens like an ATS, not like `strcmp`** (`core._stem`, `SKILL_ALIASES`,
+  `_term_present`). It used to compare literal whole words, so `kpi` and `kpis` were two different
+  skills across 890 postings, `budgeting` on a posting missed `budget` on a résumé, and "Project
+  Manager" did not answer a JD asking for "project management". Three passes now: literal, then
+  alias (both directions — `ms project` ↔ `microsoft project`), then stems. Exact hits
+  short-circuit, so nothing already settled gets loosened. A **phrase needs all of its words**:
+  "risk management" is never answered by "management" alone.
+
+- **Rarity is not importance.** `idf` gave a term seen in one posting ~10.2 and an *unknown* term
+  `max(idf)` — the highest weight in the table — so `caterpillar inc` outranked `pmp` and 63% of
+  the terms being screened on appeared in exactly one posting. Unknown terms now take the
+  **median** weight, and non-ATS terms are capped at `_RARE_W_CAP`. The most-screened terms went
+  from company names to `visio, excel, stakeholder, git, python, agile, project management, lean`.
+
+  **Fixing the false misses raised every score**, because they were measurement error rather than
+  real gaps — so `CORE_WEIGHT_FRACTION` was re-tuned 0.70 → 0.90 to hold the strictness. At 0.90:
+  ≥90 is **0 postings**, ≥80 is 0.07%, ≥70 is 2.0%, median 41, and the best match in 3,000
+  postings is **80** (25 of 34 skills).
+
+Default floor is **50** — "at least half the skills this job emphasises" — which passes ~14.4% of
+the corpus, roughly 150–180 new roles a day against 30–40 before.
 
 `normalize_prefs` resets any floor saved under an older scale to the current default and stamps
 `min_scale`. **A stored 0 is preserved**: "no floor" means the same thing on every scale.
 
-**The stored `jobs.match_score` column is still v1** until a full scoring pass runs
-(`python -m scraper.score_jobs --full`). It only matters for the ~9% of rows that carry no
-`jd_terms` analysis — everyone else is scored live at render time — but until then those rows mix
-scales.
+**A FULL RE-SCORE IS REQUIRED and has not run** — `python -m scraper.score_jobs --full`. This
+matters more than it did before the ATS work: `jobs.jd_terms` holds each posting's keyword
+*weights*, packed under the OLD weighting where rare terms dominated, and the live per-user score
+reads those. Until the column is rebuilt, users are scored with old weights and new matching, and
+none of the distributions quoted above will hold — they were measured by re-analysing raw JD text,
+which is exactly what the full pass writes back. `jobs.match_score` is stale for the same reason.
+
+That pass lives in the GitHub Actions job, which is still failing on `DB_PROXY_SECRET`. Fixing the
+secret and letting one heavy pass run is what makes the scoring real.
 
 **But your own account was never limited by the floor.** `Kunal08singh` has `min: 0` stored. Its
 real limiters are `date: "1"` (posted within ONE day) and `track: "mgmt"`, plus `exp: "2"` and
