@@ -4932,16 +4932,46 @@ def brain_resume_file(fid):
     import base64
     rec = db.get_resume_file(session["user"], fid)
     if not rec or not rec.get("b64"):
-        return redirect(url_for("brain_home"))
+        # 404, NOT a redirect. This URL is the src of an iframe, and redirecting it to an HTML page
+        # made the browser complain that framing was blocked by frame-ancestors — a confusing report
+        # of a missing file, pointing at the wrong cause entirely.
+        return Response("No such file.", status=404, mimetype="text/plain")
     try:
         body = base64.b64decode(rec["b64"])
     except Exception:
-        return redirect(url_for("brain_home"))
+        return Response("That stored file could not be decoded.", status=404, mimetype="text/plain")
     name = (rec.get("filename") or ("resume." + (rec.get("kind") or "bin"))).replace('"', "")
-    # inline, not attachment: the Original tab embeds this in an <object> to show the real document.
+    # inline, not attachment: the Original tab embeds this in an <iframe> to show the real document.
+    #
+    # BOTH framing headers are overridden here, and that is the whole reason the preview was blank.
+    # The site-wide policy sets `frame-ancestors 'none'` and `X-Frame-Options: DENY`, which is right
+    # for HTML pages — and it applies to THIS response too, so the PDF refused to be framed by its
+    # own site. `frame-ancestors` governs who may embed a document, including a same-origin parent;
+    # it is not only about other people's sites.
+    #
+    # Set explicitly rather than by loosening the global policy: the after_request hook uses
+    # setdefault, so these win, and clickjacking protection stays absolute everywhere else. The
+    # policy here is also STRICTER than the site's for everything but framing — a stored document is
+    # untrusted content and has no business loading anything at all.
+    # 'self' alone is one redirect away from failing. The site answers on both stemjobs1... and
+    # www.stemjobs1..., and if the host canonicalises one to the other then the iframe's request
+    # redirects to a DIFFERENT origin than the page framing it, and 'self' no longer matches — the
+    # same blank preview, from a cause with no relation to this code. Naming both spellings of the
+    # current host costs one line and removes that entire class of failure.
+    scheme = "https" if (request.is_secure or request.headers.get(
+        "X-Forwarded-Proto", "").lower() == "https") else "http"
+    host = request.host
+    twin = host[4:] if host.startswith("www.") else "www." + host
+    ancestors = "'self' %s://%s %s://%s" % (scheme, host, scheme, twin)
     return Response(body, mimetype=rec.get("mime") or "application/octet-stream",
                     headers={"Content-Disposition": 'inline; filename="%s"' % name,
-                             "X-Content-Type-Options": "nosniff"})
+                             "X-Content-Type-Options": "nosniff",
+                             # X-Frame-Options has no multi-origin form, so it stays SAMEORIGIN;
+                             # browsers that support CSP prefer frame-ancestors over it anyway.
+                             "X-Frame-Options": "SAMEORIGIN",
+                             "Content-Security-Policy":
+                                 "default-src 'none'; object-src 'none'; frame-ancestors " + ancestors,
+                             "Cache-Control": "private, max-age=300"})
 
 
 @app.route("/brain/resume/delete", methods=["POST"])
