@@ -172,6 +172,11 @@ def main():
         print("Not present, so not included: %s" % ", ".join(skipped))
     print("\nUpload it in cPanel -> File Manager -> the app's directory -> Upload,")
     print("then Extract, then touch tmp/restart.txt so Passenger reloads.")
+    # This bundle is CODE ONLY. Every document reader is imported lazily, so a host missing one
+    # boots fine and just loses the feature -- which is how a live server ended up answering
+    # "This server can't read .pdf files yet" with pypdf sitting unread in requirements.
+    print("\nIf requirements-cpanel.txt changed, also: Setup Python App -> Run Pip Install.")
+    print("What the host actually has: /brain/pdf_diag -> upload_readers.")
 
 
 if __name__ == "__main__":
