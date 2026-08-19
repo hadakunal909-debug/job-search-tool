@@ -7,8 +7,6 @@ rather than earned:
 
   * Greenhouse falls back to `updated_at` when `first_published` is absent — a MODIFICATION
     date, which moves every time the employer edits the posting.
-  * Adzuna's `created` is when the AGGREGATOR ingested the ad, not when the employer published
-    it, so a job can be weeks old before Adzuna sees it.
   * Oracle, iCIMS, Ashby, SmartRecruiters, Lever, JobDiva each hand us a different field and
     nothing has ever compared them against an independent reading.
 
@@ -18,7 +16,7 @@ deciding whether the feed's Confirmed-posting-date filter is telling the truth.
 
     python scripts/audit_dates.py                       # 10 per source, ~9 sources
     python scripts/audit_dates.py --per-source 25
-    python scripts/audit_dates.py --sources greenhouse,adzuna
+    python scripts/audit_dates.py --sources greenhouse,lever
     python scripts/audit_dates.py --list                # what's out there, no API calls
 
 READ-ONLY. There is deliberately no --apply: this measures, it never rewrites a date. Acting on
@@ -45,7 +43,6 @@ from scraper import verify_dates as vd
 # than just the domain. The comment is what makes a disagreement actionable.
 SOURCES = [
     ("greenhouse", "greenhouse.io",       "first_published, FALLING BACK TO updated_at"),
-    ("adzuna",     "adzuna.com",          "created = when Adzuna ingested it, not the employer"),
     ("oracle",     "oraclecloud.com",     "PostedDate"),
     ("icims",      "icims.com",           "posted_date / create_date"),
     ("ashby",      "ashbyhq.com",         "publishedAt"),
