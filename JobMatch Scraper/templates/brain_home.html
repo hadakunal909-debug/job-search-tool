@@ -314,13 +314,13 @@
         <a class="rvfilebar-a" href="{{ href }}" target="_blank" rel="noopener">Open in a new tab</a>
       </div>
       {% if f.kind == 'pdf' %}
-      {# #toolbar=0&navpanes=0 strips the browser's OWN pdf chrome -- a black bar with zoom, rotate,
-         download and print, plus a thumbnail rail. None of it belongs inside a panel that has its
-         own controls, and with the file id as the last path segment that bar was captioning the
-         user's résumé with a bare uuid. Firefox ignores these parameters, which is a fair
-         degradation: the document still renders, just with its toolbar. #}
-      <iframe class="rvpdf" src="{{ href }}#toolbar=0&amp;navpanes=0&amp;view=FitH"
-              title="{{ f.filename or 'Your résumé' }}" loading="lazy"></iframe>
+      {# Pages drawn to canvas by static/resume_pdf.js, not handed to the browser's viewer. The
+         "Open in a new tab" link above is the always-present fallback: it works with JavaScript
+         off, and the status line below fills in if pdf.js cannot render this particular file. #}
+      <div class="rvpdfdoc" data-pdf="{{ href }}"
+           data-pdfjs="{{ url_for('static', filename='vendor/pdfjs/') }}">
+        <p class="muted rvpdf-status" data-pdf-status hidden></p>
+      </div>
       {% endif %}
       {% endfor %}
       {% else %}
@@ -347,4 +347,7 @@
 </div>
 </div>
 <script src="{{ url_for('static', filename='resume_review.js') }}" nonce="{{ csp_nonce }}" defer></script>
+{# type="module": resume_pdf.js uses a dynamic import() to pull pdf.js in only when a PDF is
+   actually on the page, so the 444 KB never loads for someone who never opens the Original tab. #}
+<script src="{{ url_for('static', filename='resume_pdf.js') }}" nonce="{{ csp_nonce }}" type="module"></script>
 {% endblock %}

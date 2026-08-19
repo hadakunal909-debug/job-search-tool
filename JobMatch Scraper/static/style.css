@@ -2322,3 +2322,25 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 .rvfilebar-n{font-weight:650;color:var(--text-primary);font-size:var(--text-sm)}
 .rvfilebar-m{font-size:var(--text-2xs);color:var(--muted);font-family:var(--font-data)}
 .rvfilebar-a{margin-left:auto;font-size:var(--text-2xs);font-weight:600}
+
+/* ---- the PDF, rendered as pages instead of as a viewer ------------------------------------
+   The surround is ours now: our background, our sheet, our spacing. Nothing here is fighting a
+   document we do not control, which is the whole reason canvas replaced the iframe. */
+.rvpdfdoc{display:flex;flex-direction:column;gap:var(--space-250);
+  background:var(--surface2);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:var(--space-250);max-height:min(88vh,1200px);overflow-y:auto}
+/* A page reads as a sheet: white regardless of theme (paper is paper), a real shadow, and no
+   radius, because a printed page does not have rounded corners. */
+.rvpage{background:#fff;box-shadow:0 1px 2px rgba(16,19,25,.10),0 8px 24px rgba(16,19,25,.10);
+  line-height:0}
+.rvpage canvas{display:block}
+.rvpdf-status{margin:0;font-size:var(--text-2xs);line-height:1.6}
+/* Before the first page lands, the box should look like it is about to hold a page rather than
+   like an empty panel. Removed the moment a page is drawn. */
+.rvpdfdoc:not(.is-ready):not(.is-failed)::after{content:"Rendering your résumé…";
+  display:block;padding:var(--space-600) 0;text-align:center;color:var(--muted);
+  font-size:var(--text-2xs)}
+.rvpdfdoc.is-failed{padding:var(--space-200)}
+@media (max-width:640px){
+  .rvpdfdoc{padding:var(--space-150);gap:var(--space-150);max-height:70vh}
+}
