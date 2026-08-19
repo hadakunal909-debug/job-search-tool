@@ -5668,6 +5668,36 @@ def _truthy_false(v):
     return v is False or str(v).strip().lower() in ("false", "f", "0")
 
 
+def _explain_auth_failure(err):
+    """Turn a proxy 401 into the one sentence that fixes it, and return True if that is what it was.
+
+    A 401 from /api/db has exactly one cause: DB_PROXY_SECRET does not match the server's. The
+    signature covers the exact request bytes, so a single stray byte in the key — a trailing newline
+    picked up when the value was pasted, most often — produces this and nothing else. Scheduled runs
+    had been dying on it for days behind a raw PgRestError traceback that named neither the secret
+    nor where to change it.
+    """
+    text = str(err)
+    if "401" not in text or "signature" not in text.lower():
+        return False
+    print("\n" + "=" * 78)
+    print("SCRAPE ABORTED: the database proxy rejected our signature (HTTP 401).")
+    print("")
+    print("DB_PROXY_SECRET does not match the value the server was started with. The signature is")
+    print("computed over the exact request bytes, so one extra character — a trailing newline from")
+    print("a copy-paste is the usual one — fails every request and nothing else does this.")
+    print("")
+    print("  * running in GitHub Actions: re-paste the secret at")
+    print("    Settings -> Secrets and variables -> Actions -> DB_PROXY_SECRET,")
+    print("    with NO trailing whitespace or newline.")
+    print("  * running locally: export it whitespace-stripped, e.g.")
+    print("    DB_PROXY_SECRET=\"$(tr -d '[:space:]' < .db_proxy_secret)\"")
+    print("")
+    print("  * to see which half is wrong without guessing: python scripts/probe_db_proxy.py")
+    print("=" * 78)
+    return True
+
+
 def main():
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"\n=== Job scrape @ {stamp} ===")
