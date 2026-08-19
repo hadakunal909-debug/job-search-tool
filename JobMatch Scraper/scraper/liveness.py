@@ -51,6 +51,7 @@ BOT_WALL_PHRASES = (
     "pardon our interruption",           # Distil / Imperva
     "are you a robot",
     "verify you are human",
+    "human verification",                # iCIMS, served with a 405 of all things
     "px-captcha",                        # PerimeterX
     "unusual traffic from your",
     "bot detection",

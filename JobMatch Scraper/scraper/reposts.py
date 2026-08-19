@@ -1,0 +1,222 @@
+"""
+scraper/reposts.py — the same role, posted again under a new URL.
+
+A DIFFERENT question from deduplication, and worth keeping the two apart. `canonical_url` and
+`fingerprint_duplicate` answer "are these two rows the same posting?" and their job is to stop the
+second one being stored. This module answers "has this employer posted this role repeatedly over
+months?", where every row is a genuinely distinct requisition and none of them should be removed.
+
+Why it matters: a role that keeps coming back is information about the EMPLOYER, not a defect in
+the feed. It usually means a req nobody fills — bad comp, a hiring manager who cannot decide, or a
+pipeline being farmed for résumés. Kunal should see that before spending an evening on a cover
+letter. It also gives `verify_dates` a second signal: if the same title+company appeared at three
+URLs across ninety days, the "posted 2 days ago" on the newest one is technically true and
+practically misleading.
+
+Reimplemented from santifer/career-ops `detect-reposts.mjs` (MIT). Pure functions, no network, no
+database — the caller supplies rows, which is what makes the thresholds testable.
+
+REPORT ONLY by design. Nothing here closes, hides or deletes a row.
+"""
+
+import re
+
+# ---------------------------------------------------------------------------------------------
+# WHY THIS IS NOT career-ops' JACCARD >= 0.6 RULE.
+#
+# It was, and measured against the live corpus it flagged 3,503 clusters covering 13,636 of 25,180
+# postings. A signal that fires on 54% of the feed is not a signal. Reading the top 20 showed why:
+#
+#   * Walmart "(USA) Distinguished, Software Engineer" clustered with Principal / Senior /
+#     Software Engineer II. Those are four different jobs. Jaccard on {usa,distinguished,software,
+#     engineer} vs {usa,principal,software,engineer} is 3/5 = 0.60 — it passed on the floor.
+#   * "Architectural Project Manager" clustered with "Project Manager" at 2/3 = 0.67. A discipline
+#     qualifier makes it a DIFFERENT role, not a repost of a broader one.
+#   * Capital One "Lead Software Engineer" swallowed "(Golang)", "(Python)" and "- AML Reporting".
+#
+# So the rule is now EQUALITY OF THE CORE, not overlap: strip the baseline words and the two titles
+# must have the same remaining token set. "Senior Data Engineer II" and "Data Engineer" both reduce
+# to {data, engineer} and match; every case above now differs by a real word and does not. This is
+# strictly tighter than a ratio and it cannot be tuned into a false positive by title length.
+# ---------------------------------------------------------------------------------------------
+
+# Words that are genuinely noise in a job title: grammar, work arrangement, country tags,
+# employment type. Stripping these lets "Engineer, Data Platform (Remote, USA)" match
+# "Data Platform Engineer".
+#
+# SENIORITY IS DELIBERATELY NOT HERE, and that is the second thing the live corpus corrected.
+# With senior / sr / lead / principal / associate / II / III in this set, Amazon's "Operations
+# Manager" clustered with "Senior Operations Manager", Walmart's "Principal, Software Engineer"
+# swallowed Senior / II / III, and Actalent's "Associate Test Engineer" absorbed Lead and Senior.
+# Those are different requisitions at different levels, not one posting reappearing. A genuine
+# repost almost always keeps its exact title string, which the exact-match path already catches;
+# the token path only exists to absorb word order and punctuation.
+BASELINE_TOKENS = frozenset((
+    "the", "and", "of", "for", "a", "an", "to", "in", "at", "with", "on",
+    "remote", "hybrid", "onsite", "on-site", "virtual", "telecommute",
+    "us", "usa", "u", "s", "united", "states",
+    "contract", "contractor", "fulltime", "parttime", "temp", "temporary", "permanent",
+    "f", "t", "p",                       # what "F/T" and "P/T" tokenise to
+))
+
+# How far apart two sightings can be and still count as one repost cluster. Beyond this it is not a
+# repost, it is a role the company hires for periodically — which is normal and not worth flagging.
+DEFAULT_WINDOW_DAYS = 90
+
+# A cluster needs this many distinct URLs before it means anything. Two is the minimum that can
+# possibly be a repost.
+MIN_DISTINCT_URLS = 2
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+# Suffixes companies append to their own name inconsistently across boards, so "Acme Inc." and
+# "Acme, LLC" cluster together rather than looking like two employers.
+_CORP_SUFFIX_RE = re.compile(
+    r"\b(inc|inc\.|incorporated|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|"
+    r"plc|gmbh|ag|sa|nv|bv|pty|group|holdings|holding|technologies|technology)\b")
+
+
+def normalize_company(name):
+    """Employer identity, tolerant of how differently boards spell the same company."""
+    s = (name or "").lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    s = _CORP_SUFFIX_RE.sub(" ", s)
+    return " ".join(s.split())
+
+
+def normalize_location(loc):
+    """Location identity, loose enough to survive how differently boards write one place.
+
+    Only the first two comma-separated parts are kept ("Brown Deer, WI, United States" ->
+    "brown deer wi"), because the country tag is constant across a US-only feed and a third part
+    is usually "United States" or a region label that some boards omit.
+    """
+    parts = [p for p in re.split(r"\s*,\s*", (loc or "").strip()) if p]
+    s = " ".join(parts[:2]).lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return " ".join(s.split())
+
+
+def title_tokens(title):
+    """Deduped, order-free tokens. Order-free on purpose: "Engineer, Data Platform" and
+    "Data Platform Engineer" are the same job advertised by two different recruiters."""
+    return frozenset(_WORD_RE.findall((title or "").lower()))
+
+
+def core_tokens(title):
+    """The tokens that carry the role's identity — everything except seniority, articles and
+    work-arrangement noise. This is what two titles have to agree on exactly."""
+    return title_tokens(title) - BASELINE_TOKENS
+
+
+def titles_match(a, b):
+    """Same role? Exact string first because it is the overwhelming majority and costs nothing,
+    then equality of the core."""
+    if not a or not b:
+        return False
+    if a.strip().lower() == b.strip().lower():
+        return True
+    ca, cb = core_tokens(a), core_tokens(b)
+    # An empty core means the title was nothing but seniority words ("Senior II"), which cannot
+    # identify a role — refuse rather than match everything else that also reduces to nothing.
+    return bool(ca) and ca == cb
+
+
+def _day(s):
+    """'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM' -> the date part, or '' — never raises."""
+    return (str(s or "")[:10]) if re.match(r"^\d{4}-\d{2}-\d{2}", str(s or "")) else ""
+
+
+def _span_days(days):
+    """Calendar span of a set of ISO dates, in days. The strings are already shape-validated by
+    _day, so this only has to subtract two dates."""
+    import datetime
+    ds = sorted({d for d in days if d})
+    if len(ds) < 2:
+        return 0
+    lo = datetime.date(*[int(x) for x in ds[0].split("-")])
+    hi = datetime.date(*[int(x) for x in ds[-1].split("-")])
+    return (hi - lo).days
+
+
+def _collapse_by_url(rows):
+    """One row per URL, keeping the EARLIEST sighting.
+
+    A URL seen on ten scrape days is one posting seen ten times, and counting those as ten would
+    make every long-lived posting look like a serial repost — the failure mode this guard exists
+    for.
+    """
+    best = {}
+    for r in (rows or []):
+        url = (r.get("url") or "").strip()
+        if not url:
+            continue
+        seen = _day(r.get("first_seen") or r.get("found_date"))
+        cur = best.get(url)
+        if cur is None or (seen and (not cur["_day"] or seen < cur["_day"])):
+            best[url] = dict(r, _day=seen)
+    return list(best.values())
+
+
+def find_reposts(rows, window_days=DEFAULT_WINDOW_DAYS, min_urls=MIN_DISTINCT_URLS):
+    """[{company, title, urls, dates, count, span_days}] — one entry per repost cluster.
+
+    `rows` are dicts with title / company / url and first_seen (or found_date). Sorted by count
+    descending, because a role posted five times is a louder signal than one posted twice.
+    """
+    by_group = {}
+    for r in _collapse_by_url(rows):
+        key = normalize_company(r.get("company"))
+        if key and (r.get("title") or "").strip():
+            # LOCATION IS PART OF THE KEY, and leaving it out was the single biggest source of
+            # false positives. core.posting_key already documents why: "Amazon genuinely lists 431
+            # Operations Manager roles and Walmart 144 store-level pharmacy internships. Those are
+            # inventory, not duplicates." Without location, Walmart's Pharmacy Pre-Grad Intern
+            # read as 106 reposts when it is one role advertised at 106 stores.
+            by_group.setdefault((key, normalize_location(r.get("location"))), []).append(r)
+
+    out = []
+    for (company, location), items in sorted(by_group.items()):
+        # Cheap bucketing first: exact case-insensitive title. Most reposts are a literal re-post
+        # of the same string, so this resolves the bulk in O(n) and leaves few buckets to compare.
+        buckets = {}
+        for r in items:
+            buckets.setdefault(r["title"].strip().lower(), []).append(r)
+
+        # Then merge distinct buckets that are fuzzily the same role. Greedy single pass: each
+        # bucket joins the first cluster it matches, so this is O(buckets * clusters) rather than
+        # O(n^2) over every posting.
+        clusters = []
+        for _key, group in sorted(buckets.items()):
+            for c in clusters:
+                if titles_match(c["title"], group[0]["title"]):
+                    c["rows"].extend(group)
+                    break
+            else:
+                clusters.append({"title": group[0]["title"], "rows": list(group)})
+
+        for c in clusters:
+            urls = sorted({r["url"] for r in c["rows"]})
+            if len(urls) < min_urls:
+                continue
+            dates = sorted({r["_day"] for r in c["rows"] if r["_day"]})
+            span = _span_days(dates)
+            # Every sighting has to sit inside one window. A span WIDER than the window is a role
+            # the company hires for periodically, which is normal.
+            if dates and span > window_days:
+                continue
+            out.append({
+                "company": c["rows"][0].get("company") or company,
+                "company_key": company,
+                "location": c["rows"][0].get("location") or "",
+                "location_key": location,
+                "title": c["title"],
+                "urls": urls,
+                "dates": dates,
+                "count": len(urls),
+                "span_days": span,
+                "titles": sorted({r["title"] for r in c["rows"]}),
+            })
+    out.sort(key=lambda x: (-x["count"], -x["span_days"], x["company_key"], x["title"]))
+
+    return out
