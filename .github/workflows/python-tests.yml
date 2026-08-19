@@ -87,7 +87,7 @@ jobs:
           for t in test_canonical_url test_jobspy_adapter test_resume_upload test_date_sources \
                    test_title_filter test_verify_queue test_workday_date test_password_rule \
                    test_scoring test_jd_persist test_resume_score test_resume_store test_resume_keywords test_resume_bullets \
-                   test_prompt_evals; do
+                   test_prompt_evals test_liveness; do
             echo "::group::$t"
             python "$t.py"
             echo "::endgroup::"
