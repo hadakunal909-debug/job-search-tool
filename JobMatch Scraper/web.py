@@ -108,6 +108,7 @@ rb = _LazyMod("resume_brain.brain")
 rb_ai = _LazyMod("resume_brain.ai")
 rb_export = _LazyMod("resume_brain.export")
 rb_latex = _LazyMod("resume_brain.latex")
+rb_voice = _LazyMod("resume_brain.voice")   # the shared style guide + intensity levels
 
 app = Flask(__name__)
 
@@ -4622,7 +4623,9 @@ def _csvf(s):
 def _render_brain(user, inputs, data):
     return render_template("brain_tailor.html", inputs=inputs, data=data,
                            have_resumes=bool(rb.list_resumes(user)),
-                           have_key=bool(_ai_key_for(user)))
+                           have_key=bool(_ai_key_for(user)),
+                           intensities=rb_voice.intensity_choices(),
+                           default_intensity=rb_voice.DEFAULT_INTENSITY)
 
 
 @app.route("/brain")
@@ -4744,8 +4747,9 @@ def brain_feedback():
 @app.route("/brain/rewrite", methods=["POST"])
 @login_required
 def brain_rewrite():
-    """OPTIONAL AI layer: re-derive the plan, then have Gemini write the finished résumé +
-    cover letter. Reuses the app's existing Gemini key (session or GEMINI_API_KEY)."""
+    """OPTIONAL AI layer: re-derive the plan, then have the model write the finished résumé +
+    cover letter. Reuses the app's existing key (session, GEMINI_API_KEY or ANTHROPIC_API_KEY).
+    `intensity` (voice.INTENSITY) decides how far it may depart from the original."""
     user = session["user"]
     key_in = (request.form.get("api_key") or "").strip()
     if key_in:
@@ -4754,9 +4758,10 @@ def brain_rewrite():
     inputs = {"company": (request.form.get("company") or "").strip(),
               "company_url": (request.form.get("company_url") or "").strip(),
               "job_url": (request.form.get("job_url") or "").strip(),
-              "jd": (request.form.get("jd") or "").strip()}
+              "jd": (request.form.get("jd") or "").strip(),
+              "intensity": (request.form.get("intensity") or "").strip()}
     if not key:
-        flash("Add a Google Gemini API key to use AI rewrite (the field on the tailor page).")
+        flash("Add an AI key to use AI rewrite (the field on the tailor page).")
         return redirect(url_for("brain_home"))
     data = rb.run_tailor(user, jd_text=inputs["jd"], job_url=inputs["job_url"],
                          company_name=inputs["company"], company_url=inputs["company_url"],
@@ -4767,10 +4772,11 @@ def brain_rewrite():
         return redirect(url_for("brain_home"))
     out, err = None, ""
     try:
-        out = rb_ai.rewrite(ctx, key)
+        out = rb_ai.rewrite(ctx, key, intensity=inputs["intensity"])
     except Exception as e:
         err = str(e)[:250]
-    return render_template("brain_rewrite.html", out=out, error=err, ctx=ctx, inputs=inputs)
+    return render_template("brain_rewrite.html", out=out, error=err, ctx=ctx, inputs=inputs,
+                           intensity=rb_voice.intensity_label(inputs["intensity"]))
 
 
 def _docx_response(text, title, filename):
@@ -5049,8 +5055,18 @@ def brain_companies():
 @app.route("/brain/jobs.json")
 @login_required
 def brain_jobs_json():
-    """Job search for the in-Brain picker — up to 20 matches (with a stored JD) by title/company."""
+    """Job search for the in-Brain picker, by title/company, restricted to jobs with a stored JD.
+
+    The cap was a flat 20, which for a query like "engineer" silently hid almost everything and
+    made the picker look broken -- so people pasted the JD by hand instead, which is the input
+    burden this picker exists to remove. `limit` is now a query arg (default 50, hard max 200) so
+    the client can ask for more without this becoming an unbounded scan of the corpus.
+    """
     q = (request.args.get("q") or "").strip().lower()
+    try:
+        limit = min(200, max(1, int(request.args.get("limit") or 50)))
+    except (TypeError, ValueError):
+        limit = 50
     out = []
     if q:
         have_jd = db.urls_with_jd()      # which jobs have a stored description (feed rows omit it)
@@ -5059,9 +5075,9 @@ def brain_jobs_json():
             if q in hay and j.get("url") in have_jd:
                 out.append({"url": j.get("url", ""), "title": j.get("title", ""),
                             "company": j.get("company", "")})
-                if len(out) >= 20:
+                if len(out) >= limit:
                     break
-    return {"jobs": out}
+    return {"jobs": out, "capped": len(out) >= limit}
 
 
 # ----------------------------- sponsor careers -----------------------------

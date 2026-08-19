@@ -1,5 +1,6 @@
 """
-gemini.py — OPTIONAL AI rewrite layer (Google Gemini / AI Studio via REST; no SDK).
+ai.py — OPTIONAL AI rewrite layer. Two providers, both plain REST, no SDK: Google Gemini
+(AI Studio) and Anthropic Claude, chosen by the shape of the key (see _generate).
 
 The brain's core stays AI-free and self-training. This module is only used when the user
 chooses "Write it for me" and supplies a key. It takes the DETERMINISTIC brain's plan as
@@ -7,13 +8,19 @@ grounding — the chosen résumé, the stories to feature, the keywords/phrasing
 JD's voice ("symphony"), and the company research — and renders a finished, truthful tailored
 résumé + cover letter. It never decides what's relevant (the brain already did); it only writes.
 
-Calls hit a FIXED Google host (not a user URL), so a plain requests.post is fine here.
+HOW it writes is not decided here either: the truth rules are _TRUTH_RULES below, and every
+style rule lives in resume_brain/voice.py, shared with core._tailor_prompt so the two prompts
+cannot drift.
+
+Calls hit FIXED vendor hosts (not a user URL), so a plain requests.post is fine here.
 """
 import os
 import re
 import json
 
 import requests
+
+from . import voice
 
 GEMINI_DEFAULT_MODEL = "gemini-3.5-flash"
 _BASE = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent"
@@ -50,7 +57,8 @@ _FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash
                     "gemini-1.5-flash", "gemini-2.5-pro"]
 
 
-ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+# Sonnet 5 is current; this said claude-sonnet-4-6 long after that id was superseded.
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5"
 
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -61,7 +69,7 @@ def _generate_claude(prompt, api_key, max_tokens=8192, image_b64=None):
     AI_PROVIDER=claude). Same contract: returns the model's text. Vision via a base64 image block.
     Calls the Messages REST API directly with `requests` — NO `anthropic` SDK needed, so cPanel needs
     no extra package (same pattern as the Gemini path). Override the model via ANTHROPIC_MODEL
-    (default claude-sonnet-4-6)."""
+    (default ANTHROPIC_DEFAULT_MODEL)."""
     content = []
     if image_b64:
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}})
@@ -216,9 +224,17 @@ def _ctx_block(ctx):
         "=== CANDIDATE ===\nName: %s\nEmail: %s\n\n"
         "=== CANDIDATE'S BASE RÉSUMÉ (real) ===\n%s\n\n"
         "=== STORIES TO FEATURE (real; weave these in) ===\n%s\n\n"
-        "=== JOB'S VOICE (mirror where genuine) ===\n"
-        "Tones: %s | Focus: %s | Formality: %s | Signature verbs: %s\n"
+        "=== THE JOB'S TERMINOLOGY (use in the résumé, but only where genuinely true) ===\n"
         "Phrasing to mirror: %s\nKeywords to add only-if-true: %s\n\n"
+        # The job ad's TONE and its favourite verbs used to sit in the same block as the
+        # terminology above, and the prompt told the model to "mirror the job's voice". That is
+        # why the output read like a job posting: we were feeding a recruiter's register straight
+        # into the candidate's résumé. Terminology is a fact about the role and belongs in the
+        # résumé; voice is a fact about whoever wrote the ad and belongs, at most, in the letter.
+        "=== THE JOB AD'S OWN VOICE — FOR THE COVER LETTER ONLY ===\n"
+        "Tones: %s | Focus: %s | Formality: %s | Verbs THEY favour: %s\n"
+        "Use this to pitch the letter. NEVER use it to choose words for the résumé, and never "
+        "copy their verbs into a bullet — the résumé stays in the candidate's own register.\n\n"
         "=== CANDIDATE PREFERENCES (lessons — honor these) ===\n%s\n"
         % (ctx.get("jd_text", ""), ctx.get("company_name", ""),
            comp.get("what_they_do", ""), comp.get("mission", ""), comp.get("about", ""),
@@ -228,22 +244,26 @@ def _ctx_block(ctx):
            "; ".join((comp.get("looking_for", []) or [])[:5]),
            ctx.get("name", ""), ctx.get("email", ""),
            ctx.get("base_resume", ""), stories,
+           ", ".join((ctx.get("mirror_terms", []) or [])[:12]),
+           ", ".join((ctx.get("missing", []) or [])[:12]),
            ", ".join(symph.get("tones", []) or []), symph.get("focus", ""),
            symph.get("formality", ""), ", ".join(symph.get("top_verbs", []) or []),
-           ", ".join((ctx.get("mirror_terms", []) or [])[:12]),
-           ", ".join((ctx.get("missing", []) or [])[:12]), lessons)
+           lessons)
     )
 
 
-def _rewrite_prompt(ctx):
+def _rewrite_prompt(ctx, intensity=None):
+    # The old opening was "You are an expert résumé writer and career coach … strong action
+    # verbs … mirror the job's voice". Every clause of that was a mistake: the persona invites a
+    # register nobody speaks, "strong action verbs" is the exact instruction that produces
+    # Spearheaded/Leveraged/Orchestrated, and mirroring the ad's voice made the résumé read like
+    # the ad. What replaces it is a job description and a style guide (resume_brain/voice.py).
     return (
-        "You are an expert résumé writer and career coach. Using the grounding below, produce a "
-        "finished, ATS-friendly TAILORED RÉSUMÉ (plain text, standard sections, strong action "
-        "verbs, real quantified results, lead with the most relevant experience) and a concise "
-        "COVER LETTER (3 short paragraphs: a specific hook tied to the company, 1-2 proof points "
-        "from the candidate's real stories, and a close). Mirror the job's voice where the "
-        "candidate genuinely fits.\n\n"
-        + _TRUTH_RULES +
+        "Write two documents from the grounding below: a TAILORED RÉSUMÉ (plain text, standard "
+        "section headings, the most relevant experience first) and a COVER LETTER (three short "
+        "paragraphs — a hook naming something specific about this company, one or two proof "
+        "points drawn from the candidate's real stories, and a close).\n\n"
+        + _TRUTH_RULES + "\n" + voice.writing_rules(intensity) +
         "\nReturn the result in EXACTLY this delimited format — no JSON, no markdown, no prose outside "
         "the sections, and include all three markers. Put the full résumé FIRST so it is never truncated:\n"
         "###RESUME###\n<full plain-text résumé>\n"
@@ -270,12 +290,18 @@ def _parse_rewrite(text):
     return {"tailored_resume": resume or t.strip(), "cover_letter": cover, "notes": notes, "parse_warning": False}
 
 
-def rewrite(ctx, api_key):
+def rewrite(ctx, api_key, intensity=None):
     """Turn the brain's plan into finished prose. Returns {tailored_resume, cover_letter, notes[],
     parse_warning}. Uses a DELIMITED (not JSON) output so large résumés never fail to parse — the old
     JSON envelope truncated/garbled under load (esp. a near-quota Gemini response). Raises RuntimeError
-    only on API failure."""
-    text = _generate(_rewrite_prompt(ctx), api_key, temperature=0.45, max_tokens=8192,
+    only on API failure.
+
+    `intensity` is one of voice.INTENSITY ('light' | 'keyword' | 'full'); anything else falls back
+    to voice.DEFAULT_INTENSITY. Temperature drops with intensity — a light touch that paraphrases
+    freely is not a light touch."""
+    temp = {"light": 0.25, "keyword": 0.35}.get(
+        (intensity or "").strip().lower(), 0.45)
+    text = _generate(_rewrite_prompt(ctx, intensity), api_key, temperature=temp, max_tokens=8192,
                      think=False, json_mode=False, timeout=90)
     return _parse_rewrite(text)
 

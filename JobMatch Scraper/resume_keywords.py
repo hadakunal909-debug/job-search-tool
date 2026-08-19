@@ -103,6 +103,14 @@ def load_expectations(path=KEYWORDS_PATH):
                 blob = json.load(fh)
             data = {t: [(str(k), float(w)) for k, w in (blob.get(t) or [])] for t in TRACKS}
             _cache["data"] = data if any(data.values()) else None
+            # Optional provenance. The panel used to state "25,036 real jobs" as a literal in the
+            # template, which stopped being true the first time the corpus grew. Read it if the
+            # builder recorded it; say nothing rather than say a stale number.
+            meta = blob.get("_meta") or {}
+            try:
+                _cache["jobs"] = int(meta.get("jobs") or 0) or None
+            except (TypeError, ValueError):
+                _cache["jobs"] = None
         except Exception:
             _cache["data"] = None
     return _cache["data"]
@@ -110,7 +118,13 @@ def load_expectations(path=KEYWORDS_PATH):
 
 def _reset_cache():
     """For tests and long-lived workers, mirroring core._reset_idf_cache."""
-    _cache.update({"data": None, "loaded": False})
+    _cache.update({"data": None, "loaded": False, "jobs": None})
+
+
+def corpus_jobs():
+    """How many postings the expectations were measured across, or None if unrecorded."""
+    load_expectations()
+    return _cache.get("jobs")
 
 
 def expected_terms(track=None):
@@ -166,14 +180,15 @@ def evaluate(resume_text, track=None, evidence_text=None):
     the entire criticism of keyword scanners and would put this check at odds with
     resume_score's skills_demonstrated.
 
-    Returns {track, source, have, missing, score, total, scope}. `missing` keeps expectation order,
+    Returns {track, source, have, missing, score, total, scope, corpus_jobs}. `missing` keeps
+    expectation order,
     so the first entries are the most commonly demanded.
     """
     track = track if track in TRACKS else infer_track(resume_text)
     terms, source = expected_terms(track)
     if not terms:
         return {"track": track, "source": source, "have": [], "missing": [],
-                "score": 0, "total": 0, "scope": "none"}
+                "score": 0, "total": 0, "scope": "none", "corpus_jobs": corpus_jobs()}
     scope = "experience" if (evidence_text or "").strip() else "document"
     hay = (evidence_text if scope == "experience" else resume_text) or ""
     low = hay.lower()
@@ -181,4 +196,7 @@ def evaluate(resume_text, track=None, evidence_text=None):
     have = [t for t in terms if _present(t, low, words)]
     missing = [t for t in terms if t not in have]
     return {"track": track, "source": source, "have": have, "missing": missing,
-            "score": int(100.0 * len(have) / len(terms)), "total": len(terms), "scope": scope}
+            "score": int(100.0 * len(have) / len(terms)), "total": len(terms), "scope": scope,
+            # None unless the builder recorded it. The panel says "the real jobs in your own feed"
+            # rather than printing a figure it cannot vouch for.
+            "corpus_jobs": corpus_jobs()}
