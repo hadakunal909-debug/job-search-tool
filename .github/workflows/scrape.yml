@@ -258,7 +258,7 @@ jobs:
       # neither pass has to finish to make progress.
       - name: Score jobs
         if: steps.gate.outputs.run == 'yes'
-        timeout-minutes: 14
+        timeout-minutes: 15
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -310,6 +310,32 @@ jobs:
           SCORE_THIN_PROBE: "150"
           SCORE_THIN_PER_HOST: "3"
           SCORE_THIN_DRAIN: "400"
+          # THE ANALYSIS CLOCK, and the reason this step used to accomplish nothing on a heavy
+          # run. core.job_meta is ~206 ms/row against the 622k-term idf, so re-analyzing the
+          # corpus is ~79 minutes at 25k rows — measured 2026-08-18. SCORE_BUDGET_MIN above
+          # bounds only the JD FETCH, and the single db.update_scores() used to sit below an
+          # unbudgeted loop, so this step hit its timeout mid-loop and banked the descriptions
+          # it had fetched and NOT ONE SCORE. That is why stored scores were three scoring
+          # commits stale until a manual laptop run rewrote them.
+          #
+          # 4 minutes, not the 79 it would take to finish, because there is nowhere to put 79:
+          # the job's own cap is 45 and the steps already over-subscribe it. The pass is now
+          # resumable instead — a cursor in scrape_status advances every run, so ~1,165 rows a
+          # run (240s / 206ms) walks the 25k corpus in ~22 heavy runs, about a month of
+          # weekdays, and each run banks its share in 500-row chunks. Editing the scoring
+          # functions or resume.txt resets the cursor to the newest row, so a recalibration
+          # starts over rather than leaving the tail on the old scale.
+          #
+          # 9 (fetch) + 4 (analysis) is why timeout-minutes below is 15 rather than 14: the two
+          # budgets plus the corpus read and the derived-field writes have to fit under it, or
+          # the timeout starts cutting off the very phase these budgets exist to make survivable.
+          # Raising the analysis slice means raising that timeout AND the job's 45-minute cap
+          # together — the cap is the binding constraint, not this number.
+          #
+          # A change that has to land across the corpus NOW is not this step's job: run it
+          # unbudgeted and off the clock (`python -m scraper.score_jobs` with no budget set,
+          # ~80 min), which is what the 2026-08-18 re-score did.
+          SCORE_ANALYZE_BUDGET_MIN: "4"
         run: python -m scraper.score_jobs
 
       # Real posting dates -> posted_verified. The lookup service allows 60 requests a

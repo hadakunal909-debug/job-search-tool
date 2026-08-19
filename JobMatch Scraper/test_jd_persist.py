@@ -39,6 +39,7 @@ class _FakeDB(object):
         self.rows = {r["url"]: dict(r) for r in rows}
         self.jd_writes = []                       # every url passed to update_jds, in order
         self.kv = {}                              # put_kv/get_kv blobs, incl. the thin ledger
+        self.score_calls = []                     # one entry per update_scores call: its urls
 
     # --- reads -------------------------------------------------------------------
     def load_jobs(self, include_jd=True, cols=None):
@@ -58,6 +59,7 @@ class _FakeDB(object):
                 self.rows[u]["jd"] = jd
 
     def update_scores(self, scores):
+        self.score_calls.append(sorted(scores))
         for u, s in scores.items():
             if u in self.rows:
                 self.rows[u]["match_score"] = s
@@ -463,6 +465,224 @@ def test_the_jobdiva_branch_returns_canonically_keyed_descriptions():
         "jd_map_for returned %r; the database holds %r" % (sorted(got)[:2], stored)
     # _text() normalises whitespace, so compare through it rather than to the raw fixture.
     assert got[stored] == sj._text(_JD),         "returned %d chars; the feed teaser is 403 and the real description is %d"         % (len(got[stored]), len(sj._text(_JD)))
+
+
+# --------------------------------------------------------------------------------------------
+# The ANALYSIS budget. core.job_meta is ~206 ms/row, so a full pass over 25k rows is ~79 min --
+# and it used to sit unbudgeted above a single db.update_scores(), inside a 14-minute CI step.
+# Killed mid-loop it banked every JD it had fetched and not one score, so the daily heavy
+# re-score could not complete and stored scores drifted three scoring commits behind the code.
+# These drive main() with a fake clock, which is the only way to assert on a wall-clock budget
+# without making the suite slow or flaky.
+
+
+class _Clock(object):
+    """A time.time() that advances `step` seconds per CALL, so "how many rows fit in the budget"
+    is arithmetic rather than a race.
+
+    Safe to swap in wholesale because every other time.time() in main() is gated behind the JD
+    fetch deadline, and these tests leave SCORE_BUDGET_MIN unset (0) so none of them run."""
+
+    def __init__(self, step):
+        self.now, self.step = 1000.0, step
+
+    def time(self):
+        self.now += self.step
+        return self.now
+
+    def sleep(self, *a, **kw):
+        pass
+
+
+_BUDGET_ROWS = "abcdef"
+"""Six rows, one per letter, first_seen descending from 'a' so newest-first order IS a..f."""
+
+
+def _budget_rows(score=11):
+    return [{"url": "https://ex.com/%s" % ch, "jd": _JD, "location": "Boston, MA",
+             "found_date": "2026-08-0%d" % (6 - i), "first_seen": "2026-08-0%d" % (6 - i),
+             "title": "Program Manager", "company": "Ex", "match_score": score}
+            for i, ch in enumerate(_BUDGET_ROWS)]
+
+
+def _run_budget(rows=None, budget="4", step=60, chunk=2, prior_meta=None, resume=None,
+                kv=None, argv=None, fake=None):
+    """main() over `rows` with a fake clock. Returns (fake db, list of jdmeta maps saved).
+
+    budget=4 with step=60 scores exactly THREE rows: the deadline is set on the first clock call
+    and each row costs one more, so row index 3 is the first to find the budget spent.
+
+    `fake` takes a pre-built _FakeDB so a caller can wire a failing write before main() runs.
+    """
+    rows = _budget_rows() if rows is None else rows
+    fake = _FakeDB(rows) if fake is None else fake
+    fake.kv = dict(kv or {})
+    tmp = tempfile.mkdtemp()
+    cache_path = os.path.join(tmp, "jd_cache.json.gz")
+    with gzip.open(cache_path, "wt", encoding="utf-8") as fh:
+        json.dump({r["url"]: r["jd"] for r in rows}, fh)
+    with open(os.path.join(tmp, "resume.txt"), "w", encoding="utf-8") as fh:
+        fh.write(resume or "Program manager. Roadmap, stakeholder management, risk, budget.\n")
+
+    saved = {k: getattr(sj, k) for k in
+             ("db", "JD_CACHE_FILE", "detail_jd", "jd_map_for", "NEW_JOBS_FILE", "time",
+              "ANALYZE_CHUNK")}
+    saved_core = {k: getattr(sj.core, k) for k in ("load_idf", "save_jdmeta", "load_jdmeta")}
+    saved_argv, saved_cwd = sys.argv[:], os.getcwd()
+    # Hermetic: these are read at CALL time, so a value in the developer's shell would otherwise
+    # decide what the test measures.
+    env_keys = ("SCORE_NEW_ONLY", "SCORE_MAX_FETCH", "SCORE_BUDGET_MIN",
+                "SCORE_ANALYZE_BUDGET_MIN", "SCORE_RESET_CURSOR")
+    saved_env = {k: os.environ.get(k) for k in env_keys}
+    metas = []
+
+    def _no_network(*a, **kw):
+        raise AssertionError("network fetch attempted — the cache covers every row here")
+
+    try:
+        for k in env_keys:
+            os.environ.pop(k, None)
+        if budget is not None:
+            os.environ["SCORE_ANALYZE_BUDGET_MIN"] = str(budget)
+        sj.db = fake
+        sj.JD_CACHE_FILE = cache_path
+        sj.NEW_JOBS_FILE = os.path.join(tmp, "no_such_new_jobs.json")
+        sj.detail_jd = _no_network
+        sj.jd_map_for = _no_network
+        sj.time = _Clock(step)
+        sj.ANALYZE_CHUNK = chunk
+        sj.core.load_idf = lambda *a, **kw: {}
+        sj.core.load_jdmeta = lambda *a, **kw: dict(prior_meta or {})
+        sj.core.save_jdmeta = lambda m, *a, **kw: metas.append(dict(m))
+        sys.argv = ["score_jobs"] + (argv or [])
+        os.chdir(tmp)
+        sj.main()
+    finally:
+        for k, v in saved.items():
+            setattr(sj, k, v)
+        for k, v in saved_core.items():
+            setattr(sj.core, k, v)
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        sys.argv = saved_argv
+        os.chdir(saved_cwd)
+    return fake, metas
+
+
+def _url(ch):
+    return "https://ex.com/%s" % ch
+
+
+def test_the_analysis_budget_stops_the_loop_and_banks_what_it_scored():
+    fake, _ = _run_budget()
+    scored = [ch for ch in _BUDGET_ROWS if fake.rows[_url(ch)]["match_score"] != 11]
+    assert scored == ["a", "b", "c"], \
+        "expected the 3 newest rows scored, got %r — a budget that cuts an arbitrary set is " \
+        "the starvation bug the ordering exists to prevent" % (scored,)
+    # The whole point: the work reached the database DURING the loop, not after it.
+    assert len(fake.score_calls) >= 2, \
+        "scores were written in %d call(s) — an unchunked write is lost entirely when the " \
+        "process is killed, which is the defect being fixed" % len(fake.score_calls)
+
+
+def test_rows_the_budget_never_reached_keep_their_previous_score():
+    fake, _ = _run_budget()
+    for ch in "def":
+        assert fake.rows[_url(ch)]["match_score"] == 11, \
+            "row %s was left at %r; an unreached row must keep the score it had, never be " \
+            "zeroed or blanked" % (ch, fake.rows[_url(ch)]["match_score"])
+
+
+def test_a_truncated_pass_records_where_to_resume():
+    fake, _ = _run_budget()
+    cur = fake.kv.get(sj.CURSOR_KEY) or {}
+    assert cur.get("key"), "no cursor stored — the next run would re-score a..c and stall again"
+    assert cur["key"][2] == _url("c"), \
+        "cursor names %r; it must be the LAST row scored" % (cur["key"][2],)
+
+
+def test_the_next_run_resumes_below_the_cursor_instead_of_restarting():
+    first, _ = _run_budget()
+    # Same rows, same résumé (so the same rev), carrying the first run's cursor forward. Scores
+    # reset to 11 so "who did run two touch?" is unambiguous.
+    second, _ = _run_budget(rows=_budget_rows(), kv=first.kv)
+    scored = [ch for ch in _BUDGET_ROWS if second.rows[_url(ch)]["match_score"] != 11]
+    assert scored == ["d", "e", "f"], \
+        "run two scored %r — it must pick up below the cursor, or repeated truncation never " \
+        "covers the corpus" % (scored,)
+    assert not (second.kv.get(sj.CURSOR_KEY) or {}).get("key"), \
+        "the cursor survived a pass that reached the end of the corpus; the next cycle would " \
+        "skip the newest rows"
+
+
+def test_a_completed_pass_stores_no_cursor():
+    # No budget at all -- the manual-backfill path every existing caller gets.
+    fake, _ = _run_budget(budget=None)
+    scored = [ch for ch in _BUDGET_ROWS if fake.rows[_url(ch)]["match_score"] != 11]
+    assert scored == list(_BUDGET_ROWS), "an unbudgeted pass must score everything, got %r" % (scored,)
+    assert not (fake.kv.get(sj.CURSOR_KEY) or {}).get("key"), \
+        "an unbudgeted pass left a cursor behind, which would make the next budgeted run " \
+        "resume mid-corpus over rows it had just refreshed"
+
+
+def test_editing_the_resume_throws_the_cursor_away():
+    first, _ = _run_budget()
+    # A different résumé means every stored score is stale, so resuming mid-corpus would leave
+    # d..f on the old scale indefinitely. The rev must invalidate the cursor and restart at 'a'.
+    second, _ = _run_budget(rows=_budget_rows(), kv=first.kv,
+                            resume="Data analyst. SQL, dashboards, forecasting, Python.\n")
+    scored = [ch for ch in _BUDGET_ROWS if second.rows[_url(ch)]["match_score"] != 11]
+    assert scored == ["a", "b", "c"], \
+        "run two scored %r; a changed résumé must restart the pass at the newest row" % (scored,)
+
+
+def test_a_failed_flush_does_not_advance_the_cursor_past_it():
+    """The cursor names the last row WRITTEN, not the last analyzed.
+
+    Those differ exactly when a flush fails. Advance over unwritten rows and the next run skips
+    them, so they keep a stale score until the rev changes — a silent hole precisely in the rows
+    the run thought it had handled."""
+    rows = _budget_rows()
+    fake = _FakeDB(rows)
+
+    calls = []
+
+    def _flaky(scores):
+        calls.append(sorted(scores))
+        # First chunk (a, b) lands; every later flush fails, so c is analyzed but never stored.
+        if len(calls) > 1:
+            raise RuntimeError("proxy said no")
+        for u, s in scores.items():
+            fake.rows[u]["match_score"] = s
+
+    fake.update_scores = _flaky
+    _run_budget(rows=rows, chunk=2, fake=fake)
+    assert len(calls) > 1, "only one flush happened; this test needs a failing LATER chunk"
+    cur = fake.kv.get(sj.CURSOR_KEY) or {}
+    assert cur.get("key"), "no cursor stored at all"
+    assert cur["key"][2] == _url("b"), \
+        "cursor names %r, but only a..b were written — c would be skipped forever" \
+        % (cur["key"][2],)
+
+
+def test_a_truncated_pass_does_not_blank_the_jdmeta_cache():
+    # jdmeta.json is the web app's precomputed analysis for the WHOLE corpus and save_jdmeta
+    # REPLACES it. Writing only a truncated run's share would blank the rest -- and because
+    # _persist_derived re-runs core.job_meta for anything missing from the map, at the same
+    # ~206 ms/row, that would hand the derived phase the entire cost this budget just refused.
+    prior = {_url(ch): {"analyzed": {"keywords": {}}, "exp_years": None} for ch in _BUDGET_ROWS}
+    fake, metas = _run_budget(prior_meta=prior)
+    assert metas, "save_jdmeta was never called"
+    saved = metas[-1]
+    for ch in "def":
+        assert _url(ch) in saved, \
+            "row %s vanished from jdmeta; every unreached row's analysis must be carried over" % ch
+    for ch in "abc":
+        assert saved[_url(ch)].get("analyzed", {}).get("keywords") != {}, \
+            "row %s kept its stale prior analysis instead of the one just computed" % ch
 
 
 if __name__ == "__main__":
