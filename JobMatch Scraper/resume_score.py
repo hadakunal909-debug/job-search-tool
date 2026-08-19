@@ -110,6 +110,43 @@ def _locate(raw, line_start, needle):
     return line_start + off, line_start + off + len(needle)
 
 
+_ROLEISH_RE = re.compile(r"\b(?:19|20)\d{2}\b|\bpresent\b|\bcurrent\b", re.I)
+
+
+def _is_continuation(raw, prev, prev_indent):
+    """Is this line the rest of the previous bullet, wrapped by the PDF?
+
+    THE BUG THIS FIXES. A PDF lays a long bullet across several visual lines and extraction returns
+    one line per visual line, with nothing marking which are continuations. Only the first carries
+    the bullet glyph, so `_experience_items` (which keeps glyph lines) DROPPED the rest — including
+    the half with the number in it. Every PDF-sourced résumé was scored on fragments, and bullets
+    that plainly stated a result were told they had none.
+
+    Two signals, both high precision:
+      * deeper indentation than the bullet's own glyph — how wrapped text is laid out, and
+      * a lowercase or punctuation first character — how a sentence continues mid-clause.
+    A capitalised line only joins when the previous one was left hanging AND this one carries no
+    date and is not Title Case throughout, because those are the shapes of a role or employer line,
+    which must stay separate.
+    """
+    if prev is None or not prev.get("bullet"):
+        return False
+    s = raw.strip()
+    if not s or _BULLET.match(raw) or _looks_like_heading(raw):
+        return False
+    indent = len(raw) - len(raw.lstrip())
+    if s[0].islower() or s[0] in ",;:)/&+-":
+        return True
+    if indent > prev_indent + 1:
+        return True
+    tail = (prev.get("text") or "").rstrip()
+    if tail and tail[-1] not in ".!?" and not _ROLEISH_RE.search(s) and len(s.split()) > 2:
+        words = re.findall(r"[A-Za-z']+", s)
+        if not (words and all(w[0].isupper() for w in words)):
+            return True
+    return False
+
+
 def split_sections(text):
     """Plain text -> (header_lines, sections).
 
@@ -122,6 +159,7 @@ def split_sections(text):
     Anything before the first heading is the header block (name / contact), never an item.
     """
     header, sections, cur = [], [], None
+    prev_indent = 0
     for raw, line_start in _lines_with_offsets(text):
         s = raw.strip()
         if not s:
@@ -139,7 +177,18 @@ def split_sections(text):
         m = _BULLET.match(raw)
         body = (m.group(1) if m else s).strip()
         b0, b1 = _locate(raw, line_start, body)
-        cur["items"].append({"text": body, "bullet": bool(m), "start": b0, "end": b1})
+        prev = cur["items"][-1] if cur["items"] else None
+        if _is_continuation(raw, prev, prev_indent):
+            # Fold the wrapped remainder into the bullet it belongs to. `frags` keeps each visual
+            # line's own range so a highlight never has to span a newline, while `end` grows to
+            # cover the whole logical bullet.
+            prev["text"] = (prev["text"] + " " + body).strip()
+            prev["end"] = b1
+            prev["frags"].append((b0, b1))
+            continue
+        cur["items"].append({"text": body, "bullet": bool(m), "start": b0, "end": b1,
+                             "frags": [(b0, b1)]})
+        prev_indent = len(raw) - len(raw.lstrip())
     return header, sections
 
 
@@ -324,10 +373,19 @@ def _clip(texts):
 
 
 def _spans(items):
-    """(start, end) for each item. Deliberately NOT capped at MAX_OFFENDERS: that cap exists so the
-    written fix list stays readable, but the viewer has to mark every occurrence or the counts in
-    the rail would disagree with the marks in the document."""
-    return [(i["start"], i["end"]) for i in items if "start" in i]
+    """Every visual line of each item, as (start, end).
+
+    Per FRAGMENT, not per item: a bullet the PDF wrapped over three lines is one logical item with
+    three ranges, and a single start..end span across it would cover the newlines and indentation
+    between them — which the viewer would draw as one block highlight swallowing the gaps.
+
+    Deliberately NOT capped at MAX_OFFENDERS: that cap exists so the written fix list stays readable,
+    but the viewer has to mark every occurrence or the counts in the rail disagree with the document.
+    """
+    out = []
+    for i in items:
+        out.extend(i.get("frags") or ([(i["start"], i["end"])] if "start" in i else []))
+    return out
 
 
 def _first_word_span(item):

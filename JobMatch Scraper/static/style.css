@@ -2255,3 +2255,62 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    Appended after both .jobwrap and .rb, so it wins on source order. */
 .brainwide{max-width:var(--layout-feed-max);margin:0 auto;
   padding:0 var(--space-300) var(--space-600)}
+
+/* ---- LAYOUT REVAMP: use the width, and stop making everything tiny --------------------------
+   The complaint was exact: a 1900px viewport rendering one ~900px column of short lines with the
+   right half empty, at 12px. The answer is not wider text lines -- a 1500px line of prose is
+   unreadable -- it is more content side by side, and a larger base size. */
+
+/* Rail 300px, not 280: at 280 the résumé rows could not fit a name and a score on one line. */
+@media (min-width:1040px){
+  .rvcols{grid-template-columns:300px minmax(0,1fr)}
+}
+
+/* Résumé rows: score in a fixed column so the numbers align and can be scanned down. */
+.rvreslist{display:flex;flex-direction:column;gap:2px;margin-bottom:var(--space-100)}
+.rvres{display:flex;align-items:center;gap:var(--space-150);padding:8px 8px;border-radius:var(--radius-sm);
+  text-decoration:none;color:inherit}
+.rvres:hover{background:var(--bg-hover)}
+.rvres.on{background:var(--accent-bg)}
+.rvres.on .rvres-t{color:var(--accent-text);font-weight:700}
+.rvres-n{flex:0 0 34px;text-align:right;font-family:var(--font-data);font-variant-numeric:tabular-nums;
+  font-size:var(--text-base);font-weight:800;line-height:1}
+.rvres-b{min-width:0;display:flex;flex-direction:column;gap:1px}
+.rvres-t{font-size:var(--text-sm);font-weight:600;color:var(--text-primary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rvres-m{font-size:var(--text-3xs);color:var(--muted)}
+.rvres-m b{color:var(--status-success-text);text-transform:uppercase;letter-spacing:.04em}
+
+/* THE REVIEW SPLIT. Fixes on the left, the document they refer to on the right, so clicking a fix
+   marks something already on screen instead of something a scroll away. The document sticks. */
+.rvsplit{display:grid;grid-template-columns:1fr;gap:var(--space-300)}
+.rvsplit-a,.rvsplit-b{min-width:0}
+@media (min-width:1400px){
+  .rvsplit{grid-template-columns:minmax(0,7fr) minmax(0,8fr);gap:var(--space-400)}
+  .rvsplit-b{position:sticky;top:calc(var(--topbar-h) + var(--space-200));align-self:start}
+  .rvsplit-b .rv-doc{max-height:calc(100vh - var(--topbar-h) - 190px)}
+  .rvdoc-h{margin-top:0}
+}
+
+/* Bigger. 12px monospace for a document you are being asked to READ was the wrong call. */
+.rv-doc{font-size:var(--text-sm);line-height:1.8;padding:20px}
+.rvb-text{font-size:var(--text-xs);line-height:1.7}
+.rs-off li{font-size:var(--text-xs)}
+.rvc-name{font-size:var(--text-xs)}
+.rvcheck{font-size:var(--text-xs)}
+
+/* Bullets in two columns on a wide screen -- each row is short, so one column wasted the width. */
+@media (min-width:1500px){
+  .rvblist-2{display:grid;grid-template-columns:1fr 1fr;column-gap:var(--space-400);
+    align-items:start}
+  .rvblist-2>li{break-inside:avoid}
+}
+
+/* The PDF, now that it renders at all. Tall enough to read a page without scrolling twice. */
+.rvpdf{width:100%;height:min(86vh,1100px);border:1px solid var(--line);border-radius:var(--r-lg);
+  background:var(--surface2);display:block}
+.rvpdf-alt{margin-top:var(--space-100);font-size:var(--text-2xs)}
+@media (max-width:640px){
+  .rv-doc{font-size:var(--text-xs);padding:12px}
+  .rvpdf{height:62vh}
+}

@@ -2382,6 +2382,22 @@ def _docx_to_text(data):
     return "\n".join(out)
 
 
+_PDF_SPLIT_HYPHEN_RE = re.compile(r"(\w) -(\w)")
+
+
+def _fix_pdf_artifacts(text):
+    """Undo the spacing damage PDF text extraction does.
+
+    Extraction reads glyph positions, so kerning around a hyphen becomes a real space: a résumé
+    reading "Excel-based" comes back as "Excel -based", and "RFID-based" as "RFID -based". Left
+    alone it breaks keyword matching (the compound no longer matches), trips the spacing check, and
+    reads as sloppy writing in a panel that is telling the user their writing is sloppy.
+
+    Only the no-space-after case is touched, so a real spaced dash (" - ") is left alone.
+    """
+    return _PDF_SPLIT_HYPHEN_RE.sub(r"\1-\2", text or "")
+
+
 def _pdf_to_text(data):
     from pypdf import PdfReader
     reader = PdfReader(BytesIO(data))
@@ -2390,8 +2406,8 @@ def _pdf_to_text(data):
             reader.decrypt("")                 # many resumes are "protected" with an empty owner
         except Exception:                      # password; a real one is a clear error below
             return ""
-    return "\n".join((p.extract_text() or "")
-                     for p in reader.pages[:_RESUME_PDF_MAX_PAGES])
+    return _fix_pdf_artifacts("\n".join((p.extract_text() or "")
+                                        for p in reader.pages[:_RESUME_PDF_MAX_PAGES]))
 
 
 _TEX_ITEM_RE = re.compile(r"^\s*\\item\s*", re.M)

@@ -230,6 +230,76 @@ def test_points_lost_orders_the_fixes():
     assert all(c["fix"] for c in fixes)
 
 
+# ------------------------------------------------- wrapped bullets (the PDF-extraction bug)
+# A PDF lays a long bullet across several visual lines and extraction returns one line per visual
+# line, with nothing marking the continuations. Only the first carries a bullet glyph, so
+# _experience_items kept that one and DROPPED the rest — including the half with the number in it.
+# Every PDF-sourced résumé was scored on fragments and told its quantified bullets had no result.
+WRAPPED = """KUNAL SINGH HADA
+hada.k@example.com | (857) 555-0134 | Boston, MA
+
+EXPERIENCE
+Northeastern University, Boston MA            Jan 2025 - Present
+-  Analyzed procurement and inventory workflows for Minoans.in, gathering requirements from 15+
+   suppliers to design daily-stock SLAs and a custom dashboard, cutting stockouts 32%
+-  Built Power Automate workflows to automate monthly asset file updates and reconciliation,
+   eliminating hundreds of manual Excel entries and saving 12 hours per week
+Minoans.in, Remote                           Jun 2024 - Dec 2024
+-  Deployed 30+ RFID-based vehicle tracking units integrating them with a centralized
+   dashboard to cut manual logging 45%
+
+SKILLS
+PMO Operations, Project planning, project coordination
+"""
+
+
+def test_wrapped_bullets_are_rejoined_not_dropped():
+    _h, secs = rs.split_sections(WRAPPED)
+    items, _found = rs._experience_items(secs)
+    assert len(items) == 3, "got %d bullets, want 3: %r" % (
+        len(items), [i["text"][:40] for i in items])
+    joined = " | ".join(i["text"] for i in items)
+    for tail in ("cutting stockouts 32%", "saving 12 hours per week", "cut manual logging 45%"):
+        assert tail in joined, "the continuation carrying %r was lost" % tail
+
+
+def test_rejoining_recovers_the_metric_the_scorer_needs():
+    """The whole point: the number lives on the continuation line."""
+    c = _check(rs.score_resume(WRAPPED), "quantified_impact")
+    assert c["score"] == 10.0, c["detail"]
+
+
+def test_role_and_employer_lines_are_not_swallowed():
+    """They are also non-bullet lines. Joining them into the bullet above would merge two jobs."""
+    _h, secs = rs.split_sections(WRAPPED)
+    exp = [s for s in secs if s["group"] == "experience"][0]
+    plain = [i["text"] for i in exp["items"] if not i["bullet"]]
+    assert len(plain) == 2, plain
+    assert all("Jan 2025" in p or "Jun 2024" in p for p in plain), plain
+
+
+def test_a_rejoined_bullet_keeps_one_span_per_visual_line():
+    """One start..end across a wrapped bullet would cover the newline and the indentation between
+    its lines, and the viewer would draw that as a block swallowing the gap."""
+    _h, secs = rs.split_sections(WRAPPED)
+    items, _ = rs._experience_items(secs)
+    multi = [i for i in items if len(i["frags"]) > 1]
+    assert multi, "no bullet was rejoined"
+    for i in items:
+        for (a, b) in i["frags"]:
+            assert "\n" not in WRAPPED[a:b], WRAPPED[a:b]
+
+
+def test_pdf_hyphen_artifact_is_repaired():
+    """Extraction reads glyph positions, so kerning around a hyphen becomes a real space:
+    "Excel-based" comes back as "Excel -based" and stops matching as a compound."""
+    import core
+    assert core._fix_pdf_artifacts("Excel -based workflows") == "Excel-based workflows"
+    assert core._fix_pdf_artifacts("30+ RFID -based units") == "30+ RFID-based units"
+    # A genuine spaced dash is left alone.
+    assert core._fix_pdf_artifacts("cost - benefit analysis") == "cost - benefit analysis"
+
+
 # --------------------------------------------------------------- spans (the highlighting contract)
 def test_every_span_points_at_the_text_it_claims():
     """A highlight is only as good as its offset. This is the test that would have caught an
