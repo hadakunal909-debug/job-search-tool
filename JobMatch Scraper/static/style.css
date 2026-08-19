@@ -2014,3 +2014,244 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    naming a control and leaving the reader to go and look at what it was set to. */
 .empty-h{font-size:var(--text-md);font-weight:var(--weight-medium);color:var(--text-primary);margin:0 0 var(--space-100);text-wrap:balance}
 .empty-acts{display:flex;flex-wrap:wrap;gap:var(--space-100);justify-content:center;margin-top:var(--space-200)}
+
+/* ---- RÉSUMÉ SCORE (/resume) -------------------------------------------------------------
+   The score reuses .score-ring and the --match-* ramp deliberately: the feed already teaches
+   "ring + number = a score", so a second scale does not need a second visual language. The
+   BANDS differ though (85/70 here vs 55/42 for job match) because they measure different
+   things, which is why the thresholds live in the template and not in a shared class.
+
+   The meter colours are re-scoped rather than hoisted to a global utility: .meter-* already
+   exists twice under .jobstat/.simmeta, and a third global definition is how a token ends up
+   painting something nobody intended. */
+.rs-head{display:flex;align-items:center;gap:var(--space-250);flex-wrap:wrap;margin:0 0 var(--space-250)}
+.rs-headtext{min-width:0;display:flex;flex-direction:column;gap:var(--space-050)}
+.rs-levels{display:flex;align-items:center;gap:var(--space-100);flex-wrap:wrap;
+  margin-top:var(--space-100);font-size:var(--text-2xs);color:var(--muted);font-weight:600}
+.rs-groups{margin:0}
+.rs-groups .tile-n.meter-strong{color:var(--match-strong)}
+.rs-groups .tile-n.meter-good{color:var(--match-good)}
+.rs-groups .tile-n.meter-weak{color:var(--match-weak)}
+
+.rs-fixes{margin:0;padding-left:var(--space-250);display:flex;flex-direction:column;gap:var(--space-250)}
+.rs-fixes>li::marker{color:var(--muted);font-weight:700}
+.rs-fixhead{display:flex;align-items:center;gap:var(--space-100);flex-wrap:wrap}
+.rs-detail{color:var(--text-secondary);font-size:var(--text-sm);margin-top:2px}
+/* The instruction, not the complaint. Given a left rule so the eye can find the ONE line that
+   says what to do, without the wash of colour that would compete with the visa chips. */
+.rs-fix{margin-top:var(--space-100);padding-left:var(--space-150);
+  border-left:2px solid var(--line-strong);font-size:var(--text-sm);color:var(--text-primary)}
+/* Verbatim offending lines. Monospace because these are quoted FROM the résumé — the reader has
+   to be able to find them in the textarea below, and a proportional face invites reading them
+   as our prose instead of theirs. */
+.rs-off{margin:var(--space-100) 0 0;padding-left:var(--space-200);list-style:none;
+  display:flex;flex-direction:column;gap:4px}
+.rs-off li{font-family:var(--font-data);font-size:var(--text-2xs);color:var(--muted);
+  line-height:1.5;padding-left:var(--space-100);border-left:1px solid var(--line)}
+
+.rs-sum{font-size:var(--text-md);font-weight:var(--weight-semibold);color:var(--text-primary)}
+.rs-table{width:100%;border-collapse:collapse;margin-top:var(--space-150);font-size:var(--text-sm)}
+.rs-table th,.rs-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);
+  vertical-align:top}
+.rs-table thead th{font-size:var(--text-2xs);text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);font-weight:700}
+.rs-table tbody th{width:130px;color:var(--muted);font-weight:600}
+.rs-table tr:last-child th,.rs-table tr:last-child td{border-bottom:0}
+.rs-num{font-family:var(--font-data);font-variant-numeric:tabular-nums;text-align:right;
+  white-space:nowrap}
+.rs-table .meter-strong{color:var(--match-strong)}
+.rs-table .meter-good{color:var(--match-good)}
+.rs-table .meter-weak{color:var(--match-weak)}
+/* The checks table is 5 columns; at 375px it was clipped INSIDE its panel, which is worse than
+   a scrollbar because nothing tells the reader there is more. Group is the column to drop — the
+   rows are already ordered by cost, so the grouping is decoration here — and the scroll wrapper
+   catches whatever still does not fit rather than hiding it. */
+.rs-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media (max-width:640px){
+  .rs-head{gap:var(--space-150)}
+  .rs-table tbody th{width:auto}
+  .rs-col-group{display:none}
+  .rs-off li{overflow-wrap:anywhere}
+}
+
+/* ---- RESUME BRAIN REVIEW PANEL (/brain) --------------------------------------------------
+   Two columns, mirroring .jobcols (the job page) rather than inventing a third grid: rail
+   left, document right, one breakpoint, collapsing to a single column on a phone.
+
+   min-width:0 on BOTH children is load-bearing, same as .jobcols. Without it a long unbroken
+   run inside <pre class="rv-doc"> pushes the grid track past the container and the whole page
+   scrolls sideways -- the exact bug that once made the feed scroll horizontally. */
+.rvcols{display:grid;grid-template-columns:1fr;gap:var(--space-400)}
+.rvrail{min-width:0;display:flex;flex-direction:column;gap:var(--space-200)}
+.rvmain{min-width:0}
+@media (min-width:1040px){
+  .rvcols{grid-template-columns:280px minmax(0,1fr)}
+  /* Sticky only where there is room. On a phone a sticky rail eats the viewport. */
+  .rvrail{position:sticky;top:calc(var(--topbar-h) + var(--space-200));align-self:start;
+    max-height:calc(100vh - var(--topbar-h) - var(--space-400));overflow-y:auto}
+}
+
+.rvbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px}
+.rvbox-h{font-size:var(--text-sm);font-weight:700;color:var(--ink);margin:0 0 10px;
+  display:flex;align-items:center;gap:8px}
+.rvhint{font-size:var(--text-2xs);color:var(--muted);margin:0 0 8px}
+
+/* Upload sits in the rail because adding a résumé is the one action that always makes sense,
+   including when the panel has nothing to show yet. */
+.rvupload{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.rvfile{display:block;font-size:var(--text-2xs);color:var(--muted);cursor:pointer}
+.rvfile input{display:block;width:100%;font-size:var(--text-2xs);margin-bottom:4px}
+
+.rvgroup{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
+.rvgroup:first-of-type{border-top:0;margin-top:0}
+.rvgroup > summary{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:4px 0;font-size:var(--text-sm);font-weight:600}
+.rvg-name{flex:1}
+/* A check with marks is a control; one without is a readout. They must not look alike, or every
+   unclickable row invites a click that does nothing. */
+.rvcheck{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;
+  background:transparent;border:0;border-radius:var(--radius-sm);padding:5px 6px;margin:1px 0;
+  font-size:var(--text-2xs);color:var(--text-secondary);text-align:left;cursor:pointer;
+  font-family:inherit}
+.rvcheck:hover{background:var(--bg-hover);color:var(--text-primary)}
+.rvcheck.flat{cursor:default}
+.rvcheck.flat:hover{background:transparent;color:var(--text-secondary)}
+.rvcheck.sel{background:var(--accent-bg);color:var(--accent-text);font-weight:700}
+.rvc-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rvc-n{font-family:var(--font-data);font-variant-numeric:tabular-nums;flex:0 0 auto}
+
+.rvtabs{display:flex;gap:2px;flex-wrap:wrap;margin-top:var(--space-200);
+  border-bottom:1px solid var(--line)}
+.rvtab{background:transparent;border:0;border-bottom:2px solid transparent;padding:8px 12px;
+  font-size:var(--text-sm);font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+.rvtab:hover{color:var(--text-primary)}
+.rvtab.on{color:var(--text-primary);border-bottom-color:var(--accent)}
+
+.rvdoc-h{margin-top:var(--space-300)}
+/* The document. <pre> because this is the text an ATS extracted -- collapsing its whitespace
+   would misrepresent the very thing the panel exists to show. */
+.rv-doc{margin:0;padding:16px;background:var(--surface2);border:1px solid var(--line);
+  border-radius:var(--r-lg);font-family:var(--font-data);font-size:var(--text-2xs);
+  line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere;max-height:70vh;overflow-y:auto;
+  color:var(--text-primary)}
+/* Inert by default. Every span in the document is already wrapped; only the selected check lights
+   up. Reuses the JD highlighter's colour pair so a marked résumé and a marked JD read the same. */
+.rv-doc mark{background:transparent;color:inherit;padding:0}
+.rv-doc mark.on{background:var(--kw-miss-bg,var(--status-warn-bg));color:var(--kw-miss-text,var(--status-warn-text));
+  border-radius:3px;box-shadow:0 0 0 1px var(--status-warn-border,transparent)}
+
+.rs-fixes > li.linked{cursor:pointer}
+.rs-fixes > li.sel > .rs-fixhead > strong{color:var(--accent-text)}
+.rvjump{font-size:var(--text-3xs);color:var(--accent-text);text-transform:uppercase;
+  letter-spacing:.04em;font-weight:700}
+.rvpdf{width:100%;height:min(78vh,900px);margin-top:var(--space-200);border:1px solid var(--line);
+  border-radius:var(--r-lg);background:var(--surface2)}
+@media (max-width:640px){
+  .rv-doc{font-size:var(--text-3xs);padding:10px}
+  .rvpdf{height:60vh}
+}
+
+/* The gate banner. Warn tones, not danger: a capped score is a diagnosis, not an error, and this
+   sits directly under a score ring whose colour already carries the verdict. */
+.rvgate{margin-top:var(--space-200);line-height:1.6}
+.rvgate strong{display:block;margin-bottom:2px}
+
+/* ---- per-bullet review (the Bullets tab) ------------------------------------------------
+   The three parts are shown as three chips per bullet, present or absent, because "6.5/10" says
+   a bullet is weak and "verb SCOPE result" says which third of it to fix. */
+.rvtab-n{font-family:var(--font-data);font-size:var(--text-3xs);font-weight:700;margin-left:5px;
+  padding:1px 5px;border-radius:var(--radius-full);background:var(--surface2);color:var(--muted)}
+.rvblist{margin:var(--space-250) 0 0;padding-left:var(--space-250);display:flex;
+  flex-direction:column;gap:var(--space-200)}
+.rvblist>li::marker{color:var(--muted);font-weight:700}
+.rvb{padding-bottom:var(--space-200);border-bottom:1px solid var(--line)}
+.rvb:last-child{border-bottom:0;padding-bottom:0}
+.rvb-head{display:flex;align-items:center;gap:var(--space-150);flex-wrap:wrap}
+.rvb-score{font-family:var(--font-data);font-variant-numeric:tabular-nums;font-weight:800;
+  font-size:var(--text-md)}
+.rvb-parts{display:flex;gap:4px}
+/* Absent parts are the message, so they get the border and the present ones recede. Colour is not
+   the carrier here -- the visa chips already own colour on this app -- weight and fill are. */
+.rvb-part{font-size:var(--text-3xs);text-transform:uppercase;letter-spacing:.05em;font-weight:700;
+  padding:2px 7px;border-radius:var(--radius-full);border:1px dashed var(--line-strong);
+  color:var(--muted);background:transparent}
+.rvb-part.has{border-style:solid;border-color:transparent;background:var(--surface2);
+  color:var(--text-primary)}
+.rvb-text{margin-top:var(--space-100);font-family:var(--font-data);font-size:var(--text-2xs);
+  line-height:1.6;color:var(--text-primary);overflow-wrap:anywhere}
+.rvb-probs{margin:var(--space-100) 0 0;padding-left:var(--space-200);color:var(--text-secondary);
+  font-size:var(--text-sm);display:flex;flex-direction:column;gap:2px}
+.rvb-fix{margin-top:6px;padding-left:var(--space-150);border-left:2px solid var(--line-strong);
+  font-size:var(--text-sm);color:var(--text-primary)}
+.rvb-fix b{color:var(--muted);font-weight:700;margin-right:4px}
+.rvb.good .rvb-text{color:var(--text-secondary)}
+.rvfind{margin-top:var(--space-250);font-size:var(--text-sm)}
+.rvfind ul{margin:var(--space-100) 0 0;padding-left:var(--space-250);display:flex;
+  flex-direction:column;gap:4px;color:var(--text-secondary)}
+
+/* ---- Resume Brain UX pass ----------------------------------------------------------------
+   MOBILE ORDER. The rail is three boxes and an upload form; on a phone that pushed the score and
+   the document roughly a screen and a half down, so the page opened on navigation instead of on
+   the answer. The score panel comes first below 1040px and the rail follows it. Source order stays
+   rail-first because that is the right order for a screen reader and for the desktop layout. */
+@media (max-width:1039px){
+  .rvcols{display:flex;flex-direction:column}
+  .rvmain{order:1}
+  .rvrail{order:2}
+}
+
+/* The Brain spine. Same switcher as the admin pages; only the spacing differs, because here it
+   sits above a two-column grid rather than a single column. */
+.brainnav{margin-bottom:var(--space-250)}
+
+/* Library links in the rail. A count with no label is not information -- "Stories 0" told the
+   reader nothing, and every account reads zero today. */
+.rvlink{display:block;padding:8px 6px;border-radius:var(--radius-sm);text-decoration:none;
+  border-top:1px solid var(--line)}
+.rvlink:first-of-type{border-top:0}
+.rvlink:hover{background:var(--bg-hover)}
+.rvlink-t{display:block;font-size:var(--text-sm);font-weight:650;color:var(--text-primary)}
+.rvlink-t b{font-family:var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted);
+  margin-left:4px}
+.rvlink-d{display:block;margin-top:2px;font-size:var(--text-2xs);color:var(--muted);line-height:1.5}
+
+/* Empty state. An empty screen is an invitation to act, so it says what happens next rather than
+   describing the feature in the abstract. */
+.rvsell{margin:var(--space-200) 0;padding-left:var(--space-250);display:flex;flex-direction:column;
+  gap:var(--space-100);color:var(--text-secondary);font-size:var(--text-sm);line-height:1.6}
+.rvsell b{color:var(--text-primary)}
+
+/* Focus. These are new interactive elements and the app's focus ring has to reach them, or the
+   keyboard path is invisible. */
+.rvtab:focus-visible,.rvcheck:focus-visible,.rvlink:focus-visible{outline:none;
+  box-shadow:var(--focus-ring);border-radius:var(--radius-sm)}
+.rvpanel:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+
+@media (prefers-reduced-motion: reduce){
+  .rv-doc{scroll-behavior:auto}
+}
+
+/* The panel's h1. It has to read as a document name beside an 86px score ring, not as a page
+   banner, so it takes the weight of the old .u-strongline rather than the global h1 scale. */
+.rvtitle{margin:0;font-size:var(--text-md);font-weight:var(--weight-semibold);line-height:1.3;
+  color:var(--text-primary);letter-spacing:var(--tracking-tight)}
+.rvtitle-s{font-weight:var(--weight-medium);color:var(--muted)}
+.rvtitle-s::before{content:"· ";color:var(--line-strong)}
+
+/* The tailor form. .rb centres at 920px, which looked adrift once the results below it became a
+   two-column grid; this left-aligns it so the form and the results' main column share an edge. */
+.brainform{max-width:880px;margin:0 0 var(--space-300)}
+/* The results aside carries reference material, so its cards are quieter than the action cards in
+   the main column -- same components, less emphasis, which is what "context" should look like. */
+.jobaside .card h2{font-size:var(--text-sm)}
+@media (max-width:1039px){
+  .brainform{max-width:none}
+}
+
+/* Widens .rb for the tailor page without removing the scope. Every result card on that page is
+   styled by `.rb <something>` selectors -- .cov, .coach, .storypick, .chips, .badge and fifteen
+   more -- so swapping .rb for .jobwrap unstyled all of them at once. This keeps the scope and only
+   changes the width, matching the review panel's container so moving between the two does not jump.
+   Appended after both .jobwrap and .rb, so it wins on source order. */
+.brainwide{max-width:var(--layout-feed-max);margin:0 auto;
+  padding:0 var(--space-300) var(--space-600)}

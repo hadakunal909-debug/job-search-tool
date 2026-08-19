@@ -2,9 +2,119 @@
 {% block content %}
 <h1>My Résumé</h1>
 <p class="sub">Paste your résumé as plain text. Each job's match % is how many of its key skills your résumé covers, so keep it current. Only you can see it. <em>(To label which résumé file you sent on each application, set a default on the <a href="{{ url_for('profile') }}">Profile</a> page.)</em></p>
+
+{% if report %}
+{% set r = report %}
+{% set ring_cls = 'ring-strong' if r.score>=85 else ('ring-good' if r.score>=70 else 'ring-low') %}
+{% set ring_off = (157.1 * (1 - r.score / 100))|round(1) %}
+<div class="panel">
+  <div class="rs-head">
+    <svg class="score-ring {{ ring_cls }}" width="86" height="86" viewBox="0 0 62 62" aria-label="Résumé score {{ r.score }} out of 100">
+      <circle cx="31" cy="31" r="25" fill="none" stroke="var(--ring-track)" stroke-width="5.5"/>
+      <circle cx="31" cy="31" r="25" fill="none" stroke="var(--ring-color)" stroke-width="5.5" stroke-dasharray="157.1" stroke-dashoffset="{{ ring_off }}" stroke-linecap="round" transform="rotate(-90 31 31)"/>
+      <text x="31" y="36" text-anchor="middle" font-size="15" font-weight="800" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">{{ r.score }}</text>
+    </svg>
+    <div class="rs-headtext">
+      <div class="u-strongline">{{ r.band }} · {{ r.score }}/100</div>
+      <div class="muted">Graded on {{ r.checks|length }} checks against a <strong>{{ r.level }}-level</strong> standard. This scale is ours alone — it is not comparable to any other tool's number.</div>
+      <div class="rs-levels">Grade as:
+        {% for lv in levels %}
+          {% if lv == r.level %}<span class="pill ok">{{ lv }}</span>
+          {% else %}<a class="count-pill" href="{{ url_for('resume', level=lv) }}">{{ lv }}</a>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="tiles rs-groups">
+    {% for g in r.groups %}
+    <div class="tile">
+      <div class="tile-n {{ 'meter-strong' if g.score>=85 else ('meter-good' if g.score>=70 else 'meter-weak') }}">{{ g.score }}</div>
+      <div class="tile-l">{{ g.name }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if r.top_fixes %}
+<div class="panel">
+  <div class="section-head"><h2>Fix These First</h2>
+    <span class="count-pill">{{ r.top_fixes|sum(attribute='points_lost')|round(1) }} points recoverable</span></div>
+  <ol class="rs-fixes">
+    {% for c in r.top_fixes %}
+    <li>
+      <div class="rs-fixhead"><strong>{{ c.label }}</strong>
+        <span class="count-pill">&minus;{{ c.points_lost }} pts</span>
+        <span class="muted">{{ c.score }}/10</span></div>
+      <div class="rs-detail">{{ c.detail }}</div>
+      <div class="rs-fix">{{ c.fix }}</div>
+      {% if c.offenders %}
+      <ul class="rs-off">{% for o in c.offenders %}<li>{{ o }}</li>{% endfor %}</ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</div>
+{% else %}
+<div class="panel"><p class="u-m0">Nothing material left to fix — every check is at or near full marks.</p></div>
+{% endif %}
+
+<details class="panel">
+  <summary class="rs-sum">All {{ r.checks|length }} Checks</summary>
+  <div class="rs-scroll">
+    <table class="rs-table">
+      <thead><tr><th>Check</th><th class="rs-col-group">Group</th><th class="rs-num">Score</th><th class="rs-num">Cost</th><th>What We Found</th></tr></thead>
+      <tbody>
+        {% for c in r.checks %}
+        <tr>
+          <td>{{ c.label }}</td>
+          <td class="muted rs-col-group">{{ c.group }}</td>
+          <td class="rs-num {{ 'meter-strong' if c.score>=8.5 else ('meter-good' if c.score>=6 else 'meter-weak') }}">{{ c.score }}</td>
+          <td class="rs-num muted">{% if c.points_lost %}&minus;{{ c.points_lost }}{% else %}&mdash;{% endif %}</td>
+          <td>{{ c.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<details class="panel">
+  <summary class="rs-sum">What An ATS Sees</summary>
+  <p class="sub">This is your résumé as a parser reads it — the same extraction the app ran on your file. If something below is missing or wrong, an applicant tracking system reads it the same way, and no recruiter search will find it.</p>
+  {% set p = r.parse %}
+  <div class="tiles">
+    <div class="tile"><div class="tile-n">{{ p.words }}</div><div class="tile-l">Words extracted</div></div>
+    <div class="tile"><div class="tile-n">~{{ p.pages }}</div><div class="tile-l">Estimated pages</div></div>
+    <div class="tile"><div class="tile-n">{{ p.experience_bullets }}</div><div class="tile-l">Experience bullets</div></div>
+    <div class="tile{{ ' warn' if p.fragment_pct > 45 }}"><div class="tile-n">{{ p.fragment_pct }}%</div><div class="tile-l">Short fragment lines</div></div>
+  </div>
+  <div class="rs-scroll">
+  <table class="rs-table">
+    <tbody>
+      <tr><th>Name</th><td>{{ p.name or '— not detected —' }}</td></tr>
+      <tr><th>Email</th><td>{{ p.contact.email or '— not detected in header —' }}</td></tr>
+      <tr><th>Phone</th><td>{{ p.contact.phone or '— not detected in header —' }}</td></tr>
+      <tr><th>Location</th><td>{{ p.contact.location or '— not detected in header —' }}</td></tr>
+      <tr><th>LinkedIn</th><td>{{ p.contact.linkedin or '— not detected —' }}</td></tr>
+      <tr><th>Date format</th><td>{{ p.date_formats|join(', ') or '— no dates detected —' }}</td></tr>
+      <tr><th>Sections</th>
+        {# s['items'] not s.items — Jinja tries attribute access first and a dict HAS an .items
+           method, so dotted access renders "<built-in method items…>" instead of the count. #}
+        <td>{% if p.sections %}{% for s in p.sections %}<span class="count-pill">{{ s.title }} · {{ s['items'] }}</span> {% endfor %}
+            {% else %}— none recognised —{% endif %}</td></tr>
+    </tbody>
+  </table>
+  </div>
+  {% if not p.found_experience_section %}
+  <div class="banner">No experience section was recognised. An ATS that cannot find your work history may read you as unemployed — label the section literally (<em>Experience</em> or <em>Professional Experience</em>) on its own line.</div>
+  {% endif %}
+</details>
+{% endif %}
+
 <form method="post">
-    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <textarea name="resume" rows="22" placeholder="Paste your résumé here…">{{ resume }}</textarea>
-  <button class="btn primary" type="submit">Save Résumé</button>
+  <button class="btn primary" type="submit">Save Résumé{% if report %} &amp; Re-score{% endif %}</button>
 </form>
 {% endblock %}

@@ -59,6 +59,9 @@ import db
 import dbproxy
 import auth
 import jdrender
+import resume_score
+import resume_keywords
+import resume_bullets
 
 try:
     import analytics
@@ -452,6 +455,10 @@ _resume_cache = {}           # username -> (resume_text, fetched_at)
 _status_cache = {}           # username -> ({url: status}, fetched_at); busted on every action
 _STATUS_TTL = 30             # seconds; mutations bust immediately, this just bounds cross-worker drift
 _RESUME_TTL = 60             # seconds; short so an edit in another worker shows up quickly
+# Usernames current_resume() has already tried to repair this process. Unbounded is fine: it holds
+# one short string per user who has signed in here, and the alternative (retrying every cache miss)
+# costs two queries a minute forever for anyone who genuinely has no résumé.
+_resume_repair_tried = set()
 
 
 def current_resume():
@@ -469,6 +476,21 @@ def current_resume():
         txt = (db.get_user(user, "resume") or {}).get("resume", "") or ""
     except Exception:
         return hit[0] if hit else ""     # transient DB failure -> stale value over nothing
+    # SELF-HEAL. An empty legacy column used to mean "no résumé", but it can also mean the user
+    # only ever added résumés through Resume Brain, which writes the `resumes` table and never
+    # touched this one — and then the feed scores every job against "". Repairing it here rather
+    # than only on /brain matters because the feed is the page that shows the damage, and a user
+    # has no reason to guess that visiting another page would fix their match percentages.
+    #
+    # Gated to fire at most once per user per process, and only when the column is actually empty,
+    # so the common case pays nothing.
+    if not txt.strip() and user not in _resume_repair_tried:
+        _resume_repair_tried.add(user)
+        _ensure_resume_migrated(user)
+        try:
+            txt = (db.get_user(user, "resume") or {}).get("resume", "") or ""
+        except Exception:
+            pass
     _resume_cache[user] = (txt, time.time())
     return txt
 
@@ -477,14 +499,41 @@ _profile_cache = {}          # username -> (profile_text, fetched_at)
 
 
 def _ensure_resume_migrated(user):
-    """One-time: fold the legacy single user.resume into the résumé library so it counts toward
-    the complete profile. Safe to call repeatedly (no-op once the library has any résumé)."""
+    """Keep the two résumé stores in step, in BOTH directions. Safe to call repeatedly.
+
+    The library (`resumes`) is the truth and `users.resume` is a cache of whichever row is
+    active — but only the legacy -> library half of that ever existed, and it ran only when the
+    library was completely empty. Measured live, that left two of four accounts with a résumé in
+    the library and '' in users.resume, which is the single value the feed's match % scores
+    against: their entire feed was scored against an empty string, silently, with a full résumé
+    sitting one table away. A third account had two different documents in the two places.
+
+    So there are three jobs here, each a no-op once satisfied:
+      1. library empty, legacy present  -> adopt the legacy text as the first library row
+      2. no row flagged active          -> flag one (prefer the one matching legacy, else newest)
+      3. legacy empty, library present  -> seed users.resume from the active row
+    """
     try:
-        if db.list_resumes(user):
-            return
+        rows = db.list_resumes(user) or []
         legacy = (db.get_user(user, "resume") or {}).get("resume", "") or ""
-        if legacy.strip():
-            db.save_resume(user, {"name": "My résumé", "content": legacy})
+        if not rows:
+            if not legacy.strip():
+                return
+            db.save_resume(user, {"name": "My résumé", "content": legacy, "active": True})
+            return
+        if not any(r.get("active") for r in rows):
+            # Prefer the row the feed has actually been scoring, so activating cannot silently
+            # change someone's match percentages; fall back to the newest.
+            pick = next((r for r in rows if (r.get("content") or "") == legacy and legacy.strip()),
+                        rows[-1])
+            db.set_active_resume(user, pick.get("id"))
+            _resume_cache.pop(user, None)
+            return
+        if not legacy.strip():
+            active = db.get_active_resume(user) or {}
+            if (active.get("content") or "").strip():
+                db.set_user_resume(user, active["content"])
+                _resume_cache.pop(user, None)
     except Exception:
         pass
 
@@ -3332,10 +3381,11 @@ _SIZE_HISTORY_MAX = 90          # ~3 months of daily points; the blob stays a fe
 # brain_companies_local.json, so counting it always yields None. The health checks say so
 # explicitly rather than leaving a permanent blank row here.
 _COUNTED_TABLES = ("jobs", "users", "user_jobs", "applications", "profiles",
-                   "resumes", "tailored_cache", "learned_answers", "boards")
+                   "resumes", "resume_files", "tailored_cache", "learned_answers", "boards")
 # Every table keyed by username, for the orphan check. db.delete_user() historically removed
 # only user_jobs + users, so anything else here can hold rows belonging to a deleted account.
-_USER_SCOPED_TABLES = ("user_jobs", "profiles", "applications", "resumes", "learned_answers")
+_USER_SCOPED_TABLES = ("user_jobs", "profiles", "applications", "resumes", "resume_files",
+                       "learned_answers")
 
 
 def _record_db_size(nbytes):
@@ -4413,20 +4463,50 @@ def action():
 
 
 # ----------------------------- résumé -----------------------------
+def save_active_resume(user, text, rid=None):
+    """Write résumé text to the LIBRARY row and mirror it into users.resume. Returns ok.
+
+    The single write path, because there used to be two and they drifted: this endpoint wrote only
+    the legacy column while Resume Brain wrote only the library, and live that left two of four
+    accounts with a résumé in one store and nothing in the other — so the feed scored their jobs
+    against an empty string. Anything that saves résumé text goes through here.
+    """
+    text = text or ""
+    try:
+        target = None
+        if rid:
+            target = next((r for r in (db.list_resumes(user) or []) if r.get("id") == rid), None)
+        target = target or db.get_active_resume(user)
+        if target and target.get("id"):
+            db.save_resume(user, {"id": target["id"], "content": text,
+                                  "created_at": target.get("created_at")})
+            db.set_active_resume(user, target["id"])      # also mirrors into users.resume
+        else:
+            ok, new_id = db.save_resume(user, {"name": "My résumé", "content": text,
+                                               "active": True})
+            if ok:
+                db.set_active_resume(user, new_id)
+            else:
+                db.set_user_resume(user, text)            # pre-migration: cache only, still usable
+        _resume_cache[user] = (text, time.time())         # not the cookie (size cap)
+        _profile_cache.pop(user, None)
+        _score_cache.clear()
+        return True
+    except Exception:
+        return False
+
+
 @app.route("/resume", methods=["GET", "POST"])
 @login_required
 def resume():
     if request.method == "POST":
-        txt = request.form.get("resume", "")
-        try:
-            db.set_user_resume(session["user"], txt)
-            _resume_cache[session["user"]] = (txt, time.time())   # not the cookie (size cap)
-            _score_cache.clear()
-            flash("Saved. Your match scores now include it.")
-        except Exception:
-            flash("Couldn't save. Try again.")
-        return redirect(url_for("resume"))
-    return render_template("resume.html", resume=current_resume())
+        ok = save_active_resume(session["user"], request.form.get("resume", ""))
+        flash("Saved. Your match scores now include it." if ok else "Couldn't save. Try again.")
+        return redirect(url_for("brain_home"))
+    # The score, the résumé library, the stories and the ATS view all live on one page now, so this
+    # URL is a door rather than a destination. Kept (rather than deleted) because it is linked from
+    # templates/tailor.html and from anywhere a user bookmarked it.
+    return redirect(url_for("brain_home"))
 
 
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
@@ -4544,9 +4624,78 @@ def _render_brain(user, inputs, data):
 @app.route("/brain")
 @login_required
 def brain_home():
-    """Resume Brain home — tailor a job; prefilled + auto-run when ?job=<url> from the feed."""
+    """Resume Brain — the review panel. Résumés on the left, the graded document on the right.
+
+    This used to be the tailor-to-a-job FORM, which is why the nav felt like it went to the wrong
+    place: the library (résumés, stories, lessons) was one more click away behind "Teach Your Brain",
+    and the score lived on a third page that nothing linked to. One page now owns all of it; the
+    tailor form kept its own URL below.
+    """
     user = session["user"]
-    _ensure_resume_migrated(user)        # fold any legacy single résumé into the library
+    _ensure_resume_migrated(user)        # keeps the two résumé stores in step, both directions
+    # Old feed/job links pass ?job=<url> expecting the tailor form. Redirect rather than break them.
+    job_url = request.args.get("job", "")
+    if job_url:
+        return redirect(url_for("brain_tailor_page", job=job_url))
+
+    resumes = rb.list_resumes(user) or []
+    want = request.args.get("r") or ""
+    chosen = next((r for r in resumes if r.get("id") == want), None) or db.get_active_resume(user)
+    text = (chosen or {}).get("content") or ""
+    level = request.args.get("level", "mid")
+    level = level if level in resume_score.LEVELS else "mid"
+    report = resume_score.score_resume(text, level) if text.strip() else None
+
+    # Every résumé carries its own score in the rail. Cheap enough to do inline — the rubric is pure
+    # regex over a few KB, no network and no model — and a library of scores is the thing that makes
+    # "which of my résumés is strongest" answerable at a glance.
+    cards = []
+    for r in resumes:
+        body = r.get("content") or ""
+        try:
+            s = resume_score.score_resume(body)["score"] if body.strip() else None
+        except Exception:
+            s = None
+        cards.append({"id": r.get("id"), "name": r.get("name") or "Untitled résumé",
+                      "chars": len(body), "score": s, "active": bool(r.get("active")),
+                      "open": bool(chosen) and r.get("id") == chosen.get("id")})
+
+    kw = None
+    if report:
+        try:
+            _h, secs = resume_score.split_sections(text)
+            items, _ = resume_score._experience_items(secs)
+            kw = resume_keywords.evaluate(text,
+                                          evidence_text=" ".join(i["text"] for i in items))
+        except Exception:
+            kw = None
+    # Per-bullet review. Separate from the rubric because the rubric grades the document and this
+    # answers the next question the user actually has: which line, and what do I write instead.
+    bullets = resume_bullets.report(text) if report else None
+    try:
+        files = db.list_resume_files(user, (chosen or {}).get("id")) or []
+    except Exception:
+        files = []                       # table not migrated yet -> no Original tab, no crash
+
+    return render_template(
+        "brain_home.html",
+        resumes=cards, chosen=chosen, report=report, level=level, bullets=bullets,
+        levels=resume_score.LEVELS, keywords=kw, files=files,
+        doc_html=resume_score.annotate_html(text, report["checks"]) if report else "",
+        stories=rb.list_stories(user) or [], lessons=rb.list_lessons(user) or [],
+        have_key=bool(_ai_key_for(user)))
+
+
+@app.route("/brain/tailor", methods=["GET"])
+@login_required
+def brain_tailor_page():
+    """The tailor-to-a-job form, prefilled + auto-run when ?job=<url> arrives from the feed.
+
+    Same view this served at /brain before the review panel took that URL. Registered GET-only so it
+    shares the rule with the POST handler below without either having to grow a method branch.
+    """
+    user = session["user"]
+    _ensure_resume_migrated(user)
     inputs = {"company": "", "company_url": "", "job_url": "", "jd": ""}
     data = None
     job_url = request.args.get("job", "")
@@ -4718,26 +4867,57 @@ def brain_teach():
 @login_required
 def brain_resume_save():
     user = session["user"]
-    uploaded, err = _uploaded_resume_text()
+    keep = {}
+    uploaded, err = _uploaded_resume_text(keep=keep)
     if err:
         flash(err)
     content = uploaded or request.form.get("content", "")
+    back = request.form.get("back") or "brain_teach"
+    back = back if back in ("brain_teach", "brain_home") else "brain_teach"
     if not (content or "").strip():
         flash(err or "Nothing to save. Attach a file or paste the text.")
-        return redirect(url_for("brain_teach"))
+        return redirect(url_for(back))
     name = (request.form.get("name") or "").strip()
     if not name and uploaded:
         # Name it after the file rather than "Untitled résumé", so a library of several
         # uploads stays tellable apart without anyone having to type a label.
-        up = request.files.get("resume_file")
-        name = os.path.splitext(os.path.basename(up.filename or ""))[0].strip() if up else ""
-    rb.save_resume(user, {"id": request.form.get("id", ""),
-                          "name": name or "Untitled résumé",
-                          "content": content})
+        name = os.path.splitext(keep.get("filename") or "")[0].strip()
+    rid = rb.save_resume(user, {"id": request.form.get("id", ""),
+                                "name": name or "Untitled résumé",
+                                "content": content})
+    # A freshly uploaded résumé becomes the live one. Uploading and then finding the feed still
+    # scoring the previous file is the confusing half of having a library at all.
+    try:
+        if rid:
+            db.set_active_resume(user, rid)
+    except Exception:
+        pass
+    _store_resume_file(user, rid, keep)
+    _resume_cache.pop(user, None)
     _bust_profile(user)
     flash(("Read %d characters from that file. " % len(content) if uploaded else "")
-          + "résumé saved. Your match scores now include it.")
-    return redirect(url_for("brain_teach"))
+          + "Résumé saved. Your match scores now include it.")
+    return redirect(url_for(back, r=rid) if back == "brain_home" else url_for(back))
+
+
+@app.route("/brain/resume/file/<fid>")
+@login_required
+def brain_resume_file(fid):
+    """Stream one stored artifact back. Scoped to the signed-in user by the query itself, not by a
+    check afterwards, so a guessed id returns nothing rather than someone else's résumé."""
+    import base64
+    rec = db.get_resume_file(session["user"], fid)
+    if not rec or not rec.get("b64"):
+        return redirect(url_for("brain_home"))
+    try:
+        body = base64.b64decode(rec["b64"])
+    except Exception:
+        return redirect(url_for("brain_home"))
+    name = (rec.get("filename") or ("resume." + (rec.get("kind") or "bin"))).replace('"', "")
+    # inline, not attachment: the Original tab embeds this in an <object> to show the real document.
+    return Response(body, mimetype=rec.get("mime") or "application/octet-stream",
+                    headers={"Content-Disposition": 'inline; filename="%s"' % name,
+                             "X-Content-Type-Options": "nosniff"})
 
 
 @app.route("/brain/resume/delete", methods=["POST"])
@@ -5350,21 +5530,59 @@ def role_counts():
     return counts
 
 
-def _uploaded_resume_text(field="resume_file"):
+def _uploaded_resume_text(field="resume_file", keep=None):
     """(text, error) for an uploaded résumé, or ('', '') when no file was attached.
 
     The upload is a CONVENIENCE over the textarea, never a replacement: every caller falls back
     to pasted text, because a scanned PDF has nothing to extract and no amount of parsing fixes
     that. Flask's MAX_CONTENT_LENGTH rejects an oversized body before it reaches here; the size
     check in core is the second line for anything that slips past it.
+
+    `keep` is an out-dict that receives {filename, mime, raw} when supplied. f.read() is the only
+    moment the original bytes exist in this app — everything downstream works on the extracted
+    text — so a caller that wants to STORE the file has to be handed them right here or they are
+    gone when the request ends.
     """
     try:
         f = request.files.get(field)
         if not f or not (f.filename or "").strip():
             return "", ""
-        return core.resume_text_from_upload(f.filename, f.read())
+        raw = f.read()
+        if keep is not None:
+            keep.update({"filename": os.path.basename(f.filename or ""),
+                         "mime": f.mimetype or "", "raw": raw})
+        return core.resume_text_from_upload(f.filename, raw)
     except Exception:
         return "", "Couldn't read that upload. Paste the text below instead."
+
+
+_FILE_MIME = {"pdf": "application/pdf", "tex": "application/x-tex", "txt": "text/plain",
+              "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+
+
+def _store_resume_file(user, rid, keep):
+    """Persist the uploaded bytes beside the résumé row. Best effort, never fatal.
+
+    Base64 in a text column, not bytea: pgrest.jsonify() decodes any bytes it returns with
+    .decode("utf-8", "replace"), so a bytea column would come back corrupted on read with no error
+    anywhere. Same encoding the tailored-résumé cache already uses.
+
+    Silent on failure by design — this table arrives with MIGRATION_resume_files.sql, and a user on
+    an un-migrated database must still be able to upload and score a résumé.
+    """
+    if not (keep or {}).get("raw") or not rid:
+        return
+    ext = os.path.splitext(keep.get("filename") or "")[1].lower().lstrip(".")
+    if ext not in db.RESUME_FILE_KINDS:
+        return
+    try:
+        import base64
+        db.save_resume_file(user, {
+            "resume_id": rid, "kind": ext, "filename": keep.get("filename") or ("resume." + ext),
+            "mime": keep.get("mime") or _FILE_MIME.get(ext, "application/octet-stream"),
+            "b64": base64.b64encode(keep["raw"]).decode("ascii"), "size": len(keep["raw"])})
+    except Exception:
+        pass
 
 
 def _extra(user):

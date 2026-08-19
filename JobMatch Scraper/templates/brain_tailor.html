@@ -1,24 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="rb">
+<div class="rb brainwide">
 
-<div class="cta-banner">
-  <div class="cta-text">
-    <h2>Resume Brain</h2>
-    <p>Reads the job, researches the company, and matches both against your whole profile, then
-      tells you exactly how to tailor and learns from your feedback. The more you add in Teach,
-      the smarter it gets.</p>
-  </div>
-  <a class="btn primary lg" href="{{ url_for('brain_teach') }}">Teach Your Brain</a>
-</div>
+{% include "_brainnav.html" %}
 
+<h1>Tailor to a Job</h1>
+<p class="sub">Paste a job description and this reads it against your whole profile — which résumé
+fits best, which stories to feature, and what the posting is asking for that you have not said yet.</p>
+
+{# Caps the FORM at a readable width while the results below it use the full two columns. #}
+<div class="brainform">
 <form method="post" action="{{ url_for('brain_tailor') }}" id="tailorForm" class="card">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-  <h2>Tailor to a Job</h2>
-  <p class="muted small u-mt-050">Paste a job description or pick one from your feed below.</p>
+  <p class="muted small u-m0">Search your feed for a job, or paste a description below.</p>
 
   {% if not have_resumes %}
-    <div class="note warn">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in Teach</a> so the brain has material to match.</div>
+    <div class="note warn">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in your Library</a> so the brain has material to match.</div>
   {% endif %}
 
   <label>Find a job from the feed <span class="muted">(search title or company)</span>
@@ -45,11 +42,18 @@
     <label class="storypick"><input type="checkbox" name="refresh" value="1"> Re-research company</label>
   </div>
 </form>
+</div>
 
 {% if data %}
   {% if data.notes %}<div class="card">{% for n in data.notes %}<div class="note">• {{ n }}</div>{% endfor %}</div>{% endif %}
   {% set r = data.result %}
   {% if r %}
+  {# Two columns, because these eight cards are two different kinds of thing. Left: the decisions —
+     which résumé, which stories, write it. Right: what the posting says, which you read once and
+     refer back to. Stacked in one 920px column it was a wall with no hierarchy, and the AI card
+     (the most expensive action on the page) sat below three cards of reference material. #}
+  <div class="jobcols">
+  <div class="jobmain">
   <div class="card">
     <h2>Best-Matching Résumé</h2>
     {% if r.best_resume %}
@@ -59,7 +63,7 @@
         <div class="cov-arrow"><span class="ic ic-arrow-right" aria-hidden="true"></span></div>
         <div class="cov-num"><span class="big up">{{ r.after }}%</span><span class="muted small">with the stories below</span></div>
       </div>
-    {% else %}<p class="muted">No résumés yet. Add one in Teach.</p>{% endif %}
+    {% else %}<p class="muted">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in your Library</a>.</p>{% endif %}
     {% if r.missing %}<p class="muted small">Keywords to add (only if true):</p><div class="chips">{% for k in r.missing %}<span class="chip miss">{{ k }}</span>{% endfor %}</div>{% endif %}
     {% if r.mirror_terms %}<p class="muted small">Mirror this job's phrasing:</p><div class="chips">{% for k in r.mirror_terms %}<span class="chip">{{ k }}</span>{% endfor %}</div>{% endif %}
   </div>
@@ -80,7 +84,7 @@
             </li>
           {% endfor %}
         </ul>
-      {% else %}<p class="muted">No stories yet. Add some in <a href="{{ url_for('brain_teach') }}">Teach</a>.</p>{% endif %}
+      {% else %}<p class="muted">No stories yet. <a href="{{ url_for('brain_teach') }}">Add some in your Library</a>.</p>{% endif %}
       <label>Teach the brain <span class="muted">optional, and it becomes a lasting lesson</span>
         <input type="text" name="feedback" placeholder="e.g. For fintech roles, lead with the automation project."></label>
       <div class="row"><button type="submit" class="btn primary">Save What I Taught</button></div>
@@ -105,8 +109,10 @@
     </form>
   </div>
 
+  </div>
+  <aside class="jobaside">
   <div class="card">
-    <h2>The Job's Voice (“symphony”)</h2>
+    <h2>How This Job Is Written</h2>
     {% if r.symphony.tones %}<div class="chips">{% for t in r.symphony.tones %}<span class="chip tone">{{ t }}</span>{% endfor %}</div>{% endif %}
     <p class="muted small">{{ r.symphony.focus }} · {{ r.symphony.formality }} tone · ~{{ r.symphony.avg_sentence_len }} words/sentence.{% if r.symphony.top_verbs %} Echo their verbs: {{ r.symphony.top_verbs | join(', ') }}.{% endif %}</p>
   </div>
@@ -134,6 +140,8 @@
     {% if data.company.perks %}<p class="muted small">Perks &amp; benefits:</p><ul class="muted small">{% for s in data.company.perks %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}
   </details>
   {% endif %}
+  </aside>
+  </div>
   {% endif %}
 {% endif %}
 
@@ -154,7 +162,7 @@
     t=setTimeout(function(){
       fetch('/brain/jobs.json?q='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
         box.innerHTML=(d.jobs||[]).map(function(j){
-          return '<a href="/brain?job='+encodeURIComponent(j.url)+'">'+
+          return '<a href="/brain/tailor?job='+encodeURIComponent(j.url)+'">'+
             (j.title||'')+', <span class="muted">'+(j.company||'')+'</span></a>';
         }).join('')||'<div class="muted small">No matching jobs with a stored description.</div>';
       }).catch(function(){});

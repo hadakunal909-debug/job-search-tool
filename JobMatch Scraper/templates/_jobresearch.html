@@ -31,7 +31,7 @@
 {% else %}
 <p class="coprose">Nothing researched for this employer yet. What they do, their mission, values
   and initiatives come from Resume Brain, which crawls a company's own site.
-  <a href="{{ url_for('brain_home') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a>
+  <a href="{{ url_for('brain_tailor_page') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a>
   and it lands here. Everything else on this page is read from their live postings and needs no
   research.</p>
 {% endif %}
