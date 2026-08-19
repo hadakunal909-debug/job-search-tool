@@ -150,7 +150,11 @@ check("the company links to its own page", 'href="/company?c=Acme' in body.repla
       or "/company?c=Acme" in body)
 check("Apply is an outbound link with data-apply", 'data-apply="1"' in body
       and 'target="_blank"' in body and 'rel="noopener"' in body)
-check("Tailor View points at Resume Brain", "/brain?job=" in body)
+# /brain used to BE the tailor form. It is now the résumé review panel, and the tailor form moved
+# to /brain/tailor, so this link has to name the form explicitly — landing on the review panel with
+# a job in hand would drop the job on the floor.
+check("Tailor View points at the tailor form", "/brain/tailor?job=" in body,
+      "not /brain, which is now the review panel")
 check("Save and Hide post to /action", 'action="/action"' in body and 'name="_csrf"' in body,
       "so they work with JavaScript off")
 check("jobpage.js is loaded, app.js is not",

@@ -88,7 +88,7 @@
           <a class="btn primary" href="{{ row.apply_url }}" target="_blank" rel="noopener"
              data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>
           {% endif %}
-          <a class="btn" href="{{ url_for('brain_home') }}?job={{ row.url|urlencode }}">Tailor View</a>
+          <a class="btn" href="{{ url_for('brain_tailor_page') }}?job={{ row.url|urlencode }}">Tailor View</a>
           {# Real form POSTs to the route that already exists, so Save and Hide work with
              JavaScript switched off. /action reads the previous status, auto-logs an application
              and busts the status cache; none of that is reimplemented here. #}
@@ -148,7 +148,7 @@
       <p class="coprose">Resume Brain reads this description, ranks your stored résumés and stories
         against it, and drafts the rewrite. It also researches the employer, which is what fills the
         section below.</p>
-      <p><a class="btn primary" href="{{ url_for('brain_home') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a></p>
+      <p><a class="btn primary" href="{{ url_for('brain_tailor_page') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a></p>
 
       {# ---- 4. the employer, LAST. Context for a decision, not the reason for the visit. ---- #}
       <h2 class="sechdr">About {{ row.company }}</h2>

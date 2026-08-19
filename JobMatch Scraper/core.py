@@ -2367,7 +2367,7 @@ def fetch_jd(url, limit=8000):
 # ------------------------------------------------------------
 RESUME_UPLOAD_MAX_BYTES = 4 * 1024 * 1024      # a resume is a few pages; 4 MB is generous
 _RESUME_PDF_MAX_PAGES = 40                     # bound the work a crafted file can ask for
-RESUME_UPLOAD_EXTS = (".pdf", ".docx", ".txt", ".md")
+RESUME_UPLOAD_EXTS = (".pdf", ".docx", ".txt", ".md", ".tex")
 
 
 def _docx_to_text(data):
@@ -2394,6 +2394,44 @@ def _pdf_to_text(data):
                      for p in reader.pages[:_RESUME_PDF_MAX_PAGES])
 
 
+_TEX_ITEM_RE = re.compile(r"^\s*\\item\s*", re.M)
+_TEX_CMD_ARG_RE = re.compile(r"\\(?:section|subsection|textbf|textit|emph|underline|href|texttt)"
+                             r"\*?(?:\[[^\]]*\])?\{([^{}]*)\}")
+_TEX_CMD_RE = re.compile(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?")
+_TEX_COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.M)
+
+
+def tex_to_text(src):
+    """LaTeX source -> the prose inside it.
+
+    Résumés written in LaTeX are a real input (resume_brain already RENDERS to .tex), but scoring
+    the source directly is meaningless: every \\textbf and \\begin{itemize} would read as prose,
+    the bullet glyphs are \\item rather than a dash, and the rubric would report a résumé made
+    almost entirely of unquantified non-verb lines.
+
+    Deliberately a stripper, not a parser. It keeps the argument of the few commands that wrap
+    VISIBLE text, turns \\item into a dash so the bullet detector sees bullets, and drops the rest.
+    A full TeX parser is not worth carrying to grade a document.
+    """
+    s = _TEX_COMMENT_RE.sub("", src or "")
+    s = re.sub(r"\\begin\{[^}]*\}(?:\[[^\]]*\])?|\\end\{[^}]*\}", "\n", s)
+    for _ in range(3):                       # nested \textbf{\href{..}{..}} needs a few passes
+        s, n = _TEX_CMD_ARG_RE.subn(r"\1", s)
+        if not n:
+            break
+    s = _TEX_ITEM_RE.sub("- ", s)
+    s = _TEX_CMD_RE.sub(" ", s)
+    # Escaped specials come back as themselves BEFORE the command stripper runs, and \$ matters
+    # most: dropping it turns "\$1.2M of licence cost" into ".2M" and the quantified-impact check
+    # loses the one number in the bullet.
+    for esc, plain in (("\\$", "$"), ("\\&", "&"), ("\\%", "%"), ("\\#", "#"), ("\\_", "_")):
+        s = s.replace(esc, plain)
+    s = s.replace("~", " ").replace("\\\\", "\n")
+    s = re.sub(r"[{}]", "", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return re.sub(r"\n{3,}", "\n\n", s).strip()
+
+
 def resume_text_from_upload(filename, data):
     """(text, error) from an uploaded resume. Never raises, never touches disk.
 
@@ -2417,6 +2455,8 @@ def resume_text_from_upload(filename, data):
             text = _pdf_to_text(data)
         elif ext == ".docx":
             text = _docx_to_text(data)
+        elif ext == ".tex":
+            text = tex_to_text(data.decode("utf-8", "replace"))
         else:
             text = data.decode("utf-8", "replace")
     except ImportError:

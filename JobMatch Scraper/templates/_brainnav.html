@@ -1,0 +1,30 @@
+{#
+  One spine for Resume Brain.
+
+  Before this, /brain and /brain/teach each opened with a full-width banner whose only job was to
+  send you to the other one — two pages pointing at each other, each re-explaining itself. That is
+  what fragmentation looks like in markup, and it is why the nav felt like it went to the wrong
+  place. A section switcher says "these are four views of one thing" in a single line, and it costs
+  a quarter of the vertical space the banners did.
+
+  Reuses .adm-nav, the switcher the admin pages already use, rather than inventing a second one —
+  the app should have one idea of what "you are here" looks like.
+
+  Naming: "Library" rather than "Teach Your Brain". The page holds résumés, stories and lessons;
+  "teach" describes what the system does with them, not what the person came to do.
+#}
+{% set ep = request.endpoint or '' %}
+<nav class="adm-nav brainnav" aria-label="Resume Brain">
+  <a href="{{ url_for('brain_home') }}"
+     class="{{ 'on' if ep == 'brain_home' }}"
+     {{ 'aria-current=page' if ep == 'brain_home' }}>Review</a>
+  <a href="{{ url_for('brain_tailor_page') }}"
+     class="{{ 'on' if ep in ('brain_tailor_page', 'brain_tailor', 'brain_rewrite') }}"
+     {{ 'aria-current=page' if ep in ('brain_tailor_page', 'brain_tailor') }}>Tailor to a job</a>
+  <a href="{{ url_for('brain_teach') }}"
+     class="{{ 'on' if ep == 'brain_teach' }}"
+     {{ 'aria-current=page' if ep == 'brain_teach' }}>Library</a>
+  <a href="{{ url_for('brain_companies') }}"
+     class="{{ 'on' if ep == 'brain_companies' }}"
+     {{ 'aria-current=page' if ep == 'brain_companies' }}>Companies</a>
+</nav>
