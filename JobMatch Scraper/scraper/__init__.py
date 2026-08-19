@@ -1634,14 +1634,25 @@ WORKATASTARTUP_BOARDS = [
     ("https://www.workatastartup.com/jobs", "workatastartup", "Y Combinator"),   # ~250 across 10 roles
 ]
 
+# Eightfold AI. ALWAYS carry ?domain=<company-domain> — the API requires it and deriving it from
+# the tenant label ("insight" -> "insight.com") is a guess that silently returns nothing when wrong.
+# Roughly a third of tenants answer a flat 403 no matter what headers we send (see
+# scrape_eightfold), so a candidate that probes clean is worth adding and one that 403s is not
+# worth retrying. Every row arrives with a REAL posting date from t_create, which is rare.
+EIGHTFOLD_BOARDS = [
+    ("https://bayer.eightfold.ai/careers?domain=bayer.com", "eightfold", "Bayer"),        # 607
+    ("https://insight.eightfold.ai/careers?domain=insight.com", "eightfold", "Insight Enterprises"),  # 183
+]
+
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
-# Avature + SuccessFactors + PeopleSoft + Adzuna + Meta + Michael Page.
+# Avature + SuccessFactors + PeopleSoft + Eightfold + Meta + Michael Page.
+# (Adzuna was in this list until 2026-08-16; see the removal note above EXTRA_BOARDS.)
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
            + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
-           + WORKATASTARTUP_BOARDS)
+           + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -2399,24 +2410,15 @@ def scrape_smartrecruiters(board_url):
     return rows
 
 
-WORKDAY_QUERIES = (
-    "program manager", "project manager", "project coordinator",
-    "program coordinator", "business analyst", "operations analyst",
-    # wider net — surface the new role types in Workday's ranked search too
-    "product manager", "supply chain analyst", "operations specialist",
-    "implementation manager", "product owner",
-    # project controls / scheduling / PMO family
-    "project controls", "scheduler", "project scheduler", "pmo", "portfolio manager",
-    "project planner", "cost analyst",
-    # software engineering (2026-08-01) — Workday's search is query-driven, so without
-    # these terms a SWE role on a Workday tenant is never even fetched to be filtered.
-    "software engineer", "software developer", "full stack", "front end", "back end",
-    "data engineer", "data scientist", "machine learning engineer", "devops",
-    "qa engineer", "test engineer", "cloud engineer", "systems engineer",
-    "application developer", "web developer", "database administrator",
-    # internships / co-ops (OPT-eligible)
-    "intern", "internship", "co-op", "summer analyst",
-)
+# WORKDAY_QUERIES was a 38-term list here until 2026-08-19. It has been dead since scrape_workday
+# switched to paging the WHOLE board with an empty searchText (see that function): nothing read the
+# constant, and the résumé-driven block in main() was still faithfully extending it every run. A
+# list that looks like it controls Workday coverage but does not is worse than no list -- the
+# 2026-08-01 SWE widening added 17 terms to it in the belief that a SWE role on a Workday tenant
+# would otherwise never be fetched, which was already untrue by then. Workday coverage is bounded
+# by WORKDAY_MAX_JOBS and the title filter, not by any query list.
+#
+# Amazon is the one source that IS still query-bounded: see AMAZON_QUERIES.
 
 
 def _workday_date(posted_on):
@@ -2607,22 +2609,124 @@ AMAZON_PAGE_LIMIT = 100
 AMAZON_MAX_PER_TERM = 1000
 
 
-def scrape_amazon(board_url):
-    """Amazon's own portal via its public search.json feed. Runs each term in
-    AMAZON_QUERIES (US-only) and pages it to exhaustion; the title filter then decides
-    what to keep.
+def _amazon_row(j, seen):
+    """One search.json hit -> a row, or None. Shared by the date sweep and the term walk so the
+    experience gate and the date handling cannot diverge between them."""
+    jid = j.get("id_icims") or j.get("job_path")
+    if not jid or jid in seen:
+        return None
+    seen.add(jid)
+    if core.required_years(j.get("basic_qualifications") or "") > MAX_YEARS:
+        return None                              # wants more experience than entry-level
+    row = {
+        "title": (j.get("title") or "").strip(),
+        "url": "https://www.amazon.jobs" + (j.get("job_path") or ""),
+        "location": j.get("normalized_location") or j.get("location") or "",
+    }
+    try:
+        # Amazon publishes a REAL posting date ("June 13, 2026"), so store it in the bare ISO
+        # shape that marks a date as trustworthy. It used to be written as "%Y-%m-%d %H:%M",
+        # which appended " 00:00" and made every one of these look like a derived guess to
+        # verify_dates._is_clean_api_date() — 1,315 rows, 18% of the whole verification
+        # backlog, queued for a rate-limited lookup that could only ever confirm what we had.
+        row["found_date"] = datetime.datetime.strptime(
+            j.get("posted_date", ""), "%B %d, %Y").strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return row
 
-    Pages EVERY result, not the first two pages. Amazon's relevance ranking buries plenty
-    of on-target roles: measured 2026-08-01, "program manager" returns 734 US hits and
-    "Program Manager, Relo Ops Excellence (RLOI)" sits at #351 — invisible to the old
-    2-page (200-result) window. Across results 201-800 for that one term, 316 more titles
-    passed the filter than the 168 the window caught, i.e. the cap was costing us about
-    two thirds of Amazon. Same lesson scrape_workday learned; see its docstring."""
+
+# The date-sorted global sweep. Measured 2026-08-19 against sort=recent, base_query="",
+# country=USA: offset 0 is today, 1000 is 8 days back, 3000 is ~23 days and 100% inside
+# MAX_AGE_DAYS=30, 5000 is ~41 days and only 36% inside, 9900 is ~3 months. A full run returned
+# 4,261 postings in 57s, every one with a real posting date, 1,266 of them past the title and US
+# filters. `hits` reports a flat 10000, which is an Elasticsearch result-window cap rather than
+# Amazon's true US headcount, so there is nothing to read past it. result_limit maxes at 100 (200
+# and 500 both return zero rows).
+#
+# In practice it reads to the cap, and that is the right answer: Amazon's recency sort is NOT
+# monotonic — a re-posted role carries its new date, so fresh rows keep appearing past offset
+# 5,000 and the "whole page is stale" test almost never fires. Measured both ways on 2026-08-19:
+#   fixed depth 5,000  -> 4,261 rows,  57s, 1,266 past the title + US filters
+#   read to the cap    -> 7,998 rows, 107s, 2,451 past the title + US filters
+# Nearly double the on-target rows for 50 more seconds of a 26-minute step, on the largest single
+# employer in the feed. So the stale-page guard below is a floor, not the plan — it exists so a
+# much smaller future corpus does not pay for 100 empty pages.
+AMAZON_SWEEP_MAX = 10000                 # their result-window cap; the date test normally stops first
+
+
+def _amazon_sweep(country, loc, seen):
+    """Every US posting inside the freshness window, newest first, with no query list involved.
+
+    This is the fix for the ceiling AMAZON_QUERIES describes below: a keyword list decides what
+    Amazon roles we are even allowed to see, and the 2026-08-12 audit of 167 unused INCLUDE terms
+    was an attempt to guess our way out of that. An empty base_query with sort=recent removes the
+    guessing entirely — and costs ~50 requests instead of the term walk's several hundred.
+    """
+    # One page of slack past the cutoff before stopping: Amazon's recency sort is not perfectly
+    # monotonic (a re-posted role carries its new date), so a single stale page is not the end of
+    # the fresh ones.
+    cutoff = (datetime.date.today() - datetime.timedelta(days=MAX_AGE_DAYS + 3)).isoformat()
+    rows, stale_pages = [], 0
+    for offset in range(0, AMAZON_SWEEP_MAX, AMAZON_PAGE_LIMIT):
+        try:
+            data = _get_json("https://www.amazon.jobs/en/search.json", params={
+                "base_query": "", "country": country, "loc_query": loc,
+                "result_limit": AMAZON_PAGE_LIMIT, "offset": offset, "sort": "recent"})
+        except Exception:
+            break                                # partial sweep beats none
+        hits = data.get("jobs") or []
+        if not hits:
+            break
+        page = [r for r in (_amazon_row(j, seen) for j in hits) if r]
+        rows.extend(page)
+        dates = [r["found_date"] for r in page if r.get("found_date")]
+        if dates and max(dates) < cutoff:
+            stale_pages += 1
+            if stale_pages >= 2:
+                break                            # two consecutive pages wholly out of the window
+        else:
+            stale_pages = 0
+        if len(hits) < AMAZON_PAGE_LIMIT:
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
+def scrape_amazon(board_url):
+    """Amazon's own portal via its public search.json feed, US-only.
+
+    TWO passes, and the first is the one that matters:
+
+    1. A GLOBAL DATE-SORTED SWEEP (_amazon_sweep). No query terms, newest first, deep enough to
+       cover MAX_AGE_DAYS. Amazon used to be the one first-party source whose coverage was bounded
+       by a keyword list rather than by the title filter, which meant a role nobody had thought to
+       add a term for was invisible however well it matched. It is not bounded that way any more.
+    2. The AMAZON_QUERIES term walk, now OFF by default and kept only as a fallback. Once the
+       sweep is date-complete inside MAX_AGE_DAYS the term walk can only re-find rows the sweep
+       already has, or rows too old for main()'s cutoff to keep — for several hundred requests. It
+       still runs automatically if the sweep comes back empty (i.e. Amazon stopped honouring an
+       empty base_query), and can be forced with AMAZON_TERM_WALK=1.
+
+    Both pages EVERY result rather than the first two pages. Measured 2026-08-01: "program
+    manager" returns 734 US hits and "Program Manager, Relo Ops Excellence (RLOI)" sits at #351,
+    invisible to the old 200-result window; across results 201-800 for that one term, 316 more
+    titles passed the filter than the 168 the window caught. Same lesson scrape_workday learned.
+    """
     from urllib.parse import urlparse, parse_qs
     q = parse_qs(urlparse(board_url).query)
     country = (q.get("country") or ["USA"])[0]
     loc = (q.get("loc_query") or ["United States"])[0]
     seen, rows = set(), []
+
+    rows.extend(_amazon_sweep(country, loc, seen))
+    print("   amazon: date sweep -> %d posting(s)" % len(rows))
+    if rows and os.environ.get("AMAZON_TERM_WALK") != "1":
+        return rows
+    if not rows:
+        print("   amazon: sweep returned nothing — falling back to the %d-term walk"
+              % len(AMAZON_QUERIES))
+
     for term in AMAZON_QUERIES:
         offset, total = 0, None
         while offset < AMAZON_MAX_PER_TERM:
@@ -2635,29 +2739,9 @@ def scrape_amazon(board_url):
             if not hits:
                 break
             for j in hits:
-                jid = j.get("id_icims") or j.get("job_path")
-                if not jid or jid in seen:
-                    continue
-                seen.add(jid)
-                if core.required_years(j.get("basic_qualifications") or "") > MAX_YEARS:
-                    continue                     # wants more experience than entry-level
-                row = {
-                    "title": (j.get("title") or "").strip(),
-                    "url": "https://www.amazon.jobs" + (j.get("job_path") or ""),
-                    "location": j.get("normalized_location") or j.get("location") or "",
-                }
-                try:
-                    # Amazon publishes a REAL posting date ("June 13, 2026"), so store it in the
-                    # bare ISO shape that marks a date as trustworthy. It used to be written as
-                    # "%Y-%m-%d %H:%M", which appended " 00:00" and made every one of these look
-                    # like a derived guess to verify_dates._is_clean_api_date() — 1,315 rows,
-                    # 18% of the whole verification backlog, queued for a rate-limited lookup
-                    # that could only ever confirm the date we already had.
-                    row["found_date"] = datetime.datetime.strptime(
-                        j.get("posted_date", ""), "%B %d, %Y").strftime("%Y-%m-%d")
-                except Exception:
-                    pass
-                rows.append(row)
+                row = _amazon_row(j, seen)       # `seen` also spans the date sweep above
+                if row:
+                    rows.append(row)
             offset += len(hits)
             if offset >= total:                  # walked the whole result set for this term
                 break
@@ -4345,8 +4429,103 @@ def detect_paylocity(url):
         return None
 
 
+# ---- Eightfold AI — <tenant>.eightfold.ai/api/apply/v2/jobs ----
+#
+# Eightfold was written off as bot-walled and its companies routed through Adzuna. Adzuna is gone
+# (2026-08-16), so those companies have had NO source at all since. Re-probed 2026-08-19 and the
+# earlier judgement turns out to be half right: the API is gated PER TENANT, not per platform.
+# Of 30 candidates probed, bayer (607 jobs) and insight (183) answer 200 with full JSON, while
+# micron / target / wipro / dolby / vodafone / conagra / lamresearch / infosys answer a flat 403
+# that no Referer, Origin, Accept or X-Requested-With header changes. So: worth scraping, and
+# worth expecting roughly a third of tenants to refuse.
+#
+# `num` is capped at 10 SERVER-SIDE whatever we ask for (verified at 10/50/100/200), so a
+# 600-posting board is 61 requests. That is why the pages go out concurrently, the same reasoning
+# as scrape_avature: `start` is a stateless offset, so once page 0 reports `count` every remaining
+# offset is a known URL.
+EIGHTFOLD_PAGE = 10                      # their hard cap, not our choice
+EIGHTFOLD_MAX_JOBS = 3000
+EIGHTFOLD_WORKERS = 6
+
+
+def _eightfold_domain(board_url):
+    """The `domain` query param the API requires.
+
+    Taken from the URL when the board carries it (their own careers links do:
+    …/careers?domain=insight.com), else derived from the tenant label. Deriving is a guess and a
+    wrong guess returns an empty list rather than an error, so prefer the explicit form in SOURCES.
+    """
+    q = parse_qs(urlparse(board_url).query)
+    dom = (q.get("domain") or [""])[0].strip()
+    return dom or (_sub(board_url) + ".com")
+
+
+def _eightfold_rows(positions):
+    rows = []
+    for p in positions or []:
+        # "Indianola,Pennsylvania,United States" — their own join, no space after the comma, which
+        # would otherwise reach the feed looking like a formatting bug of ours.
+        loc = ", ".join(x.strip() for x in (p.get("location") or "").split(",") if x.strip())
+        row = {"title": (p.get("name") or "").strip(),
+               "url": p.get("canonicalPositionUrl") or "",
+               "location": loc}
+        try:                             # t_create is epoch SECONDS (not ms, unlike Lever)
+            row["found_date"] = datetime.datetime.fromtimestamp(
+                int(p.get("t_create"))).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        if row["title"] and row["url"]:
+            rows.append(row)
+    return rows
+
+
+def scrape_eightfold(board_url):
+    """Eightfold AI boards. Returns [] on a 403 tenant rather than raising — a gated tenant is a
+    normal outcome here, not a broken board, and scrape_all's health tracking already records a
+    board that yields nothing."""
+    host = urlparse(board_url).netloc or (_sub(board_url) + ".eightfold.ai")
+    api = "https://%s/api/apply/v2/jobs" % host
+    dom = _eightfold_domain(board_url)
+
+    def _page(start):
+        for attempt in (0, 1):
+            try:
+                r = SESSION.get(api, headers=HEADERS, timeout=25,
+                                params={"domain": dom, "hl": "en",
+                                        "start": start, "num": EIGHTFOLD_PAGE})
+                if r.status_code == 200:
+                    return r.json()
+            except Exception:
+                pass
+            if not attempt:
+                time.sleep(random.uniform(0.4, 0.9))
+        return {}
+
+    first = _page(0)
+    rows = _eightfold_rows(first.get("positions"))
+    if not rows:
+        return rows
+    total = int(first.get("count") or 0)
+    if total > EIGHTFOLD_PAGE:
+        starts = list(range(EIGHTFOLD_PAGE, min(total, EIGHTFOLD_MAX_JOBS), EIGHTFOLD_PAGE))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=EIGHTFOLD_WORKERS) as ex:
+            for d in ex.map(_page, starts):
+                rows.extend(_eightfold_rows(d.get("positions")))
+        if total > EIGHTFOLD_MAX_JOBS:
+            note_truncation(board_url, EIGHTFOLD_MAX_JOBS, EIGHTFOLD_MAX_JOBS, total)
+    # `start` paging occasionally re-serves a posting across page boundaries when the board is
+    # re-indexed mid-sweep. Dedupe on URL here so the count we report is the count we stored.
+    seen, out = set(), []
+    for r in rows:
+        if r["url"] not in seen:
+            seen.add(r["url"])
+            out.append(r)
+    return out
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
+    "eightfold": scrape_eightfold,
     "lever": scrape_lever,
     "ashby": scrape_ashby,
     "smartrecruiters": scrape_smartrecruiters,
@@ -4379,9 +4558,11 @@ SCRAPERS = {
 # ============================================================
 # ADD-A-BOARD  — turn a pasted careers link into a scrapeable source
 # ============================================================
-# Only these 5 ATS platforms expose a public job feed we can read. A plain company
-# careers site (Google/Meta-style custom portal, iCIMS, Oracle, Eightfold, Taleo) does
-# NOT, so detect_board() returns None for those — the app routes them to careers links.
+# Not every careers site exposes a feed we can read, and detect_board() returns None for the
+# ones that do not — the app routes those to careers links instead. The list of exceptions has
+# shrunk: Oracle (ORC), Phenom, SuccessFactors, Avature, Paylocity, PeopleSoft and now Eightfold
+# all turned out to have one. What genuinely remains unread: Taleo, Jobvite, Teamtailor, native
+# iCIMS portals, Cornerstone, and Google/Meta-style bespoke portals.
 _LOCALES = {"en-us", "en-gb", "en", "us", "global", "en-us"}
 
 
@@ -4427,6 +4608,15 @@ def detect_board(url):
     if "recruitee.com" in host:
         sub = host.split(".")[0]
         return ("https://%s.recruitee.com" % sub, "recruitee", _name_from(sub))
+
+    if "eightfold.ai" in host:
+        sub = host.split(".")[0]
+        # The `domain` param is mandatory, and the tenant label is only sometimes the domain
+        # ("insight" -> insight.com holds, plenty do not). Keep whatever the pasted URL carried;
+        # scrape_eightfold falls back to <tenant>.com and probe_board will reject a wrong guess
+        # rather than adding a board that silently yields nothing.
+        dom = (parse_qs(p.query).get("domain") or [""])[0].strip() or (sub + ".com")
+        return ("https://%s/careers?domain=%s" % (host, dom), "eightfold", _name_from(sub))
 
     if "breezy.hr" in host:
         sub = host.split(".")[0]
@@ -5728,10 +5918,9 @@ def main():
 
     extra = resume_terms()
     if extra:
-        global _INCLUDE_RE, AMAZON_QUERIES, WORKDAY_QUERIES
+        global _INCLUDE_RE, AMAZON_QUERIES
         _INCLUDE_RE = _make_matcher(tuple(INCLUDE) + tuple(extra))   # broaden the title keep-filter
         AMAZON_QUERIES = tuple(dict.fromkeys(AMAZON_QUERIES + tuple(extra)))     # + Amazon searches
-        WORKDAY_QUERIES = tuple(dict.fromkeys(WORKDAY_QUERIES + tuple(extra)))   # + Workday searches
         print("Résumé-driven (%s): also searching %s" % (RESUME_FILE, ", ".join(extra)))
     else:
         print("No %s found — using the base role filter only." % RESUME_FILE)
