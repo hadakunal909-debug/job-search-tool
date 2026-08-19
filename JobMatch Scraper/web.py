@@ -4924,9 +4924,14 @@ def brain_resume_save():
     return redirect(url_for(back, r=rid) if back == "brain_home" else url_for(back))
 
 
+# The optional trailing name is COSMETIC and ignored server-side. Chrome's built-in PDF
+# viewer titles the document from the last path segment, so a URL ending in the file id
+# displayed a bare uuid ("8de350e11eb14b71a499f2186460930a") across the top of the user's
+# own résumé. The real filename still comes from the database row, never from the URL.
 @app.route("/brain/resume/file/<fid>")
+@app.route("/brain/resume/file/<fid>/<path:name>")
 @login_required
-def brain_resume_file(fid):
+def brain_resume_file(fid, name=None):
     """Stream one stored artifact back. Scoped to the signed-in user by the query itself, not by a
     check afterwards, so a guessed id returns nothing rather than someone else's résumé."""
     import base64
@@ -4940,7 +4945,7 @@ def brain_resume_file(fid):
         body = base64.b64decode(rec["b64"])
     except Exception:
         return Response("That stored file could not be decoded.", status=404, mimetype="text/plain")
-    name = (rec.get("filename") or ("resume." + (rec.get("kind") or "bin"))).replace('"', "")
+    fname = (rec.get("filename") or ("resume." + (rec.get("kind") or "bin"))).replace('"', "")
     # inline, not attachment: the Original tab embeds this in an <iframe> to show the real document.
     #
     # BOTH framing headers are overridden here, and that is the whole reason the preview was blank.
@@ -4964,7 +4969,7 @@ def brain_resume_file(fid):
     twin = host[4:] if host.startswith("www.") else "www." + host
     ancestors = "'self' %s://%s %s://%s" % (scheme, host, scheme, twin)
     return Response(body, mimetype=rec.get("mime") or "application/octet-stream",
-                    headers={"Content-Disposition": 'inline; filename="%s"' % name,
+                    headers={"Content-Disposition": 'inline; filename="%s"' % fname,
                              "X-Content-Type-Options": "nosniff",
                              # X-Frame-Options has no multi-origin form, so it stays SAMEORIGIN;
                              # browsers that support CSP prefer frame-ancestors over it anyway.
