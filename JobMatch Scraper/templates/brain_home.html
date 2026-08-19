@@ -13,16 +13,20 @@
   <aside class="rvrail">
     <section class="rvbox">
       <div class="rvbox-h">Your Résumés <span class="count-pill">{{ resumes|length }}</span></div>
+      {# Purpose-built rows rather than borrowing .simrow from the job page's "similar jobs" list.
+         That component is a title-plus-meta flex row sized for a 340px rail, and at 300px with a
+         name, a score and a LIVE badge it wrapped the score onto its own line — which read as
+         broken rather than as a layout. Score first, fixed width, then the name: the numbers line
+         up in a column you can scan. #}
       {% if resumes %}
-      <div class="simlist">
+      <div class="rvreslist">
         {% for r in resumes %}
-        <a class="simrow{{ ' on' if r.open }}" href="{{ url_for('brain_home', r=r.id, level=level) }}">
-          <span class="simtitle">{{ r.name }}</span>
-          <span class="simmeta">
-            {% if r.score is not none %}
-              <b class="{{ 'meter-strong' if r.score>=85 else ('meter-good' if r.score>=70 else 'meter-weak') }}">{{ r.score }}</b>
-            {% else %}<b class="dim">—</b>{% endif %}
-            {% if r.active %}<span class="pill ok">live</span>{% endif %}
+        <a class="rvres{{ ' on' if r.open }}" href="{{ url_for('brain_home', r=r.id, level=level) }}"
+           {{ 'aria-current=true' if r.open }}>
+          <span class="rvres-n {{ 'meter-strong' if r.score and r.score>=85 else ('meter-good' if r.score and r.score>=70 else 'meter-weak') }}">{{ r.score if r.score is not none else '—' }}</span>
+          <span class="rvres-b">
+            <span class="rvres-t">{{ r.name }}</span>
+            <span class="rvres-m">{{ (r.chars / 1000)|round(1) }}k chars{% if r.active %} · <b>live</b>{% endif %}</span>
           </span>
         </a>
         {% endfor %}
@@ -178,6 +182,8 @@
     {# ---- Review: the annotated document + the ranked fixes ---- #}
     <div class="panel rvpanel" data-panel="review" id="panel-review" role="tabpanel"
          aria-labelledby="tab-review" tabindex="0">
+      <div class="rvsplit">
+      <div class="rvsplit-a">
       {% if r.top_fixes %}
       <div class="section-head"><h2>Fix These First</h2>
         <span class="count-pill">{{ r.top_fixes|sum(attribute='points_lost')|round(1) }} points recoverable</span></div>
@@ -200,9 +206,13 @@
       <p class="u-m0">Nothing material left to fix — every check is at or near full marks.</p>
       {% endif %}
 
+      </div>
+      <div class="rvsplit-b">
       <div class="section-head rvdoc-h"><h2>Your Résumé, Marked Up</h2>
         <span class="count-pill" id="rvactive" role="status" aria-live="polite">nothing selected</span></div>
       <pre class="rv-doc" id="rvdoc">{{ doc_html|safe }}</pre>
+      </div>
+      </div>
     </div>
 
     {# ---- Bullets: the three-part formula, line by line ---- #}
@@ -223,7 +233,7 @@
         <div class="tile"><div class="tile-n">{{ bullets.missing_verb }}</div><div class="tile-l">Weak opener</div></div>
       </div>
 
-      <ol class="rvblist">
+      <ol class="rvblist rvblist-2">
         {% for b in bullets.bullets %}
         <li class="rvb{{ ' good' if not b.missing }}">
           <div class="rvb-head">
@@ -302,12 +312,17 @@
         </a>
         {% endfor %}
       </div>
+      {# An <iframe>, not an <object>. The CSP sets `object-src 'none'` -- deliberate hardening --
+         so every <object> silently fell back to its "your browser will not display the PDF" text,
+         which read as a browser problem and was actually our own header. An iframe is governed by
+         `frame-src`, which falls back to `default-src 'self'`, so a same-origin PDF renders with no
+         CSP change and no security given up. #}
       {% for f in files %}{% if f.kind == 'pdf' %}
-      <object class="rvpdf" data="{{ url_for('brain_resume_file', fid=f.id) }}"
-              type="application/pdf">
-        <p>Your browser will not display the PDF inline.
-           <a href="{{ url_for('brain_resume_file', fid=f.id) }}">Open it instead</a>.</p>
-      </object>
+      <iframe class="rvpdf" src="{{ url_for('brain_resume_file', fid=f.id) }}"
+              title="{{ f.filename or 'Your résumé' }}" loading="lazy"></iframe>
+      <p class="muted rvpdf-alt">Not rendering?
+        <a href="{{ url_for('brain_resume_file', fid=f.id) }}" target="_blank" rel="noopener">Open
+        the PDF in a new tab</a>.</p>
       {% endif %}{% endfor %}
       {% else %}
       <p class="u-m0">No original file stored for this résumé. Uploads kept only the extracted text
