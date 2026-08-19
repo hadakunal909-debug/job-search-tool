@@ -196,6 +196,10 @@ _CSP_TEMPLATE = (
     "font-src https://fonts.gstatic.com; "
     "img-src 'self' data: https://*.gstatic.com https://img.logo.dev; "
     "connect-src 'self'; "
+    # pdf.js starts its worker from a blob: URL, and worker-src has no fallback to script-src -- it
+    # falls back to child-src then default-src, and 'self' does not cover blob:. Without this the
+    # PDF preview fails with a CSP violation naming a directive nobody set.
+    "worker-src 'self' blob:; "
     "form-action 'self'; "
     "object-src 'none'; "
     "frame-ancestors 'none'; "

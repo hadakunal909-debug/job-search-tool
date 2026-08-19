@@ -1,0 +1,16 @@
+pdfjs-dist 6.2.108
+Copied from node_modules/pdfjs-dist/build/ by hand and COMMITTED, because node_modules is
+gitignored and never deployed -- static/ is in the deploy bundle, node_modules is not.
+Refresh with:  npm install pdfjs-dist@latest && cp node_modules/pdfjs-dist/build/pdf.min.js
+               node_modules/pdfjs-dist/build/pdf.worker.min.js static/vendor/pdfjs/
+The modern (non-legacy) build: 444 KB + 1233 KB rather than 500 + 1282, and every browser
+this app supports handles it.
+
+Renamed .mjs -> .js on copy. They are still ES modules and are loaded as modules; the
+extension only decides the Content-Type a server guesses, and while Python maps .mjs to
+text/javascript, plenty of web servers do not -- a module served as octet-stream is refused
+outright by every browser. .js is mapped everywhere.
+
+standard_fonts/ is copied too. A PDF that names one of the base-14 fonts (Helvetica, Times)
+without embedding it has no glyph data of its own, and pdf.js loads these instead. Simple
+generators do this routinely; Word and LaTeX embed, so it matters less for those.

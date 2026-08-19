@@ -9,5 +9,8 @@
     "score": "python -m scraper.score_jobs",
     "verify-dates": "python -m scraper.verify_dates",
     "refresh": "python -m scraper && python -m scraper.score_jobs && python -m scraper.verify_dates"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.2.108"
   }
 }
