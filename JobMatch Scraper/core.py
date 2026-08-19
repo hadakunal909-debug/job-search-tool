@@ -2460,8 +2460,11 @@ def resume_text_from_upload(filename, data):
         else:
             text = data.decode("utf-8", "replace")
     except ImportError:
-        return "", ("This server can't read %s files yet (missing library). "
-                    "paste the text below instead." % ext)
+        # Names the fix, because "missing library" is the server's problem and the user cannot act
+        # on it — but whoever runs the server can, and they are usually the same person here.
+        return "", ("This server can't read %s files yet — its PDF/Word library isn't installed "
+                    "(cPanel: Setup Python App, Run Pip Install). Paste the text below "
+                    "instead." % ext)
     except Exception:
         # Malformed, encrypted, or not really the format its extension claims.
         return "", ("Couldn't read that %s. It may be password-protected or corrupted. "

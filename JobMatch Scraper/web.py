@@ -4817,14 +4817,38 @@ def brain_export_resume_pdf():
 @app.route("/brain/pdf_diag")
 @login_required
 def brain_pdf_diag():
-    """Why does PDF export fall back to .txt? Reports (1) whether the auto-Tectonic code is deployed,
-    (2) python-docx availability, (3) Tectonic resolution + version, (4) a tiny live compile with the
-    real error. Open it logged-in and paste the JSON. _pdf_response swallows the error, this doesn't."""
+    """Which document libraries does this host actually have? Reports the READ side (uploads) and the
+    WRITE side (export), because a missing library on either shows up to the user as a vague
+    "paste the text instead" or a silent fallback to .txt, and neither names the cause.
+
+    Read side added after a live host answered "This server can't read .pdf files yet (missing
+    library)" — pypdf was in requirements-cpanel.txt but the Python App's Run Pip Install had never
+    been run, and nothing anywhere said so. Every reader is imported lazily by design, so the app
+    boots fine and only the feature is missing; this is the page that tells you which one.
+
+    Open it logged in and paste the JSON. The upload and export paths both swallow the real error;
+    this doesn't.
+    """
     from flask import jsonify
     import platform, subprocess
     info = {"os": platform.system(),
             "code_has_autobootstrap": hasattr(rb_latex, "_bootstrap_tectonic"),
             "repo_root": getattr(rb_latex, "_REPO_ROOT", "?")}
+    # READ side: what resume_text_from_upload needs, per format. A False here is exactly what the
+    # user sees as "this server can't read X files yet".
+    readers = {}
+    for fmt, mod in (("pdf", "pypdf"), ("docx", "docx")):
+        try:
+            m = __import__(mod)
+            readers[fmt] = {"module": mod, "ok": True,
+                            "version": getattr(m, "__version__", "?")}
+        except Exception as e:
+            readers[fmt] = {"module": mod, "ok": False, "error": str(e)[:120],
+                            "fix": "cPanel -> Setup Python App -> Run Pip Install "
+                                   "(requirements-cpanel.txt), then touch tmp/restart.txt"}
+    readers["txt"] = readers["md"] = readers["tex"] = {"module": None, "ok": True}
+    info["upload_readers"] = readers
+    info["uploads_working"] = sorted(k for k, v in readers.items() if v.get("ok"))
     try:
         import docx  # noqa: F401
         info["python_docx"] = True
