@@ -68,7 +68,10 @@ def rank_stories(stories, analyzed, jd_terms, model, lessons, top_k=6):
         if lbonus:
             reason.append("a lesson says to feature this")
         ranked.append({"story": s, "score": round(total, 1), "coverage": cov,
-                       "learned": round(learned, 1), "reason": "; ".join(reason) or "general fit"})
+                       # "general fit" was worse than an empty reason: it filled the slot where a
+                       # reason goes and told the reader we did not have one. Empty lets the
+                       # template omit the line rather than print a shrug.
+                       "learned": round(learned, 1), "reason": "; ".join(reason)})
     ranked.sort(key=lambda x: -x["score"])
     return ranked[:top_k]
 

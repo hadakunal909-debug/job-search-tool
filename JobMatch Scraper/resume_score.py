@@ -32,6 +32,7 @@ import re
 from collections import Counter
 
 from resume_brain.export import _BULLET      # one definition of "this line is a bullet"
+from resume_brain import voice               # one definition of how our writing should sound
 
 # A dense résumé page is ~3.5k characters of extracted text. Only used for a page ESTIMATE — the
 # real page count depends on the file layout, which plain text no longer carries.
@@ -261,14 +262,12 @@ project projects successful strong excellent proven extensive solid significant 
 various familiar numerous multiple
 """.split())
 
-_FILLER = (
-    "team player", "hard worker", "hard working", "detail oriented", "detail-oriented",
-    "self starter", "self-starter", "go getter", "go-getter", "think outside the box", "synergy",
-    "results driven", "results-driven", "proven track record", "track record of", "dynamic",
-    "passionate", "guru", "ninja", "rockstar", "rock star", "best of breed", "value add",
-    "responsible for", "duties included", "various", "several", "numerous", "etc",
-    "wide range of", "in charge of", "helped to", "worked closely with",
-)
+# Moved verbatim to resume_brain/voice.py so the two AI prompts and this scorer share one list.
+# NOT the same set as voice.AI_SLOP: that one holds the words a model reaches for unprompted
+# ("spearheaded", "leveraged", "robust"), which constrain the prompts and surface as an ADVISORY
+# check only. Scoring them would both re-calibrate every band and make "spearheaded" earn credit
+# under leadership_signals while losing points here. See the note in voice.py.
+_FILLER = voice.FILLER
 _ADVERBS = frozenset("""
 successfully effectively efficiently skillfully skilfully significantly substantially greatly
 highly extremely very really quickly closely actively heavily strongly consistently diligently
@@ -1140,6 +1139,204 @@ _FIXES = {
 }
 
 
+# ---------------------------------------------------------------------------------------------
+# SPECIFIC advice.
+#
+# _FIXES above is the RULE. It is true of every résumé and therefore about nobody's: a user told
+# "Add a number to every bullet that makes a claim without one" has been handed the principle and
+# still has to find the bullets, decide which number, and write the line. Twenty-five sentences
+# like that, identical for every user, is what makes a résumé tool feel like a form letter.
+#
+# Every check already collects its `offenders`. This layer spends them, so the primary sentence
+# names the user's own line and the rule drops to a second, quieter one.
+#
+# Rules for anything added here:
+#   * Quote the user, never paraphrase. A paraphrase is how they find out we did not read it.
+#   * One instruction, not a menu — the worst offender only. The rest are marked in the document.
+#   * Return None rather than a vague sentence. Falling back to the rule beats faking specificity.
+#   * Ask a question where a question is the actual next step ("how many reports?"). Answering it
+#     is the edit.
+# ---------------------------------------------------------------------------------------------
+def _q(s, n=64):
+    """The user's own words, quoted, short enough to scan and long enough to locate the line."""
+    s = " ".join((s or "").split())
+    return "“%s”" % (s if len(s) <= n else s[:n - 1].rstrip() + "…")
+
+
+def _join(xs, last="and", cap=3):
+    xs = [x for x in (xs or []) if x][:cap]
+    if not xs:
+        return ""
+    if len(xs) == 1:
+        return xs[0]
+    return ", ".join(xs[:-1]) + " " + last + " " + xs[-1]
+
+
+def _sf_quantified(off, detail):
+    import resume_bullets                      # local: resume_bullets imports THIS module
+    b = off[0]
+    metrics = resume_bullets.metrics_for(b)
+    if not metrics:
+        return None
+    return "Start with %s. Ask it one question: %s?" % (_q(b), metrics[0])
+
+
+def _sf_weak_openers(off, detail):
+    import resume_bullets
+    b = off[0]
+    swaps = resume_bullets.swaps_for(b)[:3]
+    if not swaps:
+        return None
+    return ("%s opens on “%s”, which describes the job you were given rather than the "
+            "work you did. %s each say something that one cannot."
+            % (_q(b), _first_word(b).title(), _join(swaps)))
+
+
+def _sf_action_openers(off, detail):
+    return ("%s has no verb in it — it names a thing, so a reader has to guess what you did with "
+            "it. Say what you did." % _q(off[0]))
+
+
+def _sf_filler(off, detail):
+    return ("%s is the phrase to cut first. It survives in a résumé because it sounds like "
+            "content; delete it and write what actually happened." % _q(off[0]))
+
+
+def _sf_adverbs(off, detail):
+    return ("%s tells a recruiter nothing they were not already assuming. Delete it, or replace "
+            "it with the number that would have proved it." % _q(off[0]))
+
+
+def _sf_pronouns(off, detail):
+    # Offenders arrive lower-cased from the token scan, and rendering a bare “i” back at the user
+    # reads as our typo rather than their word.
+    word = "I" if (off[0] or "").lower() == "i" else off[0]
+    return ("Drop %s — the whole document is understood to be about you, so the word is spent "
+            "before it is read. Start at the verb." % _q(word))
+
+
+def _sf_passive(off, detail):
+    return ("%s puts the outcome in front and leaves you out of it. Recast it so you are the "
+            "subject of the sentence." % _q(off[0]))
+
+
+def _sf_leadership(off, detail):
+    return ("%s does not say what you were responsible for. Add the scope — how many people, how "
+            "big the thing was, or what changed because it was yours." % _q(off[0]))
+
+
+def _sf_bullet_length(off, detail):
+    b = off[0]
+    if len(b) > 220:
+        return ("%s runs past two lines. Cut the setup and keep the outcome — the first half is "
+                "context a reader will infer." % _q(b))
+    return ("%s is too thin to carry an achievement. Either say what it produced, or fold it into "
+            "the bullet above." % _q(b))
+
+
+def _sf_contact(off, detail):
+    return ("Add %s to the header, as plain text on one line. A parser reads the top of the page "
+            "first and gives up fast." % _join(off, "and", 4))
+
+
+def _sf_unnecessary(off, detail):
+    listed = _join(off, "and", 3).lower()
+    if len(off) == 1:
+        return ("Delete the %s. It costs you a line and tells a recruiter something they had "
+                "already assumed." % listed)
+    return ("Delete the %s. They cost you a line each and tell a recruiter nothing they had not "
+            "already assumed." % listed)
+
+
+def _sf_dates(off, detail):
+    if len(off) < 2:
+        return None
+    return ("Your experience dates mix %s. Pick the one you use most and rewrite the others to "
+            "match — an ATS builds your work history from these." % _join(off, "and", 4))
+
+
+def _sf_skills_demonstrated(off, detail):
+    return ("%s %s in your skills list but never in an accomplishment. Show %s in a bullet, or "
+            "drop it — an unevidenced list is the pattern recruiters read as filler."
+            % (_join(off, "and", 3), "appears" if len(off) == 1 else "appear",
+               "it" if len(off) == 1 else "one of them"))
+
+
+def _sf_role_keywords(off, detail):
+    one = len(off) == 1
+    return ("Your track's postings ask most often for %s, and %s nowhere in your bullets. Work in "
+            "whichever are genuinely true of you — in a bullet, not in a skills list."
+            % (_join(list(off), "and", 3), "it appears" if one else "they appear"))
+
+
+def _sf_capitalization(off, detail):
+    return ("%s is cased differently from your other headings. Match it to the rest — a parser "
+            "uses headings to find your sections." % _q(off[0]))
+
+
+def _sf_repeated_phrases(off, detail):
+    return ("%s is doing duty in more than one role. Rewrite the later ones so each job reads as "
+            "its own job." % _q(off[0]))
+
+
+def _sf_spelling(off, detail):
+    first = (off[0] or "").split("→")
+    if len(first) != 2:
+        return None
+    return ("%s is one edit away from “%s”. Only near-misses are flagged, never names or "
+            "acronyms, so this is very likely a real typo."
+            % (_q(first[0].strip()), first[1].strip()))
+
+
+# key -> builder. Absent keys, and any builder returning None, fall back to the rule in _FIXES.
+# Deliberately absent: prose_not_bullets, tense_consistency, verb_variety, repeated openers,
+# parse_health, punctuation_consistency, spacing_hygiene, resume_length, sections_present. Each of
+# those already states its own numbers in `detail` ("your most repeated opener is 'Managed', 6 of
+# 15"), and a second sentence restating them in a different voice is noise, not specificity.
+_SPECIFIC = {
+    "quantified_impact": _sf_quantified,
+    "weak_verb_openers": _sf_weak_openers,
+    "action_verb_openers": _sf_action_openers,
+    "filler_buzzwords": _sf_filler,
+    "adverbs": _sf_adverbs,
+    "personal_pronouns": _sf_pronouns,
+    "passive_voice": _sf_passive,
+    "leadership_signals": _sf_leadership,
+    "bullet_length": _sf_bullet_length,
+    "contact_details": _sf_contact,
+    "unnecessary_content": _sf_unnecessary,
+    "date_consistency": _sf_dates,
+    "skills_demonstrated": _sf_skills_demonstrated,
+    "role_keywords": _sf_role_keywords,
+    "capitalization_consistency": _sf_capitalization,
+    "repeated_phrases": _sf_repeated_phrases,
+    "spelling": _sf_spelling,
+}
+
+
+# Checks the Bullets tab covers line by line. The Review tab names the worst offender and then
+# hands off, rather than duplicating a work queue that already exists.
+_BULLET_LEVEL = frozenset((
+    "quantified_impact", "weak_verb_openers", "action_verb_openers", "bullet_length",
+    "passive_voice", "leadership_signals", "verb_variety", "tense_consistency",
+))
+
+
+def specific_fix(key, offenders, detail):
+    """The instruction for THIS résumé, or None to fall back to _FIXES[key].
+
+    Wrapped in a blanket except on purpose: an advice string is decoration on a score, and a
+    KeyError raised while phrasing a suggestion must never cost the user their report.
+    """
+    fn = _SPECIFIC.get(key)
+    if not fn or not offenders:
+        return None
+    try:
+        return fn(list(offenders), detail)
+    except Exception:
+        return None
+
+
 def score_resume(text, level="mid"):
     """Grade `text` and return the full report.
 
@@ -1201,7 +1398,13 @@ def score_resume(text, level="mid"):
             "key": key, "label": _LABELS[key], "group": _GROUPS[key],
             "score": None if key in dormant else round(sc, 1),
             "weight": w, "detail": detail, "dormant": key in dormant,
-            "offenders": offenders, "spans": spans, "fix": _FIXES[key],
+            "offenders": offenders, "spans": spans,
+            # `fix` names the user's own line where we can build that sentence; `rule` is the
+            # general principle, always present. The panel leads with fix and demotes rule, so a
+            # check with nothing quotable degrades to what it always said rather than to nothing.
+            "fix": specific_fix(key, offenders, detail) or _FIXES[key],
+            "rule": _FIXES[key],
+            "bullet_level": key in _BULLET_LEVEL,
             # Points of the final 100 this check is currently costing — the only ordering that
             # answers "what should I fix first?" without the user doing the arithmetic.
             "points_lost": 0.0 if key in dormant or not total_w
@@ -1231,6 +1434,7 @@ def score_resume(text, level="mid"):
     return {
         "score": score if readable else 0,
         "band": band_of(score if readable else 0),
+        "band_note": band_note(band_of(score if readable else 0)),
         # Surfaced so the panel can say WHY a tidy résumé did not score well, rather than leaving the
         # user to diff the group tiles against the total and guess.
         "impact_gated": gated and readable,
@@ -1253,12 +1457,32 @@ def score_resume(text, level="mid"):
 # well-written résumé sits in the sixties or seventies, and 88+ means genuinely nothing left to fix.
 _BANDS = ((88, "Exceptional"), (76, "Strong"), (62, "Solid"), (45, "Needs work"), (0, "Weak"))
 
+# A band shown as a bare adjective is a verdict with no content: "Solid" told a user neither what
+# the word meant on this scale nor what would move it. Each note says what the band IS and what the
+# next move is, and says so in the same register as the rest of the panel -- no congratulation, no
+# scolding. The floors are deliberately hard (see above), so most real résumés land in the middle
+# two and the copy has to make that read as a position rather than a failure.
+_BAND_NOTES = {
+    "Exceptional": "Nothing structural left. The remaining points are taste, not defects.",
+    "Strong": "Reads well and would survive a screen. The fixes below are refinements, not repairs.",
+    "Solid": "The bones are right and the writing is not yet doing the work. Most résumés that "
+             "get interviews sit here before someone rewrites the bullets.",
+    "Needs work": "A recruiter would read this as a list of duties. Fix the top three below, in "
+                  "order, and the number moves a long way.",
+    "Weak": "This is a job description of your old roles, not a record of what you did. Start with "
+            "the first fix below — it is worth more than the rest combined.",
+}
+
 
 def band_of(score):
     for floor, name in _BANDS:
         if score >= floor:
             return name
     return "Needs work"
+
+
+def band_note(band):
+    return _BAND_NOTES.get(band, "")
 
 
 def annotate_html(text, checks, escape=None):
