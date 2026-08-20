@@ -1639,6 +1639,13 @@ WORKATASTARTUP_BOARDS = [
 # Roughly a third of tenants answer a flat 403 no matter what headers we send (see
 # scrape_eightfold), so a candidate that probes clean is worth adding and one that 403s is not
 # worth retrying. Every row arrives with a REAL posting date from t_create, which is rare.
+# Digitas (Publicis Groupe). ats_type "digitas" is deliberately NOT emitted by detect_board, so
+# this cannot arrive from the add-a-board UI -- the scraper reads a 14 MB sitemap and then fetches
+# a page per posting, which is fine for one known board and wrong to let anyone point anywhere.
+DIGITAS_BOARDS = [
+    ("https://www.digitas.com/en-us/careers", "digitas", "Digitas"),   # 86 rows -> 18 on-target
+]
+
 EIGHTFOLD_BOARDS = [
     ("https://bayer.eightfold.ai/careers?domain=bayer.com", "eightfold", "Bayer"),        # 607
     ("https://insight.eightfold.ai/careers?domain=insight.com", "eightfold", "Insight Enterprises"),  # 183
@@ -1652,7 +1659,7 @@ SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
            + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
-           + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS)
+           + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -4523,9 +4530,163 @@ def scrape_eightfold(board_url):
     return out
 
 
+# ---- Digitas (Publicis Groupe) — a branded Drupal front end over a bot-walled iCIMS tenant ----
+#
+# The ATS underneath is iCIMS, tenant `careers-publicisgroupe`, and it is unreadable: every path
+# tried (/jobs/search, /jobs/<id>/job, /sitemap.xml, /) answers HTTP 405 with a 2,115-byte "Human
+# Verification" interstitial, and browser headers change nothing. The brand's own Drupal site is
+# the only way in, and it serves 200 with the full posting.
+#
+# There is no JSON anywhere on it — no API, no __NEXT_DATA__, no JSON-LD JobPosting — so the entry
+# point is the Drupal Simple XML Sitemap. 14.2 MB in 2.7s, 5,947 urls, of which 1,938 are jobs and
+# only 102 are /en-us/: the same requisitions are republished under ~19 locale prefixes.
+#
+# Probed 2026-08-20: razorfish, publicissapient, publicishealth and zenithmedia run the same CMS
+# but publish NO job urls in their sitemaps, and leoburnett / saatchi / spark-foundry / starcomww
+# do not answer at all. So this is Digitas-only in practice, though the function takes its host
+# from board_url — if a sister brand starts publishing, it is one SOURCES line and no new code.
+DIGITAS_MAX_JOBS = 400
+DIGITAS_WORKERS = 6
+_DIGITAS_JOB_RE = re.compile(r"/en-us/careers/\d+-\d+-[a-z0-9-]+$", re.I)
+# "Associate Director, Project Management | New York | Digitas" — consistent across every page
+# sampled, and the ONLY place the location appears in the markup.
+_DIGITAS_TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S | re.I)
+
+
+def _digitas_location(city):
+    """'Plano' -> 'Plano, TX'.
+
+    NOT cosmetic. The page gives a BARE CITY, and is_us_location() rejects those: measured,
+    "Plano", "Chicago" and "Boston" all read as non-US while only "New York" passes. Returning the
+    city verbatim would have silently dropped three of every four US jobs on this board — the
+    failure mode that looks identical to a company simply not hiring in the US.
+    core.parse_location already knows the metro for each, so this composes it rather than shipping
+    a city->state table of its own.
+    """
+    city = (city or "").strip()
+    if not city:
+        return ""
+    p = core.parse_location(city)
+    metro = p.get("metro") or ""
+    if p.get("city") and ", " in metro:
+        return "%s, %s" % (p["city"], metro.rsplit(", ", 1)[1])
+    # No metro means we do not recognise it — return it unchanged and let the US filter decide.
+    # Guessing here would be worse: it is how a London posting ends up in a US feed.
+    return metro or city
+
+
+def _digitas_job_urls(host):
+    """Job urls out of a 14.2 MB sitemap without ever holding it in memory.
+
+    STREAMED, not fetched whole, for two reasons. _safe_get caps a response at _MAX_FETCH_BYTES
+    (5 MB) and is right to — it exists for user-supplied URLs — so raising that ceiling so one
+    sitemap can be read would trade a real guard for a convenience. And this also runs on a shared
+    cPanel box that serves the website at the same time, where a 30 MB transient (14 MB of bytes
+    plus 14 MB of decoded string) is worth not allocating.
+
+    Safe to do line-wise because the file is line-oriented: measured 3,372 newlines in the first
+    300 KB with a longest line of 165 bytes, so no <loc> ever straddles a chunk boundary.
+    """
+    r = SESSION.get("https://%s/sitemap.xml" % host, headers=HEADERS, timeout=90, stream=True)
+    try:
+        if r.status_code != 200:
+            return []
+        out, seen_bytes = set(), 0
+        for line in r.iter_lines(chunk_size=65536, decode_unicode=True):
+            if not line:
+                continue
+            # A ceiling anyway, well clear of the 14 MB this actually is. A sitemap an order of
+            # magnitude larger is a CMS fault, not a big careers section, and reading it would
+            # spend the whole board budget.
+            seen_bytes += len(line)
+            if seen_bytes > 60 * 1024 * 1024:
+                note_truncation("https://%s/sitemap.xml" % host, len(out), len(out), -1,
+                                detail="sitemap exceeded 60 MB, stopped reading")
+                break
+            if "<loc>" in line:
+                for u in re.findall(r"<loc>([^<]+)</loc>", line):
+                    if _DIGITAS_JOB_RE.search(u):
+                        out.add(u)
+        return sorted(out)
+    finally:
+        r.close()
+
+
+def scrape_digitas(board_url):
+    """Digitas jobs, via the brand site's sitemap plus one fetch per posting.
+
+    A page per job is more requests than any feed-backed board needs, but the whole en-us set is
+    102 postings fetched concurrently — a few seconds — and there is no listing page to read
+    instead: /en-us/careers is marketing copy and contains no job links at all.
+
+    DELIBERATELY NO found_date. Every one of the 102 <lastmod> values is identical
+    (2026-08-19T23:35:07), i.e. when Drupal last rebuilt the sitemap, not when anything was
+    posted. Storing it would put a confident-looking timestamp on 102 rows whose real posting date
+    is unknown, which is exactly what core.is_trusted_date exists to keep out of the corpus.
+    main() stamps the scrape date instead, and that is honest.
+    """
+    host = urlparse(board_url).netloc or "www.digitas.com"
+    try:
+        urls = _digitas_job_urls(host)
+    except Exception as e:
+        # Named, not swallowed. The first version of this used _safe_get, which caps a body at
+        # _MAX_FETCH_BYTES (5 MB) and therefore raised on a 14.2 MB sitemap -- and a bare
+        # `except Exception: return []` reported that as "this board has no jobs", which is the
+        # most expensive kind of wrong: indistinguishable from a company that stopped hiring.
+        print("   digitas: sitemap read failed (%s: %s)" % (type(e).__name__, str(e)[:90]))
+        return []
+    if len(urls) > DIGITAS_MAX_JOBS:
+        note_truncation(board_url, DIGITAS_MAX_JOBS, DIGITAS_MAX_JOBS, len(urls))
+        urls = urls[:DIGITAS_MAX_JOBS]
+
+    def _one(u):
+        for attempt in (0, 1):
+            try:
+                p = SESSION.get(u, headers=HEADERS, timeout=25)
+                if p.status_code == 200:
+                    m = _DIGITAS_TITLE_RE.search(p.text)
+                    if not m:
+                        return None
+                    # unescape BEFORE splitting on "|": these titles carry &amp; and &#8211;, and
+                    # without this one shipped as "Manager, Digital Product Management – AI
+                    # Products &amp" — a title that then fails to match its own keywords and looks
+                    # to a reader like our bug, which it was.
+                    raw = html.unescape(re.sub(r"\s+", " ", m.group(1)))
+                    parts = [x.strip() for x in raw.split("|")]
+                    if len(parts) < 2:
+                        return None
+                    return {"title": parts[0], "url": u,
+                            "location": _digitas_location(parts[1])}
+            except Exception:
+                pass
+            if not attempt:
+                time.sleep(random.uniform(0.3, 0.7))
+        return None
+
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=DIGITAS_WORKERS) as ex:
+        for row in ex.map(_one, urls):
+            if row and row["title"]:
+                rows.append(row)
+
+    # COLLAPSE THE REQUISITION VARIANTS. One req is published at several urls -- 148526-0,
+    # 148526-1034104 and 148526-1034105 are all the same Plano role -- and canonical_url cannot
+    # see it because the paths genuinely differ. Storing all three would also read as a 3x repost
+    # in scraper.reposts, inventing employer behaviour out of a CMS quirk. Keyed on
+    # (title, location), the same identity core.posting_key uses.
+    seen, out = set(), []
+    for r0 in rows:
+        k = (r0["title"].lower(), r0["location"].lower())
+        if k not in seen:
+            seen.add(k)
+            out.append(r0)
+    return out
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
+    "digitas": scrape_digitas,
     "lever": scrape_lever,
     "ashby": scrape_ashby,
     "smartrecruiters": scrape_smartrecruiters,
