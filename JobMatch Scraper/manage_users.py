@@ -11,8 +11,9 @@ to the same storage the app uses (Supabase if configured, else local users.json)
     python manage_users.py remove <username>                # delete a user (+ their saved jobs)
     python manage_users.py resume <username> <file.txt>     # set a user's resume from a text file
 
-First-time setup: run the SQL in USERS_SETUP.md in your Supabase SQL editor once
-(creates the `users` + `user_jobs` tables and the `jobs.jd` column).
+The `users` + `user_jobs` tables and the `jobs.jd` column are in schema.sql and already
+exist in production. Accounts are admin-created; there is no public sign-up. /admin/users
+does the same things through the app, plus disable and revoke-token. See docs/OPERATIONS.md.
 """
 import sys
 
