@@ -963,7 +963,13 @@ def _admitted_on_description(title, first_seen):
                 pass
         try:
             keep, why = sc.title_verdict(title)
-            hit = not keep and not why.startswith("off-target")
+            # THREE conditions, not two, and the third is what keeps the chip honest. Since
+            # 2026-08-20 the sweep also requires core.pm_title_gate before a description gets a
+            # vote, so a title that fails the keyword filter AND the gate cannot have been
+            # admitted on its text — it is a legacy row, and chipping it would assert a
+            # provenance that never happened. Same shape as the two guards above.
+            hit = (not keep and not why.startswith("off-target")
+                   and core.pm_title_gate(title))
         except Exception:
             hit = False
         if len(_admit_cache) < 60000:          # bounded, like core._role_cache
