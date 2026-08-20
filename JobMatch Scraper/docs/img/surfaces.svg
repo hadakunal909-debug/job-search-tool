@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" width="980" height="560" role="img" aria-label="The three runtime surfaces and the shared spine">
+<title>The three runtime surfaces and the shared spine</title>
+<rect class="s-web" x="0" y="44" width="300" height="150" rx="10" fill="#e0e4fe" stroke="#4f46e5" stroke-width="1.5"/>
+<text class="t-web" x="14" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
+<text class="t-ink" x="14" y="80" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">FLASK APP</text>
+<text class="t-dim" x="14" y="99" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">Serves every page and API</text>
+<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  6,912 lines</text>
+<text class="t-dim" x="14" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">82 routes / 81 handlers</text>
+<text class="t-dim" x="14" y="147" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">NO blueprints -- one module</text>
+<text class="t-dim" x="14" y="163" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">templates/  30 files</text>
+<path class="edge" d="M150 194 L150 213 L490 213 L490 232" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M486 226 L494 226 L490 232 Z" fill="#d3d7df"/>
+<rect class="s-sched" x="330" y="44" width="300" height="150" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
+<text class="t-sched" x="344" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
+<text class="t-ink" x="344" y="80" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">SCRAPE PIPELINE</text>
+<text class="t-dim" x="344" y="99" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">Runs on a runner or a cron</text>
+<text class="t-dim" x="344" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">python -m scraper</text>
+<text class="t-dim" x="344" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">__init__.py  6,783 lines</text>
+<text class="t-dim" x="344" y="147" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">29 ATS adapters, 1,173 boards</text>
+<text class="t-dim" x="344" y="163" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">score_jobs.py  1,986 lines</text>
+<path class="edge" d="M480 194 L480 213 L490 213 L490 232" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M486 226 L494 226 L490 232 Z" fill="#d3d7df"/>
+<rect class="s-client" x="660" y="44" width="300" height="150" rx="10" fill="#e4e7ec" stroke="#5f6573" stroke-width="1.5"/>
+<text class="t-client" x="674" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3c414d">◻ BROWSER</text>
+<text class="t-ink" x="674" y="80" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">CHROME EXTENSION</text>
+<text class="t-dim" x="674" y="99" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">Runs in your own browser</text>
+<text class="t-dim" x="674" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">extension/  10 files</text>
+<text class="t-dim" x="674" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">15 /api/ext/* routes</text>
+<text class="t-dim" x="674" y="147" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">bearer token, not a cookie</text>
+<text class="t-dim" x="674" y="163" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">fills forms, never submits</text>
+<path class="edge" d="M810 194 L810 213 L490 213 L490 232" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M486 226 L494 226 L490 232 Z" fill="#d3d7df"/>
+<text class="t-dim" x="0" y="26" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="13" fill="#4e5462" text-anchor="start" font-weight="400">Three places code runs. Colour means which.</text>
+<rect class="s-plain" x="0" y="246" width="960" height="104" rx="10" fill="#ffffff" stroke="#d3d7df" stroke-width="1.5"/>
+<text class="t-ink" x="14" y="268" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">THE SPINE  --  imported by all three</text>
+<text class="t-dim" x="14" y="287" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">core.py  3,012 lines, 32 sections  --  filtering, scoring, sponsorship, visa tags,</text>
+<text class="t-dim" x="14" y="303" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">   location, salary, role tracks, saved-search prefs, work-auth timelines</text>
+<text class="t-dim" x="14" y="319" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">db.py  2,796 lines  --  one interface, four backends, chosen at first use</text>
+<path class="edge" d="M480 350 L480 386" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M476 380 L484 380 L480 386 Z" fill="#d3d7df"/>
+<text class="t-dim" x="0" y="380" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#101319" text-anchor="start" font-weight="600">Which database you get  --  db.py::_LazyHTTP, line 57</text>
+<rect class="s-sched" x="0" y="400" width="960" height="30" rx="6" fill="#cfe8e3" stroke="#0f766e" stroke-width="1"/>
+<text class="t-dim" x="14" y="420" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">PG_DSN set</text>
+<text class="t-dim" x="330" y="420" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">-&gt;  pgrest.Session -- direct psycopg</text>
+<text class="t-dim" x="660" y="420" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">this is the cPanel app</text>
+<rect class="s-sched" x="0" y="436" width="960" height="30" rx="6" fill="#cfe8e3" stroke="#0f766e" stroke-width="1"/>
+<text class="t-dim" x="14" y="456" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">DB_PROXY_URL + DB_PROXY_SECRET</text>
+<text class="t-dim" x="330" y="456" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">-&gt;  dbproxy.Session -- HMAC over HTTPS</text>
+<text class="t-dim" x="660" y="456" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">GitHub Actions, and your laptop</text>
+<rect class="s-trap" x="0" y="472" width="960" height="30" rx="6" fill="#f9edcd" stroke="#a8781a" stroke-width="1"/>
+<text class="t-dim" x="14" y="492" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#8a5a08" text-anchor="start" font-weight="600">only one of that pair</text>
+<text class="t-dim" x="330" y="492" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">-&gt;  RuntimeError</text>
+<text class="t-dim" x="660" y="492" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">refuses rather than guessing</text>
+<rect class="s-client" x="0" y="508" width="960" height="30" rx="6" fill="#e4e7ec" stroke="#5f6573" stroke-width="1"/>
+<text class="t-dim" x="14" y="528" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#3c414d" text-anchor="start" font-weight="600">neither</text>
+<text class="t-dim" x="330" y="528" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">-&gt;  Supabase, then local CSV</text>
+<text class="t-dim" x="660" y="528" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">vestigial since 2026-08-15</text>
+<text class="t-dim" x="0" y="562" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="600">using_supabase() answers True for the first three. backend_name() is the one that tells you which.</text>
+</svg>

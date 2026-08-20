@@ -1,0 +1,243 @@
+/* ==============================================================================================
+   doc.css -- the documentation token layer. Inlined into map.html by scripts/build_docs.py.
+
+   THE DOC COLOUR RULE. Colour means WHERE THE CODE RUNS. Provenance is texture. Danger is
+   amber, and red appears exactly once.
+
+   Why not just reuse the app's palette. static/style.css line 16 states the product's rule:
+   "Colour means sponsorship. Everything else is ink." Its layer 3 spends blue on H-1B, green on
+   Green Card, violet on STEM-OPT. If these docs painted "the Flask app" in the H-1B blue, an eye
+   trained on the product would read the map wrong, and the docs would be teaching against the
+   product's own rule. So:
+
+     layer 1 + 2  INHERITED, values copied verbatim from style.css :root and [data-theme=dark].
+                  Same greys, same ink, same two typefaces, so the docs feel like the app.
+     layer 3      NEW, and built from the two ramps the app deliberately does not spend --
+                  indigo (style.css:17, "the accent used to be indigo") and teal (unused).
+                  No hue is spent twice anywhere in the system.
+
+   Colour never carries meaning alone: every panel also has a glyph and a word. Provenance is
+   texture, not hue -- solid border for generated, dashed for hand-drawn -- so "can I trust this
+   to be current" survives greyscale, print, and any colour vision.
+
+   TRAP, and it has bitten twice in style.css already: scripts/test_contrast.py finds tokens by
+   regexing every `--name: value` in the block INCLUDING inside comments, and the value run
+   reaches the next semicolon. Never write a double-dash name followed by a colon in a comment
+   in this file.
+   ============================================================================================== */
+
+:root {
+  /* ---- layer 1 + 2, copied from static/style.css ---------------------------------------- */
+  --bg-canvas: #fbfbfc;
+  --bg-surface: #ffffff;
+  --text-primary: #101319;
+  --text-secondary: #4e5462;
+  --border-subtle: #e4e7ec;
+  --border-default: #d3d7df;
+  --font-sans: "InterVariable", Inter, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-md: 14px;
+
+  /* ---- layer 3, the doc layer ------------------------------------------------------------ */
+
+  /* request-scoped: runs inside the Flask process, has session and request. */
+  --doc-web-fill: #e0e4fe;
+  --doc-web-line: #4f46e5;
+  --doc-web-ink: #3730a3;
+
+  /* scheduled: runs on a runner or a cron. No session, no request, filesystem discarded when
+     the run ends. This split earns a hue because it is the one that actually causes bugs. */
+  --doc-sched-fill: #cfe8e3;
+  --doc-sched-line: #0f766e;
+  --doc-sched-ink: #0b5c56;
+
+  /* browser: runs on someone else's machine, and we only ever see the consequences. */
+  --doc-client-fill: #e4e7ec;
+  --doc-client-line: #5f6573;
+  --doc-client-ink: #3c414d;
+
+  /* a documented trap. Amber, which already means warn in the app. */
+  --doc-trap-fill: #f9edcd;
+  --doc-trap-line: #a8781a;
+  --doc-trap-ink: #8a5a08;
+
+  /* no surface: a box that is not code running anywhere -- an artifact, a step, a decision.
+     It MUST have a dark-mode value. Without one the presentation attribute on the SVG wins,
+     the box stays white, and the body ink -- which does follow the theme -- goes near-white
+     on it and disappears. */
+  --doc-plain-fill: #ffffff;
+  /* gray-550 from the app's ramp, not gray-300. In a diagram the border IS the shape, so it
+     owes the 3:1 non-text minimum; gray-300 measured 1.40 and the contrast gate rejected it. */
+  --doc-plain-line: #6d7382;
+
+  /* THE ONE RED. Reserved for the single thing that is literally inert: the git-push arrow
+     that no longer reaches anything. The app reserves red for destructive controls; the docs
+     reserve it for dead paths. If a second thing goes red, one of them is wrong. */
+  --doc-dead: #b3261e;
+}
+
+[data-theme="dark"], :root.dark {
+  --bg-canvas: #0c0e14;
+  --bg-surface: #161822;
+  --text-primary: #ebedf3;
+  --text-secondary: #9ea5b8;
+  --border-subtle: #232738;
+  --border-default: #333851;
+
+  --doc-web-fill: #1e2140;
+  --doc-web-line: #6366f1;
+  --doc-web-ink: #a5a8f6;
+
+  --doc-sched-fill: #0f2b2a;
+  --doc-sched-line: #2aa198;
+  --doc-sched-ink: #5fd0c4;
+
+  --doc-client-fill: #232738;
+  --doc-client-line: #666c88;
+  --doc-client-ink: #c5cbdb;
+
+  --doc-trap-fill: #2a2212;
+  --doc-trap-line: #a8781a;
+  --doc-trap-ink: #f0c05a;
+
+  --doc-plain-fill: #1b1e2a;
+  --doc-plain-line: #858b99;      /* gray-500: lighter, because here it sits on a dark canvas */
+
+  --doc-dead: #ff6b5e;
+}
+
+/* ---- page ------------------------------------------------------------------------------- */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 32px 24px 96px;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1080px; margin: 0 auto; }
+
+h1 { font-size: 30px; line-height: 1.2; letter-spacing: -0.02em; margin: 0 0 6px; }
+h2 {
+  font-size: 21px; letter-spacing: -0.01em; margin: 52px 0 6px;
+  padding-top: 20px; border-top: 1px solid var(--border-subtle);
+}
+h3 { font-size: 16px; margin: 28px 0 6px; }
+p { margin: 0 0 14px; max-width: 76ch; }
+a { color: var(--doc-web-ink); }
+
+.lede { color: var(--text-secondary); font-size: 16px; max-width: 76ch; }
+.sub { color: var(--text-secondary); margin: 0 0 20px; max-width: 76ch; }
+
+code, .mono, .num {
+  font-family: var(--font-data);
+  font-size: 0.9em;
+}
+
+/* ---- figures ---------------------------------------------------------------------------- */
+figure {
+  margin: 20px 0 28px;
+  padding: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+figure svg { display: block; max-width: 100%; height: auto; }
+figcaption {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 13.5px;
+}
+
+/* Provenance is texture. Solid = generated from the code. Dashed = a human drew it. */
+.prov {
+  display: inline-block;
+  font-family: var(--font-data);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+.prov.gen { border-style: solid; }
+.prov.hand { border-style: dashed; }
+
+/* ---- SVG box classes. Presentation attributes on the elements carry the same values, so a
+   bare .svg file still looks right on GitHub where this stylesheet is not loaded. ---------- */
+.s-web rect, rect.s-web { fill: var(--doc-web-fill); stroke: var(--doc-web-line); }
+.s-sched rect, rect.s-sched { fill: var(--doc-sched-fill); stroke: var(--doc-sched-line); }
+.s-client rect, rect.s-client { fill: var(--doc-client-fill); stroke: var(--doc-client-line); }
+.s-trap rect, rect.s-trap { fill: var(--doc-trap-fill); stroke: var(--doc-trap-line); }
+.s-plain rect, rect.s-plain { fill: var(--doc-plain-fill); stroke: var(--doc-plain-line); }
+
+text.t-web { fill: var(--doc-web-ink); }
+text.t-sched { fill: var(--doc-sched-ink); }
+text.t-client { fill: var(--doc-client-ink); }
+text.t-trap { fill: var(--doc-trap-ink); }
+text.t-ink { fill: var(--text-primary); }
+text.t-dim { fill: var(--text-secondary); }
+text.t-dead { fill: var(--doc-dead); }
+
+.edge { stroke: var(--border-default); fill: none; }
+.edge-dead { stroke: var(--doc-dead); fill: none; }
+.arrowhead { fill: var(--border-default); }
+
+/* ---- tables ----------------------------------------------------------------------------- */
+table { border-collapse: collapse; width: 100%; margin: 14px 0 26px; font-size: 14px; }
+th, td {
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+td.num, td .num { font-family: var(--font-data); }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+
+/* ---- callouts --------------------------------------------------------------------------- */
+.note {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--doc-trap-line);
+  background: var(--doc-trap-fill);
+  color: var(--doc-trap-ink);
+  font-size: 14px;
+}
+.note strong { color: inherit; }
+.note.dead { border-color: var(--doc-dead); background: transparent; color: var(--doc-dead); }
+
+.key { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 8px 0 22px; font-size: 13px; }
+.key span { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+.key i {
+  width: 13px; height: 13px; border-radius: 4px; border: 1.5px solid;
+  display: inline-block;
+}
+.key i.web { background: var(--doc-web-fill); border-color: var(--doc-web-line); }
+.key i.sched { background: var(--doc-sched-fill); border-color: var(--doc-sched-line); }
+.key i.client { background: var(--doc-client-fill); border-color: var(--doc-client-line); }
+.key i.trap { background: var(--doc-trap-fill); border-color: var(--doc-trap-line); }
+
+footer {
+  margin-top: 56px; padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary); font-size: 13px;
+}
+
+/* ---- print: it should survive being handed over on paper ------------------------------- */
+@media print {
+  body { padding: 0; background: #fff; font-size: 11pt; }
+  h2 { page-break-after: avoid; }
+  figure { page-break-inside: avoid; border-color: #999; }
+  a { color: inherit; text-decoration: none; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #555; }
+}

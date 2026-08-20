@@ -37,7 +37,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import docdiagrams as dg                                    # noqa: E402
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -706,6 +708,425 @@ def write(rel, text, check, errors):
     return True
 
 
+# =============================================================================================
+# DIAGRAM FACTS. Every number and label on every diagram is extracted here, so a diagram cannot
+# say something the code stopped doing -- which is the exact failure the old ARCHITECTURE.md had.
+# =============================================================================================
+def _module_consts(src):
+    """{name: value} for module-level assignments literal_eval can evaluate."""
+    out = {}
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return out
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            try:
+                out[n.targets[0].id] = ast.literal_eval(n.value)
+            except Exception:
+                pass
+    return out
+
+
+def _env_default(src, name):
+    """The literal default in `NAME = int(os.environ.get("X", "4000"))`.
+
+    Tuning knobs here are env-overridable, so literal_eval cannot see them. The DEFAULT is the
+    honest thing to put on a diagram -- it is what production runs, and it is what a reader
+    needs in order to reason about the threshold at all.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    for n in tree.body:
+        if not (isinstance(n, ast.Assign) and len(n.targets) == 1
+                and getattr(n.targets[0], "id", None) == name):
+            continue
+        for sub in ast.walk(n.value):
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
+                    and sub.func.attr == "get" and len(sub.args) == 2 \
+                    and isinstance(sub.args[1], ast.Constant):
+                v = sub.args[1].value
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return v
+    return None
+
+
+def _sources_count(src):
+    """len(SOURCES) without importing. It is a + chain of names bound to list literals.
+
+    JOBSPY_BOARDS is a comprehension rather than a literal, so it contributes 0 -- which is
+    also what it contributes at runtime unless JOBSPY_SITES is set.
+    """
+    consts = _module_consts(src)
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return 0
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 \
+                and getattr(n.targets[0], "id", None) == "SOURCES":
+            names, stack = [], [n.value]
+            while stack:
+                node = stack.pop()
+                if isinstance(node, ast.BinOp):
+                    stack += [node.left, node.right]
+                elif isinstance(node, ast.Name):
+                    names.append(node.id)
+            return sum(len(consts.get(nm) or ()) for nm in names)
+    return 0
+
+
+def _gates(src):
+    """The intake gates, as (printed label, line where it is counted).
+
+    Lifted from the `tally` dict literal in scraper.main, which is also what the run prints at
+    the end -- so the funnel's chute labels are the log's own strings and cannot drift from it.
+    A key built by % formatting is rendered with the CONSTANT NAMES left in, which is both
+    stable against an env change and more useful: it names the knob to turn.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    node = next((n for n in ast.walk(tree)
+                 if isinstance(n, ast.Assign) and len(n.targets) == 1
+                 and getattr(n.targets[0], "id", None) == "tally"
+                 and isinstance(n.value, ast.Dict)), None)
+    if node is None:
+        return []
+    lines = src.split("\n")
+    out = []
+    for k in node.value.keys:
+        if isinstance(k, ast.Constant):
+            label, needle = k.value, k.value
+        elif isinstance(k, ast.BinOp) and isinstance(k.left, ast.Constant):
+            tmpl = k.left.value
+            args = (k.right.elts if isinstance(k.right, ast.Tuple) else [k.right])
+            names = [ast.unparse(a).split(".")[-1] for a in args]
+            label, needle = tmpl, tmpl.split("%")[0].strip()
+            for nm in names:
+                label = label.replace("%d", nm, 1).replace("%s", nm, 1)
+        else:
+            continue
+        # The line where it is COUNTED, not where the dict declares it.
+        at = ""
+        for i in range(node.lineno, len(lines)):
+            if "tally[" in lines[i - 1] or (needle and needle in lines[i - 1]
+                                            and i > node.end_lineno):
+                if needle and needle in lines[i - 1]:
+                    at = i
+                    break
+        out.append((label, at or node.lineno))
+    # SORT BY THE LINE THAT COUNTS IT, not by the order the dict declares them. The two differ:
+    # the dict lists "blocked company" fifth but it is applied second, and a funnel drawn in
+    # declaration order would be telling the reader the wrong sequence of gates.
+    return sorted(out, key=lambda g: (isinstance(g[1], str), g[1]))
+
+
+def diagram_facts(data):
+    def lines_of(rel):
+        return "{:,}".format(data[rel][0].count("\n") + 1) if rel in data else "?"
+
+    def line_of(rel, name):
+        if rel not in data:
+            return "?"
+        return next((s.line for s in data[rel][1] if s.name == name), "?")
+
+    web = data.get("web.py", ("", [], []))
+    routes = [s for s in web[1] if s.routes]
+    scr_src = data.get("scraper/__init__.py", ("", [], []))[0]
+    consts_scr = _module_consts(scr_src)
+    zip_consts = _module_consts(read("scripts/build_deploy_zip.py"))
+    inline = _env_default(web[0], "_FEED_INLINE_MAX")
+
+    def count_dir(d, exts=None):
+        p = os.path.join(APP, d)
+        if not os.path.isdir(p):
+            return "?"
+        return sum(1 for f in os.listdir(p)
+                   if os.path.isfile(os.path.join(p, f))
+                   and (exts is None or f.rsplit(".", 1)[-1] in exts))
+
+    scrapers = 0
+    for n in ast.walk(ast.parse(scr_src)) if scr_src else []:
+        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "SCRAPERS" \
+                and isinstance(n.value, ast.Dict):
+            scrapers = len(n.value.keys)
+            break
+
+    return {
+        "web_lines": lines_of("web.py"),
+        "core_lines": lines_of("core.py"),
+        "db_lines": lines_of("db.py"),
+        "scraper_lines": lines_of("scraper/__init__.py"),
+        "score_lines": lines_of("scraper/score_jobs.py"),
+        "core_sections": len(data.get("core.py", ("", [], []))[2]),
+        "routes": sum(len(s.routes) for s in routes),
+        "handlers": len(routes),
+        "ext_routes": sum(1 for s in routes for p, _m in s.routes if p.startswith("/api/ext/")),
+        "templates": count_dir("templates"),
+        "ext_files": count_dir("extension"),
+        "adapters": scrapers,
+        "sources": "{:,}".format(_sources_count(scr_src)),
+        "lazyhttp_line": line_of("db.py", "_LazyHTTP"),
+        "filter_rows_line": line_of("web.py", "_filter_rows"),
+        "matches_line": line_of("static/app.js", "matches"),
+        "prefs_match_line": line_of("core.py", "prefs_match"),
+        "inline_max": inline if inline is not None else "?",
+        "inline_max_name": "_FEED_INLINE_MAX",
+        "gates": _gates(scr_src),
+        "zip_files": len(zip_consts.get("FILES") or ()),
+        "zip_dirs": len(zip_consts.get("DIRS") or ()),
+        "schedule": (
+            ("09:00 M-F", ".github/workflows/scrape.yml",
+             "heavy: sweep, full score, verify_dates, analytics, digest email", "trap"),
+            ("13:00 M-F", "bin/cron_scrape.sh", "sweep, new-only score, reposts", "sched"),
+            ("16:00 M-F", "bin/cron_scrape.sh", "sweep, new-only score, reposts", "sched"),
+        ),
+        "max_age": _env_default(scr_src, "MAX_AGE_DAYS") or consts_scr.get("MAX_AGE_DAYS", "?"),
+    }
+
+
+# =============================================================================================
+# THE LEDGER. Which data files are source-of-truth and which are disposable -- the single easiest
+# fact here to get backwards, so it is asserted against .gitignore rather than trusted.
+# =============================================================================================
+TRUTH = (
+    ("idf.json", "term weights for every score",
+     "a PARTIAL rebuild silently re-weights the whole corpus"),
+    ("sponsor_counts.json", "federal petition volume per employer", "built by hand from DOL xlsx"),
+    ("sponsor_years.json", "petition history per employer", "built by hand from DOL xlsx"),
+    ("visa_tags.json", "per-employer visa route tags", "built by hand from LCA/PERM xlsx"),
+    ("sponsors.txt", "the sponsor name index", ""),
+    ("resume_vocab.json", "spell-check vocabulary for the grader", ""),
+    ("resume_keywords.json", "curated skills per track", ""),
+    ("company_domains.json", "verified logo domains", ""),
+    ("careers_us.md", "the /careers page",
+     "a SHIPPED RUNTIME ASSET, not a doc -- moving it breaks /careers"),
+    ("resume.txt", "the resume the scraper widens its terms from", "hand-edited, no generator"),
+)
+CACHE = (
+    ("jd_cache.json.gz", "fetched descriptions", "second store of jobs.jd; they have diverged"),
+    ("jdmeta.json", "precomputed per-job term maps",
+     "built on the Actions runner, whose filesystem is discarded"),
+    ("jobs_snapshot.json.gz", "cross-worker feed cache", ""),
+    ("last_new_jobs.json", "one run's new rows", "the digest's only input"),
+    ("jobs.csv", "the no-credentials fallback store", ""),
+)
+
+
+def _gitignored(names):
+    """Ask git which of these it ignores. One call, so it is cheap and authoritative."""
+    try:
+        r = subprocess.run(["git", "check-ignore", "--no-index"] + list(names),
+                           cwd=APP, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {ln.strip().replace("\\", "/") for ln in (r.stdout or "").splitlines() if ln.strip()}
+
+
+def ledger(errors):
+    """The two columns, plus the assertion that git agrees with the claim."""
+    ignored = _gitignored([n for n, _w, _x in TRUTH] + [n for n, _w, _x in CACHE])
+    if ignored is not None:
+        for name, _w, _x in TRUTH:
+            if name in ignored:
+                errors.append("ledger says %s is source-of-truth, but .gitignore excludes it"
+                              % name)
+        for name, _w, _x in CACHE:
+            if name not in ignored and os.path.exists(os.path.join(APP, name)):
+                errors.append("ledger says %s is a disposable cache, but git does NOT ignore it"
+                              % name)
+    return TRUTH, CACHE
+
+
+# =============================================================================================
+# EMITTERS. One structural description in docdiagrams.py, rendered as SVG for the offline page
+# and as mermaid for the markdown.
+# =============================================================================================
+TEXT_EL = re.compile(r"<text\b([^>]*)>(.*?)</text>", re.S)
+ATTR = re.compile(r'([\w-]+)\s*=\s*"([^"]*)"')
+
+
+def svg_collisions(svg):
+    """Text boxes that overlap. An estimate, but it catches the failures that matter.
+
+    Hand-placed coordinates collide silently: the funnel's rescue note was drawn on top of two
+    chute labels and looked fine in the source. Width is approximated at 0.56em per character,
+    which is close enough for Inter and IBM Plex Mono at these sizes to catch a real overlap
+    without flagging things that merely sit close.
+
+    Attributes are parsed one at a time rather than matched in one pattern. A single regex with
+    an optional text-anchor group reports every centred label as left-aligned, because the lazy
+    quantifier before it would rather skip the group than fill it -- which produced four
+    confident false positives the first time this ran.
+    """
+    boxes = []
+    for m in TEXT_EL.finditer(svg):
+        a = dict(ATTR.findall(m.group(1)))
+        body = re.sub(r"<[^>]+>", "", m.group(2))
+        if not body.strip() or "x" not in a or "y" not in a:
+            continue
+        try:
+            x, y, size = int(a["x"]), int(a["y"]), float(a.get("font-size", 12))
+        except ValueError:
+            continue
+        anchor = a.get("text-anchor", "start")
+        w = len(body) * size * 0.56
+        x0 = x - w / 2 if anchor == "middle" else (x - w if anchor == "end" else x)
+        # y is a baseline; the visual box sits above it.
+        boxes.append((x0, y - size * 0.82, x0 + w, y + size * 0.22, body.strip()))
+    hits = []
+    for i in range(len(boxes)):
+        ax0, ay0, ax1, ay1, at = boxes[i]
+        for j in range(i + 1, len(boxes)):
+            bx0, by0, bx1, by1, bt = boxes[j]
+            ox = min(ax1, bx1) - max(ax0, bx0)
+            oy = min(ay1, by1) - max(ay0, by0)
+            # Require a real 2-D overlap, not a shared edge.
+            if ox > 4 and oy > 3:
+                hits.append((at[:40], bt[:40]))
+    return hits
+
+
+def emit_svgs(facts, check, errors):
+    changed = False
+    for name, _title, svg_fn, _mm_fn, _cap in dg.DIAGRAMS:
+        svg = svg_fn(facts)
+        for a, b in svg_collisions(svg)[:4]:
+            errors.append("%s.svg: text overlaps -- %r sits on top of %r" % (name, a, b))
+        changed = write("docs/img/%s.svg" % name, svg + "\n", check, errors) or changed
+    return changed
+
+
+def emit_map_html(facts, data, check, errors):
+    """One file, no network, no build step. Opens by double-click, on a plane, forever."""
+    css = read("docs/doc.css")
+    truth, cache = ledger(errors)
+    n_sym = sum(len(v[1]) for v in data.values())
+
+    def rows(items):
+        return "\n".join(
+            "<tr><td><code>%s</code></td><td>%s%s</td></tr>"
+            % (n, w, (' <em>&mdash; %s</em>' % x) if x else "") for n, w, x in items)
+
+    body = ["<div class=wrap>",
+            "<h1>JobMatch &mdash; the shape of it</h1>",
+            "<p class=lede>Four pictures. Everything on them is extracted from the code by "
+            "<code>scripts/build_docs.py</code>, so a number here cannot be older than the last "
+            "commit. %d files, %s top-level symbols, %s routes, %s boards.</p>"
+            % (len(data), "{:,}".format(n_sym), facts["routes"], facts["sources"]),
+            "<div class=key>",
+            "<span><i class=web></i>&#9635; request-scoped &mdash; has session and request</span>",
+            "<span><i class=sched></i>&#9719; scheduled &mdash; no session, filesystem "
+            "discarded</span>",
+            "<span><i class=client></i>&#9723; browser &mdash; someone else's machine</span>",
+            "<span><i class=trap></i>&#9888; a documented trap</span>",
+            "</div>",
+            "<p class=sub>Colour means <strong>where the code runs</strong>. That is not the "
+            "app's rule &mdash; in the product, colour means sponsorship &mdash; so the doc "
+            "layer deliberately spends the two hues the app gave up, and no hue means two "
+            "things anywhere in the system. Every box also carries a glyph and a word, so "
+            "nothing depends on colour alone.</p>"]
+
+    for name, title, _svg_fn, _mm_fn, caption in dg.DIAGRAMS:
+        body += ['<h2 id="%s">%s</h2>' % (name, title),
+                 "<figure>", read("docs/img/%s.svg" % name).strip(),
+                 '<figcaption><span class="prov gen">&#10216;generated&#8201;&middot;&#8201;'
+                 'build_docs.py&#10217;</span> &nbsp; %s</figcaption>' % caption,
+                 "</figure>"]
+
+    body += ['<h2 id="ledger">Source of truth, or disposable cache</h2>',
+             "<p class=sub>The easiest fact here to get backwards, so it is not trusted: the "
+             "generator asks git whether each file is ignored and fails if the two columns "
+             "disagree with this table.</p>",
+             "<div class=two>",
+             "<div><h3>&#9635; Committed &mdash; source of truth</h3><table><tbody>",
+             rows(truth), "</tbody></table></div>",
+             "<div><h3>&#9723; Ignored &mdash; disposable</h3><table><tbody>",
+             rows(cache), "</tbody></table></div>",
+             "</div>",
+             '<div class="note">Losing anything in the left column loses work. Deleting '
+             'anything in the right column costs one run.</div>']
+
+    body += ['<h2 id="where">Where to look first</h2>',
+             "<p class=sub>This page is for the shape. For &ldquo;X is broken, which "
+             "file&rdquo;, the lookup table is "
+             '<a href="INDEX.md">INDEX.md</a>, and the full symbol map is '
+             '<a href="MAP.md">MAP.md</a>.</p>',
+             "<table><thead><tr><th>Question</th><th>Answer</th></tr></thead><tbody>",
+             "<tr><td>What must I know before touching anything?</td>"
+             '<td><a href="../CLAUDE.md">CLAUDE.md</a></td></tr>',
+             "<tr><td>How does it work, where do I start reading?</td>"
+             '<td><a href="ARCHITECTURE.md">ARCHITECTURE.md</a></td></tr>',
+             "<tr><td>X is broken &mdash; which file?</td>"
+             '<td><a href="INDEX.md">INDEX.md</a></td></tr>',
+             "<tr><td>Where is a specific function?</td>"
+             '<td><a href="MAP.md">MAP.md</a></td></tr>',
+             "<tr><td>How do I deploy, what env var, what runs at 13:00?</td>"
+             '<td><a href="OPERATIONS.md">OPERATIONS.md</a></td></tr>',
+             "<tr><td>What changed recently, what is still open?</td>"
+             '<td><a href="SESSION_HANDOFF_PROMPT.md">SESSION_HANDOFF_PROMPT.md</a></td></tr>',
+             "</tbody></table>",
+             "<footer>Generated by <code>scripts/build_docs.py</code> from the source in this "
+             "repository. Self-contained: no network, no build step, no CDN. "
+             "Regenerate with <code>python scripts/build_docs.py</code>; CI fails if this file "
+             "and the code disagree.</footer>",
+             "</div>"]
+
+    html = ("<!doctype html>\n<html lang=en>\n<head>\n<meta charset=utf-8>\n"
+            '<meta name=viewport content="width=device-width,initial-scale=1">\n'
+            "<title>JobMatch &mdash; the shape of it</title>\n"
+            "<!-- GENERATED by scripts/build_docs.py. Do not edit. -->\n"
+            "<style>\n%s\n</style>\n</head>\n<body>\n%s\n"
+            "<script>\n"
+            "/* Follow the OS theme. Three lines, no dependency, and it degrades to light. */\n"
+            "var m = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');\n"
+            "function sync(){ document.documentElement.setAttribute('data-theme',"
+            " m && m.matches ? 'dark' : 'light'); }\n"
+            "sync(); if (m && m.addEventListener) m.addEventListener('change', sync);\n"
+            "</script>\n</body>\n</html>\n" % (css.strip(), "\n".join(body)))
+    return write("docs/map.html", html, check, errors)
+
+
+MARK = re.compile(r"(<!-- DIAGRAM: (\w+) -->)(.*?)(<!-- /DIAGRAM -->)", re.S)
+
+
+def emit_architecture(facts, check, errors):
+    """Inject the mermaid blocks into the hand-written ARCHITECTURE.md, between markers.
+
+    The prose stays an ordinary markdown file you can edit; only the fenced blocks are managed.
+    --check then verifies the managed regions, so the diagrams cannot drift while the prose
+    around them stays free.
+    """
+    rel = "docs/ARCHITECTURE.md"
+    if not os.path.exists(os.path.join(APP, rel)):
+        errors.append("%s is missing -- it holds the prose the diagrams sit in" % rel)
+        return False
+    src = read(rel)
+    mm = {name: fn for name, _t, _s, fn, _c in dg.DIAGRAMS}
+    seen = set()
+
+    def sub(m):
+        name = m.group(2)
+        seen.add(name)
+        if name not in mm:
+            errors.append("%s has a DIAGRAM marker for unknown diagram '%s'" % (rel, name))
+            return m.group(0)
+        return "%s\n\n```mermaid\n%s\n```\n\n%s" % (m.group(1), mm[name](facts), m.group(4))
+
+    out = MARK.sub(sub, src)
+    for name in mm:
+        if name not in seen:
+            errors.append("%s has no <!-- DIAGRAM: %s --> marker, so that diagram is not in the "
+                          "prose" % (rel, name))
+    return write(rel, out, check, errors)
+
+
 def unmapped():
     """Modules in the app root that nothing maps -- a soft nudge, never a failure."""
     mapped = {m[0] for m in MODULES} | {"app.py", "manage_users.py", "speedtest.py",
@@ -749,11 +1170,35 @@ def main():
         print("\n%d refs, %d unresolved" % (len(seen), bad))
         return 1 if bad else 0
 
+    facts = diagram_facts(data)
+
+    # The diagram assertions. A picture whose numbers came from the code can still be wrong if
+    # the THING it depicts stopped existing, so each one is checked rather than assumed.
+    if not facts["gates"]:
+        errors.append("could not find the tally dict in scraper/__init__.py -- the funnel's "
+                      "chute labels come from it, so the diagram would be inventing them")
+    if facts["inline_max"] == "?":
+        errors.append("could not read _FEED_INLINE_MAX's default from web.py -- the triplet "
+                      "diagram claims a threshold it cannot verify")
+    for key, what in (("filter_rows_line", "web.py::_filter_rows"),
+                      ("matches_line", "static/app.js::matches"),
+                      ("prefs_match_line", "core.py::prefs_match")):
+        if facts[key] == "?":
+            errors.append("the triplet diagram names %s, which no longer resolves" % what)
+    if not facts["zip_files"]:
+        errors.append("could not read FILES from scripts/build_deploy_zip.py -- the deploy "
+                      "diagram would understate what ships")
+    if facts["routes"] != 82:
+        print("note: the route count moved to %s (the docs will say so)." % facts["routes"])
+
     idx = render_index(data, errors)
     mp = render_map(data)
 
     changed = write(INDEX_OUT, idx, args.check, errors)
     changed = write(MAP_OUT, mp, args.check, errors) or changed
+    changed = emit_svgs(facts, args.check, errors) or changed
+    changed = emit_map_html(facts, data, args.check, errors) or changed
+    changed = emit_architecture(facts, args.check, errors) or changed
 
     extra = unmapped()
     if extra:
