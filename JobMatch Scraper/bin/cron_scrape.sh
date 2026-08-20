@@ -92,4 +92,27 @@ if [ $rc -eq 0 ] && [ -f "$APP/resume.txt" ]; then
     echo "----- $(date -u +%FT%TZ) score end rc=$? -----" >> "$LOG"
 fi
 
+# The repost-cluster map the feed card's "Posted Nx" badge reads. Derived from the corpus, so it
+# runs after the sweep; measured at 28 s over 25,180 rows for 528 keys, which is affordable even on
+# a shared box. --top 0 prints no cluster listing, only the summary, because this log is truncated
+# at 5 MB and a 528-line table nine times a day is how that ceiling gets hit.
+#
+# `-m scraper.reposts`, not scripts/: .cpanel.yml copies scraper/ but NOT scripts/, so the module
+# form is the only one that exists on this box.
+#
+# IT LIVES HERE AS WELL AS IN THE ACTIONS WORKFLOW ON PURPOSE. The Actions DB_PROXY_SECRET has been
+# wrong since ~2026-08-15, so every later step of the 09:00 ET run fails `401 bad signature`. This
+# cron runs on the same box as the database and talks to it over the loopback via PG_DSN, so it is
+# the path that actually works today. When the secret is fixed both will refresh it, which is
+# harmless: the write is idempotent and replaces the whole row.
+#
+# Not gated on the score step: the clustering reads url/title/company/location/first_seen and needs
+# neither a description nor a match score. Gated on the SWEEP, because clustering a corpus the
+# sweep failed to update would just republish yesterday's map under today's date.
+if [ $rc -eq 0 ]; then
+    echo "----- $(date -u +%FT%TZ) reposts start -----" >> "$LOG"
+    "$PY" -u -m scraper.reposts --write --top 0 >> "$LOG" 2>&1
+    echo "----- $(date -u +%FT%TZ) reposts end rc=$? -----" >> "$LOG"
+fi
+
 exit 0
