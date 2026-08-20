@@ -24,7 +24,7 @@ create index if not exists resumes_active_idx on public.resumes using btree (use
 -- ---------------------------------------------------------------------------------------------
 -- 2. The two Brain objects that never existed.
 --
--- BRAIN_SETUP.md has always documented these, but the ALTER was never run, so db.get_brain_kb /
+-- These were documented from the start, but the ALTER was never run, so db.get_brain_kb /
 -- save_brain_kb silently took their local-file fallback on EVERY call. That file
 -- (brain_kb_local.json) is gitignored AND absent from the deploy bundle, so on the live host
 -- stories, lessons and the self-training model had nowhere durable to live -- which is why every

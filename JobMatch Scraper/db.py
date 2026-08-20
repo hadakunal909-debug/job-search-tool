@@ -1,16 +1,26 @@
 """
 db.py — storage layer for the job tool.
 
-Talks to Supabase through its PostgREST REST API using `requests` (no extra SDK, so
-it installs cleanly everywhere — including Python 3.14). Falls back to local files
-(jobs.csv + user_jobs.json) when no credentials are set, so the tool keeps working
-locally with zero setup. The same code runs both ways.
+One PostgREST-shaped interface over four possible backends, resolved lazily by
+_LazyHTTP.__getattr__ below. Callers never know which one they got. No SDK — plain
+`requests` and psycopg — so it installs cleanly everywhere, including Python 3.14.
 
-Credentials (checked in order):
-  1. env vars  SUPABASE_URL / SUPABASE_KEY        (GitHub Actions)
-  2. Streamlit secrets  [supabase] url / key       (local + deployed app)
+Resolution order, most specific first:
+  1. PG_DSN                          -> pgrest.Session, direct psycopg. THIS IS THE CPANEL APP.
+  2. DB_PROXY_URL + DB_PROXY_SECRET  -> dbproxy.Session, HMAC-signed HTTPS to POST /api/db.
+                                        How GitHub Actions and a laptop reach the database,
+                                        since PG_DSN is loopback-only.
+  3. SUPABASE_URL + SUPABASE_KEY     -> Supabase PostgREST. Vestigial; the database moved to
+                                        cPanel Postgres on 2026-08-15.
+  4. nothing                         -> local jobs.csv + user_jobs.json, zero setup.
 
-See SUPABASE_SETUP.md for the one-time table + keys setup.
+A HALF-SET DB_PROXY_* pair raises rather than silently falling through to 3 or 4 —
+see _check_backend_intent, and set DB_REQUIRE to pin the backend you meant.
+
+Note `using_supabase()` answers "is there a remote database at all" and is True for
+1, 2 AND 3 — the name is historical. `backend_name()` is the one that says which.
+
+Setup, schema and env vars: docs/OPERATIONS.md. Live DDL: schema.sql.
 """
 import os
 import csv
@@ -721,8 +731,8 @@ def sample_jobs(n=5, cols=None, **filters):
     `next(j for j in load_jobs() if ...)` is the natural way to write "give me one job with a
     description", and it is a ~130 MB request that throws away 19,999 rows. Two places did it:
     scripts/test_prefs.py, which runs on a developer's machine several times an hour, and db.py's
-    own `python db.py` connectivity check — the command SUPABASE_SETUP.md tells you to run when
-    your credentials are NOT working, so it gets run repeatedly, in exactly the situation where
+    own `python db.py` connectivity check — the command you reach for when your credentials are
+    NOT working, so it gets run repeatedly, in exactly the situation where
     nobody is thinking about bandwidth.
 
     Unlike _fetch_all this does NOT page: `limit` is honoured as written, one request, at most n
@@ -1084,7 +1094,7 @@ def prune_old_jobs(days=60, dry_run=False, protect_flagged=True, progress=None, 
 def import_from_files():
     """One-time migration: push local jobs.csv + user_jobs.json into Supabase."""
     if not using_supabase():
-        print("No Supabase credentials found. Set them first (see SUPABASE_SETUP.md).")
+        print("No database credentials found. Set them first (see docs/OPERATIONS.md).")
         return
     rows = _read_csv()
     actions = _load_actions()

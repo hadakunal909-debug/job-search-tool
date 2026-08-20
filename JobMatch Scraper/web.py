@@ -3749,7 +3749,8 @@ def _health_checks():
     out.append(_check("brain_companies table", db.table_count("brain_companies") is not None,
                       "Not present in %s. Resume Brain's company cache is local-file only, " % db.backend_name() +
                       "so it is empty on the deployed app and not shared between machines.",
-                      "Run the create-table SQL in BRAIN_SETUP.md.", warn=True))
+                      "Deliberate: see MIGRATION_resume_files.sql for the DDL and why it is unapplied.",
+                      warn=True))
 
     out.append(_check("APP_SECRET", bool(os.environ.get("APP_SECRET")),
                       ("Set." if os.environ.get("APP_SECRET") else
@@ -6895,7 +6896,7 @@ def react_harness():
 def healthz():
     """Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few
     minutes to keep the Passenger process (and its warm job/score/status caches) alive, so
-    visitors don't pay the cold-start re-import + cache refill. See CPANEL_DEPLOY.md."""
+    visitors don't pay the cold-start re-import + cache refill. See docs/OPERATIONS.md."""
     return Response("ok", mimetype="text/plain")
 
 
