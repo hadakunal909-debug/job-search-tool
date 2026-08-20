@@ -99,6 +99,7 @@ SUITES = (
 
     # ---- scripts ----------------------------------------------------------------------------
     Suite("test_contrast",          "scripts/test_contrast.py",          "scripts", "offline"),
+    Suite("test_doc_contrast",      "scripts/test_doc_contrast.py",      "scripts", "offline"),
     Suite("test_dbproxy",           "scripts/test_dbproxy.py",           "scripts", "offline"),
     Suite("test_ext_contract",      "scripts/test_ext_contract.py",      "scripts", "offline"),
     Suite("test_jdrender",          "scripts/test_jdrender.py",          "scripts", "offline"),
@@ -133,6 +134,7 @@ SUITES = (
 # source (see _touches), so this covers only what a suite reads by PATH rather than by import.
 EXTRA_TOUCHES = {
     "test_contrast":           ("static/style.css",),
+    "test_doc_contrast":       ("docs/doc.css", "static/style.css"),
     "test_card_meta":          ("static/app.js",),
     "test_filter_memory":      ("static/app.js",),
     "feed_parity":             ("static/app.js",),
