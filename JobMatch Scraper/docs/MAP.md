@@ -103,7 +103,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | Lines | Section | Symbols |
 |---|---|---|
 | [31–53](../core.py#L31) | Jobs | 2 |
-| [54–133](../core.py#L54) | Keyword extraction + resume<->JD matching | 7 |
+| [54–133](../core.py#L54) | Keyword extraction + resume&lt;-&gt;JD matching | 7 |
 | [134–389](../core.py#L134) | Skill-based (semantic-ish) matching — more meaningful than raw word overlap. | 18 |
 | [390–646](../core.py#L390) | matching the way a screening system does, not the way strcmp does | 13 |
 | [647–685](../core.py#L647) | precomputed per-job metadata (jdmeta.json) | 4 |
@@ -183,18 +183,18 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [2982–3112](../scraper/__init__.py#L2982) | JobSpy: one aggregator query per selector. Config and JOBSPY_BOARDS live up by SOURCES | 4 |
 | [3113–3314](../scraper/__init__.py#L3113) | Meta (metacareers.com): no public feed, so drive a headless browser | 7 |
 | [3315–3382](../scraper/__init__.py#L3315) | Y Combinator's Work at a Startup | 4 |
-| [3383–3443](../scraper/__init__.py#L3383) | Phenom People (careers.<company>.com sites used by many Fortune-500 sponsors) | 3 |
+| [3383–3443](../scraper/__init__.py#L3383) | Phenom People (careers.&lt;company&gt;.com sites used by many Fortune-500 sponsors) | 3 |
 | [3444–3502](../scraper/__init__.py#L3444) | Oracle Cloud Recruiting (ORC) — {tenant}.oraclecloud.com career sites | 4 |
 | [3503–3558](../scraper/__init__.py#L3503) | Workable — apply.workable.com/{slug} | 3 |
-| [3559–3635](../scraper/__init__.py#L3559) | UKG Pro Recruiting (UltiPro) — recruiting[N].ultipro.com/{CO}/JobBoard/{guid} | 5 |
-| [3636–3856](../scraper/__init__.py#L3636) | SAP SuccessFactors Career Site Builder (jobs.<co>.com style sites) | 10 |
+| [3559–3635](../scraper/__init__.py#L3559) | UKG Pro Recruiting (UltiPro) — recruiting\[N\].ultipro.com/{CO}/JobBoard/{guid} | 5 |
+| [3636–3856](../scraper/__init__.py#L3636) | SAP SuccessFactors Career Site Builder (jobs.&lt;co&gt;.com style sites) | 10 |
 | [3857–3925](../scraper/__init__.py#L3857) | Rippling ATS — ats.rippling.com/{slug}/jobs (server-rendered Next.js) | 4 |
-| [3926–4067](../scraper/__init__.py#L3926) | JobDiva candidate portals — www1.jobdiva.com/portal/?a=<token> | 10 |
-| [4068–4271](../scraper/__init__.py#L4068) | Avature — <tenant>.avature.net/<portal>/SearchJobs | 10 |
-| [4272–4410](../scraper/__init__.py#L4272) | ORACLE PEOPLESOFT "Candidate Gateway" (Fluid) — jobs.<institution>.edu | 11 |
+| [3926–4067](../scraper/__init__.py#L3926) | JobDiva candidate portals — www1.jobdiva.com/portal/?a=&lt;token&gt; | 10 |
+| [4068–4271](../scraper/__init__.py#L4068) | Avature — &lt;tenant&gt;.avature.net/&lt;portal&gt;/SearchJobs | 10 |
+| [4272–4410](../scraper/__init__.py#L4272) | ORACLE PEOPLESOFT "Candidate Gateway" (Fluid) — jobs.&lt;institution&gt;.edu | 11 |
 | [4411–4494](../scraper/__init__.py#L4411) | PAYLOCITY RECRUITING (recruiting.paylocity.com) | 6 |
 | [4495–4612](../scraper/__init__.py#L4495) | MICHAEL PAGE — the one RECRUITMENT AGENCY board here, and that is worth stating. | 3 |
-| [4613–4706](../scraper/__init__.py#L4613) | Eightfold AI — <tenant>.eightfold.ai/api/apply/v2/jobs | 6 |
+| [4613–4706](../scraper/__init__.py#L4613) | Eightfold AI — &lt;tenant&gt;.eightfold.ai/api/apply/v2/jobs | 6 |
 | [4707–4894](../scraper/__init__.py#L4707) | Digitas (Publicis Groupe) — a branded Drupal front end over a bot-walled iCIMS tenant | 8 |
 | [4895–5384](../scraper/__init__.py#L4895) | ADD-A-BOARD  — turn a pasted careers link into a scrapeable source | 11 |
 | [5385–5397](../scraper/__init__.py#L5385) | FILTER  — entry-level + H1B sponsor | 3 |
@@ -258,13 +258,13 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | Lines | Section | Symbols |
 |---|---|---|
 | [45–56](../jdrender.py#L45) | Pass 0: escaping. The only door out. | 1 |
-| [57–211](../jdrender.py#L57) | Pass 1: text -> typed nodes. A literal port; every constant and threshold is the original's. | 16 |
+| [57–211](../jdrender.py#L57) | Pass 1: text -&gt; typed nodes. A literal port; every constant and threshold is the original's. | 16 |
 | [212–214](../jdrender.py#L212) | Markdown artefacts. Some boards store the description as MARKDOWN and we were rendering the | 0 |
 | [215–237](../jdrender.py#L215) | used as separators all reached the page verbatim. Measured over the 18,087 cached | 7 |
 | [238–401](../jdrender.py#L238) | The metadata header some boards stack one line at a time: | 4 |
 | [402–504](../jdrender.py#L402) | Pass 2: label the sections. NOTHING IS REORDERED. | 8 |
 | [505–573](../jdrender.py#L505) | Pass 3: highlight the reader's keywords. Operates on PLAIN TEXT and returns plain-text runs. | 3 |
-| [574–710](../jdrender.py#L574) | Render: nodes -> HTML. The only place a tag is written. | 6 |
+| [574–710](../jdrender.py#L574) | Render: nodes -&gt; HTML. The only place a tag is written. | 6 |
 
 ## `pgrest.py`
 
@@ -440,7 +440,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 | Lines | Section | Symbols |
 |---|---|---|
-| [49–282](../scraper/reposts.py#L49) | WHY THIS IS NOT career-ops' JACCARD >= 0.6 RULE. | 16 |
+| [49–282](../scraper/reposts.py#L49) | WHY THIS IS NOT career-ops' JACCARD &gt;= 0.6 RULE. | 16 |
 | [283–410](../scraper/reposts.py#L283) | CLI | 3 |
 
 ## `scraper/verify_dates.py`
@@ -641,7 +641,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_fallback_secret` | def | [118](../web.py#L118) | Signing key when neither APP_SECRET nor a Supabase key is configured (local dev). |
 | `_SESSION_GAP` | const | [160](../web.py#L160) |  |
 | `_sid` | def | [163](../web.py#L163) |  |
-| `_csp_nonce` | def | [177](../web.py#L177) | A fresh random nonce per request. Templates stamp it onto their inline <script> |
+| `_csp_nonce` | def | [177](../web.py#L177) | A fresh random nonce per request. Templates stamp it onto their inline &lt;script&gt; |
 | `_CSP_TEMPLATE` | const | [195](../web.py#L195) |  |
 | `_security_headers` | def | [214](../web.py#L214) | Baseline hardening headers on every response (set-if-absent, so CORS/other headers |
 | `_COMPRESSIBLE` | const | [253](../web.py#L253) |  |
@@ -699,14 +699,14 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_similar_roles` | def | [1286](../web.py#L1286) | Up to k postings whose TITLE is closest to this one, at OTHER employers, best first. |
 | `_date_cutoff` | def | [1338](../web.py#L1338) | ISO date N days ago for the 'Posted within' filter, or '' for 'any'. |
 | `_user_prefs` | def | [1348](../web.py#L1348) | The user's saved search, always a complete valid dict (defaults if never saved or if |
-| `_prefs_as_params` | def | [1357](../web.py#L1357) | Saved prefs -> the same query-arg shape _filter_rows reads, so one code path decides |
+| `_prefs_as_params` | def | [1357](../web.py#L1357) | Saved prefs -&gt; the same query-arg shape _filter_rows reads, so one code path decides |
 | `_visa_badge_context` | def | [1375](../web.py#L1375) | Two booleans app.js uses to word the E-Verify / cap-exempt badges for THIS viewer. |
 | `_feed_metros` | def | [1393](../web.py#L1393) | Metros present in the corpus, busiest first — the location box's suggestions. |
 | `_feed_states` | def | [1400](../web.py#L1400) | State codes present in the corpus, alphabetical (they're suggestions, not a ranking). |
 | `_HOURS_PER_YEAR` | const | [1407](../web.py#L1407) |  |
 | `_row_date` | def | [1419](../web.py#L1419) |  |
 | `_SEARCH_SPLIT_RE` | const | [1436](../web.py#L1436) |  |
-| `searchSplit` | def | [1439](../web.py#L1439) | Query/haystack -> terms. A function rather than an inline split so it reads the |
+| `searchSplit` | def | [1439](../web.py#L1439) | Query/haystack -&gt; terms. A function rather than an inline split so it reads the |
 | `_within` | def | [1445](../web.py#L1445) | Is the edit distance between a and b at most k? Bounded, with an early exit. |
 | `_search_tol` | def | [1477](../web.py#L1477) | How many typos to forgive, by term length. Short terms get none: at three letters an edit |
 | `_WITHIN_MEMO` | const | [1493](../web.py#L1493) |  |
@@ -730,7 +730,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `logofavicon` | def | [1892](../web.py#L1892) | The favicon URL for a domain. Second in the chain, and the whole chain when no key. |
 | `logosrc` | def | [1898](../web.py#L1898) | The image to try FIRST for a domain. |
 | `logocolor` | def | [1918](../web.py#L1918) |  |
-| `static_v` | def | [1923](../web.py#L1923) | Static URL with a ?v=<mtime> cache-buster: paired with the long immutable Cache-Control |
+| `static_v` | def | [1923](../web.py#L1923) | Static URL with a ?v=&lt;mtime&gt; cache-buster: paired with the long immutable Cache-Control |
 | `_read_vite_manifest` | def | [1938](../web.py#L1938) | Vite's build manifest, read once per process. {} when there is no build. |
 | `vite_preloads` | def | [1958](../web.py#L1958) | Chunks the entry imports STATICALLY, so they can be fetched in parallel with it. |
 | `vite_entry` | def | [1977](../web.py#L1977) | URL for a built entry, or None when there is no build. |
@@ -753,7 +753,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_KEYWORD_STOP` | const | [2430](../web.py#L2430) |  |
 | `_useful_terms` | def | [2439](../web.py#L2439) | Keywords worth showing a reader, weight order preserved. |
 | `_company_brief` | def | [2474](../web.py#L2474) | The company block on a JOB page: what they do, plus the facts that exist for everyone. |
-| `_and_list` | def | [2512](../web.py#L2512) | ['a','b','c'] -> 'a, b and c'. Jinja's join() can only repeat one separator, so |
+| `_and_list` | def | [2512](../web.py#L2512) | \['a','b','c'\] -&gt; 'a, b and c'. Jinja's join() can only repeat one separator, so |
 | `_route_of` | def | [2521](../web.py#L2521) | The data-route value, server-side. Mirrors the one expression in app.js cardHTML. |
 | `job_page` | def | [2535](../web.py#L2535) | `/job` One posting, in full: routes, the company, the description and the keywords. |
 | `_RESEARCH_MAX` | const | [2667](../web.py#L2667) |  |
@@ -795,7 +795,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_check_csrf` | def | [3239](../web.py#L3239) |  |
 | `admin_required` | def | [3244](../web.py#L3244) | login_required + admin, plus CSRF on anything that isn't a read. |
 | `scrape_now` | def | [3274](../web.py#L3274) | `/scrape` Trigger the scrape on GitHub Actions (workflow_dispatch) — runs on GitHub's servers. |
-| `_gh_runs` | def | [3307](../web.py#L3307) | Recent runs of the scrape workflow. None when no token is configured, [] when GitHub |
+| `_gh_runs` | def | [3307](../web.py#L3307) | Recent runs of the scrape workflow. None when no token is configured, \[\] when GitHub |
 | `_job_date` | def | [3353](../web.py#L3353) | Posting date for a RAW db row — the same choice _build_row makes for feed cards |
 | `_ADMIN_STATS_TTL` | const | [3359](../web.py#L3359) |  |
 | `_admin_stats` | def | [3363](../web.py#L3363) | Corpus health, computed off the already-cached job rows (get_jobs is a 1 h cache), so |
@@ -825,7 +825,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_median` | def | [3841](../web.py#L3841) |  |
 | `_all_user_jobs` | def | [3849](../web.py#L3849) | Every (username, url, status) row. 126 rows today — one paged GET, no per-user fan-out. |
 | `_all_applications` | def | [3857](../web.py#L3857) | Every application row across all users, newest first. |
-| `_rate_table` | def | [3867](../web.py#L3867) | {key: {liked,applied,hidden}} -> rows sorted by hide rate, for the auto-filter candidates. |
+| `_rate_table` | def | [3867](../web.py#L3867) | {key: {liked,applied,hidden}} -&gt; rows sorted by hide rate, for the auto-filter candidates. |
 | `_admin_usage` | def | [3881](../web.py#L3881) | Behaviour rollup. Reads two small tables plus the already-warm job cache, so this costs |
 | `admin_usage` | def | [4091](../web.py#L4091) | `/admin/usage` What the three accounts actually do, from data that already exists. No tracking code — |
 | `_ADMIN_EV_TTL` | const | [4104](../web.py#L4104) |  |
@@ -861,7 +861,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_csvf` | def | [4718](../web.py#L4718) |  |
 | `_render_brain` | def | [4722](../web.py#L4722) |  |
 | `brain_home` | def | [4732](../web.py#L4732) | `/brain` Resume Brain — the review panel. Résumés on the left, the graded document on the right. |
-| `brain_tailor_page` | def | [4797](../web.py#L4797) | `/brain/tailor` The tailor-to-a-job form, prefilled + auto-run when ?job=<url> arrives from the feed. |
+| `brain_tailor_page` | def | [4797](../web.py#L4797) | `/brain/tailor` The tailor-to-a-job form, prefilled + auto-run when ?job=&lt;url&gt; arrives from the feed. |
 | `brain_tailor` | def | [4821](../web.py#L4821) | `/brain/tailor` |
 | `brain_feedback` | def | [4835](../web.py#L4835) | `/brain/feedback` |
 | `brain_rewrite` | def | [4848](../web.py#L4848) | `/brain/rewrite` OPTIONAL AI layer: re-derive the plan, then have the model write the finished résumé + |
@@ -881,7 +881,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `brain_lesson_delete` | def | [5139](../web.py#L5139) | `/brain/lesson/delete` |
 | `brain_companies` | def | [5148](../web.py#L5148) | `/brain/companies` |
 | `brain_jobs_json` | def | [5156](../web.py#L5156) | `/brain/jobs.json` Job search for the in-Brain picker, by title/company, restricted to jobs with a stored JD. |
-| `_md_to_html` | def | [5183](../web.py#L5183) | Tiny Markdown -> HTML (headings, list items, [text](url) links). Avoids a dep. |
+| `_md_to_html` | def | [5183](../web.py#L5183) | Tiny Markdown -&gt; HTML (headings, list items, \[text\](url) links). Avoids a dep. |
 | `careers` | def | [5206](../web.py#L5206) | `/careers` |
 | `BOARDS_SQL` | const | [5219](../web.py#L5219) |  |
 | `add_board` | def | [5226](../web.py#L5226) | `/add` |
@@ -923,29 +923,29 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_onboard_advance` | def | [5863](../web.py#L5863) | Move to the next question, or finish. onboarded is set ONLY past the last question. |
 | `welcome` | def | [5877](../web.py#L5877) | `/welcome` |
 | `profile` | def | [5978](../web.py#L5978) | `/profile` |
-| `ext_save` | def | [6026](../web.py#L6026) | `/api/ext/save` Extension -> log a job to the tracker. Token-authenticated; CORS-open (the token |
-| `ext_profile` | def | [6071](../web.py#L6071) | `/api/ext/profile` Extension -> the user's profile fields for autofill. Token-authenticated. |
+| `ext_save` | def | [6026](../web.py#L6026) | `/api/ext/save` Extension -&gt; log a job to the tracker. Token-authenticated; CORS-open (the token |
+| `ext_profile` | def | [6071](../web.py#L6071) | `/api/ext/profile` Extension -&gt; the user's profile fields for autofill. Token-authenticated. |
 | `_ext_profile_fields` | def | [6094](../web.py#L6094) | Normalized profile map the form-filler consumes (stable nested shape, NOT raw columns). |
 | `EXT_MIN_VERSION` | const | [6145](../web.py#L6145) |  |
 | `_app_build` | def | [6150](../web.py#L6150) |  |
-| `_vtuple` | def | [6158](../web.py#L6158) | "1.35.0" -> (1, 35, 0), padded, so 1.9.0 sorts BELOW 1.35.0 rather than above it. |
+| `_vtuple` | def | [6158](../web.py#L6158) | "1.35.0" -&gt; (1, 35, 0), padded, so 1.9.0 sorts BELOW 1.35.0 rather than above it. |
 | `ext_version` | def | [6167](../web.py#L6167) | `/api/ext/version` What the app expects of the extension. UNAUTHENTICATED, deliberately. |
-| `ext_profile_fields` | def | [6191](../web.py#L6191) | `/api/ext/profile_fields` Extension -> normalized profile field map + résumé text + learned-answer bank, so the |
-| `ext_tailor` | def | [6213](../web.py#L6213) | `/api/ext/tailor` Extension -> tailor the résumé to a JD (Resume Brain + optional Gemini), compile it to a |
+| `ext_profile_fields` | def | [6191](../web.py#L6191) | `/api/ext/profile_fields` Extension -&gt; normalized profile field map + résumé text + learned-answer bank, so the |
+| `ext_tailor` | def | [6213](../web.py#L6213) | `/api/ext/tailor` Extension -&gt; tailor the résumé to a JD (Resume Brain + optional Gemini), compile it to a |
 | `_FILLABLE_HOSTS` | const | [6337](../web.py#L6337) |  |
 | `_QUEUE_SKIP_HOSTS` | const | [6360](../web.py#L6360) |  |
 | `_QUEUE_PER_COMPANY` | const | [6367](../web.py#L6367) |  |
 | `_queue_fillable` | def | [6370](../web.py#L6370) | Is this a page the filler should open? |
-| `ext_apply_queue` | def | [6402](../web.py#L6402) | `/api/ext/apply_queue` Extension batch filler -> the jobs this user's FEED would show, narrowed to pages the |
-| `ext_answer` | def | [6475](../web.py#L6475) | `/api/ext/answer` Extension form-filler -> AI maps the user's profile + résumé onto a batch of still-empty |
+| `ext_apply_queue` | def | [6402](../web.py#L6402) | `/api/ext/apply_queue` Extension batch filler -&gt; the jobs this user's FEED would show, narrowed to pages the |
+| `ext_answer` | def | [6475](../web.py#L6475) | `/api/ext/answer` Extension form-filler -&gt; AI maps the user's profile + résumé onto a batch of still-empty |
 | `ext_learn` | def | [6533](../web.py#L6533) | `/api/ext/learn` 'Train' the auto-apply: save how the USER answered a form's fields (captured from a page they |
-| `ext_learned_list` | def | [6558](../web.py#L6558) | `/api/ext/learned` Extension -> list the user's learned-answer bank for the 'manage learned answers' UI. |
-| `ext_learn_delete` | def | [6578](../web.py#L6578) | `/api/ext/learn_delete` Extension -> delete one learned answer (by normalized key) from the user's bank. |
-| `ext_vision` | def | [6596](../web.py#L6596) | `/api/ext/vision` VISION FALLBACK form-filler -> the model sees a SCREENSHOT of the page plus enumerated |
-| `ext_debug` | def | [6633](../web.py#L6633) | `/api/ext/debug` Extension -> capture a failing form's STRUCTURE (labels/types/options only — not the user's |
-| `ext_bulk_jobs` | def | [6657](../web.py#L6657) | `/api/ext/bulk_jobs` Extension -> bulk-add postings READ FROM A PAGE in the user's own browser into the |
-| `ext_detect_board` | def | [6761](../web.py#L6761) | `/api/ext/detect_board` Extension -> 'can this site be scraped DAILY?' Runs the same detection chain as |
-| `ext_jds` | def | [6812](../web.py#L6812) | `/api/ext/jds` Extension -> attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled |
+| `ext_learned_list` | def | [6558](../web.py#L6558) | `/api/ext/learned` Extension -&gt; list the user's learned-answer bank for the 'manage learned answers' UI. |
+| `ext_learn_delete` | def | [6578](../web.py#L6578) | `/api/ext/learn_delete` Extension -&gt; delete one learned answer (by normalized key) from the user's bank. |
+| `ext_vision` | def | [6596](../web.py#L6596) | `/api/ext/vision` VISION FALLBACK form-filler -&gt; the model sees a SCREENSHOT of the page plus enumerated |
+| `ext_debug` | def | [6633](../web.py#L6633) | `/api/ext/debug` Extension -&gt; capture a failing form's STRUCTURE (labels/types/options only — not the user's |
+| `ext_bulk_jobs` | def | [6657](../web.py#L6657) | `/api/ext/bulk_jobs` Extension -&gt; bulk-add postings READ FROM A PAGE in the user's own browser into the |
+| `ext_detect_board` | def | [6761](../web.py#L6761) | `/api/ext/detect_board` Extension -&gt; 'can this site be scraped DAILY?' Runs the same detection chain as |
+| `ext_jds` | def | [6812](../web.py#L6812) | `/api/ext/jds` Extension -&gt; attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled |
 | `react_harness` | def | [6880](../web.py#L6880) | `/__react` Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry. |
 | `healthz` | def | [6896](../web.py#L6896) | `/healthz` Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few |
 
@@ -980,14 +980,14 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `ATS_KEYWORDS` | const | [294](../core.py#L294) |  |
 | `_MIN_JD_CHARS` | const | [322](../core.py#L322) |  |
 | `_MIN_JD_TERMS` | const | [323](../core.py#L323) |  |
-| `html_to_text` | def | [326](../core.py#L326) | HTML (or already-plain) text -> clean text. |
+| `html_to_text` | def | [326](../core.py#L326) | HTML (or already-plain) text -&gt; clean text. |
 | `analyze_jd` | def | [339](../core.py#L339) | The résumé-INDEPENDENT half of the ATS match: the JD's important keywords and each |
 | `_SUFFIXES` | const | [399](../core.py#L399) |  |
 | `_NO_STEM` | const | [402](../core.py#L402) |  |
 | `_stem` | def | [406](../core.py#L406) | A conservative stem for matching. Deliberately NOT a full Porter stemmer: this only has |
 | `SKILL_ALIASES` | const | [446](../core.py#L446) |  |
 | `_ALIAS_REVERSE` | const | [462](../core.py#L462) |  |
-| `_canon_phrase` | def | [467](../core.py#L467) | Alias -> canonical skill, unstemmed. The stemming happens per word at comparison time, |
+| `_canon_phrase` | def | [467](../core.py#L467) | Alias -&gt; canonical skill, unstemmed. The stemming happens per word at comparison time, |
 | `_alias_forms` | def | [473](../core.py#L473) | Every spelling of a skill: the term, its canonical form, and every alias of that. |
 | `_resume_wordset` | def | [480](../core.py#L480) | (whole word-tokens, their stems) for a lowercased résumé, memoized so user_scores can |
 | `_term_present` | def | [491](../core.py#L491) | Whether a JD term is answered by the resume, the way a screening system would judge it. |
@@ -1000,7 +1000,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `load_jdmeta` | def | [668](../core.py#L668) | {url: job_meta} from disk, or {} if missing/unreadable (the web app then computes each |
 | `save_jdmeta` | def | [679](../core.py#L679) |  |
 | `_ANALYZED_ROUND` | const | [698](../core.py#L698) |  |
-| `pack_analyzed` | def | [701](../core.py#L701) | analyze_jd() output -> the compact JSON STRING stored in jobs.jd_terms, or "" when there |
+| `pack_analyzed` | def | [701](../core.py#L701) | analyze_jd() output -&gt; the compact JSON STRING stored in jobs.jd_terms, or "" when there |
 | `unpack_analyzed` | def | [713](../core.py#L713) | The inverse, rebuilding `terms` and `total`. Shaped exactly like analyze_jd's return so |
 | `_SPONSOR_BLOCK` | const | [753](../core.py#L753) |  |
 | `_SPONSOR_OPEN` | const | [777](../core.py#L777) |  |
@@ -1011,7 +1011,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `load_sponsor_counts` | def | [841](../core.py#L841) | Optional {normalized_company: H1B_filing_count} built from DOL LCA data. |
 | `load_sponsor_years` | def | [852](../core.py#L852) | Optional {normalized_company: {fiscal_year: approvals}} — the per-year H-1B history |
 | `_sponsor_key` | def | [869](../core.py#L869) | The lookup key both sponsor_counts.json and sponsor_years.json are written under. |
-| `sponsor_history` | def | [878](../core.py#L878) | [(fiscal_year, approvals), ...] ascending, or [] when we have no history. |
+| `sponsor_history` | def | [878](../core.py#L878) | \[(fiscal_year, approvals), ...\] ascending, or \[\] when we have no history. |
 | `sponsor_strength` | def | [900](../core.py#L900) | Tier a sponsor by filing VOLUME. Returns ('high'\|'medium'\|'low'\|'', count). |
 | `load_everify` | def | [938](../core.py#L938) | Build a normalized index of E-Verify-enrolled company names from everify.txt |
 | `is_everify` | def | [961](../core.py#L961) | True if `company` is in the E-Verify enrolled-employer index. Normalized exact |
@@ -1024,11 +1024,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_SPONSOR_LIKELY_OTHER` | const | [1034](../core.py#L1034) |  |
 | `load_visa_tags` | def | [1037](../core.py#L1037) | {normalized name: bitmask} from visa_tags.json. {} when the file is absent, so every |
 | `visa_tags` | def | [1056](../core.py#L1056) | Tuple of tag keys for `company`, in VISA_TAGS order. () when unknown. |
-| `visa_tag_labels` | def | [1078](../core.py#L1078) | ['H-1B', 'Green Card'] for display in the email digest and the card. |
+| `visa_tag_labels` | def | [1078](../core.py#L1078) | \['H-1B', 'Green Card'\] for display in the email digest and the card. |
 | `_BLOCKS_EVERYONE` | const | [1085](../core.py#L1085) |  |
 | `visa_tags_for_posting` | def | [1088](../core.py#L1088) | Narrow an EMPLOYER's visa tags down to what THIS posting actually allows. |
 | `sponsor_likely` | def | [1113](../core.py#L1113) | The ONE hedged claim a card makes about sponsorship. Returns a key, or "". |
-| `parse_visa_pref` | def | [1146](../core.py#L1146) | 'h1b,junk,e3' -> ('h1b','e3'). Canonical order, junk dropped, duplicates collapsed. |
+| `parse_visa_pref` | def | [1146](../core.py#L1146) | 'h1b,junk,e3' -&gt; ('h1b','e3'). Canonical order, junk dropped, duplicates collapsed. |
 | `visa_tags_match` | def | [1156](../core.py#L1156) | OR semantics: a row passes if it carries ANY wanted tag. No wanted tags == no filter. |
 | `BODYSHOP_RE` | const | [1176](../core.py#L1176) |  |
 | `_AGENCY_NAMES` | const | [1185](../core.py#L1185) |  |
@@ -1047,14 +1047,14 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_METRO_STATES` | const | [1327](../core.py#L1327) |  |
 | `_REMOTE_POS_RE` | const | [1331](../core.py#L1331) |  |
 | `_REMOTE_NEG_RE` | const | [1337](../core.py#L1337) |  |
-| `_metro_for` | def | [1342](../core.py#L1342) | Match the most specific city token to a metro. Tries '<city>, <st>' first so the |
+| `_metro_for` | def | [1342](../core.py#L1342) | Match the most specific city token to a metro. Tries '&lt;city&gt;, &lt;st&gt;' first so the |
 | `parse_location` | def | [1360](../core.py#L1360) | Normalize a job's free-text location into {city, state, metro, remote}. |
 | `_jd_says_remote` | def | [1424](../core.py#L1424) | True when the JD unambiguously offers remote work. Every candidate phrase is |
 | `_MONEY` | const | [1442](../core.py#L1442) |  |
 | `_SALARY_RANGE_RE` | const | [1443](../core.py#L1443) |  |
 | `_HOURLY_RANGE_RE` | const | [1444](../core.py#L1444) |  |
 | `_HOURLY_HINT_RE` | const | [1447](../core.py#L1447) |  |
-| `_money_to_int` | def | [1455](../core.py#L1455) | '$120,000' -> 120000 · '$120K' -> 120000 · '$120.5k' -> 120500. |
+| `_money_to_int` | def | [1455](../core.py#L1455) | '$120,000' -&gt; 120000 · '$120K' -&gt; 120000 · '$120.5k' -&gt; 120500. |
 | `parse_salary` | def | [1466](../core.py#L1466) | Pull a pay range out of a job description. |
 | `salary_label` | def | [1502](../core.py#L1502) | Card-ready text for a pay range: '$120k–$150k' or '$25–$35/hr'. '' when unknown. |
 | `_MGMT_TITLE_RE` | const | [1535](../core.py#L1535) |  |
@@ -1064,9 +1064,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `ROLE_KEYS` | const | [1682](../core.py#L1682) |  |
 | `ROLE_LABELS` | const | [1683](../core.py#L1683) |  |
 | `_ROLE_RES` | const | [1686](../core.py#L1686) |  |
-| `role_families_grouped` | def | [1692](../core.py#L1692) | [(group_key, group_label, [(key, label, phrases), ...]), ...] in render order. |
-| `roles_for_title` | def | [1698](../core.py#L1698) | Every role family this title belongs to, as a tuple of keys ('' -> ()). |
-| `parse_roles_pref` | def | [1711](../core.py#L1711) | A stored/posted roles value -> a validated, canonically ordered tuple of keys. |
+| `role_families_grouped` | def | [1692](../core.py#L1692) | \[(group_key, group_label, \[(key, label, phrases), ...\]), ...\] in render order. |
+| `roles_for_title` | def | [1698](../core.py#L1698) | Every role family this title belongs to, as a tuple of keys ('' -&gt; ()). |
+| `parse_roles_pref` | def | [1711](../core.py#L1711) | A stored/posted roles value -&gt; a validated, canonically ordered tuple of keys. |
 | `DELIVER_ROLE_KEYS` | const | [1725](../core.py#L1725) |  |
 | `roles_match` | def | [1728](../core.py#L1728) | Does this posting belong to any family the user picked? Empty selection matches all. |
 | `role_track` | def | [1749](../core.py#L1749) | Which career track a posting belongs to: 'dev' (software/data/infra IC work) or |
@@ -1126,7 +1126,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `required_years` | def | [2648](../core.py#L2648) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
 | `experience_min_years` | def | [2654](../core.py#L2654) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
 | `exp_level_for` | def | [2663](../core.py#L2663) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
-| `experience_level` | def | [2679](../core.py#L2679) | Coarse bucket for the feed filter: 'entry' (<=2 yrs), 'mid' (3-5), 'senior' (6+), |
+| `experience_level` | def | [2679](../core.py#L2679) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
 | `fetch_jd` | def | [2688](../core.py#L2688) |  |
 | `RESUME_UPLOAD_MAX_BYTES` | const | [2709](../core.py#L2709) |  |
 | `_RESUME_PDF_MAX_PAGES` | const | [2710](../core.py#L2710) |  |
@@ -1139,7 +1139,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_TEX_CMD_ARG_RE` | const | [2755](../core.py#L2755) |  |
 | `_TEX_CMD_RE` | const | [2757](../core.py#L2757) |  |
 | `_TEX_COMMENT_RE` | const | [2758](../core.py#L2758) |  |
-| `tex_to_text` | def | [2761](../core.py#L2761) | LaTeX source -> the prose inside it. |
+| `tex_to_text` | def | [2761](../core.py#L2761) | LaTeX source -&gt; the prose inside it. |
 | `resume_text_from_upload` | def | [2792](../core.py#L2792) | (text, error) from an uploaded resume. Never raises, never touches disk. |
 | `resume_to_docx_bytes` | def | [2843](../core.py#L2843) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
 | `ai_available` | def | [2868](../core.py#L2868) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
@@ -1195,7 +1195,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `urls_with_jd` | def | [782](../db.py#L782) | Set of job URLs that have a stored JD — for 'has a description?' checks without |
 | `existing_urls` | def | [796](../db.py#L796) |  |
 | `add_jobs` | def | [802](../db.py#L802) | Insert NEW jobs (deduped by url). rows = list of dicts. |
-| `update_job_fields` | def | [823](../db.py#L823) | Patch specific columns on existing jobs: rows = [{url, location?, found_date?}]. |
+| `update_job_fields` | def | [823](../db.py#L823) | Patch specific columns on existing jobs: rows = \[{url, location?, found_date?}\]. |
 | `update_scores` | def | [844](../db.py#L844) | scores = {url: int match_score}. |
 | `set_status` | def | [858](../db.py#L858) | status: 'liked' \| 'hidden' \| 'applied' \| '' to clear. |
 | `get_statuses` | def | [875](../db.py#L875) | {url: status} for liked/hidden/applied jobs. |
@@ -1236,34 +1236,34 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `BLOCKED_FILE` | const | [1330](../db.py#L1330) |  |
 | `block_key` | def | [1333](../db.py#L1333) | Blocklist key for a company name. Reuses normalize_label (defined further down this |
 | `blocked_company_keys` | def | [1344](../db.py#L1344) | set() of normalized names the ingestion paths must refuse. Empty on any failure. |
-| `list_blocked` | def | [1352](../db.py#L1352) | [{name_key, name, reason, added_by, created_at}], newest first. [] if unavailable. |
+| `list_blocked` | def | [1352](../db.py#L1352) | \[{name_key, name, reason, added_by, created_at}\], newest first. \[\] if unavailable. |
 | `add_blocked` | def | [1367](../db.py#L1367) | Block a company. Upserts on name_key, so re-blocking just refreshes the reason. |
 | `remove_blocked` | def | [1390](../db.py#L1390) |  |
 | `AUDIT_TABLE` | const | [1405](../db.py#L1405) |  |
 | `AUDIT_FILE` | const | [1406](../db.py#L1406) |  |
 | `audit_log` | def | [1409](../db.py#L1409) | Record an admin action and return its id (or "" if it couldn't be written). |
 | `audit_update` | def | [1434](../db.py#L1434) | Fill in the outcome of an action logged by audit_log. Best-effort. |
-| `list_audit` | def | [1454](../db.py#L1454) | Most recent admin actions. [] if the table doesn't exist yet. |
+| `list_audit` | def | [1454](../db.py#L1454) | Most recent admin actions. \[\] if the table doesn't exist yet. |
 | `get_user_statuses` | def | [1472](../db.py#L1472) | {url: status} for THIS user's liked/hidden/applied jobs. |
 | `set_user_status` | def | [1482](../db.py#L1482) | status: 'liked' \| 'hidden' \| 'applied' \| '' to clear — scoped to one user. |
-| `update_jds` | def | [1525](../db.py#L1525) | {url: jd_text} -> persist each job's description (used for per-user scoring). |
+| `update_jds` | def | [1525](../db.py#L1525) | {url: jd_text} -&gt; persist each job's description (used for per-user scoring). |
 | `BOARDS_TABLE` | const | [1540](../db.py#L1540) |  |
 | `BOARDS_FILE` | const | [1541](../db.py#L1541) |  |
-| `list_boards` | def | [1544](../db.py#L1544) | [{url, ats_type, company, added_by, created_at}] of user-added boards. |
+| `list_boards` | def | [1544](../db.py#L1544) | \[{url, ats_type, company, added_by, created_at}\] of user-added boards. |
 | `add_board` | def | [1559](../db.py#L1559) | Insert/replace a custom board (PK = url). Returns (ok, error_message). |
 | `delete_board` | def | [1576](../db.py#L1576) |  |
 | `APPLICATIONS_TABLE` | const | [1590](../db.py#L1590) |  |
 | `APPLICATIONS_FILE` | const | [1591](../db.py#L1591) |  |
 | `APP_FIELDS` | const | [1592](../db.py#L1592) |  |
 | `APPLICATIONS_SQL` | const | [1594](../db.py#L1594) |  |
-| `list_applications` | def | [1664](../db.py#L1664) | This user's applications, newest first. Defensive: missing table / error -> []. |
+| `list_applications` | def | [1664](../db.py#L1664) | This user's applications, newest first. Defensive: missing table / error -&gt; \[\]. |
 | `save_application` | def | [1680](../db.py#L1680) | Insert or update one application (PK=id; id/created_at auto-filled). Columns not |
 | `find_application_by_url` | def | [1715](../db.py#L1715) | This user's application for a given apply-url, or None (de-dupes feed auto-log). |
 | `delete_application` | def | [1722](../db.py#L1722) |  |
 | `RESUMES_TABLE` | const | [1736](../db.py#L1736) |  |
 | `RESUMES_FILE` | const | [1737](../db.py#L1737) |  |
 | `RESUME_FIELDS` | const | [1740](../db.py#L1740) |  |
-| `list_resumes` | def | [1743](../db.py#L1743) | This user's saved résumé versions. Defensive: missing table / error -> []. |
+| `list_resumes` | def | [1743](../db.py#L1743) | This user's saved résumé versions. Defensive: missing table / error -&gt; \[\]. |
 | `save_resume` | def | [1758](../db.py#L1758) | Insert/update a named résumé version (PK=id). Returns (ok, id_or_error). |
 | `delete_resume` | def | [1790](../db.py#L1790) |  |
 | `get_active_resume` | def | [1809](../db.py#L1809) | The user's live resume row, or None. Falls back to the newest row when nothing is flagged, |
@@ -1284,7 +1284,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `BRAIN_COMPANIES_TABLE` | const | [2046](../db.py#L2046) |  |
 | `BRAIN_COMPANIES_FILE` | const | [2047](../db.py#L2047) |  |
 | `_brain_kb_default` | def | [2050](../db.py#L2050) |  |
-| `get_brain_kb` | def | [2054](../db.py#L2054) | Per-user Resume Brain data: {stories:[], lessons:[], model:{}}. Reads users.brain_kb |
+| `get_brain_kb` | def | [2054](../db.py#L2054) | Per-user Resume Brain data: {stories:\[\], lessons:\[\], model:{}}. Reads users.brain_kb |
 | `_save_brain_kb_local` | def | [2087](../db.py#L2087) |  |
 | `save_brain_kb` | def | [2095](../db.py#L2095) | Persist a user's KB. Tries Supabase (users.brain_kb jsonb); on any failure (e.g. the |
 | `get_brain_company` | def | [2109](../db.py#L2109) | Shared company-research record by domain (any user's crawl benefits everyone). |
@@ -1307,7 +1307,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `LEARNED_FILE` | const | [2350](../db.py#L2350) |  |
 | `normalize_label` | def | [2353](../db.py#L2353) | Stable key for matching the same question across forms/ATS: lowercased, asterisks/parens |
 | `get_learned` | def | [2364](../db.py#L2364) | Map of {key: {value,type,options,company,count,label}} for the user. {} if none/unavailable. |
-| `save_learned` | def | [2386](../db.py#L2386) | Upsert captured answers. items: [{label,type,value,options?,company?}]. Latest value wins; |
+| `save_learned` | def | [2386](../db.py#L2386) | Upsert captured answers. items: \[{label,type,value,options?,company?}\]. Latest value wins; |
 | `delete_learned` | def | [2430](../db.py#L2430) | Remove one learned answer (by normalized key) from the user's bank. Best-effort; returns True |
 | `SCRAPE_STATUS_TABLE` | const | [2457](../db.py#L2457) |  |
 | `SCRAPE_STATUS_FILE` | const | [2458](../db.py#L2458) |  |
@@ -1327,7 +1327,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `newest_event_ts` | def | [2677](../db.py#L2677) | The most recent event's timestamp, or "". |
 | `events_health` | def | [2696](../db.py#L2696) | {failures, last_error, seq_repaired} for /admin/health.json. |
 | `ev_usage` | def | [2702](../db.py#L2702) | Aggregated event stats via the public.ev_usage() RPC. {} if it isn't installed. |
-| `events_daily` | def | [2722](../db.py#L2722) | Pre-aggregated daily counts from `since_day` (ISO date). [] if unavailable. |
+| `events_daily` | def | [2722](../db.py#L2722) | Pre-aggregated daily counts from `since_day` (ISO date). \[\] if unavailable. |
 | `prune_events` | def | [2735](../db.py#L2735) | Delete raw events older than `before_day` (ISO date). Returns True if it ran. |
 | `db_stats` | def | [2752](../db.py#L2752) | Database and per-table sizes via the public.db_stats() RPC. |
 
@@ -1397,7 +1397,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_INDEED_ID_PARAMS` | const | [2219](../scraper/__init__.py#L2219) |  |
 | `_LINKEDIN_DROP_PARAMS` | const | [2227](../scraper/__init__.py#L2227) |  |
 | `_WORKDAY_LOCALE_RE` | const | [2242](../scraper/__init__.py#L2242) |  |
-| `canonical_url` | def | [2245](../scraper/__init__.py#L2245) | One posting -> one URL string, so the url-keyed `jobs` table can't hold it twice. |
+| `canonical_url` | def | [2245](../scraper/__init__.py#L2245) | One posting -&gt; one URL string, so the url-keyed `jobs` table can't hold it twice. |
 | `_ip_is_public` | def | [2310](../scraper/__init__.py#L2310) |  |
 | `public_http_url` | def | [2319](../scraper/__init__.py#L2319) | The URL if it's http(s) AND its host resolves only to PUBLIC IPs, else None — so a |
 | `_safe_get` | def | [2337](../scraper/__init__.py#L2337) | requests.get hardened for USER-SUPPLIED URLs: rejects non-public targets (SSRF), |
@@ -1405,14 +1405,14 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_safe_form_post` | def | [2388](../scraper/__init__.py#L2388) | Form-encoded POST, hardened exactly like _safe_post (which sends JSON). |
 | `_slug` | def | [2411](../scraper/__init__.py#L2411) | The board slug is the last path segment of the career-board URL: |
 | `fetch_dynamic` | def | [2420](../scraper/__init__.py#L2420) | For JavaScript-rendered boards (Workday, etc.). Needs Playwright installed. |
-| `_posted` | def | [2453](../scraper/__init__.py#L2453) | ISO timestamp -> 'YYYY-MM-DD' ('' stays '' so main()'s scrape-stamp fallback kicks in). |
+| `_posted` | def | [2453](../scraper/__init__.py#L2453) | ISO timestamp -&gt; 'YYYY-MM-DD' ('' stays '' so main()'s scrape-stamp fallback kicks in). |
 | `_listing_jd` | def | [2472](../scraper/__init__.py#L2472) | Join the description fragments a list feed handed us into one clean block of text. |
 | `GREENHOUSE_JD` | const | [2488](../scraper/__init__.py#L2488) |  |
 | `scrape_greenhouse` | def | [2491](../scraper/__init__.py#L2491) |  |
 | `scrape_lever` | def | [2510](../scraper/__init__.py#L2510) |  |
 | `scrape_ashby` | def | [2539](../scraper/__init__.py#L2539) |  |
 | `scrape_smartrecruiters` | def | [2557](../scraper/__init__.py#L2557) |  |
-| `_workday_date` | def | [2597](../scraper/__init__.py#L2597) | Workday gives 'Posted 5 Days Ago' / 'Posted Today' -> turn into a date. |
+| `_workday_date` | def | [2597](../scraper/__init__.py#L2597) | Workday gives 'Posted 5 Days Ago' / 'Posted Today' -&gt; turn into a date. |
 | `_workday_parts` | def | [2626](../scraper/__init__.py#L2626) | (host, tenant, site) for either Workday URL format: |
 | `WORKDAY_PAGE_LIMIT` | const | [2647](../scraper/__init__.py#L2647) |  |
 | `WORKDAY_MAX_JOBS` | const | [2648](../scraper/__init__.py#L2648) |  |
@@ -1421,11 +1421,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `AMAZON_QUERIES` | const | [2717](../scraper/__init__.py#L2717) |  |
 | `AMAZON_PAGE_LIMIT` | const | [2781](../scraper/__init__.py#L2781) |  |
 | `AMAZON_MAX_PER_TERM` | const | [2782](../scraper/__init__.py#L2782) |  |
-| `_amazon_row` | def | [2785](../scraper/__init__.py#L2785) | One search.json hit -> a row, or None. Shared by the date sweep and the term walk so the |
+| `_amazon_row` | def | [2785](../scraper/__init__.py#L2785) | One search.json hit -&gt; a row, or None. Shared by the date sweep and the term walk so the |
 | `AMAZON_SWEEP_MAX` | const | [2828](../scraper/__init__.py#L2828) |  |
 | `_amazon_sweep` | def | [2831](../scraper/__init__.py#L2831) | Every US posting inside the freshness window, newest first, with no query list involved. |
 | `scrape_amazon` | def | [2869](../scraper/__init__.py#L2869) | Amazon's own portal via its public search.json feed, US-only. |
-| `_jibe_date` | def | [2929](../scraper/__init__.py#L2929) | '2026-06-05T21:49:00+0000' -> '2026-06-05' (best-effort). |
+| `_jibe_date` | def | [2929](../scraper/__init__.py#L2929) | '2026-06-05T21:49:00+0000' -&gt; '2026-06-05' (best-effort). |
 | `scrape_jibe` | def | [2937](../scraper/__init__.py#L2937) | iCIMS 'Career Sites' (powered by Jibe) via their public /api/jobs JSON feed. |
 | `_jobspy_best_url` | def | [2985](../scraper/__init__.py#L2985) | The employer's own link when the aggregator gives us one, else the aggregator's page. |
 | `_text` | def | [3004](../scraper/__init__.py#L3004) | One DataFrame cell as a clean string, treating a missing value as empty. |
@@ -1433,18 +1433,18 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `scrape_jobspy` | def | [3029](../scraper/__init__.py#L3029) | One aggregator query via the python-jobspy library. board_url is a selector, |
 | `METACAREERS_JOBS_URL` | const | [3122](../scraper/__init__.py#L3122) |  |
 | `scrape_metacareers` | def | [3125](../scraper/__init__.py#L3125) | Meta's own careers site via headless-browser GraphQL capture (Meta has no public |
-| `_sub` | def | [3191](../scraper/__init__.py#L3191) | First DNS label, e.g. https://bunq.recruitee.com -> 'bunq'. |
+| `_sub` | def | [3191](../scraper/__init__.py#L3191) | First DNS label, e.g. https://bunq.recruitee.com -&gt; 'bunq'. |
 | `scrape_recruitee` | def | [3196](../scraper/__init__.py#L3196) | Recruitee public API: https://{slug}.recruitee.com/api/offers/ |
 | `scrape_breezy` | def | [3213](../scraper/__init__.py#L3213) | Breezy public JSON: https://{slug}.breezy.hr/json |
 | `scrape_personio` | def | [3231](../scraper/__init__.py#L3231) | Personio XML feed: https://{slug}.jobs.personio.com/xml |
 | `scrape_jsonld` | def | [3254](../scraper/__init__.py#L3254) | Generic: pull schema.org JobPosting items embedded in a careers page (the same |
 | `WORKATASTARTUP_ROLES` | const | [3332](../scraper/__init__.py#L3332) |  |
 | `_WAAS_PAGE_RE` | const | [3335](../scraper/__init__.py#L3335) |  |
-| `_waas_jobs` | def | [3338](../scraper/__init__.py#L3338) | The `jobs` array out of one Work at a Startup page, or [] if the shape moved. |
+| `_waas_jobs` | def | [3338](../scraper/__init__.py#L3338) | The `jobs` array out of one Work at a Startup page, or \[\] if the shape moved. |
 | `scrape_workatastartup` | def | [3352](../scraper/__init__.py#L3352) | Every current Work at a Startup posting, one row per job, employer = the startup. |
 | `_phenom_body` | def | [3384](../scraper/__init__.py#L3384) | The POST /widgets body Phenom career sites send for their own job search. |
 | `PHENOM_MAX_JOBS` | const | [3397](../scraper/__init__.py#L3397) |  |
-| `scrape_phenom` | def | [3400](../scraper/__init__.py#L3400) | Phenom People career sites (careers.<company>.com / jobs.<company>.com) via the |
+| `scrape_phenom` | def | [3400](../scraper/__init__.py#L3400) | Phenom People career sites (careers.&lt;company&gt;.com / jobs.&lt;company&gt;.com) via the |
 | `_oracle_parts` | def | [3445](../scraper/__init__.py#L3445) | (origin, site_number) from an ORC careers URL, e.g. |
 | `ORACLE_PAGE` | const | [3453](../scraper/__init__.py#L3453) |  |
 | `ORACLE_MAX_JOBS` | const | [3454](../scraper/__init__.py#L3454) |  |
@@ -1460,7 +1460,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `CSB_MAX_ROWS` | const | [3637](../scraper/__init__.py#L3637) |  |
 | `CSB_SITEMAP_MAX_ROWS` | const | [3645](../scraper/__init__.py#L3645) |  |
 | `CSB_SITEMAP_MAX_SEC` | const | [3646](../scraper/__init__.py#L3646) |  |
-| `_csb_date` | def | [3649](../scraper/__init__.py#L3649) | CSB job dates look like 'Jun 11, 2026' -> '2026-06-11' (best-effort). |
+| `_csb_date` | def | [3649](../scraper/__init__.py#L3649) | CSB job dates look like 'Jun 11, 2026' -&gt; '2026-06-11' (best-effort). |
 | `_csb_is_us` | def | [3657](../scraper/__init__.py#L3657) | CSB locations always carry an ISO country code: 'Lincoln, NE, US' / |
 | `_CSB_US_SLUG` | const | [3686](../scraper/__init__.py#L3686) |  |
 | `_csb_sitemap_rows` | def | [3689](../scraper/__init__.py#L3689) |  |
@@ -1475,22 +1475,22 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `JOBDIVA_BASIC` | const | [3935](../scraper/__init__.py#L3935) |  |
 | `JOBDIVA_PAGE` | const | [3936](../scraper/__init__.py#L3936) |  |
 | `JOBDIVA_MAX_JOBS` | const | [3937](../scraper/__init__.py#L3937) |  |
-| `_jobdiva_token` | def | [3940](../scraper/__init__.py#L3940) | The portal token from ?a=<token> (it scopes the feed to one agency's jobs). |
+| `_jobdiva_token` | def | [3940](../scraper/__init__.py#L3940) | The portal token from ?a=&lt;token&gt; (it scopes the feed to one agency's jobs). |
 | `_jobdiva_session` | def | [3945](../scraper/__init__.py#L3945) | Exchange a portal token for the {portalID, token, a} headers the job calls need, |
 | `_jobdiva_pages` | def | [3961](../scraper/__init__.py#L3961) | Yield each page's job-record list, walking job/listall then job/getmore until the |
-| `jobdiva_job_detail` | def | [3990](../scraper/__init__.py#L3990) | One JobDiva posting's FULL description HTML, or "" — job/getdetailbyjobid/<id>. |
+| `jobdiva_job_detail` | def | [3990](../scraper/__init__.py#L3990) | One JobDiva posting's FULL description HTML, or "" — job/getdetailbyjobid/&lt;id&gt;. |
 | `scrape_jobdiva` | def | [4019](../scraper/__init__.py#L4019) | JobDiva candidate portal via its public REST API. board_url is the portal link |
 | `_jobdiva_agency` | def | [4053](../scraper/__init__.py#L4053) | Best-effort agency name for a portal token, decoded from auth/a's basic-auth blob |
 | `AVATURE_PAGE` | const | [4079](../scraper/__init__.py#L4079) |  |
 | `AVATURE_MAX_JOBS` | const | [4080](../scraper/__init__.py#L4080) |  |
-| `_avature_base` | def | [4083](../scraper/__init__.py#L4083) | Normalize any Avature URL to '<scheme>://<tenant>.avature.net/<portal>/SearchJobs' |
+| `_avature_base` | def | [4083](../scraper/__init__.py#L4083) | Normalize any Avature URL to '&lt;scheme&gt;://&lt;tenant&gt;.avature.net/&lt;portal&gt;/SearchJobs' |
 | `_META_SUB` | const | [4100](../scraper/__init__.py#L4100) |  |
 | `_avature_location` | def | [4104](../scraper/__init__.py#L4104) | A card's location, handling both templates. The 'article--result' template (Bloomberg |
 | `_avature_date` | def | [4150](../scraper/__init__.py#L4150) | Posting date from the 'article--result' template's .list-item-posted ('Posted |
 | `_AVATURE_TOTAL_RE` | const | [4167](../scraper/__init__.py#L4167) |  |
 | `AVATURE_WORKERS` | const | [4171](../scraper/__init__.py#L4171) |  |
 | `_avature_cards` | def | [4174](../scraper/__init__.py#L4174) | Parse one results page into `rows`; returns how many NEW postings it contributed. |
-| `scrape_avature` | def | [4197](../scraper/__init__.py#L4197) | Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Pages via ?jobOffset=N, |
+| `scrape_avature` | def | [4197](../scraper/__init__.py#L4197) | Avature career portals (&lt;tenant&gt;.avature.net/&lt;portal&gt;/SearchJobs). Pages via ?jobOffset=N, |
 | `PEOPLESOFT_GBL` | const | [4290](../scraper/__init__.py#L4290) |  |
 | `PEOPLESOFT_MAX_ROWS` | const | [4291](../scraper/__init__.py#L4291) |  |
 | `PEOPLESOFT_MAX_HOPS` | const | [4292](../scraper/__init__.py#L4292) |  |
@@ -1516,12 +1516,12 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `EIGHTFOLD_WORKERS` | const | [4629](../scraper/__init__.py#L4629) |  |
 | `_eightfold_domain` | def | [4632](../scraper/__init__.py#L4632) | The `domain` query param the API requires. |
 | `_eightfold_rows` | def | [4644](../scraper/__init__.py#L4644) |  |
-| `scrape_eightfold` | def | [4663](../scraper/__init__.py#L4663) | Eightfold AI boards. Returns [] on a 403 tenant rather than raising — a gated tenant is a |
+| `scrape_eightfold` | def | [4663](../scraper/__init__.py#L4663) | Eightfold AI boards. Returns \[\] on a 403 tenant rather than raising — a gated tenant is a |
 | `DIGITAS_MAX_JOBS` | const | [4722](../scraper/__init__.py#L4722) |  |
 | `DIGITAS_WORKERS` | const | [4723](../scraper/__init__.py#L4723) |  |
 | `_DIGITAS_JOB_RE` | const | [4724](../scraper/__init__.py#L4724) |  |
 | `_DIGITAS_TITLE_RE` | const | [4727](../scraper/__init__.py#L4727) |  |
-| `_digitas_location` | def | [4730](../scraper/__init__.py#L4730) | 'Plano' -> 'Plano, TX'. |
+| `_digitas_location` | def | [4730](../scraper/__init__.py#L4730) | 'Plano' -&gt; 'Plano, TX'. |
 | `_digitas_job_urls` | def | [4752](../scraper/__init__.py#L4752) | Job urls out of a 14.2 MB sitemap without ever holding it in memory. |
 | `scrape_digitas` | def | [4789](../scraper/__init__.py#L4789) | Digitas jobs, via the brand site's sitemap plus one fetch per posting. |
 | `SCRAPERS` | const | [4860](../scraper/__init__.py#L4860) |  |
@@ -1529,7 +1529,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_name_from` | def | [4904](../scraper/__init__.py#L4904) |  |
 | `detect_board` | def | [4911](../scraper/__init__.py#L4911) | Map a pasted job-board URL to (normalized_board_url, ats_type, suggested_name), |
 | `detect_jibe` | def | [5025](../scraper/__init__.py#L5025) | Network probe for iCIMS 'Career Sites' (Jibe). These run on custom domains |
-| `detect_phenom` | def | [5058](../scraper/__init__.py#L5058) | Network probe for Phenom People career sites (careers.<company>.com style) — |
+| `detect_phenom` | def | [5058](../scraper/__init__.py#L5058) | Network probe for Phenom People career sites (careers.&lt;company&gt;.com style) — |
 | `detect_successfactors` | def | [5101](../scraper/__init__.py#L5101) | Network probe for SAP SuccessFactors 'Career Site Builder' sites — custom |
 | `_ATS_LINK_RE` | const | [5142](../scraper/__init__.py#L5142) |  |
 | `detect_linked_ats` | def | [5174](../scraper/__init__.py#L5174) | Follow-the-link detect: fetch a company CAREERS PAGE and look for a link to a |
@@ -1559,9 +1559,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_NON_US_RE` | const | [5679](../scraper/__init__.py#L5679) |  |
 | `_fold` | def | [5684](../scraper/__init__.py#L5684) | Lowercased and stripped of accents, for matching against NON_US. |
 | `_TITLE_PLACE_RE` | const | [5697](../scraper/__init__.py#L5697) |  |
-| `_country_from_title` | def | [5700](../scraper/__init__.py#L5700) | A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -> the |
+| `_country_from_title` | def | [5700](../scraper/__init__.py#L5700) | A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -&gt; the |
 | `title_says_non_us` | def | [5709](../scraper/__init__.py#L5709) | True only when a title's trailing parenthetical NAMES a non-US place. |
-| `is_us_location` | def | [5721](../scraper/__init__.py#L5721) | Heuristic: True if the location looks US-based. Unknown/blank -> kept. |
+| `is_us_location` | def | [5721](../scraper/__init__.py#L5721) | Heuristic: True if the location looks US-based. Unknown/blank -&gt; kept. |
 | `load_sponsors` | def | [5742](../scraper/__init__.py#L5742) | Read employer names (one per line) from sponsors.txt. Build that file from |
 | `_LEGAL_SUFFIX` | const | [5752](../scraper/__init__.py#L5752) |  |
 | `_norm_name` | def | [5757](../scraper/__init__.py#L5757) | Normalize a company name for matching: lowercase, strip punctuation and |
@@ -1605,7 +1605,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 | Symbol | Kind | Line | What |
 |---|---|---|---|
-| `_text` | def | [39](../scraper/score_jobs.py#L39) | HTML (or already-plain) -> clean text. Kept as a local name because ~40 call sites in |
+| `_text` | def | [39](../scraper/score_jobs.py#L39) | HTML (or already-plain) -&gt; clean text. Kept as a local name because ~40 call sites in |
 | `PHENOM_JD_DETAILS_MAX` | const | [47](../scraper/score_jobs.py#L47) |  |
 | `PHENOM_JD_WORKERS` | const | [48](../scraper/score_jobs.py#L48) |  |
 | `_phenom_jd_map` | def | [51](../scraper/score_jobs.py#L51) | {applyUrl: full description} for a Phenom board. |
@@ -1622,7 +1622,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `wd_detail_jd` | def | [333](../scraper/score_jobs.py#L333) | Workday list has no JD; fetch the posting detail (CXS) for this one job. |
 | `_board_has_missing` | def | [367](../scraper/score_jobs.py#L367) | True if any still-missing job URL belongs to this board (cheap substring check |
 | `oracle_detail_jd` | def | [390](../scraper/score_jobs.py#L390) | Oracle Cloud Recruiting job detail. The LIST API truncates descriptions to |
-| `workable_detail_jd` | def | [418](../scraper/score_jobs.py#L418) | Workable job detail: apply.workable.com/{slug}/j/{shortcode}/ -> v2 detail JSON |
+| `workable_detail_jd` | def | [418](../scraper/score_jobs.py#L418) | Workable job detail: apply.workable.com/{slug}/j/{shortcode}/ -&gt; v2 detail JSON |
 | `workatastartup_detail_jd` | def | [432](../scraper/score_jobs.py#L432) | Y Combinator's Work at a Startup — an Inertia.js app, so the page ships its whole |
 | `_PHENOM_JOB_RE` | const | [460](../scraper/score_jobs.py#L460) |  |
 | `phenom_detail_jd` | def | [463](../scraper/score_jobs.py#L463) | Phenom-native job pages ({origin}/us/en/job/{id}) — the jobDetail widget POST |
@@ -1633,7 +1633,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `bamboo_detail_jd` | def | [537](../scraper/score_jobs.py#L537) | BambooHR: /careers/{id}/detail JSON carries the full description. |
 | `rippling_detail_jd` | def | [548](../scraper/score_jobs.py#L548) | Rippling job pages are server-rendered Next.js; the posting (incl. description) |
 | `_date_beats_stored` | def | [580](../scraper/score_jobs.py#L580) | Should a date read off the detail page replace what the scrape stored? |
-| `_parse_date_any` | def | [603](../scraper/score_jobs.py#L603) | Best-effort 'whatever the page says' -> 'YYYY-MM-DD' ('' if unparseable). |
+| `_parse_date_any` | def | [603](../scraper/score_jobs.py#L603) | Best-effort 'whatever the page says' -&gt; 'YYYY-MM-DD' ('' if unparseable). |
 | `page_posted_date` | def | [623](../scraper/score_jobs.py#L623) | Pull a posting date from a job page's structured data: SuccessFactors' |
 | `_GH_JID_RE` | const | [657](../scraper/score_jobs.py#L657) |  |
 | `_GH_FOR_RE` | const | [660](../scraper/score_jobs.py#L660) |  |
@@ -1646,12 +1646,12 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `microdata_jd` | def | [801](../scraper/score_jobs.py#L801) | Generic deep fallback: many career sites (incl. every SuccessFactors CSB job |
 | `_META_BROWSER_HEADERS` | const | [838](../scraper/score_jobs.py#L838) |  |
 | `_meta_json_str` | def | [847](../scraper/score_jobs.py#L847) | Pull a JSON string value ("key":"...") out of the embedded page JSON. |
-| `_meta_json_items` | def | [858](../scraper/score_jobs.py#L858) | Pull a JSON list-of-{item} ("key":[{"item":".."},..]) and join the items. |
+| `_meta_json_items` | def | [858](../scraper/score_jobs.py#L858) | Pull a JSON list-of-{item} ("key":\[{"item":".."},..\]) and join the items. |
 | `metacareers_detail_jd` | def | [870](../scraper/score_jobs.py#L870) | Meta job description from the detail page's embedded JSON (responsibilities + |
 | `detail_jd` | def | [887](../scraper/score_jobs.py#L887) | JD + posting date for ONE job via its ATS detail endpoint, else the posting page. |
 | `_norm_cmp` | def | [944](../scraper/score_jobs.py#L944) | Comparable form of a derived value. Supabase hands back real booleans/ints but the |
 | `_persist_derived` | def | [960](../scraper/score_jobs.py#L960) | Derive each job's state/metro/remote flag, pay range and JD signals, and write them to |
-| `_send_derived` | def | [1052](../scraper/score_jobs.py#L1052) | One diffed payload -> the jobs table, or a self-serve migration hint if the columns |
+| `_send_derived` | def | [1052](../scraper/score_jobs.py#L1052) | One diffed payload -&gt; the jobs table, or a self-serve migration hint if the columns |
 | `NEW_JOBS_FILE` | const | [1068](../scraper/score_jobs.py#L1068) |  |
 | `JD_CACHE_FILE` | const | [1071](../scraper/score_jobs.py#L1071) |  |
 | `_load_jd_cache` | def | [1074](../scraper/score_jobs.py#L1074) |  |
@@ -1666,7 +1666,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_is_thin_jd` | def | [1124](../scraper/score_jobs.py#L1124) | A stored description that is present but unusable. |
 | `_accept_jd` | def | [1135](../scraper/score_jobs.py#L1135) | Should this freshly-fetched text replace what is stored? |
 | `_extractor_rev` | def | [1155](../scraper/score_jobs.py#L1155) | A fingerprint of the JD-extraction code, so shipping a working extractor re-opens every |
-| `_load_thin_ledger` | def | [1188](../scraper/score_jobs.py#L1188) | {"rev": <fingerprint>, "hosts": {host: {f, next, last, n, ok}}}. |
+| `_load_thin_ledger` | def | [1188](../scraper/score_jobs.py#L1188) | {"rev": &lt;fingerprint&gt;, "hosts": {host: {f, next, last, n, ok}}}. |
 | `_save_thin_ledger` | def | [1201](../scraper/score_jobs.py#L1201) |  |
 | `_score_rev` | def | [1205](../scraper/score_jobs.py#L1205) | A fingerprint of what the match score MEANS: the three functions that define it, plus the |
 | `_load_cursor` | def | [1241](../scraper/score_jobs.py#L1241) | The (first_seen, found_date, url) key the last truncated pass stopped after, or None. |
@@ -1693,11 +1693,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_SUMMARY_KW` | const | [57](../resume_score.py#L57) |  |
 | `_looks_like_heading` | def | [60](../resume_score.py#L60) | A section heading, in any casing. Deliberately permissive about case and strict about |
 | `_group_of` | def | [73](../resume_score.py#L73) |  |
-| `_lines_with_offsets` | def | [82](../resume_score.py#L82) | [(line_without_terminator, start_offset)] over `text`. |
+| `_lines_with_offsets` | def | [82](../resume_score.py#L82) | \[(line_without_terminator, start_offset)\] over `text`. |
 | `_locate` | def | [97](../resume_score.py#L97) | Absolute (start, end) of `needle` inside the line that begins at `line_start`. |
 | `_ROLEISH_RE` | const | [114](../resume_score.py#L114) |  |
 | `_is_continuation` | def | [117](../resume_score.py#L117) | Is this line the rest of the previous bullet, wrapped by the PDF? |
-| `split_sections` | def | [151](../resume_score.py#L151) | Plain text -> (header_lines, sections). |
+| `split_sections` | def | [151](../resume_score.py#L151) | Plain text -&gt; (header_lines, sections). |
 | `header_span` | def | [196](../resume_score.py#L196) | The header block's extent: start of document to the first heading. Derived rather than |
 | `_experience_items` | def | [204](../resume_score.py#L204) | Bullets that carry accomplishments, and whether a real experience section was found. |
 | `_experience_text` | def | [224](../resume_score.py#L224) | Just the experience sections, for checks that must not be judged on the education block. |
@@ -1801,13 +1801,13 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_sf_spelling` | def | [1282](../resume_score.py#L1282) |  |
 | `_SPECIFIC` | const | [1296](../resume_score.py#L1296) |  |
 | `_BULLET_LEVEL` | const | [1319](../resume_score.py#L1319) |  |
-| `specific_fix` | def | [1325](../resume_score.py#L1325) | The instruction for THIS résumé, or None to fall back to _FIXES[key]. |
+| `specific_fix` | def | [1325](../resume_score.py#L1325) | The instruction for THIS résumé, or None to fall back to _FIXES\[key\]. |
 | `score_resume` | def | [1340](../resume_score.py#L1340) | Grade `text` and return the full report. |
 | `_BANDS` | const | [1458](../resume_score.py#L1458) |  |
 | `_BAND_NOTES` | const | [1465](../resume_score.py#L1465) |  |
 | `band_of` | def | [1477](../resume_score.py#L1477) |  |
 | `band_note` | def | [1484](../resume_score.py#L1484) |  |
-| `annotate_html` | def | [1488](../resume_score.py#L1488) | The résumé as reviewable HTML: every span from every check wrapped in a `<mark>` carrying the |
+| `annotate_html` | def | [1488](../resume_score.py#L1488) | The résumé as reviewable HTML: every span from every check wrapped in a `&lt;mark&gt;` carrying the |
 | `parse_view` | def | [1532](../resume_score.py#L1532) | What a parser actually extracts — the panel that shows the user their résumé as an ATS |
 
 ## `resume_keywords.py` — symbols
@@ -1819,7 +1819,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `TOP_N` | const | [40](../resume_keywords.py#L40) |  |
 | `_SOFT` | const | [53](../resume_keywords.py#L53) |  |
 | `_curated` | def | [63](../resume_keywords.py#L63) | The track-agnostic fallback: every curated skill concept we have, ordered by how COMMONLY |
-| `load_expectations` | def | [93](../resume_keywords.py#L93) | {"dev": [[term, weight], ...], "mgmt": [...]} from the built file, or None if absent. |
+| `load_expectations` | def | [93](../resume_keywords.py#L93) | {"dev": \[\[term, weight\], ...\], "mgmt": \[...\]} from the built file, or None if absent. |
 | `_reset_cache` | def | [119](../resume_keywords.py#L119) | For tests and long-lived workers, mirroring core._reset_idf_cache. |
 | `corpus_jobs` | def | [124](../resume_keywords.py#L124) | How many postings the expectations were measured across, or None if unrecorded. |
 | `expected_terms` | def | [130](../resume_keywords.py#L130) | (terms, source) for a track. `source` names where they came from so the UI can say so |
@@ -1846,15 +1846,15 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_has_result` | def | [166](../resume_bullets.py#L166) |  |
 | `_has_scope` | def | [171](../resume_bullets.py#L171) |  |
 | `metrics_for` | def | [180](../resume_bullets.py#L180) | The metric types that fit THIS bullet's subject. Generic advice is what makes résumé tools |
-| `swaps_for` | def | [189](../resume_bullets.py#L189) | Strong replacements for this bullet's weak opener, or [] if it opens well. |
-| `analyse_bullet` | def | [194](../resume_bullets.py#L194) | One bullet -> {text, start, end, score, has, missing, problems, swaps, metrics}. |
+| `swaps_for` | def | [189](../resume_bullets.py#L189) | Strong replacements for this bullet's weak opener, or \[\] if it opens well. |
+| `analyse_bullet` | def | [194](../resume_bullets.py#L194) | One bullet -&gt; {text, start, end, score, has, missing, problems, swaps, metrics}. |
 | `report` | def | [225](../resume_bullets.py#L225) | Per-bullet review for a whole résumé, worst first. |
 
 ## `jdrender.py` — symbols
 
 | Symbol | Kind | Line | What |
 |---|---|---|---|
-| `esc` | def | [48](../jdrender.py#L48) | &, < and > and NBSP. Not quotes: see the module docstring. |
+| `esc` | def | [48](../jdrender.py#L48) | &, &lt; and &gt; and NBSP. Not quotes: see the module docstring. |
 | `JD_BULLET` | const | [58](../jdrender.py#L58) |  |
 | `JD_HEAD` | const | [60](../jdrender.py#L60) |  |
 | `is_jd_heading` | def | [67](../jdrender.py#L67) |  |
@@ -1869,7 +1869,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `JD_DANGLING` | const | [121](../jdrender.py#L121) |  |
 | `JD_SENTENCE` | const | [125](../jdrender.py#L125) |  |
 | `jd_flat_list` | def | [128](../jdrender.py#L128) | A bullet-less, full-stop-less requirements run split into items, or None. |
-| `jd_chunk` | def | [156](../jdrender.py#L156) | One run of prose -> nodes. Never a paragraph much longer than JD_PARA_MAX unless a single |
+| `jd_chunk` | def | [156](../jdrender.py#L156) | One run of prose -&gt; nodes. Never a paragraph much longer than JD_PARA_MAX unless a single |
 | `jd_paragraphs` | def | [193](../jdrender.py#L193) |  |
 | `MD_RULE` | const | [223](../jdrender.py#L223) |  |
 | `MD_ATX` | const | [224](../jdrender.py#L224) |  |
@@ -1881,7 +1881,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `FIELD_LABELS` | const | [255](../jdrender.py#L255) |  |
 | `_field_label` | def | [270](../jdrender.py#L270) | The canonical field name for a line, or "" if it is not one. Tolerates a trailing colon. |
 | `strip_md` | def | [276](../jdrender.py#L276) | Drop emphasis markers and backslash escapes, keeping the words. Runs on every line that |
-| `jd_nodes` | def | [285](../jdrender.py#L285) | The whole of pass 1: raw description -> typed nodes. |
+| `jd_nodes` | def | [285](../jdrender.py#L285) | The whole of pass 1: raw description -&gt; typed nodes. |
 | `_SEC` | const | [408](../jdrender.py#L408) |  |
 | `_LEGAL_HEAD` | const | [422](../jdrender.py#L422) |  |
 | `_LEGAL_BODY` | const | [426](../jdrender.py#L426) |  |
@@ -1898,7 +1898,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `text_halves` | def | [628](../jdrender.py#L628) | (body, legal) as two lowercased strings: the description minus its notices, and the notices. |
 | `_hl_for` | def | [652](../jdrender.py#L652) | `hl`, unless this run is legal boilerplate, in which case nothing is marked. |
 | `render_jd` | def | [666](../jdrender.py#L666) | The whole pipeline. `sections=False, have=(), missing=()` reproduces the frozen bytes. |
-| `jump_sections` | def | [693](../jdrender.py#L693) | [(key, label)] for the sections actually present, in document order, for the anchor strip. |
+| `jump_sections` | def | [693](../jdrender.py#L693) | \[(key, label)\] for the sections actually present, in document order, for the anchor strip. |
 
 ## `pgrest.py` — symbols
 
@@ -1909,18 +1909,18 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_RESERVED` | const | [45](../pgrest.py#L45) |  |
 | `PgRestError` | class | [48](../pgrest.py#L48) | A request this shim will not translate. Raised rather than approximated — see the scope |
 | `JsonValue` | class | [53](../pgrest.py#L53) | A body value bound for a jsonb column. |
-| `bind` | def | [79](../pgrest.py#L79) | Body value -> what should be bound for it. |
+| `bind` | def | [79](../pgrest.py#L79) | Body value -&gt; what should be bound for it. |
 | `ident` | def | [84](../pgrest.py#L84) | A validated SQL identifier. Every table and column here comes from db.py's own constants, |
 | `jsonify` | def | [94](../pgrest.py#L94) | The value PostgREST would have put in its JSON body. |
-| `parse_in_list` | def | [115](../pgrest.py#L115) | `("a","b\"c")` -> ['a', 'b"c'] — the inverse of db._in_list. |
-| `condition` | def | [146](../pgrest.py#L146) | One PostgREST filter -> ('sql', [args]). |
-| `where` | def | [177](../pgrest.py#L177) | The WHERE clause for every non-reserved query param. Returns ('', []) when unfiltered. |
+| `parse_in_list` | def | [115](../pgrest.py#L115) | `("a","b\"c")` -&gt; \['a', 'b"c'\] — the inverse of db._in_list. |
+| `condition` | def | [146](../pgrest.py#L146) | One PostgREST filter -&gt; ('sql', \[args\]). |
+| `where` | def | [177](../pgrest.py#L177) | The WHERE clause for every non-reserved query param. Returns ('', \[\]) when unfiltered. |
 | `_split_top` | def | [204](../pgrest.py#L204) | Split on commas that are not inside parens or quotes — `or=` terms can carry an in.(). |
 | `select_list` | def | [232](../pgrest.py#L232) |  |
-| `order_by` | def | [238](../pgrest.py#L238) | `first_seen.desc.nullslast` / `at.desc` / `url` -> SQL. PostgREST's default is NULLS |
+| `order_by` | def | [238](../pgrest.py#L238) | `first_seen.desc.nullslast` / `at.desc` / `url` -&gt; SQL. PostgREST's default is NULLS |
 | `limit_offset` | def | [263](../pgrest.py#L263) |  |
 | `build_rpc` | def | [272](../pgrest.py#L272) | (sql, args) for one stored-procedure call, in PostgREST's named-argument style. |
-| `unwrap_rpc` | def | [288](../pgrest.py#L288) | The rows a stored procedure produced -> the body PostgREST would have returned. |
+| `unwrap_rpc` | def | [288](../pgrest.py#L288) | The rows a stored procedure produced -&gt; the body PostgREST would have returned. |
 | `build` | def | [306](../pgrest.py#L306) | (sql, args, wants_rows) for one translated request. Pure — no database, no connection — |
 | `Response` | class | [378](../pgrest.py#L378) | Duck-types the parts of requests.Response that db.py reads. |
 | `Session` | class | [405](../pgrest.py#L405) | The `_http` replacement. One lazily-opened connection, autocommit, dict rows. |
@@ -1960,7 +1960,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_KEY_RE` | const | [102](../analytics.py#L102) |  |
 | `_clean_props` | def | [105](../analytics.py#L105) | Bound what a props blob can hold: short snake_case keys, scalars/short lists only, |
 | `_over_cap` | def | [128](../analytics.py#L128) | True once this process has emitted _HOURLY_CAP events this hour. |
-| `_coalesced` | def | [137](../analytics.py#L137) | True if this is a repeat of something seen < 2s ago and should be dropped. |
+| `_coalesced` | def | [137](../analytics.py#L137) | True if this is a repeat of something seen &lt; 2s ago and should be dropped. |
 | `emit` | def | [156](../analytics.py#L156) | Queue one event. Returns immediately; costs a dict and a deque append. |
 | `_flush` | def | [185](../analytics.py#L185) | Send whatever is queued. Called by the flusher thread and at exit. |
 | `_loop` | def | [211](../analytics.py#L211) |  |
@@ -2220,7 +2220,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `DEFAULT_DIRS` | const | [70](../scraper/build_sponsor_counts.py#L70) |  |
 | `ALIASES` | const | [79](../scraper/build_sponsor_counts.py#L79) |  |
 | `GENERIC` | const | [105](../scraper/build_sponsor_counts.py#L105) |  |
-| `parse_years` | def | [114](../scraper/build_sponsor_counts.py#L114) | '2019-2023' or '2021,2022' -> a set of ints. |
+| `parse_years` | def | [114](../scraper/build_sponsor_counts.py#L114) | '2019-2023' or '2021,2022' -&gt; a set of ints. |
 | `_col` | def | [129](../scraper/build_sponsor_counts.py#L129) | First column whose lowercased name starts with `prefix` — the Hub renamed |
 | `read_hub_csvs` | def | [138](../scraper/build_sponsor_counts.py#L138) | Aggregate approvals per USCIS employer spelling. |
 | `our_universe` | def | [222](../scraper/build_sponsor_counts.py#L222) | Distinct company names the app actually shows: the jobs table + every configured |
@@ -2272,8 +2272,8 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_TAXONOMY` | const | [95](../scraper/classify_everify.py#L95) |  |
 | `_sources_key` | def | [97](../scraper/classify_everify.py#L97) | Normalisation used for the SOURCES comparison. _strict_norm_name, not _norm_name: |
 | `categorise` | def | [104](../scraper/classify_everify.py#L104) | Coarse industry bucket from the employer/DBA text, or 'unclassified'. |
-| `build_sources_matcher` | def | [113](../scraper/classify_everify.py#L113) | Return match(name) -> the SOURCES company name we already scrape, or ''. |
-| `load_rows` | def | [153](../scraper/classify_everify.py#L153) | [{employer, dba, size, state, sites}, ...] from the USCIS csv or xlsx export. |
+| `build_sources_matcher` | def | [113](../scraper/classify_everify.py#L113) | Return match(name) -&gt; the SOURCES company name we already scrape, or ''. |
+| `load_rows` | def | [153](../scraper/classify_everify.py#L153) | \[{employer, dba, size, state, sites}, ...\] from the USCIS csv or xlsx export. |
 | `classify` | def | [178](../scraper/classify_everify.py#L178) | Tag every row with category / bucket / filings. Returns the same list, mutated. |
 | `BUCKET_LABEL` | const | [203](../scraper/classify_everify.py#L203) |  |
 | `_pct` | def | [211](../scraper/classify_everify.py#L211) |  |
@@ -2286,7 +2286,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 | Symbol | Kind | Line | What |
 |---|---|---|---|
-| `_user_job_rows` | def | [36](../scraper/dedupe_urls.py#L36) | [(username, url, status)] across every user, both backends. |
+| `_user_job_rows` | def | [36](../scraper/dedupe_urls.py#L36) | \[(username, url, status)\] across every user, both backends. |
 | `_score` | def | [51](../scraper/dedupe_urls.py#L51) | match_score as an int, or None. Supabase returns it as a number, the local CSV |
 | `_pick_keeper` | def | [65](../scraper/dedupe_urls.py#L65) | The row that survives. Prefer the one already AT the canonical URL so no row has to |
 | `_merge_fields` | def | [76](../scraper/dedupe_urls.py#L76) | Fields to patch onto the keeper: take the best value found anywhere in the group. |
@@ -2350,7 +2350,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `says_gone` | def | [98](../scraper/liveness.py#L98) | The phrase in which the page states the posting is over, or "". |
 | `job_ids` | def | [107](../scraper/liveness.py#L107) |  |
 | `lost_the_job_id` | def | [111](../scraper/liveness.py#L111) | True when the URL we asked for carried a job id and the URL we ended on does not. |
-| `classify` | def | [124](../scraper/liveness.py#L124) | (verdict, why). `status` is the HTTP code as a STRING, or "ERR:<ExceptionName>". |
+| `classify` | def | [124](../scraper/liveness.py#L124) | (verdict, why). `status` is the HTTP code as a STRING, or "ERR:&lt;ExceptionName&gt;". |
 | `CLOSES_THE_POSTING` | const | [170](../scraper/liveness.py#L170) |  |
 | `VERDICT_NOTES` | const | [172](../scraper/liveness.py#L172) |  |
 
@@ -2376,9 +2376,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `JOBS_JSON` | const | [55](../scraper/mine_migratemate.py#L55) |  |
 | `get` | def | [58](../scraper/mine_migratemate.py#L58) |  |
 | `_CATEGORY_ANCHOR` | const | [74](../scraper/mine_migratemate.py#L74) |  |
-| `company_directory` | def | [77](../scraper/mine_migratemate.py#L77) | [(slug, name)] for every employer on the directory page — one request for the lot. |
+| `company_directory` | def | [77](../scraper/mine_migratemate.py#L77) | \[(slug, name)\] for every employer on the directory page — one request for the lot. |
 | `role_slugs` | def | [99](../scraper/mine_migratemate.py#L99) |  |
-| `jobs_on` | def | [104](../scraper/mine_migratemate.py#L104) | The <=5 JobPosting records a role page exposes as schema.org ld+json. |
+| `jobs_on` | def | [104](../scraper/mine_migratemate.py#L104) | The &lt;=5 JobPosting records a role page exposes as schema.org ld+json. |
 | `main` | def | [140](../scraper/mine_migratemate.py#L140) |  |
 
 ## `scraper/notify.py` — symbols
@@ -2392,7 +2392,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_send` | def | [64](../scraper/notify.py#L64) |  |
 | `render_digest` | def | [81](../scraper/notify.py#L81) | The email body. Each row is a core.digest_row dict with a score. |
 | `_score_for` | def | [134](../scraper/notify.py#L134) | This user's match % for a job. Falls back to the stored baseline when we can't |
-| `recipients` | def | [149](../scraper/notify.py#L149) | [(username, email, prefs)] for users who opted in and have somewhere to send to. |
+| `recipients` | def | [149](../scraper/notify.py#L149) | \[(username, email, prefs)\] for users who opted in and have somewhere to send to. |
 | `main` | def | [176](../scraper/notify.py#L176) |  |
 
 ## `scraper/probe_everify_candidates.py` — symbols
@@ -2416,8 +2416,8 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `NONTARGET` | const | [43](../scraper/probe_everify_xlsx.py#L43) |  |
 | `_ln` | def | [56](../scraper/probe_everify_xlsx.py#L56) |  |
 | `_colnum` | def | [60](../scraper/probe_everify_xlsx.py#L60) |  |
-| `read_xlsx` | def | [68](../scraper/probe_everify_xlsx.py#L68) | Return (header_list, [row_list, ...]) from the first worksheet. xlsx is a zip of XML: |
-| `_size_lower` | def | [103](../scraper/probe_everify_xlsx.py#L103) | Lower bound of a 'Workforce Size' bucket ('500 to 999' -> 500, '10,000 and over' -> |
+| `read_xlsx` | def | [68](../scraper/probe_everify_xlsx.py#L68) | Return (header_list, \[row_list, ...\]) from the first worksheet. xlsx is a zip of XML: |
+| `_size_lower` | def | [103](../scraper/probe_everify_xlsx.py#L103) | Lower bound of a 'Workforce Size' bucket ('500 to 999' -&gt; 500, '10,000 and over' -&gt; |
 | `load_candidates` | def | [110](../scraper/probe_everify_xlsx.py#L110) | Filtered, deduped list of {employer, dba, size, state, sites} ready to probe. |
 | `probe` | def | [153](../scraper/probe_everify_xlsx.py#L153) | Run the existing detect chain for one company; record whether a careers page is even |
 | `_arg` | def | [170](../scraper/probe_everify_xlsx.py#L170) |  |
@@ -2435,7 +2435,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `board_reported_name` | def | [62](../scraper/probe_migratemate.py#L62) | What the board calls itself, or '' when the platform doesn't say. |
 | `_BOARD_DECOR` | const | [82](../scraper/probe_migratemate.py#L82) |  |
 | `_strip_decor` | def | [88](../scraper/probe_migratemate.py#L88) |  |
-| `_squash` | def | [92](../scraper/probe_migratemate.py#L92) | 'Aera Technology' -> 'aeratechnology'. Full name, punctuation and spaces removed, with |
+| `_squash` | def | [92](../scraper/probe_migratemate.py#L92) | 'Aera Technology' -&gt; 'aeratechnology'. Full name, punctuation and spaces removed, with |
 | `grade` | def | [98](../scraper/probe_migratemate.py#L98) | (verdict, score) for one hit. Evidence is used in strength order. |
 | `load_probed` | def | [135](../scraper/probe_migratemate.py#L135) |  |
 | `load_targets` | def | [142](../scraper/probe_migratemate.py#L142) | Employers worth probing: not already a source, not public-sector, not a body shop, |
@@ -2451,7 +2451,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `ZEBRA` | const | [31](../scraper/report_companies_xlsx.py#L31) |  |
 | `_read_csv` | def | [34](../scraper/report_companies_xlsx.py#L34) |  |
 | `_autosize` | def | [41](../scraper/report_companies_xlsx.py#L41) |  |
-| `_write_sheet` | def | [47](../scraper/report_companies_xlsx.py#L47) | highlight(row_dict) -> True to fill the row yellow. |
+| `_write_sheet` | def | [47](../scraper/report_companies_xlsx.py#L47) | highlight(row_dict) -&gt; True to fill the row yellow. |
 | `_load_evidence` | def | [69](../scraper/report_companies_xlsx.py#L69) | {board_url: probe/adoption row} merged across every batch on disk. |
 | `_all_probe_rows` | def | [88](../scraper/report_companies_xlsx.py#L88) | Every probed company across all batches. Each probe run writes its own CSV |
 | `collect` | def | [103](../scraper/report_companies_xlsx.py#L103) | (all_rows, new_rows, not_added_rows) ready to write. |
@@ -2472,12 +2472,12 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `title_tokens` | def | [125](../scraper/reposts.py#L125) | Deduped, order-free tokens. Order-free on purpose: "Engineer, Data Platform" and |
 | `core_tokens` | def | [131](../scraper/reposts.py#L131) | The tokens that carry the role's identity — everything except seniority, articles and |
 | `titles_match` | def | [137](../scraper/reposts.py#L137) | Same role? Exact string first because it is the overwhelming majority and costs nothing, |
-| `_day` | def | [150](../scraper/reposts.py#L150) | 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM' -> the date part, or '' — never raises. |
+| `_day` | def | [150](../scraper/reposts.py#L150) | 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM' -&gt; the date part, or '' — never raises. |
 | `_span_days` | def | [155](../scraper/reposts.py#L155) | Calendar span of a set of ISO dates, in days. The strings are already shape-validated by |
 | `_collapse_by_url` | def | [167](../scraper/reposts.py#L167) | One row per URL, keeping the EARLIEST sighting. |
 | `cluster_key` | def | [186](../scraper/reposts.py#L186) | The identity a repost cluster is stored under: company + location + sorted core tokens. |
 | `cluster_map` | def | [200](../scraper/reposts.py#L200) | {cluster_key: distinct-URL count} — the shape stored in the KV and read by the feed. |
-| `find_reposts` | def | [217](../scraper/reposts.py#L217) | [{company, title, urls, dates, count, span_days}] — one entry per repost cluster. |
+| `find_reposts` | def | [217](../scraper/reposts.py#L217) | \[{company, title, urls, dates, count, span_days}\] — one entry per repost cluster. |
 | `_today` | def | [290](../scraper/reposts.py#L290) |  |
 | `_rows` | def | [294](../scraper/reposts.py#L294) | Every stored posting, with only the columns the clustering reads. |
 | `main` | def | [309](../scraper/reposts.py#L309) |  |
@@ -2502,9 +2502,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_is_clean_api_date` | def | [115](../scraper/verify_dates.py#L115) | True if the stored date already looks like a trustworthy clean ATS date — a bare |
 | `_candidates` | def | [123](../scraper/verify_dates.py#L123) | Rows still worth a lookup, NEWEST FIRST. |
 | `_ensure_columns` | def | [160](../scraper/verify_dates.py#L160) | Fail FAST (before spending rate-limited API calls) if the Supabase jobs table is |
-| `check` | def | [176](../scraper/verify_dates.py#L176) | One REST call -> (date 'YYYY-MM-DD' or '', confidence or '', note). Retries 429. |
+| `check` | def | [176](../scraper/verify_dates.py#L176) | One REST call -&gt; (date 'YYYY-MM-DD' or '', confidence or '', note). Retries 429. |
 | `_out_of_time` | def | [218](../scraper/verify_dates.py#L218) |  |
-| `_work` | def | [222](../scraper/verify_dates.py#L222) | Pool task: wait for a dispatch slot, then look the job up. -> (row, date, conf, note). |
+| `_work` | def | [222](../scraper/verify_dates.py#L222) | Pool task: wait for a dispatch slot, then look the job up. -&gt; (row, date, conf, note). |
 | `main` | def | [235](../scraper/verify_dates.py#L235) |  |
 
 ## `scraper/xlsx_stream.py` — symbols
@@ -2512,7 +2512,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | Symbol | Kind | Line | What |
 |---|---|---|---|
 | `_ln` | def | [22](../scraper/xlsx_stream.py#L22) |  |
-| `_colnum` | def | [26](../scraper/xlsx_stream.py#L26) | 'BC12' -> zero-based column index. |
+| `_colnum` | def | [26](../scraper/xlsx_stream.py#L26) | 'BC12' -&gt; zero-based column index. |
 | `_shared_strings` | def | [37](../scraper/xlsx_stream.py#L37) |  |
 | `_first_sheet` | def | [48](../scraper/xlsx_stream.py#L48) |  |
 | `_cells` | def | [55](../scraper/xlsx_stream.py#L55) |  |
@@ -2545,7 +2545,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_ctx_block` | def | [213](../resume_brain/ai.py#L213) |  |
 | `_rewrite_prompt` | def | [255](../resume_brain/ai.py#L255) |  |
 | `_parse_rewrite` | def | [277](../resume_brain/ai.py#L277) | Parse the delimited rewrite output (###RESUME### / ###COVER### / ###NOTES###). Robust to |
-| `rewrite` | def | [293](../resume_brain/ai.py#L293) | Turn the brain's plan into finished prose. Returns {tailored_resume, cover_letter, notes[], |
+| `rewrite` | def | [293](../resume_brain/ai.py#L293) | Turn the brain's plan into finished prose. Returns {tailored_resume, cover_letter, notes\[\], |
 | `answer_fields` | def | [309](../resume_brain/ai.py#L309) | Map the candidate's real data to application form fields. `fields` is a list of |
 | `vision_fill_plan` | def | [351](../resume_brain/ai.py#L351) | VISION FALLBACK (used only when the normal deterministic+answer pass parks). Given a SCREENSHOT |
 
@@ -2607,7 +2607,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_TEX_REPL` | const | [43](../resume_brain/latex.py#L43) |  |
 | `_tex_escape` | def | [50](../resume_brain/latex.py#L50) | Escape LaTeX specials. Char-by-char so inserted backslashes/braces are never re-scanned. |
 | `_is_section_heading` | def | [58](../resume_brain/latex.py#L58) |  |
-| `parse_resume_text` | def | [66](../resume_brain/latex.py#L66) | Plain-text résumé -> (header, sections). |
+| `parse_resume_text` | def | [66](../resume_brain/latex.py#L66) | Plain-text résumé -&gt; (header, sections). |
 | `_name` | def | [111](../resume_brain/latex.py#L111) |  |
 | `_contact_line` | def | [117](../resume_brain/latex.py#L117) |  |
 | `_contact_from_string` | def | [128](../resume_brain/latex.py#L128) | Build a LaTeX contact line from a raw '... \| ... \| ...' string (header fallback). |
@@ -2630,7 +2630,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_coverage` | def | [30](../resume_brain/match.py#L30) |  |
 | `rank_resumes` | def | [34](../resume_brain/match.py#L34) | Each résumé scored by IDF-weighted JD-keyword coverage. Best first. |
 | `rank_stories` | def | [44](../resume_brain/match.py#L44) | Stories scored by coverage + learned association + lesson boosts. Returns top_k with |
-| `record_tailor` | def | [80](../resume_brain/match.py#L80) | A job was tailored against -> fold its salient terms into the idf corpus. |
+| `record_tailor` | def | [80](../resume_brain/match.py#L80) | A job was tailored against -&gt; fold its salient terms into the idf corpus. |
 | `learn_associations` | def | [89](../resume_brain/match.py#L89) | Reinforce: the user kept/approved these stories for a job with these terms. |
 
 ## `resume_brain/research.py` — symbols
@@ -2656,17 +2656,17 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_NAV_JUNK_RE` | const | [93](../resume_brain/research.py#L93) |  |
 | `_CTA_RE` | const | [97](../resume_brain/research.py#L97) |  |
 | `_headings` | def | [101](../resume_brain/research.py#L101) | Pull h1-h3 text from a page (before it's flattened) — used to spot current initiatives. |
-| `_list_items` | def | [115](../resume_brain/research.py#L115) | Pull short <li>/heading phrases — companies list their values/principles/perks this way. |
+| `_list_items` | def | [115](../resume_brain/research.py#L115) | Pull short &lt;li&gt;/heading phrases — companies list their values/principles/perks this way. |
 | `_VALUE_PAGE_RE` | const | [131](../resume_brain/research.py#L131) |  |
 | `_CAREERS_PAGE_RE` | const | [133](../resume_brain/research.py#L133) |  |
 | `_BENEFIT_RE` | const | [135](../resume_brain/research.py#L135) |  |
 | `_TECH_LEXICON` | const | [142](../resume_brain/research.py#L142) |  |
 | `_norm_name` | def | [151](../resume_brain/research.py#L151) |  |
 | `resolve_domain` | def | [155](../resume_brain/research.py#L155) |  |
-| `_robots_checker` | def | [172](../resume_brain/research.py#L172) | Fetch + parse robots.txt ONCE and return a can_fetch(path)->bool. Previously robots.txt was |
+| `_robots_checker` | def | [172](../resume_brain/research.py#L172) | Fetch + parse robots.txt ONCE and return a can_fetch(path)-&gt;bool. Previously robots.txt was |
 | `clean_html` | def | [186](../resume_brain/research.py#L186) |  |
 | `_pick_pages` | def | [198](../resume_brain/research.py#L198) |  |
-| `crawl_company` | def | [224](../resume_brain/research.py#L224) | Return [{'url','title','text'}] for a bounded set of the company's own pages, or []. |
+| `crawl_company` | def | [224](../resume_brain/research.py#L224) | Return \[{'url','title','text'}\] for a bounded set of the company's own pages, or \[\]. |
 | `_sentences` | def | [278](../resume_brain/research.py#L278) |  |
 | `_dedupe` | def | [283](../resume_brain/research.py#L283) |  |
 | `_substantive` | def | [295](../resume_brain/research.py#L295) | Sentences that read like real prose, not stitched-together nav links. |
@@ -2707,7 +2707,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `intensity_rules` | def | [171](../resume_brain/voice.py#L171) |  |
 | `writing_rules` | def | [175](../resume_brain/voice.py#L175) | The full style block to paste into a prompt. |
 | `_SLOP_RE` | const | [184](../resume_brain/voice.py#L184) |  |
-| `find_slop` | def | [189](../resume_brain/voice.py#L189) | [(phrase_lowercased, count)] for every AI_SLOP phrase present, commonest first. |
-| `find_ats_hostile` | def | [198](../resume_brain/voice.py#L198) | [(char, count)] for characters an ATS mangles. Cheap, and the one language check that is |
-| `repeated_openers` | def | [205](../resume_brain/voice.py#L205) | [(verb, count)] for first words used by more than one bullet. `bullets` is a list of |
+| `find_slop` | def | [189](../resume_brain/voice.py#L189) | \[(phrase_lowercased, count)\] for every AI_SLOP phrase present, commonest first. |
+| `find_ats_hostile` | def | [198](../resume_brain/voice.py#L198) | \[(char, count)\] for characters an ATS mangles. Cheap, and the one language check that is |
+| `repeated_openers` | def | [205](../resume_brain/voice.py#L205) | \[(verb, count)\] for first words used by more than one bullet. `bullets` is a list of |
 | `intensity_label` | def | [216](../resume_brain/voice.py#L216) | Human label for a stored/submitted intensity value, for the draft page's header. Falls |
