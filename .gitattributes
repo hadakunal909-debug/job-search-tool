@@ -4,11 +4,19 @@
 # the CI reproducibility gate is what actually establishes trust in it.
 "JobMatch Scraper/static/dist/**" linguist-generated=true -diff
 
-# Generated docs. THE eol=lf IS LOAD-BEARING, not tidiness: build_docs.py --check compares the
-# committed bytes against a fresh render, and core.autocrlf=true would give it CRLF on this
-# machine and LF on the Linux runner. Without this line the gate fails in CI forever while
-# passing locally. Same generated-marking as static/dist, for the same reason.
-"JobMatch Scraper/docs/INDEX.md" text eol=lf linguist-generated=true
-"JobMatch Scraper/docs/MAP.md" text eol=lf linguist-generated=true -diff
-"JobMatch Scraper/docs/map.html" text eol=lf linguist-generated=true -diff
-"JobMatch Scraper/docs/img/*.svg" text eol=lf linguist-generated=true -diff
+# Docs. THE eol=lf IS LOAD-BEARING, not tidiness: build_docs.py --check compares the committed
+# bytes against a fresh render, and core.autocrlf=true would give it CRLF on this machine and LF
+# on the Linux runner. Without this the gate fails in CI forever while passing locally.
+#
+# The whole directory, not a list of the generated files. An earlier version named only INDEX.md,
+# MAP.md, map.html and img/*.svg, and missed ARCHITECTURE.md -- which is hand-written prose but
+# STILL WRITTEN by the generator, because the mermaid blocks are injected between markers. The
+# symptom was `git status` reporting it modified while `git diff` showed nothing at all.
+"JobMatch Scraper/docs/**" text eol=lf
+
+# Marked generated so a full regeneration does not drown review, same as static/dist. Only the
+# files that are generated end to end -- ARCHITECTURE.md is mostly prose and should diff.
+"JobMatch Scraper/docs/INDEX.md" linguist-generated=true
+"JobMatch Scraper/docs/MAP.md" linguist-generated=true -diff
+"JobMatch Scraper/docs/map.html" linguist-generated=true -diff
+"JobMatch Scraper/docs/img/*.svg" linguist-generated=true -diff
