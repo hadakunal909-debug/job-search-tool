@@ -4,6 +4,7 @@ be tested on its own. app.py imports from here and only handles the UI.
 """
 
 import csv
+import html
 import logging
 import os
 import re
@@ -320,6 +321,19 @@ ATS_KEYWORDS = {
 # show "JD pending" instead of a confident number (see score_pending in web._build_row).
 _MIN_JD_CHARS = 400
 _MIN_JD_TERMS = 6
+
+
+def html_to_text(raw):
+    """HTML (or already-plain) text -> clean text.
+
+    Lived in scraper/score_jobs.py as _text until the SWEEP needed it too: several ATS list
+    feeds hand back the description alongside the listing, and scraper cannot import score_jobs
+    because score_jobs imports scraper. One definition here; both callers delegate to it.
+    """
+    if not raw:
+        return ""
+    soup = BeautifulSoup(html.unescape(raw), "lxml")
+    return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
 
 
 def analyze_jd(jd_text, idf=None):
@@ -1575,22 +1589,47 @@ ROLE_GROUPS = [("deliver", "Product, Program & Delivery"),
                ("data", "Data & AI"),
                ("biz", "Business & Operations")]
 ROLE_FAMILIES = [
+    # 2026-08-20: each family below gained the phrases the title filter gained on the same day,
+    # because these two vocabularies are read by different halves of the app and a title the
+    # scraper now KEEPS but no family CLAIMS is invisible to anyone who ticks a role chip --
+    # roles_for_title returns () and roles_match only ignores that when nothing is selected.
+    # "Release Train Engineer" is the cautionary tale: ROLE_FAMILIES listed it under `scrum`
+    # while EXCLUDE was dropping it outright, and the disagreement went unnoticed for weeks.
     ("pm",         "Project Manager",       "deliver",   # 954 + 169 + 43
      ("project manager", "project management", "construction project manager",
-      "technical project manager", "project lead", "project controls")),
+      "technical project manager", "project lead", "project controls",
+      "project mgr", "proj mgr", "pmo", "epmo", "project management office",
+      "project analyst", "project specialist", "project support", "project administrator")),
     ("program",    "Program Manager",       "deliver",   # 518 + 347 + 50
-     ("program manager", "technical program manager", "program management", "tpm")),
+     ("program manager", "technical program manager", "program management", "tpm",
+      "program mgr", "prog mgr", "pgm mgr", "program analyst", "program administrator",
+      # British spelling, and the one misspelling that measured non-zero (3 Amazon postings).
+      "programme manager", "programme management", "program manger")),
     ("product",    "Product Manager",       "deliver",   # 905 + 57 + 52
      ("product manager", "technical product manager", "product owner",
       "associate product manager", "product management")),
     ("coordinator", "Project / Program Coordinator", "deliver",   # 126 + 50
      ("project coordinator", "program coordinator", "operations coordinator",
-      "project administrator")),
+      "project administrator", "projects coordinator", "programs coordinator",
+      "programme coordinator")),
     ("scrum",      "Scrum Master / Agile",  "deliver",
-     ("scrum master", "agile coach", "release train engineer")),
+     ("scrum master", "agile coach", "release train engineer", "agile delivery",
+      "product owner")),
     ("consultant", "Implementation / Solutions Consultant", "deliver",
      ("implementation consultant", "implementation specialist", "implementation manager",
       "solutions consultant", "solutions architect", "technical consultant")),
+    # NEW 2026-08-20. Delivery and change work was reaching the corpus with no family to answer
+    # to: "Product Delivery Manager" at JPMorgan, "Service Delivery Manager" at NetApp and
+    # "Finance Manager - Transformation (PMO)" at Swissport all turned up in the description
+    # rule's calibration sample wearing no chip at all.
+    ("delivery",   "Delivery / Engagement Manager", "deliver",
+     ("delivery manager", "delivery lead", "delivery analyst", "service delivery",
+      "technical delivery", "engagement manager", "deployment manager",
+      "integration manager")),
+    ("transform",  "Change & Transformation", "deliver",
+     ("change manager", "change management", "change analyst", "business transformation",
+      "transformation manager", "process improvement", "process analyst",
+      "strategic initiatives", "initiatives manager", "chief of staff")),
 
     ("swe",        "Software Engineer",     "eng",       # 2144 + 444 + 75 + 63 + 122 + 70 + 44
      ("software engineer", "software developer", "software development engineer",
@@ -1683,15 +1722,28 @@ def parse_roles_pref(raw):
     return tuple(k for k in ROLE_KEYS if k in want)
 
 
-def roles_match(row_roles, wanted):
+DELIVER_ROLE_KEYS = frozenset(k for k, _lab, grp, _p in ROLE_FAMILIES if grp == "deliver")
+
+
+def roles_match(row_roles, wanted, jd_admit=False):
     """Does this posting belong to any family the user picked? Empty selection matches all.
 
     OR across the picks, like the visa filter: someone who ticks Project Manager and Data
     Analyst wants both, not the intersection (which would be almost nothing).
+
+    `jd_admit` rows are the exception, and without it the description path is half-invisible. A
+    posting kept because its DESCRIPTION reads like delivery work has no family, because families
+    are read off the title and its title is the reason it needed rescuing -- a genuine
+    "Coordinator II" comes back with (). So it is matched against any selection drawn ENTIRELY
+    from the delivery group: the admission rule already established that it is delivery work, it
+    just cannot say which sub-family. Tick "Data Analyst" alone and it stays hidden, because
+    nothing established that.
     """
     if not wanted:
         return True
-    return bool(set(row_roles or ()) & set(wanted))
+    if set(row_roles or ()) & set(wanted):
+        return True
+    return bool(jd_admit and wanted and set(wanted) <= DELIVER_ROLE_KEYS)
 
 
 def role_track(title):
@@ -1705,6 +1757,191 @@ def role_track(title):
     if _MGMT_TITLE_RE.search(t):
         return "mgmt"
     return "dev" if _DEV_TITLE_RE.search(t) else "mgmt"
+
+
+# ------------------------------------------------------------
+# "IS THIS A PROJECT-MANAGEMENT JOB?" -- answered from the DESCRIPTION, not the title.
+#
+# The title filter is a scrape-time gate with nothing but the title to go on, and plenty of
+# employers title a delivery role "Coordinator II" or "Business Operations Specialist". This is
+# the second opinion: it reads the posting and asks whether the WORK is project/programme
+# delivery, whatever the title happens to say.
+#
+# IT ANSWERS "IS THIS THAT JOB", NOT "IS THIS A GOOD FIT FOR THE USER". Admission must not
+# depend on a per-user score floor -- one live account stores min: 0, so a fit-based gate would
+# admit everything for that account and less for a stricter one, and what gets STORED has to be
+# the same for everybody. Ranking is score_against's job and stays per-user.
+#
+# TWO TIERS, because one word list cannot separate "runs the project" from "works on a team that
+# happens to have sprints". A software JD says sprint, backlog, roadmap and cross-functional as a
+# matter of course, so those can never be sufficient on their own: they are SUPPORT. The ANCHORS
+# are phrases that describe OWNING the work, and at least PM_MIN_ANCHORS of them are required.
+#
+# DISTINCT phrases are counted, not occurrences. A JD that says "stakeholder" eleven times is
+# one signal, not eleven, and counting hits would let a single repeated word carry a posting.
+PM_ANCHORS = (
+    "project management", "program management", "programme management", "portfolio management",
+    "project manager", "program manager", "project coordinator", "program coordinator",
+    "project plan", "project planning", "project schedule", "project scheduling",
+    "project charter", "project lifecycle", "project delivery", "program delivery",
+    "project governance", "project controls", "project budget", "project team",
+    "project stakeholders", "project documentation", "project risks", "project status",
+    "work breakdown structure", "statement of work", "risk register", "raid log",
+    "gantt", "critical path", "change request", "change control", "steering committee",
+    "stakeholder management", "scope management", "resource planning", "capacity planning",
+    "milestone tracking", "status report", "status reports", "status reporting",
+    "pmo", "pmp", "capm", "prince2", "csm", "scaled agile", "safe agile",
+    "scrum master", "product owner", "product roadmap", "release planning", "sprint planning",
+    "backlog prioritization", "backlog management", "product backlog",
+    "vendor management", "contract management", "change management", "organizational change",
+    "process improvement", "continuous improvement", "requirements gathering",
+    "business requirements document", "cross-functional projects", "cross functional projects",
+    "kickoff meeting", "kick-off meeting", "on time and within budget", "on time and on budget",
+    # Added after the first calibration run, which showed real Program Managers and Product
+    # Owners at Zimmer Biomet, J&J, U.S. Bank and JPMorgan being MISSED on one anchor apiece
+    # while carrying 9-11 support words. The gate was not too strict; the anchor list was too
+    # short. These are all OWNERSHIP phrases -- deliberately not "user stories", "acceptance
+    # criteria", "definition of done", "daily standup" or "epics", which every software JD
+    # carries and which belong in support if anywhere.
+    "manage projects", "managing projects", "manage multiple projects", "project execution",
+    "project initiation", "project closure", "project scope", "project timeline",
+    "project timelines", "project deliverables", "project milestones", "project coordination",
+    "project tracking", "project reporting", "project management office", "project managers",
+    "program execution", "program governance", "program roadmap", "program managers",
+    "portfolio of projects", "intake process", "resource allocation",
+    "lessons learned", "dependency management", "risk and issue",
+    "milestone plan", "scope creep", "change order", "project financials",
+    "product requirements document", "product discovery", "product lifecycle",
+    "product vision", "feature prioritization",
+    "scope, schedule", "budget and timeline", "schedule and budget",
+    # THE ROLE NAMES THEMSELVES. Missed on the first two passes and it cost most of the
+    # remaining recall: "project manager" and "program manager" were anchors but
+    # "product manager" was not, so Product Manager postings at Comcast, Disney, Capital One and
+    # JPMorgan sat on a single anchor. A posting whose body repeatedly says "the product manager
+    # will..." IS that job, whatever the title on the req says -- which is the entire premise of
+    # reading the description in the first place.
+    "product manager", "product managers", "product owners", "scrum masters",
+    "delivery manager", "delivery lead", "engagement manager", "portfolio manager",
+    "release train engineer", "program management office", "technical program manager",
+    "technical project manager",
+)
+PM_SUPPORT = (
+    "stakeholder", "stakeholders", "milestone", "milestones", "deliverable", "deliverables",
+    "roadmap", "timeline", "timelines", "scope", "budget", "prioritize", "prioritization",
+    "coordinate", "coordination", "escalation", "escalate", "dependencies", "governance",
+    "kpi", "kpis", "jira", "confluence", "asana", "smartsheet", "ms project",
+    "microsoft project", "agile", "scrum", "kanban", "waterfall", "sprint", "sprints",
+    "backlog", "cross-functional", "cross functional", "risks", "requirements",
+    "workflow", "raci", "reporting", "facilitate", "cadence",
+)
+# A THIRD TIER, AND IT WAS NOT OPTIONAL. Measured on 19 live ashby/lever/jibe/pinpoint boards,
+# the two-tier rule rescued 292 postings -- and at Ramp almost every one was SALES OR MARKETING:
+# "Account Manager | Commercial", "Senior Product Marketing Manager", "Channel Partner Manager",
+# "Solutions Consultant, Enterprise", "Director, Product Design", "Senior Manager, Deal Desk".
+#
+# They fire because a sales JD legitimately says "partner with product managers", "go-to-market"
+# and "cross-functional stakeholders". Two lessons, both applied above: "go-to-market",
+# "product strategy", "business case" and the bare "* stakeholders" phrases were REMOVED as
+# anchors (they are marketing and sales vocabulary, not delivery vocabulary), and the words that
+# positively identify those functions get a veto here.
+#
+# The calibration sweep could never have caught this: its negative bucket was engineering and
+# data titles, and sales/marketing titles are not in the corpus to sample. Only a sweep of raw
+# board output showed it, which is why scripts/measure_jd_admission.py exists.
+PM_VETO = (
+    # sales
+    "quota", "prospecting", "prospects", "book of business", "closing deals", "close deals",
+    "sales cycle", "sales quota", "sales pipeline", "pipeline generation", "upsell",
+    "cross-sell", "renewals", "account executive", "pre-sales", "presales", "commission",
+    "territory", "new business", "deal desk", "win rate", "revenue targets", "sales targets",
+    "customer acquisition", "channel partner", "partnerships",
+    # marketing
+    "demand generation", "lead generation", "brand awareness", "marketing campaign",
+    "marketing campaigns", "content marketing", "product marketing", "field marketing",
+    "go-to-market", "messaging and positioning", "seo", "paid media", "brand strategy",
+    # design
+    "figma", "wireframes", "user research", "visual design", "design system", "ux design",
+    "interaction design", "design reviews",
+    # accounting / tax. Second measured pass: with sales and marketing shut out, "Senior Tax
+    # Manager, Mergers & Acquisitions" and "Tax Technology Automation Manager" were the clearest
+    # remaining misses -- their JDs are full of engagements, deliverables and milestones.
+    "tax returns", "tax compliance", "tax provision", "cpa", "audit engagements", "gaap",
+    "financial statements", "month-end close", "general ledger", "reconciliations",
+    # hardware / silicon lab. "Silicon Failure Analysis & Customer Debug" and "Component
+    # Quality Development Eng." score on cross-functional milestone language; the bench work is
+    # what identifies them.
+    "semiconductor", "silicon", "wafer", "oscilloscope", "soldering", "schematic", "pcb",
+    "failure analysis", "bench testing",
+)
+# DELIBERATELY NOT VETOED: construction. "Construction Project Senior Manager" and Allan Myers'
+# "Project Engineer" postings are genuine project delivery, and core.ROLE_FAMILIES has listed
+# "construction project manager" under the pm family since long before this rule existed.
+# Vetoing them here would put the description path at odds with the role filter, which is the
+# exact class of contradiction that had "Release Train Engineer" dropped for two weeks.
+# Whole-phrase, longest-first, same construction as _ROLE_RES above.
+_PM_ANCHOR_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_ANCHORS, key=len, reverse=True)), re.I)
+_PM_SUPPORT_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_SUPPORT, key=len, reverse=True)), re.I)
+_PM_VETO_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_VETO, key=len, reverse=True)), re.I)
+
+# SET FROM MEASUREMENT, not taste. scripts/calibrate_pm_rule.py sweeps both gates over real
+# stored postings; run it before touching these. Measured 2026-08-20 on 300 rows a bucket
+# (248 delivery-titled / 266 technical-titled with usable descriptions):
+#
+#   anchors  points   recall   tech-fire
+#     2        4       85.5%     13.2%
+#     2        6       85.5%     12.8%   <-- shipped: best spread, and recall is what we want
+#     2        8       79.8%      9.4%
+#     3        6       73.0%      3.0%   <-- the conservative alternative, 12.5pp less recall
+#     4        8       56.9%      0.8%
+#
+# Why the recall-leaning point: "tech-fire" counts engineering JDs the rule claims, and those
+# are LARGELY HARMLESS here -- an engineering posting with an unmatched title is a job this feed
+# wants anyway, and retail/clinical/trades are vetoed by EXCLUDE long before this runs. What is
+# not harmless is a missed delivery role, because the title already failed and this is the only
+# other chance the posting gets. Tightening to 3/6 is a two-constant change if the badged rows
+# turn out noisy in practice.
+PM_MIN_ANCHORS = 2
+PM_MIN_POINTS = 6
+PM_ANCHOR_WEIGHT = 2
+# How many distinct PM_VETO phrases it takes to say "this is a different job". Two, not one:
+# see the note on reads_like_pm.
+PM_MAX_VETO = 2
+
+
+def pm_signal(text):
+    """(distinct anchors, distinct support, distinct veto phrases) in a posting's text."""
+    if not text:
+        return 0, 0, 0
+    return (len({m.group(0).lower() for m in _PM_ANCHOR_RE.finditer(text)}),
+            len({m.group(0).lower() for m in _PM_SUPPORT_RE.finditer(text)}),
+            len({m.group(0).lower() for m in _PM_VETO_RE.finditer(text)}))
+
+
+def pm_points(anchors, support):
+    """The single number the threshold is applied to. Anchors count double."""
+    return PM_ANCHOR_WEIGHT * anchors + support
+
+
+def reads_like_pm(text, min_anchors=None, min_points=None):
+    """Does this description describe project/programme/product delivery work?
+
+    Three gates. Enough ANCHORS, so support words alone can never carry a posting; enough total
+    POINTS, so two anchors in an otherwise unrelated JD is not enough either; and fewer than
+    PM_MAX_VETO phrases that positively identify a different function.
+
+    The veto is a floor of two, not one: a genuine delivery JD does say "partnerships" or
+    "territory" in passing, and a single word should not overturn a posting that otherwise reads
+    entirely like the job.
+    """
+    ma = PM_MIN_ANCHORS if min_anchors is None else min_anchors
+    mp = PM_MIN_POINTS if min_points is None else min_points
+    a, s, v = pm_signal(text)
+    if v >= PM_MAX_VETO:
+        return False
+    return a >= ma and pm_points(a, s) >= mp
 
 
 # ------------------------------------------------------------

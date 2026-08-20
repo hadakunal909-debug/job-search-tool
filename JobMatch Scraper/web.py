@@ -110,6 +110,7 @@ rb_export = _LazyMod("resume_brain.export")
 rb_latex = _LazyMod("resume_brain.latex")
 rb_voice = _LazyMod("resume_brain.voice")   # the shared style guide + intensity levels
 rb_reposts = _LazyMod("scraper.reposts")   # cluster_key; +31ms on first use, measured
+sc = _LazyMod("scraper")                   # title_verdict, for the "matched on description" chip
 
 app = Flask(__name__)
 
@@ -919,6 +920,57 @@ def _host_jd_blocked(url):
     return core.url_host(url) in _jd_blocked_hosts
 
 
+# ---------------------------------------------------------------------------------------------
+# "MATCHED ON DESCRIPTION" — the chip for a job whose TITLE said nothing useful.
+#
+# Since 2026-08-20 the sweep keeps a posting when the description reads like delivery work even
+# though no INCLUDE phrase matched the title, so the feed carries jobs called "Coordinator II"
+# that really are project management. The chip says which rule let a row in, so the wider net is
+# auditable instead of a black box.
+#
+# DERIVED, NOT STORED. The scraper keeps a row for exactly two reasons, and both are functions
+# of data already in the row, so a title that fails the filter while sitting in the corpus is
+# itself the evidence. That is worth more than a jobs column: this repo's standing bias is
+# against adding them (they need a hand-run migration, and the Actions runner cannot write at
+# all until DB_PROXY_SECRET is re-pasted), and a derived answer cannot drift out of sync with
+# the filter the way a stamped one can.
+#
+# TWO GUARDS, both for legacy rows, and without them the chip would lie:
+#   1. An EXCLUDE hit is not a description admission. The description rule only ever runs when
+#      the verdict was "no matching keyword", so a row the exclude list would now veto is a
+#      leftover from before a tightening (the surviving Sephora and Aspen Dental rows), not
+#      something admitted on its text.
+#   2. first_seen must be on or after the day the rule shipped. Rows admitted by INCLUDE terms
+#      that were later REMOVED -- "operations associate", "trainee", "entry level" -- fail the
+#      filter today for a completely different reason. prune_offtarget.py deleted 1,430 of those
+#      and a few dozen survived, and every one would otherwise wear this chip.
+_JD_ADMIT_FROM = "2026-08-20"
+_admit_cache = {}
+
+
+def _admitted_on_description(title, first_seen):
+    """Did this row get in on its DESCRIPTION rather than its title?"""
+    if not title or str(first_seen or "")[:10] < _JD_ADMIT_FROM:
+        return False
+    hit = _admit_cache.get(title)
+    if hit is None:
+        # Reproduce the filter that actually ran, résumé-derived phrases included — judging
+        # against the base INCLUDE would mislabel every row one of those admitted.
+        if not _admit_cache:
+            try:
+                sc.apply_resume_terms()
+            except Exception:
+                pass
+        try:
+            keep, why = sc.title_verdict(title)
+            hit = not keep and not why.startswith("off-target")
+        except Exception:
+            hit = False
+        if len(_admit_cache) < 60000:          # bounded, like core._role_cache
+            _admit_cache[title] = hit
+    return hit
+
+
 _REPOST_KEY = "repost_clusters"
 _repost_clusters = None
 
@@ -1068,6 +1120,10 @@ def _build_row(j, score):
             # window. 0 for the overwhelming majority. A measurement, not a judgement: the card
             # states the count and lets the reader decide whether it smells like a ghost req.
             "repost": _repost_count(j.get("title"), c, j.get("location")),
+            # Which rule let this row in. True = its title matched nothing and the DESCRIPTION
+            # carried it, so the card says so. See _admitted_on_description for why this is
+            # derived rather than stored, and for the two legacy guards it needs.
+            "jd_admit": _admitted_on_description(j.get("title"), j.get("first_seen")),
             # Which immigration routes this employer has actually filed for (DOL LCA + PERM
             # + E-Verify). A missing tag means "no record", never "won't sponsor".
             #
@@ -1596,7 +1652,7 @@ def _filter_rows(rows, statuses, p):
             continue
         if verified_only and not r.get("date_trusted"):
             continue
-        if not core.roles_match(r.get("roles"), want_roles):
+        if not core.roles_match(r.get("roles"), want_roles, r.get("jd_admit")):
             continue
         if not core.visa_tags_match(r.get("visa"), want_visa):
             continue

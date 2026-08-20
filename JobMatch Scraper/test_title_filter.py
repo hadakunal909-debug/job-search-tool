@@ -144,6 +144,75 @@ def test_known_retail_floor_titles_still_blocked():
         assert verdict(t) == "drop-exclude", t
 
 
+def test_the_examples_that_were_already_working_still_work():
+    """Kunal asked for "associate project manager, assistant project manager, assistant product
+    manager". All of them ALREADY matched -- the matcher is whole-PHRASE, so a seniority prefix
+    rides along on "project manager". Pinned so nobody adds 20 redundant prefix variants."""
+    for t in ("Associate Project Manager", "Assistant Project Manager",
+              "Assistant Product Manager", "Senior Project Manager", "Project Manager II"):
+        assert verdict(t) == "keep", t
+
+
+def test_the_2026_08_20_widening_keeps_what_it_measured():
+    """Each of these was the SOLE reason for the row count in the comment beside it in
+    scraper.INCLUDE. Measured over 185,753 US postings from a full sweep."""
+    for t in ("Chief of Staff", "Sr Tech Project Mgr", "Infrastructure TPM",
+              "Prog Mgr, AI Automation", "Manager, Strategic Initiatives", "Programme Manager",
+              "ePMO Lead", "Change Manager", "Program Analyst, Legal Ops",
+              "Network Deployment Manager I", "Process Improvement Manager",
+              "ERP Transformation Manager", "Strategic Delivery Lead",
+              "System Development Engineer I", "Program Manger, AUTA Experience"):
+        assert verdict(t) == "keep", t
+
+
+def test_the_2026_08_20_widening_still_refuses_what_it_rejected():
+    """THE VALUABLE HALF. Every one of these looked like an obvious addition, was measured, and
+    was turned down -- the rows are real, they are just somebody else's job. Re-adding any of
+    them needs new numbers, not an opinion.
+
+      project engineer       +349, a construction flood (Actalent 60, M.C. Dean 59)
+      continuous improvement  +70, manufacturing-plant lean roles
+      portfolio management    +41, INVESTMENT management (Morgan Stanley 11, BlackRock)
+      vendor manager          +31, Amazon retail category buying
+      apm                      +5, Application Performance Monitoring, not Associate PM
+      bsa                      +6, Bank Secrecy Act, not Business Systems Analyst
+      specialist           +6,473, the control case for why bare words stay out
+    """
+    for t in ("Project Engineer", "Paving Project Engineer", "Continuous Improvement Analyst",
+              "Sr. Vendor Manager, Canada Fashion", "Quantitative Portfolio Analyst",
+              "Senior Manager, Global Portfolio Management", "APM Serverless",
+              "Compliance Manager, BSA/AML Program", "Deal Operations Administrator",
+              "Biochemistry Resource Manager", "Olympic Power Delivery Specialist"):
+        assert verdict(t) == "drop-no-include", t
+    # And the bare-word control, plus the "manger" typo that was rejected for being a real word.
+    for t in ("Sales Specialist", "PR Specialist", "Sales Manger", "Store Manger"):
+        assert verdict(t) in ("drop-no-include", "drop-exclude"), t
+
+
+def test_release_train_engineer_is_not_eaten_by_the_rail_guard():
+    """The Agile role, not a locomotive.
+
+    "train engineer" was a bare EXCLUDE term added 2026-08-01 to catch rail titles arriving via
+    the early-career markers. Because EXCLUDE vetoes first and unconditionally, it also killed
+    every "Release Train Engineer" -- a SAFe role core.ROLE_FAMILIES already lists under `scrum`,
+    so the scraper and the feed disagreed about whether it was wanted. Both halves of the fix are
+    pinned here: without the INCLUDE entry, dropping the veto alone still leaves the title
+    matching nothing.
+    """
+    assert verdict("Release Train Engineer") == "keep"
+    assert verdict("Senior Release Train Engineer") == "keep"
+
+
+def test_the_rail_titles_that_guard_was_for_are_still_blocked():
+    """Narrowing an exclude is only safe if the thing it was protecting against stays out."""
+    for t in ("Passenger Train Engineer", "Freight Train Engineer", "Train Engineer Trainee",
+              "PASSENGER ENGINEER TRAINEE", "Locomotive Engineer"):
+        assert verdict(t) == "drop-exclude", t
+    # Bare "Train Engineer" needs no exclude of its own: it matches no INCLUDE phrase, so it
+    # falls out on the keep rule instead. Pinned so nobody "restores" the broad term for it.
+    assert verdict("Train Engineer") == "drop-no-include"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

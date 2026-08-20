@@ -37,11 +37,9 @@ from bs4 import BeautifulSoup
 
 
 def _text(raw):
-    """HTML (or already-plain) -> clean text."""
-    if not raw:
-        return ""
-    soup = BeautifulSoup(html.unescape(raw), "lxml")
-    return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
+    """HTML (or already-plain) -> clean text. Kept as a local name because ~40 call sites in
+    this file use it; the implementation moved to core.html_to_text so the sweep shares it."""
+    return core.html_to_text(raw)
 
 
 # Phenom's jobDetail widget is ONE POST PER JOB, so it is capped per run and backfills across

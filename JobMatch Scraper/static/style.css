@@ -800,7 +800,8 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 /* The NEUTRAL chips go translucent. The ROUTE chips keep their own colours, because those
    agree with the card rather than competing with it. */
 .card[data-route] .pay,.card[data-route] .rem,.card[data-route] .exp,.card[data-route] .intl,
-.card[data-route] .agency,.card[data-route] .closed,.card[data-route] .repost{
+.card[data-route] .agency,.card[data-route] .closed,.card[data-route] .repost,
+.card[data-route] .jdadmit{
   background:var(--on-card-veil)}
 .card[data-route] .logo{box-shadow:0 0 0 1px color-mix(in srgb,var(--text-primary) 10%,transparent)}
 
@@ -912,7 +913,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    The rule that makes the row readable: COLOUR HERE MEANS VISA ROUTE AND NOTHING ELSE. Every
    other attribute (internship, pay, remote, agency, closed, experience) is a neutral tint on
    purpose, so a sponsorship signal is findable at a glance in a grid of hundreds of cards. */
-.h1b,.cx,.nospon,.spon,.ev,.intl,.vt,.agency,.pay,.rem,.closed,.exp,.repost{
+.h1b,.cx,.nospon,.spon,.ev,.intl,.vt,.agency,.pay,.rem,.closed,.exp,.repost,.jdadmit{
   display:inline-block;font-size:var(--text-3xs);font-weight:var(--weight-semibold);
   padding:2px 8px;border-radius:var(--radius-xs);margin-left:6px;white-space:nowrap;
   vertical-align:middle}
@@ -963,6 +964,12 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    figures so it reads as a measurement rather than as decoration. */
 .repost{background:var(--visa-unknown-bg);color:var(--visa-unknown-text);
   border:1px solid var(--border-subtle);font-variant-numeric:tabular-nums}
+/* "matched on description" -- same reasoning as .repost above, so it takes the same neutral
+   treatment: this is a provenance note about HOW the job reached the feed, not a fact about the
+   job, and colour in this design means sponsorship. A dashed border is the one distinction it
+   gets, because the claim it makes is softer than the others on the row. */
+.jdadmit{background:var(--visa-unknown-bg);color:var(--visa-unknown-text);
+  border:1px dashed var(--border-subtle)}
 /* A closed posting is de-emphasised rather than hidden when the user opts to see them. */
 .card.is-closed{opacity:var(--opacity-deemphasis)}
 .card.is-closed:hover{opacity:1}
@@ -1136,7 +1143,7 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
 .jobact-form{display:flex;flex-wrap:wrap;gap:var(--space-100);margin:0}
 .jobchips{margin:var(--space-150) 0 0}
 /* Neutral chips on a tinted band, the same treatment cards get. */
-.jobrail .pay,.jobrail .rem,.jobrail .exp,.jobrail .intl,.jobrail .agency,.jobrail .closed,.jobrail .repost,
+.jobrail .pay,.jobrail .rem,.jobrail .exp,.jobrail .intl,.jobrail .agency,.jobrail .closed,.jobrail .repost,.jobrail .jdadmit,
 .jobrail .cx{background:var(--on-card-veil)}
 .jobrail .btn:not(.primary){background:transparent}
 .jobrail .btn:not(.primary):hover{background:var(--on-card-veil)}

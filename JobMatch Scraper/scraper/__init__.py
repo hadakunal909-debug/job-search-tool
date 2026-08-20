@@ -1675,6 +1675,9 @@ INCLUDE = (
     "project coordinator", "program coordinator", "project administrator", "program administrator",
     "project specialist", "program specialist", "project analyst", "project associate",
     "project lead", "program lead", "pmo", "scrum master", "agile coach",
+    # SAFe's release-train role. Needed explicitly: "release engineer" is in this list but the
+    # phrase is "release TRAIN engineer", so it never matched.
+    "release train engineer",
     "technical program manager", "technical project manager",
     "portfolio manager", "project portfolio",
     # --- Project controls / scheduling / planning (PM core; previously missing) ---
@@ -1708,6 +1711,95 @@ INCLUDE = (
     "business analyst", "data analyst",
     "implementation", "implementation manager", "implementation specialist",
     "delivery manager", "engagement manager",
+    # ---------------------------------------------------------------------------------------
+    # 2026-08-20: the four role families Kunal asked for, MEASURED against a full sweep dump
+    # (scripts/dump_titles.py --all: 334,716 postings, 185,753 US, 24,804 kept by the filter as
+    # it stood, 107,284 in the drop pool after the EXCLUDE veto). Ranked by
+    # scripts/score_title_candidates.py, which credits a phrase only for rows it is the SOLE
+    # reason for keeping. Numbers below are that marginal count.
+    #
+    # FIRST, THE THING WORTH KNOWING: the examples Kunal gave were already working. "Associate
+    # Project Manager", "Assistant Product Manager", "Senior Project Manager" and "Project
+    # Manager II" all match today, because the matcher is whole-PHRASE and any seniority prefix
+    # rides along on "project manager". No keyword was needed for those.
+    "chief of staff",              # +60, 43 employers -- exec-ops delivery work
+    "delivery lead", "delivery analyst",           # +34, +5 -- spread across 27 employers
+    "technical delivery", "agile delivery",        # +1 each; the phrasings, for completeness
+    "strategic initiatives", "initiatives manager",   # +30, +2
+    "program analyst",             # +23 -- "Program Analyst, Legal Ops", "Operations Program"
+    "integration manager",         # +21, 17 employers
+    "deployment manager",          # +16 -- network/robotics rollout delivery
+    "process improvement", "process analyst",      # +17, +11
+    "business transformation", "transformation manager",   # +10, +16 (ERP/finance programmes)
+    "change manager", "change management", "change analyst",   # +9, 0, +1
+    "requirements analyst", "resource planner", "project support",       # +1, +1, +4
+    # Abbreviations. The employers with the most openings write them: Amazon posts "TPM" and
+    # "Prog Mgr", Disney "Sr Tech Project Mgr". Exactly the "software dev engineer" case, where
+    # one missing abbreviation was dropping 178 postings on a single board.
+    "tpm", "project mgr", "program mgr", "prog mgr", "proj mgr", "proj manager", "pgm mgr",
+    "epmo", "project management office", "release train",
+    # British spelling, and the plural coordinator forms. Nearly zero rows in this dump, kept
+    # anyway on the same reasoning as the low-volume programme markers below: they cost nothing
+    # and a real one is unambiguously wanted.
+    "programme manager", "programme management", "programme coordinator",
+    "projects coordinator", "programs coordinator",
+    # Singular forms of two phrases already here in the plural. Found by testing a blanket
+    # plurals relaxation of the matcher, which is NOT shipped (see below) -- but it surfaced 65
+    # Amazon "System Development Engineer" postings being dropped while "systems development"
+    # sat in this list. Same class of miss as "software dev engineer", same fix.
+    "system development",          # +65, Amazon 63
+    "application development",     # +31, AWS delivery consultants
+    #
+    # THE MISSPELLING QUESTION, ANSWERED WITH NUMBERS. Kunal asked for typo coverage on the
+    # theory that we lose jobs to them. 40 candidate misspellings were measured against all
+    # 185,753 US postings in the dump, and THIRTY-NINE of them matched nothing at all:
+    # porject / proejct / prject / projct / proect manager, prodcut / produt / prodct manager,
+    # progarm / progran manager, cordinator / coordinater / coordiator / coordintor, analist /
+    # analyist / anaylst, specilist / speclialist, asociate / assistent, buisness / bussiness,
+    # opertions / operatons / oprations, enginer / engineeer, devloper / deveploer, sofware /
+    # softwre, scrum mater / msater. ATS titles are typed into a form by recruiters and then
+    # reused, so they are cleaner than expected. Exactly one earns its place:
+    "program manger",              # +3, all Amazon, all real: "Program Manger, AUTA Experience"
+    # Bare "manger" was measured too (+14) and REJECTED: it is a real English word and the extra
+    # rows were "Sales Manger" and "Contract manger" at Hilton and Five Below. The two-word form
+    # keeps the win without the retail.
+    #
+    # TWO MATCHER RELAXATIONS MEASURED AND NOT SHIPPED, both plausible and both wrong:
+    #   plurals (optional trailing s on the thing-word)  +147 rows, but 66 were the Amazon
+    #     "System Development" case above, now fixed precisely by two phrases instead of by
+    #     loosening all 234. The "Programs Manager" titles this was meant to catch barely exist.
+    #   punctuation as a word separator                  +8 rows, ALL EIGHT junk: "Staff
+    #     Engineer Systems - Development Lead", "Angular Front- End Developer", "Business
+    #     Continuity Program - administrator". A hyphen bridging two unrelated words is not a
+    #     phrase. Independently confirms the +0 result 027dff7 got for the same idea.
+    # A bare "specialist" was measured as a control: +6,473 rows, 583 employers, led by
+    # OneMain 277 and Amazon 272 ("Sales Specialist", "PR Specialist"). That is the number the
+    # note above about bare single words is protecting against.
+    #
+    # MEASURED AND REJECTED. Every one of these looked like an obvious addition and is not; the
+    # rows are real, they are just somebody else's job.
+    #   project engineer        +349  the biggest candidate in the file and a CONSTRUCTION
+    #                                 flood: Actalent 60, M.C. Dean 59, Sundt 15, Lemartec 15,
+    #                                 and Amazon's are "Project Engineer, DC Construction".
+    #                                 43% from four contractors -- the same shape "trainee" had.
+    #   continuous improvement  +70   manufacturing-plant lean roles: Regal Rexnord, Celestica,
+    #                                 Danaher, Hubbell. EXCLUDE already names manufacturing.
+    #   portfolio management    +41   INVESTMENT management -- Morgan Stanley 11, BlackRock,
+    #   portfolio analyst        +8   JPMorgan, Fidelity, "Quantitative Portfolio Analyst".
+    #   vendor manager          +31   Amazon retail CATEGORY BUYING ("Sr. Vendor Manager, Canada
+    #                                 Fashion", "Toys & Entertainment"), not procurement.
+    #   transformation lead     +17   sales-contaminated: Amazon's is "Business Development -
+    #                                 Industrial transformation lead".
+    #   delivery specialist     +12   "Olympic Power Delivery Specialist", agri co-ops.
+    #   program associate       +11   investment-banking and university programmes.
+    #   capacity planning        +9   already-adjacent; weak signal either way.
+    #   governance analyst       +7   data/identity governance, i.e. security.
+    #   operations administrator +7   "Deal Operations Administrator" -- sales ops.
+    #   resource manager         +6   "Biochemistry Resource Manager".
+    #   bsa                      +6   Bank Secrecy Act / AML, not Business Systems Analyst.
+    #   apm                      +5   Application Performance Monitoring. Not Associate Product
+    #                                 Manager -- "APM Twitch", "APM Serverless".
+    # ---------------------------------------------------------------------------------------
     "supply chain analyst", "logistics analyst", "supply chain manager", "logistics manager",
     # NOTE: bare single words (analyst/coordinator/specialist/associate/consultant) stay OUT —
     # they pulled retail/hourly/clinical noise. Trimmed for focus (2026-06-16): "financial analyst",
@@ -1895,7 +1987,16 @@ EXCLUDE = (
     # title anywhere in that batch matches them. Utility/rail/lab "engineer" titles get
     # in through the generic early-career markers ("entry level", "trainee", "co-op").
     "substation", "distribution engineer", "transmission engineer",
-    "passenger engineer", "train engineer", "locomotive",
+    "passenger engineer", "locomotive",
+    # "train engineer" USED to be a bare exclude here, and it silently vetoed
+    # "Release Train Engineer" -- a core SAFe/Agile role that core.ROLE_FAMILIES already lists
+    # under `scrum`, so the scraper and the feed disagreed about whether it was a job we want.
+    # EXCLUDE runs first and vetoes unconditionally, so no INCLUDE entry could rescue it; the
+    # rail phrasings are spelled out instead. Exactly the fix used for "front end" above, which
+    # was killing "Front End Engineer" for the same reason.
+    # Bare "Train Engineer" needs no exclude at all: it matches no INCLUDE phrase, so it is
+    # already dropped as "no matching role keyword".
+    "passenger train engineer", "freight train engineer", "train engineer trainee",
     "stationary engineer", "operating engineer", "building engineer",
     "manufacturing test engineer", "physical security",
     "medical laboratory", "laboratory scientist", "rfid",
@@ -1909,10 +2010,31 @@ REQUIRE_SPONSOR = False
 # Keep only jobs located in the USA. Set to False to keep every location.
 US_ONLY = True
 
+
+def _env_flag(name):
+    """An env var read as a boolean, accepting the spellings people actually type."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 # Print a KEEP/drop line (with the reason) for every scraped title. Great for
 # tuning the filter on ONE board, but noisy across many — so it's off by default.
-# Flip to True (ideally with just one board in SOURCES) to see why titles drop.
-VERBOSE = False
+# SCRAPE_VERBOSE=1 turns it on without editing this file; every other tunable here is
+# already env-settable, and this one being source-only is what made the filter hard to tune.
+VERBOSE = _env_flag("SCRAPE_VERBOSE")
+
+# Where to append one line per DROPPED posting, or "" for nowhere. Unset by default, so CI
+# and the cron are untouched.
+#
+# The drop counters below tell you 213,327 titles failed the keep rule; they cannot tell you
+# WHICH, so every question of the form "why isn't this job in the feed?" has been answered by
+# hand (that is how the Disney "Manager, Projects" case was found). One local sweep with this
+# set turns the whole reject pile into a file, and every candidate keyword can then be measured
+# offline in milliseconds against real titles instead of argued about.
+#
+# LOCATION IS IN THE DUMP ON PURPOSE. The US gate runs only on titles that already passed the
+# keep rule, so a title-rejected row never gets one -- and a measurement that forgets to apply
+# it offline counts jobs in Bangalore as wins.
+DUMP_REJECTS = os.environ.get("SCRAPE_DUMP_REJECTS", "").strip()
 
 # Drop a job if its description requires MORE than this many years of experience.
 # Only enforced where the scraper actually has the JD text (e.g. Amazon). 5 = keep mid-level too.
@@ -2347,6 +2469,26 @@ def scrape_greenhouse(board_url):
     return rows
 
 
+# ---------------------------------------------------------------------------------------------
+# DESCRIPTIONS THAT ARRIVE WITH THE LISTING.
+#
+# Several ATS list feeds return the full description in the SAME response the sweep already
+# reads -- for lever, ashby and jibe it is byte-identical to the URL score_jobs re-fetches in a
+# later pass, so the text was being downloaded and thrown away twice over. Keeping it buys two
+# things: main() can judge a posting by its DESCRIPTION when the title matches nothing, and the
+# JD is banked for free instead of costing a per-job detail fetch out of the scoring budget.
+#
+# A row carrying a "jd" key needs no schema change: main() stores `{k: j.get(k, "") for k in
+# FIELDNAMES}` and FIELDNAMES has no jd, so the key rides along through the whole keep loop and
+# is dropped at the boundary. main() persists it separately, keyed by the CANONICAL url it just
+# computed -- which is how the JobDiva bug (a stored `/portal?a=` vs a generated `/portal/?a=`,
+# one character, 352 rows silently discarded every run) cannot happen here.
+def _listing_jd(*parts):
+    """Join the description fragments a list feed handed us into one clean block of text."""
+    out = [core.html_to_text(p) for p in parts if p]
+    return " ".join(t for t in out if t)
+
+
 def scrape_lever(board_url):
     data = _get_json("https://api.lever.co/v0/postings/%s?mode=json" % _slug(board_url))
     rows = []
@@ -2362,6 +2504,10 @@ def scrape_lever(board_url):
             "title": (j.get("text") or "").strip(),
             "url": j.get("hostedUrl", ""),
             "location": loc,
+            # The same three fields score_jobs.jd_map_for reads off this very response.
+            "jd": _listing_jd(j.get("descriptionPlain"),
+                              *[(l or {}).get("content") for l in (j.get("lists") or [])],
+                              j.get("additionalPlain")),
         }
         try:                                     # createdAt is epoch milliseconds
             row["found_date"] = datetime.datetime.fromtimestamp(
@@ -2380,7 +2526,9 @@ def scrape_ashby(board_url):
             continue
         row = {"title": (j.get("title") or "").strip(),
                "url": j.get("jobUrl", ""),
-               "location": j.get("location") or ""}
+               "location": j.get("location") or "",
+               # descriptionPlain is already plain; descriptionHtml is the fallback.
+               "jd": _listing_jd(j.get("descriptionPlain") or j.get("descriptionHtml"))}
         d = _posted(j.get("publishedAt"))
         if d:
             row["found_date"] = d
@@ -2802,6 +2950,8 @@ def scrape_jibe(board_url):
                 "url": url,
                 "location": loc,
                 "found_date": _jibe_date(j.get("posted_date") or j.get("create_date")),
+                # jd_map_for hits this identical endpoint later for exactly this field.
+                "jd": _listing_jd(j.get("description")),
             })
         total = d.get("totalCount") or d.get("count") or 0
         if len(jobs) < 100 or page * 100 >= total:
@@ -3672,7 +3822,10 @@ def scrape_pinpoint(board_url):
         if (j.get("workplace_type") or "") == "remote":
             loc_s = (loc_s + " (Remote)").strip()
         row = {"title": (j.get("title") or "").strip(),
-               "url": j.get("url") or "", "location": loc_s}
+               "url": j.get("url") or "", "location": loc_s,
+               # The docstring above already promised these are inline; now the sweep uses them.
+               "jd": _listing_jd(j.get("description"), j.get("key_responsibilities"),
+                                 j.get("skills_knowledge_expertise"))}
         d = _posted(j.get("created_at"))             # only set when real (else main() stamps)
         if d:
             row["found_date"] = d
@@ -5290,6 +5443,22 @@ def resume_terms(path=RESUME_FILE):
     return sorted(terms)
 
 
+def apply_resume_terms():
+    """Fold resume.txt's derived phrases into the live title matcher. Returns them.
+
+    Called by main() before the keep loop, and by ANY other process that needs to reproduce the
+    filter that actually ran -- notably web.py, which asks title_verdict whether a stored row got
+    in on its title in order to badge the ones that got in on their description. Without this the
+    feed would judge against the base list, and every row admitted by a résumé-derived phrase
+    would be mislabelled "matched on description".
+    """
+    global _INCLUDE_RE
+    extra = resume_terms()
+    if extra:
+        _INCLUDE_RE = _make_matcher(tuple(INCLUDE) + tuple(extra))
+    return extra
+
+
 def title_verdict(title):
     """Judge a posting by its TITLE alone. Returns (keep, reason) so a VERBOSE run
     shows exactly why each title survived or was dropped — makes tuning easy."""
@@ -5311,6 +5480,38 @@ def title_verdict(title):
 def is_entry_level(title):
     """Back-compat: title-only boolean (ignores location)."""
     return title_verdict(title)[0]
+
+
+# ---------------------------------------------------------------------------------------------
+# THE REJECT DUMP. See DUMP_REJECTS near the top for why it exists at all.
+_reject_fh = [None]
+
+
+def dump_reject(title, company, location, url, reason):
+    """Append one dropped posting to DUMP_REJECTS. A no-op unless that env var is set."""
+    if not DUMP_REJECTS:
+        return
+    fh = _reject_fh[0]
+    if fh is None:
+        # TRUNCATE PER PROCESS, not per board. A sweep is one process; opening in append mode
+        # would silently mix two different filters' verdicts into one file, and attributing a
+        # verdict to a filter is the entire point of this file.
+        fh = _reject_fh[0] = open(DUMP_REJECTS, "w", encoding="utf-8", newline="")
+        fh.write("title\tcompany\tlocation\turl\treason\n")
+    fh.write("\t".join(_dump_field(v) for v in (title, company, location, url, reason)) + "\n")
+
+
+def _dump_field(v):
+    """One TSV cell. Collapses all whitespace, because job titles really do contain tabs and
+    newlines and either one would shift every column after it."""
+    return re.sub(r"\s+", " ", str(v or "")).strip()
+
+
+def close_reject_dump():
+    """Flush and close the dump. Safe when nothing was ever opened."""
+    if _reject_fh[0] is not None:
+        _reject_fh[0].close()
+        _reject_fh[0] = None
 
 
 US_STATE_ABBR = {"AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
@@ -6114,10 +6315,9 @@ def main():
         print(f"No {SPONSORS_FILE} found — keeping all entry-level jobs, "
               f"sponsor status marked 'unknown'.")
 
-    extra = resume_terms()
+    extra = apply_resume_terms()             # broadens the title keep-filter, in one place
     if extra:
-        global _INCLUDE_RE, AMAZON_QUERIES
-        _INCLUDE_RE = _make_matcher(tuple(INCLUDE) + tuple(extra))   # broaden the title keep-filter
+        global AMAZON_QUERIES
         AMAZON_QUERIES = tuple(dict.fromkeys(AMAZON_QUERIES + tuple(extra)))     # + Amazon searches
         print("Résumé-driven (%s): also searching %s" % (RESUME_FILE, ", ".join(extra)))
     else:
@@ -6208,6 +6408,12 @@ def main():
 
     kept = []
     fp_seen = []            # aggregator relists caught by the fingerprint, for the run summary
+    # {canonical url -> description} for rows whose board handed the JD over with the listing.
+    # Keyed off j["url"] AFTER canonical_url() has run on it, so the writer and the jobs table
+    # cannot disagree about the key the way jd_map_for did.
+    listing_jds = {}
+    # NOT a tally key: tally is printed as the run's DROP reasons, and this is a keep.
+    kept_on_jd = 0
     tally = {"already known": 0, "off-target function title": 0,
              "no matching role keyword": 0, "non-US location": 0,
              "blocked company": 0,
@@ -6234,6 +6440,25 @@ def main():
             tally["blocked company"] += 1
             continue
         keep, why = title_verdict(j["title"])
+        # A SECOND OPINION FROM THE DESCRIPTION, when the title said nothing useful.
+        #
+        # Plenty of employers title a delivery role "Coordinator II" or "Business Operations
+        # Specialist", and no keyword list will ever cover that. Where a board handed us the
+        # description with the listing (_listing_jd above), read it instead of guessing from
+        # eight words of title.
+        #
+        # ONLY WHEN THE REASON WAS "no matching keyword". An EXCLUDE hit is a different claim --
+        # the title named a job we do not want -- and this must never overturn it, for the same
+        # reason _REVERSED_RE runs after EXCLUDE rather than before it.
+        #
+        # The US gate below still applies: it sits in the `elif` on `keep`, so a row rescued
+        # here goes through it exactly like a title-matched one. That was the point of doing the
+        # rescue here rather than after the gate.
+        if not keep and not why.startswith("off-target"):
+            _jd = (j.get("jd") or "").strip()
+            if len(_jd) >= core._MIN_JD_CHARS and core.reads_like_pm(_jd):
+                keep, why = True, "matched on description"
+                kept_on_jd += 1
         if not keep:
             tally["off-target function title" if why.startswith("off-target")
                   else "no matching role keyword"] += 1
@@ -6250,6 +6475,7 @@ def main():
         if VERBOSE:
             print("  %s %-52s %s" % ("KEEP " if keep else "drop ", j["title"][:52], why))
         if not keep:
+            dump_reject(j.get("title"), j.get("company"), j.get("location"), j["url"], why)
             continue
         # Freshness gate. This has to run BEFORE the setdefault below: that line stamps
         # undated rows with today's date, so a gate placed after it would see every dateless
@@ -6301,6 +6527,13 @@ def main():
         j.setdefault("found_date", stamp)        # keep the JD's posting date if set
         seen.add(j["url"].lower())               # two boards in ONE run can serve the same
                                                  # posting (e.g. both Greenhouse hosts)
+        # Bank a description that came with the listing -- for EVERY kept row, not just the ones
+        # rescued by it. A title-matched row gets its JD for free here too, which is a straight
+        # saving against the scoring budget: a measured detail pass once spent 2,640 fetches to
+        # recover 8 usable descriptions. Guarded at _MIN_JD_CHARS so a truncated teaser can
+        # never be stored as a complete description (the 403-char JobDiva trap).
+        if len((j.get("jd") or "").strip()) >= core._MIN_JD_CHARS:
+            listing_jds[j["url"]] = j["jd"]
         kept.append({k: j.get(k, "") for k in FIELDNAMES})
 
     try:            # persist this run's new jobs to disk FIRST so a DB hiccup can't lose the scrape
@@ -6328,12 +6561,17 @@ def main():
     # they fall to score_jobs' per-URL detail fetch, which mostly 403s against the aggregators
     # while spending the scoring budget — the rows would score 0, render as "JD pending", and
     # never reach the match filter or the digest.
-    if JOBSPY_JDS and kept:
-        jds = {r["url"]: JOBSPY_JDS[r["url"]] for r in kept if r.get("url") in JOBSPY_JDS}
+    # ...and so do lever / ashby / jibe / pinpoint, from the same response the sweep already
+    # read. Merged into one write: both are "the description arrived with the listing", and one
+    # db.update_jds call is one round trip instead of two.
+    if kept:
+        jds = dict(listing_jds)
+        jds.update({r["url"]: JOBSPY_JDS[r["url"]]
+                    for r in kept if r.get("url") in JOBSPY_JDS})
         if jds:
             try:
                 db.update_jds(jds)
-                print("JobSpy: stored %d description(s) fetched with the listing." % len(jds))
+                print("Stored %d description(s) that arrived with the listing." % len(jds))
             except Exception as e:
                 print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
 
@@ -6391,6 +6629,11 @@ def main():
 
     dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
     print(f"\nScanned {len(scraped)} postings ({dropped or 'nothing dropped'}).")
+    if kept_on_jd:
+        print("%d kept on the DESCRIPTION alone -- the title matched nothing." % kept_on_jd)
+    if DUMP_REJECTS:
+        close_reject_dump()
+        print(f"Dropped-posting dump written to {DUMP_REJECTS}.")
     print(f"{len(kept)} NEW matching job(s):")
     for j in kept:
         flag = "" if j["sponsors_h1b"] != "yes" else "  [sponsors H1B]"
