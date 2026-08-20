@@ -3,3 +3,12 @@
 # Committed build output. Marking it generated keeps a bundle change from drowning review;
 # the CI reproducibility gate is what actually establishes trust in it.
 "JobMatch Scraper/static/dist/**" linguist-generated=true -diff
+
+# Generated docs. THE eol=lf IS LOAD-BEARING, not tidiness: build_docs.py --check compares the
+# committed bytes against a fresh render, and core.autocrlf=true would give it CRLF on this
+# machine and LF on the Linux runner. Without this line the gate fails in CI forever while
+# passing locally. Same generated-marking as static/dist, for the same reason.
+"JobMatch Scraper/docs/INDEX.md" text eol=lf linguist-generated=true
+"JobMatch Scraper/docs/MAP.md" text eol=lf linguist-generated=true -diff
+"JobMatch Scraper/docs/map.html" text eol=lf linguist-generated=true -diff
+"JobMatch Scraper/docs/img/*.svg" text eol=lf linguist-generated=true -diff
