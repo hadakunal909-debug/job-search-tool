@@ -45,12 +45,17 @@ if hasattr(sys.stdout, "reconfigure"):
 import core
 import db
 import scraper
+import scraper.liveness as liveness
 import scraper.score_jobs as sj
 
 VERDICT_KEY = "jd_host_verdicts"
 # A host needs this many probed rows agreeing before its verdict is recorded. One 404 is a
 # closed posting; three 404s out of three is a statement about the host.
 MIN_AGREE = 2
+
+# url -> why, per non-gone verdict. Populated by _probe purely so a survey run can say WHY it
+# declined to close something, which is the question anyone reading this output actually has.
+_WHY = {}
 
 
 def _probe(url, title="", location=""):
@@ -60,10 +65,13 @@ def _probe(url, title="", location=""):
     throws it away is the same waste this whole file is about. Whatever it finds is written by
     the RECOVER step in main().
     """
-    status, nbytes = "", 0
+    status, nbytes, body, final_url = "", 0, "", ""
     try:
         r = scraper._safe_get(url, timeout=20)
-        status, nbytes = str(r.status_code), len(r.text or "")
+        # The BODY, not just its length. Every guard in scraper.liveness that distinguishes a bot
+        # wall from a withdrawn posting needs the text, and _safe_get already paid for it.
+        body = r.text or ""
+        status, nbytes, final_url = str(r.status_code), len(body), (r.url or "")
     except Exception as e:
         status = "ERR:" + type(e).__name__
     jd = ""
@@ -83,13 +91,13 @@ def _probe(url, title="", location=""):
             pass
     if len(jd) >= core._MIN_JD_CHARS:
         return "readable", status, nbytes, jd
-    if status in ("404", "410"):
-        return "gone", status, nbytes, jd
-    if status in ("403", "405", "401") or status.startswith("ERR"):
-        return "blocked", status, nbytes, jd
-    if status == "200" and nbytes < 500:
-        return "gone", status, nbytes, jd           # 200 with an empty body is a dead posting
-    return "unknown", status, nbytes, jd
+    # Everything else is scraper.liveness's call. It was inline here and had no idea about bot
+    # walls, 429/503, or a redirect that lands on a listing page -- see that module's docstring
+    # for what each hole cost. Only "gone" ever closes a row (see CLOSES_THE_POSTING).
+    verdict, why = liveness.classify(status, body, url, final_url)
+    if verdict != "gone":
+        _WHY.setdefault(verdict, {})[url] = why
+    return verdict, status, nbytes, jd
 
 
 def main():
@@ -164,8 +172,7 @@ def main():
         elif n < MIN_AGREE and len(outs) >= MIN_AGREE:
             top, note = "unknown", "probes disagreed"
         else:
-            note = {"gone": "posting withdrawn", "blocked": "refuses server-side reads",
-                    "unknown": "200 with content and still no text"}.get(top, "")
+            note = liveness.VERDICT_NOTES.get(top, "")
         print("%-42s %6d  %-10s %-18s %s" % (h[:42], len(us), top, statuses, note))
         verdicts[h] = {"verdict": top, "statuses": statuses, "rows": len(us),
                        "checked": today, "probed": len(outs)}
@@ -179,7 +186,7 @@ def main():
     # CLOSE: only rows THIS RUN saw 404/410 (or a 200 with an empty body) for themselves. Never
     # inferred from a host-mate — is_active=false takes a job out of the feed, so it has to be
     # earned per row.
-    close = [u for u, v in per_row.items() if v == "gone"]
+    close = [u for u, v in per_row.items() if v in liveness.CLOSES_THE_POSTING]
 
     if recovered:
         print("\nWOULD RECOVER %d description(s) the probe read successfully (avg %d chars)"

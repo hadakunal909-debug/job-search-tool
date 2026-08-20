@@ -1,16 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
+{% include "_brainnav.html" %}
 <div class="rb">
 <div class="card">
   <h1>Your Tailored Draft</h1>
-  <p class="muted small">AI-written from your real material + the brain's plan. Edit anything, then copy
+  <p class="muted small">Written from your real material and the brain's plan{% if intensity %}, at
+    <strong>{{ intensity }}</strong>{% endif %}. Edit anything, then copy
     or download as .docx. <a class="backlink" href="{{ url_for('brain_tailor_page') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> Back to Tailor</a></p>
 </div>
 
 {% if error %}<div class="card"><div class="note warn">Couldn't generate: {{ error }}</div></div>{% endif %}
 
 {% if out %}
-  {% if out.parse_warning %}<div class="card"><div class="note">The model didn't return clean JSON, so this is its raw output. Edit as needed.</div></div>{% endif %}
+  {% if out.parse_warning %}<div class="card"><div class="note">The model returned nothing usable, so there is no draft below. This is almost always a truncated response — try again, or pick a lighter setting.</div></div>{% endif %}
   {% if out.notes %}<div class="card"><h2>Notes</h2><ul class="muted small">{% for n in out.notes %}<li>{{ n }}</li>{% endfor %}</ul></div>{% endif %}
 
   <div class="card">

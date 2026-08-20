@@ -380,6 +380,30 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/ev_maintain.py --apply
 
+      # The map behind the feed card's "Posted Nx" badge. Derived from the corpus rather than
+      # scraped, so it has to run AFTER the sweep — and it is cheap: one description-free select
+      # plus in-memory clustering, measured at 28s over 25,180 rows, producing 528 keys.
+      #
+      # No env block. DB_PROXY_* is set at JOB level and that is the whole transport; the
+      # SUPABASE_* pairs on the older steps above are vestigial, and copying them into a new step
+      # would propagate dead configuration.
+      #
+      # continue-on-error and a tight cap for exactly the reason the analytics rollup above has
+      # them: a badge is decoration on a feed, and it must never be the reason the digest below
+      # does not send.
+      #
+      # NOTE, and it is why this also lives in bin/cron_scrape.sh: the Actions DB_PROXY_SECRET has
+      # been a wrong value since ~2026-08-15 and every scheduled run of this job's later steps
+      # fails `401 bad signature`. Until Kunal re-pastes it, THIS STEP IS A NO-OP HERE and the
+      # cPanel cron is what actually refreshes the map.
+      - name: Publish the repost-cluster map (feed badge)
+        if: >-
+          steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+          && steps.scrape.outcome == 'success' && !cancelled()
+        timeout-minutes: 4
+        continue-on-error: true
+        run: python -m scraper.reposts --write --top 0
+
       - name: Email the digest (once a day / on manual run)
         if: >-
           steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'

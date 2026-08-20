@@ -140,6 +140,9 @@
              own name is the honest title. #}
           <h1 class="rvtitle">{{ chosen.name or 'Résumé' }}
             <span class="rvtitle-s">{{ r.band }} · {{ r.score }}/100</span></h1>
+          {# The band was a bare adjective. "Solid" is a verdict with no content unless it also says
+             what the word means on this scale and what moves it. #}
+          {% if r.band_note %}<div class="rvbandnote">{{ r.band_note }}</div>{% endif %}
           <div class="muted">{{ r.checks|length }} checks against a <strong>{{ r.level }}-level</strong>
             standard. This scale is ours alone — not comparable to any other tool's number.</div>
           <div class="rs-levels">Grade as:
@@ -195,7 +198,16 @@
             <span class="muted">{{ c.score }}/10</span>
             {% if c.spans %}<span class="rvjump">mark {{ c.spans|length }} in document</span>{% endif %}</div>
           <div class="rs-detail">{{ c.detail }}</div>
+          {# Two lines on purpose. `fix` names this user's own worst line; `rule` is the general
+             principle, which is what the whole list used to be. Diagnosis then next move — a
+             number with no instruction beside it is why the old panel read as generic. #}
           <div class="rs-fix">{{ c.fix }}</div>
+          {% if c.rule and c.rule != c.fix %}<div class="rs-rule">{{ c.rule }}</div>{% endif %}
+          {% if c.bullet_level and bullets and bullets.total %}
+            {# The per-line version of this advice already exists one tab away. Restating it here
+               would duplicate a work queue; sending the user there does not. #}
+            <button type="button" class="rvxtab" data-goto-tab="bullets">See every affected bullet →</button>
+          {% endif %}
           {% if c.offenders %}
           <ul class="rs-off">{% for o in c.offenders %}<li>{{ o }}</li>{% endfor %}</ul>
           {% endif %}
@@ -204,6 +216,51 @@
       </ol>
       {% else %}
       <p class="u-m0">Nothing material left to fix — every check is at or near full marks.</p>
+      {% endif %}
+
+      {# ---- What An ATS Sees ----
+         score_resume() has computed report["parse"] on every single render since the rubric
+         shipped, and nothing displayed it: the markup existed only in templates/resume.html, which
+         no route renders any more. So this is free — no new computation, no new query. It is also
+         the most direct answer to "the inputs are not worth it", because it is the one panel that
+         shows the user what we actually got out of the file they gave us.
+         Collapsed by default so it cannot push the ranked fixes down the page. #}
+      {% set p = r.parse %}
+      {% if p %}
+      <details class="rvats">
+        <summary class="rs-sum">What an ATS sees</summary>
+        <p class="rs-detail">Your résumé as a parser reads it — the same extraction this page scored.
+          If something below is missing or wrong, an applicant tracking system reads it the same way,
+          and no recruiter search will find you.</p>
+        <div class="tiles">
+          <div class="tile"><div class="tile-n">{{ p.words }}</div><div class="tile-l">Words extracted</div></div>
+          <div class="tile"><div class="tile-n">~{{ p.pages }}</div><div class="tile-l">Estimated pages</div></div>
+          <div class="tile"><div class="tile-n">{{ p.experience_bullets }}</div><div class="tile-l">Experience bullets</div></div>
+          <div class="tile{{ ' warn' if p.fragment_pct > 45 }}"><div class="tile-n">{{ p.fragment_pct }}%</div><div class="tile-l">Short fragment lines</div></div>
+        </div>
+        <div class="rs-scroll">
+        <table class="rs-table">
+          <tbody>
+            <tr><th>Name</th><td>{{ p.name or '— not detected —' }}</td></tr>
+            <tr><th>Email</th><td>{{ p.contact.email or '— not detected in header —' }}</td></tr>
+            <tr><th>Phone</th><td>{{ p.contact.phone or '— not detected in header —' }}</td></tr>
+            <tr><th>Location</th><td>{{ p.contact.location or '— not detected in header —' }}</td></tr>
+            <tr><th>LinkedIn</th><td>{{ p.contact.linkedin or '— not detected —' }}</td></tr>
+            <tr><th>Date format</th><td>{{ p.date_formats|join(', ') or '— no dates detected —' }}</td></tr>
+            <tr><th>Sections</th>
+              {# s['items'] not s.items — Jinja tries attribute access first and a dict HAS an
+                 .items method, so dotted access renders "<built-in method items…>", not the count. #}
+              <td>{% if p.sections %}{% for s in p.sections %}<span class="count-pill">{{ s.title }} · {{ s['items'] }}</span> {% endfor %}
+                  {% else %}— none recognised —{% endif %}</td></tr>
+          </tbody>
+        </table>
+        </div>
+        {% if not p.found_experience_section %}
+        <div class="banner">No experience section was recognised. An ATS that cannot find your work
+          history may read you as unemployed — label the section literally
+          (<em>Experience</em> or <em>Professional Experience</em>) on its own line.</div>
+        {% endif %}
+      </details>
       {% endif %}
 
       </div>
@@ -276,9 +333,9 @@
       <div class="section-head"><h2>Keywords Your Roles Expect</h2>
         <span class="count-pill">{{ keywords.have|length }} of {{ keywords.total }}</span></div>
       <p class="sub">Read from {{ keywords.total }} skills that <strong>{{ keywords.track }}</strong>-track
-      postings ask for most{% if keywords.source == 'corpus' %}, measured across the 25,036 real jobs in
-      your own corpus{% else %}, from the curated skill list (run
-      <code>scripts/build_resume_vocab.py</code> for the corpus version){% endif %}. A keyword only
+      postings ask for most{% if keywords.source == 'corpus' %}, measured across
+      {% if keywords.corpus_jobs %}the {{ "{:,}".format(keywords.corpus_jobs) }} real jobs{% else %}the real jobs{% endif %}
+      in your own feed{% else %}, from a curated skill list rather than from your own feed{% endif %}. A keyword only
       counts when it appears in an <strong>accomplishment</strong> — pasting it into a skills list is
       the habit recruiters read as filler.</p>
       {% if keywords.missing %}
@@ -290,8 +347,8 @@
       <div class="kw">{% for k in keywords.have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
       {% endif %}
       {% else %}
-      <p class="u-m0">No keyword expectations available yet. Run
-      <code>python scripts/build_resume_vocab.py</code> to build them from your job corpus.</p>
+      <p class="u-m0">Not available yet — the keyword list has not been built from the job corpus on
+      this server. Every other tab works without it.</p>
       {% endif %}
     </div>
 

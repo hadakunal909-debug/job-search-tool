@@ -108,6 +108,8 @@ rb = _LazyMod("resume_brain.brain")
 rb_ai = _LazyMod("resume_brain.ai")
 rb_export = _LazyMod("resume_brain.export")
 rb_latex = _LazyMod("resume_brain.latex")
+rb_voice = _LazyMod("resume_brain.voice")   # the shared style guide + intensity levels
+rb_reposts = _LazyMod("scraper.reposts")   # cluster_key; +31ms on first use, measured
 
 app = Flask(__name__)
 
@@ -917,6 +919,37 @@ def _host_jd_blocked(url):
     return core.url_host(url) in _jd_blocked_hosts
 
 
+_REPOST_KEY = "repost_clusters"
+_repost_clusters = None
+
+
+def _repost_count(title, company, location):
+    """How many times this exact role has been advertised at this location, or 0.
+
+    Read from the repost_clusters KV row that scripts/detect_reposts.py --write publishes, keyed by
+    scraper.reposts.cluster_key so the writer and this reader cannot disagree about what a role IS.
+    Cached for the worker's lifetime, same as _host_jd_blocked: the map changes when someone reruns
+    that script, not per request.
+
+    Keyed on role identity rather than on URL deliberately — a posting scraped AFTER the map was
+    built still gets badged, because it hashes to the same key as the cluster it belongs to. That
+    is the whole reason the stored map is ~500 keys and not ~2,200 URLs.
+    """
+    global _repost_clusters
+    if _repost_clusters is None:
+        try:
+            _repost_clusters = (db.get_kv(_REPOST_KEY) or {}).get("clusters") or {}
+        except Exception:
+            _repost_clusters = {}
+    if not _repost_clusters:
+        return 0
+    try:
+        return int(_repost_clusters.get(
+            rb_reposts.cluster_key(title, company, location)) or 0)
+    except Exception:
+        return 0
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -1031,6 +1064,10 @@ def _build_row(j, score):
             "jd_unavailable": unavailable,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c),
+            # How many distinct URLs this same role has had at this location inside the repost
+            # window. 0 for the overwhelming majority. A measurement, not a judgement: the card
+            # states the count and lets the reader decide whether it smells like a ghost req.
+            "repost": _repost_count(j.get("title"), c, j.get("location")),
             # Which immigration routes this employer has actually filed for (DOL LCA + PERM
             # + E-Verify). A missing tag means "no record", never "won't sponsor".
             #
@@ -4622,7 +4659,9 @@ def _csvf(s):
 def _render_brain(user, inputs, data):
     return render_template("brain_tailor.html", inputs=inputs, data=data,
                            have_resumes=bool(rb.list_resumes(user)),
-                           have_key=bool(_ai_key_for(user)))
+                           have_key=bool(_ai_key_for(user)),
+                           intensities=rb_voice.intensity_choices(),
+                           default_intensity=rb_voice.DEFAULT_INTENSITY)
 
 
 @app.route("/brain")
@@ -4744,8 +4783,9 @@ def brain_feedback():
 @app.route("/brain/rewrite", methods=["POST"])
 @login_required
 def brain_rewrite():
-    """OPTIONAL AI layer: re-derive the plan, then have Gemini write the finished résumé +
-    cover letter. Reuses the app's existing Gemini key (session or GEMINI_API_KEY)."""
+    """OPTIONAL AI layer: re-derive the plan, then have the model write the finished résumé +
+    cover letter. Reuses the app's existing key (session, GEMINI_API_KEY or ANTHROPIC_API_KEY).
+    `intensity` (voice.INTENSITY) decides how far it may depart from the original."""
     user = session["user"]
     key_in = (request.form.get("api_key") or "").strip()
     if key_in:
@@ -4754,9 +4794,10 @@ def brain_rewrite():
     inputs = {"company": (request.form.get("company") or "").strip(),
               "company_url": (request.form.get("company_url") or "").strip(),
               "job_url": (request.form.get("job_url") or "").strip(),
-              "jd": (request.form.get("jd") or "").strip()}
+              "jd": (request.form.get("jd") or "").strip(),
+              "intensity": (request.form.get("intensity") or "").strip()}
     if not key:
-        flash("Add a Google Gemini API key to use AI rewrite (the field on the tailor page).")
+        flash("Add an AI key to use AI rewrite (the field on the tailor page).")
         return redirect(url_for("brain_home"))
     data = rb.run_tailor(user, jd_text=inputs["jd"], job_url=inputs["job_url"],
                          company_name=inputs["company"], company_url=inputs["company_url"],
@@ -4767,10 +4808,11 @@ def brain_rewrite():
         return redirect(url_for("brain_home"))
     out, err = None, ""
     try:
-        out = rb_ai.rewrite(ctx, key)
+        out = rb_ai.rewrite(ctx, key, intensity=inputs["intensity"])
     except Exception as e:
         err = str(e)[:250]
-    return render_template("brain_rewrite.html", out=out, error=err, ctx=ctx, inputs=inputs)
+    return render_template("brain_rewrite.html", out=out, error=err, ctx=ctx, inputs=inputs,
+                           intensity=rb_voice.intensity_label(inputs["intensity"]))
 
 
 def _docx_response(text, title, filename):
@@ -5049,8 +5091,18 @@ def brain_companies():
 @app.route("/brain/jobs.json")
 @login_required
 def brain_jobs_json():
-    """Job search for the in-Brain picker — up to 20 matches (with a stored JD) by title/company."""
+    """Job search for the in-Brain picker, by title/company, restricted to jobs with a stored JD.
+
+    The cap was a flat 20, which for a query like "engineer" silently hid almost everything and
+    made the picker look broken -- so people pasted the JD by hand instead, which is the input
+    burden this picker exists to remove. `limit` is now a query arg (default 50, hard max 200) so
+    the client can ask for more without this becoming an unbounded scan of the corpus.
+    """
     q = (request.args.get("q") or "").strip().lower()
+    try:
+        limit = min(200, max(1, int(request.args.get("limit") or 50)))
+    except (TypeError, ValueError):
+        limit = 50
     out = []
     if q:
         have_jd = db.urls_with_jd()      # which jobs have a stored description (feed rows omit it)
@@ -5059,9 +5111,9 @@ def brain_jobs_json():
             if q in hay and j.get("url") in have_jd:
                 out.append({"url": j.get("url", ""), "title": j.get("title", ""),
                             "company": j.get("company", "")})
-                if len(out) >= 20:
+                if len(out) >= limit:
                     break
-    return {"jobs": out}
+    return {"jobs": out, "capped": len(out) >= limit}
 
 
 # ----------------------------- sponsor careers -----------------------------

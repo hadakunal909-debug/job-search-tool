@@ -24,8 +24,11 @@ fits best, which stories to feature, and what the posting is asking for that you
   <div id="jobresults" class="jobpick"></div>
 
   <div class="grid2">
-    <label>Company <span class="req">*</span>
-      <input type="text" name="company" value="{{ inputs.company }}" placeholder="e.g. Stripe" required>
+    {# Was `required`, though run_tailor has always worked without it -- the only cost of leaving
+       it blank is no company research. Demanding it made every tailor a two-field chore even when
+       the JD was already pasted. #}
+    <label>Company <span class="muted">(optional — enables company research)</span>
+      <input type="text" name="company" value="{{ inputs.company }}" placeholder="e.g. Stripe">
     </label>
     <label>Company website <span class="muted">(optional)</span>
       <input type="text" name="company_url" value="{{ inputs.company_url }}" placeholder="stripe.com">
@@ -80,7 +83,7 @@ fits best, which stories to feature, and what the posting is asking for that you
           {% for s in r.stories %}
             <li>
               <label class="storypick"><input type="checkbox" name="story_ids" value="{{ s.story.id }}"> {{ s.story.title }} <span class="badge">{{ s.score }}</span></label>
-              <div class="muted small">{{ s.reason }}</div>
+              {% if s.reason %}<div class="muted small">{{ s.reason }}</div>{% endif %}
             </li>
           {% endfor %}
         </ul>
@@ -93,7 +96,7 @@ fits best, which stories to feature, and what the posting is asking for that you
 
   <div class="card ai">
     <h2>Write it for me <span class="muted small">(optional AI)</span></h2>
-    <p class="muted small">Turn the plan into a finished tailored résumé <em>and</em> cover letter, grounded in your real material. Uses your Gemini key; the matching core stays AI-free.</p>
+    <p class="muted small">Turn the plan into a finished tailored résumé <em>and</em> cover letter, grounded in your real material. Your key, your account only; the matching and scoring stay AI-free.</p>
     <form method="post" action="{{ url_for('brain_rewrite') }}" id="rewriteForm">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="company" value="{{ inputs.company }}">
@@ -104,7 +107,13 @@ fits best, which stories to feature, and what the posting is asking for that you
         <p class="muted small">Stories to weave in:</p>
         <div class="chips">{% for s in r.stories %}<label class="storypick"><input type="checkbox" name="story_ids" value="{{ s.story.id }}" {% if loop.index <= 3 %}checked{% endif %}> {{ s.story.title }}</label>{% endfor %}</div>
       {% endif %}
-      {% if not have_key %}<label>Gemini API key <span class="muted">(saved to your session, ~30 days; not in the DB)</span><input type="password" name="api_key" placeholder="AIza…" autocomplete="off"></label>{% endif %}
+      <fieldset class="tighten">
+        <legend class="muted small">How far should it go?</legend>
+        {% for value, label, hint in intensities %}
+          <label class="storypick"><input type="radio" name="intensity" value="{{ value }}" {% if value == default_intensity %}checked{% endif %}> {{ label }} <span class="muted small">— {{ hint }}</span></label>
+        {% endfor %}
+      </fieldset>
+      {% if not have_key %}<label>AI API key <span class="muted">(Gemini <code>AIza…</code> or Claude <code>sk-ant-…</code>; saved to your session for ~30 days, never to the database)</span><input type="password" name="api_key" placeholder="AIza… or sk-ant-…" autocomplete="off"></label>{% endif %}
       <div class="row"><button type="submit" class="btn primary" id="rewriteBtn">Write Résumé + Cover Letter</button></div>
     </form>
   </div>
@@ -114,7 +123,7 @@ fits best, which stories to feature, and what the posting is asking for that you
   <div class="card">
     <h2>How This Job Is Written</h2>
     {% if r.symphony.tones %}<div class="chips">{% for t in r.symphony.tones %}<span class="chip tone">{{ t }}</span>{% endfor %}</div>{% endif %}
-    <p class="muted small">{{ r.symphony.focus }} · {{ r.symphony.formality }} tone · ~{{ r.symphony.avg_sentence_len }} words/sentence.{% if r.symphony.top_verbs %} Echo their verbs: {{ r.symphony.top_verbs | join(', ') }}.{% endif %}</p>
+    <p class="muted small">{{ r.symphony.focus }} · {{ r.symphony.formality }} tone · ~{{ r.symphony.avg_sentence_len }} words/sentence.{% if r.symphony.top_verbs %} Their favourite verbs: {{ r.symphony.top_verbs | join(', ') }} — worth echoing in a cover letter, not in your bullets.{% endif %}</p>
   </div>
 
   {% if r.looking_for %}<div class="card"><h2>What They're Looking For</h2><ul class="muted small">{% for s in r.looking_for %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
