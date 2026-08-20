@@ -17,10 +17,18 @@ EXC = scraper._EXCLUDE_RE
 
 
 def verdict(title):
-    """'drop-exclude' | 'drop-no-include' | 'keep', mirroring the keep rule in scrape_all."""
-    if EXC.search(title):
-        return "drop-exclude"
-    return "keep" if INC.search(title) else "drop-no-include"
+    """'drop-exclude' | 'drop-no-include' | 'keep'.
+
+    DELEGATES to scraper.title_verdict rather than rebuilding the rule from INC/EXC, which is
+    what this used to do. That copy silently went stale the moment title_verdict grew a third
+    branch (the reversed "Manager, Projects" form, 2026-08-20): every assertion here still passed
+    while the function under test had changed behaviour. A test that reimplements its subject
+    stops testing it.
+    """
+    keep, why = scraper.title_verdict(title)
+    if keep:
+        return "keep"
+    return "drop-exclude" if why.startswith("off-target") else "drop-no-include"
 
 
 def test_retail_operations_associate_is_gone():
@@ -95,6 +103,40 @@ def test_pharma_project_roles_are_kept():
     for t in ("Senior Project Manager Clinical Research", "Associate Clinical Project Manager",
               "Clinical Project Coordinator"):
         assert verdict(t) == "keep", t
+
+
+def test_the_reversed_manager_comma_thing_form_is_kept():
+    """Disney posts "Manager, Projects"; every INCLUDE phrase reads "thing role", so the filter
+    dropped it and Kunal had to notice by hand. Reported 2026-08-20 from a disneycareers.com
+    link -- the board was already scraped (114 Disney rows), so this was a filter blind spot,
+    never a coverage gap."""
+    for t in ("Manager, Projects", "Manager, Operations", "Coordinator, Projects",
+              "Analyst, Operations", "Director, Programs", "Manager, Project Management"):
+        assert verdict(t) == "keep", t
+
+
+def test_the_reversed_form_does_not_smuggle_in_design_or_marketing():
+    """The measured false positives. A looser version of this rule -- with bare "product" in the
+    thing-list -- admitted 13 rows across 1,493 US titles and SIX were off-target: Product Design,
+    Product Marketing, Product Architecture. "product" reads as design or marketing far more often
+    than as product management, so only whole role phrases are allowed."""
+    for t in ("Manager, Product Design", "Senior Director, Product Marketing, CxO Marketing",
+              "Director, Product Architecture & Evangelism", "Manager, Talent Acquisition",
+              "Director, Facilities", "Manager, Payroll", "Manager, Compensation"):
+        assert verdict(t) != "keep", t
+
+
+def test_the_reversed_thing_must_sit_next_to_the_comma():
+    """Otherwise a stray "operations" three words later re-admits a pricing role: "Senior Analyst,
+    Product & Pricing Operations" was in the loose version's output and should not be."""
+    assert verdict("Senior Analyst, Product & Pricing Operations") != "keep"
+
+
+def test_exclude_still_beats_the_reversed_form():
+    """The reversed branch runs after EXCLUDE on purpose -- it must never re-admit something the
+    exclude list already turned away."""
+    for t in ("Manager, Projects - Retail Sales Associate", "Intern, Operations - Cashier"):
+        assert verdict(t) == "drop-exclude", t
 
 
 def test_known_retail_floor_titles_still_blocked():
