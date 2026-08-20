@@ -22,6 +22,7 @@ as prune_stale.py and the admin delete: never silently bin something a user is t
 import argparse
 import collections
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,6 +37,13 @@ def _score(row):
     return int(s) if s.isdigit() else 0
 
 
+def _reason_key(why):
+    """Collapse title_verdict's per-row reason into a countable bucket, keeping the two labels
+    this script has always printed."""
+    m = re.match(r"off-target function \('(.+)'\)$", why)
+    return ("excluded: " + m.group(1).lower()) if m else "no INCLUDE match"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="actually delete (default: dry run)")
@@ -47,9 +55,18 @@ def main():
                          "change is a good trade")
     a = ap.parse_args()
 
+    # Broaden the module's own matcher exactly as scraper.main() does, then let title_verdict
+    # do the judging.
+    #
+    # THIS SCRIPT USED TO RE-IMPLEMENT THE KEEP RULE as `exc.search(t) / inc.search(t)`, and
+    # that copy went stale the moment title_verdict grew a third branch. The reversed
+    # "Manager, Projects" form shipped 2026-08-20; a re-implementation that has never heard of
+    # it reads every such row as off-target, so running this script would have DELETED the very
+    # rows that commit was written to keep. test_title_filter.py had the identical bug and the
+    # identical fix: delegate to the subject instead of rebuilding it.
     extra = scraper.resume_terms()
-    inc = scraper._make_matcher(tuple(scraper.INCLUDE) + tuple(extra))
-    exc = scraper._EXCLUDE_RE
+    if extra:
+        scraper._INCLUDE_RE = scraper._make_matcher(tuple(scraper.INCLUDE) + tuple(extra))
 
     rows = db.load_jobs(include_jd=False)
     total = len(rows)
@@ -58,13 +75,10 @@ def main():
         t = r.get("title") or ""
         if not r.get("url"):
             continue
-        hit = exc.search(t)
-        if hit:
+        keep, why = scraper.title_verdict(t)
+        if not keep:
             doomed_rows.append(r)
-            reasons["excluded: " + hit.group(0).lower()] += 1
-        elif not inc.search(t):
-            doomed_rows.append(r)
-            reasons["no INCLUDE match"] += 1
+            reasons[_reason_key(why)] += 1
 
     flagged = db.all_flagged_urls()
     protected = [r for r in doomed_rows if r["url"] in flagged]
