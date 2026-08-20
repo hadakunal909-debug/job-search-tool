@@ -1,5 +1,19 @@
 #!/bin/bash
-# Hourly scrape, run by cPanel cron on the same box as the app and the database.
+# Scheduled scrape, run by cPanel cron on the same box as the app and the database.
+#
+# THE SCHEDULE, because cPanel keeps it in a web form and nowhere else. Two slots, Mon-Fri, in
+# the SERVER's local time — paste these into cPanel -> Cron Jobs, one row each:
+#
+#   0 13 * * 1-5   /bin/bash $HOME/stemjobs/bin/cron_scrape.sh
+#   0 16 * * 1-5   /bin/bash $HOME/stemjobs/bin/cron_scrape.sh
+#
+# GitHub Actions covers the 09:00 slot (the heavy pass — verify_dates, analytics, the digest);
+# see .github/workflows/scrape.yml at the repo ROOT. Three runs a weekday in total, and none at
+# the weekend: employers do not post then, and Actions minutes are capped.
+#
+# It said "Hourly" here until 2026-08-20 and had not been hourly since the database moved to
+# cPanel. Two runs a day is the real cadence, which matters because every budget below was
+# sized against it.
 #
 # WHY THIS IS NOT JUST `python -m scraper`. Three things bite on shared hosting, and all three
 # are silent:
