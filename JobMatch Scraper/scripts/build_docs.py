@@ -115,10 +115,12 @@ INDEX = (
         "{web.py::_invalidate_jobs} is what a write must call. The on-disk gzip snapshot is "
         "{web.py::_snapshot_read} / {web.py::_snapshot_write}, shared across Passenger workers.",
         "python scripts/test_jobs_cache.py"),
-    Row("Y", '"Similar roles" on a job page looks unrelated',
+    Row("B", '"Similar roles" on a job page looks unrelated',
         "{web.py::_title_index} and {web.py::_similar_roles}",
-        "{web.py::_TITLE_STOP} -- but see Known-wrong B1 first, because the copy that actually "
-        "runs is not the one next to this code.",
+        "{web.py::_TITLE_STOP} is the rail's list and is deliberately SHORT -- seniority and "
+        "level words are real signal and IDF already discounts them for being common. Do not "
+        "confuse it with {web.py::_USAGE_STOP}, which is /admin/usage's token-lift list and "
+        "stops the opposite things on purpose. They shared a name until 2026-08-20; see B1.",
         "python scripts/test_search_and_similar.py"),
 
     # ---- intake -----------------------------------------------------------------------------
@@ -236,7 +238,9 @@ INDEX = (
     Row("Y", "The Chrome extension stopped working, or says it is out of date",
         "{web.py::EXT_MIN_VERSION} -- the server's floor",
         "extension/manifest.json's version must match, and NOTHING enforces that. Bumping the "
-        "manifest alone tells every install it is current. See also Known-wrong B2.",
+        "manifest alone tells every install it is current. The response carries no update_url "
+        "on purpose -- the extension is side-loaded, so Chrome can never update it; the `how` "
+        "string tells the user to pull and reload, and extension/popup.js is what shows it.",
         "python scripts/test_ext_contract.py"),
     Row("Y", "An aggregator relist reached the apply queue",
         "{web.py::_QUEUE_SKIP_HOSTS}",
@@ -280,23 +284,29 @@ KnownWrong = collections.namedtuple("KnownWrong", "tag title detail workaround")
 
 KNOWN_WRONG = (
     KnownWrong(
-        "B1", "_TITLE_STOP is defined twice and the live copy is the wrong one",
-        "{web.py::_TITLE_STOP} is bound once for the similar-roles title index and again, much "
-        "later in the same file, with a different word list for /admin/usage. Python resolves "
-        "globals at call time, so {web.py::_title_tokens} -- which sits thousands of lines above "
-        "the second binding -- uses the SECOND list. That list strips engineer, manager, "
-        "analyst, specialist, associate, developer, director, intern, senior, sr, jr, junior and "
-        "lead, which are exactly the tokens that distinguish one role from another, and it keeps "
-        "job, role, position, remote, hybrid and usa, which the intended list removes. So "
-        "\"Similar roles at other employers\" ranks on boilerplate and location, and the first "
-        "definition has no effect at all.",
-        "Rename one of them. Nothing depends on the collision."),
+        "B1", "_TITLE_STOP was defined twice and the live copy was the wrong one (FIXED 2026-08-20)",
+        "{web.py::_TITLE_STOP} was bound once for the similar-roles title index and again, 2,500 "
+        "lines later, with a different word list for /admin/usage. Python resolves globals at "
+        "call time, so {web.py::_title_tokens} used the SECOND list -- which strips engineer, "
+        "manager, analyst, developer, senior and lead, exactly the tokens that distinguish one "
+        "role from another, and keeps job, role, remote, hybrid and usa, which the intended list "
+        "removes. Measured effect: \"Senior Project Manager, Remote - USA\" matched on "
+        "{project, remote, usa}, so it was ranked similar to any remote US job; it now matches "
+        "on {manager, project, senior}. The first definition had no effect at all.",
+        "Fixed by renaming the admin one to {web.py::_USAGE_STOP}. Both lists were individually "
+        "correct and self-documenting -- only the shared name was wrong. build_docs.py now "
+        "detects module-level shadowing on every run and tells a real shadow apart from a "
+        "deliberate compile-in-place rebind, so this class cannot return silently."),
     KnownWrong(
-        "B2", "/extension is advertised as the update URL and 404s",
-        "{web.py::ext_version} returns request.host_url + \"/extension\" to every extension that "
-        "checks its version, and no route serves that path -- there is no rule for it in web.py "
-        "and no .htaccess in the repo. The \"your extension is stale, update here\" link is dead.",
-        "Point it at the repo's extension/ directory, or add the route."),
+        "B2", "/extension was advertised as the update URL and 404'd (FIXED 2026-08-20)",
+        "{web.py::ext_version} returned request.host_url + \"/extension\" to every extension "
+        "that checked its version, and no route serves that path. Three things were wrong at "
+        "once: the URL 404'd, extension/popup.js never read the field (it shows the `how` "
+        "string), and {web.py::EXT_MIN_VERSION}'s own comment 40 lines above says the extension "
+        "is side-loaded unpacked with \"no update_url\" precisely because Chrome can never "
+        "update it. The field contradicted the design it sat next to.",
+        "Fixed by removing the field rather than adding a page nobody would visit. `how` was "
+        "already the real answer and was already being displayed."),
     KnownWrong(
         "B3", "Two test suites could not fail (FIXED 2026-08-20)",
         "scripts/test_visa.py and scripts/test_notify.py printed \"N FAILED\" and then exited 0. "

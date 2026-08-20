@@ -8,7 +8,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## Contents
 
-- [`web.py`](#webpy) — 6912 lines, 312 symbols — The Flask app: every route, every request hook, the feed.
+- [`web.py`](#webpy) — 6925 lines, 312 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 3012 lines, 197 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2796 lines, 175 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 6783 lines, 265 symbols — The sweep and the intake filter, plus every ATS adapter.
@@ -64,7 +64,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The Flask app: every route, every request hook, the feed.*
 
-6912 lines · 312 top-level symbols · 25 sections
+6925 lines · 312 top-level symbols · 25 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -79,20 +79,20 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [2656–3105](../web.py#L2656) | on-demand company research | 24 |
 | [3106–3455](../web.py#L3106) | admin dashboard | 20 |
 | [3456–3821](../web.py#L3456) | /admin/data — storage, growth, health | 19 |
-| [3822–4154](../web.py#L3822) | /admin/usage — behaviour, from the data that already exists | 12 |
-| [4155–4332](../web.py#L4155) | /admin/users — account management | 10 |
-| [4333–4568](../web.py#L4333) | destructive data actions (/admin/data) | 10 |
-| [4569–4615](../web.py#L4569) | résumé | 2 |
-| [4616–4716](../web.py#L4616) | tailor (keyword gaps + optional AI) | 5 |
-| [4717–4988](../web.py#L4717) | Resume Brain (the tailoring brain) | 13 |
-| [4989–5181](../web.py#L4989) | Teach: the knowledge base (per user) | 10 |
-| [5182–5217](../web.py#L5182) | sponsor careers | 2 |
-| [5218–5276](../web.py#L5218) | add a board | 3 |
-| [5277–5401](../web.py#L5277) | application tracker | 8 |
-| [5402–5444](../web.py#L5402) | profile + Chrome-extension API | 2 |
-| [5445–5500](../web.py#L5445) | CSRF on cookie-authenticated writes | 2 |
-| [5501–5622](../web.py#L5501) | extension API rate limiting | 8 |
-| [5623–6912](../web.py#L5623) | ONBOARDING | 42 |
+| [3822–4163](../web.py#L3822) | /admin/usage — behaviour, from the data that already exists | 12 |
+| [4164–4341](../web.py#L4164) | /admin/users — account management | 10 |
+| [4342–4577](../web.py#L4342) | destructive data actions (/admin/data) | 10 |
+| [4578–4624](../web.py#L4578) | résumé | 2 |
+| [4625–4725](../web.py#L4625) | tailor (keyword gaps + optional AI) | 5 |
+| [4726–4997](../web.py#L4726) | Resume Brain (the tailoring brain) | 13 |
+| [4998–5190](../web.py#L4998) | Teach: the knowledge base (per user) | 10 |
+| [5191–5226](../web.py#L5191) | sponsor careers | 2 |
+| [5227–5285](../web.py#L5227) | add a board | 3 |
+| [5286–5410](../web.py#L5286) | application tracker | 8 |
+| [5411–5453](../web.py#L5411) | profile + Chrome-extension API | 2 |
+| [5454–5509](../web.py#L5454) | CSRF on cookie-authenticated writes | 2 |
+| [5510–5631](../web.py#L5510) | extension API rate limiting | 8 |
+| [5632–6925](../web.py#L5632) | ONBOARDING | 42 |
 
 ## `core.py`
 
@@ -562,71 +562,71 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `/api/db` | POST | [`web.py:3775`](../web.py#L3775) `api_db` | /admin/data — storage, growth, health |
 | `/admin/data` | GET | [`web.py:3797`](../web.py#L3797) `admin_data` | /admin/data — storage, growth, health |
 | `/admin/health.json` | GET | [`web.py:3813`](../web.py#L3813) `admin_health` | /admin/data — storage, growth, health |
-| `/admin/usage` | GET | [`web.py:4091`](../web.py#L4091) `admin_usage` | /admin/usage — behaviour, from the data that already exists |
-| `/admin/users` | GET | [`web.py:4196`](../web.py#L4196) `admin_users` | /admin/users — account management |
-| `/admin/user/create` | POST | [`web.py:4213`](../web.py#L4213) `admin_user_create` | /admin/users — account management |
-| `/admin/user/password` | POST | [`web.py:4231`](../web.py#L4231) `admin_user_password` | /admin/users — account management |
-| `/admin/user/disable` | POST | [`web.py:4251`](../web.py#L4251) `admin_user_disable` | /admin/users — account management |
-| `/admin/user/revoke_token` | POST | [`web.py:4277`](../web.py#L4277) `admin_user_revoke_token` | /admin/users — account management |
-| `/admin/user/delete` | GET,POST | [`web.py:4295`](../web.py#L4295) `admin_user_delete` | /admin/users — account management |
-| `/admin/jobs/preview` | POST | [`web.py:4406`](../web.py#L4406) `admin_jobs_preview` | destructive data actions (/admin/data) |
-| `/admin/jobs/apply` | POST | [`web.py:4443`](../web.py#L4443) `admin_jobs_apply` | destructive data actions (/admin/data) |
-| `/admin/block` | POST | [`web.py:4513`](../web.py#L4513) `admin_block` | destructive data actions (/admin/data) |
-| `/action` | POST | [`web.py:4536`](../web.py#L4536) `action` | destructive data actions (/admin/data) |
-| `/resume` | GET,POST | [`web.py:4605`](../web.py#L4605) `resume` | résumé |
-| `/tailor` | GET | [`web.py:4636`](../web.py#L4636) `tailor` | tailor (keyword gaps + optional AI) |
-| `/tailor/ai` | POST | [`web.py:4654`](../web.py#L4654) `tailor_ai` | tailor (keyword gaps + optional AI) |
-| `/api/tailor` | POST | [`web.py:4692`](../web.py#L4692) `api_tailor` | tailor (keyword gaps + optional AI) |
-| `/brain` | GET | [`web.py:4732`](../web.py#L4732) `brain_home` | Resume Brain (the tailoring brain) |
-| `/brain/tailor` | GET | [`web.py:4797`](../web.py#L4797) `brain_tailor_page` | Resume Brain (the tailoring brain) |
-| `/brain/tailor` | POST | [`web.py:4821`](../web.py#L4821) `brain_tailor` | Resume Brain (the tailoring brain) |
-| `/brain/feedback` | POST | [`web.py:4835`](../web.py#L4835) `brain_feedback` | Resume Brain (the tailoring brain) |
-| `/brain/rewrite` | POST | [`web.py:4848`](../web.py#L4848) `brain_rewrite` | Resume Brain (the tailoring brain) |
-| `/brain/export/resume.docx` | POST | [`web.py:4893`](../web.py#L4893) `brain_export_resume` | Resume Brain (the tailoring brain) |
-| `/brain/export/cover.docx` | POST | [`web.py:4900`](../web.py#L4900) `brain_export_cover` | Resume Brain (the tailoring brain) |
-| `/brain/export/resume.pdf` | POST | [`web.py:4922`](../web.py#L4922) `brain_export_resume_pdf` | Resume Brain (the tailoring brain) |
-| `/brain/pdf_diag` | GET | [`web.py:4928`](../web.py#L4928) `brain_pdf_diag` | Resume Brain (the tailoring brain) |
-| `/brain/teach` | GET | [`web.py:4992`](../web.py#L4992) `brain_teach` | Teach: the knowledge base (per user) |
-| `/brain/resume/save` | POST | [`web.py:5001`](../web.py#L5001) `brain_resume_save` | Teach: the knowledge base (per user) |
-| `/brain/resume/file/<fid>` | GET | [`web.py:5043`](../web.py#L5043) `brain_resume_file` | Teach: the knowledge base (per user) |
-| `/brain/resume/file/<fid>/<path:name>` | GET | [`web.py:5043`](../web.py#L5043) `brain_resume_file` | Teach: the knowledge base (per user) |
-| `/brain/resume/delete` | POST | [`web.py:5093`](../web.py#L5093) `brain_resume_delete` | Teach: the knowledge base (per user) |
-| `/brain/story/save` | POST | [`web.py:5103`](../web.py#L5103) `brain_story_save` | Teach: the knowledge base (per user) |
-| `/brain/story/delete` | POST | [`web.py:5117`](../web.py#L5117) `brain_story_delete` | Teach: the knowledge base (per user) |
-| `/brain/lesson/save` | POST | [`web.py:5127`](../web.py#L5127) `brain_lesson_save` | Teach: the knowledge base (per user) |
-| `/brain/lesson/delete` | POST | [`web.py:5139`](../web.py#L5139) `brain_lesson_delete` | Teach: the knowledge base (per user) |
-| `/brain/companies` | GET | [`web.py:5148`](../web.py#L5148) `brain_companies` | Teach: the knowledge base (per user) |
-| `/brain/jobs.json` | GET | [`web.py:5156`](../web.py#L5156) `brain_jobs_json` | Teach: the knowledge base (per user) |
-| `/careers` | GET | [`web.py:5206`](../web.py#L5206) `careers` | sponsor careers |
-| `/add` | GET,POST | [`web.py:5226`](../web.py#L5226) `add_board` | add a board |
-| `/board/delete` | POST | [`web.py:5269`](../web.py#L5269) `board_delete` | add a board |
-| `/applications` | GET | [`web.py:5309`](../web.py#L5309) `applications` | application tracker |
-| `/application/save` | POST | [`web.py:5333`](../web.py#L5333) `application_save` | application tracker |
-| `/application/delete` | POST | [`web.py:5356`](../web.py#L5356) `application_delete` | application tracker |
-| `/applications.csv` | GET | [`web.py:5367`](../web.py#L5367) `applications_csv` | application tracker |
-| `/application/resume` | GET | [`web.py:5386`](../web.py#L5386) `application_resume` | application tracker |
-| `/profile/tracking` | POST | [`web.py:5570`](../web.py#L5570) `profile_tracking` | extension API rate limiting |
-| `/profile/revoke_token` | POST | [`web.py:5600`](../web.py#L5600) `profile_revoke_token` | extension API rate limiting |
-| `/api/onboard/resume` | POST | [`web.py:5811`](../web.py#L5811) `api_onboard_resume` | ONBOARDING |
-| `/welcome` | GET,POST | [`web.py:5877`](../web.py#L5877) `welcome` | ONBOARDING |
-| `/profile` | GET,POST | [`web.py:5978`](../web.py#L5978) `profile` | ONBOARDING |
-| `/api/ext/save` | POST,OPTIONS | [`web.py:6026`](../web.py#L6026) `ext_save` | ONBOARDING |
-| `/api/ext/profile` | GET,OPTIONS | [`web.py:6071`](../web.py#L6071) `ext_profile` | ONBOARDING |
-| `/api/ext/version` | GET,OPTIONS | [`web.py:6167`](../web.py#L6167) `ext_version` | ONBOARDING |
-| `/api/ext/profile_fields` | GET,OPTIONS | [`web.py:6191`](../web.py#L6191) `ext_profile_fields` | ONBOARDING |
-| `/api/ext/tailor` | POST,OPTIONS | [`web.py:6213`](../web.py#L6213) `ext_tailor` | ONBOARDING |
-| `/api/ext/apply_queue` | GET,OPTIONS | [`web.py:6402`](../web.py#L6402) `ext_apply_queue` | ONBOARDING |
-| `/api/ext/answer` | POST,OPTIONS | [`web.py:6475`](../web.py#L6475) `ext_answer` | ONBOARDING |
-| `/api/ext/learn` | POST,OPTIONS | [`web.py:6533`](../web.py#L6533) `ext_learn` | ONBOARDING |
-| `/api/ext/learned` | GET,OPTIONS | [`web.py:6558`](../web.py#L6558) `ext_learned_list` | ONBOARDING |
-| `/api/ext/learn_delete` | POST,OPTIONS | [`web.py:6578`](../web.py#L6578) `ext_learn_delete` | ONBOARDING |
-| `/api/ext/vision` | POST,OPTIONS | [`web.py:6596`](../web.py#L6596) `ext_vision` | ONBOARDING |
-| `/api/ext/debug` | POST,OPTIONS | [`web.py:6633`](../web.py#L6633) `ext_debug` | ONBOARDING |
-| `/api/ext/bulk_jobs` | POST,OPTIONS | [`web.py:6657`](../web.py#L6657) `ext_bulk_jobs` | ONBOARDING |
-| `/api/ext/detect_board` | POST,OPTIONS | [`web.py:6761`](../web.py#L6761) `ext_detect_board` | ONBOARDING |
-| `/api/ext/jds` | POST,OPTIONS | [`web.py:6812`](../web.py#L6812) `ext_jds` | ONBOARDING |
-| `/__react` | GET | [`web.py:6880`](../web.py#L6880) `react_harness` | ONBOARDING |
-| `/healthz` | GET | [`web.py:6896`](../web.py#L6896) `healthz` | ONBOARDING |
+| `/admin/usage` | GET | [`web.py:4100`](../web.py#L4100) `admin_usage` | /admin/usage — behaviour, from the data that already exists |
+| `/admin/users` | GET | [`web.py:4205`](../web.py#L4205) `admin_users` | /admin/users — account management |
+| `/admin/user/create` | POST | [`web.py:4222`](../web.py#L4222) `admin_user_create` | /admin/users — account management |
+| `/admin/user/password` | POST | [`web.py:4240`](../web.py#L4240) `admin_user_password` | /admin/users — account management |
+| `/admin/user/disable` | POST | [`web.py:4260`](../web.py#L4260) `admin_user_disable` | /admin/users — account management |
+| `/admin/user/revoke_token` | POST | [`web.py:4286`](../web.py#L4286) `admin_user_revoke_token` | /admin/users — account management |
+| `/admin/user/delete` | GET,POST | [`web.py:4304`](../web.py#L4304) `admin_user_delete` | /admin/users — account management |
+| `/admin/jobs/preview` | POST | [`web.py:4415`](../web.py#L4415) `admin_jobs_preview` | destructive data actions (/admin/data) |
+| `/admin/jobs/apply` | POST | [`web.py:4452`](../web.py#L4452) `admin_jobs_apply` | destructive data actions (/admin/data) |
+| `/admin/block` | POST | [`web.py:4522`](../web.py#L4522) `admin_block` | destructive data actions (/admin/data) |
+| `/action` | POST | [`web.py:4545`](../web.py#L4545) `action` | destructive data actions (/admin/data) |
+| `/resume` | GET,POST | [`web.py:4614`](../web.py#L4614) `resume` | résumé |
+| `/tailor` | GET | [`web.py:4645`](../web.py#L4645) `tailor` | tailor (keyword gaps + optional AI) |
+| `/tailor/ai` | POST | [`web.py:4663`](../web.py#L4663) `tailor_ai` | tailor (keyword gaps + optional AI) |
+| `/api/tailor` | POST | [`web.py:4701`](../web.py#L4701) `api_tailor` | tailor (keyword gaps + optional AI) |
+| `/brain` | GET | [`web.py:4741`](../web.py#L4741) `brain_home` | Resume Brain (the tailoring brain) |
+| `/brain/tailor` | GET | [`web.py:4806`](../web.py#L4806) `brain_tailor_page` | Resume Brain (the tailoring brain) |
+| `/brain/tailor` | POST | [`web.py:4830`](../web.py#L4830) `brain_tailor` | Resume Brain (the tailoring brain) |
+| `/brain/feedback` | POST | [`web.py:4844`](../web.py#L4844) `brain_feedback` | Resume Brain (the tailoring brain) |
+| `/brain/rewrite` | POST | [`web.py:4857`](../web.py#L4857) `brain_rewrite` | Resume Brain (the tailoring brain) |
+| `/brain/export/resume.docx` | POST | [`web.py:4902`](../web.py#L4902) `brain_export_resume` | Resume Brain (the tailoring brain) |
+| `/brain/export/cover.docx` | POST | [`web.py:4909`](../web.py#L4909) `brain_export_cover` | Resume Brain (the tailoring brain) |
+| `/brain/export/resume.pdf` | POST | [`web.py:4931`](../web.py#L4931) `brain_export_resume_pdf` | Resume Brain (the tailoring brain) |
+| `/brain/pdf_diag` | GET | [`web.py:4937`](../web.py#L4937) `brain_pdf_diag` | Resume Brain (the tailoring brain) |
+| `/brain/teach` | GET | [`web.py:5001`](../web.py#L5001) `brain_teach` | Teach: the knowledge base (per user) |
+| `/brain/resume/save` | POST | [`web.py:5010`](../web.py#L5010) `brain_resume_save` | Teach: the knowledge base (per user) |
+| `/brain/resume/file/<fid>` | GET | [`web.py:5052`](../web.py#L5052) `brain_resume_file` | Teach: the knowledge base (per user) |
+| `/brain/resume/file/<fid>/<path:name>` | GET | [`web.py:5052`](../web.py#L5052) `brain_resume_file` | Teach: the knowledge base (per user) |
+| `/brain/resume/delete` | POST | [`web.py:5102`](../web.py#L5102) `brain_resume_delete` | Teach: the knowledge base (per user) |
+| `/brain/story/save` | POST | [`web.py:5112`](../web.py#L5112) `brain_story_save` | Teach: the knowledge base (per user) |
+| `/brain/story/delete` | POST | [`web.py:5126`](../web.py#L5126) `brain_story_delete` | Teach: the knowledge base (per user) |
+| `/brain/lesson/save` | POST | [`web.py:5136`](../web.py#L5136) `brain_lesson_save` | Teach: the knowledge base (per user) |
+| `/brain/lesson/delete` | POST | [`web.py:5148`](../web.py#L5148) `brain_lesson_delete` | Teach: the knowledge base (per user) |
+| `/brain/companies` | GET | [`web.py:5157`](../web.py#L5157) `brain_companies` | Teach: the knowledge base (per user) |
+| `/brain/jobs.json` | GET | [`web.py:5165`](../web.py#L5165) `brain_jobs_json` | Teach: the knowledge base (per user) |
+| `/careers` | GET | [`web.py:5215`](../web.py#L5215) `careers` | sponsor careers |
+| `/add` | GET,POST | [`web.py:5235`](../web.py#L5235) `add_board` | add a board |
+| `/board/delete` | POST | [`web.py:5278`](../web.py#L5278) `board_delete` | add a board |
+| `/applications` | GET | [`web.py:5318`](../web.py#L5318) `applications` | application tracker |
+| `/application/save` | POST | [`web.py:5342`](../web.py#L5342) `application_save` | application tracker |
+| `/application/delete` | POST | [`web.py:5365`](../web.py#L5365) `application_delete` | application tracker |
+| `/applications.csv` | GET | [`web.py:5376`](../web.py#L5376) `applications_csv` | application tracker |
+| `/application/resume` | GET | [`web.py:5395`](../web.py#L5395) `application_resume` | application tracker |
+| `/profile/tracking` | POST | [`web.py:5579`](../web.py#L5579) `profile_tracking` | extension API rate limiting |
+| `/profile/revoke_token` | POST | [`web.py:5609`](../web.py#L5609) `profile_revoke_token` | extension API rate limiting |
+| `/api/onboard/resume` | POST | [`web.py:5820`](../web.py#L5820) `api_onboard_resume` | ONBOARDING |
+| `/welcome` | GET,POST | [`web.py:5886`](../web.py#L5886) `welcome` | ONBOARDING |
+| `/profile` | GET,POST | [`web.py:5987`](../web.py#L5987) `profile` | ONBOARDING |
+| `/api/ext/save` | POST,OPTIONS | [`web.py:6035`](../web.py#L6035) `ext_save` | ONBOARDING |
+| `/api/ext/profile` | GET,OPTIONS | [`web.py:6080`](../web.py#L6080) `ext_profile` | ONBOARDING |
+| `/api/ext/version` | GET,OPTIONS | [`web.py:6176`](../web.py#L6176) `ext_version` | ONBOARDING |
+| `/api/ext/profile_fields` | GET,OPTIONS | [`web.py:6204`](../web.py#L6204) `ext_profile_fields` | ONBOARDING |
+| `/api/ext/tailor` | POST,OPTIONS | [`web.py:6226`](../web.py#L6226) `ext_tailor` | ONBOARDING |
+| `/api/ext/apply_queue` | GET,OPTIONS | [`web.py:6415`](../web.py#L6415) `ext_apply_queue` | ONBOARDING |
+| `/api/ext/answer` | POST,OPTIONS | [`web.py:6488`](../web.py#L6488) `ext_answer` | ONBOARDING |
+| `/api/ext/learn` | POST,OPTIONS | [`web.py:6546`](../web.py#L6546) `ext_learn` | ONBOARDING |
+| `/api/ext/learned` | GET,OPTIONS | [`web.py:6571`](../web.py#L6571) `ext_learned_list` | ONBOARDING |
+| `/api/ext/learn_delete` | POST,OPTIONS | [`web.py:6591`](../web.py#L6591) `ext_learn_delete` | ONBOARDING |
+| `/api/ext/vision` | POST,OPTIONS | [`web.py:6609`](../web.py#L6609) `ext_vision` | ONBOARDING |
+| `/api/ext/debug` | POST,OPTIONS | [`web.py:6646`](../web.py#L6646) `ext_debug` | ONBOARDING |
+| `/api/ext/bulk_jobs` | POST,OPTIONS | [`web.py:6670`](../web.py#L6670) `ext_bulk_jobs` | ONBOARDING |
+| `/api/ext/detect_board` | POST,OPTIONS | [`web.py:6774`](../web.py#L6774) `ext_detect_board` | ONBOARDING |
+| `/api/ext/jds` | POST,OPTIONS | [`web.py:6825`](../web.py#L6825) `ext_jds` | ONBOARDING |
+| `/__react` | GET | [`web.py:6893`](../web.py#L6893) `react_harness` | ONBOARDING |
+| `/healthz` | GET | [`web.py:6909`](../web.py#L6909) `healthz` | ONBOARDING |
 
 ---
 
@@ -821,133 +821,133 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `admin_health` | def | [3813](../web.py#L3813) | `/admin/health.json` Run the checks on demand. Behind a button rather than the page render because it costs |
 | `_ADMIN_USAGE_TTL` | const | [3828](../web.py#L3828) |  |
 | `_STATUSES` | const | [3831](../web.py#L3831) |  |
-| `_TITLE_STOP` | const | [3835](../web.py#L3835) |  |
-| `_median` | def | [3841](../web.py#L3841) |  |
-| `_all_user_jobs` | def | [3849](../web.py#L3849) | Every (username, url, status) row. 126 rows today — one paged GET, no per-user fan-out. |
-| `_all_applications` | def | [3857](../web.py#L3857) | Every application row across all users, newest first. |
-| `_rate_table` | def | [3867](../web.py#L3867) | {key: {liked,applied,hidden}} -&gt; rows sorted by hide rate, for the auto-filter candidates. |
-| `_admin_usage` | def | [3881](../web.py#L3881) | Behaviour rollup. Reads two small tables plus the already-warm job cache, so this costs |
-| `admin_usage` | def | [4091](../web.py#L4091) | `/admin/usage` What the three accounts actually do, from data that already exists. No tracking code — |
-| `_ADMIN_EV_TTL` | const | [4104](../web.py#L4104) |  |
-| `_EV_WINDOW` | const | [4106](../web.py#L4106) |  |
-| `_admin_ev` | def | [4109](../web.py#L4109) | Tracked-behaviour panels, entirely from the ev_usage RPC. |
-| `_USERNAME_RE` | const | [4163](../web.py#L4163) |  |
-| `_MIN_PASSWORD` | const | [4164](../web.py#L4164) |  |
-| `_can_disable` | def | [4167](../web.py#L4167) | Whether SUPABASE_ADMIN_MIGRATION.sql has been run. list_users' select ladder drops the |
-| `_admin_user_guard` | def | [4176](../web.py#L4176) | Shared refusals for every mutating user route. Returns a reason, or "" to proceed. |
-| `admin_users` | def | [4196](../web.py#L4196) | `/admin/users` |
-| `admin_user_create` | def | [4213](../web.py#L4213) | `/admin/user/create` |
-| `admin_user_password` | def | [4231](../web.py#L4231) | `/admin/user/password` |
-| `admin_user_disable` | def | [4251](../web.py#L4251) | `/admin/user/disable` |
-| `admin_user_revoke_token` | def | [4277](../web.py#L4277) | `/admin/user/revoke_token` |
-| `admin_user_delete` | def | [4295](../web.py#L4295) | `/admin/user/delete` GET previews (counts only, nothing removed); POST applies and requires the username |
-| `ADMIN_DELETE_MAX` | const | [4336](../web.py#L4336) |  |
-| `_PLAN_TTL` | const | [4337](../web.py#L4337) |  |
-| `_require_supabase` | def | [4340](../web.py#L4340) | "" when it's safe to touch data, else the reason to refuse. |
-| `_bust_job_caches` | def | [4359](../web.py#L4359) | Everything derived from the job rows, after they change under us. |
-| `_build_plan` | def | [4371](../web.py#L4371) | What a delete would remove, computed fresh against the current corpus. |
-| `admin_jobs_preview` | def | [4406](../web.py#L4406) | `/admin/jobs/preview` Compute and show what a delete would remove. Never deletes anything. |
-| `admin_jobs_apply` | def | [4443](../web.py#L4443) | `/admin/jobs/apply` Delete, and optionally block. Requires all four of: a valid CSRF token (enforced in |
-| `_plan_urls` | def | [4497](../web.py#L4497) | The URL list a plan resolves to right now — re-derived, never carried over from the |
-| `admin_block` | def | [4513](../web.py#L4513) | `/admin/block` Add or remove a company blocklist entry without deleting anything. |
-| `action` | def | [4536](../web.py#L4536) | `/action` Save / Mark Applied / Hide as a real form POST, so they work with JavaScript off. |
-| `save_active_resume` | def | [4570](../web.py#L4570) | Write résumé text to the LIBRARY row and mirror it into users.resume. Returns ok. |
-| `resume` | def | [4605](../web.py#L4605) | `/resume` |
-| `_ai_key_for` | def | [4617](../web.py#L4617) | The AI key to use. Precedence: server ANTHROPIC_API_KEY (Claude — preferred when configured, |
-| `_save_ai_key` | def | [4629](../web.py#L4629) |  |
-| `tailor` | def | [4636](../web.py#L4636) | `/tailor` |
-| `tailor_ai` | def | [4654](../web.py#L4654) | `/tailor/ai` Rewrite the résumé for this job with Claude (truthful reorder/reword). Uses |
-| `api_tailor` | def | [4692](../web.py#L4692) | `/api/tailor` JSON tailoring for the no-reload loading-bar flow. Body: {url, api_key?}. |
-| `_csvf` | def | [4718](../web.py#L4718) |  |
-| `_render_brain` | def | [4722](../web.py#L4722) |  |
-| `brain_home` | def | [4732](../web.py#L4732) | `/brain` Resume Brain — the review panel. Résumés on the left, the graded document on the right. |
-| `brain_tailor_page` | def | [4797](../web.py#L4797) | `/brain/tailor` The tailor-to-a-job form, prefilled + auto-run when ?job=&lt;url&gt; arrives from the feed. |
-| `brain_tailor` | def | [4821](../web.py#L4821) | `/brain/tailor` |
-| `brain_feedback` | def | [4835](../web.py#L4835) | `/brain/feedback` |
-| `brain_rewrite` | def | [4848](../web.py#L4848) | `/brain/rewrite` OPTIONAL AI layer: re-derive the plan, then have the model write the finished résumé + |
-| `_docx_response` | def | [4881](../web.py#L4881) |  |
-| `brain_export_resume` | def | [4893](../web.py#L4893) | `/brain/export/resume.docx` |
-| `brain_export_cover` | def | [4900](../web.py#L4900) | `/brain/export/cover.docx` |
-| `_pdf_response` | def | [4904](../web.py#L4904) | Tailored résumé as a LaTeX-compiled PDF (Calibri template via Tectonic). Header comes from |
-| `brain_export_resume_pdf` | def | [4922](../web.py#L4922) | `/brain/export/resume.pdf` |
-| `brain_pdf_diag` | def | [4928](../web.py#L4928) | `/brain/pdf_diag` Which document libraries does this host actually have? Reports the READ side (uploads) and the |
-| `brain_teach` | def | [4992](../web.py#L4992) | `/brain/teach` |
-| `brain_resume_save` | def | [5001](../web.py#L5001) | `/brain/resume/save` |
-| `brain_resume_file` | def | [5043](../web.py#L5043) | `/brain/resume/file/<fid>` `/brain/resume/file/<fid>/<path:name>` Stream one stored artifact back. Scoped to the signed-in user by the query itself, not by a |
-| `brain_resume_delete` | def | [5093](../web.py#L5093) | `/brain/resume/delete` |
-| `brain_story_save` | def | [5103](../web.py#L5103) | `/brain/story/save` |
-| `brain_story_delete` | def | [5117](../web.py#L5117) | `/brain/story/delete` |
-| `brain_lesson_save` | def | [5127](../web.py#L5127) | `/brain/lesson/save` |
-| `brain_lesson_delete` | def | [5139](../web.py#L5139) | `/brain/lesson/delete` |
-| `brain_companies` | def | [5148](../web.py#L5148) | `/brain/companies` |
-| `brain_jobs_json` | def | [5156](../web.py#L5156) | `/brain/jobs.json` Job search for the in-Brain picker, by title/company, restricted to jobs with a stored JD. |
-| `_md_to_html` | def | [5183](../web.py#L5183) | Tiny Markdown -&gt; HTML (headings, list items, \[text\](url) links). Avoids a dep. |
-| `careers` | def | [5206](../web.py#L5206) | `/careers` |
-| `BOARDS_SQL` | const | [5219](../web.py#L5219) |  |
-| `add_board` | def | [5226](../web.py#L5226) | `/add` |
-| `board_delete` | def | [5269](../web.py#L5269) | `/board/delete` |
-| `APP_STATUSES` | const | [5278](../web.py#L5278) |  |
-| `_default_resume` | def | [5281](../web.py#L5281) | The user's default résumé name (a file label, e.g. 'Kunal_PM_Resume.pdf'). |
-| `_autolog_application` | def | [5289](../web.py#L5289) | When a feed job is marked 'applied', auto-fill a tracker row (deduped by url) with |
-| `applications` | def | [5309](../web.py#L5309) | `/applications` |
-| `application_save` | def | [5333](../web.py#L5333) | `/application/save` |
-| `application_delete` | def | [5356](../web.py#L5356) | `/application/delete` |
-| `applications_csv` | def | [5367](../web.py#L5367) | `/applications.csv` |
-| `application_resume` | def | [5386](../web.py#L5386) | `/application/resume` |
-| `_ext_token` | def | [5403](../web.py#L5403) | A stable per-user token for the browser extension (HMAC of the username with the app |
-| `_ext_user` | def | [5426](../web.py#L5426) | Username for a valid extension token, else None. |
-| `_CSRF_EXEMPT` | const | [5460](../web.py#L5460) |  |
-| `_require_csrf` | def | [5472](../web.py#L5472) |  |
-| `_EXT_MAX_KEYS` | const | [5514](../web.py#L5514) |  |
-| `_EXT_CLASSES` | const | [5515](../web.py#L5515) |  |
-| `_EXT_DEFAULT` | const | [5522](../web.py#L5522) |  |
-| `_ext_rate_key` | def | [5525](../web.py#L5525) | Throttle by TOKEN where we have one, else by client address so an unauthenticated |
-| `_ext_rate_limit` | def | [5540](../web.py#L5540) |  |
-| `profile_tracking` | def | [5570](../web.py#L5570) | `/profile/tracking` The usage-tracking opt-out, on its own route rather than folded into the profile form. |
-| `profile_revoke_token` | def | [5600](../web.py#L5600) | `/profile/revoke_token` Let a user revoke their OWN extension tokens. Needing an admin to rotate a credential |
-| `_cors` | def | [5616](../web.py#L5616) |  |
-| `ONBOARD_STEPS` | const | [5638](../web.py#L5638) |  |
-| `ONBOARD_QUESTIONS` | const | [5660](../web.py#L5660) |  |
-| `ONBOARD_STEP_FIELDS` | const | [5669](../web.py#L5669) |  |
-| `SPONSORSHIP_ANSWERS` | const | [5677](../web.py#L5677) |  |
-| `ROLE_PICK_MAX` | const | [5684](../web.py#L5684) |  |
-| `role_counts` | def | [5690](../web.py#L5690) | {role_key: how many live postings} for the picker, cached 10 minutes. |
-| `_uploaded_resume_text` | def | [5711](../web.py#L5711) | (text, error) for an uploaded résumé, or ('', '') when no file was attached. |
-| `_FILE_MIME` | const | [5737](../web.py#L5737) |  |
-| `_store_resume_file` | def | [5741](../web.py#L5741) | Persist the uploaded bytes beside the résumé row. Best effort, never fatal. |
-| `_extra` | def | [5766](../web.py#L5766) | The profile's `extra` jsonb as a dict, whatever shape it is stored in. |
-| `_save_extra` | def | [5777](../web.py#L5777) | MERGE into extra, never replace it. db.save_profile overwrites the whole jsonb value, so |
-| `_needs_onboarding` | def | [5785](../web.py#L5785) | A genuinely EMPTY account — no contact details, no saved search, no résumé. |
-| `api_onboard_resume` | def | [5811](../web.py#L5811) | `/api/onboard/resume` Save a résumé and echo back what was actually read out of it. |
-| `_onboard_rows` | def | [5854](../web.py#L5854) | Rows behind the location suggestions. Same source the feed uses, so the box on question |
-| `_onboard_advance` | def | [5863](../web.py#L5863) | Move to the next question, or finish. onboarded is set ONLY past the last question. |
-| `welcome` | def | [5877](../web.py#L5877) | `/welcome` |
-| `profile` | def | [5978](../web.py#L5978) | `/profile` |
-| `ext_save` | def | [6026](../web.py#L6026) | `/api/ext/save` Extension -&gt; log a job to the tracker. Token-authenticated; CORS-open (the token |
-| `ext_profile` | def | [6071](../web.py#L6071) | `/api/ext/profile` Extension -&gt; the user's profile fields for autofill. Token-authenticated. |
-| `_ext_profile_fields` | def | [6094](../web.py#L6094) | Normalized profile map the form-filler consumes (stable nested shape, NOT raw columns). |
-| `EXT_MIN_VERSION` | const | [6145](../web.py#L6145) |  |
-| `_app_build` | def | [6150](../web.py#L6150) |  |
-| `_vtuple` | def | [6158](../web.py#L6158) | "1.35.0" -&gt; (1, 35, 0), padded, so 1.9.0 sorts BELOW 1.35.0 rather than above it. |
-| `ext_version` | def | [6167](../web.py#L6167) | `/api/ext/version` What the app expects of the extension. UNAUTHENTICATED, deliberately. |
-| `ext_profile_fields` | def | [6191](../web.py#L6191) | `/api/ext/profile_fields` Extension -&gt; normalized profile field map + résumé text + learned-answer bank, so the |
-| `ext_tailor` | def | [6213](../web.py#L6213) | `/api/ext/tailor` Extension -&gt; tailor the résumé to a JD (Resume Brain + optional Gemini), compile it to a |
-| `_FILLABLE_HOSTS` | const | [6337](../web.py#L6337) |  |
-| `_QUEUE_SKIP_HOSTS` | const | [6360](../web.py#L6360) |  |
-| `_QUEUE_PER_COMPANY` | const | [6367](../web.py#L6367) |  |
-| `_queue_fillable` | def | [6370](../web.py#L6370) | Is this a page the filler should open? |
-| `ext_apply_queue` | def | [6402](../web.py#L6402) | `/api/ext/apply_queue` Extension batch filler -&gt; the jobs this user's FEED would show, narrowed to pages the |
-| `ext_answer` | def | [6475](../web.py#L6475) | `/api/ext/answer` Extension form-filler -&gt; AI maps the user's profile + résumé onto a batch of still-empty |
-| `ext_learn` | def | [6533](../web.py#L6533) | `/api/ext/learn` 'Train' the auto-apply: save how the USER answered a form's fields (captured from a page they |
-| `ext_learned_list` | def | [6558](../web.py#L6558) | `/api/ext/learned` Extension -&gt; list the user's learned-answer bank for the 'manage learned answers' UI. |
-| `ext_learn_delete` | def | [6578](../web.py#L6578) | `/api/ext/learn_delete` Extension -&gt; delete one learned answer (by normalized key) from the user's bank. |
-| `ext_vision` | def | [6596](../web.py#L6596) | `/api/ext/vision` VISION FALLBACK form-filler -&gt; the model sees a SCREENSHOT of the page plus enumerated |
-| `ext_debug` | def | [6633](../web.py#L6633) | `/api/ext/debug` Extension -&gt; capture a failing form's STRUCTURE (labels/types/options only — not the user's |
-| `ext_bulk_jobs` | def | [6657](../web.py#L6657) | `/api/ext/bulk_jobs` Extension -&gt; bulk-add postings READ FROM A PAGE in the user's own browser into the |
-| `ext_detect_board` | def | [6761](../web.py#L6761) | `/api/ext/detect_board` Extension -&gt; 'can this site be scraped DAILY?' Runs the same detection chain as |
-| `ext_jds` | def | [6812](../web.py#L6812) | `/api/ext/jds` Extension -&gt; attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled |
-| `react_harness` | def | [6880](../web.py#L6880) | `/__react` Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry. |
-| `healthz` | def | [6896](../web.py#L6896) | `/healthz` Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few |
+| `_USAGE_STOP` | const | [3844](../web.py#L3844) |  |
+| `_median` | def | [3850](../web.py#L3850) |  |
+| `_all_user_jobs` | def | [3858](../web.py#L3858) | Every (username, url, status) row. 126 rows today — one paged GET, no per-user fan-out. |
+| `_all_applications` | def | [3866](../web.py#L3866) | Every application row across all users, newest first. |
+| `_rate_table` | def | [3876](../web.py#L3876) | {key: {liked,applied,hidden}} -&gt; rows sorted by hide rate, for the auto-filter candidates. |
+| `_admin_usage` | def | [3890](../web.py#L3890) | Behaviour rollup. Reads two small tables plus the already-warm job cache, so this costs |
+| `admin_usage` | def | [4100](../web.py#L4100) | `/admin/usage` What the three accounts actually do, from data that already exists. No tracking code — |
+| `_ADMIN_EV_TTL` | const | [4113](../web.py#L4113) |  |
+| `_EV_WINDOW` | const | [4115](../web.py#L4115) |  |
+| `_admin_ev` | def | [4118](../web.py#L4118) | Tracked-behaviour panels, entirely from the ev_usage RPC. |
+| `_USERNAME_RE` | const | [4172](../web.py#L4172) |  |
+| `_MIN_PASSWORD` | const | [4173](../web.py#L4173) |  |
+| `_can_disable` | def | [4176](../web.py#L4176) | Whether SUPABASE_ADMIN_MIGRATION.sql has been run. list_users' select ladder drops the |
+| `_admin_user_guard` | def | [4185](../web.py#L4185) | Shared refusals for every mutating user route. Returns a reason, or "" to proceed. |
+| `admin_users` | def | [4205](../web.py#L4205) | `/admin/users` |
+| `admin_user_create` | def | [4222](../web.py#L4222) | `/admin/user/create` |
+| `admin_user_password` | def | [4240](../web.py#L4240) | `/admin/user/password` |
+| `admin_user_disable` | def | [4260](../web.py#L4260) | `/admin/user/disable` |
+| `admin_user_revoke_token` | def | [4286](../web.py#L4286) | `/admin/user/revoke_token` |
+| `admin_user_delete` | def | [4304](../web.py#L4304) | `/admin/user/delete` GET previews (counts only, nothing removed); POST applies and requires the username |
+| `ADMIN_DELETE_MAX` | const | [4345](../web.py#L4345) |  |
+| `_PLAN_TTL` | const | [4346](../web.py#L4346) |  |
+| `_require_supabase` | def | [4349](../web.py#L4349) | "" when it's safe to touch data, else the reason to refuse. |
+| `_bust_job_caches` | def | [4368](../web.py#L4368) | Everything derived from the job rows, after they change under us. |
+| `_build_plan` | def | [4380](../web.py#L4380) | What a delete would remove, computed fresh against the current corpus. |
+| `admin_jobs_preview` | def | [4415](../web.py#L4415) | `/admin/jobs/preview` Compute and show what a delete would remove. Never deletes anything. |
+| `admin_jobs_apply` | def | [4452](../web.py#L4452) | `/admin/jobs/apply` Delete, and optionally block. Requires all four of: a valid CSRF token (enforced in |
+| `_plan_urls` | def | [4506](../web.py#L4506) | The URL list a plan resolves to right now — re-derived, never carried over from the |
+| `admin_block` | def | [4522](../web.py#L4522) | `/admin/block` Add or remove a company blocklist entry without deleting anything. |
+| `action` | def | [4545](../web.py#L4545) | `/action` Save / Mark Applied / Hide as a real form POST, so they work with JavaScript off. |
+| `save_active_resume` | def | [4579](../web.py#L4579) | Write résumé text to the LIBRARY row and mirror it into users.resume. Returns ok. |
+| `resume` | def | [4614](../web.py#L4614) | `/resume` |
+| `_ai_key_for` | def | [4626](../web.py#L4626) | The AI key to use. Precedence: server ANTHROPIC_API_KEY (Claude — preferred when configured, |
+| `_save_ai_key` | def | [4638](../web.py#L4638) |  |
+| `tailor` | def | [4645](../web.py#L4645) | `/tailor` |
+| `tailor_ai` | def | [4663](../web.py#L4663) | `/tailor/ai` Rewrite the résumé for this job with Claude (truthful reorder/reword). Uses |
+| `api_tailor` | def | [4701](../web.py#L4701) | `/api/tailor` JSON tailoring for the no-reload loading-bar flow. Body: {url, api_key?}. |
+| `_csvf` | def | [4727](../web.py#L4727) |  |
+| `_render_brain` | def | [4731](../web.py#L4731) |  |
+| `brain_home` | def | [4741](../web.py#L4741) | `/brain` Resume Brain — the review panel. Résumés on the left, the graded document on the right. |
+| `brain_tailor_page` | def | [4806](../web.py#L4806) | `/brain/tailor` The tailor-to-a-job form, prefilled + auto-run when ?job=&lt;url&gt; arrives from the feed. |
+| `brain_tailor` | def | [4830](../web.py#L4830) | `/brain/tailor` |
+| `brain_feedback` | def | [4844](../web.py#L4844) | `/brain/feedback` |
+| `brain_rewrite` | def | [4857](../web.py#L4857) | `/brain/rewrite` OPTIONAL AI layer: re-derive the plan, then have the model write the finished résumé + |
+| `_docx_response` | def | [4890](../web.py#L4890) |  |
+| `brain_export_resume` | def | [4902](../web.py#L4902) | `/brain/export/resume.docx` |
+| `brain_export_cover` | def | [4909](../web.py#L4909) | `/brain/export/cover.docx` |
+| `_pdf_response` | def | [4913](../web.py#L4913) | Tailored résumé as a LaTeX-compiled PDF (Calibri template via Tectonic). Header comes from |
+| `brain_export_resume_pdf` | def | [4931](../web.py#L4931) | `/brain/export/resume.pdf` |
+| `brain_pdf_diag` | def | [4937](../web.py#L4937) | `/brain/pdf_diag` Which document libraries does this host actually have? Reports the READ side (uploads) and the |
+| `brain_teach` | def | [5001](../web.py#L5001) | `/brain/teach` |
+| `brain_resume_save` | def | [5010](../web.py#L5010) | `/brain/resume/save` |
+| `brain_resume_file` | def | [5052](../web.py#L5052) | `/brain/resume/file/<fid>` `/brain/resume/file/<fid>/<path:name>` Stream one stored artifact back. Scoped to the signed-in user by the query itself, not by a |
+| `brain_resume_delete` | def | [5102](../web.py#L5102) | `/brain/resume/delete` |
+| `brain_story_save` | def | [5112](../web.py#L5112) | `/brain/story/save` |
+| `brain_story_delete` | def | [5126](../web.py#L5126) | `/brain/story/delete` |
+| `brain_lesson_save` | def | [5136](../web.py#L5136) | `/brain/lesson/save` |
+| `brain_lesson_delete` | def | [5148](../web.py#L5148) | `/brain/lesson/delete` |
+| `brain_companies` | def | [5157](../web.py#L5157) | `/brain/companies` |
+| `brain_jobs_json` | def | [5165](../web.py#L5165) | `/brain/jobs.json` Job search for the in-Brain picker, by title/company, restricted to jobs with a stored JD. |
+| `_md_to_html` | def | [5192](../web.py#L5192) | Tiny Markdown -&gt; HTML (headings, list items, \[text\](url) links). Avoids a dep. |
+| `careers` | def | [5215](../web.py#L5215) | `/careers` |
+| `BOARDS_SQL` | const | [5228](../web.py#L5228) |  |
+| `add_board` | def | [5235](../web.py#L5235) | `/add` |
+| `board_delete` | def | [5278](../web.py#L5278) | `/board/delete` |
+| `APP_STATUSES` | const | [5287](../web.py#L5287) |  |
+| `_default_resume` | def | [5290](../web.py#L5290) | The user's default résumé name (a file label, e.g. 'Kunal_PM_Resume.pdf'). |
+| `_autolog_application` | def | [5298](../web.py#L5298) | When a feed job is marked 'applied', auto-fill a tracker row (deduped by url) with |
+| `applications` | def | [5318](../web.py#L5318) | `/applications` |
+| `application_save` | def | [5342](../web.py#L5342) | `/application/save` |
+| `application_delete` | def | [5365](../web.py#L5365) | `/application/delete` |
+| `applications_csv` | def | [5376](../web.py#L5376) | `/applications.csv` |
+| `application_resume` | def | [5395](../web.py#L5395) | `/application/resume` |
+| `_ext_token` | def | [5412](../web.py#L5412) | A stable per-user token for the browser extension (HMAC of the username with the app |
+| `_ext_user` | def | [5435](../web.py#L5435) | Username for a valid extension token, else None. |
+| `_CSRF_EXEMPT` | const | [5469](../web.py#L5469) |  |
+| `_require_csrf` | def | [5481](../web.py#L5481) |  |
+| `_EXT_MAX_KEYS` | const | [5523](../web.py#L5523) |  |
+| `_EXT_CLASSES` | const | [5524](../web.py#L5524) |  |
+| `_EXT_DEFAULT` | const | [5531](../web.py#L5531) |  |
+| `_ext_rate_key` | def | [5534](../web.py#L5534) | Throttle by TOKEN where we have one, else by client address so an unauthenticated |
+| `_ext_rate_limit` | def | [5549](../web.py#L5549) |  |
+| `profile_tracking` | def | [5579](../web.py#L5579) | `/profile/tracking` The usage-tracking opt-out, on its own route rather than folded into the profile form. |
+| `profile_revoke_token` | def | [5609](../web.py#L5609) | `/profile/revoke_token` Let a user revoke their OWN extension tokens. Needing an admin to rotate a credential |
+| `_cors` | def | [5625](../web.py#L5625) |  |
+| `ONBOARD_STEPS` | const | [5647](../web.py#L5647) |  |
+| `ONBOARD_QUESTIONS` | const | [5669](../web.py#L5669) |  |
+| `ONBOARD_STEP_FIELDS` | const | [5678](../web.py#L5678) |  |
+| `SPONSORSHIP_ANSWERS` | const | [5686](../web.py#L5686) |  |
+| `ROLE_PICK_MAX` | const | [5693](../web.py#L5693) |  |
+| `role_counts` | def | [5699](../web.py#L5699) | {role_key: how many live postings} for the picker, cached 10 minutes. |
+| `_uploaded_resume_text` | def | [5720](../web.py#L5720) | (text, error) for an uploaded résumé, or ('', '') when no file was attached. |
+| `_FILE_MIME` | const | [5746](../web.py#L5746) |  |
+| `_store_resume_file` | def | [5750](../web.py#L5750) | Persist the uploaded bytes beside the résumé row. Best effort, never fatal. |
+| `_extra` | def | [5775](../web.py#L5775) | The profile's `extra` jsonb as a dict, whatever shape it is stored in. |
+| `_save_extra` | def | [5786](../web.py#L5786) | MERGE into extra, never replace it. db.save_profile overwrites the whole jsonb value, so |
+| `_needs_onboarding` | def | [5794](../web.py#L5794) | A genuinely EMPTY account — no contact details, no saved search, no résumé. |
+| `api_onboard_resume` | def | [5820](../web.py#L5820) | `/api/onboard/resume` Save a résumé and echo back what was actually read out of it. |
+| `_onboard_rows` | def | [5863](../web.py#L5863) | Rows behind the location suggestions. Same source the feed uses, so the box on question |
+| `_onboard_advance` | def | [5872](../web.py#L5872) | Move to the next question, or finish. onboarded is set ONLY past the last question. |
+| `welcome` | def | [5886](../web.py#L5886) | `/welcome` |
+| `profile` | def | [5987](../web.py#L5987) | `/profile` |
+| `ext_save` | def | [6035](../web.py#L6035) | `/api/ext/save` Extension -&gt; log a job to the tracker. Token-authenticated; CORS-open (the token |
+| `ext_profile` | def | [6080](../web.py#L6080) | `/api/ext/profile` Extension -&gt; the user's profile fields for autofill. Token-authenticated. |
+| `_ext_profile_fields` | def | [6103](../web.py#L6103) | Normalized profile map the form-filler consumes (stable nested shape, NOT raw columns). |
+| `EXT_MIN_VERSION` | const | [6154](../web.py#L6154) |  |
+| `_app_build` | def | [6159](../web.py#L6159) |  |
+| `_vtuple` | def | [6167](../web.py#L6167) | "1.35.0" -&gt; (1, 35, 0), padded, so 1.9.0 sorts BELOW 1.35.0 rather than above it. |
+| `ext_version` | def | [6176](../web.py#L6176) | `/api/ext/version` What the app expects of the extension. UNAUTHENTICATED, deliberately. |
+| `ext_profile_fields` | def | [6204](../web.py#L6204) | `/api/ext/profile_fields` Extension -&gt; normalized profile field map + résumé text + learned-answer bank, so the |
+| `ext_tailor` | def | [6226](../web.py#L6226) | `/api/ext/tailor` Extension -&gt; tailor the résumé to a JD (Resume Brain + optional Gemini), compile it to a |
+| `_FILLABLE_HOSTS` | const | [6350](../web.py#L6350) |  |
+| `_QUEUE_SKIP_HOSTS` | const | [6373](../web.py#L6373) |  |
+| `_QUEUE_PER_COMPANY` | const | [6380](../web.py#L6380) |  |
+| `_queue_fillable` | def | [6383](../web.py#L6383) | Is this a page the filler should open? |
+| `ext_apply_queue` | def | [6415](../web.py#L6415) | `/api/ext/apply_queue` Extension batch filler -&gt; the jobs this user's FEED would show, narrowed to pages the |
+| `ext_answer` | def | [6488](../web.py#L6488) | `/api/ext/answer` Extension form-filler -&gt; AI maps the user's profile + résumé onto a batch of still-empty |
+| `ext_learn` | def | [6546](../web.py#L6546) | `/api/ext/learn` 'Train' the auto-apply: save how the USER answered a form's fields (captured from a page they |
+| `ext_learned_list` | def | [6571](../web.py#L6571) | `/api/ext/learned` Extension -&gt; list the user's learned-answer bank for the 'manage learned answers' UI. |
+| `ext_learn_delete` | def | [6591](../web.py#L6591) | `/api/ext/learn_delete` Extension -&gt; delete one learned answer (by normalized key) from the user's bank. |
+| `ext_vision` | def | [6609](../web.py#L6609) | `/api/ext/vision` VISION FALLBACK form-filler -&gt; the model sees a SCREENSHOT of the page plus enumerated |
+| `ext_debug` | def | [6646](../web.py#L6646) | `/api/ext/debug` Extension -&gt; capture a failing form's STRUCTURE (labels/types/options only — not the user's |
+| `ext_bulk_jobs` | def | [6670](../web.py#L6670) | `/api/ext/bulk_jobs` Extension -&gt; bulk-add postings READ FROM A PAGE in the user's own browser into the |
+| `ext_detect_board` | def | [6774](../web.py#L6774) | `/api/ext/detect_board` Extension -&gt; 'can this site be scraped DAILY?' Runs the same detection chain as |
+| `ext_jds` | def | [6825](../web.py#L6825) | `/api/ext/jds` Extension -&gt; attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled |
+| `react_harness` | def | [6893](../web.py#L6893) | `/__react` Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry. |
+| `healthz` | def | [6909](../web.py#L6909) | `/healthz` Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few |
 
 ## `core.py` — symbols
 
