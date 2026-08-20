@@ -29,6 +29,11 @@ on:
       - 'JobMatch Scraper/static/app.js'
       - 'JobMatch Scraper/static/style.css'
       - 'JobMatch Scraper/templates/**'
+      # docs/ triggered NO workflow at all before 2026-08-20 — this file filtered on .py and
+      # static/, and web-build.yml on web/ and static/dist/. A docs gate outside the path
+      # filter is a gate that never runs, so hand-editing a generated file would have gone
+      # unnoticed. **.py already covers scripts/build_docs.py; this covers its output.
+      - 'JobMatch Scraper/docs/**'
       - '.github/workflows/python-tests.yml'
   pull_request:
     paths:
@@ -36,6 +41,7 @@ on:
       - 'JobMatch Scraper/static/app.js'
       - 'JobMatch Scraper/static/style.css'
       - 'JobMatch Scraper/templates/**'
+      - 'JobMatch Scraper/docs/**'
 
 concurrency:
   # A push that lands while the previous run is still going supersedes it — the older result is
@@ -98,3 +104,18 @@ jobs:
       - name: all offline suites
         working-directory: 'JobMatch Scraper'
         run: python scripts/run_tests.py --ci
+
+      # ANTI-ROT. Same guarantee web-build.yml's `git diff --exit-code -- static/dist` gives the
+      # committed React bundle: an artifact that does not match its source is a document nobody
+      # reviewed. docs/ARCHITECTURE.md described a Streamlit app reading jobs.csv for three
+      # months and nothing noticed, which is the whole reason this step exists.
+      #
+      # It is stricter than a byte-compare. It also verifies that every symbol docs/INDEX.md
+      # names still resolves in the AST, and that every guard command it recommends points at a
+      # suite that actually exists in run_tests.py's SUITES. So a rename fails the build naming
+      # the offending row, and the index cannot promise a check CI never runs.
+      #
+      # ~3 seconds, no network, no secrets, safe on a fork PR.
+      - name: docs match source
+        working-directory: 'JobMatch Scraper'
+        run: python scripts/build_docs.py --check
