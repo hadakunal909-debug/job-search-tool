@@ -3832,7 +3832,16 @@ _STATUSES = ("liked", "applied", "hidden")
 
 # Title words too common to carry signal. Everything else is fair game — the point of the
 # token lift is to surface the words nobody thought to filter on.
-_TITLE_STOP = frozenset("""
+#
+# NAMED _USAGE_STOP, not _TITLE_STOP, and the distinction is load-bearing. This was a second
+# module-level binding of _TITLE_STOP, and since Python resolves globals at call time it won
+# everywhere -- including in _title_tokens 2,500 lines above, which is written for the SHORT
+# list and says so. The consequence: the similar-roles rail stopped engineer/manager/analyst/
+# senior/lead (exactly the words that distinguish one role from another, which that list
+# documents itself as deliberately keeping) and did NOT stop job/role/position/remote/hybrid/
+# usa (which it documents itself as removing), so the rail ranked on boilerplate and location.
+# Two different lists for two different jobs is correct; sharing one name was not.
+_USAGE_STOP = frozenset("""
 a an and at by for from in of on or the to with new senior sr jr junior lead i ii iii iv
 engineer manager analyst specialist associate developer director intern
 """.split())
@@ -3932,7 +3941,7 @@ def _admin_usage(force=False):
             scores[st].append(sc)
         if st == "hidden":
             for tok in re.split(r"[^a-z0-9+#]+", (j.get("title") or "").lower()):
-                if len(tok) > 2 and tok not in _TITLE_STOP:
+                if len(tok) > 2 and tok not in _USAGE_STOP:
                     hidden_tokens[tok] += 1
 
     # Title-token lift: how much more often a word appears in what someone hid than in the
@@ -3940,7 +3949,7 @@ def _admin_usage(force=False):
     corpus_tokens = collections.Counter()
     for j in jobs:
         for tok in set(re.split(r"[^a-z0-9+#]+", (j.get("title") or "").lower())):
-            if len(tok) > 2 and tok not in _TITLE_STOP:
+            if len(tok) > 2 and tok not in _USAGE_STOP:
                 corpus_tokens[tok] += 1
     hid_total = sum(1 for r in flags if (r.get("status") or "") == "hidden") or 1
     cor_total = len(jobs) or 1
@@ -6176,12 +6185,16 @@ def ext_version():
         return _cors(app.make_response(("", 204)))
     have = request.args.get("v", "")
     stale = bool(have) and _vtuple(have) < _vtuple(EXT_MIN_VERSION)
+    # No update_url. There used to be one, pointing at <host>/extension, and three things were
+    # wrong with it: no route serves that path so it 404'd, popup.js never read the field (it
+    # shows `how`), and EXT_MIN_VERSION's own comment 40 lines up says the extension is
+    # side-loaded unpacked with "no update_url" precisely because Chrome can never update it.
+    # `how` is the whole answer, and it is the part that was already true.
     return _cors(jsonify({
         "ok": True,
         "min_version": EXT_MIN_VERSION,
         "app_build": _app_build(),
         "stale": stale,
-        "update_url": request.host_url.rstrip("/") + "/extension",
         "how": ("Pull the repo and reload the extension at chrome://extensions."
                 if stale else ""),
     }))
