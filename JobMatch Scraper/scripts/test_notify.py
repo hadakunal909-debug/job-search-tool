@@ -152,3 +152,7 @@ check("quiet with no new jobs", SENT == [])
 
 db.get_profile, db.list_users, db.profile_text = real_get_profile, real_list_users, real_profile_text
 print("\n%s" % ("ALL DIGEST CHECKS PASS" if not fails else "%d FAILED: %s" % (len(fails), fails)))
+# Exit non-zero, or a failure is invisible to CI. This file printed FAILED and exited 0 from the
+# day it was added until 2026-08-20, so `set -e` in python-tests.yml never saw a thing.
+if fails:
+    raise SystemExit(1)
