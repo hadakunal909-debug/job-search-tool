@@ -43,8 +43,12 @@ then cPanel → File Manager → the directory holding `passenger_wsgi.py` → U
 | When (ET) | Runner | What |
 |---|---|---|
 | 09:00 Mon–Fri | GitHub Actions (`.github/workflows/scrape.yml`, repo ROOT) | heavy pass: sweep, full score, **verify_dates**, **analytics rollup**, **digest email** |
-| 13:00 | cPanel cron (`bin/cron_scrape.sh`) | sweep + new-only score |
-| 17:00 | cPanel cron | sweep + new-only score |
+| 13:00 Mon–Fri | cPanel cron (`bin/cron_scrape.sh`) | sweep + new-only score |
+| 16:00 Mon–Fri | cPanel cron | sweep + new-only score |
+
+The two cPanel rows are set in cPanel → Cron Jobs, so the repo cannot enforce them; the exact
+crontab lines are recorded at the top of `bin/cron_scrape.sh`. Last slot moved 17:00 → 16:00 on
+2026-08-20.
 
 ---
 

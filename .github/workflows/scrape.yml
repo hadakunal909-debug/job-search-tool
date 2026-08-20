@@ -37,7 +37,11 @@ on:
     #
     #   09:00 ET  THIS workflow      heavy pass — verify_dates, analytics rollup, digest email
     #   13:00 ET  cPanel cron        scrape + new-only score
-    #   17:00 ET  cPanel cron        scrape + new-only score
+    #   16:00 ET  cPanel cron        scrape + new-only score   (was 17:00 until 2026-08-20)
+    #
+    # All three slots are Mon-Fri. The two cPanel ones are set in cPanel's WEB UI, so their
+    # crontab lines are written down at the top of bin/cron_scrape.sh — the repo is the only
+    # place they can live, and until now the schedule existed nowhere but that web form.
     #
     # Actions keeps the 9am slot deliberately: it is the pass that emails the digest and runs
     # verify_dates against a rate-limited service, and a GitHub runner is a whole machine for
