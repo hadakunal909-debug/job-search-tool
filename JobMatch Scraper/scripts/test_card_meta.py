@@ -126,6 +126,20 @@ NEW_CASES = [
 RING_CASES = [(100, "ring-strong"), (70, "ring-strong"), (69, "ring-good"),
               (45, "ring-good"), (40, "ring-good"), (39, "ring-low"), (0, "ring-low")]
 
+# 4. The repost badge. Both numbers here are product decisions that would otherwise live only in a
+# comment: the floor of 3 (measured — badging at 2 flags a fifth of the feed) and the agency
+# suppression. (count, agency, expected text or None, why).
+# Expectations are the RAW html the branch emits, so "&times;" not "×" — the browser renders it as
+# × and that is what the user reads, but this test compares strings.
+REPOST_CASES = [
+    (5, False, "Posted 5&times;", "a real repost badges"),
+    (3, False, "Posted 3&times;", "3 is the floor, matching detect_reposts' --min-urls default"),
+    (2, False, None, "2 is a coincidence often enough that badging it flags 19% of the feed"),
+    (0, False, None, "the overwhelming majority of rows"),
+    (None, False, None, "field absent on a row cached before the feature -> no badge, no crash"),
+    (9, True, None, "an AGENCY re-advertises by design; the Agency chip already says that"),
+]
+
 DRIVER = """
 %(fns)s
 const out = {rel: [], isnew: [], ring: [], pill: null};
@@ -138,18 +152,38 @@ for (const n of %(scores)s) {
 }
 out.pill = scoreRing(72).indexOf('fill="var(--match-pill)"') >= 0;
 out.weight800 = scoreRing(72).indexOf('font-weight="800"') >= 0;
+out.repost = [];
+for (const c of %(reposts)s) out.repost.push(REPOST_BADGE({repost: c[0], agency: c[1]}));
 process.stdout.write(JSON.stringify(out));
 """
+
+# cardHTML is 90 lines and needs a whole card's worth of data, so rather than lift it and stub its
+# world, lift JUST its badge branch — condition and template — out of app.js by text. A change to
+# either the threshold or the agency guard then fails here instead of shipping silently.
+_REPOST_RE = re.compile(
+    r"if \(j\.repost > 2 && !j\.agency\)\s*\n\s*badges \+= (.*?);\s*\n\s*if \(j\.closed\)", re.S)
+
+
+def repost_shim():
+    m = _REPOST_RE.search(SRC)
+    if not m:
+        raise SystemExit("could not find cardHTML's repost badge branch in app.js — did it move? "
+                         "This shim is text-lifted on purpose; update the regex, do not retype "
+                         "the badge.")
+    return ("function H(x){return String(x);}\n"
+            "function REPOST_BADGE(j){ if (j.repost > 2 && !j.agency) return %s; return null; }"
+            % m.group(1))
 
 
 def run_js():
     fns = "\n".join(js_function(SRC, f) for f in
                     ("parseRowDate", "hasClock", "daysAgo", "relTime", "scoreRing"))
     src = DRIVER % {
-        "fns": fns,
+        "fns": fns + "\n" + repost_shim(),
         "dates": json.dumps([c[0] for c in DATE_CASES]),
         "news": json.dumps([c[0] for c in NEW_CASES]),
         "scores": json.dumps([c[0] for c in RING_CASES]),
+        "reposts": json.dumps([[c[0], c[1]] for c in REPOST_CASES]),
     }
     with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False,
                                      encoding="utf-8", dir=APP) as fh:
@@ -190,6 +224,24 @@ bare_rel = [g for (s, _w, _y), g in zip(DATE_CASES, got["rel"])
             if s and not re.match(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}", s)]
 check("no bare date ever renders hours", not any("h ago" in g or g == "Just now" for g in bare_rel),
       repr(bare_rel))
+
+print("\nTHE REPOST BADGE, a count and not a verdict")
+for (n, agency, want, why), g in zip(REPOST_CASES, got["repost"]):
+    label = "repost=%-4s agency=%-5s" % (n, agency)
+    if want is None:
+        check(label + " -> no badge", g is None, why)
+    else:
+        check(label + " -> %r" % want, g is not None and want in g, why)
+# The wording matters as much as the threshold: we can prove the count, not the motive.
+badge = next((g for g in got["repost"] if g), "")
+check("the badge states a count, not a judgement",
+      "ghost" not in badge.lower() and "fake" not in badge.lower(),
+      "we can prove N postings; we cannot prove why")
+check("the tooltip says where the number comes from",
+      "different URLs" in badge and "90 days" in badge, "otherwise 'Posted 5x' is unfalsifiable")
+check("the threshold matches detect_reposts' published default",
+      "j.repost > 2" in SRC,
+      "the badge and scripts/detect_reposts.py must agree on what a repost IS")
 
 print()
 if FAILS:

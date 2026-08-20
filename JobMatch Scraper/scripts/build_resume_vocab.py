@@ -149,7 +149,11 @@ def build_keywords(show=0):
     if skipped:
         print("  (%d postings had no packed jd_terms and were skipped)" % skipped)
     with open(KEYWORDS_OUT, "w", encoding="utf-8") as fh:
-        json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
+        # _meta carries the corpus size so the Keywords panel can state it instead of hard-coding
+        # a figure in the template, where it went stale the first time the feed grew. Namespaced
+        # with a leading underscore so it can never collide with a track name.
+        json.dump(dict(out, _meta={"jobs": int(n["dev"] + n["mgmt"])}), fh,
+                  ensure_ascii=False, separators=(",", ":"))
     print("  wrote %s (%.0f KB)" % (KEYWORDS_OUT, os.path.getsize(KEYWORDS_OUT) / 1024.0))
     return out
 

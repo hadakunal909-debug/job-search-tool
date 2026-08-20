@@ -63,9 +63,11 @@ _VERB_SWAPS = {
     "observed": ("Documented", "Analyzed"),
     "engaged": ("Partnered", "Negotiated", "Won"),
     "exposed": ("Applied", "Delivered"),
-    "various": ("<name the actual work>",),
-    "numerous": ("<name the actual work>",),
-    "multiple": ("<name the actual work>",),
+    # "various" / "numerous" / "multiple" used to map to a literal "<name the actual work>", which
+    # rendered into the UI exactly like that. They were never weak VERBS anyway -- they are vague
+    # quantifiers, and the filler check (voice.FILLER) already flags all three. With no swap here,
+    # analyse_bullet correctly reports "does not open with an action verb" instead of the wrong
+    # diagnosis "opens with a weak verb", which for "Various ad hoc analysis" is the truer note.
 }
 
 # Topic -> metric types that fit it. Ordered; the first match wins, so the more specific patterns

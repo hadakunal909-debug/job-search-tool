@@ -4,6 +4,7 @@ be tested on its own. app.py imports from here and only handles the UI.
 """
 
 import csv
+import logging
 import os
 import re
 import json
@@ -2478,9 +2479,12 @@ def resume_text_from_upload(filename, data):
     except ImportError:
         # Names the fix, because "missing library" is the server's problem and the user cannot act
         # on it — but whoever runs the server can, and they are usually the same person here.
-        return "", ("This server can't read %s files yet — its PDF/Word library isn't installed "
-                    "(cPanel: Setup Python App, Run Pip Install). Paste the text below "
-                    "instead." % ext)
+        # The cPanel remedy ("Setup Python App, Run Pip Install") used to be in this sentence.
+        # It is an instruction for whoever runs the server, shown to whoever uploaded a file, and
+        # only one of those people can act on it. Logged for the operator, plain text for the user.
+        logging.warning("resume upload: no extractor installed for %s files", ext)
+        return "", ("This server can't read %s files yet. Paste the text below instead, or upload "
+                    "a plain-text or PDF copy." % ext)
     except Exception:
         # Malformed, encrypted, or not really the format its extension claims.
         return "", ("Couldn't read that %s. It may be password-protected or corrupted. "
@@ -2526,29 +2530,35 @@ def ai_available():
     return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def _tailor_prompt(resume_text, jd_text):
+def _tailor_prompt(resume_text, jd_text, intensity=None):
+    """The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice,
+    the same module resume_brain.ai._rewrite_prompt uses — this file used to carry its own copy
+    of the guidance, and both copies said "strong action verbs", which is precisely how you get
+    a résumé full of Spearheaded and Leveraged. Import is local so core.py stays importable
+    even if the package is absent (the scraper imports core and never needs the prompt)."""
+    from resume_brain import voice
     return (
-        "You are an expert resume writer and career coach. Tailor the candidate's resume "
-        "to ONE specific job and produce the strongest possible version of THIS "
-        "candidate's resume for THIS job.\n\n"
+        "Tailor this candidate's resume to ONE specific job. Produce the strongest TRUE version "
+        "of THIS candidate's resume for THIS job.\n\n"
         "Do this:\n"
-        "1. Lead with and emphasize the experience, projects, and skills most relevant to "
-        "the job's requirements.\n"
-        "2. Mirror the job description's exact terminology and keywords (titles, tools, "
-        "methodologies, skills) wherever the candidate genuinely has that experience — this "
-        "helps pass ATS keyword screening.\n"
-        "3. Rewrite bullet points to start with strong action verbs; keep and surface any "
-        "quantified results already in the resume.\n"
+        "1. Lead with the experience, projects and skills most relevant to what the job asks "
+        "for.\n"
+        "2. Use the job's own terminology (titles, tools, methods) wherever the candidate "
+        "genuinely has that experience — that is what an ATS keyword screen looks for. Use their "
+        "TERMS, not their tone: a resume written in a job ad's voice reads like a job ad.\n"
+        "3. Keep and surface every quantified result already in the resume. Where a bullet makes "
+        "a claim with no number, sharpen the claim rather than inventing one.\n"
         "4. Fold the job's must-have skills that the candidate actually has into the Skills "
         "section.\n"
         "5. Keep every real section (contact, summary, experience, education, skills) and all "
-        "true content; keep it concise and ATS-friendly (plain text, standard headers).\n\n"
+        "true content. Plain text, standard headings.\n\n"
         "Hard rules (must follow):\n"
         "- NEVER invent or exaggerate experience, employers, titles, dates, degrees, metrics, "
         "or skills the candidate does not have. Truthful reorder/reword only.\n"
         "- Do not list skills the resume doesn't support.\n"
         "- Output ONLY the finished resume text — no preamble, notes, or explanation.\n\n"
-        "=== TARGET JOB DESCRIPTION ===\n%s\n\n"
+        + voice.writing_rules(intensity) +
+        "\n=== TARGET JOB DESCRIPTION ===\n%s\n\n"
         "=== CANDIDATE'S CURRENT RESUME ===\n%s\n\n"
         "=== TAILORED RESUME (output only this) ===" % (jd_text, resume_text)
     )
@@ -2584,13 +2594,13 @@ def _gemini_discover(api_key):
         return GEMINI_DEFAULT_MODEL
 
 
-def tailor_with_gemini(resume_text, jd_text, api_key, model=None):
+def tailor_with_gemini(resume_text, jd_text, api_key, model=None, intensity=None):
     """Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword
     only. Uses Gemini Flash 3.5 with dynamic 'thinking' ON for a stronger result (slower +
     more tokens — by design). `api_key` = a Google AI Studio key (starts 'AIza')."""
     if not api_key:
         raise RuntimeError("No Gemini API key provided.")
-    prompt = _tailor_prompt(resume_text, jd_text)
+    prompt = _tailor_prompt(resume_text, jd_text, intensity)
     mdl = model or os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL
 
     def _call(m, think=True):
@@ -2624,7 +2634,7 @@ def tailor_with_gemini(resume_text, jd_text, api_key, model=None):
     return text
 
 
-def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
+def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None, intensity=None):
     """Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests`
     (no `anthropic` SDK needed — same pattern as the Gemini path). Model: ANTHROPIC_MODEL env, else
     the passed model (default AI_MODEL)."""
@@ -2634,7 +2644,7 @@ def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
     body = {
         "model": os.environ.get("ANTHROPIC_MODEL") or model or AI_MODEL,
         "max_tokens": 8192,                    # headroom for a full résumé rewrite
-        "messages": [{"role": "user", "content": _tailor_prompt(resume_text, jd_text)}],
+        "messages": [{"role": "user", "content": _tailor_prompt(resume_text, jd_text, intensity)}],
     }
     headers = {"content-type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
     r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=body, timeout=120)
@@ -2651,11 +2661,11 @@ def tailor_with_ai(resume_text, jd_text, model=AI_MODEL, api_key=None):
     return text
 
 
-def tailor(resume_text, jd_text, api_key):
+def tailor(resume_text, jd_text, api_key, intensity=None):
     """Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or
     AI_PROVIDER=claude), else Gemini. Both go over REST — no SDK / extra package."""
     if not api_key:
         raise RuntimeError("No AI API key provided.")
     if str(api_key).startswith("sk-ant-") or os.environ.get("AI_PROVIDER") == "claude":
-        return tailor_with_ai(resume_text, jd_text, api_key=api_key)
-    return tailor_with_gemini(resume_text, jd_text, api_key)
+        return tailor_with_ai(resume_text, jd_text, api_key=api_key, intensity=intensity)
+    return tailor_with_gemini(resume_text, jd_text, api_key, intensity=intensity)

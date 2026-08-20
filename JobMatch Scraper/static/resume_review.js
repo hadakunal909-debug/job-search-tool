@@ -42,6 +42,17 @@
     t.addEventListener("click", function () { showTab(t.getAttribute("data-tab")); });
   });
 
+  // Cross-tab hand-off. A fix row on the Review tab whose per-line advice lives under Bullets
+  // sends the user there rather than restating it. Routed through showTab (with focus) so the
+  // roving tabindex and aria-selected stay correct -- flipping `hidden` directly would leave a
+  // keyboard user on a tab the tablist no longer thinks is current.
+  document.addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-goto-tab]");
+    if (!b) { return; }
+    ev.preventDefault();
+    showTab(b.getAttribute("data-goto-tab"), true);
+  });
+
   // Arrow-key movement, which is what makes role="tablist" mean anything.
   document.addEventListener("keydown", function (ev) {
     var i = tabs.indexOf(document.activeElement);
@@ -111,6 +122,13 @@
   // One listener on the document rather than one per row: the rail and the fix list both carry
   // data-check, and delegation means neither has to be re-wired if the markup moves.
   document.addEventListener("click", function (ev) {
+    // The cross-tab hand-off button lives INSIDE a fix row, which carries data-check. Without this
+    // guard the click does both things: showTab("bullets") from the hand-off, then select() ->
+    // showTab("review") from this handler, so the user lands back where they started with focus
+    // stranded on a tab that is no longer selected. Checked explicitly rather than by
+    // stopPropagation, because both listeners are on `document` and would then depend on
+    // registration order.
+    if (ev.target.closest && ev.target.closest("[data-goto-tab]")) { return; }
     var hit = ev.target.closest ? ev.target.closest("[data-check]") : null;
     if (!hit || hit.classList.contains("flat")) { return; }
     if (hit.tagName === "A") { return; }          // never swallow a real navigation

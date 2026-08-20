@@ -466,6 +466,18 @@
       badges += '<span class="pay">' + H(j.salary_label) + '</span>';
     if (j.remote)
       badges += '<span class="rem" title="Remote per the posting">Remote</span>';
+    // Posted N times. A COUNT, not a verdict: we can prove this role has been advertised under N
+    // distinct URLs at one location inside the window, and we cannot prove why. "Ghost job" is the
+    // inference the reader is entitled to draw, not a claim the card is entitled to make.
+    //
+    // Suppressed on agency rows on purpose. Re-advertising the same role IS a staffing agency's
+    // product — Actalent alone held 167 of the 528 clusters — so the badge would fire on a third
+    // of them saying nothing the "Agency" chip beside it does not already say. That is the same
+    // mistake the three sponsorship chips made: one fact spread thin reads as several.
+    if (j.repost > 2 && !j.agency)
+      badges += '<span class="repost" title="This role has been advertised at ' + H(j.repost) +
+        ' different URLs at this location in the last 90 days. Often a role that is not getting' +
+        ' filled.">Posted ' + H(j.repost) + '&times;</span>';
     if (j.closed)
       badges += '<span class="closed">Closed</span>';
     // Some employers publish no posting date anywhere, so the card falls back to when the job
