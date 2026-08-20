@@ -69,12 +69,46 @@ print("=" * 74)
 check("nothing set: Supabase, as today",
       transport(), ("requests.sessions", True))
 
-# A half-configured proxy must NOT half-switch. GitHub renders a secret that does not exist as
-# an empty string, so this is precisely what CI sees between adding one secret and the other.
-check("proxy url but no secret",
-      transport(DB_PROXY_URL="https://x/api/db"), ("requests.sessions", True))
-check("proxy secret but no url",
-      transport(DB_PROXY_SECRET="s"), ("requests.sessions", True))
+# A half-configured proxy must NOT half-switch — and as of 2026-08-19 it must not fall through to
+# Supabase either. THIS EXPECTATION IS REVERSED FROM WHAT IT WAS, deliberately, and the reason is
+# worth keeping because the original was right when it was written.
+#
+# It used to assert ("requests.sessions", True), i.e. Supabase, on the argument that GitHub renders
+# a nonexistent secret as an empty string, so this is exactly what CI sees between adding one
+# secret and the other — and breaking CI for that window was not worth it. True while Supabase was
+# still the live database.
+#
+# The migration completed on 2026-08-15. From that day the identical fallback means "write a full
+# 26-minute sweep into a database the app no longer reads, and report success", which is strictly
+# worse than one failed run: the sweep is stateless and the next slot re-scrapes from the boards.
+# db._check_backend_intent now raises, so the probe produces no output and transport() reports
+# ("?", False).
+HALF_SET = ("?", False)
+check("proxy url but no secret refuses",
+      transport(DB_PROXY_URL="https://x/api/db"), HALF_SET)
+check("proxy secret but no url refuses",
+      transport(DB_PROXY_SECRET="s"), HALF_SET)
+
+
+def refusal_reason(**env):
+    """Why the probe produced nothing. ("?", False) alone would pass for ANY crash — an import
+    error, a syntax error, a missing module — so the message has to be read. A test that goes
+    green for the wrong reason is worse than no test."""
+    e = dict(os.environ)
+    for k in ("PG_DSN", "DB_PROXY_URL", "DB_PROXY_SECRET", "SUPABASE_URL", "SUPABASE_KEY"):
+        e.pop(k, None)
+    e.update({k: v for k, v in env.items() if v is not None})
+    e["SUPABASE_URL"], e["SUPABASE_KEY"] = "https://example.supabase.co", "anon-key"
+    p = subprocess.run([sys.executable, "-c", PROBE], cwd=APP, env=e,
+                       capture_output=True, text=True)
+    return (p.stderr or "").strip()
+
+
+for label, kw in (("url only", {"DB_PROXY_URL": "https://x/api/db"}),
+                  ("secret only", {"DB_PROXY_SECRET": "s"})):
+    why = refusal_reason(**kw)
+    check("%s refuses for the RIGHT reason" % label,
+          ("half-configured" in why and "Supabase" in why, True), (True, True))
 check("empty strings are not configuration",
       transport(DB_PROXY_URL="", DB_PROXY_SECRET="", PG_DSN=""), ("requests.sessions", True))
 

@@ -59,6 +59,18 @@ export DISCOVER_LIMIT=20          # board auto-discovery, small bite per run
 # marked closed. Rows are never deleted and Saved/Applied are unaffected.
 export RECONCILE_CLOSED=1
 
+# STATE THE BACKEND. db.py falls back through PG_DSN -> DB_PROXY_* -> Supabase -> jobs.csv, and
+# every fallback is SILENT. The failure that matters here is .env not being read: db.py loads it
+# relative to the WORKING DIRECTORY, so if the cd above ever stops landing in $APP, PG_DSN comes
+# back empty and this run writes to Supabase (a database the app stopped reading on 2026-08-15)
+# or to jobs.csv, reports success, and the feed just quietly stops updating. That has happened
+# once already for a different reason — see the PG_DSN-read-before-.env note in db.py.
+#
+# With this set, db._check_backend_intent raises immediately instead. A run that cannot reach the
+# real database should fail: the sweep is stateless and the next slot re-scrapes from the boards,
+# so a failed run costs a cycle and loses nothing.
+export DB_REQUIRE=pg
+
 echo "===== $(date -u +%FT%TZ) scrape start =====" >> "$LOG"
 "$PY" -u -m scraper >> "$LOG" 2>&1
 rc=$?

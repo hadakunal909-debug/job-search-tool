@@ -60,8 +60,54 @@ class _LazyHTTP:
                 _http_session = pgrest.Session(PG_DSN)
             else:
                 import dbproxy
+                _check_backend_intent()
                 _http_session = dbproxy.client_from_env() or _make_http()
         return getattr(_http_session, name)
+
+
+def _check_backend_intent():
+    """Refuse to silently downgrade to a backend nobody asked for.
+
+    `dbproxy.client_from_env()` returns a Session only when BOTH DB_PROXY_URL and
+    DB_PROXY_SECRET are non-empty, and the caller above reads None as "use Supabase". So a
+    missing or typo'd secret does not fail — it redirects every write to the database this
+    project left behind on 2026-08-15. Measured 2026-08-19: with DB_PROXY_URL set and
+    DB_PROXY_SECRET empty, `backend_name()` answers "Supabase", and the run reports success.
+
+    That is the same failure family as the PG_DSN-read-before-.env bug documented below: the
+    configuration said one thing, the process did another, and nothing raised. Two rules:
+
+      * HALF-SET IS A MISCONFIGURATION, never a request for the old backend.
+      * DB_REQUIRE lets a caller state the backend it expects, so CI and cron fail in one second
+        instead of spending 26 minutes writing somewhere harmless-looking. Unset, nothing changes.
+    """
+    url = os.environ.get("DB_PROXY_URL") or ""
+    secret = os.environ.get("DB_PROXY_SECRET") or ""
+    if bool(url) != bool(secret):
+        have, missing = ("DB_PROXY_URL", "DB_PROXY_SECRET") if url else ("DB_PROXY_SECRET",
+                                                                        "DB_PROXY_URL")
+        raise RuntimeError(
+            "DB_PROXY is half-configured: %s is set but %s is empty, and falling back to "
+            "Supabase would send every write to the database this project moved off on "
+            "2026-08-15. Set %s, or unset both to choose Supabase deliberately."
+            % (have, missing, missing))
+
+    want = (os.environ.get("DB_REQUIRE") or "").strip().lower()
+    if not want:
+        return
+    got = "proxy" if (url and secret) else ("supabase" if using_supabase() else "csv")
+    if want not in ("proxy", "pg", "supabase", "csv"):
+        raise RuntimeError("DB_REQUIRE=%r is not one of proxy / pg / supabase / csv" % want)
+    if want == "pg":
+        # PG_DSN is handled by the branch above and never reaches here, so arriving with
+        # DB_REQUIRE=pg means PG_DSN was empty — exactly the cPanel misconfiguration to catch.
+        raise RuntimeError(
+            "DB_REQUIRE=pg but PG_DSN is empty, so this process would talk to %s instead of a "
+            "local Postgres. Set PG_DSN (cPanel sets it in .env)." % backend_name())
+    if want != got:
+        raise RuntimeError(
+            "DB_REQUIRE=%s but this process resolved to %r (%s). Refusing to run against a "
+            "backend the caller did not ask for." % (want, got, backend_name()))
 
 
 _http = _LazyHTTP()

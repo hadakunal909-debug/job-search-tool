@@ -1,6 +1,9 @@
 name: Scrape jobs
 
-# Runs the scraper on a schedule and writes results to Supabase.
+# Runs the scraper on a schedule and writes results to the cPanel Postgres behind
+# stemjobs1.astrochakra.co, via the /api/db HMAC proxy (DB_PROXY_*). It wrote to Supabase
+# until 2026-08-15; DB_REQUIRE=proxy below now makes a run that would silently revert to
+# Supabase fail instead.
 # NOTE: the app lives in the "JobMatch Scraper/" subfolder (the repo root holds
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
@@ -56,24 +59,29 @@ jobs:
     # transport for every one of them and must never differ between two steps of the same run.
     #
     # db.py picks its transport in this order: PG_DSN (a local Postgres), then DB_PROXY_* (this
-    # pair), then Supabase. So while these two secrets DO NOT EXIST, GitHub renders them as
-    # empty strings, db.py sees nothing, and the scraper keeps talking to Supabase exactly as it
-    # does today. Adding these lines changes nothing on its own; it is the SECRETS that switch
-    # the scraper over.
+    # pair), then Supabase, then jobs.csv. THE MIGRATION THIS COMMENT USED TO DESCRIBE AS PENDING
+    # IS DONE — it happened on 2026-08-15 and the app reads the cPanel Postgres now.
     #
-    # ORDERING, and it is the whole reason this comment is long. Creating the two secrets flips
-    # the scraper to the cPanel app on its very next run. If PG_DSN is not yet set on that app,
-    # /api/db answers 503 and the scrape step FAILS — which is the safe direction to fail: the
-    # sweep is stateless and re-scrapes from the boards next run, so a failed run costs a cycle
-    # and loses nothing. The unsafe order is the opposite one (PG_DSN set while the scraper
-    # still writes to Supabase), because then the app reads a database that is quietly missing
-    # everything the scraper found in between, and closing that gap needs a second migration.
+    # That completion inverted the safety of the fallback, which is why DB_REQUIRE is below.
+    # While Supabase was live, an empty secret harmlessly left the scraper where it already was.
+    # Afterwards, the identical fallback means "write 26 minutes of jobs into a database nobody
+    # reads, and report success" — and it is not hypothetical: DB_PROXY_URL set with an empty
+    # DB_PROXY_SECRET resolves to "Supabase", measured 2026-08-19.
     #
-    # So: create the secrets, then set PG_DSN promptly. A failed run in the window is expected
-    # and harmless; a silently stale feed is neither.
+    # The direction to fail is still the same one the original note argued for: the sweep is
+    # stateless and re-scrapes from the boards next run, so a failed run costs a cycle and loses
+    # nothing. A silently stale feed is neither cheap nor visible.
     env:
       DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
       DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}
+      # STATE THE BACKEND, so a misconfigured run dies in one second instead of writing 26
+      # minutes of work somewhere harmless-looking. Everything above describes DB_PROXY_* as safe
+      # to add because an empty secret just leaves the scraper on Supabase — which was true while
+      # Supabase was still the live database. It stopped being true on 2026-08-15, and from then
+      # on the same fallback meant "silently write to a database the app no longer reads".
+      # Measured 2026-08-19: DB_PROXY_URL set with an empty DB_PROXY_SECRET resolves to
+      # "Supabase" and reports success. db._check_backend_intent now refuses that.
+      DB_REQUIRE: proxy
 
     steps:
       # v5/v6 rather than v4/v5: the older majors ship a Node 20 entrypoint, which the
@@ -112,6 +120,28 @@ jobs:
         timeout-minutes: 6
         run: pip install -r requirements.txt
 
+      # SAY WHERE THE WRITES ARE GOING, before spending any budget. Every step below reports its
+      # backend only in its closing summary, so a run that wrote to the wrong database looked
+      # identical to a good one until you read the tail of a 26-minute log — and a 401 from a bad
+      # secret is invisible here entirely, since it surfaces per request further down.
+      #
+      # This is one HTTP round trip and it answers the only question that matters first: is this
+      # run pointed at the database the app actually reads? DB_REQUIRE=proxy above makes db.py
+      # raise rather than fall back, so this step is where that surfaces.
+      - name: Preflight — confirm the database
+        if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 2
+        run: |
+          python - <<'PY'
+          import db
+          print("backend:", db.backend_name())
+          n = len(db.load_jobs(include_jd=False, cols="url") or [])
+          print("reachable: %d row(s) already stored" % n)
+          if n == 0:
+              raise SystemExit("connected but the corpus is EMPTY — that is a fresh or wrong "
+                               "database, not the live one. Refusing to scrape into it.")
+          PY
+
       # The stored job DESCRIPTIONS, carried between runs.
       #
       # The heavy pass has to have every JD (it builds IDF over the whole corpus and re-analyzes
@@ -139,7 +169,10 @@ jobs:
       # with no indication of which step was responsible, and — worse — the steps that had
       # not run yet were simply lost. A per-step cap fails the step that actually misbehaved
       # and lets the rest of the pipeline continue.
-      - name: Scrape new jobs into Supabase
+      # Named for the ACTION, not the destination. It said "into Supabase", which stopped
+      # being true on 2026-08-15 and is exactly the kind of stale label that makes a
+      # wrong-database run look normal. The preflight above prints where it really goes.
+      - name: Scrape new jobs
         id: scrape
         if: steps.gate.outputs.run == 'yes'
         timeout-minutes: 26
