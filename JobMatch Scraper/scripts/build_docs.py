@@ -669,7 +669,16 @@ def render_map(data):
 
 
 def md(s):
-    return (s or "").replace("|", "\\|").replace("\r", " ").strip()
+    """Neutralise a docstring so it cannot become markup when dropped into a table cell.
+
+    Pipes break the table. Brackets can form a link: web.py::_md_to_html's docstring contains
+    the literal example "[text](url)", which rendered as a real -- and broken -- link. Angle
+    brackets could inject raw HTML.
+    """
+    out = (s or "").replace("\r", " ")
+    for a, b in (("|", "\\|"), ("[", "\\["), ("]", "\\]"), ("<", "&lt;"), (">", "&gt;")):
+        out = out.replace(a, b)
+    return out.strip()
 
 
 def anchor(rel, suffix=""):
