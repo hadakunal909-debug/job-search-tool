@@ -109,6 +109,7 @@ rb_ai = _LazyMod("resume_brain.ai")
 rb_export = _LazyMod("resume_brain.export")
 rb_latex = _LazyMod("resume_brain.latex")
 rb_voice = _LazyMod("resume_brain.voice")   # the shared style guide + intensity levels
+rb_reposts = _LazyMod("scraper.reposts")   # cluster_key, shared with detect_reposts.py
 
 app = Flask(__name__)
 
@@ -918,6 +919,37 @@ def _host_jd_blocked(url):
     return core.url_host(url) in _jd_blocked_hosts
 
 
+_REPOST_KEY = "repost_clusters"
+_repost_clusters = None
+
+
+def _repost_count(title, company, location):
+    """How many times this exact role has been advertised at this location, or 0.
+
+    Read from the repost_clusters KV row that scripts/detect_reposts.py --write publishes, keyed by
+    scraper.reposts.cluster_key so the writer and this reader cannot disagree about what a role IS.
+    Cached for the worker's lifetime, same as _host_jd_blocked: the map changes when someone reruns
+    that script, not per request.
+
+    Keyed on role identity rather than on URL deliberately — a posting scraped AFTER the map was
+    built still gets badged, because it hashes to the same key as the cluster it belongs to. That
+    is the whole reason the stored map is ~500 keys and not ~2,200 URLs.
+    """
+    global _repost_clusters
+    if _repost_clusters is None:
+        try:
+            _repost_clusters = (db.get_kv(_REPOST_KEY) or {}).get("clusters") or {}
+        except Exception:
+            _repost_clusters = {}
+    if not _repost_clusters:
+        return 0
+    try:
+        return int(_repost_clusters.get(
+            rb_reposts.cluster_key(title, company, location)) or 0)
+    except Exception:
+        return 0
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -1032,6 +1064,10 @@ def _build_row(j, score):
             "jd_unavailable": unavailable,
             "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
             "cap_exempt": core.is_cap_exempt(c),
+            # How many distinct URLs this same role has had at this location inside the repost
+            # window. 0 for the overwhelming majority. A measurement, not a judgement: the card
+            # states the count and lets the reader decide whether it smells like a ghost req.
+            "repost": _repost_count(j.get("title"), c, j.get("location")),
             # Which immigration routes this employer has actually filed for (DOL LCA + PERM
             # + E-Verify). A missing tag means "no record", never "won't sponsor".
             #

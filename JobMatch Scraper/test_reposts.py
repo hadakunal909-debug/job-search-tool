@@ -229,6 +229,66 @@ def test_a_large_corpus_stays_fast_enough_to_run_on_prod():
     assert out, "expected clusters in a corpus built to contain them"
 
 
+# ------------------------------------------------------------------ the stored-map invariant
+def test_cluster_key_and_cluster_map_agree():
+    """THE invariant the badge depends on. cluster_map builds keys from the grouping's own
+    company_key/location_key; web.py looks a feed row up with cluster_key() on the RAW fields. If
+    those two ever disagree the lookup silently returns nothing and no badge appears anywhere —
+    indistinguishable from "nothing is reposted", which is why this is pinned rather than assumed.
+    """
+    rows = [dict(row("Senior Data Engineer", "Acme Inc.", "https://a.com/%d" % i,
+                     "2026-08-%02d" % (i + 1)), location="Seattle, WA, United States")
+            for i in range(1, 5)]
+    clusters = rp.find_reposts(rows, min_urls=3)
+    assert clusters, "fixture should cluster"
+    cmap = rp.cluster_map(clusters)
+    assert len(cmap) == 1, cmap
+    # the key a feed row would be looked up under
+    k = rp.cluster_key("Senior Data Engineer", "Acme Inc.", "Seattle, WA, United States")
+    assert k in cmap, (k, list(cmap))
+    assert cmap[k] == 4, cmap
+
+
+def test_the_lookup_key_survives_spelling_differences():
+    """A feed row spelled differently from the row that formed the cluster must still hit it —
+    that is the whole reason the key is normalised rather than raw."""
+    base = rp.cluster_key("Data Engineer", "Acme Inc.", "Seattle, WA, United States")
+    for company in ("Acme", "ACME Corporation", "acme, llc"):
+        for loc in ("Seattle, WA", "seattle, wa, USA", "Seattle,  WA, United States"):
+            assert rp.cluster_key("Data Engineer", company, loc) == base, (company, loc)
+
+
+def test_the_lookup_key_absorbs_title_noise_but_not_seniority():
+    base = rp.cluster_key("Data Engineer", "Acme", "Seattle, WA")
+    assert rp.cluster_key("Engineer, Data (Remote, USA)", "Acme", "Seattle, WA") == base
+    assert rp.cluster_key("Senior Data Engineer", "Acme", "Seattle, WA") != base
+
+
+def test_a_title_with_no_core_has_no_key():
+    """Otherwise every all-noise title would share one key and badge each other. Note "Senior" is
+    NOT such a title any more — seniority carries identity since the corpus showed that stripping
+    it merged separate reqs, so {"senior"} is a legitimate core."""
+    assert rp.cluster_key("Remote (USA)", "Acme", "Seattle, WA") == ""
+    assert rp.cluster_key("F/T Contract - Remote", "Acme", "Seattle, WA") == ""
+    assert rp.cluster_key("Senior", "Acme", "Seattle, WA") != ""
+    assert rp.cluster_map([{"title": "Remote (USA)", "company_key": "acme",
+                            "location_key": "seattle wa", "count": 9}]) == {}
+
+
+def test_cluster_map_is_small_enough_to_cache():
+    """It is read once per worker and held in memory, so the shape matters: ~500 short strings,
+    not ~2,200 URLs."""
+    rows = []
+    for company in range(60):
+        for i in range(4):
+            rows.append(dict(row("Data Engineer", "Company %d" % company,
+                                 "https://x.com/%d-%d" % (company, i), "2026-08-%02d" % (i + 1)),
+                             location="Seattle, WA"))
+    cmap = rp.cluster_map(rp.find_reposts(rows, min_urls=3))
+    assert len(cmap) == 60, len(cmap)
+    assert all(isinstance(k, str) and isinstance(v, int) for k, v in cmap.items())
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

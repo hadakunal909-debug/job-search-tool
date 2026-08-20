@@ -158,6 +158,37 @@ def _collapse_by_url(rows):
     return list(best.values())
 
 
+def cluster_key(title, company, location):
+    """The identity a repost cluster is stored under: company + location + sorted core tokens.
+
+    ONE definition, shared by scripts/detect_reposts.py (which writes the map) and web.py (which
+    looks a feed row up in it). Keying the stored map on this rather than on URLs matters for two
+    reasons: it is ~500 entries instead of ~2,200, and a NEWLY scraped posting of an
+    already-reposted role is badged the moment it lands, without anyone re-running the script.
+    """
+    core = " ".join(sorted(core_tokens(title)))
+    if not core:
+        return ""
+    return "%s|%s|%s" % (normalize_company(company), normalize_location(location), core)
+
+
+def cluster_map(clusters):
+    """{cluster_key: distinct-URL count} — the shape stored in the KV and read by the feed.
+
+    Built from the keys the grouping ALREADY used, not by re-normalising the display fields. Those
+    two must produce identical strings or no badge ever appears, and it would fail silently — an
+    empty lookup is indistinguishable from "nothing is reposted". test_reposts pins the invariant.
+    """
+    out = {}
+    for c in clusters or []:
+        core = " ".join(sorted(core_tokens(c["title"])))
+        if not core:
+            continue
+        k = "%s|%s|%s" % (c["company_key"], c["location_key"], core)
+        out[k] = max(out.get(k, 0), c["count"])
+    return out
+
+
 def find_reposts(rows, window_days=DEFAULT_WINDOW_DAYS, min_urls=MIN_DISTINCT_URLS):
     """[{company, title, urls, dates, count, span_days}] — one entry per repost cluster.
 

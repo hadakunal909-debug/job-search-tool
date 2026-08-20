@@ -5,10 +5,12 @@ detect_reposts.py — which employers keep re-posting the same role?
     python scripts/detect_reposts.py --top 60 --min-urls 3
     python scripts/detect_reposts.py --window 45 --company stripe
     python scripts/detect_reposts.py --json out.json
+    python scripts/detect_reposts.py --write         # publish the map the feed badges from
 
-READ-ONLY. It runs one SELECT and prints; nothing is written, closed or hidden. That is not
-timidity — see scraper/reposts.py for why a repost is information about the employer rather than a
-defect in the feed, and why acting on it automatically would be wrong.
+READ-ONLY unless you pass --write, and even then the only write is one KV row holding the cluster
+map. No posting is ever closed, hidden, deleted or re-scored by this file — see scraper/reposts.py
+for why a repost is information about the EMPLOYER rather than a defect in the feed, and why acting
+on it automatically would be wrong. The card says "posted N times" and the reader decides.
 
 The clustering lives in scraper.reposts so it can be unit-tested without a database
 (test_reposts.py). This file is only the query and the report.
@@ -16,6 +18,7 @@ The clustering lives in scraper.reposts so it can be unit-tested without a datab
 
 import argparse
 import collections
+import datetime
 import json
 import os
 import sys
@@ -27,6 +30,15 @@ if hasattr(sys.stdout, "reconfigure"):
 import core
 import db
 from scraper import reposts
+
+# The KV row the feed reads. Same pattern as close_dead_jds' jd_host_verdicts: a precomputed
+# measurement in a KV blob, not a new column — DDL cannot go through the HMAC proxy, so a schema
+# change means someone pasting SQL into a console, and this needs neither.
+REPOST_KEY = "repost_clusters"
+
+
+def _today():
+    return datetime.date.today().isoformat()
 
 
 def _rows():
@@ -62,6 +74,9 @@ def main():
     ap.add_argument("--include-closed", action="store_true",
                     help="also cluster rows already marked is_active=false")
     ap.add_argument("--json", default="", help="write the full result to this file")
+    ap.add_argument("--write", action="store_true",
+                    help="publish the cluster map to the %s KV row so the feed can badge cards"
+                         % REPOST_KEY)
     args = ap.parse_args()
 
     rows = _rows()
@@ -119,6 +134,17 @@ def main():
     if agg:
         print("\nnote: %d cluster(s) include an aggregator URL — those may be relists rather than"
               "\n      the employer re-posting. See scraper.fingerprint_duplicate." % len(agg))
+
+    if args.write:
+        # Only clusters at or above the threshold are published, so the badge and this report
+        # always agree about what counts as a repost.
+        cmap = reposts.cluster_map(clusters)
+        db.put_kv(REPOST_KEY, {"clusters": cmap, "built": _today(),
+                               "window_days": args.window, "min_urls": args.min_urls,
+                               "rows_scanned": len(rows)})
+        print("\npublished %d cluster key(s) to the %s KV row — the feed badges from this."
+              % (len(cmap), REPOST_KEY))
+        print("workers cache it for their lifetime, so a running app picks it up on next restart.")
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
