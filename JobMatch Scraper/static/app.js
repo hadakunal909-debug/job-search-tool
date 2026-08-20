@@ -474,6 +474,13 @@
     // product — Actalent alone held 167 of the 528 clusters — so the badge would fire on a third
     // of them saying nothing the "Agency" chip beside it does not already say. That is the same
     // mistake the three sponsorship chips made: one fact spread thin reads as several.
+    // The title said nothing; the DESCRIPTION carried this one. Stated on the card so a wider
+    // net stays auditable -- if these start reading as junk, the rule that admits them is named
+    // and tunable (core.PM_ANCHORS / PM_MIN_POINTS) rather than anonymous.
+    if (j.jd_admit)
+      badges += '<span class="jdadmit" title="This job’s title matched none of our role ' +
+        'keywords. It is here because its description reads like project / programme delivery ' +
+        'work.">matched on description</span>';
     if (j.repost > 2 && !j.agency)
       badges += '<span class="repost" title="This role has been advertised at ' + H(j.repost) +
         ' different URLs at this location in the last 90 days. Often a role that is not getting' +
@@ -599,11 +606,26 @@
   // phrase vocabulary has one definition and this only has to intersect two lists. OR across
   // picks, like the visa filter: someone who ticks Project Manager and Data Analyst wants
   // either, not both at once.
+  // TWIN of core.roles_match(). Keep them together -- scripts/feed_parity.py lifts this one by
+  // source text and diffs it against the server's, row for row.
   function roleHit(j, wanted) {
+    // Declared INSIDE the function on purpose: feed_parity.py lifts these twins by function
+    // name, so anything this one leans on from an outer scope is simply absent in the driver
+    // (it failed with "DELIVER_ROLES is not defined" the first time). Self-contained or untested.
+    var DELIVER_ROLES = ["consultant", "coordinator", "delivery", "pm", "product", "program", "scrum", "transform"];
     if (!wanted.length) return true;
     var have = j.roles || [];
     for (var i = 0; i < have.length; i++)
       if (wanted.indexOf(have[i]) >= 0) return true;
+    // A job kept on its DESCRIPTION has no family, because families are read off the title and
+    // its title is precisely why it needed rescuing. The rule that admitted it did establish
+    // that it is delivery work, so it answers a selection drawn entirely from that group -- and
+    // only then. See core.roles_match for the full reasoning.
+    if (j.jd_admit) {
+      for (var k = 0; k < wanted.length; k++)
+        if (DELIVER_ROLES.indexOf(wanted[k]) < 0) return false;
+      return true;
+    }
     return false;
   }
   // Mirror of web.py _row_sponsor_rank(): lowest first. Ranking rather than filtering, because

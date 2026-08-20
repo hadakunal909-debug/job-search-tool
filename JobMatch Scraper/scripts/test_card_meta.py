@@ -243,6 +243,28 @@ check("the threshold matches detect_reposts' published default",
       "j.repost > 2" in SRC,
       "the badge and scripts/detect_reposts.py must agree on what a repost IS")
 
+print("\nTHE 'MATCHED ON DESCRIPTION' CHIP, added 2026-08-20")
+# Asserted against the SOURCE rather than through the shim, because this branch is a plain
+# `if (j.jd_admit)` with no arithmetic in it — there is nothing to evaluate, only wording and
+# placement to hold still. Placement is the part that bit once already: this chip originally
+# sat between the repost branch and `if (j.closed)`, which is exactly the span REPOST_RE above
+# anchors on, and the lifted shim silently absorbed it and still passed.
+check("the chip exists and reads as provenance",
+      "j.jd_admit" in SRC and "matched on description" in SRC,
+      "the whole point of the wider net is that you can see which rule admitted a row")
+check("its tooltip explains the rule rather than asserting quality",
+      "description reads like" in SRC and "matched none of our role" in SRC,
+      "'matched on description' alone tells the reader nothing they can act on")
+check("it sits BEFORE the repost branch",
+      SRC.find("j.jd_admit") < SRC.find("j.repost > 2"),
+      "between repost and j.closed it lands inside REPOST_RE's anchor and breaks that test "
+      "silently rather than loudly")
+check("web.py derives the flag instead of reading a column",
+      "_admitted_on_description" in open(
+          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web.py"),
+          encoding="utf-8").read(),
+      "a stamped column would need a hand-run migration and could drift from the filter")
+
 print()
 if FAILS:
     print("FAILURES (%d): %s" % (len(FAILS), "; ".join(FAILS)))

@@ -70,6 +70,10 @@ ROW_KEYS = {
     "score_pending", "date", "date_verified", "date_trusted", "first_seen", "sponsor_jd",
     "sponsors_h1b", "everify", "visa", "roles", "agency", "cap_exempt", "intern", "track",
     "exp_years", "exp_level",
+    # Rows kept on their DESCRIPTION rather than their title. roles_match/roleHit give these a
+    # pass on any all-delivery selection, and that branch is unreachable -- so passes
+    # vacuously -- unless the corpus below actually carries some.
+    "jd_admit",
     # The one route the card names. Read by the chip and by data-route, so a vacuous None here
     # would let the card colour and the chip drift apart unnoticed.
     "visa_likely",
@@ -115,6 +119,10 @@ def _row(rng, n, title, company, state, **over):
         "date_verified": False,          # both overwritten below, derived together
         "date_trusted": True,
         "roles": [],                     # ...as is this, from the title
+        # Overridden for a slice of the corpus below. A description-admitted row is exactly the
+        # awkward shape for the role filter: roles is EMPTY, so nothing but this flag can tell
+        # the two implementations to let it through.
+        "jd_admit": False,
         # Empty for every row except the undated cohort below — a normal row is filtered on
         # its posting date and never reaches the fallback.
         "first_seen": "",
@@ -197,6 +205,18 @@ def build_corpus():
         add("Project Manager", "Actalent", "IL", agency=True)
     for i in range(35):
         add("Environmental Project Manager", "Actalent", "NY", agency=True)
+
+    # Rows admitted on their DESCRIPTION (2026-08-20). Deliberately titles that belong to NO
+    # role family, because that is the real shape: families come off the title, and a title that
+    # says nothing is exactly why the description path had to rescue the row. roles=[] plus
+    # jd_admit=True is the only combination that reaches the new branch in roles_match/roleHit.
+    for i, t in enumerate(["Coordinator II", "Business Operations Specialist", "Analyst III",
+                           "Associate II", "Specialist, Enterprise Services"]):
+        add(t, "Optum", STATES[i % len(STATES)], jd_admit=True, roles=[])
+    # ...and the control: the same shapeless titles WITHOUT the flag, so a case that lets the
+    # first group through has to be discriminating rather than just permissive.
+    for i, t in enumerate(["Coordinator III", "Operations Associate II"]):
+        add(t, "Centene", STATES[i % len(STATES)], jd_admit=False, roles=[])
 
     # A spread across the role families, NON-agency. Without this the only Project Manager rows
     # in the corpus were Actalent's, which are agency=True and therefore hidden by the default
@@ -346,6 +366,15 @@ def build_cases():
         ("role: software engineer", {"roles": "swe", "min": "0", "date": "any"}),
         ("roles: pm + swe", {"roles": "pm,swe", "min": "0", "date": "any"}),
         ("roles: four at once", {"roles": "pm,product,program,ba", "min": "0", "date": "any"}),
+        # The description-admitted branch, both directions. An all-delivery selection must let
+        # those rows through; the moment one non-delivery family is added it must not, because
+        # nothing established the row belongs to that one.
+        ("roles: all-delivery lets jd_admit through",
+         {"roles": "pm,program,delivery", "min": "0", "date": "any", "hideagency": ""}),
+        ("roles: one non-delivery family excludes jd_admit",
+         {"roles": "pm,dataeng", "min": "0", "date": "any", "hideagency": ""}),
+        ("roles: non-delivery only",
+         {"roles": "dataeng", "min": "0", "date": "any", "hideagency": ""}),
         ("roles + visa + agencies", {"roles": "swe,dataeng", "visatags": "h1b",
                                      "hideagency": "", "min": "0", "date": "any"}),
         ("roles + track + newest", {"roles": "pm", "track": "mgmt", "sort": "newest",
