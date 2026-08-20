@@ -136,3 +136,7 @@ for bad in [{"opt_end_date": "not a date"}, {"opt_end_date": None},
         print("  FAIL %-44r raised %s" % (bad, e))
 
 print("\n" + ("ALL VISA CHECKS PASS" if not fails else "%d FAILED: %s" % (len(fails), fails)))
+# Exit non-zero, or a failure is invisible to CI. This file printed FAILED and exited 0 from the
+# day it was added until 2026-08-20, so `set -e` in python-tests.yml never saw a thing.
+if fails:
+    raise SystemExit(1)

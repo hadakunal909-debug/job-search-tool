@@ -79,41 +79,22 @@ jobs:
       # host is NOT probed, which is only assertable because the suite poisons every network path
       # so an attempted fetch is itself the failure. That poisoning is also what makes it CI-safe:
       # verified passing with sockets patched to raise and no credential file present.
-      - name: root suites (dedup, dates, scoring, title filter, passwords, uploads,
-              JD persistence, résumé rubric + store)
+      # ONE list, not two. This step used to be three hand-maintained `for` loops naming 36
+      # suites, and the app directory contains 43 — test_sponsor_flag.py is offline-safe and had
+      # never run here, because it was simply never typed in. The list now lives in SUITES inside
+      # scripts/run_tests.py, so adding a suite there adds it to CI and there is nowhere else to
+      # forget. The runner still emits ::group:: per suite, so the log is finer-grained than the
+      # three steps it replaces, and it sets EV_OFF=1 per subprocess rather than trusting the
+      # job-level env to be read before something imports analytics.
+      #
+      # It also fails a suite that prints FAILED and exits 0. scripts/test_visa.py and
+      # scripts/test_notify.py did exactly that until 2026-08-20, so `set -e` here never saw
+      # them; both are fixed at the source and the runner keeps watching for the pattern.
+      #
+      # The parity suites (feed_parity, test_card_meta, test_filter_memory) need node and are in
+      # the same list — they are the highest-value gate in the repo, because web.py's
+      # _filter_rows and app.js's matches() are deliberate twins and the feed switches between
+      # them at 4,000 jobs. Nothing else keeps them in step.
+      - name: all offline suites
         working-directory: 'JobMatch Scraper'
-        run: |
-          set -e
-          for t in test_canonical_url test_jobspy_adapter test_resume_upload test_date_sources \
-                   test_title_filter test_verify_queue test_workday_date test_password_rule \
-                   test_scoring test_jd_persist test_resume_score test_resume_store test_resume_keywords test_resume_bullets \
-                   test_prompt_evals test_liveness test_reposts test_backend_intent \
-                   test_pm_rule; do
-            echo "::group::$t"
-            python "$t.py"
-            echo "::endgroup::"
-          done
-
-      - name: script suites (render, search, visa, parsers, contrast, job page, onboarding)
-        working-directory: 'JobMatch Scraper'
-        run: |
-          set -e
-          for t in test_contrast test_visa test_paylocity test_peoplesoft test_jdrender \
-                   test_search_and_similar test_job_page test_onboarding test_notify \
-                   test_jobs_cache test_pgrest test_dbproxy test_transport \
-                   test_ext_contract; do
-            echo "::group::$t"
-            python "scripts/$t.py"
-            echo "::endgroup::"
-          done
-
-      # The highest-value gate in the repo: web.py's _filter_rows and app.js's matches() are
-      # deliberate twins, and below/above 4,000 jobs the feed switches between them. Nothing but
-      # this test keeps them in step.
-      - name: server/client parity (needs node)
-        working-directory: 'JobMatch Scraper'
-        run: |
-          set -e
-          python scripts/test_card_meta.py
-          python scripts/test_filter_memory.py
-          python scripts/feed_parity.py
+        run: python scripts/run_tests.py --ci
