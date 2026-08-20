@@ -5221,6 +5221,37 @@ def _make_matcher(terms):
 _INCLUDE_RE = _make_matcher(INCLUDE)
 _EXCLUDE_RE = _make_matcher(EXCLUDE)
 
+# ---------------------------------------------------------------------------------------------
+# "Manager, Projects" -- the reversed form INCLUDE cannot see.
+#
+# Every one of the 198 INCLUDE phrases reads "thing role" ("project manager"), and a good many
+# employers write the head first with a comma: Disney posted "Manager, Projects" in Celebration FL
+# and the filter dropped it with "no PM/coordinator/analyst/software keyword". Reported by Kunal
+# 2026-08-20 from a disneycareers.com link; the board itself was already being scraped (114 Disney
+# rows in the corpus), so this was never a coverage gap, only a filter blind spot.
+#
+# A SEPARATE, COMMA-ANCHORED pattern rather than new INCLUDE entries, and rather than teaching
+# _make_matcher to treat punctuation as a separator. Both alternatives were measured on 1,493 US
+# titles across the Disney, Capital One and Salesforce boards:
+#
+#   punctuation-as-separator in _make_matcher   -> +0 rows. The comma is not what blocks these;
+#                                                  the word ORDER is. Not shipped: an unmeasured
+#                                                  matcher change is how a flood gets in.
+#   a loose "(role), (thing)" with bare product/data
+#                                               -> +13 rows, SIX of them off-target -- it swept in
+#                                                  Product Design, Product Marketing and Product
+#                                                  Architecture, which are not product management.
+#   this pattern (whole role phrases only)      -> +2 rows, both on-target, 0 false positives.
+#
+# The thing-list is deliberately only unambiguous role phrases. "product" alone is the trap: it
+# reads as design/marketing/architecture far more often than as product management. Keeping the
+# head adjacent to the comma matters too -- it is why "Senior Analyst, Product & Pricing
+# Operations" does not match on a stray "operations" three words later.
+_REVERSED_RE = re.compile(
+    r"\b(manager|director|lead|specialist|coordinator|analyst|administrator)\s*,\s*"
+    r"(projects?|programs?|operations|project management|program management|"
+    r"product management|project controls?|scrum)\b", re.I)
+
 
 # ---- résumé-driven terms: tune the scrape toward YOUR resume (purely additive) ----
 # Map a detected résumé skill -> extra role phrases to also look for. These get added
@@ -5268,6 +5299,12 @@ def title_verdict(title):
     good = _INCLUDE_RE.search(title)
     if good:
         return True, "matched '%s'" % good.group(0)
+    # The reversed "Manager, Projects" form. Checked AFTER the forward list so the reason string
+    # keeps naming the forward phrase whenever one matched, and after EXCLUDE so it can never
+    # re-admit something the exclude list turned away.
+    rev = _REVERSED_RE.search(title)
+    if rev:
+        return True, "matched reversed '%s'" % rev.group(0)
     return False, "no PM/coordinator/analyst/software keyword"
 
 
