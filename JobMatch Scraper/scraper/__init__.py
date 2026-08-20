@@ -2455,20 +2455,6 @@ def _posted(s):
     return (str(s) if s else "")[:10]
 
 
-def scrape_greenhouse(board_url):
-    data = _get_json("https://boards-api.greenhouse.io/v1/boards/%s/jobs" % _slug(board_url))
-    rows = []
-    for j in data.get("jobs", []):
-        row = {"title": (j.get("title") or "").strip(),
-               "url": j.get("absolute_url", ""),
-               "location": (j.get("location") or {}).get("name", "")}
-        d = _posted(j.get("first_published") or j.get("updated_at"))
-        if d:
-            row["found_date"] = d                # the REAL posting date, not the scrape date
-        rows.append(row)
-    return rows
-
-
 # ---------------------------------------------------------------------------------------------
 # DESCRIPTIONS THAT ARRIVE WITH THE LISTING.
 #
@@ -2487,6 +2473,38 @@ def _listing_jd(*parts):
     """Join the description fragments a list feed handed us into one clean block of text."""
     out = [core.html_to_text(p) for p in parts if p]
     return " ".join(t for t in out if t)
+
+
+# Greenhouse serves the full description from the SAME list endpoint when asked, so the JD costs
+# no extra request -- only extra bytes. It is on by default because Greenhouse is 409 of the 1,173
+# boards in SOURCES, the single biggest source, and without it the description rule cannot see a
+# third of the corpus. GREENHOUSE_JD=0 turns it off if a host ever objects to the transfer.
+#
+# MEASURED 2026-08-20 on a random 12-board sample: 0.7 MB -> 15.5 MB for the same 936 jobs,
+# extrapolating to roughly 23 MB -> 529 MB across all 409 boards per sweep. That is the whole
+# cost, and it buys two things: the description rule gets to vote on every Greenhouse posting,
+# and score_jobs stops re-fetching JDs it could have had for free. Verified complete, not
+# truncated: stripe returned 567/567 jobs with content (3.04M chars), samsara 264/264 (3.42M).
+GREENHOUSE_JD = os.environ.get("GREENHOUSE_JD", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def scrape_greenhouse(board_url):
+    url = "https://boards-api.greenhouse.io/v1/boards/%s/jobs" % _slug(board_url)
+    data = _get_json(url + "?content=true" if GREENHOUSE_JD else url)
+    rows = []
+    for j in data.get("jobs", []):
+        row = {"title": (j.get("title") or "").strip(),
+               "url": j.get("absolute_url", ""),
+               "location": (j.get("location") or {}).get("name", "")}
+        if GREENHOUSE_JD:
+            # `content` is HTML-escaped HTML -- html_to_text unescapes before parsing, which is
+            # why it survives the round trip that a bare BeautifulSoup call would mangle.
+            row["jd"] = _listing_jd(j.get("content"))
+        d = _posted(j.get("first_published") or j.get("updated_at"))
+        if d:
+            row["found_date"] = d                # the REAL posting date, not the scrape date
+        rows.append(row)
+    return rows
 
 
 def scrape_lever(board_url):
@@ -3185,7 +3203,10 @@ def scrape_recruitee(board_url):
         rows.append({"title": (o.get("title") or "").strip(),
                      "url": o.get("careers_url") or o.get("careers_apply_url") or "",
                      "location": loc,
-                     "found_date": (o.get("published_at") or "")[:10]})
+                     "found_date": (o.get("published_at") or "")[:10],
+                     # Free, like lever/ashby/jibe: both fields are already in this response.
+                     # Measured 2026-08-20 on grantthornton -- 83/83 offers carried >400 chars.
+                     "jd": _listing_jd(o.get("description"), o.get("requirements"))})
     return [r for r in rows if r["url"]]
 
 
@@ -5514,6 +5535,103 @@ def close_reject_dump():
         _reject_fh[0] = None
 
 
+# ---------------------------------------------------------------------------------------------
+# THE SECOND OPINION FOR BOARDS THAT DO NOT HAND A DESCRIPTION OVER.
+#
+# greenhouse, lever, ashby, jibe, recruitee and pinpoint return the description in the same
+# response the sweep already reads, so those postings reach the keep loop with a "jd" and the
+# description rule costs nothing. That is 655 of the 1,173 boards in SOURCES.
+#
+# The other 518 -- workday (234), smartrecruiters (128), successfactors (83), oracle (33),
+# phenom (20, teaser only) and the long tail -- publish the description at a SEPARATE URL, one
+# request per posting. Fetching all of them is out of the question: a full sweep leaves ~213,000
+# postings on the floor, and a request each is not a scrape, it is a crawl.
+#
+# So this is targeted and bounded, and both halves matter:
+#
+#   TARGETED. Only postings that (a) are new this run, (b) failed the title filter for want of a
+#   keyword rather than on an EXCLUDE hit, and (c) pass core.pm_title_gate -- the same cheap
+#   title hint the description rule applies anyway. Measured on 400 title-rejected Workday /
+#   SmartRecruiters postings: the gate cuts the pool to 5.75% of eligible drops, and of what it
+#   does fetch roughly one in six is rescued. Without the gate it is one in eleven AND the wins
+#   are things like "Regional Sales Director" -- more requests for a worse feed.
+#
+#   BOUNDED. A hard ceiling per run and a lower one per employer, because the first run after
+#   this ships sees a whole corpus of unseen postings rather than a day's worth, and because one
+#   40,000-posting Workday tenant must not spend the entire budget.
+#
+# It reuses score_jobs.detail_jd, which already knows every ATS this project can read and has the
+# shell guard that keeps "You need to enable JavaScript" out of the corpus. Imported lazily
+# because score_jobs imports scraper at module load: by the time main() calls this, this module
+# is fully initialised and the circular import resolves.
+JD_LOOKUP_BUDGET = int(os.environ.get("JD_LOOKUP_BUDGET") or 1200)
+JD_LOOKUP_PER_BOARD = int(os.environ.get("JD_LOOKUP_PER_BOARD") or 60)
+JD_LOOKUP_WORKERS = int(os.environ.get("JD_LOOKUP_WORKERS") or 8)
+
+
+def fill_missing_jds(scraped, seen, blocked):
+    """Fetch descriptions for the postings a second opinion could plausibly rescue.
+
+    Mutates rows in place, setting j["jd"]. Returns (fetched, rescued_candidates) for the run
+    summary. Never raises: a JD lookup failing is a posting that drops on its title, which is
+    exactly what would have happened without this pass.
+    """
+    if JD_LOOKUP_BUDGET <= 0:
+        return 0, 0
+    per_board, want = {}, []
+    for j in scraped:
+        if len((j.get("jd") or "").strip()) >= core._MIN_JD_CHARS:
+            continue                                  # the board already gave us one
+        url = canonical_url(j.get("url", ""))
+        if not url or url.lower() in seen:
+            continue                                  # already in the corpus: never re-judged
+        if blocked and db.block_key(j.get("company", "")) in blocked:
+            continue
+        title = j.get("title") or ""
+        # THE US GATE, APPLIED EARLY AND ONLY HERE. In the keep loop it deliberately runs after
+        # the title verdict, so a rejected posting never reaches it -- which means a budget that
+        # skipped this check would spend itself on jobs the loop is about to drop anyway. It is
+        # not a theoretical worry: the first smoke test of this pass spent 21 of 80 fetches on GE
+        # Vernova's French and German reqs ("Directeur de projet", "Automation Operations Leader
+        # (f/m/d)"), every one of them rescued by the description and then dropped as non-US.
+        if US_ONLY and (not is_us_location(j.get("location", ""))
+                        or title_says_non_us(title)):
+            continue
+        keep, why = title_verdict(title)
+        if keep or why.startswith("off-target"):
+            continue                                  # kept already, or vetoed and not ours to
+        if not core.pm_title_gate(title):             # overturn
+            continue
+        c = j.get("company", "")
+        if per_board.get(c, 0) >= JD_LOOKUP_PER_BOARD:
+            continue
+        per_board[c] = per_board.get(c, 0) + 1
+        want.append(j)
+        if len(want) >= JD_LOOKUP_BUDGET:
+            break
+    if not want:
+        return 0, 0
+
+    from . import score_jobs                           # lazy: see the note above
+    print("JD lookup: fetching %d description(s) for title-rejected postings across %d employer(s)"
+          % (len(want), len(per_board)))
+
+    def one(j):
+        try:
+            _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
+            return j, jd or ""
+        except Exception:
+            return j, ""
+
+    got = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS) as ex:
+        for j, jd in ex.map(one, want):
+            if len(jd) >= core._MIN_JD_CHARS:
+                j["jd"] = jd
+                got += 1
+    return len(want), got
+
+
 US_STATE_ABBR = {"AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
     "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
     "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
@@ -6428,6 +6546,17 @@ def main():
     # the corpus drifts to whichever half is looser — db.stale_urls' comment has the full story.
     long_cutoff = ((datetime.date.today() - datetime.timedelta(days=db.AGE_LONG_DAYS)).isoformat()
                    if (MAX_AGE_DAYS > 0 and db.AGE_LONG_DAYS) else age_cutoff)
+
+    # Buy descriptions for the postings the boards did not hand one over for, before the keep
+    # loop runs — so a row rescued by a FETCHED description takes exactly the same path through
+    # the loop as one rescued by a description that arrived free. See fill_missing_jds.
+    try:
+        jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked)
+        if jd_tried:
+            print("JD lookup: %d of %d returned a usable description." % (jd_got, jd_tried))
+    except Exception as e:
+        print("  note: JD lookup pass failed (%s); titles decide on their own" % str(e)[:80])
+
     for j in scraped:
         j["url"] = canonical_url(j.get("url", ""))
         if j["url"].lower() in seen:
@@ -6455,8 +6584,7 @@ def main():
         # here goes through it exactly like a title-matched one. That was the point of doing the
         # rescue here rather than after the gate.
         if not keep and not why.startswith("off-target"):
-            _jd = (j.get("jd") or "").strip()
-            if len(_jd) >= core._MIN_JD_CHARS and core.reads_like_pm(_jd):
+            if core.admits_on_description(j["title"], j.get("jd")):
                 keep, why = True, "matched on description"
                 kept_on_jd += 1
         if not keep:

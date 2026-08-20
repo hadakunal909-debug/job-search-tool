@@ -1872,6 +1872,17 @@ PM_VETO = (
     # what identifies them.
     "semiconductor", "silicon", "wafer", "oscilloscope", "soldering", "schematic", "pcb",
     "failure analysis", "bench testing",
+    # environment / health / safety. Added 2026-08-20 from the Greenhouse measurement, where an
+    # industrial-services contractor supplied 58 of the 159 rows the un-gated rule admitted and
+    # the survivors of the title gate were still "EH&S Coordinator II" and "EH&S Manager - Data
+    # Center Operations". An EHS JD reads like delivery work because it IS coordination work --
+    # programmes, audits, corrective actions, milestones -- it is simply a different profession.
+    "ehs", "eh&s", "osha", "industrial hygiene", "safety program", "safety programs",
+    "incident investigation", "hazard", "personal protective equipment", "job site safety",
+    # wet lab / bench science. "Senior Scientist I, Cell Culture Process Development" cleared the
+    # gate on "process" and the text on process-development vocabulary.
+    "cell culture", "bioreactor", "assay", "in vitro", "in vivo", "pipette", "cell line",
+    "upstream process", "downstream process",
 )
 # DELIBERATELY NOT VETOED: construction. "Construction Project Senior Manager" and Allan Myers'
 # "Project Engineer" postings are genuine project delivery, and core.ROLE_FAMILIES has listed
@@ -1903,8 +1914,33 @@ _PM_VETO_RE = re.compile(r"\b(?:%s)\b" % "|".join(
 # not harmless is a missed delivery role, because the title already failed and this is the only
 # other chance the posting gets. Tightening to 3/6 is a two-constant change if the badged rows
 # turn out noisy in practice.
-PM_MIN_ANCHORS = 2
-PM_MIN_POINTS = 6
+#
+# ...AND ON 2026-08-20, LATER THE SAME DAY, IT TURNED OUT TO BE. The paragraph above is kept
+# because its reasoning was sound for the population it was measured on and wrong outside it,
+# which is the lesson. When the JD supply widened from 4 boards (ashby/lever/jibe/pinpoint, 244
+# boards, mostly tech) to Greenhouse (409 boards, every industry), the same 2/6 rule was measured
+# on a 30-board Greenhouse sample of 1,869 postings:
+#
+#   pre-filter      thresh   admitted   % of ALL postings   worst single board
+#   none             2/6        159          8.5%           loenbro 58
+#   none             3/6         95          5.1%           loenbro 40
+#   none             4/8         62          3.3%           loenbro 24
+#   delivery-word    2/6         30          1.6%           scopely 6
+#   delivery-word    3/8         20          1.1%           forgen 4   <-- shipped
+#
+# 8.5% of every Greenhouse posting is not a second opinion, it is a second feed. What it admitted
+# was "Director, Sales Enablement", "EHS Manager", "Travelling EHS Manager", "HRIS Manager",
+# "Surveyor", "Senior Estimator", "Creative Marketing Manager", "DEI Partner" -- and 58 rows from
+# one industrial-services contractor. The same shape as the Ramp sales flood that produced
+# PM_VETO, and the same shape as the construction flood that got "project engineer" rejected as
+# an INCLUDE keyword.
+#
+# TWO CHANGES, both measured above. The threshold went to 3/8, and -- doing far more work than
+# the threshold -- the TITLE now has to hint at delivery before the description gets a vote at
+# all (PM_TITLE_HINTS below). A description rule with no title gate is not reading a posting, it
+# is scanning the whole board for vocabulary, and "EHS Manager" will always contain some.
+PM_MIN_ANCHORS = 3
+PM_MIN_POINTS = 8
 PM_ANCHOR_WEIGHT = 2
 # How many distinct PM_VETO phrases it takes to say "this is a different job". Two, not one:
 # see the note on reads_like_pm.
@@ -1942,6 +1978,73 @@ def reads_like_pm(text, min_anchors=None, min_points=None):
     if v >= PM_MAX_VETO:
         return False
     return a >= ma and pm_points(a, s) >= mp
+
+
+# ------------------------------------------------------------
+# THE TITLE GATE ON THE DESCRIPTION RULE.
+#
+# reads_like_pm answers "does this text describe delivery work". That is not the same question as
+# "is this posting worth rescuing", and conflating the two is what produced the Greenhouse flood
+# measured above: an EHS Manager's JD genuinely is full of milestones, stakeholders, cross-
+# functional coordination and compliance timelines, because that is genuinely the job.
+#
+# So the title still gets a say. Not the keep/drop say -- it already failed that, which is why we
+# are here -- but a WEAKER one: does the title contain any word suggesting delivery, product or
+# change work? "Coordinator II" and "Business Operations Specialist", the two cases this whole
+# feature exists for, both pass. "Surveyor", "EHS Manager" and "DEI Partner" do not, and no
+# amount of JD vocabulary can talk us into them.
+#
+# These are deliberately BARE WORDS, unlike INCLUDE's phrases. That is safe precisely because
+# this is a gate and not an admission: a bare "operations" here only earns the posting the RIGHT
+# to be judged on its description, where three anchors and eight points are still waiting.
+PM_TITLE_HINTS = (
+    "project", "program", "programme", "portfolio", "delivery", "deliver",
+    "implementation", "deployment", "rollout", "roll-out", "launch",
+    "transformation", "transition", "initiative", "initiatives", "pmo",
+    "release", "migration", "integration", "governance", "change",
+    "operations", "operational", "business systems", "process",
+    "scrum", "agile", "product", "coordinator", "technical", "strategy", "strategic",
+)
+# MEASURED AND REFUSED, even though the hints above would let them through. Every entry here is a
+# title family already rejected on numbers as an INCLUDE keyword, and the description path must
+# not quietly re-admit what the title path measured and threw out -- that is the "Release Train
+# Engineer" contradiction in reverse.
+#
+# "project engineer" is the whole list for now, and it earned its place twice: +349 rows as a
+# candidate keyword, 43% of them from four construction contractors, and then again in the
+# Greenhouse sample above, where Forgen and Loenbro supplied 7 of the 20 rows the shipped config
+# admitted. It is a real job; it is not this feed's job.
+PM_TITLE_REFUSE = ("project engineer", "project engineering")
+_PM_HINT_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_TITLE_HINTS, key=len, reverse=True)), re.I)
+_PM_REFUSE_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_TITLE_REFUSE, key=len, reverse=True)), re.I)
+
+
+def pm_title_gate(title):
+    """May this title's DESCRIPTION be read as a second opinion? Cheap, and text-free."""
+    if not title:
+        return False
+    if _PM_REFUSE_RE.search(title):
+        return False
+    return bool(_PM_HINT_RE.search(title))
+
+
+def admits_on_description(title, text, min_anchors=None, min_points=None):
+    """The whole rule: may this posting be kept on its DESCRIPTION alone?
+
+    Title gate first, because it costs nothing and settles most of them; then the JD length floor
+    that keeps a truncated teaser from ever being read as a complete description (Phenom serves a
+    372-char one); then the three-tier text rule.
+
+    THE CALLER STILL OWNS THE "no matching keyword" PRECONDITION. This must never overturn an
+    EXCLUDE hit -- see the note at the call site in scraper.main().
+    """
+    if not pm_title_gate(title):
+        return False
+    if len((text or "").strip()) < _MIN_JD_CHARS:
+        return False
+    return reads_like_pm(text, min_anchors, min_points)
 
 
 # ------------------------------------------------------------

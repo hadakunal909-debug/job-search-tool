@@ -8,9 +8,13 @@ The thresholds were set by measurement (scripts/calibrate_pm_rule.py, 300 postin
 future edit that raises recall by weakening the anchor gate will pass the calibration sweep and
 fail here, which is the point.
 
-No database and no network.
+No database and no network — the supply checks at the bottom read scraper/__init__.py as TEXT
+rather than calling a board, for exactly that reason.
 """
+import os
+
 import core
+import scraper
 
 # A real posting reads like this: it names the work, not just the vocabulary.
 PM_JD = """
@@ -38,9 +42,13 @@ the care team on the unit. BSN required. Reporting to the charge nurse. Rotating
 def test_the_shipped_thresholds_are_the_measured_ones():
     """If these change, scripts/calibrate_pm_rule.py must have been re-run and its table in
     core.py updated. They are asserted so the numbers in that comment cannot go stale silently.
+
+    Raised from 2/6 to 3/8 on 2026-08-20 when the JD supply widened past the four boards the
+    original number was measured on. See the second table in core.py: at 2/6 the rule claimed
+    8.5% of every Greenhouse posting.
     """
-    assert core.PM_MIN_ANCHORS == 2
-    assert core.PM_MIN_POINTS == 6
+    assert core.PM_MIN_ANCHORS == 3
+    assert core.PM_MIN_POINTS == 8
     assert core.PM_ANCHOR_WEIGHT == 2
 
 
@@ -91,6 +99,90 @@ def test_thresholds_are_reachable():
     """A points gate below the anchor floor is dead configuration: PM_MIN_ANCHORS anchors
     already score PM_ANCHOR_WEIGHT * PM_MIN_ANCHORS, so a lower gate never rejects anything."""
     assert core.PM_MIN_POINTS >= core.PM_ANCHOR_WEIGHT * core.PM_MIN_ANCHORS
+
+
+# ---------------------------------------------------------------------------------------------
+# THE TITLE GATE, added 2026-08-20 with the wider JD supply. It does more work than the
+# thresholds do: on the Greenhouse sample it took the admitted set from 159 rows to 30.
+def test_the_titles_this_feature_exists_for_pass_the_gate():
+    """A delivery role wearing a useless title is the entire point. If these stop passing, the
+    description path has nothing left to rescue."""
+    for t in ("Coordinator II", "Business Operations Specialist", "Operations Analyst",
+              "Technical Program Analyst", "Change Enablement Lead", "Product Operations",
+              "Strategic Initiatives Associate", "Release Coordinator"):
+        assert core.pm_title_gate(t), t
+
+
+def test_the_greenhouse_flood_titles_are_refused_at_the_gate():
+    """Every one of these was admitted by the un-gated 2/6 rule on the 30-board Greenhouse
+    sample. Their JDs really do talk about milestones and stakeholders -- that is why the gate
+    has to be on the TITLE, where the JD cannot argue back."""
+    for t in ("EHS Manager", "Travelling EHS Manager", "Surveyor", "Senior Estimator",
+              "HRIS Manager", "DEI Partner", "Creative Marketing Manager",
+              "Director, Sales Enablement", "Senior Quality Control Manager"):
+        assert not core.pm_title_gate(t), t
+
+
+def test_project_engineer_stays_refused():
+    """Measured and rejected TWICE as an INCLUDE keyword (+349 rows, 43% from four construction
+    contractors). The description path must not re-admit what the title path threw out, or the
+    two halves of the filter disagree -- the "Release Train Engineer" bug in reverse."""
+    for t in ("Project Engineer", "Project Engineer II", "Senior Project Engineer",
+              "Project Engineering Manager"):
+        assert not core.pm_title_gate(t), t
+
+
+def test_the_gate_is_a_gate_and_not_an_admission():
+    """Passing the title gate must not be enough on its own -- a clinical JD under a title that
+    happens to say "operations" still has to fail on the text."""
+    assert core.pm_title_gate("Operations Manager")
+    assert not core.admits_on_description("Operations Manager", CLINICAL_JD)
+
+
+def test_admits_on_description_enforces_the_length_floor():
+    """A truncated teaser must never be read as a complete description. Phenom serves a 372-char
+    one, which is exactly the trap this floor was written for -- and note that PM_JD itself is
+    366 chars, i.e. shorter than the floor, so the padding below is the point of the test rather
+    than an accident of the fixture."""
+    long_jd = PM_JD + " " + PM_JD
+    assert len(long_jd) >= core._MIN_JD_CHARS > len(PM_JD)
+    assert core.admits_on_description("Program Operations Lead", long_jd)
+    assert not core.admits_on_description("Program Operations Lead", PM_JD)
+
+
+# ---------------------------------------------------------------------------------------------
+# THE JD SUPPLY. The rule above is worthless on a board that never hands a description over, so
+# these freeze the wiring rather than the vocabulary. Source-text checks, not live calls: CI has
+# no business depending on whether Greenhouse is up.
+def test_every_board_that_can_inline_a_description_does():
+    """Six ATS list feeds return the description in the response the sweep already reads. Each
+    one that silently stopped doing so would cost the description rule a slice of the corpus
+    with no error anywhere."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "scraper", "__init__.py"), encoding="utf-8").read()
+    for fn in ("scrape_greenhouse", "scrape_lever", "scrape_ashby", "scrape_jibe",
+               "scrape_recruitee", "scrape_pinpoint"):
+        body = src.split("def %s(" % fn, 1)[1].split("\ndef ", 1)[0]
+        assert '"jd"' in body, "%s no longer keeps the description it is handed" % fn
+
+
+def test_greenhouse_asks_for_the_content_it_needs():
+    """Greenhouse only returns descriptions when asked, and it is 409 of the 1,173 boards in
+    SOURCES -- by far the largest single source. Losing the parameter would be invisible."""
+    assert scraper.GREENHOUSE_JD is True, "the default must be on"
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "scraper", "__init__.py"), encoding="utf-8").read()
+    body = src.split("def scrape_greenhouse(", 1)[1].split("\ndef ", 1)[0]
+    assert "content=true" in body
+
+
+def test_the_jd_lookup_budget_is_bounded():
+    """The pass that BUYS descriptions for boards that do not inline them must stay capped. An
+    unbounded version is not a scrape, it is a crawl: a full sweep leaves ~213,000 postings on
+    the floor and a request each would never finish inside the run budget."""
+    assert 0 < scraper.JD_LOOKUP_PER_BOARD <= scraper.JD_LOOKUP_BUDGET
+    assert scraper.JD_LOOKUP_BUDGET <= 5000, "a budget this large is not a budget"
+    assert scraper.JD_LOOKUP_WORKERS >= 1
 
 
 if __name__ == "__main__":
