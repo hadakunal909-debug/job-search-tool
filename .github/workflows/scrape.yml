@@ -220,6 +220,14 @@ jobs:
           # logs and present in both 2026-08-21 failures.
           SCRAPE_WORKERS: "16"
           SCRAPE_BUDGET_MIN: "22"
+          # THE CLOCK ON THE DESCRIPTION LOOKUP — the phase that actually overran this step on
+          # 2026-08-21; the reasoning is at JD_LOOKUP_BUDGET_MIN in scraper/__init__.py. The
+          # step's arithmetic, all three terms measured: 20.6 min sweep + 2 here + ~2.3 for
+          # prune/reconcile/board-health/writes = ~25 of 26, so there is about a minute of
+          # margin. 2 rather than the module default of 3 to buy that margin; at ~267 fetches
+          # a minute that is ~535 of the 1,200 candidates, and the remainder is offered again
+          # next run, because a posting that drops on its title was never stored.
+          JD_LOOKUP_BUDGET_MIN: "2"
           # Retire postings that have vanished from their own board. This defaulted to a dry run
           # and was never set here or in bin/cron_scrape.sh, so it has only ever PRINTED what it
           # would do -- 5,178 rows are sitting under the miss threshold and 404 postings still

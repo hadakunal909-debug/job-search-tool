@@ -102,6 +102,9 @@ SUITES = (
     Suite("test_doc_contrast",      "scripts/test_doc_contrast.py",      "scripts", "offline"),
     Suite("test_dbproxy",           "scripts/test_dbproxy.py",           "scripts", "offline"),
     Suite("test_ext_contract",      "scripts/test_ext_contract.py",      "scripts", "offline"),
+    # Symmetrical on purpose: it asserts the paced case PASSES as well as the burst case tripping.
+    # A cap of 1 would satisfy a trip-only test and break the feed for everyone.
+    Suite("test_feed_ratelimit",    "scripts/test_feed_ratelimit.py",    "scripts", "offline"),
     Suite("test_jdrender",          "scripts/test_jdrender.py",          "scripts", "offline"),
     Suite("test_job_page",          "scripts/test_job_page.py",          "scripts", "offline"),
     Suite("test_jobs_cache",        "scripts/test_jobs_cache.py",        "scripts", "offline"),

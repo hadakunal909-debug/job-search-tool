@@ -9,6 +9,10 @@ with a cache or a shortcut, and both are the kind that is right on the data you 
   4. web.user_scores persists to a file, so a worker that has never scored a user reads it
      instead of spending 5-15 seconds. A wrong answer here is a wrong match percentage on
      every card, so the stored scores are compared against freshly computed ones.
+  5. web._cache_max() bounds the per-user caches by BYTES, derived from the live row count.
+     The old count cap allowed ~2.9 GB at today's corpus and got worse with every scrape, so
+     what matters is that the budget holds at any corpus size -- including one where a single
+     entry is bigger than the whole budget.
 
 Run it with the local snapshot present and (1) is checked against every real row.
 
@@ -287,6 +291,74 @@ def score_files():
     return bad
 
 
+def cache_budget():
+    """_cache_max() must never authorise more than CACHE_BUDGET_MB, at ANY corpus size.
+
+    The bug being guarded is not "the number is wrong", it is "the number is in the wrong
+    unit". A cap of 64 entries was harmless at 2,674 rows and was ~2.9 GB at 21,982, in a
+    process shared hosting caps under 1 GB -- and nothing about the constant changed in
+    between. So the assertion is on the BYTES the cap permits, across a range that brackets
+     both the corpus this app started with and one several times larger than today's.
+    """
+    print("=" * 74)
+    print("web._cache_max byte budget")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    real_rows = web._jobs_cache.get("rows")
+    budget = web._CACHE_BUDGET_MB
+    try:
+        # The exact invariant, and the edge is real: once ONE entry is larger than the whole
+        # budget there is no cap that honours it, and the right answer is 1 rather than 0 --
+        # a cache of nothing recomputes on every single request. So: never more than the budget,
+        # EXCEPT when a single entry already exceeds it, where the cap must be exactly 1.
+        over = []
+        for n in (2674, 13197, 21982, 40000, 100000, 250000):
+            web._jobs_cache["rows"] = [None] * n
+            cap = web._cache_max()
+            per_mb = max(1.0, n * web._ROW_CACHE_BYTES_PER_ROW / 1048576.0)
+            if per_mb > budget:
+                if cap != 1:
+                    over.append((n, cap, "one entry exceeds the budget; cap must be 1"))
+            elif cap * per_mb > budget:
+                over.append((n, cap, round(cap * per_mb)))
+            elif cap < 1:
+                over.append((n, cap, "cap below 1"))
+        want("the budget holds wherever it can hold", not over, repr(over[:3]))
+        web._jobs_cache["rows"] = [None] * 250000
+        want("...and degrades to exactly 1 when it cannot", web._cache_max() == 1,
+             "cap %d at 250k rows" % web._cache_max())
+
+        # It must actually SHRINK as the corpus grows -- that is the whole point.
+        caps = []
+        for n in (2674, 21982, 100000):
+            web._jobs_cache["rows"] = [None] * n
+            caps.append(web._cache_max())
+        want("the cap shrinks as the corpus grows", caps == sorted(caps, reverse=True),
+             "2.7k/22k/100k rows -> %s" % (caps,))
+
+        # Never zero: a cache of nothing recomputes on literally every request.
+        web._jobs_cache["rows"] = [None] * 5000000
+        want("never drops to zero", web._cache_max() >= 1, "cap %d" % web._cache_max())
+
+        # An unread corpus must not be treated as an empty one.
+        web._jobs_cache["rows"] = None
+        want("an unread corpus assumes a large one, not none",
+             web._cache_max() <= web._SCORE_CACHE_CEIL and web._cache_max() >= 1,
+             "cap %d" % web._cache_max())
+
+        want("the ceiling still applies", web._cache_max() <= web._SCORE_CACHE_CEIL)
+    finally:
+        web._jobs_cache["rows"] = real_rows
+    print()
+    return bad
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -313,6 +385,7 @@ def main():
     fails += jd_cache()
     fails += scorer_memos()
     fails += score_files()
+    fails += cache_budget()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 
