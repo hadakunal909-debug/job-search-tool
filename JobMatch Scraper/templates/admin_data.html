@@ -284,14 +284,16 @@
       The last fetch <b>errored</b>, so we know nothing about what the board holds. Louder than
       quiet, and treated separately on purpose: the closed-posting reconcile refuses to retire
       anything from a board it could not read, so a failure here costs freshness rather than
-      inventory.
+      inventory. A board the budget never <em>reached</em> is not in this list — it never
+      failed at anything, and counting it here is what used to bury the handful that did.
     </p>
     <div class="adm-scroll">
       <table class="adm-t">
         <tbody>
         {% for r in boards.failing %}
           <tr><td class="u-tight"><span class="pill bad">failed</span></td>
-              <td><b>{{ r.company }}</b><br><span class="muted">{{ r.ats }}</span></td></tr>
+              <td><b>{{ r.company }}</b><br><span class="muted">{{ r.ats }}{% if r.at %} · {{ r.at[:16]|replace('T', ' ') }}{% endif %}</span>
+                  {% if r.err %}<br><span class="muted u-text-2xs">{{ r.err[:120] }}</span>{% endif %}</td></tr>
         {% else %}
           <tr><td class="muted">Every board fetched cleanly on the last run.</td></tr>
         {% endfor %}
@@ -300,6 +302,40 @@
     </div>
   </section>
 </div>
+
+{# ---- the budget, not the boards. Split out of "failing" on 2026-08-21: a starved board was
+   being recorded as ok=False and rendered as a failure, and on the run that prompted this
+   566 of the 569 rows in that panel were healthy boards the sweep simply never reached. #}
+{% if boards.starved_n %}
+<section class="panel">
+  <div class="section-head">
+    <h2>Boards the Budget Never Reached</h2>
+    <span class="count-pill">{{ boards.starved_n }}</span>
+  </div>
+  <p class="muted">
+    Never started, so there is nothing wrong with them — <code>SCRAPE_BUDGET_MIN</code> ran out
+    first. The sweep rotates its starting point daily so the starved slice moves, which means a
+    <b>streak</b> is the number that matters: one skip is the budget working as designed, a long
+    run of them is a board the rotation is not covering. The repair for a large count here is a
+    cheaper sweep, not a bigger budget.
+  </p>
+  <div class="adm-scroll">
+    <table class="adm-t">
+      <thead><tr><th>Company</th><th>ATS</th><th class="num">Runs skipped</th>
+        <th class="num">Last skipped</th></tr></thead>
+      <tbody>
+      {% for r in boards.starved %}
+        <tr><td><b>{{ r.company }}</b></td><td class="muted">{{ r.ats }}</td>
+            <td class="num">{% if r.skips >= 3 %}<span class="pill bad">{{ r.skips }}</span>{% else %}{{ r.skips }}{% endif %}</td>
+            {# An old date here means the board has left the source list carrying the streak it
+               died with, not that the last run starved it. #}
+            <td class="num muted">{{ r.last_skip[:10] if r.last_skip else '—' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endif %}
 
 {# ---- board freshness: the panel that catches a silently-dead scraper ---- #}
