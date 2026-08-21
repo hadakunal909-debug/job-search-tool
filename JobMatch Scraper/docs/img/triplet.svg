@@ -5,7 +5,7 @@
 <text class="t-web" x="14" y="56" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
 <text class="t-ink" x="14" y="76" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">the server feed</text>
 <text class="t-dim" x="14" y="95" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">web.py::_filter_rows</text>
-<text class="t-dim" x="14" y="111" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">line 1677</text>
+<text class="t-dim" x="14" y="111" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">line 1779</text>
 <text class="t-dim" x="14" y="127" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">docstring: &quot;Server-side mirror of app.js&quot;</text>
 <rect class="s-client" x="580" y="40" width="380" height="111" rx="10" fill="#e4e7ec" stroke="#5f6573" stroke-width="1.5"/>
 <text class="t-client" x="594" y="56" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3c414d">◻ BROWSER</text>

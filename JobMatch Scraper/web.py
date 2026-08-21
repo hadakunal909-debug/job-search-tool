@@ -626,6 +626,7 @@ def _bust_profile(user=None):
         _profile_cache.clear()
         _profile_row_cache.clear()
         _score_cache.clear()
+        _scores_clear()
         _rows_cache.clear()
 
 
@@ -862,16 +863,116 @@ def jd_meta(job, idf):
     return meta
 
 
+# Per-user scores, on disk, shared across workers and surviving a restart.
+#
+# THE MEASUREMENT THIS EXISTS FOR. Scoring the corpus against one résumé is 21,982 calls to
+# core.score_against, and that is 5-15 SECONDS of CPU. A warm feed render is 41 ms. So the
+# feed is not "slow" or "fast" — it is 41 ms or fifteen seconds, and which one you get depends
+# entirely on whether _score_cache happens to hold your entry. A 13.8 s Largest Contentful
+# Paint was reported on the live site and this was all of it.
+#
+# _score_cache ALONE cannot fix that, which is the part that is easy to get wrong: it is a
+# per-PROCESS dict, Passenger runs a pool of 2 to 6, and the keep-warm pinger hits /healthz,
+# which has no user and so builds nothing. Even on a permanently warm app, the first request
+# each worker serves for each (user, résumé) pays the whole rebuild. A restart, a deploy, a
+# prefs save, a résumé edit and the Reload button each reset it too.
+#
+# Same shape as jobs_snapshot.json.gz above, for the same reason: a file is the only cache
+# several short-lived processes can share. Keyed on the jobs fingerprint as well as the
+# résumé, so a scrape invalidates it, and every failure path just recomputes.
+_SCORES_DIR = os.environ.get("SCORES_DIR") or os.path.join(_APP_DIR, "score_cache")
+_SCORES_MAX_FILES = 64                   # bounded like _score_cache; oldest mtime evicted
+
+
+def _scores_path(username, rmd5):
+    """One file per (user, résumé). Hashed, because a username is not a safe filename.
+
+    Newline as the separator: it cannot appear in either half, so no (user, résumé) pair can
+    collide with a different one by concatenating to the same string.
+    """
+    h = hashlib.sha256(("%s\n%s" % (username, rmd5)).encode("utf-8")).hexdigest()[:32]
+    return os.path.join(_SCORES_DIR, "%s.json.gz" % h)
+
+
+def _scores_read(username, rmd5, fp):
+    """The stored {url: score} for this (user, résumé), IF it was written against `fp`.
+
+    None on anything unexpected — absent, unreadable, or built for a different corpus. Every
+    failure path recomputes, which is slow but never wrong.
+    """
+    if not fp:
+        return None                      # no fingerprint means nothing safe to key on
+    try:
+        with _gzip.open(_scores_path(username, rmd5), "rt", encoding="utf-8") as fh:
+            blob = json.load(fh)
+        if list(blob.get("fingerprint") or ()) != list(fp):
+            return None                  # the corpus moved under it
+        scores = blob.get("scores")
+        return scores if isinstance(scores, dict) else None
+    except Exception:
+        return None
+
+
+def _scores_write(username, rmd5, fp, scores):
+    """Persist one user's scores. Atomic, bounded, and never fails a request."""
+    if not fp or not scores:
+        return
+    try:
+        os.makedirs(_SCORES_DIR, exist_ok=True)
+        # Bound the directory the way _score_cache bounds memory. Oldest mtime first, so the
+        # file about to be written is never the one evicted.
+        try:
+            kept = sorted((os.path.getmtime(os.path.join(_SCORES_DIR, n)),
+                           os.path.join(_SCORES_DIR, n))
+                          for n in os.listdir(_SCORES_DIR) if n.endswith(".json.gz"))
+            for _, path in kept[:max(0, len(kept) - _SCORES_MAX_FILES + 1)]:
+                os.remove(path)
+        except Exception:
+            pass
+        target = _scores_path(username, rmd5)
+        tmp = "%s.%d.tmp" % (target, os.getpid())
+        with _gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as fh:
+            json.dump({"fingerprint": list(fp), "scores": scores}, fh)
+        os.replace(tmp, target)          # two workers may write at once; readers see one file
+    except Exception:
+        pass                             # an optimization only
+
+
+def _scores_clear():
+    """Drop every stored score file. /reload means recompute everything, including these."""
+    try:
+        for n in os.listdir(_SCORES_DIR):
+            if n.endswith(".json.gz"):
+                os.remove(os.path.join(_SCORES_DIR, n))
+    except Exception:
+        pass
+
+
 def user_scores(username, resume):
     """{url: match%} for this user. Scores each job's stored JD against the résumé
-    (core.skill_match); falls back to the precomputed baseline when no résumé/JD."""
-    key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest())
+    (core.skill_match); falls back to the precomputed baseline when no résumé/JD.
+
+    Three layers, cheapest first: this process's dict, then the shared file (see _scores_read),
+    then the scoring pass itself. Only the last one is slow, and it is the one the other two
+    exist to stop repeating.
+    """
+    rmd5 = hashlib.md5((resume or "").encode("utf-8")).hexdigest()
+    key = (username, rmd5)
     if key in _score_cache:
         _score_cache.move_to_end(key)        # a read is a use: keeps active users out of the evictor
         return _score_cache[key]
+    # get_jobs() FIRST: it is what refreshes the fingerprint the stored file is keyed on.
+    rows = get_jobs()
+    fp = _jobs_cache.get("fp")
+    stored = _scores_read(username, rmd5, fp)
+    if stored is not None:
+        if len(_score_cache) >= _SCORE_CACHE_MAX:
+            _score_cache.popitem(last=False)
+        _score_cache[key] = stored
+        return stored
     resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
     scores = {}
-    for j in get_jobs():
+    for j in rows:
         u = j.get("url")
         if not u:
             continue
@@ -906,6 +1007,7 @@ def user_scores(username, resume):
     if len(_score_cache) >= _SCORE_CACHE_MAX:
         _score_cache.popitem(last=False)     # drop least-recently-used; bounds memory growth
     _score_cache[key] = scores
+    _scores_write(username, rmd5, fp, scores)
     return scores
 
 
@@ -3114,6 +3216,7 @@ def _ev_action(user, url, prev, status, via):
 def reload_jobs():
     get_jobs(force=True)
     _score_cache.clear()
+    _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
     _rows_cache.clear()
     _profile_cache.clear()
     _resume_cache.clear()
@@ -4467,6 +4570,7 @@ def _bust_job_caches():
     """Everything derived from the job rows, after they change under us."""
     get_jobs(force=True)
     _score_cache.clear()
+    _scores_clear()
     _rows_cache.clear()
     _sponsor_cache.clear()
     _admin_stats_cache["data"] = None
@@ -7010,6 +7114,10 @@ def ext_jds():
     if clean or patches or removed:
         _invalidate_jobs()                       # next feed load re-pulls the changed rows…
         _score_cache.clear()                     # …and per-user scores recompute with JDs
+        # REQUIRED, not belt-and-braces: update_job_fields moves neither half of
+        # jobs_fingerprint(), so the stored score files would still look current while
+        # holding scores computed before these descriptions existed.
+        _scores_clear()
         _sponsor_cache.clear()
         # Only these JDs changed -> drop their stale meta. Nothing to invalidate on the column
         # side: job_analysis reads jd_terms straight off the row each time, and the next
