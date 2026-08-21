@@ -1496,6 +1496,59 @@
     // visibly responds to the pointer.
   });
 
+  // ---- Opening a job: prefetch on intent -----------------------------------------------
+  //
+  // A card title is a real <a href="/job?u=..."> (see the note in the click handler above), so
+  // opening a job is a full navigation to the heaviest route in the app. base.html already shows
+  // a progress bar for it, but a progress bar only DECORATES the wait. This removes it: by the
+  // time the click lands, the document is already in the browser's prefetch cache.
+  //
+  // rel=prefetch rather than fetch(): /job sends no Cache-Control, so a fetch() response would
+  // warm the server's per-worker caches but would NOT be reused for the navigation itself.
+  // Same-origin, so CSP default-src 'self' already covers it and no directive had to be widened.
+  //
+  // Bounded on purpose. Hovering is not intent, so nothing fires until the pointer has settled --
+  // a mouse crossing the grid to reach the filter bar would otherwise prefetch a whole row of
+  // cards. PF_MAX caps a long scroll-and-skim session, and metered or slow connections opt out
+  // entirely, because speculative bytes are the wrong trade when the user is paying for them.
+  var PF_MAX = 6, PF_DWELL = 120, pfSeen = {}, pfCount = 0, pfTimer = null;
+
+  function pfAllowed() {
+    var c = navigator.connection;
+    if (!c) return true;                              // no Network Information API: assume fine
+    if (c.saveData) return false;
+    return !/2g/.test(c.effectiveType || "");         // matches both "2g" and "slow-2g"
+  }
+
+  function prefetchJob(href) {
+    if (!href || pfSeen[href] || pfCount >= PF_MAX || !pfAllowed()) return;
+    pfSeen[href] = 1;
+    pfCount++;
+    var l = document.createElement("link");
+    l.rel = "prefetch";
+    l.as = "document";
+    l.href = href;
+    document.head.appendChild(l);
+  }
+
+  function pfHrefFrom(e) {
+    var a = e.target && e.target.closest && e.target.closest('a[href^="/job?"]');
+    return a && !a.hasAttribute("data-apply") ? a.getAttribute("href") : null;
+  }
+
+  feed.addEventListener("pointerover", function (e) {
+    var href = pfHrefFrom(e);
+    clearTimeout(pfTimer);
+    if (href) pfTimer = setTimeout(function () { prefetchJob(href); }, PF_DWELL);
+  });
+  feed.addEventListener("pointerout", function () { clearTimeout(pfTimer); });
+  // Touch has no hover, but touchstart lands well before the click -- enough of a head start to
+  // be worth taking, and no dwell timer, because a touch already IS the intent.
+  feed.addEventListener("touchstart", function (e) {
+    var href = pfHrefFrom(e);
+    if (href) prefetchJob(href);
+  }, { passive: true });
+
   // ---- "More about this employer" panel (company page only) ----
   // Server-rendered and static, so this is just a show/hide — no fetch, no template in JS.
   // Every reference is guarded: the feed has no such button and must not throw.

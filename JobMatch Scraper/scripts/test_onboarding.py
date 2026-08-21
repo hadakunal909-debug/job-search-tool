@@ -66,30 +66,43 @@ def post(c, step, **fields):
     return c.post("/welcome", data=body, follow_redirects=False)
 
 
+def fresh_account(**fields):
+    """Reset to an empty account on a worker that has never seen it.
+
+    web._needs_onboarding LATCHES a False answer per username and never re-reads (an account
+    cannot stop having a name), so the latch has to be cleared alongside STORE — otherwise the
+    first "does NOT" here would satisfy every later one for free. Clearing it is exactly the
+    state a freshly started Passenger worker is in.
+    """
+    STORE.clear()
+    web._onboarded_ok.clear()
+    web._profile_row_cache.clear()
+    if fields:
+        STORE.update(fields)
+
+
 print("=" * 74)
 print("who gets sent to the wizard")
 print("=" * 74)
-STORE.clear()
+fresh_account()
 check("a brand-new account does", web._needs_onboarding(USER))
-STORE.update({"first_name": "Kunal"})
+fresh_account(first_name="Kunal")
 check("an account with contact details does NOT", not web._needs_onboarding(USER))
 # All three signals matter. An account can predate this wizard and have been used for months
 # without anyone typing a name — testing contact fields alone would ambush a long-standing
 # user with a setup flow for an app they already know.
-STORE.clear()
-STORE.update({"search_prefs": {"min": 45}})
+fresh_account(search_prefs={"min": 45})
 check("an account with a saved search does NOT", not web._needs_onboarding(USER))
-STORE.clear()
+fresh_account()
 web.current_profile = lambda: "years of project management experience"
 check("an account with a résumé does NOT", not web._needs_onboarding(USER))
 web.current_profile = lambda: ""
-STORE.clear()
-STORE.update({"extra": {"onboarded": True}})
+fresh_account(extra={"onboarded": True})
 check("someone who finished or skipped does NOT", not web._needs_onboarding(USER))
-STORE.clear()
+fresh_account()
 check("the feed redirects a new account to it",
       client().get("/").headers.get("Location", "").endswith("/welcome"))
-STORE.update({"email": "a@b.com"})
+fresh_account(email="a@b.com")
 r = client().get("/")
 check("and does NOT redirect an existing one", "/welcome" not in (r.headers.get("Location") or ""))
 

@@ -28,6 +28,8 @@ import json
 import re
 import sys
 import time
+import functools
+import collections
 import datetime
 
 
@@ -663,21 +665,49 @@ def load_jobs(include_jd=True, cols=None):
     return rows
 
 
+# A stored JD never changes. The scheduled pass only fetches descriptions for rows that have
+# none, and update_jds() below only writes newly-fetched text — the same immutability the CI
+# jd_cache.json.gz relies on. So the one round trip /job makes can be answered from memory on
+# a re-read, which is what happens whenever someone opens a job, goes back, and opens it again,
+# or when app.js prefetches the page and the click then renders it for real.
+#
+# Bounded and LRU, sized in ROWS not bytes but with the bytes in mind: descriptions average
+# ~5.6 KB, so 64 entries is a few hundred KB against a worker measured at 240 MB warm. The one
+# writer (update_jds) evicts what it touches, so "immutable" needs no asterisk.
+_JD_CACHE_MAX = 64
+_jd_cache = collections.OrderedDict()
+
+
 def get_job_jd(url):
     """The stored job-description text for ONE job, fetched on demand (the feed list omits
-    it). Tiny single-row lookup on the url primary key. Returns '' if absent / on error."""
+    it). Tiny single-row lookup on the url primary key. Returns '' if absent / on error.
+
+    Memoized per url — see _jd_cache. A MISS is cached too: a row with no stored description is
+    exactly the row the job page renders most often (the "description pending" state), and
+    re-asking the database for a column that is still NULL is the most wasteful version of this
+    call. Errors are NOT cached, so a blip does not pin an empty description for the process.
+    """
     if not url:
         return ""
+    if url in _jd_cache:
+        _jd_cache.move_to_end(url)             # a read is a use
+        return _jd_cache[url]
     if using_supabase():
         try:
             rows = _fetch_all(TABLE, {"url": "eq.%s" % url, "select": "jd"})
-            return (rows[0].get("jd") or "") if rows else ""
+            jd = (rows[0].get("jd") or "") if rows else ""
         except Exception:
-            return ""
-    for r in _read_csv():
-        if r.get("url") == url:
-            return r.get("jd", "") or ""
-    return ""
+            return ""                          # transient: do not remember it
+    else:
+        jd = ""
+        for r in _read_csv():
+            if r.get("url") == url:
+                jd = r.get("jd", "") or ""
+                break
+    if len(_jd_cache) >= _JD_CACHE_MAX:
+        _jd_cache.popitem(last=False)          # least-recently-USED, not oldest-inserted
+    _jd_cache[url] = jd
+    return jd
 
 
 def load_jobs_by_urls(urls, include_jd=True):
@@ -1529,6 +1559,8 @@ def update_jds(jds):
     rows = [{"url": u, "jd": (jd or "")[:8000]} for u, jd in jds.items() if u]   # cap: bound DB size
     if not rows:
         return
+    for r in rows:
+        _jd_cache.pop(r["url"], None)          # the only thing that can falsify _jd_cache
     if using_supabase():
         for i in range(0, len(rows), 30):     # ~30 JDs/request keeps the body small
             _upsert(rows[i:i + 30])
@@ -2350,15 +2382,31 @@ LEARNED_TABLE = "learned_answers"
 LEARNED_FILE = "learned_answers_local.json"              # {username: {key: {value,type,options,company,count,label}}}
 
 
-def normalize_label(label):
-    """Stable key for matching the same question across forms/ATS: lowercased, asterisks/parens
-    stripped, non-alphanumerics collapsed to spaces. 'Are you authorized to work in the US?*' and
-    'Are you authorized to work in the US' map to the same key."""
-    s = (label or "").lower()
+@functools.lru_cache(maxsize=8192)
+def _normalize_label(s):
+    """The three substitutions below, memoized. See normalize_label for why."""
+    s = s.lower()
     s = re.sub(r"\((?:[^()]*\b(required|optional)\b[^()]*)\)", " ", s)
     s = re.sub(r"[^a-z0-9 ]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s[:200]
+
+
+def normalize_label(label):
+    """Stable key for matching the same question across forms/ATS: lowercased, asterisks/parens
+    stripped, non-alphanumerics collapsed to spaces. 'Are you authorized to work in the US?*' and
+    'Are you authorized to work in the US' map to the same key.
+
+    Memoized, because block_key() routes COMPANY NAMES through here and those callers are
+    per-row: the job page scans the whole corpus for other roles at this employer, and so does
+    every research poll behind it. That was three re.sub per row to re-derive a few thousand
+    distinct answers. Bounded (lru_cache, not a plain dict) because the other caller is ATS
+    form labels, which are unbounded in shape and come from pages we do not control.
+
+    `label or ""` stays OUT of the memoized function so it only ever sees a str: None and ""
+    must not become two entries, and an unhashable argument must never reach lru_cache.
+    """
+    return _normalize_label(label or "")
 
 
 def get_learned(username):

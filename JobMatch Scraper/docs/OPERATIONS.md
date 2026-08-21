@@ -132,12 +132,28 @@ scrape from the repo's Actions tab or wait for cron.
 
 ### Keep-warm
 
-Passenger spins the app down after a few idle minutes and the next visitor waits through a
-re-import and a cache refill. `/healthz` is a public, no-database endpoint for exactly this. Point
-a free pinger (cron-job.org, UptimeRobot) at
-`https://stemjobs1.astrochakra.co/healthz` every 5 minutes.
+**The single largest speed win available, and it is a cron line rather than code.** Passenger
+spins the app down after a few idle minutes and the next visitor waits through a re-import and a
+cache refill. Measured: a **cold start is 3,230 ms alone, and 4,106-4,131 ms when four workers
+start together, against 211 ms warm** (LOAD_SECURITY_QUALITY_REPORT.md §2.3). Measured again from
+a laptop against production on 2026-08-20: the same page was **4,017 ms cold and 307 ms warm**.
+That 13x spread is the whole of "the site is sometimes really slow".
 
-Don't point it at `/` — that needs login and does real work.
+`/healthz` is a public, no-database, two-byte endpoint for exactly this. In cPanel, under
+**Cron Jobs**, every five minutes:
+
+```bash
+*/5 * * * * curl -fsS -m 20 -o /dev/null https://stemjobs1.astrochakra.co/healthz
+```
+
+A free external monitor (cron-job.org, UptimeRobot) does the same job and adds downtime alerting,
+which cPanel cron cannot; cPanel cron has no third-party account that can lapse. Either works.
+
+Two things worth being precise about:
+
+- It **prevents** a cold worker, it cannot warm one. After a deploy (`touch tmp/restart.txt`)
+  every worker is cold again and the next visitor pays for it regardless.
+- Don't point it at `/` — that needs login and does real work.
 
 ---
 

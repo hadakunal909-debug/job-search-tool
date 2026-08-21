@@ -111,6 +111,11 @@ SUITES = (
     Suite("test_peoplesoft",        "scripts/test_peoplesoft.py",        "scripts", "offline"),
     Suite("test_pgrest",            "scripts/test_pgrest.py",            "scripts", "offline"),
     Suite("test_search_and_similar","scripts/test_search_and_similar.py","scripts", "offline"),
+    # Offline by construction: the JD-memo half stubs db._fetch_all, and the _row_pending
+    # half reads the LOCAL snapshot when there is one and falls back to synthetic shapes
+    # when there is not -- so CI checks the logic and a laptop checks it against all ~22k
+    # real rows.
+    Suite("test_speed_caches",      "scripts/test_speed_caches.py",      "scripts", "offline"),
     Suite("test_transport",         "scripts/test_transport.py",         "scripts", "offline"),
     Suite("test_visa",              "scripts/test_visa.py",              "scripts", "offline"),
 

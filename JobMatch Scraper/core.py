@@ -403,6 +403,13 @@ _NO_STEM = {"sas", "aws", "ios", "cms", "ops", "sales", "less", "gas", "bus", "a
             "business", "process", "access", "class", "series", "status", "campus"}
 
 
+# maxsize is the headline number in this file. _stem was measured at 3.5 MILLION calls and
+# 16.7s of a single 35s ranked_rows rebuild -- 41 million str.endswith calls -- to answer a
+# question about a FIXED vocabulary of roughly 44k JD terms plus one resume. It is a pure
+# string -> string function, so the memo is exact, and 65536 comfortably holds that vocabulary.
+# This is the hottest function in the app by an order of magnitude; if it is ever changed to
+# depend on anything but its argument, this decorator has to come off with it.
+@lru_cache(maxsize=65536)
 def _stem(word):
     """A conservative stem for matching. Deliberately NOT a full Porter stemmer: this only has
     to make morphological variants of the same skill compare equal, and every extra rule is
@@ -470,10 +477,21 @@ def _canon_phrase(term):
     return SKILL_ALIASES.get(term, term)
 
 
+# 65536, not 16384: measured on the real corpus there are 60,242 distinct JD terms, so the
+# smaller bound sat permanently full and evicted entries it was about to need again.
+@lru_cache(maxsize=65536)
 def _alias_forms(term):
-    """Every spelling of a skill: the term, its canonical form, and every alias of that."""
+    """Every spelling of a skill: the term, its canonical form, and every alias of that.
+
+    A TUPLE, not a list, for the same reason visa_tags returns one: the value is memoized and
+    handed to every row, so a mutable return would be an aliasing bug waiting to happen. Both
+    call sites only iterate it.
+
+    Memoized because _term_present calls it up to twice per JD term per row: 2.0 MILLION calls
+    to rebuild one user's scores, each allocating a fresh list to describe a fixed vocabulary.
+    """
     canon = _canon_phrase(term)
-    return [term, canon] + _ALIAS_REVERSE.get(canon, [])
+    return (term, canon) + tuple(_ALIAS_REVERSE.get(canon, ()))
 
 
 @lru_cache(maxsize=8)
@@ -897,16 +915,41 @@ def sponsor_history(company, years_index):
     return [(y, pairs.get(y, 0)) for y in range(min(pairs), max(pairs) + 1)]
 
 
-def sponsor_strength(company, counts):
-    """Tier a sponsor by filing VOLUME. Returns ('high'|'medium'|'low'|'', count).
-    ('', 0) when there's no number for the company. Counts come from load_sponsor_counts()."""
-    if not counts or not company:
-        return "", 0
+_norm_company_cache = {}
+
+
+def norm_company(company):
+    """scraper._norm_name(company), memoized.
+
+    The normalization is three re.sub calls and the CALLER is per-row: _build_row runs it once
+    for every job in the corpus, so at ~25k rows that was ~75k substitutions per ranked_rows
+    rebuild to re-derive a few thousand distinct answers. Distinct employers are a small
+    fraction of rows, which is exactly when a memo pays.
+
+    Keyed on the company string alone, which is safe because the answer depends on NOTHING
+    else — unlike visa_tags/is_everify, which cache a result that also depends on their index
+    argument. That is why sponsor_strength memoizes this rather than its own return value:
+    test_jobspy_adapter.py calls it twice with the same company and different `counts` and
+    expects different tiers.
+    """
+    hit = _norm_company_cache.get(company)
+    if hit is not None:
+        return hit
     try:
         import scraper                      # lazy: scraper imports core (avoid circular at load)
         key = scraper._norm_name(company)
     except Exception:
         key = re.sub(r"[^a-z0-9 ]+", " ", company.lower()).strip()
+    _norm_company_cache[company] = key
+    return key
+
+
+def sponsor_strength(company, counts):
+    """Tier a sponsor by filing VOLUME. Returns ('high'|'medium'|'low'|'', count).
+    ('', 0) when there's no number for the company. Counts come from load_sponsor_counts()."""
+    if not counts or not company:
+        return "", 0
+    key = norm_company(company)
     try:
         n = int(counts.get(key) or counts.get(company.lower()) or 0)
     except Exception:
