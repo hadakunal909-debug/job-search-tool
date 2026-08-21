@@ -155,15 +155,46 @@ def test_admits_on_description_enforces_the_length_floor():
 # these freeze the wiring rather than the vocabulary. Source-text checks, not live calls: CI has
 # no business depending on whether Greenhouse is up.
 def test_every_board_that_can_inline_a_description_does():
-    """Six ATS list feeds return the description in the response the sweep already reads. Each
+    """Five ATS list feeds return the description in the response the sweep already reads. Each
     one that silently stopped doing so would cost the description rule a slice of the corpus
-    with no error anywhere."""
+    with no error anywhere.
+
+    Greenhouse used to be in this list and is now checked by BEHAVIOUR below instead. It moved
+    its row building into a helper (_gh_rows) when the two-phase fetch landed, and a check that
+    reads one function's source text cannot follow a call — it reported the description lost
+    when it was one line away and working. That is the failure mode CLAUDE.md warns about, so
+    the biggest source got the assertion that cannot lie about it.
+    """
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "scraper", "__init__.py"), encoding="utf-8").read()
-    for fn in ("scrape_greenhouse", "scrape_lever", "scrape_ashby", "scrape_jibe",
+    for fn in ("scrape_lever", "scrape_ashby", "scrape_jibe",
                "scrape_recruitee", "scrape_pinpoint"):
         body = src.split("def %s(" % fn, 1)[1].split("\ndef ", 1)[0]
         assert '"jd"' in body, "%s no longer keeps the description it is handed" % fn
+
+
+def test_greenhouse_keeps_the_description_it_is_handed():
+    """The same property as above for the largest source, asserted on the row it actually builds.
+
+    No network: _gh_rows is the pure half of scrape_greenhouse, so one fixture response proves
+    the description survives the parse — including the HTML unescaping, which is the part most
+    likely to break silently (`content` is HTML-escaped HTML, so a bare parser mangles it)."""
+    payload = {"jobs": [{
+        "title": "Program Operations Lead",
+        "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/1",
+        "location": {"name": "Boston, MA"},
+        "first_published": "2026-08-20T00:00:00Z",
+        # Escaped, exactly as the API sends it.
+        "content": "&lt;p&gt;Own the &lt;b&gt;roadmap&lt;/b&gt; and run discovery.&lt;/p&gt;",
+    }]}
+    row = scraper._gh_rows(payload, True)[0]
+    assert row["jd"], "scrape_greenhouse no longer keeps the description it is handed"
+    assert "roadmap" in row["jd"], "the description survived but its HTML was not unescaped"
+    assert "&lt;" not in row["jd"] and "<p>" not in row["jd"], "escaped markup leaked into the jd"
+    assert row["title"] == "Program Operations Lead" and row["location"] == "Boston, MA"
+    # And the cheap phase must NOT invent one: an absent jd is what tells main() there is
+    # nothing to bank, and an empty string would be banked as a real (useless) description.
+    assert "jd" not in scraper._gh_rows(payload, False)[0]
 
 
 def test_greenhouse_asks_for_the_content_it_needs():
@@ -183,6 +214,58 @@ def test_the_jd_lookup_budget_is_bounded():
     assert 0 < scraper.JD_LOOKUP_PER_BOARD <= scraper.JD_LOOKUP_BUDGET
     assert scraper.JD_LOOKUP_BUDGET <= 5000, "a budget this large is not a budget"
     assert scraper.JD_LOOKUP_WORKERS >= 1
+    # And a clock, because every assertion above counts REQUESTS. 1,200 of them measured 4.5 min
+    # on 2026-08-21, which is not a number any of the ceilings above can see.
+    assert scraper.JD_LOOKUP_BUDGET_MIN > 0, "an unbounded pass is what overran the scrape step"
+    assert scraper.JD_LOOKUP_BUDGET_MIN <= 6, "longer than the headroom the CI step has to give"
+
+
+def test_the_jd_lookup_pass_stops_when_its_clock_runs_out():
+    """The ceilings above cap requests; this caps time, and the two came apart in production.
+
+    2026-08-21: 1,200 fetches at 8 workers took 4.5 min and put the scrape step at 26.2 min
+    against a timeout-minutes of 26. The runner killed it 0.14 s after its last line, and because
+    GitHub skips every later step once one fails, that also cost the score pass and the digest.
+
+    Driven with a slow stub and a tiny clock rather than by reading the source, because the thing
+    worth freezing is that the pass ACTUALLY returns early -- the natural spelling of this loop
+    (ex.map inside a `with`) submits every future up front and drains them all on the way out, so
+    a version that looks bounded and is not would pass any substring check.
+    """
+    import time
+    from scraper import score_jobs
+
+    # The three fixtures above that the lookup would really pick: past core.pm_title_gate, and
+    # rejected by title_verdict for want of a keyword rather than on an EXCLUDE hit.
+    titles = ("Coordinator II", "Change Enablement Lead", "Release Coordinator")
+    scraped = [{"url": "https://acme%d.wd1.myworkdayjobs.com/en-US/careers/job/%d" % (i % 7, i),
+                "title": titles[i % len(titles)], "company": "Acme %d" % (i % 7),
+                "location": "Boston, MA", "jd": ""} for i in range(64)]
+
+    real_detail, real_budget = score_jobs.detail_jd, scraper.JD_LOOKUP_BUDGET_MIN
+
+    def slow(url):
+        time.sleep(0.25)
+        return url, "x" * (core._MIN_JD_CHARS + 10), None
+
+    score_jobs.detail_jd = slow
+    scraper.JD_LOOKUP_BUDGET_MIN = 0.02                       # 1.2 s
+    try:
+        t0 = time.monotonic()
+        tried, got = scraper.fill_missing_jds(scraped, set(), set())
+        spent = time.monotonic() - t0
+    finally:
+        score_jobs.detail_jd = real_detail
+        scraper.JD_LOOKUP_BUDGET_MIN = real_budget
+
+    # 64 fetches of 0.25 s over JD_LOOKUP_WORKERS threads need ~2 s and the clock allows 1.2, so
+    # it has to cut in. The overshoot is bounded by the fetches already in flight, never the pass.
+    assert 0 < tried < len(scraped), "expected truncation, got tried=%d of %d" % (tried, len(scraped))
+    assert spent < 1.2 + 3, "ran past the budget by more than the in-flight fetches: %.1fs" % spent
+    assert got == tried, "every stubbed fetch returns a usable description"
+    # What it never reached must be left alone, so the keep loop drops those on their titles --
+    # exactly what would have happened if the board had published no description at all.
+    assert sum(1 for j in scraped if j.get("jd")) == got
 
 
 if __name__ == "__main__":
