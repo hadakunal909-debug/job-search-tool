@@ -61,6 +61,10 @@ fi
 
 export SCRAPE_WORKERS=6
 export SCRAPE_BUDGET_MIN=12
+# Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
+# board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
+# than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
+export JD_LOOKUP_BUDGET_MIN=3
 export MAX_AGE_DAYS=30
 export PRUNE_DAYS=30
 export DISCOVER_LIMIT=20          # board auto-discovery, small bite per run

@@ -320,7 +320,44 @@ _jobs_cache = {"rows": None, "at": 0}
 # no matter how recently they had asked for a page.
 _score_cache = collections.OrderedDict()   # (username, resume_md5) -> {url: score}
 _rows_cache = collections.OrderedDict()    # (username, resume_md5) -> [row w/o status], by score desc
-_SCORE_CACHE_MAX = 64        # cap so a long-lived process doesn't grow unbounded across profiles
+# BOUNDED BY MEMORY, NOT BY COUNT, and the difference is the whole point.
+#
+# This was `_SCORE_CACHE_MAX = 64` for the life of the app, and it was safe when the corpus
+# was 2,674 rows. It is not safe now. _rows_cache holds the WHOLE corpus as built card dicts
+# per (user, résumé), measured at ~49 MB of RSS per entry at 21,982 rows — so a count of 64
+# permitted about 3.1 GB in a process shared cPanel caps somewhere under 1 GB. The host would
+# have killed the worker long before the LRU ever evicted anything, and the failure would
+# have looked like a random restart rather than a cache that was sized in the wrong unit.
+#
+# A count cap gets MORE dangerous every time the scraper runs. A byte budget does not, which
+# is why the limit is now derived from the live row count on every check.
+#
+# Raising it: CACHE_BUDGET_MB in .env. The default leaves headroom under a 512 MB cap on top
+# of the ~155 MB an idle worker already holds (imports + the corpus). Once the real per-process
+# limit is known from cPanel's Resource Usage page, this is the one number worth tuning — every
+# extra entry that fits is one more person who gets a 50 ms feed instead of a ~1.8 s rebuild.
+_CACHE_BUDGET_MB = int(os.environ.get("CACHE_BUDGET_MB") or 256)
+_ROW_CACHE_BYTES_PER_ROW = 2240   # measured by RSS delta, 8 distinct users at 21,982 rows
+# 1, not 2. A minimum of two looked kinder but broke the promise this budget makes: at a
+# corpus where one entry alone exceeds the budget, a floor of two would silently hold double
+# it. One entry is the smallest useful cache -- zero would recompute on literally every
+# request -- and if the cap ever lands on 1, the answer is to raise CACHE_BUDGET_MB, not to
+# quietly overspend it.
+_SCORE_CACHE_MIN = 1
+_SCORE_CACHE_CEIL = 64            # the old constant, kept as an upper bound
+
+
+def _cache_max():
+    """How many per-user cache entries fit in the budget, at today's corpus size.
+
+    Uses the rows already in memory, so it costs a len() and needs no configuration. Falls
+    back to a pessimistic 20k when the corpus has not been read yet — guessing LOW there
+    would raise the cap on a worker that is about to load a large corpus, which is backwards.
+    """
+    rows = len(_jobs_cache.get("rows") or ()) or 20000
+    per_entry_mb = max(1.0, rows * _ROW_CACHE_BYTES_PER_ROW / 1048576.0)
+    return max(_SCORE_CACHE_MIN, min(_SCORE_CACHE_CEIL,
+                                     int(_CACHE_BUDGET_MB / per_entry_mb)))
 # Above this many jobs, the feed stops shipping EVERY job inline and switches to top-N inline +
 # server-side search/paging (/api/feed), so the payload + browser parse stay small at any corpus
 # size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
@@ -614,7 +651,7 @@ def _bust_profile(user=None):
     each of those users a full corpus rebuild (~1 s apiece) on their next page. Measured at
     12.2 s of worker CPU for a single résumé save, which is what a stalled site is made of.
 
-    Scanning the dict is bounded by _SCORE_CACHE_MAX (64), not by the number of users."""
+    Scanning the dict is bounded by _cache_max(), not by the number of users."""
     if user:
         _profile_cache.pop(user, None)
         _profile_row_cache.pop(user, None)
@@ -966,7 +1003,7 @@ def user_scores(username, resume):
     fp = _jobs_cache.get("fp")
     stored = _scores_read(username, rmd5, fp)
     if stored is not None:
-        if len(_score_cache) >= _SCORE_CACHE_MAX:
+        if len(_score_cache) >= _cache_max():
             _score_cache.popitem(last=False)
         _score_cache[key] = stored
         return stored
@@ -1004,7 +1041,7 @@ def user_scores(username, resume):
             # personalised match. A number that looks personalised and isn't is worse than no
             # number, because it teaches the user to distrust every other one on the card.
             scores[u] = 0
-    if len(_score_cache) >= _SCORE_CACHE_MAX:
+    if len(_score_cache) >= _cache_max():
         _score_cache.popitem(last=False)     # drop least-recently-used; bounds memory growth
     _score_cache[key] = scores
     _scores_write(username, rmd5, fp, scores)
@@ -1398,7 +1435,9 @@ def ranked_rows(username, resume):
     rows = [_build_row(j, scores.get(j.get("url"), 0)) for j in get_jobs() if j.get("url")]
     rows = _dedupe_rows(rows)
     rows.sort(key=lambda r: r["score"], reverse=True)
-    if len(_rows_cache) >= _SCORE_CACHE_MAX:
+    # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
+    # against — so it gets the same derived limit rather than a second constant to keep in step.
+    if len(_rows_cache) >= _cache_max():
         _rows_cache.popitem(last=False)      # least-recently-used, not oldest-inserted
     _rows_cache[key] = rows
     return rows
@@ -5723,6 +5762,32 @@ def _require_csrf():
 # legitimately walks 50 jobs in a sitting. They bite on the abuse shapes, not on real work.
 _ext_hits = {}                       # (class, key) -> [timestamps]
 _EXT_MAX_KEYS = 5000                 # bound the dict; cleared wholesale when exceeded
+
+
+def _rate_hit(key, tiers):
+    """Record one call against `key`. Returns (retry_seconds, cap, window) if a tier is now
+    exceeded, else None.
+
+    TIERS, plural, because a single window is not a brake. 240-per-60s permits all 240 landing
+    inside one second, which is exactly the saturation event a limiter is for. A short tier
+    bounds the burst and a long one bounds the sustained rate.
+
+    Rejected calls are NOT recorded, so a client that keeps hammering while limited does not
+    push its own retry time further out forever.
+    """
+    now = time.time()
+    if len(_ext_hits) > _EXT_MAX_KEYS:
+        _ext_hits.clear()
+    longest = max(w for _, w in tiers)
+    hist = [t for t in _ext_hits.get(key, ()) if now - t < longest]
+    for cap, window in tiers:
+        recent = [t for t in hist if now - t < window]
+        if len(recent) >= cap:
+            _ext_hits[key] = hist
+            return int(window - (now - recent[0])) + 1, cap, window
+    hist.append(now)
+    _ext_hits[key] = hist
+    return None
 _EXT_CLASSES = (
     # (path suffixes, calls, window seconds, label)
     (("tailor", "answer", "vision"), 40, 3600,
@@ -5758,22 +5823,67 @@ def _ext_rate_limit():
         if leaf in names:
             cap, window, label = c, w, lbl
             break
-    key = (label, _ext_rate_key())
-    now = time.time()
-    if len(_ext_hits) > _EXT_MAX_KEYS:
-        _ext_hits.clear()
-    hist = [t for t in _ext_hits.get(key, ()) if now - t < window]
-    if len(hist) >= cap:
-        _ext_hits[key] = hist
-        retry = int(window - (now - hist[0])) + 1
+    hit = _rate_hit((label, _ext_rate_key()), ((cap, window),))
+    if hit:
+        retry = hit[0]
         resp = jsonify({"ok": False, "error": "Rate limit reached for %s. Try again in %d min."
                                               % (label, max(retry // 60, 1))})
         resp.status_code = 429
         resp.headers["Retry-After"] = str(retry)
         return _cors(resp)           # CORS-open route: the browser must be able to READ the 429
-    hist.append(now)
-    _ext_hits[key] = hist
     return None
+
+
+# ----------------------------- feed API rate limiting -----------------------------
+# /api/feed was the one unguarded route that can saturate the pool, and it does not need a
+# stolen token or any malice to do it -- measured at 173 ms per request with a search term,
+# 3.4x any other route in the app. One person typing occupies most of a worker; a runaway
+# fetch loop in a stale tab occupies all of them. _ext_rate_limit did not cover it, because
+# it returns early on anything outside /api/ext/.
+#
+# SIZED FROM THE CLIENT, not from a guess. app.js debounces search, location and the match
+# slider at 250 ms (debouncedRender) and pages behind a button, so the fastest a real browser
+# can go is 4 requests/second, and only while someone types without pausing. 240/60s is
+# exactly that ceiling, so normal use cannot reach it; 30/5s allows a 6/second burst, which is
+# above anything the UI produces and far below what a loop produces.
+#
+# Per USERNAME, not per IP: one household behind one address must not throttle each other,
+# and every caller here is logged in. Anonymous requests fall back to the address so an
+# unauthenticated sprayer is still bounded before it reaches login_required.
+_FEED_TIERS = ((30, 5), (240, 60))
+
+
+@app.before_request
+def _feed_rate_limit():
+    if request.path != "/api/feed":
+        return None
+    # In-process harnesses page the WHOLE corpus for every filter case as fast as they can --
+    # scripts/feed_parity.py alone walks several hundred requests -- which is precisely the burst
+    # shape this blocks. app.testing is the right gate rather than an env var or a header: it is
+    # set by the harness inside the process (feed_parity.py, smoke_app.py and three suites already
+    # set it) and there is no way for a client to turn it on. Production never does.
+    #
+    # This does NOT leave the limiter untested. scripts/test_feed_ratelimit.py deliberately does
+    # not set TESTING, and asserts that it has not been set, so the guard cannot be voided by
+    # someone adding the flag to that file later.
+    if app.testing:
+        return None
+    from flask import jsonify
+    who = session.get("user") or ("ip:" + (request.remote_addr or "?"))
+    hit = _rate_hit(("feed", who), _FEED_TIERS)
+    if not hit:
+        return None
+    retry, cap, window = hit
+    # A JSON body with the same keys the route normally returns, because app.js reads
+    # `rows`/`total` and an absent `rows` used to render as "no jobs match" -- a rate limit
+    # that looks like an empty search is worse than no rate limit. app.js also reads the 429
+    # explicitly now and retries; this body is the fallback for anything that does not.
+    resp = jsonify({"rows": [], "total": 0, "has_more": False, "limited": True,
+                    "error": "Too many feed updates (%d in %ds). Retrying shortly."
+                             % (cap, window)})
+    resp.status_code = 429
+    resp.headers["Retry-After"] = str(retry)
+    return resp
 
 
 @app.route("/profile/tracking", methods=["POST"])

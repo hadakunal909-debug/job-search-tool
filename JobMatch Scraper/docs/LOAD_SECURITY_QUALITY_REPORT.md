@@ -2,6 +2,58 @@
 
 **Date:** 2026-08-12 · **Corpus:** 20,278 job rows
 
+## ADDENDUM 2026-08-21 — re-measured after the cPanel move and the score cache
+
+**Corpus 21,982 rows.** Everything below is a fresh measurement, because two things invalidated
+the numbers in the body: the database moved off Supabase onto cPanel Postgres (localhost, so the
+round trips this report spends half its capacity waiting on are gone), and per-user scores now
+persist to `score_cache/`.
+
+Not load-tested against production, again and for the same reason (§1). Measured on a laptop
+whose CPU was clocked at 1.8 GHz; production is a shared throttled slice and may be slower.
+
+### Per-request cost, warm worker
+
+| route | wall | CPU | rps/worker |
+|---|---|---|---|
+| `GET /` | 51 ms | 47 ms | 19.5 |
+| `GET /api/feed` | 40 ms | 47 ms | 25.1 |
+| **`GET /api/feed?q=`** | **173 ms** | 172 ms | **5.8** |
+| `GET /job` | 96 ms | 94 ms | 10.5 |
+| `GET /company` | 30 ms | 31 ms | 33.6 |
+| `GET /healthz` | 1 ms | 0 ms | ~970 |
+
+`GET /` went 197 ms → **51 ms**, and the idle share went **58% → ~8%**: that is the Postgres move,
+and it is most of the capacity gain. **Search is now the expensive route** at 3.4× any other, so
+three people typing cost more than fifty people reading.
+
+On a realistic mix (weighted toward `/api/feed`, which every filter drag hits): **73 ms/request →
+13.6 rps per worker → ~55 rps on four workers.** This report measured 56 rps on four workers after
+its own fixes, so the model and the earlier load test agree.
+
+### But memory binds long before throughput, and that is the real answer
+
+| | |
+|---|---|
+| idle worker floor (imports + corpus) | **155 MB** |
+| each additional distinct active user | **~31 MB** of Python objects, **~49 MB** RSS |
+| at a 512 MB per-process cap | **~7–11 concurrent distinct users per worker** |
+| at 1 GB | ~18–28 |
+
+Passenger has no session affinity, so every worker eventually caches every active user. **So the
+honest figure is ~8–10 people actively using it at once**, not the ~1,000 casual readers the rps
+number implies. Past that it degrades rather than failing: an evicted user pays ~1.8 s for the
+next feed render instead of 50 ms.
+
+`_SCORE_CACHE_MAX = 64` was replaced by `web._cache_max()` as a result — a **byte** budget
+(`CACHE_BUDGET_MB`, default 256) derived from the live row count. The old count cap permitted
+~2.9 GB at this corpus and, being a count, got more dangerous with every scrape.
+
+**Still unmeasured, and both are visible to you:** the production worker count and the
+per-process memory cap (cPanel → Setup Python App, and Resource Usage). Those two numbers turn
+the range above into a single figure.
+
+---
 > ## Fixed after this report was written
 >
 > All four items below were implemented and re-measured. **All 25 test suites still pass.**
