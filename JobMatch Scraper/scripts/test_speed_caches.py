@@ -96,8 +96,15 @@ def jd_cache():
         u = params["url"].split("eq.", 1)[1]
         return [{"jd": store[u]}] if u in store else []
 
-    real_fetch, real_supa = db._fetch_all, db.using_supabase
+    # _upsert MUST be stubbed, not just _fetch_all. update_jds() below reaches the real write
+    # path otherwise: on a laptop with a .env that means this test silently INSERTS its own
+    # fixture rows into the real jobs table (it did -- "u/full" and one other had to be deleted
+    # afterwards), and in CI, where there are no credentials, _upsert retries three times with
+    # 3+6+9s of sleeps and then raises, so the suite fails after stalling for eighteen seconds.
+    wrote = []
+    real_fetch, real_supa, real_upsert = db._fetch_all, db.using_supabase, db._upsert
     db._fetch_all, db.using_supabase = fake_fetch, lambda: True
+    db._upsert = lambda rows, chunk=200: wrote.extend(rows)
     db._jd_cache.clear()
     try:
         want("a JD is read once and remembered",
@@ -112,6 +119,8 @@ def jd_cache():
         store["u/full"] = "REWRITTEN"
         db.update_jds({"u/full": "REWRITTEN"})
         want("update_jds evicts what it wrote", db.get_job_jd("u/full") == "REWRITTEN")
+        want("...and it really did go through the write path",
+             [r.get("url") for r in wrote] == ["u/full"], repr(wrote[:1]))
 
         def boom(table, params):
             raise RuntimeError("transient")
@@ -125,7 +134,7 @@ def jd_cache():
         want("the cache stays bounded", len(db._jd_cache) <= db._JD_CACHE_MAX,
              "%d entries, max %d" % (len(db._jd_cache), db._JD_CACHE_MAX))
     finally:
-        db._fetch_all, db.using_supabase = real_fetch, real_supa
+        db._fetch_all, db.using_supabase, db._upsert = real_fetch, real_supa, real_upsert
         db._jd_cache.clear()
     print()
     return bad
