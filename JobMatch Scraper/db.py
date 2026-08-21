@@ -2206,9 +2206,27 @@ def list_brain_companies():
 
 
 def profile_text(username):
-    """The COMPLETE matching profile: every résumé + every story combined. This is what the
-    feed scores jobs against (per the 'match against the whole Resume Brain' design)."""
-    parts = [r.get("content", "") or "" for r in list_resumes(username)]
+    """The matching profile: the LIVE résumé plus every story. This is what the feed scores
+    jobs against.
+
+    It used to concatenate every résumé in the library, which made the match % answer a question
+    nobody asked. Someone keeping a PM résumé and an SWE résumé was scored against the union of
+    both, so every job matched something and switching which résumé was live changed nothing at
+    all -- the live flag was real in the database and invisible in the feed. One résumé at a
+    time is what makes "how well do I fit this job" a question with an answer, and what makes
+    choosing a different one mean something.
+
+    STORIES STAY. They are not a competing résumé -- they are extra evidence for the same person,
+    they do not contradict whichever résumé is live, and folding them in is the whole point of
+    "teach your brain". Only the OTHER résumés are excluded.
+
+    Narrowing this lowers every score, so whether it needed a core.MIN_SCALE bump was measured
+    rather than assumed: about 14% off the middle of the distribution, which is a change of
+    degree and not of meaning. The arithmetic and the decision are recorded at MIN_SCALE. Bump it
+    if this ever narrows further.
+    """
+    row = get_active_resume(username) or {}
+    parts = [row.get("content", "") or ""]
     for s in get_brain_kb(username).get("stories", []):
         parts.append((s.get("title", "") or "") + " " + (s.get("text", "") or "")
                      + " " + " ".join(s.get("skills", []) or []))

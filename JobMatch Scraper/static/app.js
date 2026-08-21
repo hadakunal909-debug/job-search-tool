@@ -1224,8 +1224,27 @@
     }
     if (reset) { shown = 0; feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
     var mySeq = ++_seq;                                   // ignore out-of-order responses
-    fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) { return r.json(); }).then(function (d) {
-      if (mySeq !== _seq) return;
+    fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) {
+      /* 429 is read EXPLICITLY. This used to be a bare r.json(), so a rate-limited reply
+         parsed fine, produced no `rows`, and rendered as "No jobs match these filters" --
+         a throttle that lies about the corpus is worse than no throttle. The server sizes
+         its short tier above anything this UI can produce, so reaching it means a loop or
+         a held key, and the honest response is to say so and catch up. */
+      if (r.status === 429) {
+        var wait = parseInt(r.headers.get("Retry-After"), 10);
+        if (!(wait > 0)) wait = 2;
+        if (mySeq === _seq && reset) {
+          feed.innerHTML = '<div class="loading-jd" style="padding:28px">' +
+            '<span class="spin"></span>Catching up\u2026</div>';
+        }
+        /* One retry, and only if nothing newer has been asked for. render() bumps _seq, so
+           a later keystroke supersedes this and no retry storm can build up. */
+        setTimeout(function () { if (mySeq === _seq) render(reset); }, Math.min(wait, 15) * 1000);
+        return null;
+      }
+      return r.json();
+    }).then(function (d) {
+      if (d === null || mySeq !== _seq) return;
       var rows = (d && d.rows) || [], htmlc = "";
       for (var i = 0; i < rows.length; i++) byUrl[rows[i].url] = rows[i];
       for (var k = 0; k < rows.length; k++) htmlc += cardHTML(rows[k]);
@@ -1251,8 +1270,11 @@
     else if (el) { if (el.parentNode) el.parentNode.removeChild(el); if (countEl) { var n = parseInt(countEl.textContent, 10); if (!isNaN(n) && n > 0) countEl.textContent = n - 1; } }
   }
 
-  function doAction(url, next) {
-    return fetch("/api/action", { method: "POST", headers: { "X-CSRF-Token": csrfToken(),  "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next }) })
+  // `via` is the origin of the action and reaches the `action` event's via dimension. The server
+  // whitelists it (web.py _ACTION_VIA); omitting it is recorded as "api", which is what an older
+  // cached copy of this file sends.
+  function doAction(url, next, via) {
+    return fetch("/api/action", { method: "POST", headers: { "X-CSRF-Token": csrfToken(),  "Content-Type": "application/json" }, body: JSON.stringify({ url: url, status: next, via: via || "card" }) })
       .then(function (r) { return r.json(); }).then(function (j) {
         if (!j || !j.ok) { toast("Couldn't save. Try again."); return false; }
         return true;
@@ -1447,6 +1469,15 @@
   });
   if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
 
+  // applyask.js owns the "did you apply?" prompt and does not know what a card is, so it says
+  // so and this repaints. Nothing happens if the confirmed job is not on screen.
+  document.addEventListener("jm:applied", function (e) {
+    var j = e.detail && byUrl[e.detail.url];
+    if (!j) return;
+    j.status = "applied";
+    afterAction(j);
+  });
+
   // feed clicks: action buttons, Apply auto-log, company link, or open modal
   feed.addEventListener("click", function (e) {
     var btn = e.target.closest ? e.target.closest("button[data-act]") : null;
@@ -1478,14 +1509,17 @@
     }
     var lnk = e.target.closest && e.target.closest("a");
     if (lnk) {                                                    // Apply/Tailor links open normally
-      if (lnk.hasAttribute("data-apply")) {                      // clicking Apply auto-logs it
+      if (lnk.hasAttribute("data-apply")) {                      // clicking Apply asks on return
         var ac = lnk.closest(".card"), aj = ac && byUrl[ac.getAttribute("data-url")];
-        // Recorded on EVERY click, not only the first. doAction below fires only when the job
-        // isn't already applied, so without this a second visit to the same posting is
-        // invisible and outbound clicks are undercounted.
+        // Recorded on EVERY click, not only the first: the same posting opened twice is two
+        // outbound clicks, and this is the only place that number comes from.
         if (aj) EV("apply_click", { co: aj.company, sc: aj.score, where: "card" });
-        if (aj && aj.status !== "applied")
-          doAction(aj.url, "applied").then(function (ok) { if (ok) { toast("Added to Applications"); aj.status = "applied"; afterAction(aj); } });
+        // It used to write "applied" right here, which meant OPENING a posting counted as
+        // applying to it — 129 applications on record that nobody had made. Opening a job and
+        // applying to it are different events and only the user knows which happened, so park
+        // it and let applyask.js ask when they come back.
+        if (aj && aj.status !== "applied" && window.ApplyAsk)
+          window.ApplyAsk.pend({ url: aj.url, title: aj.title, company: aj.company });
       }
       return;
     }

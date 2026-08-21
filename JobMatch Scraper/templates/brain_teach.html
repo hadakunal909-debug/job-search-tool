@@ -21,9 +21,17 @@ Everything here counts toward your feed match scores. Private to your account.</
         action="{{ url_for('brain_resume_save') }}">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <label>Name <input type="text" name="name" placeholder="e.g. PM-focused résumé"></label>
-    <label>Upload a file <span class="muted">(PDF, Word, LaTeX or plain text. The text is scored,
-      and the original is kept so you can see it again)</span>
-      <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md,.tex"></label>
+    <span class="dzcap">Upload a file <span class="muted">(PDF, Word, LaTeX or plain text.
+      The text is scored, and the original is kept so you can see it again)</span></span>
+    {# Not a <label> wrapping the dropzone: the dropzone IS a label, and a label inside a label
+       makes the click target ambiguous. The caption above is a plain span instead. #}
+    <label class="dropzone dz-sm" for="teach_resume_file">
+      <span class="ic ic-upload dz-icon" aria-hidden="true"></span>
+      <span class="dz-main" data-dz-label>Choose a File, or Drop One Here</span>
+      <span class="dz-sub">PDF, Word, LaTeX or Text</span>
+      <input type="file" id="teach_resume_file" name="resume_file"
+             accept=".pdf,.docx,.txt,.md,.tex">
+    </label>
     <label>…or paste the content <span class="muted">(plain text)</span>
       <textarea name="content" rows="12" class="mono" placeholder="Paste this résumé version."></textarea></label>
     <div class="row">
@@ -160,6 +168,7 @@ Everything here counts toward your feed match scores. Private to your account.</
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ static_v('dropzone.js') }}" nonce="{{ csp_nonce }}" defer></script>
 <script nonce="{{ csp_nonce }}">
 (function(){
   function toggle(id){var el=document.getElementById(id);if(!el)return;

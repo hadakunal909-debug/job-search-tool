@@ -187,5 +187,9 @@
 {% endblock %}
 
 {% block scripts %}
+{# applyask.js before it: it defines window.ApplyAsk, which the click handler below
+   parks a posting into. Clicking Apply no longer records an application -- the prompt
+   on return does. #}
+<script src="{{ static_v('applyask.js') }}"></script>
 <script src="{{ static_v('app.js') }}"></script>
 {% endblock %}

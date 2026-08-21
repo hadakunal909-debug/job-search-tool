@@ -19,3 +19,9 @@
 
 {% block admin %}{% endblock %}
 {% endblock %}
+
+{% block scripts %}
+{# Loaded for every admin sub-page and self-disabling on the ones with no user list: one script
+   tag in the shared chrome is less to keep in step than a conditional include per page. #}
+<script src="{{ static_v('adminfind.js') }}" defer></script>
+{% endblock %}

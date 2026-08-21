@@ -52,7 +52,7 @@ except Exception:
     pass
 
 from flask import (Flask, request, session, redirect, url_for,
-                   render_template, flash, g, Response)
+                   render_template, flash, g, Response, abort)
 
 import core
 import db
@@ -3206,13 +3206,36 @@ def _ev_feed_view(user, args, rows, total, offset):
 # spans both eras.
 
 
+# Where an action came from. A CLOSED SET, because api_action lets the browser choose one and it
+# lands in the `via` dimension of every `action` event:
+#   confirmed  the user answered "yes, I applied" to the prompt that follows an Apply click.
+#              The ONLY value the open-to-apply funnel counts as an application.
+#   card       a button on a feed card (Save / Hide / Mark applied) -- a deliberate press.
+#   job        the same, from a job page's no-JS form. Predates the rest; see the /action route.
+#   api        anything that did not say. Kept as the default so an older cached app.js, which
+#              sends no `via` at all, still records its actions instead of being rejected.
+_ACTION_VIA = ("confirmed", "card", "job", "api")
+
+
 @app.route("/api/action", methods=["POST"])
 @login_required
 def api_action():
-    """JSON like/hide/apply for the JS feed. Body: {url, status} (status '' clears)."""
+    """JSON like/hide/apply for the JS feed. Body: {url, status, via?} (status '' clears).
+
+    `via` is the ORIGIN of the action, and for status='applied' it is the difference between a
+    number that means something and the one this app reported until 2026-08-21. Clicking Apply
+    used to write 'applied' on the spot, so opening a posting counted as applying to it and the
+    tracker held 129 applications nobody had made. The feed now asks on return and sends
+    via='confirmed'; anything else is a state change the user made deliberately somewhere else.
+    Whitelisted rather than passed through: this is a browser writing a value that ends up in an
+    aggregate, so an arbitrary string here would be a free dimension for anyone with a console.
+    """
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     status = data.get("status", "")
+    via = data.get("via") or "api"
+    if via not in _ACTION_VIA:
+        via = "api"
     if not url:
         return {"ok": False, "error": "no url"}, 400
     user = session["user"]
@@ -3229,7 +3252,7 @@ def api_action():
         _status_cache.pop(user, None)                # reflect the change on the next feed render
         if status == "applied":
             _autolog_application(user, url)
-        _ev_action(user, url, prev, status, "api")
+        _ev_action(user, url, prev, status, via)
         return {"ok": True, "status": status}
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
@@ -4032,6 +4055,84 @@ def api_db():
     return jsonify(payload), status
 
 
+_BOARDS_TTL = 300
+_admin_boards_cache = {"data": None, "at": 0.0}
+# A board is DEPRECATING when it has returned zero postings, successfully, this many runs in a
+# row. Successfully is the load-bearing word: a fetch that FAILED proves nothing about the board
+# (that is the "failing" bucket below), while three clean fetches that each found nothing is a
+# board that has been walled off, renamed, or emptied. Same threshold scraper.save_board_health
+# uses for the line it prints to the run log, because two different answers to "is this board
+# dead" would be worse than either.
+_BOARD_SILENT_RUNS = 3
+
+
+def _admin_boards(force=False):
+    """What each board COSTS and whether it still returns anything.
+
+    Reads the board_health kv blob the scraper writes at the end of every run. That blob has
+    carried per-board outcomes for a while and per-board TIMINGS since 2026-08-21; until now the
+    only place any of it was visible was the run log, which means "which boards are we still
+    paying for and getting nothing from" was a question you answered by reading a scrape
+    transcript. Everything here is derived, so a missing or old blob renders as empty panels
+    rather than an error.
+    """
+    c = _admin_boards_cache
+    if not force and c["data"] is not None and time.time() - c["at"] < _BOARDS_TTL:
+        return c["data"]
+
+    try:
+        blob = db.get_kv("board_health") or {}
+    except Exception:
+        blob = {}
+    boards = (blob.get("boards") or {})
+
+    by_ats, costly, silent, failing = {}, [], [], []
+    timed = 0
+    for url, r in boards.items():
+        runs = r.get("runs") or []
+        if not runs:
+            continue
+        secs = [x["secs"] for x in runs if x.get("secs") is not None]
+        row = {"company": r.get("company") or "?", "ats": r.get("ats") or "?", "url": url,
+               "last": runs[-1].get("n"), "ok": bool(runs[-1].get("ok")),
+               "runs": len(runs),
+               "secs": max(secs) if secs else None,
+               "avg": (sum(secs) / len(secs)) if secs else None}
+        if secs:
+            timed += 1
+            a = by_ats.setdefault(row["ats"], {"boards": 0, "secs": 0.0})
+            a["boards"] += 1
+            a["secs"] += secs[-1]
+            costly.append(row)
+        if not row["ok"]:
+            failing.append(row)
+        elif (len(runs) >= _BOARD_SILENT_RUNS
+              and all(x.get("n") == 0 and x.get("ok") for x in runs[-_BOARD_SILENT_RUNS:])):
+            silent.append(row)
+
+    spent = sum(a["secs"] for a in by_ats.values())
+    out = {
+        "have": bool(boards),
+        "updated_at": blob.get("updated_at") or "",
+        "tracked": len(boards),
+        "timed": timed,
+        "spent": spent,
+        "silent_runs": _BOARD_SILENT_RUNS,
+        "by_ats": sorted(
+            ({"ats": k, "boards": v["boards"], "secs": v["secs"],
+              "pct": (100.0 * v["secs"] / spent) if spent else 0.0,
+              "each": v["secs"] / max(1, v["boards"])} for k, v in by_ats.items()),
+            key=lambda r: -r["secs"]),
+        "costly": sorted(costly, key=lambda r: -(r["secs"] or 0))[:15],
+        "silent": sorted(silent, key=lambda r: (r["company"] or ""))[:40],
+        "failing": sorted(failing, key=lambda r: (r["company"] or ""))[:40],
+    }
+    _admin_boards_cache.update({"data": out, "at": time.time()})
+    return out
+
+
+
+
 @app.route("/admin/data")
 @admin_required
 def admin_data():
@@ -4041,11 +4142,13 @@ def admin_data():
         _admin_stats_cache["data"] = None
         _admin_db_cache["data"] = None
         _admin_health_cache["data"] = None
+        _admin_boards_cache["data"] = None
         flash("Jobs reloaded.")
         return redirect(url_for("admin_data"))
     return render_template("admin_data.html", dbi=_admin_db(), stats=_admin_stats(),
                            health=_admin_health_cache["data"], blocked=db.list_blocked(),
-                           audit=db.list_audit(20), delete_max=ADMIN_DELETE_MAX)
+                           audit=db.list_audit(20), delete_max=ADMIN_DELETE_MAX,
+                           boards=_admin_boards())
 
 
 @app.route("/admin/health.json")
@@ -4125,6 +4228,114 @@ def _rate_table(counter_by_key, min_events, limit=15):
                      "hidden": c["hidden"], "hide_pct": 100.0 * c["hidden"] / n})
     rows.sort(key=lambda r: (-r["hide_pct"], -r["n"]))
     return rows[:limit]
+
+
+_ADMIN_USER_TTL = 300
+_admin_user_cache = {}                   # username -> {"data": ..., "at": ts}
+
+
+def _admin_usage_one(username, force=False):
+    """The same behaviour rollup as _admin_usage, scoped to ONE account.
+
+    A separate function rather than a filter argument threaded through the 200-line aggregate:
+    the two share their INPUTS (the whole user_jobs and applications tables, which are small --
+    126 rows between them today) and almost nothing else, because the questions differ. The
+    aggregate asks "is the score separating good from bad across everyone"; this asks "what has
+    this person actually done", which wants their timeline and their companies and no
+    cross-user comparison at all.
+
+    Cached per username on the same 5-minute clock, and cleared by the same ?refresh=1.
+    """
+    c = _admin_user_cache.get(username)
+    if not force and c and time.time() - c["at"] < _ADMIN_USER_TTL:
+        return c["data"]
+
+    jobs = get_jobs()
+    by_url = {j.get("url"): j for j in jobs if j.get("url")}
+    flags = [r for r in _all_user_jobs() if (r.get("username") or "") == username]
+    apps = [a for a in _all_applications() if (a.get("username") or "") == username]
+
+    totals = {s: 0 for s in _STATUSES}
+    scores = {s: [] for s in _STATUSES}
+    companies = collections.defaultdict(lambda: {s: 0 for s in _STATUSES})
+    hosts = collections.Counter()
+    rows = []
+    for r in flags:
+        st = (r.get("status") or "").strip()
+        if st not in _STATUSES:
+            continue
+        totals[st] += 1
+        url = r.get("url") or ""
+        h = _host({"url": url})
+        if h:
+            hosts[h] += 1
+        j = by_url.get(url)
+        if not j:
+            # A posting pruned at 30 days. Counted in the totals above -- the action happened --
+            # but it cannot contribute a company or a score, and saying so is more useful than
+            # a silently short table.
+            rows.append({"status": st, "url": url, "title": "", "company": "", "score": None})
+            continue
+        co = (j.get("company") or "").strip()
+        if co:
+            companies[co][st] += 1
+        try:
+            sc = int(j.get("match_score") or 0)
+        except (TypeError, ValueError):
+            sc = 0
+        if sc:
+            scores[st].append(sc)
+        rows.append({"status": st, "url": url, "title": j.get("title") or "",
+                     "company": co, "score": sc or None})
+
+    # The applications timeline. applications.created_at is still the only real timestamp this
+    # app records for a user action, which is why this is the one genuine time series here.
+    by_day = collections.Counter()
+    by_hour = collections.Counter()
+    outcomes = collections.Counter()
+    resumes_used = collections.Counter()
+    auto_logged = 0
+    for a in apps:
+        created = str(a.get("created_at") or "")
+        if len(created) >= 10:
+            by_day[created[:10]] += 1
+        if len(created) >= 13 and created[11:13].isdigit():
+            by_hour[int(created[11:13])] += 1
+        outcomes[(a.get("status") or "applied").strip() or "applied"] += 1
+        resumes_used[(a.get("resume_name") or "(none)").strip() or "(none)"] += 1
+        # Same signature /admin/usage uses, and the same one scripts/reset_autologged_applies.py
+        # deletes on: applied on its creation day with nothing typed. Surfaced per user because
+        # this is where a suspicious Applied count gets explained.
+        if (a.get("applied_date") or "")[:10] == created[:10] and not (a.get("notes") or "").strip():
+            auto_logged += 1
+
+    days = sorted(by_day.items())[-30:]
+    top_co = sorted(companies.items(),
+                    key=lambda kv: -sum(kv[1].values()))[:12]
+    out = {
+        "user": username,
+        "totals": totals,
+        "flag_rows": sum(totals.values()),
+        "app_rows": len(apps),
+        "auto_logged": auto_logged,
+        "matched_pct": (100.0 * sum(1 for r in rows if r["company"]) / len(rows)) if rows else 0.0,
+        "scores": [{"status": s, "n": len(v), "median": _median(v),
+                    "mean": (sum(v) / len(v)) if v else 0.0} for s, v in scores.items()],
+        "companies": [{"name": k, "liked": v["liked"], "applied": v["applied"],
+                       "hidden": v["hidden"], "n": sum(v.values())} for k, v in top_co],
+        "hosts": hosts.most_common(10),
+        "by_day": days,
+        "by_day_max": max([n for _, n in days] or [1]),
+        "by_hour": [(h, by_hour.get(h, 0)) for h in range(24)],
+        "by_hour_max": max(list(by_hour.values()) or [1]),
+        "outcomes": outcomes.most_common(),
+        "resumes": resumes_used.most_common(8),
+        # Newest first, and capped: this is a profile, not an export.
+        "recent_apps": apps[:25],
+        "actions": rows[:60],
+    }
+    _admin_user_cache[username] = {"data": out, "at": time.time()}
+    return out
 
 
 def _admin_usage(force=False):
@@ -4344,10 +4555,36 @@ def admin_usage():
         get_jobs(force=True)
         _admin_usage_cache["data"] = None
         _admin_ev_cache["data"] = None
+        _admin_user_cache.clear()
         flash("Jobs reloaded.")
         return redirect(url_for("admin_usage"))
     return render_template("admin_usage.html", u=_admin_usage(), ev=_admin_ev(),
                            evstats=analytics.stats())
+
+
+@app.route("/admin/usage/user/<username>")
+@admin_required
+def admin_usage_user(username):
+    """One account's usage. Its own ROUTE, not a panel on /admin/usage, for the reason stated at
+    the top of admin_base.html: each admin page pays only for its own queries, and /admin/usage
+    already walks the whole corpus.
+
+    Unknown usernames 404 rather than rendering an empty profile -- an all-zero page for a typo
+    reads as "this user does nothing", which is a different and wrong claim.
+    """
+    if request.args.get("refresh"):
+        _admin_user_cache.pop(username, None)
+        return redirect(url_for("admin_usage_user", username=username))
+    known = {(u.get("username") or "") for u in (db.list_users() or [])}
+    if known and username not in known:
+        abort(404)
+    prof = None
+    try:
+        prof = db.get_profile(username) or {}
+    except Exception:
+        prof = {}
+    return render_template("admin_usage_user.html", d=_admin_usage_one(username),
+                           prof=prof, acct=_account_state(username) or {})
 
 
 _ADMIN_EV_TTL = 300
@@ -5336,6 +5573,37 @@ def brain_resume_file(fid, name=None):
                              "Content-Security-Policy":
                                  "default-src 'none'; object-src 'none'; frame-ancestors " + ancestors,
                              "Cache-Control": "private, max-age=300"})
+
+
+@app.route("/brain/resume/activate", methods=["POST"])
+@login_required
+def brain_resume_activate():
+    """Make one résumé the live one -- the thing that decides every match % in the feed.
+
+    db.set_active_resume has existed since the library did, but nothing ever called it as a user
+    ACTION: all three callers were side effects of saving, so the only way to change which
+    résumé was live was to upload it again. The rail rendered a `live` badge nobody could move.
+
+    No cache to invalidate on the score path, and that is by construction rather than luck:
+    _score_cache and the persisted score files are keyed on (username, resume_md5), so a
+    different live résumé is a different key and reads a different entry. What DOES need busting
+    is the profile text those keys are derived from.
+    """
+    user = session["user"]
+    rid = (request.form.get("id") or "").strip()
+    row = db.set_active_resume(user, rid) if rid else None
+    if row:
+        _bust_profile(user)
+        _resume_cache.pop(user, None)
+        flash("“%s” is now your live résumé. Match percentages are scored against it."
+              % (row.get("name") or "That résumé"))
+    else:
+        # set_active_resume returns None for an id that is not this user's, and ALSO if
+        # resumes.active does not exist on the table yet -- see MIGRATION_resume_files.sql,
+        # which is still unapplied. Say so rather than reporting a success that did nothing.
+        flash("Couldn't switch résumé. If this keeps happening the `resumes.active` column is "
+              "missing — run MIGRATION_resume_files.sql.")
+    return redirect(request.referrer or url_for("brain_home"))
 
 
 @app.route("/brain/resume/delete", methods=["POST"])

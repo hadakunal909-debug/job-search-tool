@@ -170,25 +170,40 @@
 {% endif %}
 
 {# ---- per user ---- #}
+{# Every row links to that account's own page. The list is SEARCHABLE and its height is CAPPED,
+   so the page costs the same whether there are three accounts or three hundred: the rows scroll
+   inside the panel instead of pushing everything below them off the screen. Filtering is
+   client-side over data-find, the same pattern static/rolepick.js uses for the role tiles --
+   these rows are already all in the DOM, so a round trip would buy nothing. #}
 <section class="panel">
-  <h2>By User</h2>
-  <table class="adm-t">
-    <thead><tr>
-      <th>User</th><th class="num">Saved</th><th class="num">Applied</th><th class="num">Hidden</th>
-      <th>Companies they act on most</th>
-    </tr></thead>
-    <tbody>
-    {% for r in u.per_user %}
-      <tr>
-        <td><b>{{ r.user }}</b></td>
-        <td class="num">{{ r.liked }}</td>
-        <td class="num">{{ r.applied }}</td>
-        <td class="num">{{ r.hidden }}</td>
-        <td class="muted">{% for co, n in r.top %}{{ co }} ({{ n }}){% if not loop.last %} · {% endif %}{% endfor %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <div class="section-head">
+    <h2>By User <span class="count-pill" id="usern">{{ u.per_user|length }}</span></h2>
+    <input type="search" id="userfind" class="cosearch" autocomplete="off"
+           placeholder="Search users…" aria-label="Search users">
+  </div>
+  <div class="adm-scroll">
+    <table class="adm-t" id="usertable">
+      <thead><tr>
+        <th>User</th><th class="num">Saved</th><th class="num">Applied</th><th class="num">Hidden</th>
+        <th>Companies they act on most</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in u.per_user %}
+        {# data-find carries the companies as well as the name, so searching an employer finds
+           whoever has been acting on it. Lowercased here so the filter never has to. #}
+        <tr data-find="{{ (r.user ~ ' ' ~ r.top|map(attribute=0)|join(' '))|lower }}">
+          <td><a href="{{ url_for('admin_usage_user', username=r.user) }}"><b>{{ r.user }}</b></a></td>
+          <td class="num">{{ r.liked }}</td>
+          <td class="num">{{ r.applied }}</td>
+          <td class="num">{{ r.hidden }}</td>
+          <td class="muted">{% for co, n in r.top %}{{ co }} ({{ n }}){% if not loop.last %} · {% endif %}{% endfor %}</td>
+          <td class="u-tight"><a class="iconbtn" href="{{ url_for('admin_usage_user', username=r.user) }}">View</a></td>
+        </tr>
+      {% endfor %}
+      <tr id="usernone" hidden><td colspan="6" class="muted">No user matches that.</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 {# ---- does the score predict anything ---- #}

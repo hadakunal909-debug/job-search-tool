@@ -12,9 +12,25 @@
   "use strict";
 
   // ---- apply click -------------------------------------------------------------------------
-  // Same event name and the same props the feed's delegate sends, plus where:"job" so the two
-  // surfaces can be told apart without inventing a second event. window.EV is global on every
-  // page for a logged-in user (ev.js, loaded from base.html).
+  // Two things, both of which must be unable to stop the link opening.
+  //
+  //   1. Beacon apply_click: the same event name and props the feed's delegate sends, plus
+  //      where:"job" so the two surfaces can be told apart without a second event name.
+  //      window.EV is global on every page for a logged-in user (ev.js, from base.html).
+  //   2. Park the posting for the "did you apply?" prompt (applyask.js). This page never
+  //      recorded an application on click -- only the feed did, which is the bug that produced
+  //      129 of them -- so this is new behaviour here, not a correction: the job page had no
+  //      way to log an application at all except the no-JS Save/Hide form below.
+  //
+  // The job's identity comes from data attributes on the .jobwrap rather than from the DOM
+  // text, because the heading carries badges and a company link and scraping it back out would
+  // be a parser nobody asked for.
+  var meta = document.querySelector("[data-job-url]");
+  var job = meta ? {
+    url: meta.getAttribute("data-job-url"),
+    title: meta.getAttribute("data-job-title") || "",
+    company: meta.getAttribute("data-job-company") || ""
+  } : null;
   var applies = document.querySelectorAll('a[data-apply="1"]');
   for (var i = 0; i < applies.length; i++) {
     applies[i].addEventListener("click", function () {
@@ -23,6 +39,9 @@
           window.EV("apply_click", { where: "job" });
         } catch (e) { /* a beacon must never block opening the employer's page */ }
       }
+      try {
+        if (job && job.url && window.ApplyAsk) window.ApplyAsk.pend(job);
+      } catch (e) { /* same rule: never block the click */ }
     });
   }
 
