@@ -4291,6 +4291,9 @@ def _jobdiva_agency(token):
 #   - 'article--result' (e.g. Synopsys, Bloomberg): an optional .list-item-location and an
 #     optional .list-item-posted ('Posted DD-Mon-YYYY'); fields vary per tenant (Bloomberg
 #     has location/no date, Synopsys has date/no location), ~6-12/page.
+#   - 'jobResultItem' (e.g. Epic): links /FolderDetail/ rather than /JobDetail/, carries no
+#     location or date element at all (both come out of the URL slug), and — the part that
+#     bites — pages by ?folderOffset=N. See _avature_offset_param.
 # Page size varies, so we advance the offset by the actual cards-per-page. MAX caps a giant tenant.
 AVATURE_PAGE = 10                                 # fallback only; we advance by len(cards)
 AVATURE_MAX_JOBS = 3000
@@ -4390,10 +4393,10 @@ AVATURE_WORKERS = 4
 def _avature_cards(html, base, seen, rows):
     """Parse one results page into `rows`; returns how many NEW postings it contributed."""
     cards = BeautifulSoup(html, "lxml").select(
-        "li.listSingleColumnItem, article.article--result")
+        "li.listSingleColumnItem, article.article--result, li.jobResultItem")
     new = 0
     for c in cards:
-        a = c.select_one("a[href*='/JobDetail/']")
+        a = c.select_one("a[href*='/JobDetail/'], a[href*='/FolderDetail/']")
         if not a or not a.get("href"):
             continue                                        # 'no results' placeholder card
         href = urljoin(base + "/", a["href"]).split("?")[0]
@@ -4401,8 +4404,9 @@ def _avature_cards(html, base, seen, rows):
             continue
         seen.add(href)
         new += 1
-        row = {"title": a.get_text(" ", strip=True).strip(), "url": href,
-               "location": _avature_location(c, href)}
+        title = a.get_text(" ", strip=True).strip()
+        row = {"title": title, "url": href,
+               "location": _avature_location(c, href, title)}
         d = _avature_date(c)
         if d:
             row["found_date"] = d

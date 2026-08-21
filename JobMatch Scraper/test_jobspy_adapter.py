@@ -186,11 +186,33 @@ def test_each_aggregator_gets_its_own_rate_gate():
     assert hk("adzuna:Tesla", "adzuna") == hk("adzuna-search:pm", "adzuna-search") == "adzuna"
 
 
-def test_jobspy_has_a_board_timeout_and_other_boards_do_not():
-    # JobSpy brings its own HTTP stack and sets no request timeout, so it is the one source that
-    # can hang. Everything else is bounded by SESSION and must stay on the untimed fast path.
+def test_the_boards_that_can_outlast_a_request_timeout_have_a_clock():
+    """Which ats_types need SCRAPE_BOARD_TIMEOUT, and why it is not the same as "has no request
+    timeout".
+
+    This test used to assert that jobspy was the ONLY entry, on the reasoning that everything
+    else goes through SESSION and is therefore bounded. Production falsified that on 2026-08-21,
+    the first run that recorded per-board cost: one Workday board (Itron) took 2,951 seconds and
+    returned a single posting.
+
+    A per-request timeout bounds a REQUEST. Workday pages at 20 postings a call with a hard
+    ceiling of WORKDAY_MAX_JOBS, so one board is up to 150 calls, and 150 x (25s timeout x the
+    SESSION retry policy) is hours without any single request misbehaving. So the property is
+    not "does this adapter set a timeout" -- it is "can this adapter's WORST CASE outlast the
+    sweep", and pagination is the thing that makes it so.
+    """
+    # jobspy: brings its own HTTP stack and sets no request timeout at all.
     assert scraper.SCRAPE_BOARD_TIMEOUT.get("jobspy")
-    for ats in ("greenhouse", "workday", "adzuna-search", "lever"):
+    # workday: paginates, so its worst case is a multiple of the request timeout, not equal to it.
+    assert scraper.SCRAPE_BOARD_TIMEOUT.get("workday")
+    # Generous enough for the most expensive HONEST board measured (RBC, 1,431 postings in 106s
+    # at CI's page concurrency, roughly double that at cron's) and still far below the 2,951s it
+    # exists to cut.
+    assert 200 <= scraper.SCRAPE_BOARD_TIMEOUT["workday"] <= 600
+
+    # Single-request adapters stay on the untimed fast path: one call, bounded by SESSION, and
+    # a thread-per-board wrapper for them would be cost with nothing to show for it.
+    for ats in ("greenhouse", "lever", "adzuna-search"):
         assert scraper.SCRAPE_BOARD_TIMEOUT.get(ats) is None, ats
 
 
