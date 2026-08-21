@@ -77,6 +77,10 @@ except Exception:                       # pragma: no cover - deploy safety net
             pass
 
         @staticmethod
+        def set_optout(*a, **k):
+            pass
+
+        @staticmethod
         def stats():
             return {"off": True, "queued": 0, "muted": False, "hour_count": 0, "optouts": 0}
 
@@ -682,11 +686,29 @@ def _snapshot_write(rows, fingerprint):
     because two workers can refresh at once and a reader must never see a partial file."""
     try:
         tmp = "%s.%d.tmp" % (_JOBS_SNAPSHOT, os.getpid())
-        with _gzip.open(tmp, "wt", encoding="utf-8") as fh:
+        # compresslevel=6, matching _compress. The default is 9, and at ~25k rows this file is
+        # tens of megabytes of JSON — level 9 buys a few percent of disk for several times the
+        # CPU, on a path that runs inside a request.
+        with _gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as fh:
             json.dump({"rows": rows, "fingerprint": list(fingerprint or ())}, fh)
         os.replace(tmp, _JOBS_SNAPSHOT)
     except Exception:
         pass                          # an optimization only; never fail a request over it
+
+
+def _snapshot_touch(rows, fingerprint):
+    """Mark the shared snapshot freshly-validated WITHOUT rewriting it.
+
+    The caller has just confirmed the fingerprint still matches, so the bytes on disk are
+    already right and the only thing that needs to move is the mtime the other workers read as
+    "someone checked this recently" (_SNAPSHOT_MAX_AGE). This used to call _snapshot_write,
+    which re-serialised the whole corpus and gzipped it — on the one request whose entire
+    purpose was to AVOID re-reading the corpus. os.utime achieves the stated goal for free.
+    """
+    try:
+        os.utime(_JOBS_SNAPSHOT, None)
+    except OSError:
+        _snapshot_write(rows, fingerprint)     # missing or unwritable: do the real write
 
 
 def get_jobs(force=False):
@@ -734,7 +756,7 @@ def get_jobs(force=False):
             if fp[0] is not None and fp == have_fp:
                 _jobs_cache["rows"], _jobs_cache["fp"] = have_rows, fp
                 _jobs_cache["at"] = time.time()
-                _snapshot_write(have_rows, fp)             # refresh mtime for the other workers
+                _snapshot_touch(have_rows, fp)             # refresh mtime for the other workers
                 return have_rows
 
     try:
@@ -1008,6 +1030,51 @@ def _repost_count(title, company, location):
         return 0
 
 
+# The exact byte suffix pack_analyzed leaves on a NON-thin analysis. It writes
+#   json.dumps({"w": {...}, "n": 0|1}, separators=(",", ":"))
+# with "n" inserted last, so a stored value always ends "n":0} or "n":1} and always opens
+# {"w":{" when there is at least one term. Both halves are checked: pack_analyzed returns ""
+# rather than an empty "w", so a {"w":{},"n":0} would be data this code did not write, and
+# unpack_analyzed calls that thin.
+_NOT_THIN_TAIL = '"n":0}'
+_THIN_TAIL = '"n":1}'
+_HAS_TERMS_HEAD = '{"w":{"'
+
+
+def _row_pending(j):
+    """Is this job's description unusable — thin, malformed, or absent?
+
+    This is the ONE thing _build_row wanted from job_analysis, and getting it used to cost a
+    full core.unpack_analyzed per row: a json.loads plus a rebuilt weight dict, a term list and
+    a sum. user_scores had ALREADY unpacked the same row a moment earlier, so a ranked_rows
+    rebuild paid for the whole corpus twice — ~50k unpacks at ~25k rows.
+
+    Reading the packed string directly is O(1) and needs no cache, which matters more than the
+    speed: `pending` also depends on _jdmeta, and _jdmeta is mutated at runtime by jd_meta(),
+    by /reload and by the extension JD patch. Anything memoized on the jobs fingerprint alone
+    would have gone stale on all three. Equivalence with the old expression is proved over the
+    real corpus by scripts/test_speed_caches.py.
+    """
+    m = (_jdmeta.get(j.get("url") or "") or {}).get("analyzed")
+    if m and m.get("terms"):
+        return bool(m.get("thin"))          # jdmeta wins, exactly as job_analysis has it
+    packed = j.get("jd_terms")
+    if not packed:
+        return True                         # job_analysis returns {}, and `not _an` is pending
+    if isinstance(packed, str):
+        if packed.endswith(_THIN_TAIL):
+            return True
+        if packed.endswith(_NOT_THIN_TAIL):
+            # An empty "w" is thin however it got there, and pack_analyzed cannot have
+            # written it — it returns "" rather than storing a term-less analysis.
+            return not packed.startswith(_HAS_TERMS_HEAD)
+    # Anything else — a legacy value with no "n" key, trailing whitespace, a non-str, or plain
+    # garbage — is worth the real parse. Zero of 21,980 rows in the live snapshot take this
+    # branch, but "the shapes I saw were canonical" is not a reason to answer a different
+    # question than unpack_analyzed would. scripts/test_speed_caches.py pins all of them.
+    return bool(core.unpack_analyzed(packed).get("thin"))
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -1068,8 +1135,7 @@ def _build_row(j, score):
     # cannot read is not a 0% match; it is unscoreable, and 0% is a false statement rather than a
     # missing one. Measured before the change: jd_terms is NULL on exactly those 521 rows (2.37%)
     # and every one of them already had match_score 0, so nothing else in the feed moves.
-    _an = job_analysis(j)
-    pending = bool(_an.get("thin")) or not _an
+    pending = _row_pending(j)             # was: job_analysis(j), a second full unpack per row
     # "pending" and "will never arrive" are different facts and the feed used to conflate them.
     # ~285 rows are real, open jobs on hosts that refuse every server-side read — Tesla behind
     # Akamai, iCIMS behind an AWS WAF human-verification challenge — so telling the user "it'll
@@ -1658,9 +1724,13 @@ def _filter_rows(rows, statuses, p):
             continue
         if verified_only and not r.get("date_trusted"):
             continue
-        if not core.roles_match(r.get("roles"), want_roles, r.get("jd_admit")):
+        # Both of these open with `if not wanted: return True`, so an unset control made a
+        # Python call per row to be told nothing. Gating on the parsed pref is exactly
+        # equivalent and skips ~2 calls x the whole corpus on the common path. The condition
+        # stays a single expression per line so the app.js twin still reads as a mirror.
+        if want_roles and not core.roles_match(r.get("roles"), want_roles, r.get("jd_admit")):
             continue
-        if not core.visa_tags_match(r.get("visa"), want_visa):
+        if want_visa and not core.visa_tags_match(r.get("visa"), want_visa):
             continue
         if loc and not _loc_hit(r, loc):
             continue
@@ -2135,7 +2205,11 @@ def feed():
     return render_template("feed.html", feed_rows=feed_rows, has_resume=bool(resume),
                            total=total, default_total=default_total, counts=counts,
                            default_min=default_min, paged=paged,
-                           metros=_feed_metros(rows), states=_feed_states(rows),
+                           # NO metros=/states= here. feed.html never read either one — the
+                           # location box takes free text — and each was a full pass over the
+                           # whole corpus (a Counter, then a set-and-sort) on the hottest route
+                           # in the app. /welcome is the only consumer and it builds its own
+                           # from _onboard_rows(). Re-adding them means re-adding the passes.
                            visa_tag_controls=_VISA_TAG_CONTROLS,
                            role_groups=core.role_families_grouped(), role_counts=role_counts(),
                            role_max=ROLE_PICK_MAX,
@@ -2619,8 +2693,13 @@ def job_page():
                                                       and all_tags)
                       else "No Record on File")
 
+    # block_key(company) hoisted: it is loop-invariant, and leaving it inside the comprehension
+    # re-derived the SAME string once per corpus row (block_key -> normalize_label -> three
+    # re.sub), doubling the regex cost of the scan for nothing. _similar_roles below already
+    # does it this way.
+    ckey = db.block_key(company)
     same_company = [r for r in rows
-                    if db.block_key(r.get("company") or "") == db.block_key(company)
+                    if db.block_key(r.get("company") or "") == ckey
                     and not r.get("closed")]
     # Other roles at this employer for the rail, BEST MATCH FIRST. ranked_rows is already in score
     # order, so this needs no sort of its own — it just drops the posting being read and takes the
@@ -2638,11 +2717,20 @@ def job_page():
 
     # Byte-identical name and props to the event /api/job used to fire, so the two eras of this
     # metric stay comparable. Do not rename, do not add fields.
+    #
+    # NOT on a prefetch. app.js prefetches this page when the pointer settles on a card title,
+    # so without this guard a slow scan down the feed would report six job_opens for six jobs
+    # nobody opened — and hovering is the most common thing anyone does here. The browser states
+    # its intent in Sec-Purpose (verified in a real browser: rel=prefetch sends "prefetch" plus
+    # Sec-Fetch-Dest: empty, where a real navigation sends neither), so the page is still
+    # rendered and still cached — only the event is withheld.
     pending = bool(row.get("score_pending"))
-    analytics.emit(user, getattr(g, "sid", ""), "job_open", job_url=url,
-                   company=company, source=_host(raw or row),
-                   score=0 if pending else int(row.get("score") or 0), pending=pending)
-    return render_template(
+    prefetching = "prefetch" in (request.headers.get("Sec-Purpose") or "").lower()
+    if not prefetching:
+        analytics.emit(user, getattr(g, "sid", ""), "job_open", job_url=url,
+                       company=company, source=_host(raw or row),
+                       score=0 if pending else int(row.get("score") or 0), pending=pending)
+    resp = app.make_response(render_template(
         "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
         similar=similar, similar_roles=similar_roles,
         jd_html=jdrender.render_jd(jd, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
@@ -2650,7 +2738,16 @@ def job_page():
         sec_labels=jdrender.SEC_LABELS,
         have=have, missing=missing, has_resume=bool(resume),
         about=brief, researching=research_pending, research_pending=research_pending,
-        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE)
+        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE))
+    # NO Cache-Control here, and it is a deliberate refusal. `private, max-age=30` makes the
+    # prefetched copy serve the click outright — measured in a real browser as transferSize
+    # 352 -> 0 and TTFB 0, so the open really is free. But a navigation served from cache never
+    # reaches the server, and job_open is emitted right above. The only way to keep the metric
+    # is to emit it from the browser through /api/ev, which (a) duplicates server-derived props
+    # like `source` in JS and (b) moves the one number telling you which jobs get opened onto a
+    # channel a client can forge. This project has already had usage figures distorted twice by
+    # events drifting. Move job_open client-side FIRST, then add the header.
+    return resp
 
 
 # --------------------------- on-demand company research ---------------------------
@@ -2762,8 +2859,9 @@ def _research_fragment(company):
     running = False
     with _research_lock:
         running = dom in _research_inflight
+    ckey = db.block_key(company)          # hoisted: loop-invariant, see /job
     rows = [r for r in ranked_rows(session["user"], current_profile())
-            if db.block_key(r.get("company") or "") == db.block_key(company)
+            if db.block_key(r.get("company") or "") == ckey
             and not r.get("closed")]
     return render_template("_jobresearch.html", about=_company_brief(company, rows),
                            row={"company": company, "url": (rows[0]["url"] if rows else "")},
@@ -5598,7 +5696,7 @@ def profile_tracking():
     off = bool(request.form.get("ev_off"))
     extra["ev_off"] = off
     ok, msg = _save_profile(user, {"extra": json.dumps(extra)})
-    analytics._optout["at"] = 0.0            # take effect now, not in five minutes
+    analytics.set_optout(user, off)          # take effect now, not in five minutes
     flash("Usage recording is now %s for your account." % ("off" if off else "on")
           if ok else "Couldn't save that: " + msg[:120])
     return redirect(url_for("profile"))
@@ -5772,10 +5870,22 @@ def _store_resume_file(user, rid, keep):
         pass
 
 
-def _extra(user):
-    """The profile's `extra` jsonb as a dict, whatever shape it is stored in."""
+def _extra(user, fresh=False):
+    """The profile's `extra` jsonb as a dict, whatever shape it is stored in.
+
+    Reads through _profile_row, i.e. the same 60 s per-worker cache the rest of web.py uses.
+    This used to call db.get_profile directly, and _needs_onboarding calls it on EVERY feed
+    render — so the fix at _profile_row (a duplicate profiles fetch worth ~100 ms of a 197 ms
+    request) never reached the hottest caller of all.
+
+    `fresh=True` forces a re-read, and every READ-MODIFY-WRITE caller must pass it: merging
+    updates into a 60-second-old `extra` is exactly how the ev_off key _save_extra warns about
+    gets dropped. Cheap reads are cached; writes are not.
+    """
     try:
-        e = (db.get_profile(user) or {}).get("extra")
+        if fresh:
+            _profile_row_cache.pop(user, None)
+        e = (_profile_row(user) or {}).get("extra")
         if isinstance(e, str):
             e = json.loads(e or "{}")
         return e if isinstance(e, dict) else {}
@@ -5786,9 +5896,21 @@ def _extra(user):
 def _save_extra(user, updates):
     """MERGE into extra, never replace it. db.save_profile overwrites the whole jsonb value, so
     writing {'onboarded': True} on its own would silently drop ev_off (the analytics opt-out)."""
-    e = _extra(user)
+    e = _extra(user, fresh=True)          # read-modify-write: never merge into a cached copy
     e.update(updates)
     return _save_profile(user, {"extra": e})
+
+
+# Usernames this worker has already established are NOT empty accounts. A LATCH, not a TTL
+# cache, and the direction is the whole point: "does not need the wizard" is permanent (nothing
+# un-sets a name, a saved search or a résumé), while "does need it" must stay fresh or a user
+# who just finished setup gets bounced back into it by a worker holding a stale profile row.
+# So the False answer is remembered forever and the True answer is never cached at all.
+#
+# This is what keeps _needs_onboarding off the profile table on every feed render without
+# reintroducing the staleness _profile_row would: an established account — which is every
+# account, almost always — costs one set lookup.
+_onboarded_ok = set()
 
 
 def _needs_onboarding(user):
@@ -5801,16 +5923,27 @@ def _needs_onboarding(user):
 
     The flag is checked first so finishing or skipping is final.
     """
-    if _extra(user).get("onboarded"):
+    if user in _onboarded_ok:
         return False
-    prof = db.get_profile(user) or {}
+    # fresh=True, deliberately: this runs BEFORE the redirect decision, and it is the one read
+    # in the request that must not be a minute old. It repopulates _profile_row_cache, so the
+    # _profile_row call below and _user_prefs later in the same render share this one fetch.
+    if _extra(user, fresh=True).get("onboarded"):
+        _onboarded_ok.add(user)
+        return False
+    prof = _profile_row(user) or {}
     if any((prof.get(k) or "").strip()
            for k in ("first_name", "last_name", "name", "email", "phone")):
+        _onboarded_ok.add(user)
         return False
     if prof.get("search_prefs"):                 # they have saved a search
+        _onboarded_ok.add(user)
         return False
     try:
-        return not (current_profile() or "").strip()      # ...or a résumé / brain story
+        if (current_profile() or "").strip():             # ...or a résumé / brain story
+            _onboarded_ok.add(user)
+            return False
+        return True
     except Exception:
         return False                             # never block the feed on a lookup failure
 
@@ -5886,7 +6019,7 @@ def _onboard_advance(user, step):
 def welcome():
     user = session["user"]
     prof = db.get_profile(user) or {}
-    e = _extra(user)
+    e = _extra(user, fresh=True)          # feeds _save_extra below: must not be stale
 
     if request.method == "POST":
         if not _check_csrf():

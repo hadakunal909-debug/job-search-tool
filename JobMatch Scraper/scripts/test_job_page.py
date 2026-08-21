@@ -101,9 +101,9 @@ def client():
     return c
 
 
-def get(url_value):
+def get(url_value, **kw):
     del EMITS[:]
-    return client().get("/job?u=" + urllib.parse.quote(url_value, safe=""))
+    return client().get("/job?u=" + urllib.parse.quote(url_value, safe=""), **kw)
 
 
 print("=" * 88)
@@ -219,6 +219,19 @@ if opens:
           set(opens[0]) == {"job_url", "company", "source", "score", "pending"},
           repr(sorted(opens[0])))
     check("job_url is the posting", opens[0].get("job_url") == LIVE)
+
+# app.js prefetches this page when the pointer settles on a card title, so the SAME GET now
+# arrives for jobs nobody opened. Hovering is the most common thing anyone does in the feed,
+# so without the Sec-Purpose guard a slow scan down one screen would report six opens. The
+# page must still render and still be usable -- only the event is withheld.
+r = get(LIVE, headers={"Sec-Purpose": "prefetch"})
+check("a prefetch still renders the page", r.status_code == 200, str(r.status_code))
+check("...but emits NO job_open", not [e for e in EMITS if e[0] == "job_open"],
+      "%d emitted" % len([e for e in EMITS if e[0] == "job_open"]))
+r = get(LIVE)
+check("a real open still emits exactly one",
+      len([e for e in EMITS if e[0] == "job_open"]) == 1,
+      "%d emitted" % len([e for e in EMITS if e[0] == "job_open"]))
 
 print()
 print("THE ROUTE VALUE AGREES WITH THE CARD'S")

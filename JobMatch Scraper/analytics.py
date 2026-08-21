@@ -69,34 +69,65 @@ _optout = {"names": frozenset(), "at": 0.0}
 _OPTOUT_TTL = 300
 
 
-def _opted_out(username):
-    """Users who set the switch on /profile. Cached — this runs on every emit.
+def _refresh_optout():
+    """Re-read the opt-out list. FLUSHER THREAD ONLY — it makes a network call.
 
     profiles.extra is a jsonb blob the app already uses for odds and ends, so the opt-out needs
     no migration. A read failure means "not opted out", which is the wrong way to fail for a
     privacy control — but the alternative (dropping everything on a DB blip) makes the whole
     system silently useless, and the global EV_OFF kill switch exists for the case where you
-    need a guarantee."""
-    c = _optout
-    if time.time() - c["at"] > _OPTOUT_TTL:
-        names = set()
-        try:
-            rows = db._http.get(db._rest(db.PROFILES_TABLE), headers=db._headers(),
-                                params={"select": "username,extra"}, timeout=10)
-            if rows.status_code < 400:
-                for r in rows.json() or []:
-                    extra = r.get("extra")
-                    if isinstance(extra, str):
-                        try:
-                            extra = json.loads(extra)
-                        except Exception:
-                            extra = {}
-                    if isinstance(extra, dict) and extra.get("ev_off"):
-                        names.add(r.get("username") or "")
-        except Exception:
-            names = set(c["names"])          # keep the last known list on a blip
-        c["names"], c["at"] = frozenset(names), time.time()
-    return username in c["names"]
+    need a guarantee.
+
+    This used to live inside _opted_out, which emit() calls on the request thread — so once per
+    _OPTOUT_TTL one unlucky page render paid a full-table profiles read with a 10 s timeout,
+    and rule 1 at the top of this file ("Nothing touches the network on the request thread,
+    ever") was false. Moving the read here is what makes it true.
+    """
+    names = set()
+    try:
+        rows = db._http.get(db._rest(db.PROFILES_TABLE), headers=db._headers(),
+                            params={"select": "username,extra"}, timeout=10)
+        if rows.status_code < 400:
+            for r in rows.json() or []:
+                extra = r.get("extra")
+                if isinstance(extra, str):
+                    try:
+                        extra = json.loads(extra)
+                    except Exception:
+                        extra = {}
+                if isinstance(extra, dict) and extra.get("ev_off"):
+                    names.add(r.get("username") or "")
+    except Exception:
+        names = set(_optout["names"])         # keep the last known list on a blip
+    _optout["names"], _optout["at"] = frozenset(names), time.time()
+
+
+def _opted_out(username):
+    """Is this user opted out? A pure read of the cached list — never any I/O.
+
+    Checked in BOTH emit() and _flush(). emit() is the fast path, but a freshly started worker
+    has not refreshed the list yet, so emit() can buffer a row for someone who has opted out;
+    _flush() re-checks after _refresh_optout() has run, and nothing leaves the process without
+    passing that second check. The cost of the change is that an opted-out event may briefly sit
+    in a bounded in-memory deque; it is never written.
+    """
+    return username in _optout["names"]
+
+
+def set_optout(username, off):
+    """Apply a /profile opt-out toggle to THIS worker immediately, with no I/O.
+
+    The route used to just zero _optout["at"] so the next _opted_out call would re-read. That
+    worked only while _opted_out did the reading — now the read belongs to the flusher, so the
+    toggle has to update the in-memory set itself. `at` is still cleared, so the flusher
+    re-reads authoritatively and the other workers learn it from the database.
+    """
+    names = set(_optout["names"])
+    if off:
+        names.add(username)
+    else:
+        names.discard(username)
+    _optout["names"], _optout["at"] = frozenset(names), 0.0
 
 
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
@@ -196,6 +227,11 @@ def _flush():
                 break
     if not batch:
         return
+    # Second gate: see _opted_out. emit() checked against whatever list this worker had at the
+    # time, which on a cold worker is the empty one.
+    batch = [r for r in batch if not _opted_out(r.get("username") or "")]
+    if not batch:
+        return
     if db.insert_events(batch):
         _fails = 0
         return
@@ -216,6 +252,8 @@ def _loop():
                 continue
             oldest = _buf[0][0]
             if len(_buf) >= _FLUSH_AT or (time.time() - oldest) >= _FLUSH_AFTER:
+                if time.time() - _optout["at"] > _OPTOUT_TTL:
+                    _refresh_optout()      # here, so an idle worker makes no requests at all
                 _flush()
         except Exception:
             pass
