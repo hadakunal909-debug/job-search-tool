@@ -21,14 +21,28 @@
       {% if resumes %}
       <div class="rvreslist">
         {% for r in resumes %}
-        <a class="rvres{{ ' on' if r.open }}" href="{{ url_for('brain_home', r=r.id, level=level) }}"
-           {{ 'aria-current=true' if r.open }}>
-          <span class="rvres-n {{ 'meter-strong' if r.score and r.score>=85 else ('meter-good' if r.score and r.score>=70 else 'meter-weak') }}">{{ r.score if r.score is not none else '—' }}</span>
-          <span class="rvres-b">
-            <span class="rvres-t">{{ r.name }}</span>
-            <span class="rvres-m">{{ (r.chars / 1000)|round(1) }}k chars{% if r.active %} · <b>live</b>{% endif %}</span>
-          </span>
-        </a>
+        {# TWO controls per row, because OPEN and LIVE are different things and conflating them
+           is what made this rail read as broken. The link previews a résumé (scores it, shows
+           its checks); "Make live" changes which one the FEED scores every job against. Only
+           the live row omits the button — it has nowhere to go. #}
+        <div class="rvres-row{{ ' on' if r.open }}">
+          <a class="rvres" href="{{ url_for('brain_home', r=r.id, level=level) }}"
+             {{ 'aria-current=true' if r.open }}>
+            <span class="rvres-n {{ 'meter-strong' if r.score and r.score>=85 else ('meter-good' if r.score and r.score>=70 else 'meter-weak') }}">{{ r.score if r.score is not none else '—' }}</span>
+            <span class="rvres-b">
+              <span class="rvres-t">{{ r.name }}</span>
+              <span class="rvres-m">{{ (r.chars / 1000)|round(1) }}k chars{% if r.active %} · <b>live</b>{% endif %}</span>
+            </span>
+          </a>
+          {% if not r.active %}
+          <form method="post" action="{{ url_for('brain_resume_activate') }}" class="rvres-go">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <button type="submit" class="rvres-live"
+                    title="Score every job against this résumé instead">Make live</button>
+          </form>
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
       {% else %}
@@ -39,9 +53,16 @@
             enctype="multipart/form-data">
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <input type="hidden" name="back" value="brain_home">
-        <label class="rvfile">
-          <input type="file" name="resume_file" accept=".pdf,.docx,.txt,.md,.tex">
-          <span>Choose a PDF, Word, LaTeX or text file</span>
+        {# The same .dropzone the onboarding page uses, in its compact variant -- the rail is
+           300px, so the full-size padding would push Upload below the fold. `for` points at the
+           input's id rather than wrapping it, which is what lets the input be visually hidden
+           and still openable by the label. #}
+        <label class="dropzone dz-sm" for="rv_resume_file">
+          <span class="ic ic-upload dz-icon" aria-hidden="true"></span>
+          <span class="dz-main" data-dz-label>Choose a File, or Drop One Here</span>
+          <span class="dz-sub">PDF, Word, LaTeX or Text</span>
+          <input type="file" id="rv_resume_file" name="resume_file"
+                 accept=".pdf,.docx,.txt,.md,.tex">
         </label>
         <button class="btn primary" type="submit">Upload &amp; Score</button>
       </form>
@@ -403,6 +424,7 @@
 
 </div>
 </div>
+<script src="{{ static_v('dropzone.js') }}" nonce="{{ csp_nonce }}" defer></script>
 <script src="{{ url_for('static', filename='resume_review.js') }}" nonce="{{ csp_nonce }}" defer></script>
 {# type="module": resume_pdf.js uses a dynamic import() to pull pdf.js in only when a PDF is
    actually on the page, so the 444 KB never loads for someone who never opens the Original tab. #}

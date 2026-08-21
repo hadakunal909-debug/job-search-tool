@@ -1,0 +1,198 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}{{ d.user }}{% endblock %}
+{% block admin_tools %}
+    <a class="btn" href="{{ url_for('admin_usage') }}">&larr; All Users</a>
+    <a class="btn" href="{{ url_for('admin_usage_user', username=d.user, refresh=1) }}">Re-Read DB</a>
+{% endblock %}
+
+{% block admin %}
+{# One account's usage. Everything here is derived from state the app already stores, so it
+   carries the same limit the aggregate page states: user_jobs has no timestamps, so Saved and
+   Hidden have no history and an action later undone left no trace. applications.created_at is
+   the one real timestamp, which is why it owns the only time series below. #}
+<p class="muted u-mb-200">
+  {% if prof.name or prof.email %}
+    <b>{{ prof.name or d.user }}</b>{% if prof.email %} · {{ prof.email }}{% endif %}
+  {% else %}
+    <b>{{ d.user }}</b> <span class="muted">(no profile name on file)</span>
+  {% endif %}
+  {% if acct.created_at %} · joined {{ acct.created_at[:10] }}{% endif %}
+  {% if acct.disabled_at %} · <span class="pill bad">disabled</span>{% endif %}
+</p>
+
+<div class="tiles">
+  <div class="tile">
+    <span class="tile-n">{{ d.totals.applied }}</span>
+    <span class="tile-l">Applied</span>
+    <span class="tile-s">{{ d.app_rows }} row{{ '' if d.app_rows == 1 else 's' }} in the tracker</span>
+  </div>
+  <div class="tile">
+    <span class="tile-n">{{ d.totals.liked }}</span>
+    <span class="tile-l">Saved</span>
+    <span class="tile-s">current state only &mdash; no history</span>
+  </div>
+  <div class="tile">
+    <span class="tile-n">{{ d.totals.hidden }}</span>
+    <span class="tile-l">Hidden</span>
+    <span class="tile-s">{{ '%.0f'|format(d.matched_pct) }}% of actions still match a job row</span>
+  </div>
+  {# The number that made the Applied count untrustworthy, per user. Warned rather than plain
+     when there is anything to warn about, because a non-zero value here means this account's
+     Applied total is partly click-throughs and not applications. #}
+  <div class="tile{{ ' warn' if d.auto_logged }}">
+    <span class="tile-n">{{ d.auto_logged }}</span>
+    <span class="tile-l">Auto-logged, not confirmed</span>
+    <span class="tile-s">
+      {%- if d.auto_logged -%}
+        logged by opening a posting &mdash; <code>scripts/reset_autologged_applies.py</code>
+      {%- else -%}
+        every application was confirmed
+      {%- endif -%}
+    </span>
+  </div>
+</div>
+
+<div class="adm-cols">
+  <section class="panel">
+    <h2>Does the Score Predict What They Do?</h2>
+    <p class="muted">
+      Their own medians, not everyone's. A gap between <b>applied</b> and <b>hidden</b> is
+      evidence the score works <i>for this person</i>; the same median for both means the match
+      filter is decorative on their feed regardless of how it behaves in aggregate.
+    </p>
+    <table class="adm-t">
+      <thead><tr><th>Action</th><th class="num">Scored</th><th class="num">Median</th><th class="num">Mean</th></tr></thead>
+      <tbody>
+      {% for s in d.scores %}
+        <tr><td>{{ s.status }}</td><td class="num">{{ s.n }}</td>
+            <td class="num"><b>{{ '%.0f'|format(s.median) }}</b></td>
+            <td class="num muted">{{ '%.1f'|format(s.mean) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Job Boards They Act On</h2>
+    <table class="adm-t">
+      <thead><tr><th>Host</th><th class="num">Actions</th></tr></thead>
+      <tbody>
+      {% for host, n in d.hosts %}
+        <tr><td>{{ host }}</td><td class="num">{{ n }}</td></tr>
+      {% else %}
+        <tr><td class="muted">No actions recorded yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Employers They Act On</h2>
+  <table class="adm-t">
+    <thead><tr>
+      <th>Company</th><th class="num">Saved</th><th class="num">Applied</th>
+      <th class="num">Hidden</th><th class="num">Total</th>
+    </tr></thead>
+    <tbody>
+    {% for c in d.companies %}
+      <tr><td>{{ c.name }}</td><td class="num">{{ c.liked }}</td>
+          <td class="num">{{ c.applied }}</td><td class="num">{{ c.hidden }}</td>
+          <td class="num"><b>{{ c.n }}</b></td></tr>
+    {% else %}
+      <tr><td class="muted">Nothing acted on yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="adm-cols">
+  <section class="panel">
+    <h2>Applications over Time</h2>
+    <div class="hist">
+      {% for day, n in d.by_day %}
+      <div class="hist-row">
+        <span class="hist-k">{{ day[5:] }}</span>
+        <span class="hist-bar"><i style="width:{{ '%.1f'|format(100 * n / d.by_day_max) }}%"></i></span>
+        <span class="hist-v">{{ n }}</span>
+      </div>
+      {% else %}
+      <p class="muted u-m0">No applications logged yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    {# by_hour has been computed by the aggregate page since it shipped and no template has ever
+       rendered it. Per user it answers something the aggregate cannot: when THIS person job
+       hunts, which is what a per-user digest send time would key off. #}
+    <h2>Hour of Day They Apply</h2>
+    <div class="hist">
+      {% for h, n in d.by_hour if n %}
+      <div class="hist-row">
+        <span class="hist-k">{{ '%02d:00'|format(h) }}</span>
+        <span class="hist-bar"><i style="width:{{ '%.1f'|format(100 * n / d.by_hour_max) }}%"></i></span>
+        <span class="hist-v">{{ n }}</span>
+      </div>
+      {% else %}
+      <p class="muted u-m0">No timestamped applications yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<div class="adm-cols">
+  <section class="panel">
+    <h2>Outcomes</h2>
+    <table class="adm-t">
+      <tbody>
+      {% for st, n in d.outcomes %}
+        <tr><td>{{ st }}</td><td class="num">{{ n }}</td></tr>
+      {% else %}
+        <tr><td class="muted">No applications logged yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Résumés They Sent</h2>
+    <table class="adm-t">
+      <tbody>
+      {% for name, n in d.resumes %}
+        <tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>
+      {% else %}
+        <tr><td class="muted">No applications logged yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Every Action <span class="count-pill">{{ d.flag_rows }}</span></h2>
+  <p class="muted">
+    Newest rows are not identifiable &mdash; <code>user_jobs</code> carries no timestamp, so this
+    is in table order, not time order. A blank company is a posting that has since been pruned.
+  </p>
+  {# Capped in HEIGHT, not in count: one account with 400 actions must not make this page four
+     screens long. The rows scroll inside the panel. #}
+  <div class="adm-scroll">
+    <table class="adm-t">
+      <thead><tr><th>Status</th><th>Title</th><th>Company</th><th class="num">Score</th></tr></thead>
+      <tbody>
+      {% for a in d.actions %}
+        <tr>
+          <td class="u-tight"><span class="pill {{ 'ok' if a.status == 'applied' else ('bad' if a.status == 'hidden' else 'run') }}">{{ a.status }}</span></td>
+          <td>{{ a.title or '—' }}</td>
+          <td class="muted">{{ a.company or '— pruned —' }}</td>
+          <td class="num">{{ a.score if a.score else '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td class="muted">Nothing recorded yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -89,6 +89,11 @@ UI_PAIRS = [
 EXEMPT = {
     "--border-subtle": "row divider on one surface, not a control boundary",
     "--border-default": "field hairline, paired with a 3:1 --border-strong on focus",
+    # Considered, not overlooked. This one is a CARD boundary, so the temptation is to hold it
+    # to UI_MIN -- but a panel is not a control: you cannot focus it, click it or type into it,
+    # and at 3:1 a page of them reads as a wireframe. It is held at 2.0:1 against the canvas by
+    # its comment in style.css, which is a deliberate value rather than whatever grey was handy.
+    "--border-card": "boundary of a panel/tile, not a control you can operate",
     "--match-none": "empty-track fill, never used as text",
     "--match-track": "unfilled arc, never used as text",
 }

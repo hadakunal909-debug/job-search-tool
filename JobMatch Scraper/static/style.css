@@ -54,6 +54,14 @@
   --text-tertiary:var(--gray-550); --text-on-accent:var(--gray-0);
   --border-subtle:var(--gray-200); --border-default:var(--gray-300);
   --border-strong:var(--gray-500);
+  /* The boundary of a CARD -- a panel, a tile, a stat box. Deliberately two steps stronger
+     than --border-subtle, which is a row divider WITHIN one surface and stays where it is:
+     repointing that would turn every .adm-t table into a grid. Measured on --bg-canvas,
+     --border-subtle is 1.20:1 and the white panel it outlines is 1.03:1 against the page, so
+     a panel had no visible edge at all and a column of them read as one undifferentiated
+     block. This lands at 2.01:1 -- an edge you can see without the 3.30:1 of --border-strong,
+     which is reserved for things you can actually operate. */
+  --border-card:var(--gray-400);
   /* --brand became --accent because the accent is a ROLE, not an identity. The old
      name invited "our colour", which is how one token ended up painting the primary
      button, the nav, the tabs, the score ring, the charts AND the focus ring.
@@ -326,6 +334,10 @@
      on, not just against the canvas. At #5c6280 it cleared --bg-canvas and missed
      --bg-surface at 2.96:1, which is exactly the input border on every panel. */
   --border-subtle:#232738; --border-default:#333851; --border-strong:#666c88;
+  /* Same job, same weight: 2.08:1 against --bg-surface here, 2.08:1 in light. The two themes
+     are matched on RATIO rather than on a shared grey step, because the surfaces they sit on
+     are not the same distance from their canvas. */
+  --border-card:#454b6b;
   --status-success-text:#6ee7a0; --status-success-bg:#0f2d1e;
   --status-warn-text:#f0c05a; --status-warn-bg:#2a2212; --status-warn-border:#4a3c1a;
   --status-danger-text:#f5a3a3; --status-danger-bg:#3a1a1a; --status-danger-border:#f5a3a3;
@@ -545,19 +557,19 @@ details > summary:focus-visible{outline:none;box-shadow:var(--focus-ring);border
 .flash{background:var(--brand-soft);border:1px solid var(--line);color:var(--ink);padding:11px 15px;border-radius:var(--r);margin-bottom:20px;font-size:var(--text-sm)}
 
 /* layout primitives */
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px;margin:0 0 18px}
+.panel{background:var(--surface);border:1px solid var(--border-card);border-radius:var(--r-lg);padding:22px 24px;margin:0 0 18px}
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-150);margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid var(--line)}
 .section-head h2{margin:0}
 .count-pill{display:inline-block;background:var(--surface2);border:1px solid var(--line);border-radius:var(--radius-full);padding:1px 9px;font-size:var(--text-2xs);font-weight:600;color:var(--muted);margin-left:8px;vertical-align:middle}
-.list-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-150);padding:13px 15px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin:8px 0;transition:border-color .15s,background .15s}
+.list-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-150);padding:13px 15px;border:1px solid var(--border-card);border-radius:var(--r);background:var(--surface);margin:8px 0;transition:border-color .15s,background .15s}
 .list-row:hover{border-color:var(--line-strong);background:var(--surface2)}
 .row-main{flex:1;min-width:0}
 .row-actions{display:flex;gap:var(--space-100);align-items:center;flex-shrink:0}
-.cta-banner{display:flex;align-items:center;gap:var(--space-200);justify-content:space-between;flex-wrap:wrap;background:var(--brand-soft);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;margin:0 0 20px}
+.cta-banner{display:flex;align-items:center;gap:var(--space-200);justify-content:space-between;flex-wrap:wrap;background:var(--brand-soft);border:1px solid var(--border-card);border-radius:var(--r-lg);padding:18px 20px;margin:0 0 20px}
 .cta-banner .cta-text{flex:1;min-width:240px}
 .cta-banner h2{margin:0 0 4px;color:var(--ink);font-size:var(--text-md)}
 .cta-banner p{margin:0;color:var(--muted);font-size:var(--text-sm);line-height:1.55}
-.addbox{display:none;border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin:12px 0 6px;background:var(--surface2)}
+.addbox{display:none;border:1px solid var(--border-card);border-radius:var(--r);padding:16px 18px;margin:12px 0 6px;background:var(--surface2)}
 .addbox.open{display:block;animation:fade .16s ease}
 @keyframes fade{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 
@@ -618,7 +630,7 @@ textarea{resize:vertical}
 /* "More about this employer" panel. Reuses .modal / .modal-head / .sechdr / .kw wholesale —
    only the pieces the job panel has no equivalent of are defined here. */
 .costats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:var(--space-150);margin:8px 0 12px}
-.costat{background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:11px 12px}
+.costat{background:var(--surface2);border:1px solid var(--border-card);border-radius:var(--r);padding:11px 12px}
 /* These four tiles exist to be COMPARED with each other, which is the definition of a case
    for tabular figures: without them "1,284" and "97" set their digits to different widths
    and the eye has to re-measure each tile instead of reading across the row. */
@@ -1212,6 +1224,28 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
 .toasts{position:fixed;right:max(18px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:var(--space-100);z-index:var(--z-toast)}
 .toast{background:var(--ink);color:var(--bg);padding:11px 15px;border-radius:var(--r);font-size:var(--text-sm);font-weight:500;box-shadow:var(--e2);animation:slidein .2s ease}
 @keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+/* The ASKING toast (applyask.js): "did you apply to X?" after an Apply click. Wider and taller
+   than a notification because it holds a job title and two real buttons, and it does not fade,
+   so it must be readable at rest rather than glanceable.
+   max-width, not width: a one-word company should not draw a 380px box. */
+.toast-ask{display:flex;flex-direction:column;gap:var(--space-150);max-width:min(380px,88vw);
+  padding:14px 16px;align-items:stretch}
+.toast-ask .ask-q{font-weight:var(--weight-semibold);line-height:1.4}
+.toast-ask .ask-btns{display:flex;gap:var(--space-100);justify-content:flex-end}
+/* Both buttons are stated against the TOAST, which inverts the page: its background is --ink
+   and its text is --bg in both themes. So the affirmative is filled with the page's own colours
+   -- 17.98:1 in light, 16.48:1 in dark -- and the negative borrows the toast's own text colour,
+   which is the same contrast the question above it already has. Neither needs a new token. */
+.toast-ask .ask-yes,.toast-ask .ask-no{font:inherit;font-size:var(--text-xs);font-weight:700;
+  padding:7px 13px;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;
+  transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.toast-ask .ask-yes{background:var(--bg);color:var(--ink);border:1px solid var(--bg)}
+.toast-ask .ask-yes:hover{background:var(--bg-hover)}
+.toast-ask .ask-no{background:transparent;color:var(--bg);border:1px solid currentColor;
+  opacity:.75}
+.toast-ask .ask-no:hover{opacity:1}
+.toast-ask .ask-yes:focus-visible,.toast-ask .ask-no:focus-visible{outline:2px solid var(--bg);
+  outline-offset:2px}
 
 /* careers / addboard / misc */
 .careers h2{font-size:var(--text-md);margin:22px 0 6px}.careers h3{font-size:var(--text-base);margin:12px 0 4px}
@@ -1270,7 +1304,11 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .rb .card.ai{border-left:3px solid var(--accent)}
 .rb .muted{color:var(--muted)}
 .rb .small{font-size:var(--text-xs)}
-.rb label{display:block;margin:12px 0;font-weight:600;font-size:var(--text-sm)}
+/* .dzcap is the caption above a .dropzone, which is itself a <label> -- so it cannot BE a label
+   without nesting one inside another and making the click target ambiguous. It shares this rule
+   rather than getting its own copy, because the whole point is that it looks like the labels
+   above and below it. */
+.rb label,.rb .dzcap{display:block;margin:12px 0;font-weight:600;font-size:var(--text-sm)}
 .rb label .muted{font-weight:400}
 .rb .req{color:var(--danger)}
 .rb .grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-200)}
@@ -1318,7 +1356,7 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
    desktop down to 1 on a phone without a single media query, and adding a sixth tile later
    needs no CSS change. */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--space-150);margin:0 0 18px}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:var(--space-050)}
+.tile{background:var(--surface);border:1px solid var(--border-card);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:var(--space-050)}
 .tile.warn{border-color:var(--warn-line);background:var(--warn-bg)}
 .tile-n{font-family:var(--font-data);font-size:var(--text-xl);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-tight);line-height:1.15;font-variant-numeric:tabular-nums}
 .tile-l{font-size:var(--text-sm);font-weight:600;color:var(--ink)}
@@ -1331,6 +1369,21 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .adm-t th{text-align:left;font-size:var(--text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;padding:0 8px 7px 0;border-bottom:1px solid var(--line)}
 .adm-t td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
 .adm-t tr:last-child td{border-bottom:0}
+/* A list whose HEIGHT is bounded, so the page costs the same for 3 users as for 300 -- the rows
+   scroll inside the panel instead of pushing everything under them off the screen. 60vh, not a
+   pixel value: on a laptop that is roughly a dozen rows and still leaves the panels below it
+   visible, and on a tall monitor it grows rather than wasting the space.
+   The sticky header is what makes scrolling readable -- a scrolled table with its column
+   labels gone is a wall of numbers. */
+.adm-scroll{max-height:60vh;overflow-y:auto;overscroll-behavior:contain}
+.adm-scroll .adm-t th{position:sticky;top:0;z-index:1;background:var(--surface);
+  /* The sticky row sits ON the scrolled content, so its bottom rule has to be a shadow: a
+     border would scroll with the cell box and let the first data row bleed through. */
+  box-shadow:inset 0 -1px 0 var(--line)}
+/* The last row keeps its rule here: inside a scroll box it is the seam that shows there is
+   more, and dropping it (as .adm-t does) makes a full list look like it ends early. */
+.adm-scroll .adm-t tr:last-child td{border-bottom:1px solid var(--line)}
+.adm-scroll .adm-t td a{font-weight:600}
 .adm-t .num{text-align:right;font-family:var(--font-data);font-variant-numeric:tabular-nums}
 .adm-t code{font-size:var(--text-xs);background:var(--surface2);padding:1px 6px;border-radius:var(--radius-xs)}
 .pill{display:inline-block;font-size:var(--text-2xs);font-weight:700;padding:2px 9px;border-radius:var(--radius-md);text-transform:uppercase;letter-spacing:.03em}
@@ -2134,7 +2187,7 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
     max-height:calc(100vh - var(--topbar-h) - var(--space-400));overflow-y:auto}
 }
 
-.rvbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px}
+.rvbox{background:var(--surface);border:1px solid var(--border-card);border-radius:var(--r-lg);padding:14px 16px}
 .rvbox-h{font-size:var(--text-sm);font-weight:700;color:var(--ink);margin:0 0 10px;
   display:flex;align-items:center;gap:8px}
 .rvhint{font-size:var(--text-2xs);color:var(--muted);margin:0 0 8px}
@@ -2142,8 +2195,23 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 /* Upload sits in the rail because adding a résumé is the one action that always makes sense,
    including when the panel has nothing to show yet. */
 .rvupload{margin-top:12px;display:flex;flex-direction:column;gap:8px}
-.rvfile{display:block;font-size:var(--text-2xs);color:var(--muted);cursor:pointer}
-.rvfile input{display:block;width:100%;font-size:var(--text-2xs);margin-bottom:4px}
+/* .dz-sm -- the drop zone at rail scale. Replaced .rvfile, which styled nothing and left the
+   browser's native "Choose File" button on screen: the one control in the app that still looked
+   like a 2005 form. The full-size .dropzone is 40px of vertical padding, which in a 300px rail
+   pushed the Upload button below the fold, so only the metrics change here. min-width:0 because
+   the rail is a grid track and a dashed box with a long filename in it would otherwise refuse to
+   shrink and blow the column out. */
+.dz-sm{padding:var(--space-200) var(--space-150);gap:var(--space-050);min-width:0}
+.dz-sm .dz-icon{width:22px;height:22px;margin-bottom:0}
+.dz-sm .dz-main{font-size:var(--text-xs);line-height:1.35}
+.dz-sm .dz-sub{font-size:var(--text-3xs)}
+/* A filename is the one thing here that can't be broken across words, so it gets to break
+   anywhere rather than widen the rail. */
+.dz-sm .dz-main[data-dz-label]{overflow-wrap:anywhere}
+/* Drag state, set by dropzone.js. Same treatment as :hover rather than a louder one: the zone
+   is already the only thing under the pointer, so this only has to confirm it is listening. */
+.dropzone.dz-over{border-color:var(--accent);background:var(--accent-bg)}
+.dropzone.dz-over .dz-icon{color:var(--accent-text)}
 
 .rvgroup{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
 .rvgroup:first-of-type{border-top:0;margin-top:0}
@@ -2315,11 +2383,31 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 
 /* Résumé rows: score in a fixed column so the numbers align and can be scanned down. */
 .rvreslist{display:flex;flex-direction:column;gap:2px;margin-bottom:var(--space-100)}
+/* Preview and Make-live sit on ONE row. The button is revealed on hover/focus rather than shown
+   always, because in a 300px rail four permanent buttons compete with the four résumé names
+   they belong to -- but it is never display:none, so it stays in the tab order and a keyboard
+   user finds it by tabbing. On a touch screen there is no hover, so it is always visible. */
+.rvres-row{display:flex;align-items:center;gap:var(--space-050);border-radius:var(--radius-sm)}
+.rvres-row:hover,.rvres-row:focus-within{background:var(--bg-hover)}
+.rvres-row.on{background:var(--accent-bg)}
+.rvres-row.on .rvres-t{color:var(--accent-text);font-weight:700}
+.rvres-row>.rvres{flex:1 1 auto;min-width:0}
+.rvres-go{flex:0 0 auto;margin:0}
+.rvres-live{font:inherit;font-size:var(--text-3xs);font-weight:700;white-space:nowrap;
+  padding:4px 8px;margin-right:4px;border:1px solid var(--border-default);
+  border-radius:var(--radius-xs);background:var(--bg-surface);color:var(--text-secondary);
+  cursor:pointer;opacity:0;transition:opacity var(--t-fast) var(--ease),
+  border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.rvres-row:hover .rvres-live,.rvres-live:focus-visible{opacity:1}
+.rvres-live:hover{border-color:var(--accent);color:var(--accent-text)}
+@media (hover:none){.rvres-live{opacity:1}}
 .rvres{display:flex;align-items:center;gap:var(--space-150);padding:8px 8px;border-radius:var(--radius-sm);
   text-decoration:none;color:inherit}
-.rvres:hover{background:var(--bg-hover)}
-.rvres.on{background:var(--accent-bg)}
-.rvres.on .rvres-t{color:var(--accent-text);font-weight:700}
+/* Highlighting moved up to .rvres-row, which is what the user is actually pointing at now that
+   the row holds two controls. Hovering the link alone would light the link and leave the button
+   beside it on the old background, which reads as two rows rather than one.
+   .rvres keeps its own :focus-visible so keyboard focus on the link is still visible. */
+.rvres:focus-visible{outline:none;box-shadow:var(--focus)}
 .rvres-n{flex:0 0 34px;text-align:right;font-family:var(--font-data);font-variant-numeric:tabular-nums;
   font-size:var(--text-base);font-weight:800;line-height:1}
 .rvres-b{min-width:0;display:flex;flex-direction:column;gap:1px}

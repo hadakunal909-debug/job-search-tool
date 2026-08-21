@@ -317,5 +317,9 @@
 {# Before app.js: it seeds #roles from what the server rendered, and app.js reads that value on
    its first render. Loading it after would filter the first paint against an empty selection. #}
 <script src="{{ static_v('rolepick.js') }}"></script>
+{# applyask.js before it: it defines window.ApplyAsk, which the click handler below
+   parks a posting into. Clicking Apply no longer records an application -- the prompt
+   on return does. #}
+<script src="{{ static_v('applyask.js') }}"></script>
 <script src="{{ static_v('app.js') }}"></script>
 {% endblock %}

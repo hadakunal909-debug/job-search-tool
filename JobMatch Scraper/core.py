@@ -2219,6 +2219,22 @@ def posting_key(title, company, location, require_location=False):
 #       actually emphasises. Absolute, not relative, and deliberately hard: measured over 21,176
 #       live postings the best match in the whole corpus is 88, only 16 reach 80, and the median
 #       is 34. See core_terms, and the confidence cap in score_against.
+#
+# NOT BUMPED for the 2026-08-21 profile narrowing, and the reason is measured rather than
+# assumed. db.profile_text stopped concatenating every résumé in the library and now scores
+# against the live one plus the user's stories, so the text on the other side of an unchanged
+# formula got smaller and every score drifts down. The question was whether that is a change of
+# MEANING (bump, which RESETS every stored floor to DEFAULT_PREFS["min"]) or of degree.
+#
+# Measured over the 21,982-row snapshot, one résumé against the same résumé duplicated:
+#     one   p50 12   p90 27   >=20: 25.5%
+#     two   p50 14   p90 29   >=20: 29.9%
+# So roughly a 14% relative drop in the middle of the distribution. A stored floor still means
+# what it meant; it just admits somewhat less. Against that, a bump resets a floor the user may
+# have deliberately tuned DOWN, and the default it resets to (50) admits 2.7% of this corpus at
+# the stored match_scores — so the bump would be the disruptive option, not the safe one. Left
+# alone: the user sees a slightly shorter feed and can move the slider, which is visible and
+# reversible. Revisit if the profile ever narrows further.
 MIN_SCALE = 3
 
 DEFAULT_PREFS = {

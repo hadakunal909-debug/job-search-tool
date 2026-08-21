@@ -202,6 +202,106 @@
 </section>
 {% endif %}
 
+{# ---- where the scrape's time goes, and which boards have stopped answering ----
+   All of this comes from the board_health blob the scraper writes at the end of every run. It
+   has recorded per-board outcomes for a while and per-board TIMINGS since 2026-08-21; before
+   this panel the only way to see any of it was to read a scrape transcript. #}
+{% if boards.have %}
+<section class="panel">
+  <div class="section-head">
+    <h2>Where the Scrape's Time Goes</h2>
+    <span class="count-pill">{{ boards.tracked }} boards tracked{% if boards.updated_at %} · {{ boards.updated_at[:16]|replace('T', ' ') }}{% endif %}</span>
+  </div>
+  <p class="muted">
+    Cost by ATS on the most recent run, over the {{ boards.timed }} board(s) that actually ran.
+    Grouped by ATS rather than by board because the fix for a slow board is nearly always a fix
+    to its adapter, and one adapter carries hundreds of boards. The sweep is budgeted
+    (<code>SCRAPE_BUDGET_MIN</code>), so whatever dominates this table decides how much of the
+    board list a single run can reach.
+  </p>
+  <table class="adm-t">
+    <thead><tr><th>ATS</th><th class="num">Boards</th><th class="num">Seconds</th>
+      <th class="num">Share</th><th class="num">Each</th></tr></thead>
+    <tbody>
+    {% for a in boards.by_ats %}
+      <tr><td>{{ a.ats }}</td><td class="num">{{ a.boards }}</td>
+          <td class="num">{{ '%.0f'|format(a.secs) }}</td>
+          <td class="num">{% if a.pct >= 25 %}<span class="pill bad">{{ '%.0f'|format(a.pct) }}%</span>{% else %}{{ '%.0f'|format(a.pct) }}%{% endif %}</td>
+          <td class="num muted">{{ '%.1f'|format(a.each) }}s</td></tr>
+    {% else %}
+      <tr><td class="muted">No timings recorded yet — they arrive on the next scrape.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3 class="u-sechead-sm">Slowest Single Boards</h3>
+  <table class="adm-t">
+    <thead><tr><th>Company</th><th>ATS</th><th class="num">Worst</th><th class="num">Average</th>
+      <th class="num">Last run</th></tr></thead>
+    <tbody>
+    {% for r in boards.costly %}
+      <tr><td>{{ r.company }}</td><td class="muted">{{ r.ats }}</td>
+          <td class="num">{{ '%.0f'|format(r.secs) }}s</td>
+          <td class="num muted">{{ '%.0f'|format(r.avg) }}s</td>
+          <td class="num">{{ r.last if r.last is not none else '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="adm-cols">
+  <section class="panel">
+    <div class="section-head">
+      <h2>Boards Going Quiet</h2>
+      <span class="count-pill">{{ boards.silent|length }}</span>
+    </div>
+    <p class="muted">
+      Fetched <b>successfully</b> and returned <b>nothing</b> for {{ boards.silent_runs }}+ runs
+      in a row. Not an error — which is exactly why it is easy to miss: the board has been
+      renamed, emptied, or walled off, and we are still paying its full fetch cost every run for
+      no postings. These are the candidates to retire.
+    </p>
+    <div class="adm-scroll">
+      <table class="adm-t">
+        <tbody>
+        {% for r in boards.silent %}
+          <tr><td class="u-tight"><span class="pill run">quiet</span></td>
+              <td><b>{{ r.company }}</b><br><span class="muted">{{ r.ats }}{% if r.secs %} · {{ '%.0f'|format(r.secs) }}s a run{% endif %}</span></td></tr>
+        {% else %}
+          <tr><td class="muted">Every board returned something recently.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Boards Failing</h2>
+      <span class="count-pill">{{ boards.failing|length }}</span>
+    </div>
+    <p class="muted">
+      The last fetch <b>errored</b>, so we know nothing about what the board holds. Louder than
+      quiet, and treated separately on purpose: the closed-posting reconcile refuses to retire
+      anything from a board it could not read, so a failure here costs freshness rather than
+      inventory.
+    </p>
+    <div class="adm-scroll">
+      <table class="adm-t">
+        <tbody>
+        {% for r in boards.failing %}
+          <tr><td class="u-tight"><span class="pill bad">failed</span></td>
+              <td><b>{{ r.company }}</b><br><span class="muted">{{ r.ats }}</span></td></tr>
+        {% else %}
+          <tr><td class="muted">Every board fetched cleanly on the last run.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endif %}
+
 {# ---- board freshness: the panel that catches a silently-dead scraper ---- #}
 <section class="panel">
   <h2>Sources by Size</h2>

@@ -129,6 +129,11 @@ SUITES = (
     Suite("test_filter_memory",     "scripts/test_filter_memory.py",     "parity", "node"),
     Suite("feed_parity",            "scripts/feed_parity.py",            "parity", "node"),
 
+    # Applying is a claim the user makes, not a consequence of a click. Guards the /api/action
+    # `via` whitelist, the wiring that stopped the Apply link writing an application on its own,
+    # and the predicate scripts/reset_autologged_applies.py deletes on.
+    Suite("test_apply_confirm",      "scripts/test_apply_confirm.py",     "core",   "none"),
+
     # ---- needs a live database (--db) --------------------------------------------------------
     Suite("test_prefs",             "scripts/test_prefs.py",             "db",     "db"),
     Suite("test_saved_search",      "scripts/test_saved_search.py",      "db",     "db"),
@@ -144,6 +149,8 @@ EXTRA_TOUCHES = {
     "test_contrast":           ("static/style.css",),
     "test_doc_contrast":       ("docs/doc.css", "static/style.css"),
     "test_card_meta":          ("static/app.js",),
+    "test_apply_confirm":      ("static/app.js", "static/applyask.js",
+                                "scripts/reset_autologged_applies.py"),
     "test_filter_memory":      ("static/app.js",),
     "feed_parity":             ("static/app.js",),
     "test_search_and_similar": ("static/app.js",),

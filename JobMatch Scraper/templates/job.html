@@ -31,7 +31,12 @@
 </div>
 {% else %}
 
-<div class="jobwrap" data-route="{{ route }}">
+{# data-job-* is jobpage.js's handle on this posting, for the "did you apply?" prompt. It is the
+   posting's OWN url (row.url), not row.apply_url: that is the key user_jobs and the feed are
+   keyed on, and apply_url is often a redirector that differs per visit. #}
+<div class="jobwrap" data-route="{{ route }}"
+     data-job-url="{{ row.url }}" data-job-title="{{ row.title }}"
+     data-job-company="{{ row.company }}">
   <a class="backlink" href="{{ url_for('feed') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> All Jobs</a>
 
   <div class="jobhead">
@@ -244,5 +249,9 @@
 {% endblock %}
 
 {% block scripts %}
+{# applyask.js before it: it defines window.ApplyAsk, which the click handler below
+   parks a posting into. Clicking Apply no longer records an application -- the prompt
+   on return does. #}
+<script src="{{ static_v('applyask.js') }}"></script>
 <script src="{{ static_v('jobpage.js') }}"></script>
 {% endblock %}
