@@ -2715,10 +2715,46 @@ def _workday_parts(board_url):
 # cheaper is to stop fetching its pages one at a time.
 WORKDAY_PAGE_LIMIT = 20
 WORKDAY_MAX_JOBS = 3000
-# Pages per board, fetched concurrently. Same value as AVATURE_WORKERS, and safe for the same
-# reason: _host_key gates on the netloc and every Workday tenant is its own subdomain, so this
-# is 4 in flight against ONE tenant, not 4 x 234 against Workday.
-WORKDAY_PAGE_WORKERS = int(os.environ.get("WORKDAY_PAGE_WORKERS") or 4)
+def _workday_page_workers():
+    """Concurrent pages per Workday board, DERIVED from how wide the sweep already is.
+
+    A flat constant was wrong here in a way that only bites in production. The per-host
+    semaphore cannot cap this: every Workday tenant is its own subdomain, so page workers
+    MULTIPLY against SCRAPE_WORKERS instead of sharing a gate with them. At a flat 4 that is up
+    to 24 connections in flight on the cPanel cron (6 workers) and 64 in CI (16) -- against 6
+    and 16 before. bin/cron_scrape.sh's own header calls concurrent outbound activity "the shape
+    of activity that gets a shared account suspended", and this account has been suspended once.
+
+    Two separate ceilings, and conflating them is what made a flat 4 look fine:
+
+      PER HOST is a politeness question, and SCRAPE_PER_HOST already answers it. A board holds
+      ONE slot of that gate while its pages fetch, so page concurrency is the one place in the
+      sweep that can exceed it -- capping at SCRAPE_PER_HOST means a single board never hits a
+      tenant harder than four sibling boards on that host already would.
+
+      TOTAL is an account question, and it is the shared box that cares. Honest arithmetic: this
+      does NOT hold the total where it was, because any page concurrency multiplies. It holds
+      cron to 2 (12 in flight, up from 6) and lets CI have 4 (64, up from 16) -- CI runs on a
+      GitHub runner, not from the cPanel account's IP, so the suspension risk does not apply
+      there. What partly offsets the higher PEAK is a shorter run: the connections-over-time
+      integral drops even as the instantaneous count rises.
+
+    2 is most of the win anyway. What is being removed is up to 150 SERIAL round trips, and
+    halving that matters far more than the last factor of two.
+
+    A function rather than a module constant because SCRAPE_WORKERS is defined ~3,600 lines
+    below this one; reading it at import time would be a NameError.
+    """
+    env = (os.environ.get("WORKDAY_PAGE_WORKERS") or "").strip()
+    if env:                                  # explicit override, for a one-off measurement
+        try:
+            return max(1, int(float(env)))
+        except ValueError:
+            pass
+    # The floor of 2 is deliberate: SCRAPE_WORKERS // 4 is 1 at cron's 6 workers, which would
+    # hand the gentlest configuration none of the win at all -- and cron is the runner that
+    # actually keeps this site's feed fresh.
+    return max(2, min(int(SCRAPE_PER_HOST), int(SCRAPE_WORKERS) // 4))
 
 
 def _workday_loc_from_path(path):
@@ -2808,7 +2844,7 @@ def scrape_workday(board_url):
         offsets = list(range(got, min(total, WORKDAY_MAX_JOBS), WORKDAY_PAGE_LIMIT))
         if offsets:
             with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=min(WORKDAY_PAGE_WORKERS, len(offsets))) as ex:
+                    max_workers=min(_workday_page_workers(), len(offsets))) as ex:
                 for body in ex.map(_fetch, offsets):
                     if body:
                         _absorb(body)
