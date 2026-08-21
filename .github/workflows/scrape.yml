@@ -198,15 +198,24 @@ jobs:
           DISCOVER_LIMIT: "60"
           # Board sweep sizing. MEASURED 2026-08-08 over the full 1,266-board list: 16.0 min
           # at 16 workers (Workday is two thirds of the cost, ~30s a board across 240
-          # boards). The budget is therefore slack rather than a throttle — roughly a third
-          # of headroom over the measured time. It binds only once auto-discovery has grown
-          # the list enough to need it, and when it binds it says so in the log and still
-          # saves every board fetched up to that point.
+          # boards). When the budget binds it says so in the log and still saves every board
+          # fetched up to that point.
           #
-          # If it starts binding regularly, raise SCRAPE_BUDGET_MIN and this step's
-          # timeout-minutes together, and check the job still fits in 45 overall.
+          # 16 RATHER THAN 22, LOWERED 2026-08-21, and the number is about the TAIL, not the
+          # sweep. SCRAPE_BUDGET_MIN bounds ONLY the sweep: prune, the closed-posting
+          # reconcile (~19k rows) and the new-job writes all run after it with no clock at all
+          # (scraper/__init__.py:6928). At 22 inside a 26-minute step that tail was guaranteed
+          # four minutes, and on 2026-08-21 it had not finished in 5m17s — the step was killed
+          # and every step below it skipped, leaving 1,402 rows scraped and unscored. Measured
+          # either side of it: 17.1 min over 1260 boards was fine, 20.6 min over 1265 was not.
+          #
+          # The note that used to sit here said to raise this and timeout-minutes together.
+          # That is the wrong direction on an account with $0 overage: the sweep is BUILT to
+          # truncate and resume next run and says so at scraper/__init__.py:6343, so paying for
+          # tail headroom in board depth costs a cycle of depth, while paying in minutes costs
+          # the budget. Give the tail room first. Only raise both if the TAIL is what grew.
           SCRAPE_WORKERS: "16"
-          SCRAPE_BUDGET_MIN: "22"
+          SCRAPE_BUDGET_MIN: "16"
           # Retire postings that have vanished from their own board. This defaulted to a dry run
           # and was never set here or in bin/cron_scrape.sh, so it has only ever PRINTED what it
           # would do -- 5,178 rows are sitting under the miss threshold and 404 postings still
@@ -293,8 +302,18 @@ jobs:
       # the standing backlog, while the afternoon run takes a small bite, which is enough to
       # cover the postings that run just found. JDs persist in chunks as they are fetched, so
       # neither pass has to finish to make progress.
+      #
+      # !cancelled() SO A FAILED SCRAPE STILL GETS SCORED. This was the bare gate, and GitHub
+      # skips every remaining step once one fails — so the 2026-08-21 scrape timeout, which
+      # happened AFTER the sweep had written the day's rows, skipped this step and left 1,402
+      # jobs with a NULL match_score. An unscored row renders as "JD pending" and is invisible
+      # to the match filter, so the whole day's intake was unusable for a fault that had
+      # nothing to do with scoring. The rows are in the database either way.
+      #
+      # !cancelled() and NOT always(): the 45-minute job cap must still stop the pipeline
+      # rather than start a 15-minute step inside a runner that is already being torn down.
       - name: Score jobs
-        if: steps.gate.outputs.run == 'yes'
+        if: steps.gate.outputs.run == 'yes' && !cancelled()
         timeout-minutes: 15
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -384,9 +403,13 @@ jobs:
       # such instead of being asked about again forever.
       #
       # continue-on-error: a date backfill is an enhancement to rows that already display
-      # fine. It must never be the reason the digest below doesn't send.
+      # fine. It must never be the reason the digest below doesn't send. !cancelled() for the
+      # reason on Score jobs above: a backfill of rows that already exist does not become
+      # pointless because the sweep that ran before it overran its cap.
       - name: Verify posting dates (budgeted)
-        if: steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+        if: >-
+          steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+          && !cancelled()
         timeout-minutes: 10
         continue-on-error: true
         env:
@@ -407,9 +430,12 @@ jobs:
       #
       # continue-on-error and a tight timeout on purpose: this is housekeeping, and it must
       # never be the reason the digest below doesn't send. It also no-ops cleanly when the
-      # events table hasn't been created yet.
+      # events table hasn't been created yet. !cancelled() as on Score jobs above — rolling up
+      # yesterday's events has no dependency on today's sweep finishing.
       - name: Roll up + prune analytics events
-        if: steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+        if: >-
+          steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+          && !cancelled()
         timeout-minutes: 4
         continue-on-error: true
         env:
