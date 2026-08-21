@@ -1646,20 +1646,34 @@ DIGITAS_BOARDS = [
     ("https://www.digitas.com/en-us/careers", "digitas", "Digitas"),   # 86 rows -> 18 on-target
 ]
 
+# Jobvite. board_url is the tenant ROOT, not /jobs -- scrape_jobvite appends that, and
+# detect_board normalizes a pasted posting link down to this form.
+JOBVITE_BOARDS = [
+    ("https://jobs.jobvite.com/dwt", "jobvite", "Davis Wright Tremaine"),  # 18 rows -> 5 on-target
+]
+
+# Werfen. ats_type "werfen" is deliberately NOT emitted by detect_board, same as "digitas": the
+# selectors in scrape_werfen are one site's Drupal view, not an ATS contract, so this must not be
+# pointable at an arbitrary host.
+WERFEN_BOARDS = [
+    ("https://www.werfen.com/en/careers-finder", "werfen", "Werfen"),  # 188 rows -> 32 on-target
+]
+
 EIGHTFOLD_BOARDS = [
     ("https://bayer.eightfold.ai/careers?domain=bayer.com", "eightfold", "Bayer"),        # 607
     ("https://insight.eightfold.ai/careers?domain=insight.com", "eightfold", "Insight Enterprises"),  # 183
 ]
 
-# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom +
-# Avature + SuccessFactors + PeopleSoft + Eightfold + Meta + Michael Page.
+# Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Avature
+# + SuccessFactors + PeopleSoft + Eightfold + Meta + Michael Page + Jobvite + Werfen.
 # (Adzuna was in this list until 2026-08-16; see the removal note above EXTRA_BOARDS.)
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
            + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
-           + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS)
+           + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
+           + JOBVITE_BOARDS + WERFEN_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -4857,6 +4871,186 @@ def scrape_digitas(board_url):
     return out
 
 
+# ---- Jobvite --------------------------------------------------------------------------------
+# The note above detect_board lists Jobvite among what "genuinely remains unread", next to Taleo
+# and Cornerstone. That was wrong, and cheaply so: jobs.jobvite.com/<slug>/jobs is a plain
+# server-rendered <table> -- one <tr> per posting, `.jv-job-list-name a` for the title and link,
+# `.jv-job-list-location` for the place -- with no JS, no API key, no pagination and no bot wall.
+#
+# NO found_date, DELIBERATELY. The list carries title and location only; the posting date lives in
+# a JSON-LD JobPosting on each job page, so reading it costs one extra request per job on every
+# run, forever. scraper/verify_dates.py buys the same thing for less -- the lookup service it
+# calls rates jobvite "full" coverage, it is budgeted, and its ledger stops a row being asked
+# twice -- and meanwhile main() stamps the scrape date, which core.is_trusted_date correctly
+# reports as derived rather than stated. Digitas fetches a page per posting only because it has no
+# listing page to read at all.
+JOBVITE_HOST = "jobs.jobvite.com"
+_JOBVITE_HREF_RE = re.compile(r"^/[^/]+/job/[A-Za-z0-9]+/?$")
+# "6 Locations" is what the table prints when one req spans offices. It is a COUNT, not a place,
+# and it is not in core.parse_location's skip set, so it lands as the city.
+_JOBVITE_LOC_COUNT_RE = re.compile(r"^\d+\s+locations?$", re.I)
+_JOBVITE_WORK_MODEL_RE = re.compile(r"^(hybrid|on-?site)\s+remote$", re.I)
+
+
+def _jobvite_location(cell):
+    """'Hybrid Remote , San Francisco, California' -> 'Hybrid, Remote, San Francisco, California'.
+
+    A REFORMAT, not a strip. core.parse_location already skips the tokens 'hybrid' and 'remote'
+    when it picks a city, but this table writes them as ONE compound token, "Hybrid Remote", which
+    matches neither and becomes the city: measured on dwt, 13 of 18 rows came back with a city of
+    "Hybrid Remote" and 4 more with a city of "N Locations". Splitting the compound in two lets
+    the existing skip set do its job. It is not simply DELETED because parse_location reads the
+    remote flag off the substring "remote" anywhere in the string; and "Hybrid" is kept alongside
+    it because hybrid is not remote -- dropping it upgrades an office-attached role to fully
+    remote, which is the kind of wrong the location filter cannot show the user.
+    """
+    out = []
+    for part in [p.strip() for p in (cell or "").split(",") if p.strip()]:
+        if _JOBVITE_LOC_COUNT_RE.match(part):
+            continue                                   # a count, not a place
+        m = _JOBVITE_WORK_MODEL_RE.match(part)
+        out += [m.group(1).title(), "Remote"] if m else [part]
+    return ", ".join(out)
+
+
+def scrape_jobvite(board_url):
+    """Jobvite career sites. board_url is the tenant root, https://jobs.jobvite.com/<slug>.
+    One request: /<slug>/jobs lists the whole board, with no pagination to walk."""
+    p = urlparse(board_url)
+    segs = [s for s in (p.path or "").split("/") if s]
+    if not segs:
+        return []
+    base = "%s://%s" % (p.scheme or "https", p.netloc or JOBVITE_HOST)
+    try:
+        r = _safe_get("%s/%s/jobs" % (base, segs[0]), timeout=25)
+    except ValueError:
+        return []                                      # non-public host -> refuse (SSRF guard)
+    if r.status_code != 200:
+        return []
+    rows, seen = [], set()
+    for tr in BeautifulSoup(r.text, "lxml").select("tr"):
+        a = tr.select_one(".jv-job-list-name a[href]")
+        if not a or not _JOBVITE_HREF_RE.match((a.get("href") or "").strip()):
+            continue
+        url = urljoin(base, (a.get("href") or "").strip())
+        if not is_http_url(url) or url in seen:
+            continue
+        seen.add(url)
+        title = html.unescape(re.sub(r"\s+", " ", a.get_text(" ", strip=True))).strip()
+        if not title:
+            continue
+        cell = tr.select_one(".jv-job-list-location")
+        rows.append({
+            "title": title,
+            "url": url,
+            "location": _jobvite_location(
+                re.sub(r"\s+", " ", cell.get_text(" ", strip=True)) if cell else ""),
+        })
+    return rows
+
+
+# ---- Werfen -- a Drupal careers view over a bot-walled iCIMS tenant -------------------------
+# Same shape as Digitas above and the same reason. The ATS is iCIMS, tenant `careers-werfen`, and
+# every path on it (/api/jobs, /jobs/search, /jobs/<id>/job, /sitemap.xml, /) answers HTTP 405
+# with the 2,115-byte "Human Verification" interstitial. Werfen's own Drupal site is the way in,
+# and unlike Digitas it publishes the whole board as a paginated Views table -- 20 rows a page,
+# ~10 requests -- so there is no need to fetch a page per posting.
+#
+# THE ROW URL IS THE WERFEN PAGE, NOT THE iCIMS APPLY LINK. Each /en/<slug> page does carry the
+# careers-werfen.icims.com url, but storing that would put the bot wall on the primary key:
+# score_jobs could not read a JD off it, and scraper/liveness.py would score every row dead --
+# its BOT_WALL_PHRASES already lists "human verification", added for this exact interstitial. The
+# Werfen page answers 200 with the full posting and links onward to apply.
+#
+# DELIBERATELY NO found_date, despite the table having an "Open date" column. Measured over all
+# 188 rows on 2026-08-20: 18 are in the FUTURE (up to 2026-10-19, two months out) and 51 carry
+# that same day. A column that forward-dates a tenth of the board is not a posting date, and it
+# would arrive as a bare ISO string -- the shape core.is_trusted_date reads as STATED rather than
+# derived -- so it would launder a guess into a verified-looking date and pin those 18 rows to the
+# top of a date-sorted feed. main() stamps the scrape date instead, which is honest.
+#
+# KNOWN INCOMPLETE MIRROR. iCIMS req 10136 ("Project Manager I", Bedford MA) is live on the tenant
+# and 404s on werfen.com, so this view is a SUBSET of the ATS. Still 188 rows and 32 clearing
+# title_verdict, against the zero the bot wall allows.
+WERFEN_MAX_PAGES = 20
+# Street-address noise in the location cell. Only the four Werfen-occupied sites carry one.
+# Greedy on purpose, so it runs past the LAST street word rather than the first, which is what
+# "9900 Old Grove Road San Diego" needs.
+_WERFEN_STREET_RE = re.compile(
+    r"^.*\b(?:road|rd|route|street|st|drive|dr|avenue|ave|lane|ln|boulevard|blvd|way|court|ct"
+    r"|circle|cir|parkway|pkwy|highway|hwy|place|pl|terrace)\b\.?\s*", re.I)
+_WERFEN_ZIP_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b")
+# The site-type prefixes Werfen writes in the cell. Left alone they become the city.
+_WERFEN_SITE_WORDS = {"werfen", "field"}
+
+
+def _werfen_location(cell):
+    """'Werfen - Bedford - 180 Hartwell Road Bedford, Massachusetts 01730 United States'
+    -> 'Bedford, Massachusetts United States'.
+
+    The cell is `<site> - [<state> - ]<label> - <address>`, and core.parse_location takes its city
+    from the FIRST token, so the raw string yields a city of "Werfen" or "Field" and a metro of
+    "Werfen, MA" -- a place that does not exist, offered to the user as a location filter.
+    Measured over the 24 distinct US cells on 2026-08-20, keeping only the part after the last
+    " - " and then dropping a leading street address recovers the real city in all 24, including
+    "Salt Lake City", which any last-word-before-the-comma rule truncates to "City", and
+    "526 Route 303 Orangeburg", where a house number outlives the street word.
+    """
+    tail = (cell or "").split(" - ")[-1].strip()
+    head, _sep, rest = tail.partition(",")
+    head = _WERFEN_STREET_RE.sub("", head).strip()
+    head = re.sub(r"^\d[\w-]*\s+", "", head).strip()   # "303 Orangeburg" -> "Orangeburg"
+    if head.lower() in _WERFEN_SITE_WORDS:
+        head = ""                                      # "Field - US - Field, United States"
+    rest = re.sub(r"\s+", " ", _WERFEN_ZIP_RE.sub("", rest)).strip()
+    return ", ".join(x for x in (head, rest) if x)
+
+
+def scrape_werfen(board_url):
+    """Werfen jobs off the Drupal Views table at /en/careers-finder, walking ?page=N.
+
+    Stops on the first page that adds no NEW url rather than on an empty one, which is also how it
+    stops if Drupal answers an out-of-range ?page= by serving the last page again instead of an
+    empty table -- against that, an is-the-table-empty check would walk to the cap every run.
+    """
+    p = urlparse(board_url)
+    base = "%s://%s" % (p.scheme or "https", p.netloc or "www.werfen.com")
+    path = p.path or "/en/careers-finder"
+    rows, seen = [], set()
+    for page in range(WERFEN_MAX_PAGES):
+        try:
+            r = _safe_get("%s%s?page=%d" % (base, path, page), timeout=30)
+        except ValueError:
+            break                                      # non-public host -> refuse (SSRF guard)
+        if r.status_code != 200:
+            break
+        got = 0
+        for tr in BeautifulSoup(r.text, "lxml").select("table tr"):
+            tds = tr.select("td")
+            a = tr.select_one("a[href]")
+            if not a or len(tds) < 5:
+                continue                               # the header row, or a table that isn't this
+            url = urljoin(base, (a.get("href") or "").strip())
+            if not is_http_url(url) or url in seen:
+                continue
+            seen.add(url)
+            got += 1
+            vals = [re.sub(r"\s+", " ", td.get_text(" ", strip=True)) for td in tds]
+            loc, ctry = _werfen_location(vals[3]), vals[4]
+            if ctry and ctry.lower() not in loc.lower():
+                loc = (loc + ", " + ctry).strip(", ")
+            title = html.unescape(vals[0]).strip()
+            if title:
+                rows.append({"title": title, "url": url, "location": loc})
+        if not got:
+            break
+        time.sleep(random.uniform(0.3, 0.7))
+    else:
+        note_truncation(board_url, len(rows), WERFEN_MAX_PAGES * 20, 0,
+                        detail="hit WERFEN_MAX_PAGES")
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
@@ -4887,6 +5081,8 @@ SCRAPERS = {
     "metacareers": scrape_metacareers,
     "michaelpage": scrape_michaelpage,
     "workatastartup": scrape_workatastartup,
+    "jobvite": scrape_jobvite,
+    "werfen": scrape_werfen,
 }
 
 
@@ -4896,8 +5092,11 @@ SCRAPERS = {
 # Not every careers site exposes a feed we can read, and detect_board() returns None for the
 # ones that do not — the app routes those to careers links instead. The list of exceptions has
 # shrunk: Oracle (ORC), Phenom, SuccessFactors, Avature, Paylocity, PeopleSoft and now Eightfold
-# all turned out to have one. What genuinely remains unread: Taleo, Jobvite, Teamtailor, native
-# iCIMS portals, Cornerstone, and Google/Meta-style bespoke portals.
+# all turned out to have one, and Jobvite joined them on 2026-08-20 -- see scrape_jobvite, whose
+# listing page is a plain server-rendered table. What genuinely remains unread: Taleo, Teamtailor,
+# Cornerstone, Google/Meta-style bespoke portals, and NATIVE iCIMS portals -- those answer 405 +
+# "Human Verification" on every path, and the only way past one is a branded CMS in front of it
+# that republishes the reqs (scrape_digitas, scrape_werfen).
 _LOCALES = {"en-us", "en-gb", "en", "us", "global", "en-us"}
 
 
@@ -4982,6 +5181,17 @@ def detect_board(url):
         base = _ultipro_base(url)
         if base:
             return (base, "ultipro", _name_from(urlparse(base).path.split("/")[1]))
+
+    if host == JOBVITE_HOST or host.endswith(".jobvite.com"):
+        # /<slug>/jobs, /<slug>/job/<id>, /<slug>/job/<id>/apply and /careers/<slug>/jobs all
+        # normalize to the tenant root. "careers" is a path PREFIX on some tenants, not a slug.
+        rest = segs[1:] if (segs and segs[0] == "careers") else segs
+        slug = rest[0] if rest else ""
+        if slug and slug not in ("job", "jobs"):
+            # Same initialism rule as the PeopleSoft branch: these slugs are short and often an
+            # acronym ("dwt" is Davis Wright Tremaine), which _name_from title-cases into "Dwt".
+            name = slug.upper() if (len(slug) <= 4 and slug.isalpha()) else _name_from(slug)
+            return ("https://%s/%s" % (JOBVITE_HOST, slug), "jobvite", name)
 
     if host.endswith(".bamboohr.com"):
         sub = host.split(".")[0]
@@ -5355,6 +5565,8 @@ def probe_board(board_url, ats_type):
             return len(scrape_breezy(board_url))
         if ats_type == "personio":
             return len(scrape_personio(board_url))
+        if ats_type == "jobvite":
+            return len(scrape_jobvite(board_url))
         if ats_type == "jsonld":
             return len(scrape_jsonld(board_url))
     except Exception:

@@ -5245,7 +5245,7 @@ def add_board():
                    or scraper.detect_linked_ats(url) or scraper.detect_jsonld(url))
             if not det:
                 result = ("err", "That isn't a readable job board (Greenhouse, Lever, Ashby, "
-                          "SmartRecruiters, Workday, Oracle Cloud, Workable, Phenom, iCIMS/Jibe, "
+                          "SmartRecruiters, Workday, Oracle Cloud, Workable, Phenom, iCIMS/Jibe, Jobvite, "
                           "SuccessFactors, UltiPro/UKG, BambooHR, Pinpoint, Rippling, "
                           "Recruitee, Breezy, Personio, or a page with embedded job data). "
                           "Add the company to sponsors.txt instead.")
