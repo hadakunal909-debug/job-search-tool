@@ -4086,16 +4086,32 @@ def _admin_boards(force=False):
         blob = {}
     boards = (blob.get("boards") or {})
 
-    by_ats, costly, silent, failing = {}, [], [], []
+    by_ats, costly, silent, failing, starved = {}, [], [], [], []
     timed = 0
     for url, r in boards.items():
         runs = r.get("runs") or []
+        # STARVED is read off the board, not off its runs: a board the budget never started has
+        # no run to read. Counted before the `continue` below so a board that has ONLY ever been
+        # skipped still shows up somewhere -- it used to vanish from every panel here while
+        # quietly costing a slot in the sweep.
+        skips = int(r.get("skips") or 0)
+        if skips:
+            starved.append({"company": r.get("company") or "?", "ats": r.get("ats") or "?",
+                            "url": url, "skips": skips,
+                            "last_skip": r.get("last_skip") or ""})
         if not runs:
             continue
         secs = [x["secs"] for x in runs if x.get("secs") is not None]
         row = {"company": r.get("company") or "?", "ats": r.get("ats") or "?", "url": url,
                "last": runs[-1].get("n"), "ok": bool(runs[-1].get("ok")),
                "runs": len(runs),
+               # What the board actually said. The panel could report a failure but not its
+               # cause, so every row here used to end in a local re-run to find out why.
+               "err": runs[-1].get("err") or "",
+               # When that outcome is FROM. The sweep is budgeted, so the newest record for a
+               # board is not necessarily from the newest run, and "failing" reads very
+               # differently if the failure is four runs old.
+               "at": runs[-1].get("at") or "",
                "secs": max(secs) if secs else None,
                "avg": (sum(secs) / len(secs)) if secs else None}
         if secs:
@@ -4104,7 +4120,10 @@ def _admin_boards(force=False):
             a["boards"] += 1
             a["secs"] += secs[-1]
             costly.append(row)
-        if not row["ok"]:
+        # Not `not row["ok"]`: that reads a board the budget never started as a broken one, and
+        # legacy records (before per-board timings) cannot tell the two apart at all. The
+        # predicate lives in scraper so this panel and the run log cannot drift.
+        if sc.board_run_failed(runs[-1]):
             failing.append(row)
         elif (len(runs) >= _BOARD_SILENT_RUNS
               and all(x.get("n") == 0 and x.get("ok") for x in runs[-_BOARD_SILENT_RUNS:])):
@@ -4126,6 +4145,11 @@ def _admin_boards(force=False):
         "costly": sorted(costly, key=lambda r: -(r["secs"] or 0))[:15],
         "silent": sorted(silent, key=lambda r: (r["company"] or ""))[:40],
         "failing": sorted(failing, key=lambda r: (r["company"] or ""))[:40],
+        # Not a health problem and deliberately not mixed in with one: these boards are fine,
+        # the run just never got to them. Ordered by streak because a board skipped run after
+        # run is the one the daily rotation is failing to cover.
+        "starved_n": len(starved),
+        "starved": sorted(starved, key=lambda r: (-r["skips"], r["company"] or ""))[:40],
     }
     _admin_boards_cache.update({"data": out, "at": time.time()})
     return out

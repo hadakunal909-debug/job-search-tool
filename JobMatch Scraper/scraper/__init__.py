@@ -760,7 +760,9 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/TexasHealthResources", "smartrecruiters", "Texas Health Resources"), # ~9
     ("https://jobs.ashbyhq.com/vesta", "ashby", "Vesta"),                                    # ~9
     ("https://jobs.smartrecruiters.com/RaasInfotek", "smartrecruiters", "Raas Infotek"),     # ~8
-    ("https://jobs.ashbyhq.com/todyl", "ashby", "Todyl"),                                    # ~8
+    # Todyl retired 2026-08-21: the Ashby board 404s at both casings (/todyl and /Todyl) after
+    # returning 8 postings until 2026-08-20, and todyl.com/careers still links only to Ashby --
+    # so the board was unpublished, not moved. Re-add if it comes back.
     ("https://job-boards.greenhouse.io/upwork", "greenhouse", "Upwork"),                     # ~8
     ("https://jobs.ashbyhq.com/blissway", "ashby", "BLISSWAY"),                              # ~7
     ("https://jobs.lever.co/disqo", "lever", "Disqo"),                                       # ~7
@@ -776,7 +778,7 @@ EXTRA_BOARDS = [
     ("https://jobs.ashbyhq.com/patreon", "ashby", "Patreon"),                                # ~6
     ("https://jobs.lever.co/valkyrietrading", "lever", "Valkyrie Trading"),                  # ~6
     ("https://jobs.smartrecruiters.com/Winsupply", "smartrecruiters", "Winsupply"),          # ~6
-    ("https://job-boards.greenhouse.io/10xgenomics", "greenhouse", "10x Genomics"),          # ~5
+    ("https://careers.kula.ai/10xgenomics", "kula", "10x Genomics"),                         # ~31
     ("https://jobs.smartrecruiters.com/ChathamFinancial", "smartrecruiters", "Chatham Financial"), # ~5
     ("https://jobs.ashbyhq.com/eventual", "ashby", "Eventual"),                              # ~5
     ("https://job-boards.greenhouse.io/instabase", "greenhouse", "Instabase"),               # ~5
@@ -1081,7 +1083,7 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/PhoenixCharterAcademyNetwork", "smartrecruiters", "Phoenix Charter Academy Network"), # ~6
     ("https://jobs.smartrecruiters.com/TexasWaterDevelopmentBoard", "smartrecruiters", "Texas Water Development Board"), # ~6
     ("https://job-boards.greenhouse.io/valerahealth", "greenhouse", "Valera Health"),        # ~6
-    ("https://jobs.ashbyhq.com/ernest", "ashby", "Ernest"),                                  # ~5
+    ("https://job-boards.greenhouse.io/ernestpackagingsolutions", "greenhouse", "Ernest"),   # ~38
     ("https://jobs.smartrecruiters.com/MGMResortsInternational", "smartrecruiters", "MGM Resorts International"), # ~5
     ("https://jobs.ashbyhq.com/tapblaze", "ashby", "TapBlaze"),                              # ~5
     ("https://job-boards.greenhouse.io/akoya", "greenhouse", "Akoya"),                       # ~4
@@ -2617,6 +2619,61 @@ def scrape_ashby(board_url):
             row["found_date"] = d
         rows.append(row)
     return rows
+
+
+def scrape_kula(board_url):
+    """Kula, via the JSON index its own careers page fetches on load.
+
+    Here because 10x Genomics MOVED off Greenhouse to Kula, which turned the entry in SOURCES
+    into a hard 404 -- the board did not go quiet, it stopped existing. That is worth an adapter
+    rather than a deletion for two reasons: the board came back BIGGER (5 postings on the old
+    Greenhouse token, 31 here), and 10x Genomics is a genuine H-1B filer, which is the whole
+    point of the list.
+
+    The page is a client-rendered Next.js app, so there is nothing in the served HTML to parse --
+    the postings arrive from /api/internal/ats_job_posts, which answers plain JSON to a plain GET
+    with no key and no cookie. `internal` names the caller, not the audience: it is the route the
+    public careers page uses.
+
+    One request per board. `items=99` with a meta.pages loop after it, so a tenant larger than
+    one page is read rather than silently truncated -- the failure mode a fixed page size hides.
+    """
+    acct = _slug(board_url)
+    rows, page = [], 1
+    while True:
+        data = _get_json("https://careers.kula.ai/api/internal/ats_job_posts",
+                         params={"accountName": acct, "page": page,
+                                 "type": "ats_job_post.index", "items": 99})
+        batch = data.get("data") or []
+        for j in batch:
+            # `listed` is Kula's own published flag. `kind` is the audience -- an internal-only
+            # requisition is visible to this endpoint and has no business in a public feed, so
+            # the test is for "external" rather than against a list of the values seen today.
+            if not j.get("listed", True):
+                continue
+            if "external" not in str(j.get("kind") or "external"):
+                continue
+            job = j.get("ats_job") or {}
+            offices = job.get("offices") or []
+            row = {
+                "title": (j.get("title") or "").strip(),
+                # Trailing slash because that is the form the careers page links, and
+                # canonical_url() should see the same string a human would paste.
+                "url": "https://careers.kula.ai/%s/%s/" % (acct, j.get("id")),
+                "location": ", ".join(
+                    x for x in (o.get("location") or o.get("name") or "" for o in offices) if x),
+                # The full description ships with the index, so the JD is free here -- the same
+                # bargain lever/ashby/jibe get, and score_jobs never has to fetch these.
+                "jd": _listing_jd(job.get("job_description")),
+            }
+            d = _posted(j.get("launch_at"))
+            if d:
+                row["found_date"] = d
+            rows.append(row)
+        meta = data.get("meta") or {}
+        if page >= int(meta.get("pages") or 1) or not batch:
+            return rows
+        page += 1
 
 
 def scrape_smartrecruiters(board_url):
@@ -5202,6 +5259,7 @@ SCRAPERS = {
     "digitas": scrape_digitas,
     "lever": scrape_lever,
     "ashby": scrape_ashby,
+    "kula": scrape_kula,
     "smartrecruiters": scrape_smartrecruiters,
     "amazon": scrape_amazon,
     "workday": scrape_workday,
@@ -6394,7 +6452,36 @@ SCRAPE_PER_HOST = _env_num("SCRAPE_PER_HOST", 4, int)
 # Deliberately NOT a global default: the slowest honest board measured is an Avature tenant at
 # 335s, so a global ceiling would have to sit above ~360s to avoid failing real boards, and a
 # 6-minute ceiling guards nothing worth guarding.
-SCRAPE_BOARD_TIMEOUT = {"jobspy": _env_num("JOBSPY_BOARD_TIMEOUT_SEC", 90, int)}
+# How long the sweep will WAIT on one board before abandoning it. Not a request timeout -- the
+# adapters have their own -- but a cap on a board that keeps answering slowly enough to never
+# trip one.
+#
+# WORKDAY, ADDED 2026-08-21 FROM THE FIRST RUN THAT MEASURED PER-BOARD COST. The numbers are the
+# whole argument. That run spent 7,021 worker-seconds over 694 boards and skipped 571 (45%) when
+# the budget ran out, and ONE board was 42% of the entire bill:
+#
+#     Itron     2951s -> 1 posting          <- 49 minutes, for one job
+#     DirecTV    275s -> 12 postings
+#     RBC        106s -> 1431 postings      <- the most expensive HONEST board
+#     Accenture   45s -> 1705 postings
+#
+# So the distribution is not a long tail, it is one pathological board plus a clean median of
+# 7.5s. 1dd90a0 predicted exactly this ("no value under ~21 min changes the sweep until the
+# per-board straggler is capped") and capping pagination did not do it: Itron is not slow because
+# it has many pages, it is slow because it answers slowly.
+#
+# 300s, not 150s, and the reason is the OTHER change in this file: page concurrency is derived
+# from SCRAPE_WORKERS, so cron gets 2 pages where this measurement had 4. RBC's honest 106s
+# roughly doubles at half the concurrency, so a 150s cap would abandon a 1,431-posting board on
+# the runner that matters. 300s clears it with margin and still reclaims ~2,650s from Itron
+# alone -- about 38% of the run, which is most of the reason those 571 boards went unread.
+#
+# Abandoning is safe and self-correcting: the board reports ok=False, reconcile_closed refuses
+# to retire anything from a board it could not read, and it is fetched again next run.
+SCRAPE_BOARD_TIMEOUT = {
+    "jobspy": _env_num("JOBSPY_BOARD_TIMEOUT_SEC", 90, int),
+    "workday": _env_num("WORKDAY_BOARD_TIMEOUT_SEC", 300, int),
+}
 
 
 def _run_with_timeout(fn, url, secs):
@@ -6528,6 +6615,15 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
             if board_results is not None:
                 board_results.append({
                     "entry": entry, "company": company, "ok": rows is not None,
+                    # A board the budget never STARTED is not a board that failed, and `ok`
+                    # cannot carry that difference: reconcile_closed needs it False for both,
+                    # because an unfetched board proves nothing about its postings. So the third
+                    # state rides alongside it instead of inside it. Without this the board
+                    # health report files every starved board as a failure -- 566 of them on the
+                    # 2026-08-21 17:58 run against 3 boards that actually raised -- which is a
+                    # triage list nobody can triage.
+                    "skipped": rows is None and err is None,
+                    "err": err,
                     "secs": bsecs,
                     "urls": {r.get("url") for r in (rows or []) if r.get("url")}})
             if progress:
@@ -6662,6 +6758,26 @@ BOARD_HEALTH_KEY = "board_health"
 BOARD_HEALTH_RUNS = 8            # how many runs of history to keep per board
 
 
+def board_run_failed(run):
+    """Did this recorded run actually FAIL, as opposed to never having happened?
+
+    One definition with two readers -- the triage list below and web.py's admin panel, which
+    reaches it through the `sc` lazy module -- for the same reason reposts.cluster_key has one:
+    two answers to "is this board broken" is worse than either answer on its own.
+
+    The test is for EVIDENCE that the board ran. `ok=False` cannot mean failure by itself,
+    because a board the budget never started reports exactly that, and reconcile_closed needs it
+    to. A run that really ran carries `secs`; one that really raised carries `err`. A record with
+    neither is either older than per-board timings (2026-08-21) or was written by the bug this
+    replaced, and the honest reading of it is "unknown", not "broken" -- which is not a fine
+    distinction: of the 569 records that looked like failures on the last run written before this
+    fix, 566 were boards that had never been fetched at all.
+    """
+    if not isinstance(run, dict) or run.get("ok"):
+        return False
+    return bool(run.get("err")) or run.get("secs") is not None
+
+
 def save_board_health(board_results):
     """Record what every board returned this run, and print the ones worth looking at.
 
@@ -6691,26 +6807,62 @@ def save_board_health(board_results):
         #
         # Absent for a board the budget skipped: it was never started, so it cost nothing, and
         # recording a 0 would drag its median down and make the expensive ones look cheap.
+        #
+        # A SKIPPED BOARD GETS NO RUN AT ALL, for the same reason. It was never fetched, so it
+        # has no outcome, and filing one as ok=False is why this report became unreadable. Two
+        # costs, both real: the triage list below filled up with healthy boards, and -- quieter
+        # -- every skip burned one of the eight history slots, so `silent` (three clean
+        # zero-fetches running) was reading a window that mostly held non-events. Counting the
+        # streak instead keeps the signal that matters, a board starved run after run.
+        if br.get("skipped"):
+            rec["skips"] = int(rec.get("skips") or 0) + 1
+            rec["last_skip"] = stamp
+            boards[url] = rec
+            continue
         run = {"at": stamp, "n": n, "ok": bool(br.get("ok"))}
         if br.get("secs") is not None:
             run["secs"] = round(float(br["secs"]), 1)
+        if br.get("err"):
+            # Both the log and the admin panel could say "this board failed" and neither could
+            # say why, so every failure cost a local re-run to reproduce. One string per board.
+            run["err"] = str(br["err"])[:200]
         rec["runs"] = (rec.get("runs") or [])[-(BOARD_HEALTH_RUNS - 1):] + [run]
+        rec["skips"] = 0                  # fetched this run: the starvation streak is broken
         boards[url] = rec
     db.put_kv(BOARD_HEALTH_KEY, {"updated_at": stamp, "boards": boards})
 
     # The triage list. A board erroring is louder than one returning zero, because zero can be
-    # honest and an error never is.
-    failed = [r for r in boards.values() if r["runs"] and not r["runs"][-1]["ok"]]
+    # honest and an error never is. A STARVED board is louder than neither -- it says nothing
+    # about the board and everything about the budget -- so it is counted here, not listed.
+    failed = [r for r in boards.values() if r["runs"] and board_run_failed(r["runs"][-1])]
     silent = [r for r in boards.values()
               if len(r["runs"]) >= 3 and all(x["n"] == 0 and x["ok"] for x in r["runs"][-3:])]
-    print("\nBoard health: %d boards tracked, %d failed this run, %d returning 0 for 3+ runs"
-          % (len(boards), len(failed), len(silent)))
+    # Keyed on THIS run's stamp, not on a non-zero counter: a board that has left the source
+    # list keeps whatever streak it died with, and counting that as "skipped this run" would be
+    # the same kind of lie this whole change is undoing.
+    starved = [r for r in boards.values() if r.get("last_skip") == stamp]
+    print("\nBoard health: %d boards tracked, %d failed this run, %d returning 0 for 3+"
+          " runs, %d never reached by the budget"
+          % (len(boards), len(failed), len(silent), len(starved)))
     for label, group in (("FAILED", failed), ("SILENT", silent)):
         for r in sorted(group, key=lambda x: x["company"])[:25]:
-            print("  %-6s %-30s %-16s last=%s" % (label, r["company"][:30], r["ats"],
-                                                  r["runs"][-1]["n"]))
+            # The error is the whole point of a FAILED line. Without it the next step is always
+            # to re-run the board by hand to find out what it said.
+            why = (r["runs"][-1].get("err") or "")[:60]
+            print("  %-6s %-30s %-16s last=%s%s"
+                  % (label, r["company"][:30], r["ats"], r["runs"][-1]["n"],
+                     ("  " + why) if why else ""))
         if len(group) > 25:
             print("  %-6s ...and %d more" % (label, len(group) - 25))
+    if starved:
+        # The streak is the useful number: the daily rotation is meant to MOVE the starved slice,
+        # so a board with a long one means the rotation is not covering the list.
+        stuck = sorted(starved, key=lambda x: -(x.get("skips") or 0))[:5]
+        print("  STARVED %d board(s) were never started this run (SCRAPE_BUDGET_MIN=%g)."
+              " Longest streaks: %s"
+              % (len(starved), SCRAPE_BUDGET_MIN,
+                 ", ".join("%s x%d" % (r["company"][:22], r.get("skips") or 0)
+                           for r in stuck)))
 
     # WHERE THE SWEEP WENT. One pass over a dict we just built, and the most useful few lines in
     # the run log for anyone trying to make the sweep fit its budget. Grouped by ATS rather than
