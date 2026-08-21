@@ -132,12 +132,19 @@ scrape from the repo's Actions tab or wait for cron.
 
 ### Keep-warm
 
-**The single largest speed win available, and it is a cron line rather than code.** Passenger
-spins the app down after a few idle minutes and the next visitor waits through a re-import and a
-cache refill. Measured: a **cold start is 3,230 ms alone, and 4,106-4,131 ms when four workers
-start together, against 211 ms warm** (LOAD_SECURITY_QUALITY_REPORT.md §2.3). Measured again from
-a laptop against production on 2026-08-20: the same page was **4,017 ms cold and 307 ms warm**.
-That 13x spread is the whole of "the site is sometimes really slow".
+Passenger spins the app down after a few idle minutes and the next visitor waits through a
+re-import and a cache refill. Measured: a **cold start is 3,230 ms alone, and 4,106-4,131 ms when
+four workers start together, against 211 ms warm** (LOAD_SECURITY_QUALITY_REPORT.md §2.3).
+Measured again from a laptop against production on 2026-08-20: the same page was **4,017 ms cold
+and 307 ms warm**.
+
+**Necessary, but NOT sufficient, and an earlier version of this section overstated it.** Keeping
+the process alive avoids the re-import. It does nothing for `web._score_cache`, which is keyed per
+(user, résumé) and per PROCESS: the pinger hits `/healthz`, which has no user and builds nothing,
+and the pool is 2-6 workers. So even on a permanently warm app the first request each worker
+serves for each user paid a full re-score of the corpus — 5-15 seconds, and the cause of a 13.8 s
+LCP reported on the live site. That is fixed by the stored score files (`score_cache/`, see
+`web.user_scores`), not by this cron. Both are wanted; neither replaces the other.
 
 `/healthz` is a public, no-database, two-byte endpoint for exactly this. In cPanel, under
 **Cron Jobs**, every five minutes:

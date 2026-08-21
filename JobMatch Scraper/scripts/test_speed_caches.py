@@ -6,6 +6,9 @@ with a cache or a shortcut, and both are the kind that is right on the data you 
   3. core._stem and core._alias_forms are lru_cached. _stem was 3.5M calls and 16.7s of a single
      35s ranked_rows rebuild, so this is the largest of the three -- and the one where a wrong
      answer would silently move every match percentage in the product.
+  4. web.user_scores persists to a file, so a worker that has never scored a user reads it
+     instead of spending 5-15 seconds. A wrong answer here is a wrong match percentage on
+     every card, so the stored scores are compared against freshly computed ones.
 
 Run it with the local snapshot present and (1) is checked against every real row.
 
@@ -24,6 +27,9 @@ import os
 import sys
 import gzip
 import json
+import shutil
+import hashlib
+import tempfile
 
 os.environ.setdefault("EV_OFF", "1")             # analytics reads this at import, once
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -200,6 +206,87 @@ def scorer_memos():
     return bad
 
 
+def score_files():
+    """web._scores_read/_scores_write must return EXACTLY what scoring produced, or nothing.
+
+    The failure mode this guards is not a crash. A file keyed a little too loosely serves one
+    resume's scores for another, or last week's corpus for this week's, and the feed shows
+    confident percentages that are simply wrong -- which is worse than being slow, and is why
+    the fingerprint is half the key.
+    """
+    print("=" * 74)
+    print("web.user_scores persistent file")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    rows = [{"url": "https://b.example/%d" % i, "title": "Project Manager %d" % i,
+             "company": "Acme", "location": "Boston, MA", "match_score": 40 + (i % 20),
+             "jd_terms": '{"w":{"python":1.0,"sql":0.5,"roadmap":0.4},"n":0}'}
+            for i in range(120)]
+    FP = (len(rows), "2026-08-17")
+    RESUME = "python sql roadmap stakeholder delivery"
+
+    tmp = tempfile.mkdtemp(prefix="jm_scores_")
+    real_get, real_dir = web.get_jobs, web._SCORES_DIR
+    real_cache_rows, real_cache_fp = web._jobs_cache.get("rows"), web._jobs_cache.get("fp")
+    web.get_jobs = lambda: rows
+    web._SCORES_DIR = tmp
+    web._jobs_cache["rows"], web._jobs_cache["fp"] = rows, FP
+    web._score_cache.clear()
+    try:
+        computed = dict(web.user_scores("a@t", RESUME))
+        want("scoring produced a score per row", len(computed) == len(rows),
+             "%d of %d" % (len(computed), len(rows)))
+        files = [n for n in os.listdir(tmp) if n.endswith(".json.gz")]
+        want("...and wrote exactly one file", len(files) == 1, repr(files))
+
+        web._score_cache.clear()                     # force the read path
+        from_disk = dict(web.user_scores("a@t", RESUME))
+        want("the stored scores are IDENTICAL", from_disk == computed,
+             "%d differ" % len([u for u in computed if computed[u] != from_disk.get(u)]))
+
+        rmd5 = hashlib.md5(RESUME.encode("utf-8")).hexdigest()
+        want("a moved corpus is refused",
+             web._scores_read("a@t", rmd5, (len(rows) + 1, "2026-08-18")) is None)
+        want("no fingerprint means no read at all",
+             web._scores_read("a@t", rmd5, None) is None)
+        want("another user does not read this file",
+             web._scores_read("b@t", rmd5, FP) is None)
+        want("another resume does not read this file",
+             web._scores_read("a@t", hashlib.md5(b"different").hexdigest(), FP) is None)
+
+        # A corrupt file must recompute, not raise and not poison the feed.
+        with open(web._scores_path("a@t", rmd5), "wb") as fh:
+            fh.write(b"not gzip at all")
+        want("a corrupt file is ignored", web._scores_read("a@t", rmd5, FP) is None)
+        web._score_cache.clear()
+        want("...and scoring still returns the right answers",
+             dict(web.user_scores("a@t", RESUME)) == computed)
+
+        # The directory must not grow without bound.
+        for i in range(web._SCORES_MAX_FILES + 20):
+            web._scores_write("pad%d@t" % i, rmd5, FP, {"u": 1})
+        n = len([x for x in os.listdir(tmp) if x.endswith(".json.gz")])
+        want("the directory stays bounded", n <= web._SCORES_MAX_FILES,
+             "%d files, max %d" % (n, web._SCORES_MAX_FILES))
+
+        want("_scores_clear removes them all",
+             (web._scores_clear() or True)
+             and not [x for x in os.listdir(tmp) if x.endswith(".json.gz")])
+    finally:
+        web.get_jobs, web._SCORES_DIR = real_get, real_dir
+        web._jobs_cache["rows"], web._jobs_cache["fp"] = real_cache_rows, real_cache_fp
+        web._score_cache.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+    print()
+    return bad
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -225,6 +312,7 @@ def main():
 
     fails += jd_cache()
     fails += scorer_memos()
+    fails += score_files()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 
