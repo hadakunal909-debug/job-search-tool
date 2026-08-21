@@ -2501,16 +2501,33 @@ def _listing_jd(*parts):
 # truncated: stripe returned 567/567 jobs with content (3.04M chars), samsara 264/264 (3.42M).
 GREENHOUSE_JD = os.environ.get("GREENHOUSE_JD", "1").strip().lower() not in ("0", "false", "no", "off")
 
+# CANONICAL URLS ALREADY IN THE CORPUS, published by main() before the sweep starts.
+#
+# A module global rather than a parameter because SCRAPERS dispatches every adapter as fn(url) --
+# 31 of them share that signature, and threading a second argument through all of them to serve
+# one adapter would be the tail wagging the dog. Empty by default, which is what makes every
+# other entry point (dump_titles.py, verify_parsers.py, a bare scrape_greenhouse call) behave
+# exactly as it did before: an empty set means "nothing is known", so the full fetch happens.
+_KNOWN_URLS = set()
 
-def scrape_greenhouse(board_url):
-    url = "https://boards-api.greenhouse.io/v1/boards/%s/jobs" % _slug(board_url)
-    data = _get_json(url + "?content=true" if GREENHOUSE_JD else url)
+
+def publish_known_urls(urls):
+    """Tell the adapters which postings we already hold, so they can skip work for them.
+
+    Called once by main() with the same canonicalised, lowercased set the keep loop dedupes on,
+    so an adapter's notion of "already have it" cannot drift from the writer's.
+    """
+    _KNOWN_URLS.clear()
+    _KNOWN_URLS.update(urls or ())
+
+
+def _gh_rows(data, want_jd):
     rows = []
     for j in data.get("jobs", []):
         row = {"title": (j.get("title") or "").strip(),
                "url": j.get("absolute_url", ""),
                "location": (j.get("location") or {}).get("name", "")}
-        if GREENHOUSE_JD:
+        if want_jd:
             # `content` is HTML-escaped HTML -- html_to_text unescapes before parsing, which is
             # why it survives the round trip that a bare BeautifulSoup call would mangle.
             row["jd"] = _listing_jd(j.get("content"))
@@ -2519,6 +2536,40 @@ def scrape_greenhouse(board_url):
             row["found_date"] = d                # the REAL posting date, not the scrape date
         rows.append(row)
     return rows
+
+
+def scrape_greenhouse(board_url):
+    """Greenhouse via its public board API. TWO-PHASE when we already know what this board holds.
+
+    ?content=true returns every posting's full description from the same endpoint, which is a
+    bargain per job and a fortune per sweep: measured 2026-08-20, 0.7 MB -> 15.5 MB on a 12-board
+    sample, extrapolating to ~23 MB -> 529 MB across all 409 Greenhouse boards. Greenhouse is the
+    single biggest source here, so that cost is paid on a third of the corpus every run.
+
+    Almost all of it was waste. main() banks a listing-supplied description only for postings that
+    survive the keep loop -- i.e. NEW ones -- so on a twice-daily scrape the descriptions of every
+    posting we already stored were downloaded, parsed and thrown away. The fix is to ask the cheap
+    question first: fetch without content, and only pay for content if this board has a posting we
+    have not seen. A board with no new postings costs the small request alone; a board with new
+    ones costs one extra small request on top of what it cost before.
+
+    Nothing about what reaches the feed changes: core.admits_on_description still sees every NEW
+    Greenhouse posting, because those are exactly the boards that get the second fetch.
+    """
+    url = "https://boards-api.greenhouse.io/v1/boards/%s/jobs" % _slug(board_url)
+    if not GREENHOUSE_JD:
+        return _gh_rows(_get_json(url), False)
+    if not _KNOWN_URLS:
+        # No corpus to compare against (a bare call, or a test) -- behave exactly as before.
+        return _gh_rows(_get_json(url + "?content=true"), True)
+
+    cheap = _get_json(url)
+    rows = _gh_rows(cheap, False)
+    if not rows:
+        return rows
+    if any(canonical_url(r["url"]).lower() not in _KNOWN_URLS for r in rows if r.get("url")):
+        return _gh_rows(_get_json(url + "?content=true"), True)
+    return rows                                  # every posting already stored: no JD needed
 
 
 def scrape_lever(board_url):
@@ -2658,8 +2709,16 @@ def _workday_parts(board_url):
 # Workday caps each page at 20 results (asking for more returns HTTP 400). We walk the
 # WHOLE board with an empty search and let main()'s title/US filter decide what to keep.
 # MAX_JOBS is just a safety stop so a giant tenant can't page forever (3000 = 150 pages).
+# 20 IS THE API's CEILING, not a politeness choice. Measured 2026-08-21 against
+# gevernova.wd5 (total 2,148): limit=20 -> HTTP 200 with 20 postings; limit=50, 100 and 200 all
+# -> HTTP 400. So a bigger page is not available and the only way to make a big Workday board
+# cheaper is to stop fetching its pages one at a time.
 WORKDAY_PAGE_LIMIT = 20
 WORKDAY_MAX_JOBS = 3000
+# Pages per board, fetched concurrently. Same value as AVATURE_WORKERS, and safe for the same
+# reason: _host_key gates on the netloc and every Workday tenant is its own subdomain, so this
+# is 4 in flight against ONE tenant, not 4 x 234 against Workday.
+WORKDAY_PAGE_WORKERS = int(os.environ.get("WORKDAY_PAGE_WORKERS") or 4)
 
 
 def _workday_loc_from_path(path):
@@ -2689,19 +2748,31 @@ def scrape_workday(board_url):
     job_base = ("https://%s/en-US/recruiting/%s/%s" % (host, tenant, site)
                 if "myworkdaysite.com" in host else "https://%s/%s" % (host, site))
     hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
-    seen, rows, offset, total = set(), [], 0, None
-    while offset < WORKDAY_MAX_JOBS:
-        r = SESSION.post(cxs, headers=hdr, timeout=25, data=json.dumps(
-            {"appliedFacets": {}, "limit": WORKDAY_PAGE_LIMIT, "offset": offset,
-             "searchText": ""}))
-        if r.status_code != 200:
-            break
-        body = r.json()
-        jp = body.get("jobPostings", [])
-        if not jp:
-            break
-        if total is None:                                # only the FIRST page reports the
-            total = body.get("total") or 0               # real count; later pages send 0
+    seen, rows = set(), []
+
+    def _fetch(offset):
+        """One page of postings, or None if it could not be read. Fetch only -- the parse and
+        every mutation of `seen`/`rows` happens on the calling thread, which is what makes the
+        concurrent branch below need no locking."""
+        for attempt in (0, 1):
+            try:
+                r = SESSION.post(cxs, headers=hdr, timeout=25, data=json.dumps(
+                    {"appliedFacets": {}, "limit": WORKDAY_PAGE_LIMIT, "offset": offset,
+                     "searchText": ""}))
+                if r.status_code == 200:
+                    return r.json()
+            except Exception:
+                pass
+            if not attempt:
+                # One retry, for the same reason Avature has one: fetching offsets
+                # independently means a blip drops that page silently instead of ending the
+                # walk, so a short board would look like a complete one.
+                time.sleep(random.uniform(0.4, 0.9))
+        return None
+
+    def _absorb(body):
+        """Postings from one response into `rows`. Returns how many the page carried."""
+        jp = (body or {}).get("jobPostings") or []
         for j in jp:
             path = j.get("externalPath") or ""
             if not path or path in seen:
@@ -2716,14 +2787,52 @@ def scrape_workday(board_url):
                 "location": loc,
                 "found_date": _workday_date(j.get("postedOn")),
             })
-        offset += len(jp)
-        if total and offset >= total:                    # read the whole board
+        return len(jp)
+
+    # Page 0 buys the board total, and the total is what makes every other offset a known URL.
+    first = _fetch(0)
+    if not first:
+        return rows
+    got = _absorb(first)
+    if not got:
+        return rows
+    total = first.get("total") or 0                      # only the FIRST page reports the real
+    #                                                      count; later pages send 0
+
+    if total > got:
+        # CONCURRENT, like scrape_avature: offset is stateless -- no cursor, no session -- so
+        # once the total is known the remaining pages are independent GETs of known URLs. This
+        # is the whole reason Workday was two thirds of the sweep: 20 postings a page is the
+        # API's hard ceiling (see WORKDAY_PAGE_LIMIT), so a 2,148-posting tenant is 108 serial
+        # round trips of ~0.8s -- about 86 seconds for ONE board, times 234 boards.
+        offsets = list(range(got, min(total, WORKDAY_MAX_JOBS), WORKDAY_PAGE_LIMIT))
+        if offsets:
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(WORKDAY_PAGE_WORKERS, len(offsets))) as ex:
+                for body in ex.map(_fetch, offsets):
+                    if body:
+                        _absorb(body)
+        if total > WORKDAY_MAX_JOBS:
+            # Worse here than elsewhere: we page with an EMPTY search, so the order is the
+            # tenant's own and the jobs we never see are an arbitrary slice, not the
+            # low-relevance tail.
+            note_truncation(board_url, WORKDAY_MAX_JOBS, WORKDAY_MAX_JOBS, total)
+        return rows
+
+    # No usable total -- walk it the old way, one page at a time until it runs dry. Kept because
+    # `total` is the one field this adapter cannot verify across every tenant template, and a
+    # tenant that omits it would otherwise report exactly one page and look healthy.
+    offset = got
+    while offset < WORKDAY_MAX_JOBS:
+        body = _fetch(offset)
+        if not body:
             break
+        n = _absorb(body)
+        if not n:
+            break
+        offset += n
         time.sleep(random.uniform(0.1, 0.25))
     else:
-        # Fell out on WORKDAY_MAX_JOBS. Worse here than elsewhere: we page with an EMPTY
-        # search, so the order is the tenant's own and the jobs we never see are an
-        # arbitrary slice, not the low-relevance tail.
         note_truncation(board_url, offset, WORKDAY_MAX_JOBS, total)
     return rows
 
@@ -5779,6 +5888,13 @@ def close_reject_dump():
 JD_LOOKUP_BUDGET = int(os.environ.get("JD_LOOKUP_BUDGET") or 1200)
 JD_LOOKUP_PER_BOARD = int(os.environ.get("JD_LOOKUP_PER_BOARD") or 60)
 JD_LOOKUP_WORKERS = int(os.environ.get("JD_LOOKUP_WORKERS") or 8)
+# AND A CEILING ON TIME, because the one above is a ceiling on REQUESTS and those are not the
+# same thing -- the lesson SCRAPE_BUDGET_MIN, SCORE_BUDGET_MIN and SCORE_ANALYZE_BUDGET_MIN were
+# each added to learn separately. MEASURED 2026-08-21: 1,200 fetches at 8 workers took 4.5 min
+# (~1.8 s each), which put the whole scrape step at 26.2 min against a timeout-minutes of 26.
+# The runner killed it 0.14 s after it printed its last line, and because GitHub skips every
+# later step once one fails, that one overrun also cost the score pass and the digest.
+JD_LOOKUP_BUDGET_MIN = float(os.environ.get("JD_LOOKUP_BUDGET_MIN") or 3)
 
 
 def fill_missing_jds(scraped, seen, blocked):
@@ -5835,13 +5951,40 @@ def fill_missing_jds(scraped, seen, blocked):
         except Exception:
             return j, ""
 
-    got = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS) as ex:
-        for j, jd in ex.map(one, want):
-            if len(jd) >= core._MIN_JD_CHARS:
-                j["jd"] = jd
-                got += 1
-    return len(want), got
+    # ex.map WOULD NOT HAVE SURVIVED A `break`, which is why this is submit/as_completed rather
+    # than the obvious two-line edit: map submits every future up front, so the `with` block's
+    # shutdown(wait=True) drains all 1,200 of them on the way out no matter where the loop
+    # stopped. Only shutdown(cancel_futures=True) drops the queued work. The requests already in
+    # flight still finish, so the overshoot is one fetch per worker, not one pass. cancel_futures
+    # needs Python 3.9, which is what cPanel runs (bin/cron_scrape.sh) -- that is the floor here.
+    #
+    # Truncating is the same no-op the docstring promises for a failed fetch: an unfetched row
+    # drops on its title, and since it was never stored it is offered again on the next run.
+    got, tried = 0, 0
+    deadline = (time.monotonic() + JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
+    try:
+        futures = [ex.submit(one, j) for j in want]
+        try:
+            for f in concurrent.futures.as_completed(
+                    futures,
+                    timeout=None if deadline is None else max(0.1, deadline - time.monotonic())):
+                j, jd = f.result()
+                tried += 1
+                if len(jd) >= core._MIN_JD_CHARS:
+                    j["jd"] = jd
+                    got += 1
+        except concurrent.futures.TimeoutError:
+            # NOT the builtin: on 3.9 concurrent.futures.TimeoutError is its own class and is not
+            # a subclass of builtins.TimeoutError. On 3.11+ it is an alias, so this covers both.
+            print("  !! JD lookup budget of %g min ran out after %d of %d fetch(es) -- the rest"
+                  " drop on their titles and are offered again next run."
+                  % (JD_LOOKUP_BUDGET_MIN, tried, len(want)))
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    # `tried`, not len(want): the caller prints this as "N of M returned a usable description",
+    # and M has to be what was actually asked for or a truncated pass reads as a failure rate.
+    return tried, got
 
 
 US_STATE_ABBR = {"AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
@@ -6181,6 +6324,15 @@ SCRAPE_WORKERS = _env_num("SCRAPE_WORKERS", 16, int)
 # log. Keep it comfortably under the job's timeout-minutes so the steps AFTER the scrape
 # still have room to run.
 SCRAPE_BUDGET_MIN = _env_num("SCRAPE_BUDGET_MIN", 22)
+# ROTATION. main() rotates where the sweep starts, because scrape_all walks the source list in
+# order and the budget cuts whatever is left -- so a fixed order plus a binding budget starves
+# the SAME tail on every run, forever. Off (0) makes a run byte-reproducible, which is what
+# scripts/verify_parsers.py and any before/after measurement want; on is what CI should use.
+SCRAPE_ROTATE = _env_num("SCRAPE_ROTATE", 1)
+# How far the start moves per day. Coprime-ish with the list length so consecutive days do not
+# land on near-identical starting points; the exact value does not matter much, only that it is
+# large enough that one day's skipped slice is fully inside the next day's swept region.
+SCRAPE_ROTATE_STRIDE = _env_num("SCRAPE_ROTATE_STRIDE", 137)
 # Concurrent fetches allowed against any ONE host. Worker count alone is the wrong control
 # here because boards are not evenly spread across hosts: 408 of them are on
 # job-boards.greenhouse.io, 128 on jobs.smartrecruiters.com and 113 on jobs.ashbyhq.com.
@@ -6291,15 +6443,20 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
             return g
 
     def _one(entry):
+        """-> (entry, company, rows, err, secs). `secs` is wall time INCLUDING the per-host gate
+        wait and the stagger sleep, because that is what the board actually costs the sweep --
+        a board that spends 20s queued behind three siblings on the same host is expensive even
+        though its own fetch was fast. None when the board was never started."""
         url, ats_type, company = entry
         # Out of time: return without touching the network. A skipped board reports ok=False
         # below, which is what we want — it was not fetched, so the closed-posting check must
         # not read its silence as "these postings are gone".
         if deadline and time.monotonic() >= deadline:
-            return entry, company, None, None
+            return entry, company, None, None, None
         fn = SCRAPERS.get(ats_type)
         if fn is None:
-            return entry, company, None, "unknown ats_type '%s'" % ats_type
+            return entry, company, None, "unknown ats_type '%s'" % ats_type, None
+        b0 = time.monotonic()
         try:
             secs = SCRAPE_BOARD_TIMEOUT.get(ats_type)
             with _gate_for(_host_key(url, ats_type)):   # cap the load on any one host
@@ -6308,16 +6465,18 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
             for r in rows:
                 r.setdefault("company", company)        # keep a per-row company if the scraper set
                                                          # one (aggregator search spans many firms)
-            return entry, company, rows, None
+            return entry, company, rows, None, time.monotonic() - b0
         except Exception as e:
-            return entry, company, None, str(e)
+            # Timed even on failure: a board that fails SLOWLY is the expensive kind, and the
+            # one most worth finding.
+            return entry, company, None, str(e), time.monotonic() - b0
 
     all_jobs = []
     total = len(sources) if hasattr(sources, "__len__") else 0
     done = out_of_time = 0
     t0 = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        for entry, company, rows, err in ex.map(_one, sources):  # results come back in source order
+        for entry, company, rows, err, bsecs in ex.map(_one, sources):  # results in source order
             done += 1
             if err is not None:
                 print(f"  FAIL {company:<26} {err}")
@@ -6325,10 +6484,15 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
                 out_of_time += 1                         # budget spent; not fetched, not failed
             else:
                 all_jobs.extend(rows)
-                print(f"  OK   {company:<26} {len(rows):>3} postings")
+                # The time is on the OK line because that is the line anyone reads when asking
+                # where the sweep went. Only above a second: 1,200 boards printing "0.3s" is
+                # noise that hides the four printing "48s".
+                slow = "  %.0fs" % bsecs if (bsecs or 0) >= 1 else ""
+                print(f"  OK   {company:<26} {len(rows):>3} postings{slow}")
             if board_results is not None:
                 board_results.append({
                     "entry": entry, "company": company, "ok": rows is not None,
+                    "secs": bsecs,
                     "urls": {r.get("url") for r in (rows or []) if r.get("url")}})
             if progress:
                 try:
@@ -6339,9 +6503,15 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
     if out_of_time:
         print("\n  !! %d of %d board(s) SKIPPED — the %g-minute scrape budget ran out at %.1f min."
               % (out_of_time, total, budget, mins))
-        print("     Everything fetched before that is saved as usual, and the skipped boards are"
-              " read again next run.\n     Raise SCRAPE_BUDGET_MIN or SCRAPE_WORKERS if this keeps"
-              " happening — it means the board list has outgrown the run.")
+        # The old wording here said the skipped boards "are read again next run". That was only
+        # true if the budget stopped binding: main() rotates the start of the list precisely so
+        # a DIFFERENT slice is skipped next time, and without that rotation these same boards
+        # were being skipped on every run indefinitely.
+        print("     Everything fetched before that is saved as usual. main() rotates where the"
+              " sweep starts,\n     so next run skips a DIFFERENT slice — but a budget that"
+              " binds every run still means\n     no single run sees the whole list. Make the"
+              " sweep cheaper before raising SCRAPE_BUDGET_MIN:\n     the tail after it (prune,"
+              " reconcile, writes) has no clock and shares the same step.")
     else:
         print("\n  Swept %d board(s) in %.1f min with %d workers." % (total, mins, workers))
     return all_jobs
@@ -6476,8 +6646,19 @@ def save_board_health(board_results):
         n = len(br.get("urls") or ())
         rec = boards.get(url) or {"company": company, "ats": ats, "runs": []}
         rec["company"], rec["ats"] = company, ats
-        rec["runs"] = (rec.get("runs") or [])[-(BOARD_HEALTH_RUNS - 1):] + [
-            {"at": stamp, "n": n, "ok": bool(br.get("ok"))}]
+        # `secs` joins the record because nothing in the repo has ever measured what a board
+        # COSTS -- only what it returned. Without it, "Workday is two thirds of the sweep" is a
+        # number somebody worked out by hand once and left in a workflow comment, and any attempt
+        # to make the sweep fit its budget is guesswork. It rides in the kv blob that is already
+        # written every run, so it earns no migration -- the same argument score_jobs' thin-JD
+        # ledger makes for itself.
+        #
+        # Absent for a board the budget skipped: it was never started, so it cost nothing, and
+        # recording a 0 would drag its median down and make the expensive ones look cheap.
+        run = {"at": stamp, "n": n, "ok": bool(br.get("ok"))}
+        if br.get("secs") is not None:
+            run["secs"] = round(float(br["secs"]), 1)
+        rec["runs"] = (rec.get("runs") or [])[-(BOARD_HEALTH_RUNS - 1):] + [run]
         boards[url] = rec
     db.put_kv(BOARD_HEALTH_KEY, {"updated_at": stamp, "boards": boards})
 
@@ -6494,6 +6675,36 @@ def save_board_health(board_results):
                                                   r["runs"][-1]["n"]))
         if len(group) > 25:
             print("  %-6s ...and %d more" % (label, len(group) - 25))
+
+    # WHERE THE SWEEP WENT. One pass over a dict we just built, and the most useful few lines in
+    # the run log for anyone trying to make the sweep fit its budget. Grouped by ATS rather than
+    # by board because the fix for a slow board is almost always a fix to its adapter, and one
+    # adapter carries hundreds of boards.
+    per_ats = {}
+    for r in boards.values():
+        s = [x["secs"] for x in (r.get("runs") or []) if x.get("secs") is not None]
+        if not s:
+            continue
+        a = per_ats.setdefault(r.get("ats") or "?", {"boards": 0, "secs": 0.0})
+        a["boards"] += 1
+        a["secs"] += s[-1]                     # this run only, not the whole 8-run window
+    if per_ats:
+        spent = sum(a["secs"] for a in per_ats.values())
+        print("")
+        print("  Cost by ATS this run: %.0f worker-seconds over %d board(s) that ran"
+              % (spent, sum(a["boards"] for a in per_ats.values())))
+        for ats, a in sorted(per_ats.items(), key=lambda kv: -kv[1]["secs"])[:8]:
+            print("    %-18s %6.0fs  %5.1f%%  across %4d board(s)  (%.1fs each)"
+                  % (ats, a["secs"], 100.0 * a["secs"] / max(1.0, spent), a["boards"],
+                     a["secs"] / max(1, a["boards"])))
+        slowest = sorted(
+            ((max(x["secs"] for x in r["runs"] if x.get("secs") is not None), r)
+             for r in boards.values()
+             if any(x.get("secs") is not None for x in (r.get("runs") or []))),
+            key=lambda t: -t[0])[:10]
+        print("  Slowest single boards seen in the last %d run(s):" % BOARD_HEALTH_RUNS)
+        for s, r in slowest:
+            print("    %6.0fs  %-30s %s" % (s, (r.get("company") or "?")[:30], r.get("ats")))
 
 
 def reconcile_closed(board_results, apply=False):
@@ -6680,6 +6891,12 @@ def main():
     else:
         seen = {canonical_url(u).lower() for u in db.existing_urls()}
 
+    # Hand the dedupe index to the adapters that can use it to skip work. Only Greenhouse reads
+    # it today, to decide whether a board is worth asking for descriptions; see
+    # scrape_greenhouse. Set from `seen` rather than from a second read, so the two cannot
+    # disagree about what "already have it" means.
+    publish_known_urls(seen)
+
     # The JobSpy record gate reuses the indexes already loaded at the top of this run.
     # It stays OPT-IN, and the guard is the point: now that those files are read on every
     # scrape for the sponsor flag, gating on "did they load" would silently switch this
@@ -6715,6 +6932,37 @@ def main():
     sources = SOURCES + custom_sources()
     if len(sources) > len(SOURCES):
         print("+ %d board(s) added via the app." % (len(sources) - len(SOURCES)))
+
+    # ROTATE THE START. scrape_all consumes this list in order and stops STARTING boards once
+    # SCRAPE_BUDGET_MIN is spent, so when the budget binds it is always the SAME tail that goes
+    # unread -- and the log said those boards "are read again next run", which is only true if
+    # the budget stops binding. Both halves of that were measured on 2026-08-21 (see 1dd90a0):
+    #
+    #     budget 22 -> all 1265 boards swept in 20.6 min, 0 skipped
+    #     budget 16 -> ran out at 21.4 min, 95 boards skipped
+    #
+    # So this is INSURANCE, not the repair of a live bug: at 22 the budget does not bind and
+    # nothing is starved. It exists because the day the budget was 16, the cost was not a random
+    # 95 boards -- it was the same 95 every run, and nothing in the log said so.
+    #
+    # Rotating by day-of-year makes a starved slice move instead of persist, the same trick
+    # auto-discovery above uses to cover its whole list from a stateless runner. It costs
+    # nothing: same boards, same count, different starting point. Deliberately NOT random -- a
+    # fixed rotation covers the list evenly and keeps a run reproducible from its date, and
+    # SCRAPE_ROTATE=0 turns it off for a before/after measurement.
+    #
+    # The actual repair for a binding budget is to make the sweep cheaper, which is what the
+    # concurrent Workday pagination below does: 1dd90a0 found the sweep's floor was "the
+    # per-board straggler" -- some Workday tenants taking minutes each -- and that is exactly
+    # the number scrape_workday now attacks.
+    if sources and SCRAPE_ROTATE:
+        _doy = datetime.datetime.now(datetime.timezone.utc).timetuple().tm_yday
+        # int(): _env_num returns a float, and a float is not a valid slice index.
+        _off = int(_doy * SCRAPE_ROTATE_STRIDE) % len(sources)
+        if _off:
+            sources = sources[_off:] + sources[:_off]
+            print("Sweep starts at board %d of %d (rotates daily so the budget cannot starve"
+                  " the same tail every run)." % (_off + 1, len(sources)))
 
     # --- live progress for the in-page "Update jobs" bar (best-effort; never blocks a scrape) ---
     started = datetime.datetime.now(datetime.timezone.utc).isoformat()   # UTC so the browser's elapsed math is right
