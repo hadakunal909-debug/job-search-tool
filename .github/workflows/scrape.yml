@@ -201,21 +201,25 @@ jobs:
           # boards). When the budget binds it says so in the log and still saves every board
           # fetched up to that point.
           #
-          # 16 RATHER THAN 22, LOWERED 2026-08-21, and the number is about the TAIL, not the
-          # sweep. SCRAPE_BUDGET_MIN bounds ONLY the sweep: prune, the closed-posting
-          # reconcile (~19k rows) and the new-job writes all run after it with no clock at all
-          # (scraper/__init__.py:6928). At 22 inside a 26-minute step that tail was guaranteed
-          # four minutes, and on 2026-08-21 it had not finished in 5m17s — the step was killed
-          # and every step below it skipped, leaving 1,402 rows scraped and unscored. Measured
-          # either side of it: 17.1 min over 1260 boards was fine, 20.6 min over 1265 was not.
+          # LOWERING THIS DOES NOT SHORTEN THE SWEEP — MEASURED 2026-08-21, both directions.
+          # The budget stops DISPATCHING boards at the deadline; the 16 workers already in
+          # flight then have to drain, and that drain is ~5.4 min because a handful of Workday
+          # tenants take minutes each. So:
           #
-          # The note that used to sit here said to raise this and timeout-minutes together.
-          # That is the wrong direction on an account with $0 overage: the sweep is BUILT to
-          # truncate and resume next run and says so at scraper/__init__.py:6343, so paying for
-          # tail headroom in board depth costs a cycle of depth, while paying in minutes costs
-          # the budget. Give the tail room first. Only raise both if the TAIL is what grew.
+          #   budget 22 -> swept all 1265 boards in 20.6 min, 0 skipped
+          #   budget 16 -> "budget ran out at 21.4 min", 95 boards SKIPPED
+          #
+          # Lower bought no time and cost 95 boards, so it went back to 22. No value under
+          # ~21 min can do anything until the per-board straggler is capped; that is the fix
+          # if the sweep ever has to get shorter. Do not re-tune this number in isolation.
+          #
+          # The thing that actually overran the 26-minute step is NOT the sweep and not the
+          # closed-posting reconcile: it is "JD lookup: fetching 1200 description(s) for
+          # title-rejected postings", the description-based admission added 2026-08-20, which
+          # runs after the sweep with no budget of its own. It is absent from the 2026-08-20
+          # logs and present in both 2026-08-21 failures.
           SCRAPE_WORKERS: "16"
-          SCRAPE_BUDGET_MIN: "16"
+          SCRAPE_BUDGET_MIN: "22"
           # Retire postings that have vanished from their own board. This defaulted to a dry run
           # and was never set here or in bin/cron_scrape.sh, so it has only ever PRINTED what it
           # would do -- 5,178 rows are sitting under the miss threshold and 404 postings still
