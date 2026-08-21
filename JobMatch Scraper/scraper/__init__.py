@@ -1381,6 +1381,21 @@ AVATURE_BOARDS = [
     # Seattle. It is also the board that exposed the subtitle-location gap in
     # _avature_location; before that fix its Zurich and Mexico stores read as US. ---
     ("https://careers.lululemon.com/en_US/careers/SearchJobs", "avature", "lululemon"),  # ~1130
+    # --- Added 2026-08-21 (user request): Epic Systems (Verona WI — the EHR vendor, and a
+    # top-volume H-1B petitioner). Pasted as a /Careers/Register?folderId=… apply link;
+    # _avature_base normalizes it. Epic posts EVERGREEN JOB FAMILIES, not requisitions: 49
+    # folders, one per role, reposted never — so found_date is the scrape stamp and the row
+    # count stays flat instead of churning. 48 are US (the one UK folder is dropped) and 7
+    # clear the title filter as measured on 2026-08-21: Software Developer (+ its intern),
+    # Project Manager, Infrastructure Engineer, Enterprise Network Engineer, DevOps/SRE,
+    # Compensation and Stock Program Manager. The rest is the Verona campus kitchen and
+    # facilities. Note the near-misses are real roles the gate declines by design, NOT a
+    # coverage bug: Technical Solutions Engineer, Integration Solutions Engineer and the
+    # three Systems Administrators want a phrase the keyword list does not carry, and
+    # core.admits_on_description cannot rescue them because Avature ships no listing JD
+    # (the card's one-line teaser is far too thin to offer as one — see the THIN-jd class).
+    # This is the board that forced the third card template and _avature_offset_param. ---
+    ("https://epic.avature.net/Careers/SearchJobs", "avature", "Epic Systems"),  # ~49
 ]
 
 # UKG Pro Recruiting (UltiPro) boards — recruiting[N].ultipro.com/{CO}/JobBoard/{guid}.
@@ -4292,8 +4307,8 @@ def _jobdiva_agency(token):
 #     optional .list-item-posted ('Posted DD-Mon-YYYY'); fields vary per tenant (Bloomberg
 #     has location/no date, Synopsys has date/no location), ~6-12/page.
 #   - 'jobResultItem' (e.g. Epic): links /FolderDetail/ rather than /JobDetail/, carries no
-#     location or date element at all (both come out of the URL slug), and � the part that
-#     bites � pages by ?folderOffset=N. See _avature_offset_param.
+#     location or date element at all (both come out of the URL slug), and — the part that
+#     bites — pages by ?folderOffset=N. See _avature_offset_param.
 # Page size varies, so we advance the offset by the actual cards-per-page. MAX caps a giant tenant.
 AVATURE_PAGE = 10                                 # fallback only; we advance by len(cards)
 AVATURE_MAX_JOBS = 3000
@@ -4320,11 +4335,15 @@ _META_SUB = re.compile(r"\b(job id|posted|employee|full[- ]time|part[- ]time|con
                        r"permanent|temporary|intern(ship)?|req(uisition)? ?id)\b", re.I)
 
 
-def _avature_location(card, href):
-    """A card's location, handling both templates. The 'article--result' template (Bloomberg
-    etc.) prints a single .list-item-location; the 'listSingleColumnItem' template (NVA) uses
-    City:/State: spans + the country embedded in the JobDetail slug (…-United-States-… /
-    …-Canada-…). '' when the tenant omits location entirely (e.g. Synopsys)."""
+def _avature_location(card, href, title=""):
+    """A card's location, handling all three templates. The 'article--result' template
+    (Bloomberg etc.) prints a single .list-item-location; the 'listSingleColumnItem' template
+    (NVA) uses City:/State: spans + the country embedded in the JobDetail slug
+    (…-United-States-… / …-Canada-…); the 'jobResultItem' template (Epic) carries no
+    location element at all and is read out of the FolderDetail slug. '' when the tenant
+    omits location entirely (e.g. Synopsys)."""
+    if "/FolderDetail/" in href:
+        return _avature_folder_location(href, title)
     el = card.select_one(".list-item-location")
     if el:
         return el.get_text(" ", strip=True).rstrip(".").strip()
@@ -4366,6 +4385,50 @@ def _avature_location(card, href):
     return ", ".join(x for x in (city, state, country) if x)
 
 
+# A FolderDetail slug is "<city>-<state>-<country>-<title>", e.g.
+# Verona-Wisconsin-United-States-Software-Developer. Nothing delimits the three location
+# fields from each other or from the title, so it is read from both ends: the title slug is
+# stripped off the tail (we already know the title — it is the link text), and the US state
+# name is found inside what is left, which is what fixes the city boundary. Position alone
+# cannot do it — "New-York-New-York-United-States-…" is four tokens with no seam.
+#
+# A slug with no US state (Epic's one UK folder,
+# Bristol-BS1-6NL-United-Kingdom-of-Great-Britain-and-Northern-Ireland-…) is returned as
+# plain text rather than guessed at: it still carries the country name, so is_us_location
+# drops it on _NON_US_RE, which is the outcome that matters.
+_AVATURE_SLUG_SEP = re.compile(r"[^A-Za-z0-9]+")
+_AVATURE_STATE_RE = None                          # built on first use: US_STATE_NAMES is
+                                                  # defined far below this point in the module
+
+
+def _avature_state_re():
+    global _AVATURE_STATE_RE
+    if _AVATURE_STATE_RE is None:
+        # Longest-first so "west virginia" is not matched as "virginia", which would put
+        # "West" on the end of the city.
+        _AVATURE_STATE_RE = re.compile(
+            r"\b(" + "|".join(sorted((re.escape(s) for s in US_STATE_NAMES),
+                                     key=len, reverse=True)) + r")\b", re.I)
+    return _AVATURE_STATE_RE
+
+
+def _avature_folder_location(href, title):
+    """Location out of a /FolderDetail/<slug>/<id> URL. '' if the slug is only the title."""
+    segs = [s for s in urlparse(href).path.split("/") if s]
+    slug = segs[-2] if len(segs) >= 2 else ""
+    tail = _AVATURE_SLUG_SEP.sub("-", title).strip("-")
+    if tail and slug.lower().endswith(tail.lower()):
+        slug = slug[:-len(tail)].strip("-")
+    if not slug:
+        return ""
+    plain = slug.replace("-", " ")
+    m = _avature_state_re().search(plain)
+    if not m:
+        return plain
+    city = plain[:m.start()].strip()
+    return ", ".join(x for x in (city, m.group(1).title(), "United States") if x)
+
+
 def _avature_date(card):
     """Posting date from the 'article--result' template's .list-item-posted ('Posted
     DD-Mon-YYYY' -> 'YYYY-MM-DD'). '' for the NVA template (no date -> scrape-stamp fallback)."""
@@ -4384,6 +4447,15 @@ def _avature_date(card):
 # aria-label="409 results">1-12 of 409 results</div>. Knowing the total up front is what lets the
 # remaining offsets be fetched together instead of discovered one page at a time.
 _AVATURE_TOTAL_RE = re.compile(r'aria-label="\s*([\d,]+)\s+results?"', re.I)
+
+
+def _avature_offset_param(html):
+    """Which query param pages THIS tenant. The folder template pages by ?folderOffset=N and
+    ignores ?jobOffset=N outright — it does not error on it, it just serves page one again, so
+    the wrong param looks like a board that is exactly one page long (Epic: 10 folders of 49,
+    no warning, no short-read to notice)."""
+    return "folderOffset" if "/FolderDetail/" in html else "jobOffset"
+
 
 # Concurrent page fetches within ONE Avature board. Matches SCRAPE_PER_HOST: every one of these
 # hits the same tenant host, so going wider would be impolite rather than faster.
@@ -4415,10 +4487,11 @@ def _avature_cards(html, base, seen, rows):
 
 
 def scrape_avature(board_url):
-    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Pages via ?jobOffset=N,
-    handling both card templates (listSingleColumnItem / article--result) via _avature_location +
-    _avature_date. The title (its /JobDetail/ link) is in both; the title + US filter in main()
-    trims the result.
+    """Avature career portals (<tenant>.avature.net/<portal>/SearchJobs). Pages via
+    ?jobOffset=N — or ?folderOffset=N on the folder template, see _avature_offset_param —
+    handling all three card templates (listSingleColumnItem / article--result / jobResultItem)
+    via _avature_location + _avature_date. The title (its /JobDetail/ or /FolderDetail/ link)
+    is in all three; the title + US filter in main() trims the result.
 
     Pages are fetched CONCURRENTLY. jobOffset is stateless — no cursor, no session — so once the
     first page has told us the page size and the board total, every remaining offset is just a
@@ -4440,6 +4513,7 @@ def scrape_avature(board_url):
     _new, page_size = _avature_cards(r.text, base, seen, rows)
     if not page_size:
         return rows
+    off_param = _avature_offset_param(r.text)
 
     m = _AVATURE_TOTAL_RE.search(r.text)
     total = int(m.group(1).replace(",", "")) if m else 0
@@ -4452,7 +4526,7 @@ def scrape_avature(board_url):
             # independently means a blip silently drops just that page's postings instead.
             for attempt in (0, 1):
                 try:
-                    p = SESSION.get("%s/?jobOffset=%d" % (base, off),
+                    p = SESSION.get("%s/?%s=%d" % (base, off_param, off),
                                     headers=HEADERS, timeout=25)
                     if p.status_code == 200:
                         return p.text
@@ -4474,7 +4548,8 @@ def scrape_avature(board_url):
     offset = page_size
     while offset < AVATURE_MAX_JOBS:
         try:
-            r = SESSION.get("%s/?jobOffset=%d" % (base, offset), headers=HEADERS, timeout=25)
+            r = SESSION.get("%s/?%s=%d" % (base, off_param, offset),
+                            headers=HEADERS, timeout=25)
         except Exception:
             break
         if r.status_code != 200:
