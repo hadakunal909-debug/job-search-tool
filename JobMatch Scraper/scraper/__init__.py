@@ -5470,6 +5470,90 @@ def _name_from(slug):
     return s.title() if (s.islower() or s.isupper()) else s
 
 
+# Decoration a board puts in its OWN name that says nothing about which employer it is.
+# Deliberately NOT probe_migratemate._BOARD_DECOR: that one is used to compare two names for
+# equality during grading, where over-stripping loses a real signal. This one is used to turn a
+# page title into something displayable, so it can afford to be greedier -- "Candidate
+# Experience Site" is pure Oracle boilerplate and reduces to nothing, which is the honest answer.
+_TITLE_DECOR = re.compile(
+    r"\b(careers?|career site|job board|jobs?|external|internal|website|web site|site|"
+    r"corporate|corp site|opportunities|general|portal|hiring|recruiting|talent|employment|"
+    r"candidate experience|lateral|campus|search)\b", re.I)
+
+# The two platforms whose API states the employer outright.
+_NAME_ENDPOINTS = {
+    "greenhouse": ("https://boards-api.greenhouse.io/v1/boards/%s", "name"),
+    "smartrecruiters": ("https://api.smartrecruiters.com/v1/companies/%s", "name"),
+}
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+_OG_SITE_RE = re.compile(
+    r"""<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)""", re.I)
+
+
+def _clean_title_name(s):
+    s = (s or "").replace(chr(92) + "/", "/")   # Oracle escapes / in its titles
+    s = re.sub(r"\s+", " ", _TITLE_DECOR.sub(" ", s))
+    return re.sub(r"\s+", " ", s).strip(" -|:,–—")
+
+
+def board_display_name(board_url, ats_type, timeout=15):
+    """What the board calls ITSELF, or "" when the platform will not say.
+
+    detect_board can only guess from the URL slug, and _name_from turns an opaque tenant code
+    into a plausible-looking company: hdpc.fa.us2.oraclecloud.com became "Hdpc", which is how
+    131 Goldman Sachs postings sat under a four-letter Oracle tenant id -- carrying no
+    sponsorship signal at all, because "Hdpc" matches nothing in the filing data while
+    "Goldman Sachs" matches 5,417 petitions.
+
+    Two sources, strongest first: an API that names the employer, for the two platforms that
+    offer one; then the board page's own og:site_name / <title>, which is where Oracle Cloud
+    and Ashby put a real company name. Workday and UltiPro render their titles client-side and
+    so answer nothing -- hence the "" contract rather than a guess dressed up as an answer.
+    """
+    ep = _NAME_ENDPOINTS.get(ats_type)
+    if ep:
+        api, field = ep
+        slug = (board_url or "").rstrip("/").rsplit("/", 1)[-1]
+        try:
+            r = SESSION.get(api % slug, headers=HEADERS, timeout=timeout)
+            if r.status_code == 200:
+                got = _clean_title_name((r.json() or {}).get(field) or "")
+                if got:
+                    return got
+        except Exception:
+            pass
+    try:
+        r = SESSION.get(board_url, headers=HEADERS, timeout=timeout)
+        if r.status_code == 200:
+            for rx in (_OG_SITE_RE, _TITLE_RE):
+                m = rx.search(r.text)
+                if m:
+                    got = _clean_title_name(m.group(1))
+                    if got:
+                        return got
+    except Exception:
+        pass
+    return ""
+
+
+def name_is_sluglike(name, board_url):
+    """True when `name` carries nothing the URL did not already say.
+
+    The one test that would have caught every one of the nine garbled employers found on
+    2026-08-22. detect_board's third return value is a SUGGESTION for a paste box, not a fact;
+    stored unchallenged it records World Fuel Services as "Wfscorp" and Monogram Health as
+    "Mon1026Monoh". Compare the proposed name against what _name_from would make of each URL
+    segment: if they agree, the name is the tenant slug wearing title case.
+    """
+    n = _norm_name(name or "")
+    if not n:
+        return True
+    for seg in re.split(r"[/.]", (board_url or "").lower()):
+        if seg and _norm_name(_name_from(seg)) == n:
+            return True
+    return False
+
+
 def detect_board(url):
     """Map a pasted job-board URL to (normalized_board_url, ats_type, suggested_name),
     or None if it isn't one of the scrapeable ATS feeds. The normalized URL is the exact
