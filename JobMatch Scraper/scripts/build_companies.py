@@ -11,6 +11,17 @@ link, its LinkedIn search, its H-1B volume and its visa/cap-exempt/agency flags.
 Run from the app directory: sponsors.txt, careers_us.md and the sponsor JSONs are read
 relative to the cwd, exactly as web.py reads them.
 
+POINT IT AT THE LIVE DATABASE, or the file is built from whatever stale copy is lying around:
+
+    DB_REQUIRE=proxy DB_PROXY_SECRET="$(tr -d '\\r\\n' < .db_proxy_secret)" \\
+      DB_PROXY_URL="https://stemjobs1.astrochakra.co/api/db" python scripts/build_companies.py
+
+Without those, db falls back to the credentials in .streamlit/secrets.toml -- left behind by the
+retired Streamlit app and pointing at the Supabase this project moved off on 2026-08-15. The
+first two builds of this file went that way and nothing failed: 21,980 rows and 167 boards
+instead of 27,613 and 115, which silently omitted 591 live employers. DB_REQUIRE=proxy makes
+that a crash instead, and the run now prints which database each half came from.
+
 WHY THE UNIVERSE IS WHAT IT IS. SOURCES + sponsors.txt is 1,633 names, but the live corpus
 holds ~391 companies outside that union — boards added through /add, plus corpus spellings
 that don't normalize onto a SOURCES name. Omitting them would hide employers that have jobs
@@ -819,6 +830,161 @@ _CURATED_TAIL = {
     ],
 }
 
+
+# Third pass, and the reason there is one: the first two were built from the LOCAL SNAPSHOT and
+# a boards table read out of .streamlit/secrets.toml -- the retired Streamlit app's credentials,
+# still pointing at the Supabase this project moved off. That is 21,980 rows and 167 boards.
+# Live is 27,613 rows and 115 boards, which is 591 employers the earlier passes never saw.
+# _corpus_source() now prints which database it read, so this cannot happen quietly again.
+#
+# The nine at the top are the boards whose stored name was a tenant slug until 2026-08-22
+# (Hdpc -> Goldman Sachs and friends). They needed sectors of their own, because until now no
+# rule had ever seen their real names.
+_CURATED_LIVE = {
+    "Aerospace, Defense & Industrial": [
+        "Fortive", "Abb", "ABB", "Assaabloy", "Schneider Electric", "Xylem", "Symbotic",
+        "Vertiv", "Molex", "INNIO", "IMI Plc", "Plexus", "Acuity Brands", "Inteplast",
+        "Mosaic", "Waters", "INFICON", "Dorman Products", "ClarkDietrich Building Systems",
+        "Virginia Transformer Corp", "Ultralife Corporation", "XNRGY Climate Systems",
+        "Polaris Industries", "Shark Ninja", "SCHNELLER INC", "Hamilton Company",
+        "Solidigm US", "Ultra", "Neumo Holdings LLC", "INC Andersen Windows",
+        "Agile Space Industries", "Astranis", "True Anomaly", "GhostEye", "Melius",
+        "Long Wave Inc.", "KIHOMAC, Inc.", "North Point Technology", "Envisioneering, Inc",
+        "WR Systems", "SimIS, Inc", "ManTech International", "Chenega Corporation",
+        "Chenega MIOS", "Cherokee Federal", "CATHEXIS", "Nuvitek", "Northstrat",
+        "Pantheon Data", "Patrona Corporation", "Belay Technologies", "Marathon TS Inc",
+        "Cambridge International Systems, Inc", "TMC Technologies", "LMI",
+        "HII's Mission Technologies division", "Genuine Parts Giant", "Lexicon, Inc.",
+        "Apex Companies, LLC", "CSA Group", "Hitachi Rail", "CMA CGM", "Trillium",
+        "Armada", "Corvant", "Novaflow", "Minicor", "Renova One", "RS Electric",
+        "Humble Robotics", "Lambda Robotics", "Autonomous Technologies Group",
+        "Peregrine Technologies", "QUANTUM TECHNOLOGIES LLC", "Terranox AI",
+    ],
+    "Banking, Finance & Insurance": [
+        "Kroll", "Cantor Fitzgerald", "OnePay", "J.P. Morgan", "Fitch Ratings", "Broadridge",
+        "Verisk", "Corpay", "FIS", "Forge Global", "Manulife", "ION Group", "Qbe",
+        "HealthEquity Inc.", "Ibotta", "Remitly, Inc.", "Washington Trust", "Swyfft",
+        "Tomo Credit", "Bestow", "Boldin", "Thunes", "Bullish", "Gemini", "MyFunded Futures",
+        "Initio Capital", "LP Analyst", "Selene Diligence", "DiligenceSquared",
+        "The Independent Community Bankers of America", "Texas Farm Bureau", "HCVT",
+        "CohnReznick", "Cotiviti", "R1 RCM", "MeridianLink", "Ninth Wave", "PayIt",
+        "Spade", "TaxHawk", "Elliptic", "Key To Web3", "Pulley", "Rho", "Confido",
+        "Tabs", "Dealops", "MRI", "Brookfield Corp.", "HUB International", "Press Ganey Associates",
+    ],
+    "Healthcare, Pharma & Biotech": [
+        "Pace Analytical", "Catalent", "Tempus", "Personalis", "GoodRx", "CenterWell",
+        "Tandem Diabetes Care, Inc.", "Alphatec Spine", "Stereotaxis", "Verathon",
+        "Intuitive Surgical, Inc", "ThermoFisher Scientific", "LabConnect",
+        "Clinical Reference Laboratory", "VivoSense, Inc.", "Abby Care", "Herewith",
+        "OCHIN, Inc.", "HCSC", "Metriport", "Alma", "Papa", "Unlearn", "Edison Scientific",
+        "DigiM Solution LLC", "Amorepacific Us", "Advocates", "PRC Baker Places",
+        "ColumbiaCare Services", "IHMS LLC.", "Somatus", "American Heart Association",
+    ],
+    "Hospitals & Health Systems": [
+        "UC Health", "KAISER", "Seattlechildrens", "Minerva",
+    ],
+    "Energy & Utilities": [
+        "World Fuel Services", "Evergy", "ONE Gas", "Venture Global LNG", "Enverus",
+        "Lynker", "PROtect", "VSC Fire", "Hermanson Company", "USIC", "Pkaza",
+    ],
+    "Software & Internet": [
+        "Gartner", "Proofpoint", "PaloAlto Networks", "Arctic Wolf", "Genesys", "UKG",
+        "LiveRamp", "Mixpanel", "Bullhorn", "Blueprint", "OneSpan", "Synaptics",
+        "SquareTrade", "PAR Technology", "Wolters Kluwer", "EBSCO Information Services",
+        "EverCommerce", "Encord", "Midjourney", "Superhuman", "Magical", "Medium",
+        "Materialize", "Fountain", "Flip", "Awardco", "Hex Technologies", "TRACKVIA INC",
+        "Kofile Technologies", "N. Harris Computer Corporation - USA", "Railinc Corp.",
+        "Gainwell Technologies LLC", "PROLIM Corporation", "Boston Technology Corporation",
+        "Nucleus Security", "Hinoki Security", "Pi Security", "Secureframe", "HR Acuity LLC",
+        "Kiddom", "Stride, Inc.", "NORY", "Kwik Trip Inc", "Hive", "Loop", "Pocket",
+        "Commence", "Chalk", "Dealpath", "Casechek", "CourtAlert", "GovWell", "Parkade",
+        "Pantograph", "Translucent", "Trovy", "Soren", "Sixtyfour", "Twenty", "Thesis*",
+        "Pronto", "Naïve", "tonic", "Mirage", "Expression", "Allocate", "Affinity",
+        "Artisan", "Circleback", "Conduit", "Cultura", "Finny", "foundr", "Freebuff",
+        "Giftogram", "GloGlo", "Human Archive", "Lance", "Lean Layer", "Link Network",
+        "Manifest OS", "Nectar Social", "Pensive", "PEX+", "Quadrillion", "ReadyOn",
+        "Relace", "Runbook", "SkyLink", "Sporting Kansas City", "TeamOut", "Valkai",
+        "Veho", "ZipLine", "ornn.com", "joinanvil.com", "Employer.com", "Pilot.com, Inc.",
+        "Future Dial, Inc.", "Likewize", "Zensors", "SpreeAI", "Instalily.Ai", "Hatz AI",
+        "Haize Labs", "Bespoke Labs", "Dedalus Labs", "David AI", "ArtosAI", "Billee.AI",
+        "Rhizome AI", "Soulside AI", "DeepAware AI (Robotics Center of Silicon Valley)",
+        "Openkyber", "Edyo", "Ivo", "dili", "Clera", "Fort", "Vibrant Planet", "LVT",
+        "KASTLE", "LIGHTFEATHER IO LLC", "Atominvest", "Canopy Works", "CharacterQuilt",
+        "Sunland Group, Inc.", "Datalab", "Ooak Data", "Minneapolis Public Schools",
+        "Merge API Integration Sandbox", "Acme 091614", "TAb S", "Trove Brands",
+        "Vizio Services", "Bitdeer Technologies Group", "Bet365", "MetroStar",
+        "NuAxis Innovations", "GovCIO", "PSI Services", "CAI", "C1", "ARGO",
+        # fourth pass: the last few the live sweep left that a name can actually settle
+        "Mistral", "Tagup", "Lynx", "GreenArrow", "SERVAL SAS",
+        "Copart", "Grubhub", "Hearst", "News Corp", "New York Post", "The Arena",
+        "Concord USA", "ConvergeOne", "Blueprint", "Fab2", "Pbv", "Impact",
+    ],
+    "IT Services & Consulting": [
+        "SynergisticIT", "AaraTechnologies Inc", "Eliassen Group", "Mindlance",
+        "Turner & Townsend", "Pinnacle Technical Resources", "Stefanini", "WinWire",
+        "Sharp Decisions", "nLeague Services", "Sparks Group", "Cognitive Minds LLC",
+        "Incedo Inc.", "AccrueTalent", "Brooksource", "Aldridge", "America At Work",
+        "Cadmus", "Omega Technical Services", "Fast Switch", "Conch Technologies Inc",
+        "Donato Technologies, Inc", "Staxa Technologies", "Allegis Group",
+        "Comprehensive Resources Inc.", "Select Minds LLC", "Resource Informatics Group",
+        "Infojini Inc", "Skywalk Global", "TechniPros, LLC", "Hays", "Inteliblue",
+        "ExcelGens, Inc.", "Nextgen Information Services", "Info Origin Inc.",
+        "Redolent, Inc", "Spotlight Inc.", "Tekaccel, Inc", "Link Technologies",
+        "Aston Carter", "TransPerfect", "Merican Inc", "IT Labs", "Page Group",
+        "Jobot", "Genesis10", "Global Channel Management, Inc.", "Hired by Matrix",
+        "HumCap, Inc.", "Bishop & Company, Inc.", "The Bachrach Group", "Russell Tobin",
+        "Tailored Management", "TASC Technical Services", "Staffingine LLC", "Vitaver",
+        "Varick Agents", "Vibesoft Inc", "Uhler & Company", "Smith Johnson Tech",
+        "Silicon Valley Search Group", "Smart Synergies", "RimePro Inc", "Qureos Inc",
+        "PDSSOFT INC.", "Parkar Global Technologies Pvt. Ltd.", "Ohm Systems, Inc",
+        "NasTech Global, Inc.", "MW Partner", "MRINetwork Jobs", "Magnet Hr", "LHH US",
+        "Medinext Global LLC", "Neeljym Search Group", "North Shore Strategies",
+        "Inter-co division 10 inc", "Info Dinamica Inc", "HigherPeople", "HME Careers",
+        "Harris & Co Executive Search", "Gottlieb and Greenspan", "GARGI TECHNOLOGIES INC",
+        "ERSG Ltd", "Express Employment Professionals", "Adidev Technologies Inc",
+        "Adaptive Innovations", "AEM Corporation", "AllSTEM Connections", "AppleOne",
+        "A & Associates", "347 Group, Inc.", "1STAR-NETWORKS LLC", "Black Rock Groups",
+        "Brandes Associates", "Cinter Career", "Element 6solution", "RZR Global",
+        "STAND 8", "Tri-City Group", "Tresume and Asta CRS", "Jose Merciline",
+        "Relling", "Menlo", "Minicor", "MW Partner", "Cooley LLP",
+        "Cooley Godward Kronish LLP", "PMAT", "The Project Delivery Group", "Plexos Group, LLC",
+        "OOS Management", "Bnaus Bbdo Usa", "McCann Relationship Mktg", "SBS Creatix, LLC",
+        "Boston Technology Corporation", "STAMPEDE VENTURES INC", "Selene Diligence",
+    ],
+    "Engineering, Construction & Real Estate": [
+        "Kleinfelder", "Mortenson", "Menard", "Menards", "TERRACON", "Groundworks",
+        "IPS-Integrated Project Services", "Sargent & Lundy", "Hoefer Welker",
+        "Shiel Sexton Company, Inc.", "Fisher Associates, P.E., L.S., L.A., D.P.C.",
+        "GeoSurfaces", "ADB Companies Inc", "BMS CAT", "DCS Asset Maintenance",
+        "Greystar Management Services", "K&D Development", "Lithko", "The Chamberlain Group",
+        "Ford Audio-Video Systems", "A. Duda", "American Made Signs", "Breaking Ground",
+        "Tri-Coastal", "FBS MANAGEMENT LLC", "Sorrel River Ranch", "Parkade",
+    ],
+    "Retail, Consumer & Hospitality": [
+        "7-Eleven", "Gapinc", "Homedepot", "CHS Inc.", "Ardent Mills", "The Wonderful Company",
+        "Fabletics", "HUGO BOSS", "Pair Eyewear", "Indie Campers", "Lindblad Expeditions",
+        "Big Geyser, Inc", "Giftogram", "Sorrel River Ranch", "Trove Brands",
+    ],
+    "Transport, Logistics & Automotive": [
+        "Corpay", "USIC", "Veho", "CMA CGM", "Metropolitan Transportation Authority",
+    ],
+    "Media, Telecom & Gaming": [
+        "Hearst", "News Corp", "New York Post", "McCann Relationship Mktg", "Bnaus Bbdo Usa",
+        "Indie Campers", "Minnetrista Museum & Gardens", "Indiana Sports Corp",
+    ],
+    "Government & Public Sector": [
+        "City of New York", "State of careers Rhode Island", "ELIZABETH PUBLIC SCHOOLS",
+        "Natick Public Schools", "Minneapolis Public Schools", "Developing NYS",
+        "Metropolitan Transportation Authority", "Open Technology Fund",
+        "International Rescue Committee", "International Justice Mission",
+        "Catholic Social Services", "FRIENDS OF THE LIBRARY OF HAWAII",
+        "The Church of Jesus Christ of Latter-day Saints", "Minnetrista Museum & Gardens",
+        "CPR COURSES INTERNATIONAL LLC", "NPAA",
+    ],
+}
+for _sector, _names in _CURATED_LIVE.items():
+    _CURATED_TAIL.setdefault(_sector, []).extend(_names)
+
 CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
 # The tail loses to the corrections block on a collision: _CURATED_LISTS was written against
 # measured traffic, the sweep was written from a name.
@@ -827,11 +993,31 @@ for _sector, _names in _CURATED_TAIL.items():
         CURATED.setdefault(core.norm_company(_n), _sector)
 
 
+def _squash(s):
+    """'Palo Alto Networks' -> 'paloaltonetworks'. Same idea as probe_migratemate._squash."""
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+# A SECOND index on the space-free form, because the corpus spells the same employer several
+# ways and a space is the difference between a hit and a miss. Live data carries "PaloAlto
+# Networks", "ThermoFisher Scientific", "Homedepot", "Gapinc", "Assaabloy" and
+# "Seattlechildrens" -- every one of which is a company already named in the lists above, and
+# every one of which was landing in Unsorted. Matching the squashed form costs one dict lookup
+# and removes a whole class of near-miss.
+CURATED_SQUASHED = {}
+for _sector, _names in list(_CURATED_LISTS.items()) + list(_CURATED_TAIL.items()):
+    for _n in _names:
+        CURATED_SQUASHED.setdefault(_squash(_n), _sector)
+
+
 def _sector(name, key, cap_exempt, agency):
     """(sector, which_layer_won). Priority: curated > shipped rules > keywords > Unsorted."""
     hit = CURATED.get(key)
     if hit:
         return hit, "curated"
+    hit = CURATED_SQUASHED.get(_squash(name))
+    if hit:
+        return hit, "squashed"
     # The two shipped helpers beat keywords because they are already gated by tests and are
     # already what the .cx / .agency badges on the page mean.
     if cap_exempt:
@@ -875,28 +1061,52 @@ def _read_careers_md(path="careers_us.md"):
     return {m.group(1).strip(): m.group(2).strip() for m in _CAREERS.finditer(txt)}
 
 
+def _corpus_source():
+    """('db'|'snapshot', explanation). Which corpus this build should read, and why.
+
+    THE DATABASE reads first when a proxy or a direct DSN is configured, and this order is the
+    whole point. The first build of companies.json silently used the local snapshot (21,980
+    rows) and a boards table read from .streamlit/secrets.toml -- credentials left behind by the
+    retired Streamlit app, pointing at the Supabase this project moved OFF on 2026-08-15. Live
+    was 27,613 rows and 115 boards. Nothing failed; the file was just built from a database
+    nobody reads any more, and said so nowhere.
+    """
+    if os.environ.get("PG_DSN"):
+        return "db", db.backend_name()
+    if os.environ.get("DB_PROXY_URL") and os.environ.get("DB_PROXY_SECRET"):
+        return "db", db.backend_name()
+    if os.path.exists(SNAPSHOT):
+        return "snapshot", ("%s -- NO proxy configured, so this is whatever the last run left "
+                            "behind" % SNAPSHOT)
+    return "db", db.backend_name()
+
+
 def _corpus_counts():
     """({norm_key: open_count}, {norm_key: most_common_corpus_spelling}).
 
-    Prefers the local snapshot: it is what web.get_jobs reads first anyway, and it keeps this
-    build runnable with no database. Falls back to a NARROW select, because a bare
-    db.load_jobs() downloads ~130 MB of descriptions to read one short string per row.
+    A NARROW select either way: a bare db.load_jobs() downloads ~130 MB of descriptions to read
+    one short string per row.
     """
+    which, why = _corpus_source()
     rows = None
-    if os.path.exists(SNAPSHOT):
+    if which == "db":
+        try:
+            rows = db.load_jobs(cols=db.COLS_COMPANY)
+            sys.stderr.write("corpus: %d rows from %s\n" % (len(rows or []), why))
+        except Exception as exc:
+            sys.stderr.write("note: database unreachable (%s); falling back to %s\n"
+                             % (type(exc).__name__, SNAPSHOT))
+    if rows is None and os.path.exists(SNAPSHOT):
         try:
             blob = json.load(gzip.open(SNAPSHOT, "rt", encoding="utf-8"))
             rows = blob.get("rows") if isinstance(blob, dict) else blob
+            sys.stderr.write("corpus: %d rows from %s\n" % (len(rows or []), why))
         except Exception as exc:
-            sys.stderr.write("note: %s unreadable (%s); trying the database\n"
-                             % (SNAPSHOT, type(exc).__name__))
+            sys.stderr.write("note: %s unreadable (%s)\n" % (SNAPSHOT, type(exc).__name__))
     if rows is None:
-        try:
-            rows = db.load_jobs(cols=db.COLS_COMPANY)
-        except Exception as exc:
-            sys.stderr.write("note: no corpus (%s); live counts will be 0 and corpus-only "
-                             "companies will be missing\n" % type(exc).__name__)
-            return {}, {}
+        sys.stderr.write("note: no corpus at all; live counts will be 0 and corpus-only "
+                         "companies will be missing\n")
+        return {}, {}
     counts = collections.Counter()
     spellings = collections.defaultdict(collections.Counter)
     for r in rows or []:
@@ -929,15 +1139,25 @@ def _universe():
             uni[key] = name
         return key
 
+    def _browsable(u):
+        """A careers link has to be something a person can open. The live boards table holds 13
+        rows whose url is a sentinel rather than an address -- 'adzuna:ADP', left behind when
+        that source was dropped on 2026-08-16 -- and they are inert to the scraper (their
+        ats_type is not in SCRAPERS) but would otherwise have become 13 unclickable "Careers"
+        buttons. test_companies_page catches this class; it is why that assertion exists."""
+        return (u or "").startswith(("http://", "https://"))
+
     for url, _ats, name in scraper.SOURCES:
         key = add(name)
-        if key and url:
+        if key and _browsable(url):
             boards.setdefault(key, url)
     try:
-        for b in db.list_boards() or []:
+        rows = db.list_boards() or []
+        sys.stderr.write("boards: %d rows from %s\n" % (len(rows), db.backend_name()))
+        for b in rows:
             key = add(b.get("company"))
             url = (b.get("url") or "").strip()
-            if key and url:
+            if key and _browsable(url):
                 boards.setdefault(key, url)
     except Exception as exc:
         sys.stderr.write("note: boards table unavailable (%s); companies added through /add "
