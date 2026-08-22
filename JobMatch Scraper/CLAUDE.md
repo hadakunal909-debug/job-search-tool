@@ -13,9 +13,10 @@ Everything below is here because *not* knowing it has already cost real time.
 ## Where you are
 
 The working directory is this app dir; **the git root is the parent**, which also holds
-`.github/workflows/` and two unrelated projects. `.env` and `careers_us.md` are read **relative to
-the current working directory** — a script that doesn't `cd` here first silently gets a different
-database backend and reports success. `DB_REQUIRE` makes that fail loudly instead.
+`.github/workflows/` and two unrelated projects. `.env` and the data files (`companies.json`,
+`sponsors.txt`, the sponsor JSONs) are read **relative to the current working directory** — a
+script that doesn't `cd` here first silently gets a different database backend and reports
+success. `DB_REQUIRE` makes that fail loudly instead.
 
 ## Before you run anything that imports `web`
 
@@ -33,9 +34,18 @@ setting it afterwards does nothing. One unguarded `feed_parity.py` run wrote 98.
   report `binary file matches` with no line numbers or content. Git also classifies it `-text`
   (binary), so `git diff` won't show it either. Use `grep -a` (GNU grep handles it fine),
   `git grep`, or `docs/MAP.md`. It is the second-most-coupled file in the repo.
-- **`careers_us.md` is not documentation.** It's a shipped runtime asset packed by
-  `build_deploy_zip.py` and opened by `web.py` relative to cwd. Moving it into `docs/` takes down
-  `/careers` in production. The `.md` extension makes it the likeliest thing to get "cleaned up".
+- **`companies.json` is a shipped runtime asset**, not a cache. It is in `build_deploy_zip.py`'s
+  **required** `FILES` and on `.cpanel.yml`'s `cp` line; without it `/companies` renders nothing.
+  Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`,
+  and run `--check` — it fails if a high-traffic employer landed in `Unsorted`.
+- **`careers_us.md` is a build input now, not a runtime asset.** It stopped being deployed on
+  2026-08-22: `/careers` is a 301 to `/companies` and nothing reads the file at request time.
+  `scripts/build_companies.py` reads it for its hand-curated careers URLs, so it is still
+  source-of-truth — just not shipped. Edit it through `scripts/build_careers_md.py`.
+  **`scraper/make_careers.py` is gone.** It had no `if __name__ == "__main__"` guard, so merely
+  *importing* it rewrote `careers_us.md` — reintroducing 622 `**` lines the renderer couldn't
+  parse and wiping every in-feed marker. Two docs still told you to run it. If you add a
+  generator to `scraper/` or `scripts/`, guard it.
 
 ## The filter triplet — the highest-consequence coupling here
 

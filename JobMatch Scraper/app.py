@@ -692,7 +692,7 @@ def render_careers():
                 "universities, Eightfold portals.</div>", unsafe_allow_html=True)
     md = _careers_md()
     if not md:
-        st.info("careers_us.md is missing — run `python make_careers.py` to build it.")
+        st.info("careers_us.md is missing — run `python scripts/build_careers_md.py` to build it.")
         return
     q = st.text_input("Search", placeholder="🔎 Filter companies (e.g. Bloomberg, university, bank)",
                       label_visibility="collapsed")
