@@ -1115,6 +1115,19 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/Qurrent", "smartrecruiters", "Qurrent"),              # ~1
     ("https://jobs.smartrecruiters.com/SaintAlphonsusHealthSystem", "smartrecruiters", "Saint Alphonsus Health System"), # ~1
     ("https://jobs.smartrecruiters.com/UCIrvineHealth", "smartrecruiters", "UC Irvine Health"), # ~1
+    # --- Added 2026-08-22 (careers_us.md audit, second tranche; see the note in WORKDAY_BOARDS).
+    # The three small boards from that audit. Both slug-guessed ones were confirmed against the
+    # ATS's own company name before being labelled here -- greenhouse/fns is "FNS, Inc.
+    # Affiliates" and smartrecruiters/IrisSoftware is "IRIS Software", so neither is the slug
+    # collision a low-confidence hit usually turns out to be.
+    #
+    # IRIS Software is a US IT staffing firm and its board is all recruiter roles -- the profile
+    # the body-shop guard exists to exclude (it does not match _BODYSHOP_RE, which is why the
+    # probe reached it). Here on the same basis as eTeam in JOBDIVA_BOARDS: the user's explicit
+    # ask, recorded so it is not mistaken for something the guard approved. ---
+    ("https://jobs.ashbyhq.com/sift", "ashby", "Sift Science"),   # ~8 -> 3 on-target US
+    ("https://job-boards.greenhouse.io/fns", "greenhouse", "FNS"),   # ~6 -> 0 on-target US (freight/logistics, KR+CA)
+    ("https://jobs.smartrecruiters.com/IrisSoftware", "smartrecruiters", "IRIS Software"), # ~7 -> 0 on-target US
 ]
 
 # Workday companies via the CXS JSON API. Each URL is the company's myworkdayjobs site
@@ -1286,6 +1299,54 @@ WORKDAY_BOARDS = [
     # /ExternalCareers both probe 0 — checked before this went in.
     ("https://bnl.wd1.myworkdayjobs.com/Externa",                       "workday", "Brookhaven National Laboratory"), # ~59 (cap-exempt)
     ("https://hhmi.wd1.myworkdayjobs.com/External",                     "workday", "Howard Hughes Medical Institute"), # ~45 (cap-exempt)
+    # --- Added 2026-08-21 (careers_us.md coverage audit). careers_us.md lists 289 sponsors and
+    # only 130 were scraped; the 160 that were not went through find_everify_boards, then a
+    # second pass that feeds the doc's OWN careers URL into the detect chain instead of guessing
+    # careers.<slug>.com. 14 had a real board. These are the 6 that EARN the scrape time.
+    #
+    # Adopted on measured on-target US rows, not board size -- the two are barely related:
+    #
+    #     Booz Allen  2,000 postings -> 645 on-target US   32%   <- 72% of the entire haul
+    #     Workday       364          ->  89                24%
+    #     Milliman      118          ->  20                17%   (ULTIPRO_BOARDS)
+    #     JLL         2,000          ->  77                 3.9%
+    #     Blackstone    174          ->  13                 7.5%
+    #     Alcon         401          ->  13                 3.2%
+    #
+    # DELIBERATELY NOT ADDED, though all six probe fine and would look like wins in a count of
+    # boards: Macy's (oracle, 4,453 -> 16 US rows, 0.5%), Novant Health (jibe, 1,678 -> 9,
+    # 0.5%), Stanford Health Care (343 -> 4), AIG (473 -> 3), Frontier Airlines (76 -> 3),
+    # RingCentral (72 -> 5). Macy's is retail store staffing and Novant is nursing -- the same
+    # flood pattern that got the E-Verify retail giants blocklisted. Bentley University probes
+    # 24 postings and yields ZERO on-target, so it is not here either.
+    #
+    # Cost is bounded: 5 Workday boards x SCRAPE_BOARD_TIMEOUT["workday"] (300s) is a 1,500s
+    # worst case, and the honest cost is far less -- these page at the clean median, not
+    # Itron's pathological rate. ---
+    ("https://bah.wd1.myworkdayjobs.com/BAH_Jobs",                   "workday", "Booz Allen Hamilton"),   # ~2,000 -> 645 on-target US
+    ("https://workday.wd5.myworkdayjobs.com/Workday",                "workday", "Workday"),   # ~364 -> 89
+    ("https://jll.wd1.myworkdayjobs.com/jllcareers",                 "workday", "Jones Lang LaSalle"),   # ~2,000 -> 77
+    ("https://alcon.wd5.myworkdayjobs.com/careers_alcon",            "workday", "Alcon"),   # ~401 -> 13
+    ("https://blackstone.wd1.myworkdayjobs.com/Blackstone_Careers",  "workday", "Blackstone"),   # ~174 -> 13
+    # --- Added 2026-08-22 (careers_us.md audit, second tranche -- at the user's explicit
+    # ask, after the first tranche took only the six boards that paid for themselves).
+    # These are the rest of the 14 probeable boards from that audit. Each one is real and
+    # each one is a poor trade, so the measured yield is recorded per entry rather than
+    # argued here: on-target US rows over postings paged, measured 2026-08-21.
+    #
+    # Not blocked, so the rows do reach the funnel -- the live blocked_companies table holds
+    # only Whataburger and Family Dollar. Macy's is the one to watch: Whataburger was
+    # blocked for "title filter keeps 0 of 4,640 postings" and Macy's keeps 16 of 4,450,
+    # which is the same shape and not yet the same verdict. ---
+    ("https://aig.wd1.myworkdayjobs.com/aig",                                      "workday", "AIG"),   # ~473 -> 3 on-target US (0.6%)
+    ("https://stanfordmedicine.wd115.myworkdayjobs.com/SHC_External_Career_Site",  "workday", "Stanford Health Care"),   # ~343 -> 4 (1.2%, cap-exempt)
+    ("https://ringcentral.wd1.myworkdayjobs.com/RingCentral_Careers",              "workday", "RingCentral"),   # ~72 -> 5 (6.9%)
+    # Bentley University is cap-exempt and runs TWO Workday sites. /staff is the one that pays:
+    # 17 postings -> 2 on-target US (Business Systems Analyst, Senior IT Project Manager), a
+    # better ratio than anything else in this tranche. /faculty is deliberately NOT here --
+    # measured 0 on-target of 24, and a second entry for one employer would be the only
+    # duplicate company name in SOURCES.
+    ("https://bentley.wd503.myworkdayjobs.com/staff",                              "workday", "Bentley University"), # ~17 -> 2 (cap-exempt)
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -1407,6 +1468,16 @@ ULTIPRO_BOARDS = [
     # its corporate project/ops/analyst roles (e.g. Project Manager II - Engineering). ---
     ("https://recruiting2.ultipro.com/STA1003STARK/JobBoard/aa9d7813-93e5-4731-9f45-8ccb56bea5fd",
      "ultipro", "Starkey"),
+    # --- Added 2026-08-21 (careers_us.md coverage audit; see the note in WORKDAY_BOARDS for
+    # how the six were chosen). Milliman, the actuarial/consulting firm -- a DOL H-1B sponsor
+    # that was in careers_us.md and had no board. The only one of the 160 that the ordinary
+    # careers-chain probe found on its own; the other five needed the doc's careers URL. ---
+    ("https://recruiting2.ultipro.com/MIL1017/JobBoard/f54234e9-dfde-b183-fd20-4fbdb19cba7a",
+     "ultipro", "Milliman"),   # ~118 -> 20 on-target US
+    # --- Added 2026-08-22 (careers_us.md audit, second tranche; see the note in
+    # WORKDAY_BOARDS). Frontier Airlines -- airline ops, so almost nothing clears the filter. ---
+    ("https://recruiting2.ultipro.com/FRO1003FTAIR/JobBoard/1efcf859-1b48-4a31-b014-ef62bdcab988",
+     "ultipro", "Frontier Airlines"),   # ~76 -> 3 on-target US
 ]
 
 # JobDiva candidate portals — www1.jobdiva.com/portal/?a=<token>. Public ws.jobdiva.com REST
@@ -1482,6 +1553,12 @@ ORACLE_BOARDS = [
     # which carries inline JDs. ---
     ("https://iazuqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
      "oracle", "University of California, San Francisco"),    # ~860 (cap-exempt)
+    # --- Added 2026-08-22 (careers_us.md audit, second tranche; see the note in
+    # WORKDAY_BOARDS). Macy's: the worst trade of the fourteen. 4,450 postings paged for 16
+    # on-target US rows (0.4%) because the board is overwhelmingly store staffing -- the same
+    # flood shape as the retail E-Verify giants that ended up blocklisted. Kept on request. ---
+    ("https://ebwh.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+     "oracle", "Macy's"),   # ~4,450 -> 16 on-target US (0.4%)
 ]
 
 # iCIMS "Career Sites" (powered by Jibe) expose a public /api/jobs JSON feed at the
@@ -1510,6 +1587,10 @@ JIBE_BOARDS = [
     # --- Added 2026-08-12 (grad.jobs H-1B sponsor list). OHSU is a public health & science
     # university, so it is cap-exempt as an institution in its own right. ---
     ("https://jobs.ohsu.edu",            "jibe", "Oregon Health & Science University"), # ~533 (cap-exempt)
+    # --- Added 2026-08-22 (careers_us.md audit, second tranche; see the note in
+    # WORKDAY_BOARDS). Novant Health is cap-exempt, which is the only reason it is worth 1,677
+    # postings: the board is overwhelmingly clinical, so 9 rows clear the title filter. ---
+    ("https://jobs.novanthealth.org", "jibe", "Novant Health"),   # ~1,677 -> 9 on-target US (0.5%; cap-exempt)
 ]
 
 # Adzuna (the aggregator API) was REMOVED on 2026-08-16, along with its 40 company boards and
