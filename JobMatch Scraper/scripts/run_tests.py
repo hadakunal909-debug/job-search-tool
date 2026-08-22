@@ -78,6 +78,7 @@ SUITES = (
     Suite("test_board_health",      "test_board_health.py",              "root",   "offline"),
     Suite("test_canonical_url",     "test_canonical_url.py",             "root",   "offline"),
     Suite("test_date_sources",      "test_date_sources.py",              "root",   "offline"),
+    Suite("test_edu_domains",       "test_edu_domains.py",               "root",   "offline"),
     Suite("test_jd_persist",        "test_jd_persist.py",                "root",   "offline"),
     Suite("test_jobspy_adapter",    "test_jobspy_adapter.py",            "root",   "offline"),
     Suite("test_liveness",          "test_liveness.py",                  "root",   "offline"),
