@@ -57,8 +57,10 @@
     <a href="{{ url_for('feed') }}" class="{{ 'active' if ep == 'feed' }}">Jobs</a>
     <a href="{{ url_for('applications') }}" class="{{ 'active' if ep == 'applications' }}">Applications</a>
     <a href="{{ url_for('brain_home') }}" class="{{ 'active' if ep.startswith('brain') }}">Resume Brain</a>
-    <a href="{{ url_for('careers') }}" class="{{ 'active' if ep == 'careers' }}">Sponsors</a>
-    <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','add_board_post') }}">Add Board</a>
+    <a href="{{ url_for('companies') }}" class="{{ 'active' if ep == 'companies' }}">Companies</a>
+    {# board_delete, not the never-existing 'add_board_post' this guarded until 2026-08-22: it
+       is the endpoint that actually redirects back here, so the pill stays lit after a remove. #}
+    <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','board_delete') }}">Add a Company</a>
     {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
   {% endif %}

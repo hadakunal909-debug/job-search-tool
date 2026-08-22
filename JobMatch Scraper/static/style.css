@@ -2479,3 +2479,49 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 @media (max-width:640px){
   .rvpdfdoc{padding:var(--space-150);gap:var(--space-150);max-height:70vh}
 }
+
+/* ============================================================================
+   THE COMPANY DIRECTORY  (/companies)
+   One tile per employer. Deliberately fewer columns than .feedgrid at a similar
+   width: a job card carries a title, a location, a pay range and a score ring,
+   so 330px there is already dense -- a company card carries four short facts, so
+   the same width reads as generous instead of cramped. The page this replaced put
+   289 employers in an unstyled <li> wall; over-densifying is the opposite failure
+   and just as bad.
+
+   Column arithmetic against .feedwrap's 1880px cap and --space-200 (16px):
+   6 across at 1880, 5 at 1440, 4 at 1280, 2 at 768, 1 at 375.
+
+   No new colour token. Every chip here reuses .vt-* / .cx / .agency, so
+   scripts/test_contrast.py needs no new pair and THE COLOUR RULE at the top of
+   this file still holds: colour means sponsorship, everything else is ink.
+   ============================================================================ */
+.codir{display:grid;grid-template-columns:repeat(auto-fill,minmax(288px,1fr));gap:var(--space-200)}
+/* min-height, not aspect-ratio: a locked box clips a two-line employer name, and
+   "Sumitomo Mitsui Banking Corporation" is a real row in this data. */
+.cocard{min-height:196px;text-decoration:none;color:inherit}
+.cocard:hover{text-decoration:none}
+.cocard .logo{width:48px;height:48px}
+.cocard h3{font-size:var(--text-base);font-weight:var(--weight-semibold);margin:10px 0 2px;
+  line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden}
+/* The employer name is a link so the tile is keyboard-reachable, but it must read as INK.
+   Without this it inherits the accent blue, which is 3.42:1 on a dark card -- under AA for
+   16px text -- and it spends colour on something that is not sponsorship. */
+.cocard h3 a{color:inherit;text-decoration:none}
+.cocard:hover h3 a{text-decoration:underline;text-underline-offset:2px}
+.cocard .coline{font-size:var(--text-sm);color:var(--muted)}
+.cocard .conum{font-family:var(--font-data);font-variant-numeric:tabular-nums;color:var(--ink);
+  font-weight:var(--weight-semibold)}
+.cocard .kw{margin-top:var(--space-100)}
+/* margin-top:auto pins the links to the bottom of a variable-height tile; .card is
+   already a column flex, so nothing else is needed. */
+.cocard .colinks{margin-top:auto;padding-top:var(--space-100);display:flex;
+  gap:var(--space-100);flex-wrap:wrap}
+/* The section headers in the All view. .sechdr sets the type; this only adds the
+   room a stack of grids needs to read as separate sections. */
+.codir + .sechdr,.morewrap + .sechdr{margin-top:var(--space-500)}
+@media (max-width:560px){
+  .codir{grid-template-columns:1fr}
+  .cocard{min-height:0}
+}

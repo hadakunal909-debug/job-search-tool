@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{# The employer directory. Everything below the toolbar is drawn by static/companies.js from
+   the single JSON block at the bottom -- no server-side ?q= and no /api call, so this page adds
+   nothing to the filter family that web.py::_filter_rows, app.js::matches and core.prefs_match
+   already have to keep in agreement.
+
+   app.js is deliberately NOT loaded here. It carries the feed's card contract, it is the
+   second-most-coupled file in the repo, and it holds a raw NUL that hides it from ripgrep. It
+   also early-returns without #feed, so there is nothing to gain and a diff to lose. #}
+{% block content %}
+<div class="feedwrap">
+  <h1>Companies</h1>
+
+  {# Sector pills. Counts are filled in by companies.js against whatever the open-roles toggle
+     is set to, so the numbers always describe what a click would actually show. #}
+  <div class="tabs" id="cosectors"></div>
+
+  <div class="countrow">
+    {# Grouped thousands, like every other count in the app. Plain {{ rows|length }} rendered
+       "2104" next to a comma-formatted "1,238" in the same sentence. #}
+    <div class="count"><span id="count">0</span> of {{ "{:,}".format(rows|length) }} companies</div>
+    <input id="q" class="cosearch" type="search" placeholder="Search companies…"
+           autocomplete="off" spellcheck="false" aria-label="Search companies">
+    <select id="sort" class="sel" aria-label="Sort companies">
+      <option value="live">Open roles</option>
+      <option value="h1b">H-1B volume</option>
+      <option value="az">A–Z</option>
+    </select>
+    {# Checked by default: 1,238 of the 2,104 employers have something open, and landing on the
+       866 that don't would make two in five cards a dead end on arrival. #}
+    <label class="visack"><input type="checkbox" id="liveonly" checked> Only with open roles</label>
+  </div>
+
+  <div class="codir" id="companies"></div>
+  <div class="empty u-hide" id="empty">No company matches that search.</div>
+</div>
+
+{# Row shape: [name, sectorIdx, careers, careersKind, domain, h1b, flagMask, live, linkName].
+   sectorIdx -1 is Unsorted. careers is either a full URL or a "gh|slug" prefix code. The last
+   two are attached per request by web.py::companies -- they move with every scrape, so they are
+   not in companies.json. #}
+<script id="codata" type="application/json">{{ rows|tojson }}</script>
+<script id="cometa" type="application/json">{{ {'sectors': sectors, 'prefix': prefix, 'li_kw': li_kw, 'labels': visa_labels, 'logo': logo_tpl, 'palette': palette}|tojson }}</script>
+<noscript><p class="u-p-200">The company directory needs JavaScript enabled to display.</p></noscript>
+{% endblock %}
+{% block scripts %}<script src="{{ static_v('companies.js') }}"></script>{% endblock %}

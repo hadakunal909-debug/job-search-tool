@@ -11,7 +11,7 @@ On cPanel:     passenger_wsgi.py exposes `application = web.app`
 """
 import os
 import re
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 import sys
 import json
 import time
@@ -2612,6 +2612,9 @@ def company():
                    company=display, n=len(open_rows))
     return render_template("company.html", info=info, company_arg=display,
                            about=_company_profile(display, key, rows, open_rows),
+                           # Same ladder /companies renders from, so a card and the page it
+                           # opens can never disagree about where somebody applies.
+                           links=_company_links(display),
                            # _feedgrid.html reads this to decide whether to draw a % ring.
                            # Omit it and every card here would suppress its score, including
                            # for users who do have a résumé.
@@ -5721,40 +5724,204 @@ def brain_jobs_json():
     return {"jobs": out, "capped": len(out) >= limit}
 
 
-# ----------------------------- sponsor careers -----------------------------
-def _md_to_html(md):
-    """Tiny Markdown -> HTML (headings, list items, [text](url) links). Avoids a dep."""
+# ----------------------------- the company directory -----------------------------
+# companies.json is ~127 KB / 2.1 k rows, built by scripts/build_companies.py. Deferred to
+# first use for the same reason as sponsor_counts above: Passenger's cold start is where
+# shared-hosting memory is tightest, and /companies is not on the path to the feed.
+_companies_cache = None
+
+
+def companies_blob():
+    """companies.json, or a shaped empty blob. Never raises: a bad file must not 500 the nav."""
+    global _companies_cache
+    if _companies_cache is None:
+        blob = {}
+        try:
+            with open("companies.json", encoding="utf-8") as fh:
+                blob = json.load(fh) or {}
+        except Exception:
+            blob = {}
+        blob.setdefault("sectors", [])
+        blob.setdefault("rows", [])
+        blob.setdefault("prefix", {})
+        blob.setdefault("li_kw", {})
+        _companies_cache = blob
+    return _companies_cache
+
+
+_BOARDS_TTL = 120
+_boards_cache = {"data": None, "at": 0.0}
+
+
+def _recent_boards():
+    """[(company, url)] from the boards table — both scraped boards and apply-direct rows.
+
+    Read here rather than left to the next build so a company added through /add shows up in
+    the directory immediately. Cached, and never raises: no database means no extra rows,
+    which is the same contract scraper.custom_sources already has.
+    """
+    c = _boards_cache
+    if c["data"] is not None and time.time() - c["at"] < _BOARDS_TTL:
+        return c["data"]
     out = []
-    for ln in md.splitlines():
-        ln = ln.rstrip()
-        esc = html.escape(ln)
-        esc = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)",
-                     r'<a href="\2" target="_blank" rel="noopener">\1</a>', esc)
-        if ln.startswith("# "):
-            out.append("<h2>%s</h2>" % esc[2:])
-        elif ln.startswith("## "):
-            out.append("<h3>%s</h3>" % esc[3:])
-        elif ln.startswith("- "):
-            out.append("<li>%s</li>" % esc[2:])
-        elif not ln:
-            out.append("<br>")
-        else:
-            out.append("<p>%s</p>" % esc)
-    return "\n".join(out)
+    try:
+        for b in db.list_boards() or []:
+            name = (b.get("company") or "").strip()
+            if name:
+                out.append((name, (b.get("url") or "").strip()))
+    except Exception:
+        out = []
+    c["data"], c["at"] = out, time.time()
+    return out
+
+
+_CO_STATS_TTL = 120
+_co_stats_cache = {"data": None, "at": 0.0}
+
+
+def _company_stats():
+    """{norm_key: (open_roles, corpus_spelling)} across the whole corpus.
+
+    Two things the shipped file deliberately does NOT carry, because both go stale: the scrape
+    runs four times a day and build_companies.py runs by hand.
+
+    The spelling matters as much as the count. /company?c= filters on db.block_key, which does
+    NOT strip legal suffixes, so a card linking the registry spelling "Accenture" lands on a
+    page that finds nothing while the corpus stores "Accenture LLP". Six employers differ that
+    way today — Accenture, Meta Platforms, DoorDash, HP, Array and Mican — and the failure is
+    invisible by eye, because the card looks right and only the destination is empty.
+
+    User-independent, so unlike ranked_rows this can be cached process-wide. One pass over the
+    already-in-memory get_jobs() list; core.norm_company is memoized, so this is ~1.2 k
+    normalizations and ~22 k dict hits.
+    """
+    c = _co_stats_cache
+    if c["data"] is not None and time.time() - c["at"] < _CO_STATS_TTL:
+        return c["data"]
+    counts = collections.Counter()
+    spellings = collections.defaultdict(collections.Counter)
+    for j in get_jobs():
+        name = (j.get("company") or "").strip()
+        if not name:
+            continue
+        key = core.norm_company(name)
+        # `is not False` rather than `not ...`: is_active is None on an un-migrated row, and
+        # only an explicit False means "we checked and the posting is gone" — same rule as
+        # _admin_stats above.
+        if j.get("is_active") is not False:
+            counts[key] += 1
+        spellings[key][name] += 1
+    out = {k: (counts.get(k, 0), v.most_common(1)[0][0]) for k, v in spellings.items()}
+    c["data"], c["at"] = out, time.time()
+    return out
+
+
+def _linkedin_url(name):
+    """A United-States-filtered LinkedIn job search. Reproduces the rule the old
+    scraper/make_careers.py used, which is the only link that resolves for every employer —
+    including the ~450 with no careers page we can name."""
+    kw = companies_blob().get("li_kw", {}).get(name, name)
+    return ("https://www.linkedin.com/jobs/search/?keywords=%s&location=United%%20States"
+            % quote(kw))
+
+
+def _expand_careers(val, prefix):
+    """'gh|samsara' -> the full Greenhouse URL. Board hosts are stored as a prefix code because
+    four of them cover about a third of every board URL in SOURCES."""
+    if not val:
+        return ""
+    tag, sep, rest = val.partition("|")
+    return (prefix.get(tag, "") + rest) if sep and tag in prefix else val
+
+
+_companies_by_key = None
+
+
+def _company_links(name):
+    """{careers, kind, linkedin} for one employer, read off companies.json.
+
+    Shared with /companies rather than reimplemented, so the directory card and the employer
+    page can never disagree about where somebody applies. A name the file does not hold (a
+    company that appeared since the last build) still gets its LinkedIn search, which is why
+    every card has somewhere to go.
+    """
+    global _companies_by_key
+    blob = companies_blob()
+    if _companies_by_key is None:
+        # Keyed on core.norm_company rather than stored in the file, so the key follows
+        # scraper._norm_name if that ever changes.
+        _companies_by_key = {}
+        for row in blob.get("rows", []):
+            _companies_by_key.setdefault(core.norm_company(row[0]), row)
+    row = _companies_by_key.get(core.norm_company(name))
+    return {"careers": _expand_careers(row[2], blob.get("prefix", {})) if row else "",
+            "kind": row[3] if row else 0,
+            "linkedin": _linkedin_url(name)}
+
+
+@app.route("/companies")
+@login_required
+def companies():
+    """Every employer we scrape, plus every sponsor we know of and don't.
+
+    Wholly client-rendered from one inline JSON block, the same shape _feedgrid.html uses. That
+    is deliberate: 2.1 k rows is ~38 KB gzipped, well inside _FEED_INLINE_MAX, and a server-side
+    ?q= would add a fourth member to the filter family that web.py::_filter_rows,
+    app.js::matches and core.prefs_match already have to keep in agreement.
+    """
+    blob = companies_blob()
+    stats = _company_stats()
+    # Attach the two volatile fields per row: open roles, and the spelling /company must be
+    # linked with. Cheap — one dict lookup each — and it keeps them out of the shipped file.
+    rows, seen = [], set()
+    for name, sec, careers, kind, domain, h1b, mask in blob.get("rows", []):
+        key = core.norm_company(name)
+        seen.add(key)
+        live, spelling = stats.get(key, (0, ""))
+        rows.append([name, sec, careers, kind, domain, h1b, mask, live, spelling or name])
+    # Two kinds of employer the shipped file cannot know about, both of which would otherwise
+    # be invisible until somebody remembered to re-run build_companies.py: one added through
+    # /add, and one the scraper started returning since the last build. The scrape runs four
+    # times a day and the build is manual, so "until the next build" means "for days".
+    # Sector stays unknown (-1) until a build classifies it, which is honest — the page files
+    # those under Unsorted rather than guessing.
+    extra = [(n, u) for n, u in _recent_boards()]
+    extra += [(spelling, "") for _k, (_live, spelling) in stats.items() if spelling]
+    for name, url in extra:
+        key = core.norm_company(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        live, spelling = stats.get(key, (0, ""))
+        rows.append([name, -1, url, 2 if url else 0, "",
+                     int(sponsor_counts().get(key) or 0),
+                     int(visa_index().get(key) or 0)
+                     | (32 if core.is_cap_exempt(name) else 0)
+                     | (64 if core.is_agency(name) else 0),
+                     live, spelling or name])
+    rows.sort(key=lambda r: r[0].lower())
+    # No analytics.emit here on purpose. The _ev_page_view after_request hook already reports
+    # every HTML 200 with ep=<endpoint>, so an explicit page_view would be the SECOND one for
+    # this route -- and inflated usage numbers are a mistake this app has already made twice.
+    # The logo chain as two templates rather than 2.1 k pre-built URLs: logosrc owns the
+    # provider, the key and the fallback order, so asking it once for a sentinel domain keeps
+    # that ownership in one place and costs nine bytes a row instead of ~120.
+    return render_template("companies.html", rows=rows,
+                           sectors=blob.get("sectors", []),
+                           prefix=blob.get("prefix", {}),
+                           li_kw=blob.get("li_kw", {}),
+                           logo_tpl={"src": logosrc("__D__"), "fb": logofavicon("__D__")},
+                           palette=_PALETTE,
+                           visa_labels=core.VISA_TAG_LABELS)
 
 
 @app.route("/careers")
 @login_required
 def careers():
-    md = ""
-    if os.path.exists("careers_us.md"):
-        md = open("careers_us.md", encoding="utf-8").read()
-    q = (request.args.get("q") or "").strip().lower()
-    if md and q:
-        md = "\n".join(l for l in md.splitlines()
-                       if (not l.startswith("- ")) or q in l.lower())
-    return render_template("careers.html", body=_md_to_html(md) if md else "",
-                           q=request.args.get("q", ""))
+    """Kept as a redirect rather than deleted: the URL was in the nav for months, so it is in
+    histories and bookmarks, and scripts/smoke_app.py builds its surface from app.url_map and
+    would silently stop covering the page."""
+    return redirect(url_for("companies"), code=301)
 
 
 # ----------------------------- add a board -----------------------------
@@ -5777,11 +5944,29 @@ def add_board():
                    or scraper.detect_phenom(url) or scraper.detect_successfactors(url)
                    or scraper.detect_linked_ats(url) or scraper.detect_jsonld(url))
             if not det:
-                result = ("err", "That isn't a readable job board (Greenhouse, Lever, Ashby, "
-                          "SmartRecruiters, Workday, Oracle Cloud, Workable, Phenom, iCIMS/Jibe, Jobvite, "
-                          "SuccessFactors, UltiPro/UKG, BambooHR, Pinpoint, Rippling, "
-                          "Recruitee, Breezy, Personio, or a page with embedded job data). "
-                          "Add the company to sponsors.txt instead.")
+                # No readable board. This used to dead-end here, telling the user to edit
+                # sponsors.txt -- a file on the server they have no way to reach from a
+                # browser. Record it as apply-direct instead, so the company still reaches
+                # the directory with its link.
+                #
+                # 'direct' is deliberately NOT one of scraper.SCRAPERS' 32 keys, which is what
+                # makes this safe with no extra guard anywhere: custom_sources() filters on
+                # `t in SCRAPERS`, so the scraper never sees this row, and neither does
+                # build_careers_md.py's coverage check. db.list_boards() selects * and still
+                # returns it, which is what /companies reads.
+                if not name:
+                    result = ("err", "That isn't a readable job board, so it can only be "
+                              "listed as apply-direct — which needs a company name. Add one "
+                              "and submit again.")
+                else:
+                    ok, msg = db.add_board(url, "direct", name, added_by=session["user"])
+                    if ok:
+                        result = ("ok", "Added %s as apply-direct. It will show in Companies "
+                                  "with your link; the scraper won't read it." % name)
+                    elif "boards" in msg.lower() or "does not exist" in msg or "42P01" in msg:
+                        result = ("sql", msg)
+                    else:
+                        result = ("err", msg)
             elif det[0] in {u for u, _, _ in scraper.SOURCES}:
                 result = ("info", "%s is already a built-in source, so there is nothing to add." % det[2])
             else:

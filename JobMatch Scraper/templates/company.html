@@ -10,6 +10,7 @@
 {% block content %}
 <div class="feedwrap">
   <a class="backlink" href="{{ url_for('feed') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> All Jobs</a>
+  <a class="backlink" href="{{ url_for('companies') }}">All Companies</a>
 
   <div class="cohead">
     <div class="logo" style="background:{{ info.logo_color }}">{{ info.initial }}
@@ -36,7 +37,26 @@
          the second clause a missing route reads as "this employer refused", which it isn't. #}
       <p class="fnote">These come from past federal filings. If a route is not shown there is no record of it, which is not a refusal.</p>
       {% endif %}
-      <button type="button" id="cobtn" class="btn sm">More about this employer</button>
+      {# In the HEADER, not the modal footer. For the ~866 employers with nothing open in the
+         feed these two links ARE the page, and putting them behind "More about this employer"
+         would hide the only actionable thing on it. Same resolution ladder /companies uses --
+         web.py::_company_links -- so the card and this page cannot disagree about where you
+         apply. LinkedIn is always present; it is the one link that resolves for every name. #}
+      <div class="colinks">
+        <button type="button" id="cobtn" class="btn sm">More about this employer</button>
+        {% if links.careers %}
+        <a class="btn sm" href="{{ links.careers }}" target="_blank" rel="noopener nofollow">
+          {{ 'Website' if links.kind == 3 else 'Careers page' }}<span class="ic ic-external" aria-hidden="true"></span></a>
+        {% endif %}
+        <a class="btn sm" href="{{ links.linkedin }}" target="_blank" rel="noopener nofollow">
+          US jobs on LinkedIn<span class="ic ic-external" aria-hidden="true"></span></a>
+      </div>
+      {# Said HERE rather than through empty_note, because app.js::renderEmpty overwrites the
+         grid's empty state with "No jobs match these filters" -- which is wrong on this page,
+         where nothing is filtered and the employer simply has nothing in the feed. #}
+      {% if info.n == 0 %}
+      <p class="fnote">Nothing open in the feed right now. The links above are the way in.</p>
+      {% endif %}
     </div>
   </div>
 
@@ -181,6 +201,9 @@
   {# Always paged: one /api/feed fetch on load, pinned to this employer server-side. #}
   {% set paged = True %}
   {% set feed_rows = [] %}
+  {# Left as it was on purpose: app.js::renderEmpty overwrites #empty unconditionally, so
+     anything set here never reaches the screen. The "nothing open" sentence lives in the
+     header instead, next to the two links that actually resolve it. #}
   {% set empty_note = "No open roles at this employer right now." %}
   {% include "_feedgrid.html" %}
 </div>
