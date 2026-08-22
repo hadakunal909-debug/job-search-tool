@@ -143,18 +143,211 @@ def _simple_ats(company):
     return None
 
 
-# No closing \b after "universit": the word continues into "university"/"universities", so a
-# trailing boundary can never match and this silently detected nothing.
+# ---- .edu domain resolution ------------------------------------------------------------------
+# Universities are worth getting right: an H-1B filed by one is cap-exempt, so it skips the
+# lottery. They were also the worst-served names here. The old guess -- strip "University of",
+# glue the rest together, add ".edu" -- got 4 of the 32 universities in careers_us.md right
+# (missouri, towson, kean, drexel) and missed the other 28, so none of them were reachable.
+#
+# The cause is that US institutions do not share one naming convention; they share about seven,
+# and which one an institution uses is NOT derivable from its name:
+#
+#     University of Michigan          umich.edu       "u" + a TRUNCATION of the state
+#     University of Oregon            uoregon.edu     "u" + the whole state
+#     University of South Carolina    sc.edu          initials, no "u"
+#     Old Dominion University         odu.edu         initials + "u"
+#     Wichita State University        wichita.edu     the name with "State" DROPPED
+#     Arkansas State University       astate.edu      first initial + "state"
+#     Cal State University Fullerton  fullerton.edu   the CAMPUS alone
+#     College of Charleston           cofc.edu        initials, keeping the "of" as a word
+#
+# So generate every convention and let the network say which one answers. The list is ordered
+# by how often each convention wins, which is the tie-break _resolve_edu_domains falls back
+# on when two domains score identically.
 _EDU_WORDS = re.compile(r"\b(universit|college\b|institute of technology|school of)", re.I)
-# "University of X" and "X University" both reduce to X, which is the .edu second-level
-# domain for most name-brand institutions (duke, purdue, rice, tufts, brown, columbia).
-_EDU_STRIP = re.compile(r"^(the\s+)?university\s+of\s+|\s+(university|college|"
-                        r"institute\s+of\s+technology)\s*$", re.I)
+# Dropped when reducing a name to its distinguishing words. "state" is NOT here: it is generic
+# in a name ("Kansas State") but load-bearing in a domain (kansasstate.edu), so it is removed
+# only in the one variant that needs it gone.
+_EDU_FILLER = ("the", "of", "at", "and", "university", "universities", "college", "institute",
+               "school")
+
+
+def _edu_words(company):
+    """The distinguishing words of an institution name, lowercased and filler-free.
+    "University of South Carolina" -> ["south", "carolina"]."""
+    n = re.sub(r"[^A-Za-z0-9 ]", " ", company or "").lower()
+    return [w for w in n.split() if w and w not in _EDU_FILLER]
+
+
+def _edu_domain_candidates(company):
+    """Ordered .edu second-level-domain guesses for an institution name.
+
+    Pure string work, no network: test_edu_domains.py asserts that the real domain of every
+    university in careers_us.md appears in this list, which is the half of the fix that can
+    be frozen in CI (the resolver half needs the internet).
+    """
+    w = _edu_words(company)
+    if not w:
+        return []
+    allw = [x for x in re.sub(r"[^A-Za-z0-9 ]", " ", (company or "")).lower().split()
+            if x and x not in ("the", "at", "and")]
+    noof = [x for x in allw if x != "of"]
+    base = "".join(w)
+    out = [
+        base,                                    # towson, drexel, missouri, kansasstate
+        "u" + base,                              # uoregon, uidaho, utulsa, uakron
+        "".join(x[0] for x in w) + "u",          # odu, jmu, usu, wku, shsu, ksu, ndsu
+        "".join(x[0] for x in noof),             # unh, usm, siue, bc
+        "".join(x[0] for x in w),                # sc
+        "".join(x for x in w if x != "state"),   # wichita, weber, montclair
+        # "of" survives as a WORD, not a letter: College of Charleston is cofc, not cc.
+        "".join(x if x == "of" else x[0] for x in allw),
+        w[-1],                                   # fullerton, lafayette
+        "".join(x[0] for x in noof[:-1]) + w[-1],   # csuchico, ucdenver, udmercy
+        w[0],                                    # louisiana (from "... at Lafayette")
+        "u" + base[:4],                          # umich
+        "u" + base[:3],                          # udel
+        w[0][0] + "state",                       # astate
+        w[0][0] + "-state",                      # k-state
+    ]
+    seen, uniq = set(), []
+    for d in out:
+        d = re.sub(r"[^a-z0-9-]", "", d).strip("-")
+        if len(d) > 1 and d not in seen:
+            seen.add(d)
+            uniq.append(d)
+    return uniq
+
+
+# A homepage that answers but tells us nothing: an explicit bot-wall status, or a 200 whose
+# body is a JS challenge shell. wichita.edu returns 200 and 212 bytes of Incapsula, which
+# scored as "no title" and lost to a wrong school; treat it as what it is -- proof the host
+# exists, no proof of whose it is.
+_WALL_STATUS = (401, 403, 406, 429, 451)
+_WALL_BODY = re.compile(r"_incapsula_|distil_r_|/cdn-cgi/challenge|are you a robot|"
+                        r"enable javascript to continue", re.I)
+# Words a homepage title adds that say nothing about WHICH institution it is, so they must not
+# count against an otherwise exact match ("Home - Boston College").
+_TITLE_FILLER = frozenset(("home", "homepage", "welcome", "official", "site", "website", "the",
+                           "of", "at", "and", "a", "an", "to", "for", "in", "index", "main",
+                           "page", "us", "edu", "www", "login", "portal"))
+
+
+def _edu_name_words(company):
+    """The institution's own name as comparable words, filler stripped but "university" and
+    "state" KEPT -- those are exactly what separates "University of Arkansas" from
+    "Arkansas State University"."""
+    return [x for x in re.sub(r"[^A-Za-z0-9 ]", " ", (company or "")).lower().split()
+            if x and x not in ("the", "of", "at", "and")]
+
+
+def _edu_title_match(title, company):
+    """(fraction of the name's words present, count of UNEXPLAINED words, names-it) for a
+    homepage title. Pure string work, so the picking rule is testable without the network.
+
+    Three numbers, because no one of them decides it:
+
+      * the fraction alone cannot separate an institution from a DIFFERENT institution whose
+        name contains it. "Boston College" is 2/2 words of "Boston Baptist College"
+        (boston.edu) and also 2/2 of "Home - Boston College" (bc.edu).
+      * the fraction is also routinely LOW for the right school, because homepages are titled
+        the way people speak: drexel.edu says "Drexel Home", csuchico.edu says "Chico State".
+        Demanding 0.75 threw away both correct answers.
+      * so the deciding number is what the title contains that the NAME CANNOT EXPLAIN.
+        "baptist" is unexplained; "home" is filler; and "University of Denver" is entirely
+        unexplained by "Drexel University" even though both share a word.
+    """
+    words = _edu_name_words(company)
+    if not words or not title:
+        return 0.0, 99, False
+    toks = set(t for t in re.split(r"[^a-z0-9]+", (title or "").lower()) if t)
+    hit = sum(1 for w in words if w in toks)
+    extra = len([t for t in toks if t not in words and t not in _TITLE_FILLER
+                 and not t.isdigit() and len(t) > 1])
+    # Does the title name THIS institution -- a word unique to it, not "university"/"state"?
+    named = any(w in toks for w in _edu_words(company) if w != "state")
+    return float(hit) / len(words), extra, named
+
+
+def _edu_root(d, timeout=10):
+    """Fetch a guessed .edu root. Returns (title, host, walled).
+
+    Tries the bare domain then www: fullerton.edu serves a certificate valid only for
+    www.fullerton.edu, and csuchico.edu answers on www alone -- both are the right domain
+    failing for a reason that has nothing to do with whose it is.
+    """
+    for url in ("https://%s.edu" % d, "https://www.%s.edu" % d):
+        try:
+            r = scraper.SESSION.get(url, headers=_H, timeout=timeout, allow_redirects=True)
+        except Exception:
+            continue
+        m = re.match(r"https?://([^/]+)", r.url or url)
+        host = re.sub(r":\d+$", "", re.sub(r"^www\.", "", (m.group(1) if m else "").lower()))
+        if not host:
+            continue
+        body = r.text or ""
+        if r.status_code in _WALL_STATUS or _WALL_BODY.search(body[:4000]):
+            return None, host, True
+        if r.status_code != 200:
+            continue
+        t = re.search(r"<title[^>]*>(.*?)</title>", body, re.S | re.I)
+        if not t:      # some roots are a JS shell whose only name is in a meta/heading
+            t = re.search(r'<meta[^>]+property=["\']og:(?:site_name|title)["\'][^>]+'
+                          r'content=["\']([^"\']+)', body, re.I) or \
+                re.search(r"<h1[^>]*>(.*?)</h1>", body, re.S | re.I)
+        title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", t.group(1))).strip() if t else ""
+        if not title:
+            return None, host, True
+        return title, host, False
+    return None, None, False
+
+
+def _resolve_edu_domains(company, limit=2, cap=11):
+    """Which guessed .edu domains actually BELONG to this institution, best match first.
+
+    That a domain resolves is no evidence, and neither is its page mentioning the name.
+    Scored on body text, three of the 32 institutions in careers_us.md resolved to a
+    DIFFERENT school outright and three more carried one as a second candidate: mu.edu
+    redirects to Marquette, whose homepage says "Michigan" somewhere, so "University of
+    Michigan" resolved to marquette.edu; uark.edu claimed Arkansas State; boston.edu
+    (Boston Baptist) claimed Boston College; utah.edu, colorado.edu and hampshire.edu
+    each rode along behind the right answer. The title is the one string on a university
+    homepage that is reliably the institution's own name.
+
+    Two tiers, because the correct domain is often the one that refuses to talk: umich.edu
+    and missouri.edu both answer 403 and wichita.edu serves a bot challenge, while the WRONG
+    domains answer 200 happily. A verified title always wins; a walled host is kept as a
+    fallback rather than losing to a school it isn't, and probe_board is still the last gate.
+    """
+    strong, weak = [], []
+    for i, d in enumerate(_edu_domain_candidates(company)[:cap]):
+        title, host, walled = _edu_root(d)
+        if not host or host in [h for _a, _b, _c, h in strong] + [h for _a, h in weak]:
+            continue
+        if walled:
+            weak.append((-i, host))
+            continue
+        score, extra, named = _edu_title_match(title, company)
+        # Either the title is mostly the name, or everything in it is explained BY the
+        # name and it names this school. The second clause is what keeps "Drexel Home"
+        # and "Chico State"; `named` is what still rejects "University of Denver".
+        if score >= 0.75 or (extra == 0 and named):
+            strong.append((score, -extra, -i, host))
+    strong.sort(reverse=True)
+    if strong:
+        # Only the BEST-TIED candidates, never merely the first `limit` to qualify. This is
+        # the rule that drops the near-miss school outright: boston.edu (Boston Baptist,
+        # 1.00/1 extra) loses to bc.edu (1.00/0) for "Boston College", and uark.edu
+        # (University of Arkansas, 0.67) loses to astate.edu (1.00) for "Arkansas State".
+        best = strong[0][:2]
+        return [h for s, e, _i, h in strong if (s, e) == best][:limit]
+    weak.sort(reverse=True)
+    return [h for _i, h in weak[:limit]]
 
 
 def _careers_candidates(company):
     # Only the LIGHT ATS-style subdomains (careers./jobs.). We deliberately DROP
-    # www.<co>.com/careers — big-company marketing roots sit behind bot-walls that hang.
+    # www.<co>.com/careers -- big-company marketing roots sit behind bot-walls that hang.
     slug = _nospace(company)
     hyph = re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
     out = []
@@ -163,20 +356,18 @@ def _careers_candidates(company):
             out += ["https://careers.%s.com" % s, "https://jobs.%s.com" % s]
 
     # EDUCATION IS A .EDU, AND NOTHING ABOVE WOULD EVER FIND IT. "Duke University" became
-    # careers.dukeuniversity.com, so every university silently failed this probe — which is
-    # why none of them were ever discovered despite being large, standing H-1B sponsors.
-    # They matter disproportionately: a university is cap-exempt, so it skips the lottery.
+    # careers.dukeuniversity.com, so every university silently failed this probe.
     #
-    # The bare root IS included here, unlike the .com branch above. That exclusion exists
-    # because corporate marketing roots bot-wall crawlers; .edu roots generally do not, and
-    # Brown is only reachable as brown.edu/careers with no careers./jobs. subdomain at all.
+    # Unlike the .com branch, this one costs network time before it returns: resolving the
+    # domain IS the hard part for an institution, so it happens here rather than being guessed
+    # per-URL. The bare root is also included, which the .com branch excludes -- corporate
+    # marketing roots bot-wall crawlers, .edu roots generally do not, and Brown is only
+    # reachable as brown.edu/careers with no careers./jobs. subdomain at all.
     if _EDU_WORDS.search(company or ""):
-        base = _EDU_STRIP.sub("", (company or "").strip())
-        edu = re.sub(r"[^a-z0-9]", "", base.lower())
-        if edu:
-            out += ["https://careers.%s.edu" % edu, "https://jobs.%s.edu" % edu,
-                    "https://%s.edu/careers" % edu, "https://employment.%s.edu" % edu,
-                    "https://hr.%s.edu/careers" % edu]
+        for dom in _resolve_edu_domains(company):
+            out += ["https://careers.%s" % dom, "https://jobs.%s" % dom,
+                    "https://%s/careers" % dom, "https://employment.%s" % dom,
+                    "https://hr.%s/careers" % dom]
     return out
 
 
