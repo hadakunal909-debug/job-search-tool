@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Add a Job Board</h1>
-<p class="sub">Paste a company's careers link. Works for Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle Cloud, Phenom, iCIMS/Jibe, Jobvite, SuccessFactors, UKG/UltiPro, BambooHR, Pinpoint, Rippling, Workable, Recruitee, Breezy, Personio, plus many pages with embedded job data. It joins the next scrape.</p>
+<h1>Add a Company</h1>
+{# The 18-name ATS list that used to be here is the authoritative one in web.py's error
+   message, which is where it belongs: it is what you need AFTER a URL is rejected, not
+   before you paste one. #}
+<p class="sub">Paste a company's careers link. If it's a readable job board its roles join the next scrape; if not, the company is listed as apply-direct so it still shows in Companies.</p>
 {% if result %}
   <div class="result {{ result[0] }}">
     {% if result[0]=='sql' %}
@@ -13,15 +16,15 @@
 <form method="post" class="addform">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <input name="url" placeholder="https://job-boards.greenhouse.io/figma" required>
-  <input name="name" placeholder="Company name (optional)">
+  <input name="name" placeholder="Company name">
   <button class="btn primary" type="submit">Check &amp; add</button>
 </form>
 {% if boards %}
-<h3>Boards you've added</h3>
+<h3>Companies you've added</h3>
 {% for b in boards %}
 <div class="brow">
   <div><b>{{ b.company or 'None' }}</b><br><span class="muted">{{ b.url }}</span></div>
-  <span class="muted">{{ b.ats_type }}</span>
+  <span class="muted">{{ "apply direct" if b.ats_type == "direct" else b.ats_type }}</span>
   <form method="post" action="{{ url_for('board_delete') }}" class="inline">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="url" value="{{ b.url }}"><button class="btn" type="submit">Remove</button>
@@ -29,6 +32,6 @@
 </div>
 {% endfor %}
 {% else %}
-<p class="muted">No custom boards yet. The built-in sources are always scraped.</p>
+<p class="muted">No companies added yet. The built-in sources are always scraped.</p>
 {% endif %}
 {% endblock %}
