@@ -279,7 +279,8 @@ in the repo is what production uses.
 | `python -m scraper.build_sponsors` | `sponsors.txt` | |
 | `python scripts/build_company_domains.py` | `company_domains.json` | |
 | `python scripts/build_resume_vocab.py` | `resume_vocab.json`, `resume_keywords.json` | |
-| `python -m scraper.make_careers` | `careers_us.md` | ⚠ A **shipped runtime asset**, read by `web.py` relative to cwd. Not a doc — don't move it into `docs/`. |
+| `python scripts/build_companies.py` | `companies.json` | ⚠ A **shipped runtime asset** and the data behind `/companies`. `--report` prints the sector histogram; `--check` fails if a high-traffic employer is unsorted. |
+| `python scripts/build_careers_md.py` | `careers_us.md` | Hand-edited careers/LinkedIn URLs, and a build input to the above. |
 
 `idf.json` (17 MB) is written by the **full** scoring pass only. ⚠ A partial rebuild silently
 re-weights every score in the corpus, so don't interrupt one and commit the result.
