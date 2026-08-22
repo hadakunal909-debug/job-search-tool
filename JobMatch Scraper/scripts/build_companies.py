@@ -63,8 +63,16 @@ SECTORS = [
     "Retail, Consumer & Hospitality",
     "Transport, Logistics & Automotive",
     "Media, Telecom & Gaming",
+    # Added once the tail was actually read: agencies, counties, states and public school
+    # districts had nowhere honest to go. Universities & Research is higher ed and research
+    # institutes -- a county government and a K-12 district are neither, and filing them there
+    # would have made the one sector an F-1 cares most about (cap-exempt) less trustworthy.
+    "Government & Public Sector",
 ]
 UNSORTED = "Unsorted"
+# --check fails over this share. See the note at the call site for why a ceiling is needed on
+# top of the per-company gate.
+UNSORTED_CEILING = 5.0
 
 # ---------------------------------------------------------------- careers URLs
 # Harvested from scraper/make_careers.py before that file was deleted: it ran its generator at
@@ -561,7 +569,262 @@ _CURATED_LISTS = {
         "Audible", "iHeartMedia",
     ],
 }
+
+# The long-tail sweep, kept separate from the corrections above because its provenance is
+# different: these were read off `--report` and classified by hand, in bulk, after measuring
+# that no keyword rule could reach them. That measurement is the reason this block exists at
+# all -- twelve candidate anchor patterns (ai, robotics, security, dental, schools, county,
+# staffing, food, industrial...) were tried against the 916 unsorted names and the BEST of
+# them matched 15. The tail is brand names with no shared industry vocabulary, so there is
+# nothing to generalise and the only honest options were a list or an apology.
+#
+# What is deliberately NOT here: names that are scraper artifacts rather than employers
+# ("Mon1026Monoh", "Fa Exhh Saasfaprod1", "Smart Apply Test Company", "Hdow", "Hcxs"), and
+# genuinely unrecognisable one-offs. Those stay Unsorted, which is the correct answer for
+# them -- see the data-quality note in the module docstring.
+_CURATED_TAIL = {
+    "Software & Internet": [
+        "QuinStreet", "Provectus", "Recorded Future", "ClickHouse", "LangChain", "OpenText",
+        "STANDARD BOTS COMPANY", "Faire", "Braze", "Blackbaud", "Instructure", "IXL Learning",
+        "Hopper", "Duolingo", "phData", "Bandwidth", "GoFundMe", "Moloco", "Zocdoc", "Sentry",
+        "Truveta", "Lambda", "Workstream Technologies", "AssistRx", "webAI", "Criteo",
+        "Illumio", "Life360", "Amplitude", "Cambridge Mobile Telematics", "Otter", "Postman",
+        "Backblaze", "brightwheel", "Eulerity", "Mill", "Rippling", "WRITER", "YipitData",
+        "Udemy", "Vertafore", "Outreach", "OpenTable", "AppLovin", "Five9", "JFrog", "StockX",
+        "VideoAmp", "Smarsh", "Centerfield", "Symplicity", "Aptean", "Suvoda", "Pattern",
+        "Snorkel AI", "Obsidian Security", "Pendo", "Fictiv", "Semperis", "Smartrent",
+        "Carta", "Crexi", "Decagon", "Drata", "Eclinicalsolutions", "Gopuff", "Gruve",
+        "Reflection AI", "Spscommerce", "TARANIS", "via", "Waymark", "Addepar", "Axle",
+        "InterSystems", "PubMatic", "Finastra", "Upgrade", "Wealthfront", "Alarm.com",
+        "New Era Technology", "Mindbody", "Discord", "Ensono", "Viant Technology", "Envoy",
+        "Credible", "DigiCert", "Kyndryl", "Nextiva", "Vestmark", "Sezzle", "Iterable",
+        "Endpoint Clinical, Inc", "NetSpend", "Halvik", "Freenome", "Taskrabbit", "Workato",
+        "Alpha Omega Integration", "WellSky", "Auctane", "SingleStore", "Sonatus",
+        "Demandbase", "Forcepoint", "Instabase", "Starburst", "Ubiquiti", "ACV Auctions",
+        "Taboola", "Wasabi Technologies", "project44", "RxLogix", "Druva", "Phantom AI",
+        "Avetta", "DevRev", "GoodLeap", "Samba TV", "Newsela", "Nextech", "Everlaw",
+        "Darktrace", "Algolia", "ChowNow", "Hi Marley", "Lessen", "Radar", "Worldpay",
+        "Knit", "Substack", "Gather AI", "Geotab", "Metrostar Systems", "SoftWriters",
+        "Solera", "VALIANTYS", "Alchemy", "Eventual", "Flash", "HealthVerity", "Pacvue",
+        "Park Place Technologies", "SumUp", "Argano", "BuildOps", "Empower AI Inc.",
+        "Customcomputerspecialists", "GoDaddy", "MERCOR", "PermitFlow", "SafetyCulture",
+        "Stedi", "Telos Corporation", "UpdateMe", "Lacework", "Axiom Technologies",
+        "DoubleVerify", "Mapbox", "Verifone", "Poshmark", "Sysdig", "Reltio", "Patreon",
+        "ActiveCampaign", "Disqo", "Lattice", "PagerDuty", "Aera Technology", "Bloomreach",
+        "Zimperium", "Netcracker", "Deposco", "Lendbuzz", "Mercari Inc.", "Certara",
+        "Cyngn", "Elemica INC", "Kaseya", "Strava", "Doximity", "OVERJET", "Syndigo",
+        "BetterUp", "Anyscale", "Koddi", "Arkose Labs Holdings INC.", "MobilityWare",
+        "campfire", "Cresta", "Fortanix INC", "Resilience", "Locus Robotics", "Redis",
+        "Motive", "Testingxperts", "Legion", "MinIO", "Neo4j", "Quantifind", "Gorgias",
+        "Jumio Corporation", "JumpCloud", "Doxel", "Nova Credit", "Canidium", "Deel",
+        "HG Insights", "Invisible Technologies", "Nsight", "Amperity", "armis", "Canonical",
+        "Dataiku", "Innovid", "PickTrace", "Solovis", "Topaz Labs", "Payactiv", "ProcDNA",
+        "Velosio", "Aircall", "Applicantz", "Invoca", "Kikoff", "Snappr", "Viz.Ai",
+        "Airwallex", "Cardless", "Meter", "Oscilar", "Vercel", "15Five", "Atlan, Inc.",
+        "Etched", "Ideagen INC", "PayStand", "Typeface", "WorkOS", "100ms Inc", "AcuityMD",
+        "MaintainX", "MANYCHAT INC", "Ownwell, Inc.", "Parspec, Inc.", "Acceldata",
+        "AfterShip", "Articul8", "Baya Systems", "Calendly", "Duetti", "Equativ", "Forter",
+        "FurtherAI", "Glimpse", "Guardsquare", "HockeyStack", "Influ2", "Jellyfish",
+        "Liquid Ai", "Mesh", "Mintlify", "Mirakl, Inc", "onbe", "Paraform", "Perplexity",
+        "Planhat", "Pliancy", "Reevo", "Retell AI", "Runwise", "Semgrep", "Shopmonkey",
+        "Spinnaker Support", "Talentful Inc", "Triple Whale Inc", "Trustpilot",
+        "Tutor Intelligence", "Wisdom Ai", "Voltai", "Serve Robotics", "Databento Inc.",
+        "GuidePoint Security", "CPI Security", "Sphere", "Machine Intelligence",
+        "IT Automation", "Physical Intelligence", "Isomorphiclabs", "Imbue", "Censys Technologies Corporation",
+        # second pass over what the first sweep left behind
+        "Stepful", "KnowBe4", "Mashgin", "Sereact", "Tobor Robot Corporation", "Togetherai",
+        "BrainCo Technologies, Inc.", "Cockroach Labs", "Clever Inc.",
+        "Virtual Reality Technologies", "Augmented Reality Technologies", "Aquabyte",
+        "Sharebite Inc", "Paperclip Inc", "Felix Technologies Inc", "Future Secure AI",
+        "Qurrent", "Garage Technologies, Inc.", "Y Combinator",
+    ],
+    "IT Services & Consulting": [
+        "eClerx", "Capco", "Analytic Partners", "Bounteous", "Riveron", "Aprio",
+        "LinTech Global, Inc.", "NSD International", "HyerTek Inc.", "Redapt inc",
+        "THEMESOFT", "Prospance Inc", "Aries Computer Systems, Inc.", "Standish Management",
+        "Productive Resources", "Dentons", "Jensen Hughes", "Credence",
+        "Technology Service Professionals, Inc", "Shuttleworth LLC", "Tms Llc", "Talan",
+        "Pringle Technologies Inc", "Systems Technology & Research", "Torch Technologies",
+        "Andromeda Systems Incorporated", "ASRC Federal", "Avicado", "BC Forward", "Bowhead",
+        "CBInc.", "Insperity", "Magnakom", "Qualdoc", "ProvisHR", "West Cary Group",
+        "Saransh INC", "My3Tech", "Comprobase INC", "Venturesoft Global", "ITG Technologies",
+        "Insight Direct", "DataSync", "White Collar Technologies", "VRN Technologies",
+        "Iqlogg", "ITsutra", "SEGULA Technologies", "Sunsoft Services INC",
+        "Intelligroup USA LTD", "Mobiquity INC", "Smart IT Frame LLC", "TekHQS",
+        "KPI Partners", "Saras America", "Lgc Global INC", "Thirthasoft", "Vaco",
+        "Artifint Technologies", "Blue Spire INC", "Harmonic Group Inc", "Serigor INC",
+        "Reveille Technologies,Inc", "FNS", "Ivy Enterprises",
+        "Intelligent Automation Technology INC", "Code and Theory", "Groksys LLC",
+        "Aceintegrator", "Rpa Technologies", "Samsung SDS America", "Atser", "CED Systems",
+        "Openmind Technologies Inc", "Jayes Tech LLC", "Cloudeqs LLC", "Datazymes Inc.",
+        "Kernel Technologies, Inc.", "REPLY", "Mindgruve", "Armadin Inc",
+        "Enterprise Solution Partners LLC", "Exential Us INC", "Fiducial Inc.",
+        "Ibx LLC", "Mobicloud LLC", "Movate INC", "Msr Technology Group",
+        "Ntt Data Americas", "Plante Moran", "Qse7 LLC", "Smac Apps LLC", "URSUS INC",
+        "Victoriam & CO Americas CORP", "Insight Enterprises", "Eight Eleven Group LLC",
+        "Rapid Eagle Inc", "Twin Peaks Inc", "S R International Inc", "Intellibee Inc",
+        "PERIMATICS", "EisnerAmper", "DuCharme, McMillen & Associates, Inc.", "GFT",
+        "Ryan", "Baird", "Advanced Technology Services", "CARIAN", "Quanta Technology",
+        "Halvik", "Stark Tech", "Nysarc INC Essex County Chapter", "SERVAL", "ZS",
+        "PMG", "Brainlabs", "FleishmanHillard", "Havas Pr North America INC",
+        "Jack Morton Worldwide", "Vinfinities Corp", "Groupultra Limited",
+            "Honigman LLP", "Davis Wright Tremaine", "Moore & Van Allen",
+    ],
+    "Semiconductors & Hardware": [
+        "Astera Labs", "Lightmatter", "Graphcore Technologies Inc.", "Onto Innovation",
+        "Bourns", "SK Hynix America", "X-FAB", "TTM Technologies", "Excelitas Technologies",
+        "Littelfuse", "Coherent Corp.", "Eliyan", "Keyence", "Lite-On, Inc.", "Razer",
+        "Owl Labs", "Ooma, Inc.", "Rocket EMS", "ADDITEC", "Draper", "PsiQuantum",
+        "Nusano", "Lumilens Inc.", "Sungrow", "Gentex Corporation", "TD SYNNEX",
+        "Ingram Micro", "Lgelectronics", "Netradyne", "Zello",
+            "TENSORDYNE, INC",
+    ],
+    "Banking, Finance & Insurance": [
+        "Scotiabank", "ALTRUIST", "PayJoy", "Stashinvest", "Berkadia", "Arcesium", "Lower",
+        "Clear Street", "Fireblocks", "Parafin", "Convera", "William Blair & Company",
+        "SMBC US", "PDT Partners", "Vestwell", "Capital Farm Credit", "DTCC USA",
+        "First American", "Sezzle", "Protective", "Athene", "Hudson River Trading",
+        "Sunrise Futures", "Capsule", "Munich Re America Services INC", "Stifel",
+        "Thrivent", "Valkyrie Trading", "Tikehau Capital", "Quanata", "Vesta",
+        "Welltower, Inc", "Prologis", "Wheels Up", "Nitra, Inc.", "Payactiv",
+        "Blue Cross Blue Shield of Mississippi", "HealthPartners", "Medica Services Company LLC",
+        "Tensec", "Alloy", "Tebra",
+            "Sedgwick", "ServiceLink", "OKX", "FalconX", "Red Cell Partners", "FM",
+    ],
+    "Healthcare, Pharma & Biotech": [
+        "GSK", "Aledade", "ClinChoice", "CONMED", "UCB", "Cordis", "Cambrex", "Somatus",
+        "Generate Biomedicines", "WelbeHealth", "Freedom Care", "NexHealth", "NOCD",
+        "Autism Learning Partners", "Fortrea", "Ginkgo Bioworks", "Arthrex",
+        "Dentsply Sirona", "Celerion", "Ocular Therapeutix, Inc.", "Straumann Group",
+        "argenx", "Absci", "Permobil", "Vaxcyte", "LivaNova", "American Regent",
+        "Brainlab", "Inotiv", "MicroAire Surgical Instruments", "Texas Oncology",
+        "Familia Dental", "Ati Holdings", "Eisai", "Astellas", "Aspen Dental",
+        "42 North Dental", "ChenMed", "Akoya", "Henry Schein", "Kenvue", "Certara",
+        "Forge Biologics", "Pivot Bio", "Gator Bio", "Altos Labs", "Advanced Physical Therapy",
+        "Clarkson Eyecare", "hear.com", "Integrated Dermatology", "Metro Vein Centers",
+        "OneOncology", "Septerna", "Plasmidsaurus", "Headlands Research, Inc",
+        "Cellares", "Centivo", "Resonetics, LLC", "Neptune Technology Group", "Nextech",
+        "Comfort Keepers", "ConvenientMD", "EVG Specialty Network", "Solace Care",
+        "Lone Star Circle of Care", "Somatus", "Modern Animal", "Vetcor", "ABS Kids",
+        "The Stepping Stones Group", "Elsevier", "Richmond Children Center", "Aledade",
+        "Sleep Number Corporation", "Wider Circle", "Tia", "Air Methods", "Fugro",
+            "Starkey", "ATCC", "Neuralink", "BillionToOne", "Clarioclinical", "Heidihealth.Com.Au",
+    ],
+    "Hospitals & Health Systems": [
+        "PruittHealth", "TriHealth Inc.", "HonorHealth", "CentraCare", "MaineHealth",
+        "CommunityCare", "Pathways Inc", "Nysarc INC Essex County Chapter",
+        "AccentCare", "Aegis Therapies", "Pristine Rehab Care",
+    ],
+    "Universities & Research": [
+        "UCLA", "Virginia Tech", "Wgu", "Administrators of the Tulane Educational Fund",
+        "New Jersey Innovation Institute, Inc.", "Encyclopaedia Britannica",
+        "International Student Exchange Programs", "Improve Your Tomorrow",
+        "The Nature Conservancy", "Stand Together", "ActBlue Inc.", "Draper",
+    ],
+    "Government & Public Sector": [
+        "US Department of Veterans Affairs", "Fairfax County Government",
+        "District of Columbia Public Schools", "Greenville County Schools",
+        "Houston Independent School District", "KIPP Texas Public Schools",
+        "North Central Texas Council of Governments", "Texas Water Development Board",
+        "State of South Dakota", "The City of lake city", "Governmentjobs",
+        "Arizona Public Service (APS)", "Wisconsin", "Little Scholars of Arkansas",
+        "St. Patrick's School Yorktown", "Future Promise Educational Services",
+        "Center for Employment Opportunities", "Hana Center",
+        "The Crime Victims Center/Parents for Megan's Law",
+        "St. Vincent de Paul Society of Lane County", "RennerVation Foundation",
+        "CALSTART", "Halvik", "Empower AI Inc.", "Torch Technologies",
+    ],
+    "Aerospace, Defense & Industrial": [
+        "Clarios", "Belden", "Trillium Flow Technologies", "Amentum", "James Hardie",
+        "Merrick & Company", "Quanta Services", "Gentherm", "TechnipFMC", "Konecranes",
+        "Primetals Technologies", "Generac Power Systems", "Southwire Company",
+        "CEMEX", "Mitsubishi Power Americas, Inc.", "Trane Technologies",
+        "Mueller Water Products", "Muellerwaterproducts", "Maxcess International",
+        "Chamberlain Group", "TMEIC", "Tarkett", "BEUMER Group", "Arkema",
+        "Environmental Resources Management", "Bekaert", "Advanced Composites",
+        "Zekelman Industries", "Westinghouse Electric Company, LLC", "Core & Main",
+        "SAF-HOLLAND", "Vixxo", "BRP", "Consolidated Precision Products", "Copeland",
+        "Excelitas Technologies", "Heidelberg Materials", "Oetiker", "RHI Magnesita",
+        "VOTAW PRECISION TECHNOLOGIES", "Yancey Bros CO.", "A123 Systems", "Rogers",
+        "thyssenkrupp", "Holtec International", "CHEP", "Hendrickson USA LLC",
+        "Firmenich", "PrimeSource Building Products", "Terex Corporation", "Knapp",
+        "KONE", "Zeeco", "Oregon Tool", "Innophos", "allnex", "Barry Callebaut",
+        "Braun Intertec", "Maesa", "Resideo", "ALSTOM", "CAE", "Canon", "Keyence",
+        "Williams International", "Big Dutchman Inc.", "Advanced Nutrients",
+        "Seohan-NTN Driveshaft", "Traton R&D", "Sicpa", "Lallemand Bio Ingredients USA LLC",
+        "Kairos Power", "Pacific Fusion", "Heirloom Carbon Technologies, Inc.",
+        "Nexamp", "Silicon Ranch", "Avantus", "Cape Electrical Supply LLC.",
+        "ABC Supply Co., Inc.", "Winsupply", "Srsdistribution", "QXO", "Sunbelt Rentals",
+        "POWER ELECTRONICS", "Alliance Fire Protection", "Engineered Systems, Inc.",
+        "LaForce Inc", "Shuttleworth LLC", "Rocket EMS", "Nova Credit",
+            "Atomic Machines", "Rhombus Power", "Heidelberg",
+    ],
+    "Energy & Utilities": [
+        "NiSource US", "FirstEnergy Corp.", "Pacific Gas and Electric",
+        "Southern California Edison Company", "Spire", "Avangrid", "Vitol",
+        "Kinetic Inc", "Gridware", "EdgeConneX", "Renewed Vision",
+    ],
+    "Engineering, Construction & Real Estate": [
+        "HDR", "Allan Myers", "Luster National", "CannonDesign", "Core Spaces",
+        "Lithko Contracting", "Bolton & Menk", "Mead & Hunt, Inc.", "Inframark",
+        "Olsson", "Forgen", "Hypower Inc.", "LandDesign, Inc", "Ballinger",
+        "Crown Field Services", "Day & Zimmermann", "Lennar", "Lemartec",
+        "McLemore Building Maintenance", "Resilient Retrofits", "Restoration Relief",
+        "Restoration East LLC", "Taylor Fence Company", "Mike Home improvements",
+        "Jones Mobile Home Service INC", "Johnny on the Spot Environmental",
+        "Environmental Science Associates", "FirstService Residential", "Bozzuto",
+        "Industrious", "Cortland", "Arhaus", "Mantis Innovation", "Avicado",
+        "Luxury Presence", "Serhant", "Core Spaces", "Gmh", "LotusWorks",
+        "Qualdoc", "Abebe Westside LLC", "Landmere, Inc.", "Rockland Express LLC",
+        "GardaWorld Security Services US", "Johnson Brothers", "Ignite Fueling Innovation",
+        "Good Life Corporation", "Solari, Inc.",
+            "CUPERTINO ELECTRIC",
+    ],
+    "Transport, Logistics & Automotive": [
+        "RXO", "C.H. Robinson", "R+L Carriers", "AutoNation", "Syncreon", "Gotion",
+        "AeroVect", "Avride", "WeRide", "Keolis", "Swissport", "BYD America",
+        "Contemporary Amperex Technology Kentucky LLC", "CarMax", "Vivint",
+        "Array Technologies", "Autotech", "SkyRyse", "Supernal", "Vay", "Wayve",
+        "Dexmate", "RoboForce", "Paradigm Van", "Town Pump", "QuikTrip",
+        "Wolverine Worldwide", "Spreetail", "Gopuff", "ACV Auctions", "Motion",
+        "Iko", "Everpure",
+    ],
+    "Retail, Consumer & Hospitality": [
+        "Crocs", "Crate and Barrel", "Best Western", "Five Below", "Hasbro, Inc.",
+        "Puig", "Weis Markets", "Warby Parker", "New Balance", "The RealReal",
+        "Richemont", "Rollins", "Golden State", "Gap Inc.", "Saks Global",
+        "Columbia Sportswear", "National Vision, Inc.", "La-Z-Boy", "Thrive Market",
+        "Build-A-Bear Workshop", "Chick-fil-A", "HelloFresh", "Sweetgreen",
+        "Lamb Weston", "Giant Eagle", "Wawa", "Aramark", "Balsam Brands",
+        "Shop LC", "Perry Ellis International", "Hot Topic", "Rent The Runway",
+        "Burlington", "Dillards", "Chowbus", "Bombas", "Faherty Brand",
+        "Hill House Home", "Fashion Nova", "Blank Street", "KISS Products",
+        "Chefman", "CookUnity", "Winebow", "Central Coast Wine Company",
+        "Hilmar Cheese Company", "The Morning Star Company", "Big Geyser, Inc",
+        "Ferrero", "Kerry", "OFI", "Sodexo", "Crunch Fitness", "ResortPass",
+        "GetYourGuide", "Twin Peaks Inc", "BONITA BAY CLUB", "Carl Fischer LLC",
+        "Hattori Hanzo Shears, Inc.", "Drim Commerce LLC", "RepRally", "WHOP INC",
+        "Ernest", "Solera", "Maesa", "Sleep Number Corporation", "Arhaus",
+        "Prologis", "Insperity",
+            "The SSA Group",
+    ],
+    "Media, Telecom & Gaming": [
+        "Nexstar", "Telus", "SiriusXM", "Genius Sports", "Scopely", "Xsolla",
+        "Crunchyroll", "AccuWeather", "Real Chemistry", "Known", "VaynerMedia",
+        "Taboola", "Samba TV", "Optimum", "SEMAFOR", "Relx", "Informa Markets Medica LLC",
+        "MobilityWare", "TapBlaze", "Carl Fischer LLC", "LeagueApps Inc.",
+        "Jack Morton Worldwide", "Brainlabs", "PMG", "FleishmanHillard",
+        "Havas Pr North America INC", "Code and Theory", "VML", "Dentons",
+        "RR Donnelley", "Nexstar",
+    ],
+}
+
 CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
+# The tail loses to the corrections block on a collision: _CURATED_LISTS was written against
+# measured traffic, the sweep was written from a name.
+for _sector, _names in _CURATED_TAIL.items():
+    for _n in _names:
+        CURATED.setdefault(core.norm_company(_n), _sector)
 
 
 def _sector(name, key, cap_exempt, agency):
@@ -826,7 +1089,20 @@ def main(argv):
             for n in bad[:60]:
                 sys.stderr.write("  %s\n" % n)
             return 1
-        print("\nOK: no prominent company is Unsorted.")
+        # A ceiling as well as a floor. The per-company gate above cannot catch the failure
+        # that actually happened once: the bucket sitting at 916 (43%) because the curated
+        # lists had not been written yet, with every single name individually below the
+        # prominence bar. 5% is deliberately loose -- a scrape can legitimately introduce a
+        # batch of unfamiliar employers -- but it fails long before the page reads as broken.
+        n_uns = hist.get(UNSORTED, 0)
+        share = 100.0 * n_uns / max(total, 1)
+        if share > UNSORTED_CEILING:
+            sys.stderr.write("\nFAIL: Unsorted is %d of %d (%.1f%%), over the %.0f%% ceiling.\n"
+                             "Run --report and add the head of that list to _CURATED_TAIL.\n"
+                             % (n_uns, total, share, UNSORTED_CEILING))
+            return 1
+        print("\nOK: no prominent company is Unsorted, and the bucket is %d of %d (%.1f%%)."
+              % (n_uns, total, share))
         return 0
 
     with open(OUT_JSON, "w", encoding="utf-8", newline="\n") as fh:

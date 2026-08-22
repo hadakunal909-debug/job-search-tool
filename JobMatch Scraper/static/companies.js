@@ -198,13 +198,13 @@
         var more = list.length - show.length;
         return '<h2 class="sechdr">' + esc(s) + ' <span class="tabn">' + num(list.length) +
           '</span></h2>' +
-          /* Says what is actually true of this bucket. An earlier version claimed these had
-             "nothing open", which the default view disproves on its own -- 520 of them have
-             open roles. What they share is being below the curation line: outside the top 400
-             by open roles and under 100 lifetime filings. */
-          (s === UNSORTED ? '<p class="fnote">No sector assigned yet. These sit below the ' +
-            'curation line — a handful of open roles and little filing history — so ' +
-            'nobody has classified them.</p>' : '') +
+          /* Rewritten twice as the bucket shrank, because a note that stops being true is
+             worse than no note. It began as 916 employers ("below the curation line"), and is
+             now 28: names too ambiguous to place on a name alone, plus a handful the scraper
+             stored badly. Guessing a sector for either would be worse than saying this. */
+          (s === UNSORTED ? '<p class="fnote">No sector assigned — the name alone is not ' +
+            'enough to place these, and a few are recorded oddly by the scraper. Everything ' +
+            'else about them is accurate.</p>' : '') +
           '<div class="codir">' + show.map(card).join('') + '</div>' +
           (more > 0 ? '<div class="morewrap"><button type="button" class="btn sm ghost" ' +
             'data-more="' + esc(s) + '">Show all ' + num(list.length) + '</button></div>' : '');
