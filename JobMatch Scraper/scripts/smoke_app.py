@@ -105,7 +105,11 @@ def main():
         if p == "/job" and job_url:
             targets.append(("/job", "/job?url=" + quote(job_url, safe="")))
         elif p == "/company" and company:
-            targets.append(("/company", "/company?name=" + quote(company, safe="")))
+            # ?c=, not ?name=. The route reads request.args["c"] (company names contain
+            # slashes, so the name cannot travel in the path), and with the wrong parameter it
+            # redirected to the feed — which this script scored as a PASS, so /company has
+            # never actually been smoke-tested.
+            targets.append(("/company", "/company?c=" + quote(company, safe="")))
         else:
             targets.append((p, p))
         for q in EXTRA_QUERIES.get(p, []):
