@@ -5975,6 +5975,25 @@ def add_board():
                 if n is None:
                     result = ("err", "Detected a %s board but couldn't read any postings." % ats)
                 else:
+                    # NEVER store detect_board's third value unchallenged. It is _name_from on
+                    # the URL slug -- a suggestion for this form, not a fact -- and nine
+                    # employers were recorded from it verbatim: World Fuel Services as
+                    # "Wfscorp", Monogram Health as "Mon1026Monoh", and 131 Goldman Sachs
+                    # postings as "Hdpc", an opaque Oracle tenant id that matches nothing in
+                    # the filing data and so showed no sponsorship at all.
+                    #
+                    # sluglike() is true for "Samsara" too, because there the slug really is
+                    # the company. So it can only decide whether to go LOOK, never to reject:
+                    # ask the board what it calls itself, and only insist on a typed name when
+                    # the board won't say and the guess adds nothing to the URL.
+                    if not name and scraper.name_is_sluglike(guess, burl):
+                        name = scraper.board_display_name(burl, ats)
+                        if not name:
+                            result = ("err", "That looks like a %s board, but its URL only "
+                                      "carries a tenant code and the board doesn't publish a "
+                                      "company name. Type the company name and submit again."
+                                      % ats)
+                if result is None and n is not None:
                     ok, msg = db.add_board(burl, ats, name or guess, added_by=session["user"])
                     if ok:
                         result = ("ok", "Added %s (%s, ~%s postings). It joins the next scrape."
