@@ -254,7 +254,7 @@ footer {
 <body>
 <div class=wrap>
 <h1>JobMatch &mdash; the shape of it</h1>
-<p class=lede>Four pictures. Everything on them is extracted from the code by <code>scripts/build_docs.py</code>, so a number here cannot be older than the last commit. 47 files, 1,924 top-level symbols, 84 routes, 1,191 boards.</p>
+<p class=lede>Four pictures. Everything on them is extracted from the code by <code>scripts/build_docs.py</code>, so a number here cannot be older than the last commit. 46 files, 1,929 top-level symbols, 85 routes, 1,191 boards.</p>
 <div class=key>
 <span><i class=web></i>&#9635; request-scoped &mdash; has session and request</span>
 <span><i class=sched></i>&#9719; scheduled &mdash; no session, filesystem discarded</span>
@@ -270,8 +270,8 @@ footer {
 <text class="t-web" x="14" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
 <text class="t-ink" x="14" y="80" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">FLASK APP</text>
 <text class="t-dim" x="14" y="99" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">Serves every page and API</text>
-<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  7,568 lines</text>
-<text class="t-dim" x="14" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">84 routes / 83 handlers</text>
+<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  7,753 lines</text>
+<text class="t-dim" x="14" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">85 routes / 84 handlers</text>
 <text class="t-dim" x="14" y="147" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">NO blueprints -- one module</text>
 <text class="t-dim" x="14" y="163" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">templates/  31 files</text>
 <path class="edge" d="M150 194 L150 213 L490 213 L490 232" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
@@ -522,7 +522,8 @@ footer {
 <tr><td><code>resume_vocab.json</code></td><td>spell-check vocabulary for the grader</td></tr>
 <tr><td><code>resume_keywords.json</code></td><td>curated skills per track</td></tr>
 <tr><td><code>company_domains.json</code></td><td>verified logo domains</td></tr>
-<tr><td><code>careers_us.md</code></td><td>the /careers page <em>&mdash; a SHIPPED RUNTIME ASSET, not a doc -- moving it breaks /careers; in-feed markers from scripts/build_careers_md.py</em></td></tr>
+<tr><td><code>careers_us.md</code></td><td>the hand-edited careers/LinkedIn URL list <em>&mdash; a SHIPPED RUNTIME ASSET, not a doc; feeds scripts/build_companies.py, markers from scripts/build_careers_md.py</em></td></tr>
+<tr><td><code>companies.json</code></td><td>the /companies directory <em>&mdash; built by scripts/build_companies.py; the sector map is curated -- run --report before editing it</em></td></tr>
 <tr><td><code>resume.txt</code></td><td>the resume the scraper widens its terms from <em>&mdash; hand-edited, no generator</em></td></tr>
 </tbody></table></div>
 <div><h3>&#9723; Ignored &mdash; disposable</h3><table><tbody>
