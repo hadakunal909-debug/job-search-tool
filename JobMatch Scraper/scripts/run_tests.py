@@ -100,6 +100,7 @@ SUITES = (
     Suite("test_workday_date",      "test_workday_date.py",              "root",   "offline"),
 
     # ---- scripts ----------------------------------------------------------------------------
+    Suite("test_companies_page",    "scripts/test_companies_page.py",    "scripts", "offline"),
     Suite("test_contrast",          "scripts/test_contrast.py",          "scripts", "offline"),
     Suite("test_doc_contrast",      "scripts/test_doc_contrast.py",      "scripts", "offline"),
     Suite("test_dbproxy",           "scripts/test_dbproxy.py",           "scripts", "offline"),
@@ -158,6 +159,11 @@ EXTRA_TOUCHES = {
     "test_search_and_similar": ("static/app.js",),
     "test_onboarding":         ("templates/", "static/style.css"),
     "test_job_page":           ("templates/",),
+    # The directory renders from a data file and a template, and its sector map lives in
+    # a script it imports at runtime rather than at module scope -- neither is reachable
+    # from the import walk below.
+    "test_companies_page":     ("templates/", "static/companies.js", "companies.json",
+                                "scripts/build_companies.py"),
     "test_jdrender":           ("scripts/fixtures/",),
     "test_jobs_cache":         ("templates/",),
     "test_ext_contract":       ("extension/",),
