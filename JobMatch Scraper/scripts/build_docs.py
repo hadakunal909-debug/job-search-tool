@@ -935,7 +935,7 @@ TRUTH = (
     ("resume_keywords.json", "curated skills per track", ""),
     ("company_domains.json", "verified logo domains", ""),
     ("careers_us.md", "the /careers page",
-     "a SHIPPED RUNTIME ASSET, not a doc -- moving it breaks /careers"),
+     "a SHIPPED RUNTIME ASSET, not a doc -- moving it breaks /careers; in-feed markers from scripts/build_careers_md.py"),
     ("resume.txt", "the resume the scraper widens its terms from", "hand-edited, no generator"),
 )
 CACHE = (
