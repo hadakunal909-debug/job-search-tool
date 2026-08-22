@@ -1,0 +1,846 @@
+#!/usr/bin/env python3
+"""Build companies.json — the data behind /companies.
+
+One row per employer we either scrape or know sponsors, carrying its sector, its careers
+link, its LinkedIn search, its H-1B volume and its visa/cap-exempt/agency flags.
+
+    python scripts/build_companies.py            # rewrite companies.json
+    python scripts/build_companies.py --report   # sector histogram + the Unsorted head
+    python scripts/build_companies.py --check    # exit 1 if a PROMINENT company is Unsorted
+
+Run from the app directory: sponsors.txt, careers_us.md and the sponsor JSONs are read
+relative to the cwd, exactly as web.py reads them.
+
+WHY THE UNIVERSE IS WHAT IT IS. SOURCES + sponsors.txt is 1,633 names, but the live corpus
+holds ~391 companies outside that union — boards added through /add, plus corpus spellings
+that don't normalize onto a SOURCES name. Omitting them would hide employers that have jobs
+in the feed right now, which is the most visible bug this page could have. So the universe is
+the union of all four sources, and the corpus is one of them.
+
+THE SECTOR MAP IS DELIBERATELY PARTIAL. There is no company->industry dataset in this repo,
+and the one offline taxonomy (scraper/classify_everify.py) leaves ~66% unclassified by its own
+admission. So sectors resolve in four layers — curated, the two shipped rule helpers, keywords,
+then Unsorted — and the winning layer is recorded in `src` so companies_report.csv can be
+reviewed. The top 300 companies carry 88% of live postings and 89% of all H-1B filings, so
+curating the head and labelling the tail honestly beats guessing at 2,000 names. --check is the
+gate that keeps the head curated; the tail may stay Unsorted, and the page says so.
+
+NOT IN core.py OR web.py ON PURPOSE. These regexes would become a fourth twin next to the
+filter triplet (web.py::_filter_rows / app.js::matches / core.prefs_match). The app only ever
+reads the resolved string out of companies.json.
+"""
+import collections
+import csv
+import datetime
+import gzip
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import core                                                    # noqa: E402
+import db                                                      # noqa: E402
+import scraper                                                 # noqa: E402
+
+OUT_JSON = "companies.json"
+OUT_CSV = "companies_report.csv"
+SNAPSHOT = "jobs_snapshot.json.gz"
+
+# Index into this list is what a row stores; the order is the page's section order.
+SECTORS = [
+    "Software & Internet",
+    "IT Services & Consulting",
+    "Semiconductors & Hardware",
+    "Banking, Finance & Insurance",
+    "Healthcare, Pharma & Biotech",
+    "Universities & Research",
+    "Hospitals & Health Systems",
+    "Aerospace, Defense & Industrial",
+    "Energy & Utilities",
+    "Engineering, Construction & Real Estate",
+    "Retail, Consumer & Hospitality",
+    "Transport, Logistics & Automotive",
+    "Media, Telecom & Gaming",
+]
+UNSORTED = "Unsorted"
+
+# ---------------------------------------------------------------- careers URLs
+# Harvested from scraper/make_careers.py before that file was deleted: it ran its generator at
+# MODULE SCOPE, so merely importing it rewrote careers_us.md. These 166 hand-checked links are
+# the only thing in it worth keeping, and ~50 of them (Google, Microsoft, Apple) name companies
+# with no readable board at all, so nothing else can supply them.
+NATIVE = {
+    "Samsara": "https://job-boards.greenhouse.io/samsara",
+    "Stripe": "https://job-boards.greenhouse.io/stripe",
+    "Verkada": "https://job-boards.greenhouse.io/verkada",
+    "Brex": "https://job-boards.greenhouse.io/brex",
+    "Datadog": "https://job-boards.greenhouse.io/datadog",
+    "Instacart": "https://job-boards.greenhouse.io/instacart",
+    "SoFi": "https://job-boards.greenhouse.io/sofi",
+    "Scale AI": "https://job-boards.greenhouse.io/scaleai",
+    "Airbnb": "https://job-boards.greenhouse.io/airbnb",
+    "Databricks": "https://job-boards.greenhouse.io/databricks",
+    "Twilio": "https://job-boards.greenhouse.io/twilio",
+    "Robinhood": "https://job-boards.greenhouse.io/robinhood",
+    "Toast": "https://job-boards.greenhouse.io/toast",
+    "Checkr": "https://job-boards.greenhouse.io/checkr",
+    "Affirm": "https://job-boards.greenhouse.io/affirm",
+    "Flexport": "https://job-boards.greenhouse.io/flexport",
+    "MongoDB": "https://job-boards.greenhouse.io/mongodb",
+    "Okta": "https://job-boards.greenhouse.io/okta",
+    "Palantir": "https://jobs.lever.co/palantir",
+    "Ramp": "https://jobs.ashbyhq.com/ramp",
+    "Notion": "https://jobs.ashbyhq.com/notion",
+    "Vanta": "https://jobs.ashbyhq.com/vanta",
+    "Replit": "https://jobs.ashbyhq.com/replit",
+    "Cursor": "https://jobs.ashbyhq.com/cursor",
+    "Avery Dennison": "https://jobs.smartrecruiters.com/AveryDennison",
+    "Experian": "https://jobs.smartrecruiters.com/Experian",
+    "Google": "https://careers.google.com/jobs/results/?location=United%20States",
+    "Alphabet": "https://careers.google.com/jobs/results/?location=United%20States",
+    "Amazon": "https://www.amazon.jobs/en/search?country=USA&loc_query=United+States",
+    "Amazon Web Services":
+        "https://www.amazon.jobs/en/search?base_query=AWS&country=USA&loc_query=United+States",
+    "Microsoft": "https://careers.microsoft.com/v2/global/en/search",
+    "Meta Platforms": "https://www.metacareers.com/jobs",
+    "Apple": "https://jobs.apple.com/en-us/search?location=united-states-USA",
+    "Netflix": "https://explore.jobs.netflix.net/careers",
+    "Nvidia": "https://www.nvidia.com/en-us/about-nvidia/careers/",
+    "Intel": "https://jobs.intel.com",
+    "Oracle": "https://careers.oracle.com/jobs",
+    "IBM": "https://www.ibm.com/careers/search",
+    "Salesforce": "https://careers.salesforce.com/en/jobs/",
+    "Adobe": "https://careers.adobe.com/us/en/search-results",
+    "Cisco": "https://jobs.cisco.com/jobs/SearchJobs/",
+    "Qualcomm": "https://careers.qualcomm.com/careers",
+    "Uber": "https://www.uber.com/us/en/careers/list/",
+    "Lyft": "https://www.lyft.com/careers",
+    "LinkedIn": "https://careers.linkedin.com/jobs",
+    "PayPal": "https://careers.pypl.com/home/",
+    "eBay": "https://careers.ebayinc.com/us/en/job-search-results",
+    "Pinterest": "https://www.pinterestcareers.com/jobs/",
+    "Snap": "https://careers.snap.com/jobs",
+    "Block": "https://block.xyz/careers/jobs",
+    "DoorDash": "https://careers.doordash.com/",
+    "Coinbase": "https://www.coinbase.com/careers/positions",
+    "Dropbox": "https://jobs.dropbox.com/all-jobs",
+    "Snowflake": "https://careers.snowflake.com/us/en/search-results",
+    "Workday": "https://www.workday.com/en-us/company/careers.html",
+    "ServiceNow": "https://careers.servicenow.com/jobs/",
+    "Atlassian": "https://www.atlassian.com/company/careers/all-jobs",
+    "Intuit": "https://www.intuit.com/careers/job-search/",
+    "Autodesk": "https://www.autodesk.com/careers/overview",
+    "Micron Technology": "https://www.micron.com/careers",
+    "Advanced Micro Devices": "https://www.amd.com/en/corporate/careers.html",
+    "Tesla": "https://www.tesla.com/careers/search/?country=US",
+    "Walmart Global Tech": "https://careers.walmart.com/technology",
+    "Comcast": "https://jobs.comcast.com/",
+    "Expedia Group": "https://careers.expediagroup.com/jobs/",
+    "Booking.com": "https://careers.booking.com/",
+    "ByteDance": "https://jobs.bytedance.com/en/position",
+    "TikTok": "https://careers.tiktok.com/position",
+    "Deloitte": "https://apply.deloitte.com/en_US/careers/SearchJobs",
+    "Accenture": "https://www.accenture.com/us-en/careers/jobsearch",
+    "Cognizant": "https://careers.cognizant.com/global-en/jobs/",
+    "Infosys": "https://career.infosys.com/jobs",
+    "Tata Consultancy Services": "https://www.tcs.com/careers/us",
+    "Wipro": "https://careers.wipro.com/careers-home/jobs",
+    "Capgemini": "https://www.capgemini.com/us-en/careers/jobs/",
+    "HCL Technologies": "https://www.hcltech.com/careers",
+    "Tech Mahindra": "https://careers.techmahindra.com/",
+    "EPAM Systems": "https://www.epam.com/careers/job-listings",
+    "Ernst & Young": "https://careers.ey.com/ey/search/",
+    "PricewaterhouseCoopers": "https://www.pwc.com/us/en/careers/search-jobs.html",
+    "KPMG": "https://www.kpmguscareers.com/jobsearch/",
+    "McKinsey & Company": "https://www.mckinsey.com/careers/search-jobs",
+    "Boston Consulting Group": "https://careers.bcg.com/global/en/search-results",
+    "Booz Allen Hamilton": "https://careers.boozallen.com/jobs",
+    "Leidos": "https://careers.leidos.com/search/jobs",
+    "JPMorgan Chase": "https://careers.jpmorgan.com/us/en/students/search-results",
+    "Goldman Sachs": "https://www.goldmansachs.com/careers/our-firm/students/",
+    "Morgan Stanley": "https://www.morganstanley.com/people/students-and-graduates",
+    "Citigroup": "https://jobs.citi.com/search-jobs/United%20States/",
+    "Bank of America": "https://careers.bankofamerica.com/en-us/job-search",
+    "Wells Fargo": "https://www.wellsfargojobs.com/en/jobs/",
+    "BlackRock": "https://careers.blackrock.com/students/",
+    "Fidelity Investments": "https://jobs.fidelity.com/search-jobs/United%20States/",
+    "Bloomberg": "https://careers.bloomberg.com/job/search",
+    "Two Sigma": "https://careers.twosigma.com/careers/SearchJobs/",
+    "Citadel": "https://www.citadel.com/careers/open-opportunities/",
+    "Capital One": "https://www.capitalonecareers.com/search-jobs",
+    "Visa": "https://corporate.visa.com/en/jobs/",
+    "Mastercard": "https://careers.mastercard.com/us/en/search-results",
+    "American Express": "https://aexp.eightfold.ai/careers",
+    "Pfizer": "https://www.pfizer.com/about/careers",
+    "Johnson & Johnson": "https://www.careers.jnj.com/en/jobs/",
+    "Merck": "https://jobs.merck.com/us/en/search-results",
+    "Eli Lilly": "https://careers.lilly.com/us/en/search-results",
+    "Amgen": "https://careers.amgen.com/en/search-jobs",
+    "Genentech": "https://careers.gene.com/us/en/search-results",
+    "UnitedHealth Group": "https://careers.unitedhealthgroup.com/search-jobs",
+    "CVS Health": "https://jobs.cvshealth.com/us/en/search-results",
+    "Dell": "https://jobs.dell.com/",
+    "American Airlines": "https://jobs.aa.com/",
+    "Bristol-Myers Squibb": "https://careers.bms.com/careers",
+    "Texas Instruments": "https://careers.ti.com/",
+    "Regeneron Pharmaceuticals": "https://careers.regeneron.com/",
+    "GlobalFoundries": "https://careers.gf.com/",
+    "Northwell Health": "https://jobs.northwell.edu/",
+    "Henry Ford Health": "https://careers.henryford.com/",
+    "Blackstone": "https://www.blackstone.com/careers/",
+    "MassMutual": "https://careers.massmutual.com/",
+    "Edwards Lifesciences": "https://jobs.edwards.com/",
+    "Guidewire": "https://careers.guidewire.com/",
+    "Jones Lang LaSalle": "https://www.jll.com/en-us/careers",
+    "Rockwell Automation":
+        "https://www.rockwellautomation.com/en-us/company/about-us/careers.html",
+    "Bridgewater Associates": "https://www.bridgewater.com/working-at-bridgewater",
+    "S&P Global": "https://careers.spglobal.com/",
+    "CME Group": "https://www.cmegroup.com/careers.html",
+    "Marqeta": "https://www.marqeta.com/company/careers",
+    "Tradeweb": "https://www.tradeweb.com/about-us/careers/",
+    "Viasat": "https://careers.viasat.com/",
+    "W.W. Grainger": "https://jobs.grainger.com/",
+    "Altair": "https://careers.altair.com/",
+    "Santander": "https://www.santandercareers.com/",
+    "ChargePoint": "https://www.chargepoint.com/about/careers",
+    "BioMarin": "https://careers.biomarin.com/",
+    "Ciena": "https://www.ciena.com/about/careers",
+    "Anaplan": "https://www.anaplan.com/company/careers/",
+    "National Grid": "https://careers.nationalgrid.com/",
+    "DigitalOcean": "https://www.digitalocean.com/careers",
+    "Frontier Airlines": "https://www.flyfrontier.com/about-us/careers/",
+    "Toyota Motor North America": "https://www.toyota.com/careers/",
+    "Alcon": "https://www.alcon.com/careers",
+    "Q2": "https://www.q2.com/careers",
+    "Eightfold AI": "https://eightfold.ai/careers/",
+    "Aurora Innovation": "https://aurora.tech/careers",
+    "AIG": "https://www.aig.com/careers",
+    "Novant Health": "https://careers.novanthealth.org/",
+    "WorldQuant": "https://www.worldquant.com/career-listing/",
+    "Cigna": "https://jobs.thecignagroup.com/",
+    "Celonis": "https://www.celonis.com/careers/jobs/",
+    "Tenneco": "https://careers.tenneco.com/",
+    "Clarivate": "https://careers.clarivate.com/",
+    "May Mobility": "https://maymobility.com/careers/",
+    "New Relic": "https://newrelic.com/about/careers",
+    "BitGo": "https://www.bitgo.com/careers/",
+    "Sift Science": "https://sift.com/careers",
+    "Macy's": "https://www.macysjobs.com/",
+    "DirecTV": "https://www.directv.com/careers/",
+    "RingCentral": "https://www.ringcentral.com/careers.html",
+    "LendingClub": "https://www.lendingclub.com/company/careers",
+    "Jacobs": "https://careers.jacobs.com/",
+    "Slalom": "https://www.slalom.com/careers",
+    "Arcadis": "https://www.arcadis.com/en-us/careers",
+    "AlixPartners": "https://www.alixpartners.com/careers/",
+    "RSM US": "https://rsmus.com/careers.html",
+    "Teradata": "https://careers.teradata.com/",
+    "Saviynt": "https://saviynt.com/careers",
+    "Sumitomo Mitsui Banking Corporation": "https://www.smbcgroup.com/americas/careers",
+}
+
+# These three names are ambiguous in a LinkedIn keyword search. Everything else derives from
+# the display name on the client, so only the overrides ship.
+LI_KEYWORD = {"Visa": "Visa Inc", "Block": "Block Inc", "Snap": "Snap Inc"}
+
+# Board hosts common enough that storing the prefix once beats storing it per row. 4 of these
+# cover roughly a third of every board URL in SOURCES.
+PREFIX = {
+    "gh": "https://job-boards.greenhouse.io/",
+    "sr": "https://jobs.smartrecruiters.com/",
+    "ab": "https://jobs.ashbyhq.com/",
+    "lv": "https://jobs.lever.co/",
+}
+
+KIND_NONE, KIND_NATIVE, KIND_BOARD, KIND_SITE = 0, 1, 2, 3
+
+# Flag bits 0-4 ARE core._VISA_BITS, reused rather than restated so they cannot drift from
+# core.VISA_TAGS. 5 and 6 are ours.
+BIT_CAP_EXEMPT = 32
+BIT_AGENCY = 64
+
+# --------------------------------------------------------------- sector layers
+# Keyword layer, first match wins, so this runs most-specific to most-general. A term is here
+# only when it NAMES AN INDUSTRY: legal suffixes ("technologies", "group", "labs") are banned,
+# which is exactly where scraper/classify_everify.py goes wrong -- anything containing "tech"
+# lands in IT consulting there.
+KEYWORDS = [
+    ("Semiconductors & Hardware",
+     r"semiconductor|microelectronic|foundry|wafer|lithograph|photonic|optoelectronic"
+     r"|\bchip\b|\bfpga\b|\basic\b|\bcpu\b|\bgpu\b"
+     r"|micron|nvidia|qualcomm|broadcom|marvell|synopsys|cadence|lam research"
+     r"|applied materials|\bkla\b|\basml\b|analog devices|texas instruments|onsemi"
+     r"|globalfoundries|skyworks|qorvo|microchip|infineon|renesas|ampere computing"
+     r"|western digital|seagate|sandisk|\bamd\b|\btsmc\b|\bviasat\b|\bciena\b"),
+    ("Universities & Research",
+     r"universit|college|polytechnic|institute of technology|graduate school"
+     r"|school of (?:medicine|public health|nursing|engineering|law|business)"
+     r"|research institute|national lab|\bacadem|\bseminary\b"
+     r"|\bsmithsonian\b|jet propulsion|brookhaven|fermilab|oak ridge|sandia|los alamos"
+     r"|argonne|lawrence livermore|battelle|scripps research|broad institute"
+     r"|howard hughes medical|salk institute|\bmitre\b|rand corporation"),
+    ("Hospitals & Health Systems",
+     r"hospital|health system|healthcare system|medical cent(?:er|re)|\bclinic\b"
+     r"|cancer (?:cent(?:er|re)|institute)|children'?s health|\bhealth network\b"
+     r"|\bmedical group\b|\bhealth partners\b|\bregional health\b|\bnursing home\b"
+     r"|\bhospice\b|\bdialysis\b"
+     r"|mayo|cleveland clinic|kaiser permanente|dana.farber|memorial sloan|md anderson"
+     r"|mass general|brigham and women|northwell|mount sinai|cedars.sinai"
+     r"|houston methodist|city of hope|novant health|henry ford health"),
+    ("Healthcare, Pharma & Biotech",
+     r"pharmaceutic|\bpharma\b|biotech|biopharma|therapeutic|\bbiosciences?\b"
+     r"|life sciences|\bgenomic|\bvaccine|medical device|diagnostic"
+     r"|\bhealth\b|\bhealthcare\b|\bmedical\b|\bmedicine\b"
+     r"|pfizer|merck|\bamgen\b|genentech|astrazeneca|novartis|\bsanofi\b|\bbayer\b"
+     r"|glaxo|abbvie|\babbott\b|regeneron|moderna|biontech|bristol.myers|eli lilly"
+     r"|\blilly\b|\bbaxter\b|boston scientific|stryker|medtronic|becton|thermo fisher"
+     r"|illumina|\bcigna\b|\bhumana\b|unitedhealth|\baetna\b|\belevance\b|\bcvs\b"
+     r"|molina|centene|\bmckesson\b|cardinal health|\bzoetis\b|\bidexx\b"
+     r"|\bbiogen\b|\bgilead\b|\bincyte\b|\bexelixis\b|alnylam|\bbiomarin\b|\bseagen\b"
+     r"|edwards lifesciences|\balcon\b|\bemory healthcare\b"),
+    ("Banking, Finance & Insurance",
+     r"\bbank\b|banking|bancorp|bancshares|\bcredit union\b|\bfinancial\b|\bfinance\b"
+     r"|asset management|\binvestment|\bsecurities\b|brokerage|hedge fund"
+     r"|\binsuranc|\bassuranc|reinsuranc|\bunderwrit|\bactuar|annuit"
+     r"|\bmortgage\b|\blending\b|\bpayments?\b|\bfintech\b|\bpayroll\b|\bwealth\b"
+     r"|\btrust company\b|\bclearing\b|\bcustod"
+     r"|jpmorgan|goldman sachs|morgan stanley|\bcitigroup\b|\bcitibank\b|wells fargo"
+     r"|blackrock|blackstone|\bfidelity\b|\bschwab\b|\bvanguard\b|\bnasdaq\b"
+     r"|\bvisa\b|mastercard|american express|\bpaypal\b|\bstripe\b"
+     r"|capital one|\bdiscover\b|\bsynchrony\b|\bpnc\b|\btruist\b|\bkeybank\b"
+     r"|\bhuntington\b|fifth third|northern trust|state street|\bsantander\b"
+     r"|\bmoody'?s\b|s&p global|\bmsci\b|\bfactset\b|\bmorningstar\b|\bequifax\b"
+     r"|\btransunion\b|\bexperian\b|two sigma|\bcitadel\b|jane street|point72"
+     r"|de shaw|bridgewater|worldquant|\baig\b|\bchubb\b|\bmetlife\b|prudential"
+     r"|\bmassmutual\b|northwestern mutual|\btravelers\b|\bprogressive\b|\ballstate\b"
+     r"|\bgeico\b|liberty mutual|\bnationwide\b|\bhartford\b|\bmarsh\b|\baon\b"
+     r"|willis towers|\bmarqeta\b|\btradeweb\b|\bplaid\b|\bbrex\b|\baffirm\b|\bsofi\b"
+     r"|\bchime\b|robinhood|\bcoinbase\b|cme group|\blendingclub\b|\bbitgo\b|\bq2\b"),
+    ("Aerospace, Defense & Industrial",
+     r"aerospace|\bdefen[cs]e\b|\bavionic|\bmissile\b|\bsatellite\b|\bmunition"
+     r"|\barmament|\bshipbuild|\bnaval\b|\baircraft\b|\bairframe\b|\bturbine\b"
+     r"|\bpropulsion\b|\bordnance\b"
+     r"|lockheed|northrop|raytheon|\brtx\b|general dynamics|\bboeing\b|\bspacex\b"
+     r"|blue origin|\bl3harris\b|bae systems|\bleidos\b|booz allen|\bcaci\b"
+     r"|\bsaic\b|\bperaton\b|\bparsons\b|\banduril\b|\bhoneywell\b|ge aerospace"
+     r"|rolls.royce|\bsafran\b|\bthales\b|\bairbus\b|\btextron\b|\bhowmet\b"
+     r"|\bheico\b|\btransdigm\b|\bmoog\b|curtiss.wright"
+     r"|\bmanufactur|\bindustrial\b|\bmachinery\b|\bsteel\b|\baluminum\b"
+     r"|\bchemical|\bpolymer|\bplastics\b|\bcoatings\b|\badhesive|\bcement\b"
+     r"|\bpackaging\b|\bceramic|\btextile|\bmining\b|\bmetals\b|\bfabricat"
+     r"|caterpillar|\bdeere\b|\bcummins\b|parker hannifin|\bemerson\b|\beaton\b"
+     r"|rockwell automation|illinois tool|\b3m\b|\bdupont\b|\bbasf\b|\blinde\b"
+     r"|air products|\bppg\b|sherwin.williams|\bhuntsman\b|\bcelanese\b|\bnucor\b"
+     r"|\balcoa\b|\bcorning\b|\bwerfen\b|\btenneco\b|\bgrainger\b"),
+    ("Energy & Utilities",
+     r"\benergy\b|\butilit|electric power|power company|\bpetroleum\b|\brefin"
+     r"|\bpipeline\b|\bdrilling\b|\bsolar\b|\brenewable|\bphotovoltaic\b|\bnuclear\b"
+     r"|\bhydro\b|\btransmission\b|water district|\bsanitation\b|\bwaste\b"
+     r"|exxon|\bchevron\b|conocophillips|totalenergies|schlumberger|\bslb\b"
+     r"|\bhalliburton\b|baker hughes|duke energy|\bexelon\b|\bdominion\b"
+     r"|southern company|\bnextera\b|consolidated edison|national grid|\bengie\b"
+     r"|\bvernova\b|\biberdrola\b|\bvestas\b|first solar|\bsunrun\b|\bsunpower\b"
+     r"|\bchargepoint\b|\bfluence\b"),
+    ("Engineering, Construction & Real Estate",
+     r"\bconstruct|\bcontractor\b|\bbuilders?\b|\bengineers?\b|\bengineering\b"
+     r"|\barchitect|\bsurvey(?:or|ing)\b|\bgeotechnic|\bcivil\b|\bstructural\b"
+     r"|\bhvac\b|\bplumbing\b|\broofing\b|\bpaving\b|\bconcrete\b|\bdrywall\b"
+     r"|\bexcavat|\bdredg|\bmasonry\b|\blandscap|real estate|\brealty\b"
+     r"|\bproperties\b|property management|\bhomebuilder|\bfacilities\b|\bjanitorial\b"
+     r"|\bjacobs\b|\baecom\b|\bbechtel\b|\bfluor\b|\bkiewit\b|\bskanska\b"
+     r"|\bstantec\b|\bwsp\b|\barcadis\b|\bhntb\b|kimley.horn|tetra tech"
+     r"|black & veatch|burns & mcdonnell|jones lang|\bcbre\b|\bcushman\b|\bjll\b"
+     r"|\bzillow\b|\bredfin\b|\bopendoor\b|\bcostar\b"),
+    ("Transport, Logistics & Automotive",
+     r"\bautomotive\b|auto parts|\bvehicles?\b|\bmotors?\b|\btires?\b|\bpowertrain\b"
+     r"|\bchassis\b|\blogistics\b|\bfreight\b|\btrucking\b|\bshipping\b|\bcourier\b"
+     r"|\bwarehous|supply chain|\bfulfillment\b|\bdistribution\b|\bairlines?\b"
+     r"|\bairways\b|\bairport\b|\brailroad\b|\brailway\b|\btransit\b|\bmaritime\b"
+     r"|\bcruise\b|\bmobility\b|\bfleet\b"
+     r"|\btesla\b|\brivian\b|\blucid\b|general motors|stellantis|\btoyota\b"
+     r"|\bhonda\b|\bnissan\b|\bhyundai\b|mercedes|volkswagen|\bvolvo\b|\bpaccar\b"
+     r"|\bnavistar\b|\bbosch\b|\bdenso\b|\bmagna\b|\baptiv\b|\bborgwarner\b"
+     r"|\bgoodyear\b|\bbridgestone\b|\bmichelin\b|\bfedex\b|\bdhl\b|\bmaersk\b"
+     r"|\bxpo\b|ch robinson|\bexpeditors\b|union pacific|\bcsx\b|norfolk southern"
+     r"|\bbnsf\b|\bamtrak\b|united airlines|american airlines|\bjetblue\b"
+     r"|alaska air|frontier airlines|\buber\b|\blyft\b|\bdoordash\b|\binstacart\b"
+     r"|\bflexport\b|aurora innovation|\bzoox\b|\bwaymo\b|\bnuro\b|may mobility"),
+    ("Retail, Consumer & Hospitality",
+     r"\bretail\b|\bstores?\b|\bgrocer|\bsupermarket\b|\bmerchandis|\bapparel\b"
+     r"|\bfootwear\b|\bcosmetic|\bjewelr|\bfurnitur|home goods|\bpharmacy\b"
+     r"|\brestaurants?\b|\bfoods\b|\bbeverage|\bbrewer|\bdistiller|\bwiner"
+     r"|\bhotels?\b|\bresorts?\b|\bcasino|\bhospitality\b|\btourism\b|\bcatering\b"
+     r"|\bfranchise|consumer products|consumer goods"
+     r"|\bwalmart\b|\btarget\b|\bcostco\b|\bkroger\b|\balbertsons\b|\bpublix\b"
+     r"|whole foods|trader joe|\baldi\b|home depot|\blowe'?s\b|\bikea\b|best buy"
+     r"|\bmacy'?s\b|\bnordstrom\b|\bkohl'?s\b|\bnike\b|\badidas\b|\blululemon\b"
+     r"|under armour|\blevi\b|ralph lauren|estee lauder|\bl'?oreal\b"
+     r"|procter & gamble|\bunilever\b|\bcolgate\b|kimberly.clark|\bnestle\b"
+     r"|\bpepsico\b|coca.cola|\bkraft\b|general mills|\bkellogg\b|\bconagra\b"
+     r"|\btyson\b|\bhormel\b|\bmondelez\b|\bhershey\b|\bstarbucks\b|\bmcdonald\b"
+     r"|\bchipotle\b|\bdarden\b|\bmarriott\b|\bhilton\b|\bhyatt\b|\bairbnb\b"
+     r"|\bexpedia\b|\bbooking\b|\bwyndham\b|\bcaesars\b|\bwalgreens\b"),
+    ("Media, Telecom & Gaming",
+     r"\bmedia\b|\bbroadcast|\bpublish|\bnewspaper\b|\bmagazine\b|\bstudios?\b"
+     r"|\bentertainment\b|\bfilms?\b|\bmusic\b|\bstreaming\b|\bgames?\b|\bgaming\b"
+     r"|\besports\b|\banimation\b|\btelecom|\bwireless\b|\bcellular\b|\bbroadband\b"
+     r"|\bcable\b|\badvertis|marketing agency|public relations"
+     r"|\bnetflix\b|\bdisney\b|warner bros|\bparamount\b|nbcuniversal|\bcomcast\b"
+     r"|\bcharter\b|\bspectrum\b|\bat&t\b|\bverizon\b|t.mobile|\blumen\b|\bdish\b"
+     r"|\bdirectv\b|\bsirius\b|\bspotify\b|\bactivision\b|\bblizzard\b"
+     r"|electronic arts|\bubisoft\b|take.two|rockstar games|riot games|epic games"
+     r"|\bvalve\b|\bzynga\b|\broblox\b|\bnintendo\b|\bxbox\b|new york times"
+     r"|washington post|\bbloomberg\b|\breuters\b|\bthomson\b|\bnielsen\b"
+     r"|\bomnicom\b|\bwpp\b|\bpublicis\b|\bdigitas\b|\bclarivate\b|\bringcentral\b"),
+    ("IT Services & Consulting",
+     r"\bconsult|\badvisory\b|systems? integrat|it services|managed services"
+     r"|\boutsourcing\b|\bbpo\b|\bstaffing\b|\brecruit|\btalent\b|\bsolutions\b"
+     r"|\binfotech\b|professional services"
+     r"|accenture|\bdeloitte\b|\bpwc\b|pricewaterhouse|\bkpmg\b|ernst & young"
+     r"|mckinsey|boston consulting|\bbain\b|oliver wyman|\balixpartners\b"
+     r"|\bslalom\b|\bthoughtworks\b|\bepam\b|\bglobant\b|\bendava\b|\bluxoft\b"
+     r"|cognizant|\binfosys\b|tata consultancy|\btcs\b|\bwipro\b|tech mahindra"
+     r"|\bmindtree\b|\bltimindtree\b|larsen & toubro|\bmphasis\b|\bzensar\b"
+     r"|\bhexaware\b|\bvirtusa\b|\bsyntel\b|\bniit\b|\bcapgemini\b|\batos\b"
+     r"|\bdxc\b|\bunisys\b|\bcgi\b|\bgenpact\b|\bwns\b|\bconcentrix\b"
+     r"|\bteleperformance\b|\bcompunnel\b|\bcitiustech\b|\bmarlabs\b|\bprokarma\b"
+     r"|ust global|\bkforce\b|\brandstad\b|\badecco\b|\bmanpower\b|robert half"
+     r"|kelly services|insight global|\bteksystems\b|apex systems|\beteam\b"
+     r"|\brsm\b|grant thornton|\bbdo\b|\bcrowe\b|\bprotiviti\b|zs associates"
+     r"|michael page|\bjacobs civil\b"),
+    ("Software & Internet",
+     r"\bsoftware\b|\bsaas\b|\bplatform\b|\bcloud\b|\banalytics\b|\bdatabase\b"
+     r"|\bdevops\b|cybersecurity|artificial intelligence|machine learning"
+     r"|\binternet\b|\bdigital\b|\bcrm\b|\berp\b"
+     r"|\bmicrosoft\b|\bgoogle\b|\balphabet\b|\bamazon\b|\baws\b|\bapple\b|\bmeta\b"
+     r"|\bfacebook\b|\bibm\b|\boracle\b|\bsalesforce\b|\bsap\b|\badobe\b|\bintuit\b"
+     r"|\bservicenow\b|\bworkday\b|\bsnowflake\b|databricks|\bpalantir\b|\bsplunk\b"
+     r"|\bmongodb\b|\belastic\b|\bconfluent\b|\bhashicorp\b|\bdatadog\b|\bdocker\b"
+     r"|\bgithub\b|\bgitlab\b|\batlassian\b|\bnotion\b|\bfigma\b|\bcanva\b|\bslack\b"
+     r"|\bzoom\b|\bdropbox\b|\bokta\b|\bauth0\b|\bcloudflare\b|\bakamai\b|\bfastly\b"
+     r"|\bdigitalocean\b|\bvmware\b|\bcitrix\b|\bnutanix\b|\bcisco\b|\bjuniper\b"
+     r"|\barista\b|palo alto|\bfortinet\b|\bcrowdstrike\b|\bzscaler\b|\bsentinelone\b"
+     r"|\bsymantec\b|\bmcafee\b|\brapid7\b|\btenable\b|\btwilio\b|\bshopify\b"
+     r"|\bsquarespace\b|\bwix\b|\bhubspot\b|\bzendesk\b|\bfreshworks\b|\basana\b"
+     r"|\bsmartsheet\b|\bdocusign\b|\bcoupa\b|\bworkiva\b|\bveeva\b|epic systems"
+     r"|\bcerner\b|\bopenai\b|anthropic|scale ai|hugging face|\bcohere\b"
+     r"|\bnetsuite\b|\bautodesk\b|\bansys\b|\bptc\b|\bdassault\b|\bunity\b"
+     r"|\bmathworks\b|\bwolfram\b|\bteradata\b|\bcloudera\b|\binformatica\b"
+     r"|\bsamsara\b|\bverkada\b|\btoast\b|\bcheckr\b|\bramp\b|\bvanta\b|\breplit\b"
+     r"|\bcursor\b|\bpinterest\b|\bsnap\b|\breddit\b|\blinkedin\b|\btwitter\b"
+     r"|\btiktok\b|\bbytedance\b|\bguidewire\b|\banaplan\b|\bcelonis\b|new relic"
+     r"|\bsaviynt\b|\bsift\b|\baltair\b|\bnvidia\b|\beightfold\b"),
+]
+_KEYWORDS = [(s, re.compile(rx, re.I)) for s, rx in KEYWORDS]
+
+# core.is_cap_exempt is one bucket; a university and a hospital are both lottery-exempt but
+# they are not the same job market, so split on which kind of name it is.
+_HOSPITAL_RE = re.compile(
+    r"hospital|health system|healthcare system|medical cent(?:er|re)|\bclinic\b"
+    r"|cancer (?:cent(?:er|re)|institute)|\bhealth\b|\bmedical\b|\bnursing\b|\bhospice\b",
+    re.I)
+
+# Corrections, written as display names and normalized at load so nobody has to hand-compute
+# a core.norm_company key. An entry earns its place because a rule got a PROMINENT company
+# wrong -- one with live postings or real filing volume. The long tail is NOT pre-populated;
+# it stays Unsorted and the page says so. `--check` is what holds this line.
+_CURATED_LISTS = {
+    "Software & Internet": [
+        "Amazon", "Amazon Web Services", "Apple", "Microsoft", "Meta", "Meta Platforms",
+        "Alphabet", "eBay", "ADP", "Cerner", "VMware", "Salesforce.com", "Cisco Systems",
+        "Oracle America", "Twitter", "Juniper Networks", "Eightfold AI",
+        "Fluidstack", "CRUSOE", "Speechify", "Fivetran", "Pure Storage", "Appian", "Mirantis",
+        "CoreWeave", "Delinea", "Commure", "Bentley", "HARVEY", "Gusto", "Socure", "Benchling",
+        "Luma AI", "Dragos", "Astronomer", "Ridgeline", "Trace3", "Headway", "ACI Worldwide",
+        "Ripple", "Extreme Networks", "The Trade Desk", "Cribl", "AlphaSense", "SentiLink",
+        "Tanium", "Zeta Global", "Justworks", "Avalara", "PathAI", "Deepgram Inc", "Cvent",
+        "Upstart", "Netskope", "Red Hat", "Rubrik", "CLEAR", "LendingTree", "Thumbtack",
+        "Enova", "Quora", "Qualtrics", "Pivotal", "OneTrust", "Zuora", "Medallia", "UiPath",
+        "Model N", "SailPoint Technologies", "Nextdoor", "athenahealth", "Cohesity",
+        "Groupon", "Blue Yonder", "F5", "CDK Global", "Cornerstone Ondemand INC", "Magic Leap",
+        "Manhattan Associates", "Credit Karma", "Sabre", "Asurion", "Avant", "Plenful",
+        "Metropolis", "Nice", "Lseg", "Ssctech", "StubHub", "CarGurus", "Yelp", "Indeed",
+        "ServiceTitan", "Upwork", "Traba",
+        "Whoop", "Formlabs", "Shield AI", "Skydio", "Axon", "Apptronik", "Agility Robotics",
+        "Torc Robotics", "Motional", "Wing", "SimpliSafe", "Tatari", "Oneapp", "Pacelabs",
+        "Ejta", "Hdpc", "Eswt", "Saama Technologies LLC", "Visionet Systems", "Infogain",
+        "Intraedge INC", "Nagarro INC", "Coforge Limited", "Brillio LLC", "Natsoft",
+        "Persistent Systems Limited", "Birlasoft INC", "Synechron", "Cyient INC",
+        "Htc Global Services", "Quadrant Technologies", "Centraprise", "DGN Technologies",
+        "RJT Compuquest", "Lead IT", "iTech", "Vastek", "First Tek", "Humac INC", "iPivot",
+        "Servesys", "Raas Infotek", "Gp Technologies", "Asta CRS", "Kairos Technologies",
+        "IPolarity LLC", "Antra, Inc", "YASH Technologies", "Mican Technologies",
+        "Orion Innovation", "World Wide Technology", "Tencent America LLC", "Fca",
+        "Ntt Data Services", "NTT DATA", "Exlservice.Com LLC", "EXL Service", "Conduent",
+        "Fis Management Services", "Fiserv", "Paychex", "NetApp", "Y Combinator Work at a Startup",
+        "Y Combinator's Work at a Startup",
+    ],
+    "IT Services & Consulting": [
+        "Michael Page", "EY", "KBR", "ICF", "Serco", "Guidehouse", "CBIZ", "Eide Bailly",
+        "CSC", "Maximus", "Quest Global", "Populus Group LLC", "Grandison Management",
+        "Bureau Veritas", "Pearson", "HCL Technologies", "Wood Group",
+        "Accion Labs", "CDW", "Congensys CORP", "Gallup", "Infodat", "Inrika",
+        "IntelliPro Group", "Jean Martin INC", "Kaar Technologies INC", "Northstar Group INC",
+        "Saturn Tech LLC", "Saxon Global", "Softpath System LLC", "Sriven Systems Inc",
+    ],
+    "Semiconductors & Hardware": [
+        "Nvidia", "Intel", "Dell", "Dell EMC", "HP", "Hewlett Packard Enterprise", "Lenovo",
+        "Samsung", "Amat", "EMC", "Qualcomm", "Broadcom",
+        "Teradyne", "Jabil", "Celestica", "FormFactor, Inc.", "Keysight Technologies",
+        "Analogdevices", "Advanced Micro Devices", "Flex", "Logitech", "Zebra Technologies",
+        "Arm", "Te Connectivity", "Agilent Technologies", "Samsung Research America",
+        "Samsung Electronics America", "Nokia of America", "Mercury", "LG Electronics",
+        "Cricut", "Titan",
+    ],
+    "Banking, Finance & Insurance": [
+        "PayPal", "Capital One Services", "Barclays", "Barclays Services", "Barclays Capital",
+        "New York Life", "State Farm", "Invesco", "Unum", "Susquehanna International Group",
+        "Aflac", "Assurant", "USAA", "Transamerica", "Raymond James & Associates",
+        "Freddie Mac", "H&R Block", "Western Union", "Akuna Capital", "Oportun", "RBC",
+        "Citi", "Intercontinental Exchange Holdings", "Equinox",
+        "Block", "Milliman", "Plymouth Rock",
+    ],
+    "Healthcare, Pharma & Biotech": [
+        "Philips", "Roche", "Johnson & Johnson", "Anthem",
+        "Danaher", "IQVIA", "Medpace", "BD", "Aegis Therapies", "Novo Nordisk, Inc.",
+        "Eurofins", "Zimmer Biomet", "Zimmer", "Teleflex", "Labcorp", "Revolution Medicines",
+        "DaVita", "Takeda", "Natera", "Lonza", "Dexcom", "Insulet Corporation",
+        "Intuitive Surgical Operations", "Medline Industries", "Getinge", "Hanger",
+        "AccentCare", "Pristine Rehab Care", "Lila Sciences", "Caremark", "Optum Services",
+        "Janssen Research & Development", "Sigma-Aldrich",
+        "Masimo", "Resmed",
+    ],
+    "Universities & Research": [
+        "Northwestern", "Dallas Independent School District", "Harmony Public Schools",
+        "Texas A&M Agrilife Research", "Triad National Security", "The Devereux Foundation",
+        "Open Avenues Foundation",
+    ],
+    "Hospitals & Health Systems": [
+        "Providence", "OhioHealth", "UPMC",
+    ],
+    "Aerospace, Defense & Industrial": [
+        "General Electric", "Siemens", "Johnson Controls", "3M", "Corning", "Honeywell",
+        "Carrier", "Hubbell", "AMETEK", "ANDRITZ", "Wabtec", "Flowserve", "Ecolab",
+        "EnerSys", "Franklin Electric", "Regal Rexnord Corporation", "Timken", "Victaulic",
+        "Airgas", "Gates Corporation", "Hunter Douglas", "Andersen Corporation", "Franke",
+        "Rockwell Collins", "Dematic", "Brunswick", "FMC Corporation", "Uline",
+        "United Rentals", "Lennox International", "Redwood Materials",
+        "AST SpaceMobile", "Danfoss", "Joby Aero", "Saint-Gobain",
+    ],
+    "Energy & Utilities": [
+        "Kinder Morgan", "Entergy", "PacifiCorp", "Ameresco", "Republic Services",
+        "United Site Services", "Loenbro",
+        "Itron",
+    ],
+    "Engineering, Construction & Real Estate": [
+        "Sundt", "M.C. Dean, Inc.", "Group PMX", "Thornton Tomasetti", "WillScot",
+        "CubeSmart", "Public Storage", "Safelite", "ECS Limited",
+        "Stv",
+    ],
+    "Transport, Logistics & Automotive": [
+        "Tesla", "Ford Motor", "Uber", "Lyft", "Rivian Automotive", "Zoox",
+        "ZF", "Lear Corporation", "Dana", "Nikola", "Faraday Future", "Delta Air Lines",
+        "Kuehne+Nagel", "Ingram Micro", "Bunge", "Archer Daniels Midland", "Maplebear",
+        "Coupang", "Chewy", "Wayfair",
+    ],
+    "Retail, Consumer & Hospitality": [
+        "Walgreens", "Walmart", "Walmart Global Tech", "Wal Mart Associates",
+        "Safeway", "Staples", "Cintas", "Red Bull", "Skechers", "Chobani", "Sephora",
+        "Meijer", "Dollar general", "Autozone", "Peloton", "Bose", "Juul Labs",
+        "Stitch Fix", "Jack Link's Protein Snacks", "GROWMARK", "arrivia",
+        "Churchill Downs Inc.", "National Veterinary Associates", "Avery Dennison",
+        "Rocket", "Garmin",
+        "Mcdonalds",
+    ],
+    "Media, Telecom & Gaming": [
+        "Netflix", "Sony", "Oath", "Yahoo",
+        "FanDuel", "IGT", "FloSports Inc.", "Genesis",
+        "Audible", "iHeartMedia",
+    ],
+}
+CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
+
+
+def _sector(name, key, cap_exempt, agency):
+    """(sector, which_layer_won). Priority: curated > shipped rules > keywords > Unsorted."""
+    hit = CURATED.get(key)
+    if hit:
+        return hit, "curated"
+    # The two shipped helpers beat keywords because they are already gated by tests and are
+    # already what the .cx / .agency badges on the page mean.
+    if cap_exempt:
+        return (("Hospitals & Health Systems", "rule") if _HOSPITAL_RE.search(name)
+                else ("Universities & Research", "rule"))
+    if agency:
+        # A body shop IS an IT services firm. The .agency flag is what distinguishes it, not a
+        # section of its own -- nobody browses "Staffing" looking for a job.
+        return "IT Services & Consulting", "rule"
+    for sector, rx in _KEYWORDS:
+        if rx.search(name):
+            return sector, "keyword"
+    return UNSORTED, "unsorted"
+
+
+# --------------------------------------------------------------- inputs
+def _read_sponsors(path="sponsors.txt"):
+    """Display names from sponsors.txt, ignoring comments and the section markers."""
+    out = []
+    if not os.path.exists(path):
+        return out
+    for raw in open(path, encoding="utf-8"):
+        s = raw.strip()
+        if s and not s.startswith("#"):
+            out.append(s)
+    return out
+
+
+_CAREERS = re.compile(r"^-\s+(.+?)\s+·.*?\[Careers page\]\((https?://[^)]+)\)", re.M)
+
+
+def _read_careers_md(path="careers_us.md"):
+    """{display_name: careers_url} for the entries carrying a [Careers page] link.
+
+    careers_us.md stays the place a careers URL is EDITED by hand -- build_careers_md.py
+    round-trips it -- so it is read here rather than duplicated.
+    """
+    if not os.path.exists(path):
+        return {}
+    txt = open(path, encoding="utf-8").read()
+    return {m.group(1).strip(): m.group(2).strip() for m in _CAREERS.finditer(txt)}
+
+
+def _corpus_counts():
+    """({norm_key: open_count}, {norm_key: most_common_corpus_spelling}).
+
+    Prefers the local snapshot: it is what web.get_jobs reads first anyway, and it keeps this
+    build runnable with no database. Falls back to a NARROW select, because a bare
+    db.load_jobs() downloads ~130 MB of descriptions to read one short string per row.
+    """
+    rows = None
+    if os.path.exists(SNAPSHOT):
+        try:
+            blob = json.load(gzip.open(SNAPSHOT, "rt", encoding="utf-8"))
+            rows = blob.get("rows") if isinstance(blob, dict) else blob
+        except Exception as exc:
+            sys.stderr.write("note: %s unreadable (%s); trying the database\n"
+                             % (SNAPSHOT, type(exc).__name__))
+    if rows is None:
+        try:
+            rows = db.load_jobs(cols=db.COLS_COMPANY)
+        except Exception as exc:
+            sys.stderr.write("note: no corpus (%s); live counts will be 0 and corpus-only "
+                             "companies will be missing\n" % type(exc).__name__)
+            return {}, {}
+    counts = collections.Counter()
+    spellings = collections.defaultdict(collections.Counter)
+    for r in rows or []:
+        name = (r.get("company") or "").strip()
+        if not name:
+            continue
+        key = core.norm_company(name)
+        # `is not False` and not `not ...`: is_active is None on an un-migrated row, and only
+        # an explicit False means "we checked and the posting is gone". Same rule as web.py.
+        if r.get("is_active") is not False:
+            counts[key] += 1
+        spellings[key][name] += 1
+    best = {k: c.most_common(1)[0][0] for k, c in spellings.items()}
+    return counts, best
+
+
+def _universe():
+    """({norm_key: display_name}, {norm_key: board_url}) over every company we scrape or
+    know sponsors. Earlier sources win the display name, so SOURCES -- what the scraper calls
+    it -- beats sponsors.txt.
+    """
+    uni, boards = {}, {}
+
+    def add(name):
+        name = (name or "").strip()
+        if not name:
+            return ""
+        key = core.norm_company(name)
+        if key and key not in uni:
+            uni[key] = name
+        return key
+
+    for url, _ats, name in scraper.SOURCES:
+        key = add(name)
+        if key and url:
+            boards.setdefault(key, url)
+    try:
+        for b in db.list_boards() or []:
+            key = add(b.get("company"))
+            url = (b.get("url") or "").strip()
+            if key and url:
+                boards.setdefault(key, url)
+    except Exception as exc:
+        sys.stderr.write("note: boards table unavailable (%s); companies added through /add "
+                         "will be missing from this build\n" % type(exc).__name__)
+    for name in _read_sponsors():
+        add(name)
+    return uni, boards
+
+
+# --------------------------------------------------------------- build
+def _encode(url):
+    """Shorten a board URL against PREFIX. The client expands "gh|samsara" back out."""
+    for tag, pre in PREFIX.items():
+        if url.startswith(pre):
+            return "%s|%s" % (tag, url[len(pre):])
+    return url
+
+
+def _visa_index():
+    """visa_tags.json as {norm_key: bitmask}, minus its provenance header."""
+    try:
+        blob = json.load(open("visa_tags.json", encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    blob.pop("#meta", None)
+    return blob
+
+
+def build():
+    uni, boards = _universe()
+    counts, spellings = _corpus_counts()
+
+    # Corpus-only companies: in the feed, absent from every registry. Omitting these would
+    # hide employers with live jobs, which is the worst bug this page could have.
+    for key, name in spellings.items():
+        uni.setdefault(key, name)
+
+    native_by_key = {core.norm_company(n): u for n, u in NATIVE.items()}
+    md_by_key = {core.norm_company(n): u for n, u in _read_careers_md().items()}
+    domains = {}
+    try:
+        blob = json.load(open("company_domains.json", encoding="utf-8"))
+        domains = {core.norm_company(k): v for k, v in (blob.get("domains") or {}).items()}
+    except Exception:
+        pass
+    sponsor_counts = core.load_sponsor_counts()
+    visa = _visa_index()
+
+    rows, report, hist, unsorted_rows = [], [], collections.Counter(), []
+    for key, name in sorted(uni.items(), key=lambda kv: kv[1].lower()):
+        cap = core.is_cap_exempt(name)
+        agency = core.is_agency(name)
+        sector, src = _sector(name, key, cap, agency)
+        hist[sector] += 1
+
+        # Careers ladder, first hit wins. NATIVE outranks the board URL deliberately: for
+        # Amazon it is amazon.jobs pre-filtered to the US, and ~50 NATIVE names have no board.
+        careers = native_by_key.get(key) or md_by_key.get(key)
+        kind = KIND_NATIVE
+        if not careers:
+            careers, kind = boards.get(key), KIND_BOARD
+        if not careers and domains.get(key):
+            # Root only. The domain map was built by probing an ICON, so any /careers path we
+            # appended would be a guess -- and web.py::logodomain already documents that
+            # guessing <name>.com yields northwestern.com and flagstarbank.com, each a 404.
+            careers, kind = "https://%s" % domains[key], KIND_SITE
+        if not careers:
+            kind = KIND_NONE
+
+        mask = int(visa.get(key) or 0)
+        if cap:
+            mask |= BIT_CAP_EXEMPT
+        if agency:
+            mask |= BIT_AGENCY
+        h1b = int(sponsor_counts.get(key) or 0)
+        live = int(counts.get(key) or 0)
+
+        # NEITHER the live count NOR the corpus spelling is stored. The scrape runs 4x a day
+        # and this script runs by hand, so a baked count would be stale within hours; and the
+        # spelling is what /company?c= must carry (db.block_key does not strip legal suffixes,
+        # so "Accenture" finds nothing where the corpus says "Accenture LLP"). web.py resolves
+        # both per request from the corpus it already holds in memory -- see _company_stats.
+        rows.append([name,
+                     SECTORS.index(sector) if sector in SECTORS else -1,
+                     _encode(careers) if careers else "", kind,
+                     domains.get(key) or "", h1b, mask])
+        report.append({"name": name, "sector": sector, "src": src, "careers_kind": kind,
+                       "live_jobs": live, "h1b": h1b,
+                       "cap_exempt": int(cap), "agency": int(agency)})
+        if sector == UNSORTED:
+            unsorted_rows.append((live, h1b, name))
+
+    blob = {
+        "built_at": datetime.date.today().isoformat(),
+        "sectors": SECTORS,
+        "prefix": PREFIX,
+        "li_kw": LI_KEYWORD,
+        "rows": rows,
+        "note": "Built by scripts/build_companies.py; sector provenance in " + OUT_CSV,
+    }
+    return blob, report, hist, unsorted_rows
+
+
+def _prominent(report, top=400):
+    """The companies --check refuses to leave Unsorted: the head by live postings plus every
+    high/medium-volume sponsor. 88% of postings and 89% of filings sit in that head, which is
+    the part a curated map actually has to cover."""
+    ranked = sorted(report, key=lambda r: -r["live_jobs"])[:top]
+    out = {r["name"] for r in ranked if r["live_jobs"] > 0}
+    for r in report:
+        # sponsor_strength tiers on volume: >=1000 high, >=100 medium.
+        if r["h1b"] >= 100:
+            out.add(r["name"])
+    return out
+
+
+def main(argv):
+    want_report = "--report" in argv
+    want_check = "--check" in argv
+    blob, report, hist, unsorted_rows = build()
+    total = len(report)
+
+    if want_report or want_check:
+        print("%d companies" % total)
+        for sector in SECTORS + [UNSORTED]:
+            n = hist.get(sector, 0)
+            print("  %-42s %5d  %4.1f%%" % (sector, n, 100.0 * n / max(total, 1)))
+        by_src = collections.Counter(r["src"] for r in report)
+        print("  layers: " + ", ".join("%s=%d" % kv for kv in by_src.most_common()))
+        print("  careers link: %d native/board, %d site-root, %d LinkedIn only"
+              % (sum(1 for r in report if r["careers_kind"] in (KIND_NATIVE, KIND_BOARD)),
+                 sum(1 for r in report if r["careers_kind"] == KIND_SITE),
+                 sum(1 for r in report if r["careers_kind"] == KIND_NONE)))
+        print("  with live jobs: %d" % sum(1 for r in report if r["live_jobs"] > 0))
+
+    if want_report:
+        print("\nTop Unsorted by live postings (curate these first):")
+        for live, h1b, name in sorted(unsorted_rows, reverse=True)[:40]:
+            print("  %5d jobs  %7d H-1B  %s" % (live, h1b, name))
+        return 0
+
+    if want_check:
+        prominent = _prominent(report)
+        bad = sorted(r["name"] for r in report
+                     if r["sector"] == UNSORTED and r["name"] in prominent)
+        if bad:
+            sys.stderr.write("\nFAIL: %d prominent companies are Unsorted. Add them to "
+                             "CURATED or widen a keyword:\n" % len(bad))
+            for n in bad[:60]:
+                sys.stderr.write("  %s\n" % n)
+            return 1
+        print("\nOK: no prominent company is Unsorted.")
+        return 0
+
+    with open(OUT_JSON, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(blob, fh, ensure_ascii=False, separators=(",", ":"))
+        fh.write("\n")
+    with open(OUT_CSV, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["name", "sector", "src", "careers_kind",
+                                           "live_jobs", "h1b", "cap_exempt", "agency"])
+        w.writeheader()
+        w.writerows(report)
+    print("Wrote %s (%d companies, %.0f KB) and %s"
+          % (OUT_JSON, total, os.path.getsize(OUT_JSON) / 1024.0, OUT_CSV))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
