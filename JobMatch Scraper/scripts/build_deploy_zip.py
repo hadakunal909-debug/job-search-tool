@@ -74,7 +74,14 @@ FILES = [
     # per-bullet review (the Bullets tab). Imported by web.py, so the guard below would catch
     # a missing entry -- listed here anyway so the two deploy routes stay identical.
     "resume_bullets.py",
-    "requirements-cpanel.txt", "idf.json", "careers_us.md", "sponsors.txt",
+    "requirements-cpanel.txt", "idf.json", "sponsors.txt",
+    # careers_us.md is NOT here any more. /careers is a 301 to /companies and nothing
+    # reads the file at runtime; it is now a build input to scripts/build_companies.py,
+    # which bakes its careers links into companies.json.
+    # The /companies directory, built by scripts/build_companies.py. REQUIRED rather than
+    # optional: the other data files each dim one badge when absent, but without this one
+    # /companies has nothing at all to render, so a bundle missing it should not build.
+    "companies.json",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
 # contract core.load_sponsor_counts / load_everify already have — so a missing one is fine.
@@ -133,12 +140,23 @@ def main():
                  % (", ".join(forgotten), ", ".join(f + ".py" for f in forgotten)))
 
     # And the other direction: FILES must not promise something .cpanel.yml would leave behind.
+    #
+    # This used to check only `f.endswith(".py")`, which made the check blind to exactly the
+    # entries most likely to be forgotten — data files, added one at a time as features land.
+    # It found resume.txt missing from .cpanel.yml the moment the filter came off, a real gap
+    # that had been silent since the file was added to OPTIONAL_FILES.
     try:
         cp = open(os.path.join("..", ".cpanel.yml"), encoding="utf-8").read()
-        absent = sorted(f for f in FILES if f.endswith(".py") and ('"$SRC/%s"' % f) not in cp)
+        absent = sorted(f for f in FILES if ('"$SRC/%s"' % f) not in cp)
         if absent:
             print("  WARNING: in FILES but not in .cpanel.yml's cp line: %s" % ", ".join(absent))
             print("           the zip will be complete; a git-based deploy would not be.")
+        # OPTIONAL_FILES travels by the `for f in ...` loop rather than the cp line, so it is
+        # matched as a bare word.
+        opt_absent = sorted(f for f in OPTIONAL_FILES if f not in cp)
+        if opt_absent:
+            print("  WARNING: in OPTIONAL_FILES but not in .cpanel.yml: %s"
+                  % ", ".join(opt_absent))
     except OSError:
         pass
 

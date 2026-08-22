@@ -69,6 +69,10 @@ migratemate_boards*.csv
 migratemate_probed.txt
 visa_tags_report.csv
 SOURCES_lines*.txt
+# The review artifact for build_companies.py's curated sector layer: which layer classified
+# each company, and how much traffic it carries. Regenerate with --report; companies.json
+# itself IS committed, because the app reads it and the server has no build step.
+companies_report.csv
 
 # run logs
 jd_backfill_*.log
