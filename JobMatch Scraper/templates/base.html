@@ -21,17 +21,27 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400..700&display=swap" rel="stylesheet">
   {# Paints the phone's own browser chrome to match the canvas, so a scroll past the top of
-     the page doesn't reveal a white bar above a dark app. Two entries, one per scheme. #}
-  <meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0c0e14" media="(prefers-color-scheme: dark)">
+     the page doesn't reveal a white bar above a dark app. ONE entry now, kept in sync by the
+     script below: the theme is our choice rather than the OS's, so a prefers-color-scheme
+     query here would have told a dark phone to paint dark chrome around a white app. #}
+  <meta id="themecolor" name="theme-color" content="#fbfbfc">
   <link rel="stylesheet" href="{{ static_v('style.css') }}">
-  {# Pre-paint, so the page never flashes the wrong theme. Three states: an explicit 'light' or
-     'dark' wins, and 'system' (the default when nothing is stored) resolves against the OS.
-     The stored PREFERENCE and the resolved ATTRIBUTE are deliberately different things, which
-     is what lets "System" keep following the OS after the choice is made. #}
-  <script nonce="{{ csp_nonce }}">try{var p=localStorage.getItem('theme')||'system';
-  var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme:dark)').matches);
-  document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}</script>
+  {# Pre-paint, so the page never flashes the wrong theme. LIGHT IS THE DEFAULT and the OS is
+     never consulted: only an explicit 'dark', chosen in Appearance on /profile, turns the
+     lights down. Every other stored value — including the 'system' this used to write, which
+     let a dark laptop decide what the app looked like — is light, and is normalised on the
+     next page view. That is how a browser already set to "System" migrates with no migration.
+
+     __themeSet lives up here rather than in a body script because /profile's control calls
+     it: this is the one script that must run before first paint, so "what dark means" is
+     written once instead of being twinned between two templates. #}
+  <script nonce="{{ csp_nonce }}">
+  window.__themeSet=function(p){var d=p==='dark';
+    try{localStorage.setItem('theme',d?'dark':'light');}catch(e){}
+    document.documentElement.setAttribute('data-theme',d?'dark':'light');
+    var m=document.getElementById('themecolor');if(m)m.content=d?'#0c0e14':'#fbfbfc';};
+  try{window.__themeSet(localStorage.getItem('theme'));}catch(e){window.__themeSet('light');}
+  </script>
 </head>
 {# data-sid carries the SERVER's session id to the client beacons, so events from both sides
    stitch into one session. Absent when logged out, which is ev.js's cue to do nothing. #}
@@ -45,10 +55,10 @@
 {# SETUP IS NOT THE APP. On /welcome the nav and the account controls are withheld and only
    the wordmark stays, because a brand new account was being shown six destinations for a
    product it has not met yet — which made a four-question setup read as a settings screen
-   with an escape hatch. The theme toggle stays: someone answering four questions on a dark
-   monitor at midnight should not have to finish them first to turn the lights down. #}
+   with an escape hatch. Nothing is held back for the theme any more: it is light unless you
+   say otherwise, and saying otherwise lives on /profile. #}
 {% set setup = ep == 'welcome' %}
-<header class="topbar{{ ' topbar-setup' if setup else '' }}">
+<header class="topbar">
   <a class="brand" href="{{ url_for('feed') }}">
     <span>Job<b>Match</b></span>
   </a>
@@ -64,15 +74,15 @@
     {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
   {% endif %}
+  {# Withheld whole on setup rather than emptied: the theme toggle was the one child this kept
+     there, and with it gone to /profile an empty flex box is all that was left. #}
+  {% if not setup %}
   <div class="acct">
-    {# No title= on either: the icon is captioned by aria-label, and the link is your username.
-       aria-label stays on the toggle because what it means changes with the state. #}
-    <button id="themetoggle" class="iconbtn themebtn" aria-label="Toggle theme"><span class="ic ic-system" aria-hidden="true"></span></button>
-    {% if not setup %}
+    {# No title= on either: one is your username and the other reads "Log Out". #}
     <a class="who" href="{{ url_for('profile') }}">{{ current_user }}</a>
     <a class="btn ghost" href="{{ url_for('logout') }}">Log Out</a>
-    {% endif %}
   </div>
+  {% endif %}
 </header>
 {# The feed's filter rail sticks below this bar, so it needs the bar's real height. It isn't a
    constant: .topbar wraps its nav around ~870px and again at <=560px, which is exactly where a
@@ -96,32 +106,6 @@ if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__top
 </main>
 <div id="toasts" class="toasts"></div>
 <div id="pgbar" class="page-progress"></div>
-<script nonce="{{ csp_nonce }}">
-/* Light -> Dark -> System. "System" is the default and it KEEPS following the OS, which the
-   old binary toggle could not express: once you had clicked either way you were pinned to that
-   choice forever. The icon names the current preference, so the control says what it is set
-   to rather than what the next click would do.
-
-   The icon is a class swap on a CSS-mask span, not an emoji. Three emoji rendered as three
-   different vendor cartoons at three different optical weights next to 14px nav text, and
-   the sun in particular sat a full shade heavier than everything around it. */
-(function(){var b=document.getElementById('themetoggle');if(!b)return;
-var ORDER=['light','dark','system'],
-    ICON={light:'ic-sun',dark:'ic-moon',system:'ic-system'},
-    NAME={light:'Light',dark:'Dark',system:'System'};
-var mq=matchMedia('(prefers-color-scheme:dark)');
-function read(){try{var p=localStorage.getItem('theme');return ICON[p]?p:'system';}catch(e){return 'system';}}
-function apply(p){var dark=p==='dark'||(p==='system'&&mq.matches);
-  document.documentElement.setAttribute('data-theme',dark?'dark':'light');
-  b.innerHTML='<span class="ic '+ICON[p]+'" aria-hidden="true"></span>';
-  b.setAttribute('aria-label','Theme: '+NAME[p]+'. Click to change.');}
-function set(p){try{localStorage.setItem('theme',p);}catch(e){}apply(p);}
-apply(read());
-b.addEventListener('click',function(){set(ORDER[(ORDER.indexOf(read())+1)%ORDER.length]);});
-/* Only repaint on an OS change while the preference is actually 'system'. */
-var onmq=function(){if(read()==='system')apply('system');};
-if(mq.addEventListener)mq.addEventListener('change',onmq);else if(mq.addListener)mq.addListener(onmq);})();
-</script>
 <script nonce="{{ csp_nonce }}">
 (function(){
   var b=document.getElementById('pgbar');if(!b)return;
