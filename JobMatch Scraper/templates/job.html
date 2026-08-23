@@ -40,9 +40,10 @@
   <a class="backlink" href="{{ url_for('feed') }}"><span class="ic ic-arrow-left" aria-hidden="true"></span> All Jobs</a>
 
   <div class="jobhead">
-    <div class="logo" style="background:{{ row.logo_color }}">{{ row.initial }}
-      <img class="logo-img" alt="" loading="lazy" width="56" height="56"
-           src="{{ row.logo_src }}" data-fallback="{{ row.logo_fallback }}"></div>
+    {# Same lockup as /company and the feed cards. No fallback URL: the logo is ours and
+       either exists or does not. #}
+    {% if row.logo %}<div class="colock"><img src="{{ row.logo }}" alt="" loading="lazy" decoding="async"></div>
+    {% else %}<div class="colock"><span class="comono" aria-hidden="true">{{ row.initials }}</span></div>{% endif %}
     <div class="u-grow-min">
       <h1>{{ row.title }}</h1>
       {# The date is rendered SERVER-side and absolutely. formatDates() lives in app.js, which this
