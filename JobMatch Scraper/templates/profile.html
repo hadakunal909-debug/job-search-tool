@@ -105,6 +105,19 @@
 </form>
 
 <div class="tokbox">
+  <b>Appearance</b>
+  {# Two choices, and no "System". Following the OS used to be the default, which meant a
+     laptop set to dark decided what this app looked like before you had said anything at
+     all. White is the default now and this is the only thing that changes it. #}
+  <p class="dim">Kept in this browser, so it does not follow you to another device.
+  It applies the moment you pick it — there is nothing to save.</p>
+  <div id="themepick">
+    <label class="blockrow"><input type="radio" name="theme" value="light"><span>Light</span></label>
+    <label class="blockrow"><input type="radio" name="theme" value="dark"><span>Dark</span></label>
+  </div>
+</div>
+
+<div class="tokbox">
   <b>Usage data</b>
   {# Consent copy sitting next to an opt-out, so every actual commitment survives: what's
      recorded, that it's per-username, the 90-day window, what is NOT recorded, and the
@@ -156,4 +169,17 @@
   </form>
   <p class="dim">Revoking kills the old token immediately and shows a new one here.</p>
 </div>
+{% endblock %}
+{# Neither radio carries `checked` in the markup on purpose: the answer is in localStorage,
+   which the server cannot see, so anything rendered here would be a guess that is wrong for
+   half of all visits. data-theme is what base.html already resolved before first paint, so
+   this reads that rather than deriving the same answer a second time. #}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function(){var w=document.getElementById('themepick');if(!w||!window.__themeSet)return;
+var now=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';
+Array.prototype.forEach.call(w.querySelectorAll('input[name=theme]'),function(r){
+  r.checked=r.value===now;
+  r.addEventListener('change',function(){if(r.checked)window.__themeSet(r.value);});});})();
+</script>
 {% endblock %}
