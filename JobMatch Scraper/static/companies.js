@@ -32,11 +32,10 @@
   var PREFIX = META.prefix || {};
   var LI_KW = META.li_kw || {};
   var LABELS = META.labels || {};
-  /* The harvest manifest: slug -> [ext, aspectRatio, monoFlag], plus an alias map for the
-     spellings the corpus and the sponsor data disagree about. Absent manifest = every tile
-     renders a monogram, which is a coherent page rather than a broken one. */
+  /* The harvest manifest: slug -> [ext, aspectRatio, monoFlag]. No alias map -- see logoFor
+     below for why one cannot be used from here. Absent manifest = every tile renders a
+     monogram, which is a coherent page rather than a broken one. */
   var LOGOS = (META.logos || {}).ar || {};
-  var ALIAS = (META.logos || {}).alias || {};
   var LOGOV = (META.logos || {}).v || 0;
   /* Monograms come from the SERVER, index-parallel to ROWS. Deliberately not computed here:
      the rule needs core.norm_company, which strips Technologies/Group/Labs as well as the legal
@@ -88,11 +87,22 @@
     return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'x';
   }
+  /* DIRECT SLUG ONLY, and the alias step that used to be here is gone rather than fixed.
+     It read ALIAS[slug(name)] while web.py builds that map keyed on core.norm_company -- which
+     strips Technologies, Group, Labs and the legal suffixes and joins on SPACES, so the keys
+     are "1star networks" against a lookup of "1star-networks-llc". It could never hit, for any
+     name, and measured over all 2,695 directory rows it cost exactly zero tiles because every
+     one of them resolves directly.
+     It cannot be fixed here either: norm_company is the reason the MONOGRAMS are computed
+     server-side and shipped in cometa (see web.py's note there), and a JS copy of the suffix
+     list is the twin that comment exists to avoid. So the map is no longer sent at all -- ~16 KB
+     of JSON on every load of this page. The employers it would have served are corpus spellings
+     the route merges in after the last build; those resolve on the next build_companies.py run,
+     which is how they get a sector too. */
   function logoFor(name) {
     var s = slug(name);
     if (!LOGOS[s]) {
-      var a = ALIAS[s];
-      s = (a && LOGOS[a]) ? a : '';
+      s = '';
     }
     return s ? { src: '/static/logos/' + s + '.' + LOGOS[s][0] + '?v=' + LOGOV,
                  ar: LOGOS[s][1], mono: LOGOS[s][2] } : null;

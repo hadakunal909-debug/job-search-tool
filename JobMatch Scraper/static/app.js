@@ -1574,6 +1574,28 @@
     if (href) prefetchJob(href);
   }, { passive: true });
 
+  // A LOGO THAT WILL NOT LOAD IS REMOVED, NOT LEFT AS A BROKEN IMAGE. /companies has had this
+  // since the harvest landed and the feed never did, so a manifest that disagreed with
+  // static/logos/ -- which scripts/build_logos.py --check makes a build failure, but a
+  // half-extracted deploy zip can still produce -- showed a broken-image glyph on every card
+  // for that employer.
+  //
+  // Removing it is the whole fallback here, and that is deliberate: unlike a /companies tile,
+  // the card already carries the company's NAME on this very line, so there is nothing to
+  // stand in for. The `load` twin catches a 200 carrying a 1x1, which fires no error event.
+  function dropMark(img) {
+    if (img && img.classList && img.classList.contains("cmark") && img.parentNode) {
+      img.parentNode.removeChild(img);
+    }
+  }
+  feed.addEventListener("error", function (e) {
+    if (e.target && e.target.tagName === "IMG") dropMark(e.target);
+  }, true);
+  feed.addEventListener("load", function (e) {
+    var img = e.target;
+    if (img && img.tagName === "IMG" && img.naturalWidth < 8) dropMark(img);
+  }, true);
+
   // ---- "More about this employer" panel (company page only) ----
   // Server-rendered and static, so this is just a show/hide — no fetch, no template in JS.
   // Every reference is guarded: the feed has no such button and must not throw.
