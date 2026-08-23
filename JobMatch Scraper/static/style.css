@@ -332,8 +332,13 @@
      mode-stable. NB: no comment in :root may write a token name immediately followed by
      a colon -- test_contrast.py::tokens regexes this whole body, so it reads that as a
      DECLARATION and silently overwrites the real one with prose. */
-  --logo-plate:var(--gray-100);
-  --logo-plate-edge:var(--gray-300);
+  /* THE PLATE HAS TO SIT IN THE CARD, NOT ON IT. --gray-100 against --bg-surface with a
+     --gray-300 ring drew a visible grey rectangle around every mark, which reads as a sticker
+     stuck to the card rather than as part of it. The plate is now one step off the card and the
+     ring is a hairline at 6% ink -- enough to hold a white-cornered logo, not enough to outline
+     the tile. Dark mode overrides both; see the note there. */
+  --logo-plate:#f6f7f9;
+  --logo-plate-edge:rgba(17,19,28,.06);
   --logo-plate-ink:var(--gray-700);
 }
 /* Dark overrides layer 2 and layer 3 ONLY, never layer 1. The old block redefined what
@@ -347,6 +352,21 @@
    #0f1115 canvas, which is why nothing read as elevated in dark mode. */
 [data-theme="dark"]{
   color-scheme:dark;
+  /* THE PLATE STAYS LIGHT HERE ON PURPOSE and that is not a bug: most brand marks are drawn in
+     dark ink for white paper, so on a #161822 card they would disappear. But --gray-100 is
+     #f1f3f6, and a solid near-white rectangle on a dark card is a glaring sticker -- which is
+     exactly the complaint. So it becomes TRANSLUCENT: the card shows through, the plate reads
+     as a soft lift rather than a cut-out, and a dark logo still has something to stand on.
+
+     OPAQUE, not rgba(), and that is deliberate: scripts/test_contrast.py can only resolve
+     literal colours, and an alpha value made the --logo-plate-ink pair UNRESOLVED -- the
+     monogram's dark ink would have gone unchecked in the theme where it is most at risk. This
+     is the exact composite of rgba(233,237,244,.82) over --bg-surface, so it looks identical
+     on a card and stays measurable. */
+  --logo-plate:#c3c7ce;
+  /* DARKER THAN THE PLATE, same as in light. A white rim on a light plate is invisible and
+     does nothing for a logo with white corners. */
+  --logo-plate-edge:rgba(17,19,28,.12);
   --bg-canvas:#0c0e14; --bg-sunken:#10121a; --bg-surface:#161822; --bg-raised:#1e212e;
   --bg-hover:#232738; --bg-active:#2c3045;
   --surface2:#1c1f2b;

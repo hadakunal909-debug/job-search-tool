@@ -4247,12 +4247,21 @@
    "why": "not-an-org"
   },
   "axon": {
+   "ar": 1.111,
+   "artist": "",
+   "asset": "axon.svg",
+   "bytes": 1388,
    "checked": "2026-08-22",
    "domain": "axon.com",
+   "license": "site",
+   "mono": 1,
    "name": "Axon",
+   "sha256": "9d1dadbf0562c634",
    "slug": "axon",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://www.axon.com/favicon/favicon.svg",
+   "tier": "site",
+   "verdict": "accepted",
+   "why": ""
   },
   "axxess-consult-inc": {
    "checked": "2026-08-22",
@@ -24630,12 +24639,34 @@
    "why": "no-logo-claim"
   },
   "lululemon": {
+   "ar": 1.0,
+   "artist": "Lululemon Athletica.\nThe original uploader was Esrever at English Wikipedia..\n\nLater version(s) were uploaded by KarimKo",
+   "asset": "lululemon.svg",
+   "bytes": 7116,
    "checked": "2026-08-22",
-   "domain": "lululemon.com",
+   "colours": 26,
+   "domain": "shop.lululemon.com",
+   "edges": 0.0576,
+   "file": "Lululemon Athletica logo.svg",
+   "h": 244,
+   "identity": "domain-agree",
+   "ink": 0.4563,
+   "label": "Lululemon Athletica",
+   "license": "Public domain",
+   "mono": true,
    "name": "lululemon",
+   "p279_path": [
+    "p856"
+   ],
+   "p856": "shop.lululemon.com",
+   "qid": "Q6702957",
+   "sha256": "7907f21f9e01dc98",
    "slug": "lululemon",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/2/22/Lululemon_Athletica_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 244,
+   "why": ""
   },
   "luma-ai": {
    "checked": "2026-08-22",
