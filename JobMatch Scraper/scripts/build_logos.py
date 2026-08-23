@@ -48,6 +48,8 @@ COMPANIES_JSON = "companies.json"
 DOMAINS_JSON = "company_domains.json"
 LEDGER = "logo_harvest.json"
 AUDIT_CSV = "company_domains_audit.csv"
+DISCOVER_CSV = "company_domains_discovered.csv"
+DOMAINS = {}                 # norm_company -> domain; filled by run_harvest, see load_domains
 LOGO_DIR = os.path.join("static", "logos")
 MANIFEST = os.path.join(LOGO_DIR, "index.json")
 
@@ -156,6 +158,22 @@ PLATFORM_HOSTS = (
 # cannot save it either. 105 H-1B filings, so it is worth a line. Wisconsin loses its logo to
 # the same rule and does NOT get a line: 0 open roles, 0 filings, and what it lost was
 # wisconsin.gov's favicon.
+# A DOMAIN NO RULE CAN REACH, which is a different list from LOGO_OVERRIDE below because the
+# failure is different: the name is real, the guess is plausible, and it belongs to somebody else.
+#
+# 43% of the employers with no domain have a single distinctive token, and they carry 45% of the
+# filings in that cohort -- so they cannot be refused wholesale. But a one-word name cannot be
+# disambiguated from a page: measured on the head of the discovery pass, "Alphabet" (23,240 H-1B
+# filings, so unambiguously Google's parent) corroborates PERFECTLY against alphabet.com, which is
+# BMW's fleet-management business. Both the address and the page agree; they just agree about the
+# wrong company. No heuristic available here separates the two, so the answer is a named entry and
+# a human skim of company_domains_discovered.csv, which is sorted by filings for exactly that.
+#
+# keyed on core.norm_company. "" means "we have no domain and guessing is worse than not".
+DOMAIN_OVERRIDE = {
+    "alphabet": "abc.xyz",
+}
+
 LOGO_OVERRIDE = {
     "linkedin": "LinkedIn Logo.svg",
     "city-of-new-york": "NYC Logo Wolff Olins.svg",
@@ -1239,6 +1257,9 @@ def domain_candidates(name, stored, p856):
     ranked first. So stored is the better witness and P856 is the fallback, not the override --
     and BOTH are tried, because the first one to yield an asset that passes judge() wins.
     """
+    forced = DOMAIN_OVERRIDE.get(core.norm_company(name) or "")
+    if forced is not None:
+        return [forced] if forced else []
     out = []
     for d in (stored or "", p856 or ""):
         d = (d or "").strip().lower()
@@ -1450,9 +1471,21 @@ def write_manifest(rows, ledger):
 
 # ---------------------------------------------------------------- the harvest pass
 
+def load_domains():
+    """norm_company -> domain, this script's own output. Empty map if it is missing, which
+    degrades to companies.json's copy rather than to a crash."""
+    try:
+        with open(DOMAINS_JSON, encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("domains") or {}
+    except Exception:
+        return {}
+
+
 def run_harvest(args):
     rows = load_rows()
     ledger = load_ledger()
+    global DOMAINS
+    DOMAINS = load_domains()
     net = Net(pace=args.delay)
     cache = ClassCache(net)
 
@@ -1505,7 +1538,14 @@ def run_harvest(args):
     attempted = accepted = 0
     debug_left = 3
     for i, r in enumerate(todo, 1):
-        name, stored = r[0], (r[4] or "")
+        # THE DOMAIN MAP OUTRANKS companies.json's COPY OF IT. r[4] is a snapshot taken by
+        # whichever build_companies.py run last happened, and this script rewrites the map
+        # itself -- so the copy is stale by construction, and --check already reports the
+        # divergence as a note (38 rows when this was written). Reading the map directly also
+        # means --discover-domains takes effect immediately: no rebuild in between, and no
+        # database needed to pick up a domain that was just resolved.
+        name = r[0]
+        stored = DOMAINS.get(core.norm_company(name) or "") or (r[4] or "")
         slug = slugify(name)
         try:
             ent = harvest_one(net, cache, name, stored, args.tier)
@@ -1637,6 +1677,177 @@ def run_audit_domains(args):
     print("\nwrote %s" % AUDIT_CSV)
     print("  agree %d   CHANGED %d   new (had none) %d   kept (no P856) %d"
           % (agree, differ, only_new, neither))
+    return 0
+
+
+# ---------------------------------------------------------------- domain discovery
+#
+# For the employers with NO domain at all -- 772 of them when this was written -- there is
+# nothing for either tier to ask. Wikidata has no entity, so no P856, and companies.json has no
+# r[4]. Two sources were measured and rejected before this one:
+#
+#   * the careers URL in companies.json. It is almost always an ATS host, and gating it on the
+#     name recovered 2 of 772. Dead end.
+#   * status_code == 200 on a guessed domain. That was scripts/build_company_domains.py's
+#     ENTIRE verification, and it is why Apple had appleinc.com and why two employers who
+#     merely post through ADP both had adp.com. This script exists partly to undo it.
+#
+# So: guess the domain, then make the PAGE prove it belongs to this employer. Measured yield on
+# 24 sampled employers with a crude generator: 12 resolved, 7 then produced an icon >=128px.
+DISCOVER_TLDS = (".com", ".org", ".net", ".io", ".co")
+EDU_WORDS = ("university", "college", "school", "institute", "academy")
+PARKED = re.compile(r"domain (?:is )?(?:for sale|parked)|godaddy|sedo\b|hugedomains"
+                    r"|buy this domain|namecheap|afternic|dan\.com|this domain is available",
+                    re.I)
+_TITLE = re.compile(r"<title[^>]*>(.{0,300}?)</title>", re.S | re.I)
+_OGSITE = re.compile(r"""og:site_name["'][^>]*content=["']([^"']{0,160})""", re.I)
+_LDNAME = re.compile(r'"name"\s*:\s*"([^"]{0,120})"')
+
+
+def discover_candidates(name):
+    """Domains worth ASKING about for an employer we have no domain for at all."""
+    t = _tokens(name)
+    if not t:
+        return []
+    sq = "".join(t)
+    low = (name or "").lower()
+    tlds = list(DISCOVER_TLDS)
+    if any(w in low for w in EDU_WORDS):
+        # .edu first for a university, and .org second -- a hospital or a district is far more
+        # likely to be .org than .com. Getting this wrong cost mountsinai.org while it was being
+        # measured.
+        tlds = [".edu", ".org"] + [x for x in tlds if x != ".org"]
+    out = [sq + x for x in tlds[:3]]
+    if len(t) > 1:
+        out.append("".join(t[:2]) + ".com")
+        out.append("".join(w[0] for w in t) + ".com")        # the acronym: nva.com
+        out.append("".join(t[:-1]) + ".com")                 # drop a trailing generic word
+    seen = set()
+    return [d for d in out
+            if len(d.split(".")[0]) >= 3 and not (d in seen or seen.add(d))][:6]
+
+
+def name_corroborated(name, html, domain):
+    """(bool, why). Does the PAGE say it belongs to this employer?
+
+    EVERY distinctive token must appear, not all-but-one. Measured while sizing this pass: an
+    n-1 rule accepted "Future Secure AI" -> future.com, which is Future plc, a UK media company
+    that serves a perfectly good SVG icon -- so the pass would have SHIPPED a stranger's logo
+    under a real employer's name. That is the GardaWorld/appcast.io class and it is strictly
+    worse than a monogram, so the rule is deliberately tuned for precision over yield.
+
+    Two accept paths, and each needs agreement from TWO places:
+      * the domain's own label is the squashed name AND the page repeats it. Both the address
+        and the content agree, which is the strongest evidence available without a registry.
+      * two or more distinctive tokens all appear. One token is a coincidence -- "future" --
+        and two independent ones are not.
+    """
+    ti = (_TITLE.search(html or "") or [None, ""])[1]
+    if PARKED.search(ti or "") or PARKED.search((html or "")[:3000]):
+        return False, "parked"
+    parts = [ti or "", (_OGSITE.search(html or "") or [None, ""])[1]]
+    parts += _LDNAME.findall(html or "")[:4]
+    hay = re.sub(r"[^a-z0-9]", "", " ".join(parts).lower())
+    if not hay:
+        return False, "no-identity-text"
+    toks = _tokens(name)
+    sq = "".join(toks)
+    label = (domain or "").split(".")[0]
+    if sq and label == sq and sq in hay:
+        return True, "domain-and-page"
+    dist = [w for w in toks if len(w) >= 4]
+    if len(dist) >= 2 and all(w in hay for w in dist):
+        return True, "all-tokens-in-page"
+    return False, "no-corroboration"
+
+
+def run_discover_domains(args):
+    """Resolve a domain for employers that have none, by asking the page who it belongs to.
+
+    MERGES rather than rebuilds. Every entry it adds is new -- a key already in the map is left
+    alone, because that map is --write-domains' output and has recorded provenance. Discovered
+    entries are tagged so they stay separable and revocable, and the one-domain-one-company
+    invariant --check enforces is applied here too rather than being discovered later.
+    """
+    rows = load_rows()
+    try:
+        with open(DOMAINS_JSON, encoding="utf-8") as fh:
+            blob = json.load(fh) or {}
+    except Exception:
+        blob = {}
+    out = blob.get("domains") or {}
+    prov = blob.get("provenance") or {}
+    taken = {v: k for k, v in out.items()}
+
+    todo = []
+    for r in rows:
+        key = core.norm_company(r[0])
+        if not key or out.get(key) or key in DOMAIN_OVERRIDE:
+            continue
+        todo.append((r[0], key, int(r[5] or 0)))
+    todo.sort(key=lambda t: -t[2])           # biggest sponsors first, so a --limit is useful
+    if args.limit:
+        todo = todo[:args.limit]
+    print("employers with no domain: %d" % len(todo))
+
+    net = Net(pace=args.delay)
+    found, review, n = {}, [], 0
+    for name, key, h1b in todo:
+        n += 1
+        sys.stdout.write("\r  %d/%d  found %d  (%s)%s"
+                         % (n, len(todo), len(found), name[:28], " " * 12))
+        sys.stdout.flush()
+        for dom in discover_candidates(name):
+            if dom in taken or dom in found.values():
+                continue                     # already another employer's, by construction
+            if any(h in dom for h in PLATFORM_HOSTS):
+                continue
+            try:
+                r = net.get("https://" + dom + "/", ua=BROWSER_UA, timeout=(5, 10))
+            except IOError:
+                continue
+            if r is None:
+                continue
+            ok, why = name_corroborated(name, r.text or "", dom)
+            if not ok:
+                continue
+            if not domain_agrees(name, dom):
+                continue                     # the same gate every other domain here passes
+            found[key] = dom
+            review.append((name, key, dom, why, h1b))
+            break
+    print()
+
+    if not found:
+        print("nothing discovered.")
+        return 0
+    with open(DISCOVER_CSV, "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        # distinctive_tokens IS THE RISK COLUMN. A multi-token name needs two independent
+        # words to agree and is hard to get wrong; a single-token one is the Alphabet case and is
+        # what the skim is for. Sorted by filings so the rows that matter are at the top.
+        w.writerow(["name", "norm_key", "domain", "corroborated_by", "h1b_filings",
+                    "distinctive_tokens"])
+        for row in sorted(review, key=lambda t: -t[4]):
+            w.writerow(list(row) + [len([w2 for w2 in _tokens(row[0]) if len(w2) >= 4])])
+    print("wrote %s -- %d rows. READ IT before committing any asset this unlocks; it is the one "
+          "step no test can do." % (DISCOVER_CSV, len(review)))
+    if args.dry_run:
+        print("dry run. would add %d entries to %s." % (len(found), DOMAINS_JSON))
+        return 0
+    out.update(found)
+    for k in found:
+        prov[k] = "discovered"
+    blob["domains"] = out
+    blob["provenance"] = prov
+    blob["built_at"] = datetime.date.today().isoformat()
+    tmp = DOMAINS_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(blob, fh, ensure_ascii=False, indent=1, sort_keys=True)
+    os.replace(tmp, DOMAINS_JSON)
+    print("added %d discovered entries to %s (now %d)." % (len(found), DOMAINS_JSON, len(out)))
+    print("NEXT: build_logos.py --refetch-rejected picks them up; the harvest reads this map "
+          "directly, so companies.json does not have to be rebuilt first.")
     return 0
 
 
@@ -1967,6 +2178,8 @@ def main():
     ap.add_argument("--prune", action="store_true", help="drop assets with no manifest entry")
     ap.add_argument("--audit-domains", action="store_true",
                     help="CSV of stored vs P856. Writes no company_domains.json.")
+    ap.add_argument("--discover-domains", action="store_true",
+                    help="guess a domain for employers that have none, verified by identity")
     ap.add_argument("--write-domains", action="store_true",
                     help="rewrite company_domains.json from P856")
     ap.add_argument("--dry-run", action="store_true", help="with --write-domains, print only")
@@ -1983,6 +2196,8 @@ def main():
         return run_prune(args)
     if args.audit_domains:
         return run_audit_domains(args)
+    if args.discover_domains:
+        return run_discover_domains(args)
     if args.write_domains:
         return run_write_domains(args)
     return run_harvest(args)
