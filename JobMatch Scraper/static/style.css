@@ -2685,11 +2685,21 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    enough to carry a dark or full-colour mark unaided. */
 .colock img{display:block;width:auto;object-fit:contain;object-position:left center;
   padding:3px 5px;background:transparent}
-/* Dark mode DOES need the plate: the same five fills are #18253f..#171a22 there, and most
-   brand marks are dark ink drawn for white paper. A light plate is a visible shape against a
-   dark card, and that is the honest trade -- an invisible logo is worse than a plated one. */
+/* Dark mode needs SOMETHING behind a dark-ink mark: the five route fills are #18253f..#171a22
+   there, and most brand logos are drawn in dark ink for white paper. A light plate is a visible
+   rectangle on a dark card, so it is now the FALLBACK rather than the rule. */
 [data-theme="dark"] .colock img{background:var(--logo-plate);
   box-shadow:inset 0 0 0 1px var(--logo-plate-edge)}
+/* A SINGLE-INK MARK IS INVERTED INSTEAD OF PLATED. A monochrome dark logo carries no brand
+   colour to protect, so flipping it to light ink loses nothing and it can then sit straight on
+   the card -- no plate, no rectangle, which is the whole complaint. data-mono comes from the
+   harvest manifest and means "one DARK ink": judge() composites onto white and rejects a blank,
+   so an accepted raster mono logo cannot be a white knockout, and svg_meta reads the ink's
+   luminance for the one source that composites nothing. Get that backwards and invert() paints
+   a white wordmark black on a dark card.
+   Full-colour logos keep the plate above -- inverting those would hue-shift the brand. */
+[data-theme="dark"] .colock img[data-mono="1"]{background:transparent;box-shadow:none;
+  filter:invert(1) brightness(1.9)}
 /* Two letters in the data face: an initialism is a LABEL, not prose, and the
    mono setting makes it read as a deliberate stand-in rather than as a failed
    logo -- the same argument that face already wins for counts and dates.

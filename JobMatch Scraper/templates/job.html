@@ -42,7 +42,8 @@
   <div class="jobhead">
     {# Same lockup as /company and the feed cards. No fallback URL: the logo is ours and
        either exists or does not. #}
-    {% if row.logo %}<div class="colock"><img src="{{ row.logo }}" alt="" loading="lazy" decoding="async"></div>
+    {% if row.logo %}<div class="colock"><img src="{{ row.logo }}" alt="" loading="lazy" decoding="async"
+      {% if row.logo_mono %}data-mono="1"{% endif %}></div>
     {% else %}<div class="colock"><span class="comono" aria-hidden="true">{{ row.initials }}</span></div>{% endif %}
     <div class="u-grow-min">
       <h1>{{ row.title }}</h1>
