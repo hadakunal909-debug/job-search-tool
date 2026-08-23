@@ -145,8 +145,21 @@ PLATFORM_HOSTS = (
 # It returns LinkedIn Learning, LinkedIn Ireland and LinkedIn News, and Learning carries a real
 # logo -- so the loose subset match in label_ok shipped LinkedIn Learning's logo for LinkedIn
 # until that was tightened. The right entity is Q213660 and its logo is this file.
+# city-of-new-york: the employer IS a municipal government, so is_place() below correctly
+# refuses to guess an entity for it -- and correctly costs us the one Commons file in this
+# corpus where a city's own mark is the right answer. Measured: of the 13 entities is_place
+# rejects among the 1,148 we already ship, this is the only one that loses a correct logo and
+# has no domain to fall back to. So it is named here rather than weakening the rule.
+# rochester-institute-of-technology: the other side of the same coin, and the reason the list
+# is TWO entries and not a loosened rule. is_place refuses its entity, and its stored domain is
+# a name-exact guess (rochesterinstituteoftechnology.com) that declares no icon -- so tier 2
+# cannot save it either. 105 H-1B filings, so it is worth a line. Wisconsin loses its logo to
+# the same rule and does NOT get a line: 0 open roles, 0 filings, and what it lost was
+# wisconsin.gov's favicon.
 LOGO_OVERRIDE = {
     "linkedin": "LinkedIn Logo.svg",
+    "city-of-new-york": "NYC Logo Wolff Olins.svg",
+    "rochester-institute-of-technology": "RIT 2018 logo short orange.svg",
 }
 
 
@@ -393,6 +406,36 @@ class ClassCache:
         self.dirty = False
 
 
+# Properties only a POPULATED PLACE carries. This is the sharp instrument for the whole
+# homonym class, and it was chosen by measurement rather than by reasoning: over the 508
+# entities whose acceptance went through the organisation gate, P1082 rejects 13 and catches
+# every one of the ten known-wrong rows, where widening HARD_REJECT through the subclass
+# closure caught nine and P625 (coordinate location) rejected 129 -- a quarter of the corpus,
+# because a company has a headquarters.
+#
+# What those 13 are, in full, because the cost matters as much as the catch: seven were
+# SHIPPING a municipality's crest as a company's logo (Alma -> ville.alma.qc.ca, Hays ->
+# haysusa.com which is the City of Hays, Kansas, Nice -> nice.fr, Heidelberg -> heidelberg.de,
+# CHEP -> cheptainville.fr, Clera -> ville-clerac.fr, Wawa -> wawa.cc); four matched a place
+# but had already fallen back to the right domain, so nothing changes for them; and two lose a
+# correct Commons file -- Rochester Institute of Technology, which tier 2 can still reach on
+# its own domain, and City of New York, which is in LOGO_OVERRIDE above.
+PLACE_PROPS = ("P1082",)          # population
+
+
+def is_place(claims):
+    """Is this entity a populated place wearing a company's name?
+
+    Checked BEFORE the organisation gate and before the exact-P856 bypass, because both of
+    them pass a municipality: a US municipality genuinely subclasses to Q43229 organization,
+    and a commune's own website is its own P856 so the two-source agreement the bypass looks
+    for is real -- it is just agreement about the wrong entity. Snowflake, Arizona held the
+    name "Snowflake" this way and handed tier 2 ci.snowflake.az.us while snowflake.com sat
+    unused in companies.json.
+    """
+    return any(claims.get(prop) for prop in PLACE_PROPS)
+
+
 def is_org(qid, claims, cache):
     """Does this entity's P31 reach an organisation root by P279?
 
@@ -416,8 +459,16 @@ def is_org(qid, claims, cache):
         nxt = []
         for q in frontier:
             for p in cache.parents(q):
+                # A HARD_REJECT ANYWHERE IN THE CLOSURE IS FATAL, not just at the frontier
+                # edge. Dropping the branch and walking its SIBLINGS is what let Snowflake,
+                # Arizona through: its P31 is Q15127012, whose parents are Q3957 (town, in
+                # HARD_REJECT) and Q3327870 (municipality of the US) -- so town was skipped,
+                # municipality survived, and municipality really does subclass to organization
+                # four hops later. Depth 0 already worked this way; the walk did not.
+                # Note the ORG_ROOTS test above runs FIRST at every level, so an entity that
+                # reaches "organisation" sooner than it reaches "town" is still accepted.
                 if p in HARD_REJECT:
-                    continue
+                    return False, []
                 if p not in seen:
                     seen.add(p)
                     nxt.append(p)
@@ -877,11 +928,38 @@ def store(slug, raw, is_svg):
 
 # ---------------------------------------------------------------- the site-icon leg
 
-ICON_MIN = 120
+ICON_MIN = 120          # the floor a DECLARED size must clear
+ICON_TRIES = 6          # candidates fetched per domain, best-ranked first
+
+# RANKS FOR CANDIDATES WHOSE SIZE THE PAGE NEVER STATED, and the reason this block exists.
+# sizes= is OPTIONAL on apple-touch-icon and its de-facto size is 180x180, but an absent
+# attribute used to score 0 and then fail `size >= ICON_MIN` -- so the most common
+# high-resolution icon on the web was discarded unread. Measured by fetching them anyway:
+# Skydio 180x180, Entergy 180x180, Biogen 180x180, Awardco 256x256, Astranis 256x256, Hex
+# 128x128, all thrown away. Over 25 sampled employers that have a verified domain and no logo,
+# domains yielding at least one candidate went from 8 to 15.
+#
+# An absent sizes= is not a claim that the asset is small, so it is a SORT KEY now and judge()'s
+# 128px floor is what actually decides -- which is this file's own stated principle applied to
+# its own input. An explicit sizes="16x16" is still a true statement and is still filtered out.
+RANK_SVG = 512          # vector: resolution-independent, so it outranks everything
+RANK_JSONLD = 260       # schema.org Organization.logo -- a brand logo, not an app icon
+RANK_APPLE = 180        # apple-touch-icon's de-facto size when it is not stated
+RANK_UNSIZED = 130      # any other unsized rel=icon
+RANK_WELLKNOWN = 125    # nothing was declared; ask the conventional paths
+WELL_KNOWN_ICONS = ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png",
+                    "/favicon.svg")
+# "logo": "<url>" or "logo": {"url": "<url>"}, the two shapes schema.org allows. Regex rather
+# than a JSON parse because the block is often one of several in a page and frequently invalid.
+JSONLD_LOGO = re.compile(
+    r'"logo"\s*:\s*(?:"(https?://[^"]{4,400})"'
+    r'|\{[^{}]{0,400}?"url"\s*:\s*"(https?://[^"]{4,400})")')
+# og:image is deliberately absent. It is a social share card: measured over 22 sampled
+# homepages it would have added three, all of them banners that judge() rejects as photographs.
 
 
 def site_icons(net, domain):
-    """High-resolution icon URLs declared by the site itself, largest first.
+    """Icon and logo URLs the site itself declares, best first.
 
     Measured hit rate on its own: 45% of 40 random stored domains, at 192x192 to 1024x1024.
     Second source rather than first because plenty of large sites serve no parseable link tags
@@ -907,8 +985,14 @@ def site_icons(net, domain):
             if "icon" not in rel or not href:
                 continue
             m = re.match(r"(\d+)x", (link.get("sizes") or "").lower())
-            size = 512 if href.lower().split("?")[0].endswith(".svg") else (
-                int(m.group(1)) if m else 0)
+            if href.lower().split("?")[0].endswith(".svg"):
+                size = RANK_SVG
+            elif m:
+                size = int(m.group(1))
+            elif "apple-touch-icon" in rel:
+                size = RANK_APPLE
+            else:
+                size = RANK_UNSIZED
             cands.append((size, urljoin(r.url, href)))
         for link in soup.find_all("link"):
             if "manifest" not in " ".join(link.get("rel") or []).lower():
@@ -923,7 +1007,17 @@ def site_icons(net, domain):
             except Exception:
                 pass
             break
-        return [u for size, u in sorted(cands, reverse=True) if size >= ICON_MIN][:4]
+        for mo in JSONLD_LOGO.finditer(r.text or ""):
+            cands.append((RANK_JSONLD, urljoin(r.url, mo.group(1) or mo.group(2))))
+        for wk in WELL_KNOWN_ICONS:
+            cands.append((RANK_WELLKNOWN, urljoin(r.url, wk)))
+        seen, out = set(), []
+        for size, u in sorted(cands, key=lambda t: -t[0]):
+            if size < ICON_MIN or u in seen:
+                continue
+            seen.add(u)
+            out.append(u)
+        return out[:ICON_TRIES]
     return []
 
 
@@ -1046,6 +1140,8 @@ def resolve(net, cache, name, stored):
     for order, (qid, label, desc) in enumerate(hits):
         ent = ents.get(qid) or {}
         claims = ent.get("claims") or {}
+        if is_place(claims):
+            continue                    # a town with the company's name, not the company
         dom = p856_domain(claims, name)
         logo = pick_logo_file(claims)
         # THE DOMAIN IS A BETTER ARBITER THAN THE LABEL, so it is consulted first and can excuse
@@ -1129,6 +1225,28 @@ def commons_asset(net, filename):
 NONFREE = re.compile(r"fair\s*use|non[- ]free|copyright|all rights reserved", re.I)
 
 
+def domain_candidates(name, stored, p856):
+    """Every domain worth asking for this employer's own icon, best first.
+
+    STORED COMES FIRST, and that ordering is the fix for a whole class of wrong logo. This was
+    `p856 or stored`, so a homonymous entity's website OVERWROTE a domain we had already
+    verified -- and Wikidata is full of places that share a company's name. Measured against
+    the ledger this replaces: Snowflake harvested ci.snowflake.az.us while snowflake.com sat
+    in companies.json unused, Appian took an Italian comune's site, KLA took Klagenfurt's.
+
+    stored came from --write-domains, which records provenance per entry and is gated by
+    --check's one-domain-one-company rule. An in-run P856 is whatever entity wbsearchentities
+    ranked first. So stored is the better witness and P856 is the fallback, not the override --
+    and BOTH are tried, because the first one to yield an asset that passes judge() wins.
+    """
+    out = []
+    for d in (stored or "", p856 or ""):
+        d = (d or "").strip().lower()
+        if d and d not in out and domain_agrees(name, d):
+            out.append(d)
+    return out
+
+
 def harvest_one(net, cache, name, stored, tier):
     """Everything for one company. Returns a ledger entry.
 
@@ -1145,8 +1263,10 @@ def harvest_one(net, cache, name, stored, tier):
         ent.update({k: v for k, v in info.items()
                     if k in ("qid", "p856", "identity", "p279_path", "label")})
 
-    domain = info.get("p856") or stored or ""
-    ent["domain"] = domain
+    cands = domain_candidates(name, stored, info.get("p856") or "")
+    ent["domain"] = cands[0] if cands else ""
+    if not cands and (stored or info.get("p856")):
+        ent["why"] = "domain-unverified"
 
     # ---- tier 1: the Commons brand logo
     fn = override if override else info.get("logo_file") or ""
@@ -1166,39 +1286,61 @@ def harvest_one(net, cache, name, stored, tier):
             if ok:
                 is_svg = "svg" in (mime or "") or orig.lower().endswith(".svg")
                 body = net.get(orig, binary=True) if is_svg else probe
+                lost = ""
                 if body:
                     if is_svg:
-                        body, swhy = sanitise_svg(body)
-                        if not body:
-                            ent.update(verdict="rejected", why=swhy, tier="wikidata")
+                        body, lost = sanitise_svg(body)
+                    if body:
+                        out, size, sha, owhy = store(slug, body, is_svg)
+                        if out:
+                            ent.update(verdict="accepted", tier="wikidata", asset=out,
+                                       bytes=size, sha256=sha, src=orig, why="")
+                            # The stored SVG keeps the ORIGINAL aspect ratio, which the thumb
+                            # also carries, so meta's ar is right either way.
                             return ent
-                    out, size, sha, owhy = store(slug, body, is_svg)
+                        lost = lost or owhy
+                # THE THUMB ALREADY PASSED judge(), SO DO NOT THROW IT AWAY. Everything above
+                # this point is about the SVG ORIGINAL, and it can be refused for reasons that
+                # say nothing about the artwork: 40 KB is a page-weight cap, and a DOCTYPE is
+                # refused because lxml drops the DTD on serialise so a post-hoc scan of the
+                # output cannot see an entity payload. Both are correct rules. But the 192px
+                # PNG Wikimedia rendered from that same file is already in hand, already
+                # cleared the pixel gate above, and goes through the raster path -- re-encoded
+                # to WebP under the same 40 KB cap. Measured: 21 employers were being dropped
+                # this way, every one of them tier 1, including Harvard, TD Bank, Bloomberg,
+                # Grainger, Kaiser Permanente and Cardinal Health.
+                if is_svg and probe:
+                    out, size, sha, owhy = store(slug, probe, False)
                     if out:
                         ent.update(verdict="accepted", tier="wikidata", asset=out, bytes=size,
-                                   sha256=sha, src=orig, why="")
-                        # The stored SVG keeps the ORIGINAL aspect ratio, which the thumb also
-                        # carries, so meta's ar is right either way.
+                                   sha256=sha, src=thumb or orig, why="",
+                                   raster_fallback=lost or "svg-unusable")
                         return ent
-                    ent.update(verdict="rejected", why=owhy, tier="wikidata")
+                    lost = lost or owhy
+                if lost:
+                    ent.update(verdict="rejected", why=lost, tier="wikidata")
                     return ent
             else:
                 ent.update(why=why, tier="wikidata")
 
     # ---- tier 2: the company's own high-resolution site icon
     #
-    # THE DOMAIN HAS TO CORROBORATE THE NAME BEFORE ITS ICON IS TRUSTED. Tier 1 gets this for
-    # free -- P856 is checked against the name inside p856_domain -- but tier 2 also accepts the
-    # domain already stored in companies.json, and those came from the old guess-and-probe
-    # builder. Measured before this check existed: of 207 tier-2 acceptances, 2 were the
-    # employer's JOB BOARD rather than the employer. GardaWorld Security Services took
-    # appcast.io's logo and iPolarity took careerplug.com's. One percent, and exactly the
-    # confidently-wrong class that is worse than a monogram. --check asserts the property too.
-    if domain and not domain_agrees(name, domain):
-        ent["why"] = "domain-unverified"
-        domain = ""
-    if domain and tier in ("all", "site"):
+    # THE DOMAIN HAS TO CORROBORATE THE NAME BEFORE ITS ICON IS TRUSTED, and domain_candidates
+    # above is where that happens now -- every candidate it returns has already passed
+    # domain_agrees, so there is nothing left to filter here. Tier 1 gets the same property for
+    # free, because p856_domain checks P856 against the name. Measured before that check
+    # existed: of 207 tier-2 acceptances, 2 were the employer's JOB BOARD rather than the
+    # employer -- GardaWorld Security Services took appcast.io's logo and iPolarity took
+    # careerplug.com's. One percent, and exactly the confidently-wrong class that is worse than
+    # a monogram. --check asserts the property on the stored `domain` too, which is why the
+    # accepting branches below overwrite it with the candidate that actually won rather than
+    # leaving the first one we tried.
+    tried = 0
+    for domain in (cands if tier in ("all", "site") else []):
         try:
-            for url in site_icons(net, domain):
+            urls = site_icons(net, domain)
+            tried += len(urls)
+            for url in urls:
                 raw = net.get(url, ua=BROWSER_UA, binary=True, timeout=(5, 12))
                 if not raw:
                     continue
@@ -1228,7 +1370,7 @@ def harvest_one(net, cache, name, stored, tier):
                     if out:
                         ent.update(verdict="accepted", tier="site", asset=out, bytes=size,
                                    sha256=sha, src=url, why="", license="site", artist="",
-                                   ar=sar, mono=smono)
+                                   ar=sar, mono=smono, domain=domain)
                         return ent
                     ent.setdefault("why", owhy)
                     continue
@@ -1240,16 +1382,28 @@ def harvest_one(net, cache, name, stored, tier):
                 if out:
                     ent.update({k: meta[k] for k in ("w", "h", "ar", "mono") if k in meta})
                     ent.update(verdict="accepted", tier="site", asset=out, bytes=size,
-                               sha256=sha, src=url, why="", license="site", artist="")
+                               sha256=sha, src=url, why="", license="site", artist="",
+                               domain=domain)
                     return ent
                 ent.setdefault("why", owhy)
         except IOError:
             raise
 
+    ent["site_tried"] = tried
     if not ent.get("why"):
-        ent["why"] = info.get("why") or ("no-logo-claim" if info.get("qid") else "no-entity")
+        # WHY USED TO LIE BY OMISSION. When tier 2 found no candidate at all, nothing set a
+        # reason, so the entry fell through to tier 1's -- and Truist read "not-an-org" when
+        # the real story was that truist.com declares no icon this chain can use. A pass aimed
+        # at "no Wikidata entity" is a different pass from one aimed at "no site icon", so the
+        # two are named apart and the count of candidates actually fetched is recorded.
+        if cands and not tried:
+            ent["why"] = "no-site-icon"
+        else:
+            ent["why"] = info.get("why") or ("no-logo-claim" if info.get("qid")
+                                             else "no-entity")
     ent["verdict"] = "no-candidate" if ent["why"] in ("no-entity", "no-logo-claim",
-                                                      "not-an-org") else "rejected"
+                                                      "not-an-org",
+                                                      "no-site-icon") else "rejected"
     return ent
 
 
