@@ -1694,14 +1694,46 @@ def run_audit_domains(args):
 #
 # So: guess the domain, then make the PAGE prove it belongs to this employer. Measured yield on
 # 24 sampled employers with a crude generator: 12 resolved, 7 then produced an icon >=128px.
-DISCOVER_TLDS = (".com", ".org", ".net", ".io", ".co")
-EDU_WORDS = ("university", "college", "school", "institute", "academy")
+DISCOVER_TLDS = (".com", ".org", ".io")
+EDU_WORDS = ("university", "college", "school", "academy")
+# A NON-.com HIT NEEDS THE STRONG CORROBORATION PATH, and that is a measured rule. In the first
+# full pass 60 of 351 hits were a full-name match on .org or .net, and the bad ones were bad in
+# a specific way -- they were all ONE-WORD employers, where the only evidence is that a domain
+# spelling the word exists and its page uses the word. citadel.org is The Citadel, a military
+# college in South Carolina, not the hedge fund; vastek.org, natsoft.org and donato.net are not
+# the IT firms that share those names.
+#
+# Banning the tld outright was the first attempt and it was wrong: it also lost mountsinai.org,
+# which is right, and every hospital and foundation. The tld is not the discriminator -- the
+# WEAKNESS OF THE MATCH is. So .org stays a candidate and the single-token path is confined to
+# .com and .edu, where a squatter is at least paying for the privilege.
+SINGLE_TOKEN_TLDS = (".com", ".edu")
+# Legal FORM only. Deliberately much shorter than SUFFIXES above, because these two lists answer
+# different questions and sharing one was the defect: SUFFIXES is for building a domain, where
+# "Technologies" and "Corporation" never appear, but for VERIFYING IDENTITY they are the name.
+# core.norm_company strips them, so "Boston Technology Corporation" became "boston" -- and
+# boston.com, which is The Boston Globe, corroborated it perfectly. Same for "Quantum
+# Technologies LLC" against Quantum Corporation's quantum.com, and "Quadrant Technologies"
+# against quadrant.org.
+LEGAL_FORMS = {"inc", "incorporated", "llc", "ltd", "limited", "plc", "lp", "llp", "corp",
+               "corporation", "co", "company", "the", "of", "and", "a", "an"}
 PARKED = re.compile(r"domain (?:is )?(?:for sale|parked)|godaddy|sedo\b|hugedomains"
                     r"|buy this domain|namecheap|afternic|dan\.com|this domain is available",
                     re.I)
 _TITLE = re.compile(r"<title[^>]*>(.{0,300}?)</title>", re.S | re.I)
 _OGSITE = re.compile(r"""og:site_name["'][^>]*content=["']([^"']{0,160})""", re.I)
 _LDNAME = re.compile(r'"name"\s*:\s*"([^"]{0,120})"')
+
+
+def raw_tokens(name):
+    """The employer's own words, with only the legal FORM removed.
+
+    This is the identity vocabulary, and it is not _tokens(). _tokens goes through
+    core.norm_company, which strips Technologies / Corporation / Group / Holdings because those
+    never appear in a domain -- correct for building a guess, wrong for checking one.
+    """
+    return [w for w in re.findall(r"[a-z0-9]+", (name or "").lower())
+            if w not in LEGAL_FORMS]
 
 
 def discover_candidates(name):
@@ -1713,10 +1745,7 @@ def discover_candidates(name):
     low = (name or "").lower()
     tlds = list(DISCOVER_TLDS)
     if any(w in low for w in EDU_WORDS):
-        # .edu first for a university, and .org second -- a hospital or a district is far more
-        # likely to be .org than .com. Getting this wrong cost mountsinai.org while it was being
-        # measured.
-        tlds = [".edu", ".org"] + [x for x in tlds if x != ".org"]
+        tlds.insert(0, ".edu")
     out = [sq + x for x in tlds[:3]]
     if len(t) > 1:
         out.append("".join(t[:2]) + ".com")
@@ -1756,14 +1785,29 @@ def name_corroborated(name, html, domain):
     hay = re.sub(r"[^a-z0-9]", "", " ".join(parts).lower())
     if not hay:
         return False, "no-identity-text"
-    toks = _tokens(name)
-    sq = "".join(toks)
-    label = (domain or "").split(".")[0]
-    if sq and label == sq and sq in hay:
-        return True, "domain-and-page"
-    dist = [w for w in toks if len(w) >= 4]
-    if len(dist) >= 2 and all(w in hay for w in dist):
+    # RAW tokens, not normalised ones -- see raw_tokens(). Every distinctive one must appear.
+    raw = raw_tokens(name)
+    dist = [w for w in raw if len(w) >= 4]
+    hit = bool(dist) and all(w in hay for w in dist)
+    # TWO independent words agreeing is the strong path, and it is the only one allowed to
+    # accept any tld. One word is a coincidence waiting to happen.
+    if hit and len(dist) >= 2:
         return True, "all-tokens-in-page"
+    # THE WEAK PATHS ARE CONFINED TO .com AND .edu. A one-word employer cannot be told apart
+    # from another organisation of the same name by reading a page -- so the tld is used as the
+    # tie-breaker it actually is: the brand is on .com, and citadel.org is a military college
+    # while citadel.com is the hedge fund. This does not refuse the employer, it refuses the
+    # wrong ADDRESS for it.
+    weak_ok = any((domain or "").endswith(t) for t in SINGLE_TOKEN_TLDS)
+    if hit and weak_ok:
+        return True, "single-token-in-page"
+    # And the last resort, for a name with no 4+ character word at all: the domain label spells
+    # the squashed name and the page repeats it. The CSV marks these, because they are the
+    # Alphabet case -- see DOMAIN_OVERRIDE.
+    sq = "".join(_tokens(name))
+    label = (domain or "").split(".")[0]
+    if sq and len(sq) >= 4 and label == sq and sq in hay and not dist and weak_ok:
+        return True, "domain-and-page"
     return False, "no-corroboration"
 
 
