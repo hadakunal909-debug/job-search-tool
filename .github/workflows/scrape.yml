@@ -56,7 +56,15 @@ defaults:
 jobs:
   scrape:
     runs-on: ubuntu-latest          # Linux = 1x minute billing (Windows is 2x, macOS 10x)
-    timeout-minutes: 45             # hard cap so a stuck run can never silently drain the budget
+    # 45 -> 58. MEASURED, and the job cap was the real ceiling, not the step's. On 2026-08-20 the
+    # whole job ran 40.5 min of 45: scrape 19.5 + score 11.7 + verify 8.4. So raising the scrape
+    # step alone would just move the kill from the step to the job.
+    #
+    # COST, stated rather than hidden: one scheduled run a weekday, so the worst case is
+    # 58 x 22 = ~1,276 of the 2,000 free Actions minutes a month, and python-tests runs on top of
+    # that. This is a CEILING, not a spend -- a healthy run still finishes in ~40 -- but if the
+    # bill gets close, the lever is the number of boards swept, not this line.
+    timeout-minutes: 58
 
     # WHERE THE DATABASE IS. Set at JOB level rather than repeated across the five steps below,
     # because unlike SUPABASE_* — which some steps genuinely don't need — this pair decides the
@@ -179,7 +187,18 @@ jobs:
       - name: Scrape new jobs
         id: scrape
         if: steps.gate.outputs.run == 'yes'
-        timeout-minutes: 26
+        # 26 -> 32. SCRAPE_BUDGET_MIN bounds the SWEEP, not the step, so the sweep is free to
+        # eat almost the whole step and leave nothing for the write phase behind it. That is what
+        # killed 2026-08-21: the sweep took 20.6 min of its 22-min budget -- never binding -- and
+        # the filter/insert/prune/reconcile stretch after it needed more than the 5.4 min left.
+        # It had taken 2.4 min the run before, on 1,260 boards instead of 1,265.
+        #
+        # Lowering SCRAPE_BUDGET_MIN instead was the obvious fix and is the wrong one: sources are
+        # swept in list order with no rotation, so a tighter budget starves the SAME tail of the
+        # board list every single run, silently. Paying for the time is better than quietly
+        # dropping employers. The per-phase timing now in scraper.main() is what will say whether
+        # the write phase is growing or something in it is broken.
+        timeout-minutes: 32
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

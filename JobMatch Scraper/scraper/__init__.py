@@ -7416,6 +7416,19 @@ def main():
         print("JobSpy: %d quer%s, %d raw row(s)."
               % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))
 
+    # PHASE TIMING, because the alternative is a silent gap. The 2026-08-21 run was killed by
+    # the step timeout with its last line being the JobSpy count and NOTHING for the 5m17s after
+    # it -- everything between here and the tally print is a single unlogged stretch, so the log
+    # could not say whether the filter loop, the insert, the prune or the closed-posting check
+    # had taken the time. Two runs earlier the same stretch took 2.4 minutes. `_phase` costs one
+    # line each and makes the next occurrence diagnosable instead of a guess.
+    _phase_t = [time.time()]
+
+    def _phase(label):
+        now = time.time()
+        print("  [phase] %-22s %5.1fs" % (label, now - _phase_t[0]))
+        _phase_t[0] = now
+
     kept = []
     fp_seen = []            # aggregator relists caught by the fingerprint, for the run summary
     # {canonical url -> description} for rows whose board handed the JD over with the listing.
@@ -7575,7 +7588,9 @@ def main():
         for h, n in sorted(by_host.items(), key=lambda kv: -kv[1]):
             print("   %-38s %6d" % (h[:38], n))
     if kept:
+        _phase("filter + dedupe")
         db.add_jobs(kept)               # (also the breadcrumb notify.py reads for this run's alerts)
+        _phase("add_jobs (%d rows)" % len(kept))
 
     # JobSpy returns the description WITH the row, so store it for the jobs we kept. Without this
     # they fall to score_jobs' per-URL detail fetch, which mostly 403s against the aggregators
