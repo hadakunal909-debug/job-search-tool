@@ -188,20 +188,22 @@ def _csp_nonce():
 
 
 # Resources the UI legitimately loads from off-site, kept here so the CSP stays readable:
-# Google Fonts (CSS from googleapis, font files from gstatic) + company logos from
-# tN.gstatic.com.
+# Google Fonts, and nothing else. CSS from googleapis, font files from gstatic.
 #
-# www.google.com is NO LONGER in img-src. The logos used to be requested from
-# www.google.com/s2/favicons, which 301-redirects to gstatic, so the wildcard had to be
-# allowed for the second hop as well. They now request gstatic directly (see LOGO_BASE in
-# static/app.js for why), which means one fewer origin the page may load images from.
+# img-src IS NOW 'self' data', WITH NO REMOTE ORIGIN AT ALL, 2026-08-22. It used to allow
+# *.gstatic.com for the favicon service and img.logo.dev for the logo service. Both are gone
+# because the logos are harvested and committed now (scripts/build_logos.py), and this line is
+# what ENFORCES that rather than merely recording it: anyone who reintroduces a hotlinked logo
+# gets a blocked request and a console error instead of a silent third-party dependency. Which
+# matters, because Clearbit's free logo API -- the previous incumbent in this exact slot -- was
+# switched off on 2025-12-08 and took every page that hotlinked it down with it.
 # Everything else is same-origin ('self').
 _CSP_TEMPLATE = (
     "default-src 'self'; "
     "script-src 'self' 'nonce-%s'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
-    "img-src 'self' data: https://*.gstatic.com https://img.logo.dev; "
+    "img-src 'self' data:; "
     "connect-src 'self'; "
     # pdf.js starts its worker from a blob: URL, and worker-src has no fallback to script-src -- it
     # falls back to child-src then default-src, and 'self' does not cover blob:. Without this the
@@ -1220,7 +1222,6 @@ def _build_row(j, score):
     the same shape app.js renders. Built once per (profile) and cached in _rows_cache."""
     c = j.get("company") or ""
     u = j.get("url")
-    _ld = logodomain(c, u)
     exp_y, exp_lvl, sv, sreason = _jd_fields(j)
     strength, scount = core.sponsor_strength(c, sponsor_counts())
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
@@ -1358,12 +1359,13 @@ def _build_row(j, score):
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
             # career split. core.role_track is the single definition; the digest reads it too.
             "track": core.role_track(j.get("title") or ""),
-            # BOTH URLS, resolved server-side. logo_domain stays for anything still reading
-            # it; logo_src/logo_fallback are the chain app.js and jobpage.js walk on error.
-            "logo_domain": _ld, "logo_src": logosrc(_ld),
-            "logo_fallback": logofavicon(_ld) if LOGODEV_KEY else "",
-            "logo_color": logocolor(c),
-            "initial": c[:1].upper() if c else "?"}
+            # SELF-HOSTED, resolved server-side from the harvest manifest. ONE url and no
+            # fallback: a card either has a logo we verified and shipped or it renders the
+            # monogram, and there is no second URL to walk. That is not a simplification, it is
+            # the fix -- the old chain handed the client the SAME url twice when no logo.dev key
+            # was set, so every failing logo was fetched twice before the img was removed.
+            "logo": logo_url(c), "logo_ar": logo_ar(c),
+            "initials": initials(c)}
 
 
 _AGGREGATOR_HOSTS = core.AGGREGATOR_HOSTS
@@ -1989,7 +1991,11 @@ _DOMAIN_MAP = {
     "university of wisconsin system": "wisconsin.edu", "vanta": "vanta.com", "verkada": "verkada.com",
     "visa": "visa.com", "weride": "weride.ai", "worldquant": "worldquant.com", "yipitdata": "yipitdata.com",
 }
-_PALETTE = ["#0e8a5f", "#2c5bd6", "#b8730a", "#7c3aed", "#c0392b", "#0c7a8a", "#b03060", "#475569"]
+# THE EIGHT-COLOUR HASH PALETTE IS GONE, 2026-08-22. It picked a tile colour from
+# sum(ord(c)) % 8, which made it the single largest chromatic spend in the product and put it
+# squarely against the rule at the top of static/style.css: colour means sponsorship, everything
+# else is ink. A monogram is ink on a neutral plate now; core.initials owns the two letters.
+#
 
 
 # Hosts belonging to a hiring PLATFORM rather than to the employer. A posting on one of these
@@ -2024,8 +2030,8 @@ def _verified_domains():
     return _verified_cache
 
 
-@app.template_filter("logodomain")
-def logodomain(name, url=None):
+@app.template_filter("companydomain")
+def company_domain(name, url=None):
     """The domain to ask Google's favicon service for.
 
     THE JOB'S OWN URL BEATS ANY GUESS, when it is the employer's site. The old rule was
@@ -2048,11 +2054,18 @@ def logodomain(name, url=None):
     key = (name or "").strip().lower()
     if key in _DOMAIN_MAP:
         return _DOMAIN_MAP[key]
-    # THE VERIFIED MAP, ahead of every rule below it. Each entry answered an icon probe when
-    # scripts/build_company_domains.py built the file, which is the difference between this and
-    # everything else in this function: the rules guess, and 22% of what they guess is a 404
-    # that renders as a letter monogram. Absent file = absent entry = the old behaviour exactly.
-    hit = _verified_domains().get(key)
+    # THE VERIFIED MAP, ahead of every rule below it: the rules guess, and this file does not.
+    # Absent file = absent entry = the old behaviour exactly.
+    #
+    # KEYED ON core.norm_company, NOT ON THE RAW NAME, and that is a fix rather than a detail.
+    # The file used to be written and read under two different keys: this lookup used the raw
+    # lowercased name while scripts/build_companies.py rebucketed the same file through
+    # core.norm_company. It held BOTH 'apple' -> apple.com and 'apple, inc.' -> appleinc.com,
+    # both normalising to 'apple', and the rebucket kept whichever it read last -- so the file
+    # gave two different answers to one question and both were live. company_domain("Apple")
+    # returned apple.com while the /companies tile rendered appleinc.com, a parked domain.
+    # Seven keys had that conflict: apple, block, gap, uline, skydio, aldridge, lonza.
+    hit = _verified_domains().get(core.norm_company(name) or key) or _verified_domains().get(key)
     if hit:
         return hit
     host = ""
@@ -2084,50 +2097,97 @@ def logodomain(name, url=None):
     return (base or "example") + ".com"
 
 
-# WHY A LOGO SERVICE AND NOT A FAVICON SERVICE. gstatic's faviconV2 returns the TAB ICON:
-# 16-64px, and for roughly one brand in ten a monochrome black glyph designed to sit in browser
-# chrome. Composited onto the white tile in .logo img it reads as a black blob, and because the
-# response is HTTP 200 no error handler fires -- there is nothing a fallback chain can do about
-# it. Measured over 249 live domains: ~18% fell through to the letter monogram, ~10% came back
-# black, ~5% were a 16px icon upscaled to 42. logo.dev returns the actual brand mark.
+# WHY THE LOGOS ARE OURS NOW, AND NOT A SERVICE'S.
 #
-# The key is PUBLISHABLE (pk_...), which is what makes it safe to put in HTML that any visitor
-# can read; logo.dev issues it for exactly this use. With no key set the chain degrades to the
-# favicon service alone, which is the behaviour that shipped before.
-LOGODEV_KEY = os.environ.get("LOGODEV_KEY") or ""
-_FAVICON_BASE = ("https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON"
-                 "&fallback_opts=TYPE,SIZE,URL&size=64&url=http://")
+# This used to be a three-tier chain: logo.dev when LOGODEV_KEY was set, else gstatic's
+# faviconV2, else a coloured letter. LOGODEV_KEY was never set in production, so every tile in
+# the product came from the favicon service -- and it was asked with fallback_opts=TYPE,SIZE,URL,
+# which tells Google to GENERATE an icon when the domain has none. That guarantees HTTP 200, so
+# no error handler could ever fire and no fallback chain could help.
+#
+# Measured over 150 companies that had a stored domain: 46.7% usable, 22.7% a solid brand-colour
+# block with no mark in it, 14.0% a monochrome browser-chrome glyph, 14.0% under 48px upscaled
+# into a 48px tile, 2.0% a 404, 0.7% a blank 200 that painted an opaque white square OVER the
+# letter it was supposed to fall back to. 53% was not a usable brand logo.
+#
+# So scripts/build_logos.py harvests them once, judges them on their PIXELS, and commits them to
+# static/logos/. Nothing is fetched from a third party at request time, which is also why the CSP
+# above no longer allows any remote image origin: Clearbit's free logo API -- the one every
+# tutorial still recommends -- was switched off on 2025-12-08, and a page whose images come from
+# somebody else's free tier breaks on somebody else's schedule.
+_LOGO_MANIFEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "static", "logos", "index.json")
+_logo_cache = None
 
 
-@app.template_filter("logofavicon")
-def logofavicon(domain):
-    """The favicon URL for a domain. Second in the chain, and the whole chain when no key."""
-    return _FAVICON_BASE + (domain or "")
+def _logo_manifest():
+    """{'v': int, 'ar': {slug: [ext, aspect, mono]}, 'alias': {norm_name: slug}}.
 
-
-@app.template_filter("logosrc")
-def logosrc(domain, size=128):
-    """The image to try FIRST for a domain.
-
-    `retina=true` and a 128px request rather than 64: the tile renders at 42-56 CSS px on a
-    display that is usually 2x, and asking for exactly the CSS size is what made the old icons
-    look soft.
-
-    `fallback=404` is deliberate. logo.dev will happily generate its own monogram, but ours is
-    already styled to the card (the palette in _PALETTE, the company initial) and matches the
-    rest of the design; a second, differently-shaped monogram would be worse than none. A 404
-    lets the img error handler fall through to the favicon and then to our own letter tile.
+    Loaded once per worker and never reloaded, exactly like _verified_domains above: it is a
+    build artefact, and a file that changes under a running process is a source of two workers
+    disagreeing. Read by ABSOLUTE path rather than relative to the cwd, so a process started from
+    the wrong directory gets the real manifest instead of silently getting none.
     """
-    d = domain or ""
-    if not (LOGODEV_KEY and d):
-        return _FAVICON_BASE + d
-    return ("https://img.logo.dev/%s?token=%s&size=%d&format=png&retina=true&fallback=404"
-            % (d, LOGODEV_KEY, int(size)))
+    global _logo_cache
+    if _logo_cache is None:
+        try:
+            with open(_LOGO_MANIFEST_PATH, encoding="utf-8") as fh:
+                blob = json.load(fh) or {}
+            _logo_cache = {"v": blob.get("v") or 0, "ar": blob.get("ar") or {},
+                           "alias": blob.get("alias") or {}}
+        except Exception:
+            _logo_cache = {"v": 0, "ar": {}, "alias": {}}
+    return _logo_cache
 
 
-@app.template_filter("logocolor")
-def logocolor(name):
-    return _PALETTE[sum(ord(c) for c in (name or "x")) % len(_PALETTE)]
+def _logo_slug(name):
+    """The manifest key for a company, or "" .
+
+    Two lookups, because the corpus and the sponsor data spell employers differently: the direct
+    slug, then the normalised name through the manifest's alias map. That alias map is what makes
+    "Accenture LLP" find Accenture's logo, and it is the same class of fix as the corpus-spelling
+    ladder /companies already uses for its ?c= links.
+    """
+    man = _logo_manifest()
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    if slug in man["ar"]:
+        return slug
+    alias = man["alias"].get(core.norm_company(name) or "")
+    return alias if alias and alias in man["ar"] else ""
+
+
+@app.template_filter("logourl")
+def logo_url(name):
+    """The company's logo path, or "" when it has none.
+
+    ?v= is one manifest-wide integer rather than static_v()'s per-file mtime: static_v stats the
+    file on every call, and /companies renders up to 2,695 tiles. web.py's fingerprint check keys
+    on the presence of ?v=, so this still earns the long immutable Cache-Control for free.
+    """
+    slug = _logo_slug(name)
+    if not slug:
+        return ""
+    man = _logo_manifest()
+    return "/static/logos/%s.%s?v=%d" % (slug, man["ar"][slug][0], man["v"])
+
+
+@app.template_filter("logoar")
+def logo_ar(name):
+    """The logo's intrinsic aspect ratio, or 0. The card reserves width from it, so a wide
+    wordmark does not reflow the tile when it loads."""
+    slug = _logo_slug(name)
+    return (_logo_manifest()["ar"][slug][1] or 0) if slug else 0
+
+
+@app.template_filter("initials")
+def initials(name):
+    """Two letters for the monogram tile. core.initials owns the rule.
+
+    It lives in core rather than here because scripts/build_logos.py records the same value
+    in the harvest ledger and scripts/test_logos.py freezes it, and for a while this file and
+    the harvester each had their own identical copy.
+    """
+    return core.initials(name)
 
 
 @app.template_global()
@@ -2408,7 +2468,7 @@ def _research_for(display):
     """The Resume Brain research record for an employer, or {}.
 
     Exact domain first — that is how the KB is keyed. Failing that, match on the record's own
-    `name`, because logodomain() guesses a domain from the feed's spelling and the two rarely
+    `name`, because company_domain() guesses a domain from the feed's spelling and the two rarely
     agree: the corpus says "BYD America" (-> bydamerica.com) where the crawler filed "BYD" under
     byd.com. The name index is cached, since the miss path is the common one until the KB fills
     up and it would otherwise re-read the table on every company page view.
@@ -2419,13 +2479,13 @@ def _research_for(display):
     # record, so the miss path is the common one. A hit is still read live; only the ABSENCE is
     # remembered, and only for _RESEARCH_TTL, so a crawl that lands mid-window is picked up within
     # five minutes rather than never.
-    doms = tuple(d for d in (logodomain(display), _research_domain(display)) if d)
+    doms = tuple(d for d in (company_domain(display), _research_domain(display)) if d)
     miss_at = _research_miss.get(doms)
     if miss_at is not None and time.time() - miss_at < _RESEARCH_TTL:
         doms = ()                       # known-absent and still fresh: skip both round trips
     # BOTH domain guesses, because they disagree and each is the right key some of the time.
     # research._norm_name strips inc|llc|ltd|corp|co|company|the before building a domain and
-    # logodomain does not, and their hand-written domain maps are different sets. So the crawler
+    # company_domain does not, and their hand-written domain maps are different sets. So the crawler
     # files "Amazon.com Services LLC" under one spelling while this lookup asks for the other,
     # and on-demand research would appear to silently do nothing for a whole class of employers.
     for dom in doms:
@@ -2600,13 +2660,12 @@ def company():
         "visa": list(core.visa_tags(display, visa_index())),
         "agency": core.is_agency(display), "cap_exempt": core.is_cap_exempt(display),
         "strength": strength, "strength_n": scount,
-        # TAKEN FROM THE ROWS, not recomputed. logodomain() accepts the posting URL as
-        # corroboration and this call site never passed one, so for the 219 companies whose
-        # domain is fixed that way the employer page showed a DIFFERENT logo from the cards
-        # listed underneath it. The rows have already resolved it; reuse the answer.
-        "logo_domain": (rows[0].get("logo_domain") if rows else logodomain(display)),
-        "logo_color": logocolor(display),
-        "initial": display[:1].upper() if display else "?",
+        # KEYED ON THE NAME, so the indirection this used to need is gone. It read the domain
+        # back out of rows[0] because company_domain() accepts a posting URL as corroboration and
+        # this call site never passed one, which made 219 companies show a DIFFERENT logo on the
+        # employer page from the cards listed underneath it. A name cannot disagree with itself.
+        "logo": logo_url(display), "logo_ar": logo_ar(display),
+        "initials": initials(display),
     }
     analytics.emit(user, getattr(g, "sid", ""), "page_view", page="company",
                    company=display, n=len(open_rows))
@@ -5903,15 +5962,24 @@ def companies():
     # No analytics.emit here on purpose. The _ev_page_view after_request hook already reports
     # every HTML 200 with ep=<endpoint>, so an explicit page_view would be the SECOND one for
     # this route -- and inflated usage numbers are a mistake this app has already made twice.
-    # The logo chain as two templates rather than 2.1 k pre-built URLs: logosrc owns the
-    # provider, the key and the fallback order, so asking it once for a sentinel domain keeps
-    # that ownership in one place and costs nine bytes a row instead of ~120.
-    return render_template("companies.html", rows=rows,
+    # THE LOGO MANIFEST RIDES IN cometa, NOT IN THE ROW. scripts/test_companies_page.py freezes
+    # the served row at nine fields, and the logo set is rebuilt on a different cadence than the
+    # directory anyway -- so coupling them would mean a build_companies.py run against a stale
+    # logo directory silently blanking every tile. Only the entries this page can actually use
+    # are sent: ~1.9 k slugs at about 28 bytes each, which gzips to a few KB.
+    man = _logo_manifest()
+    # THE MONOGRAMS ARE COMPUTED SERVER-SIDE, index-parallel to rows, and this deletes a twin
+    # rather than creating one. The rule needs core.norm_company -- which strips Technologies,
+    # Group, Labs and the legal suffixes -- and a JavaScript copy cannot have that without
+    # duplicating the suffix list. Measured: a raw-name version disagreed on 225 of 2,695 names
+    # and collapsed every "<X> Technologies" employer onto AT. ~13 KB of two-letter strings,
+    # which gzip flattens, in exchange for one fewer thing that can drift.
+    mono = [initials(r[0]) for r in rows]
+    return render_template("companies.html", rows=rows, mono=mono,
                            sectors=blob.get("sectors", []),
                            prefix=blob.get("prefix", {}),
                            li_kw=blob.get("li_kw", {}),
-                           logo_tpl={"src": logosrc("__D__"), "fb": logofavicon("__D__")},
-                           palette=_PALETTE,
+                           logos={"v": man["v"], "ar": man["ar"], "alias": man["alias"]},
                            visa_labels=core.VISA_TAG_LABELS)
 
 

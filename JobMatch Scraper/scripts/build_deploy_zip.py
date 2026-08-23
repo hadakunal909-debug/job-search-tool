@@ -95,7 +95,7 @@ FILES = [
 # produces a bundle — the site runs fine, it just cannot score.
 OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "visa_tags.json",
                   "resume.txt",
-                  # company -> verified domain, built by scripts/build_company_domains.py. The
+                  # company -> domain, built by scripts/build_logos.py --write-domains. The
                   # app degrades to guessing a domain from the company name without it, which is
                   # what shipped before and is wrong for 22% of companies. Optional in the same
                   # sense as the rest: absent file, old behaviour, no crash.

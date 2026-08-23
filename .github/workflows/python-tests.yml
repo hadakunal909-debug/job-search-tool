@@ -26,8 +26,13 @@ on:
   push:
     paths:
       - 'JobMatch Scraper/**.py'
-      - 'JobMatch Scraper/static/app.js'
-      - 'JobMatch Scraper/static/style.css'
+      # static/** REPLACES the two named files, 2026-08-22. The old filter listed app.js and
+      # style.css only, so static/companies.js -- which draws the whole /companies grid -- has
+      # been outside CI since it was written, and static/logos/** plus companies.json would let
+      # a whole logo harvest land without running a single test. That is precisely how 'no test
+      # asserts on logo markup' was possible.
+      - 'JobMatch Scraper/static/**'
+      - 'JobMatch Scraper/companies.json'
       - 'JobMatch Scraper/templates/**'
       # docs/ triggered NO workflow at all before 2026-08-20 — this file filtered on .py and
       # static/, and web-build.yml on web/ and static/dist/. A docs gate outside the path
@@ -38,8 +43,8 @@ on:
   pull_request:
     paths:
       - 'JobMatch Scraper/**.py'
-      - 'JobMatch Scraper/static/app.js'
-      - 'JobMatch Scraper/static/style.css'
+      - 'JobMatch Scraper/static/**'
+      - 'JobMatch Scraper/companies.json'
       - 'JobMatch Scraper/templates/**'
       - 'JobMatch Scraper/docs/**'
 
@@ -76,7 +81,18 @@ jobs:
 
       - name: install
         working-directory: 'JobMatch Scraper'
-        run: pip install -r requirements-cpanel.txt
+        run: |
+          pip install -r requirements-cpanel.txt
+          # PILLOW IS A BUILD DEPENDENCY, NOT A DEPLOYMENT ONE. Only scripts/build_logos.py
+          # rasterises anything; the shipped app never imports PIL, so putting it in
+          # requirements-cpanel.txt would grow the cPanel bundle an image library it never uses.
+          #
+          # It has to be here all the same, because test_logos asserts Pillow is present rather
+          # than skipping when it is missing -- deliberately, so the pixel-judging gates cannot
+          # quietly stop being tested. Without this line that assertion is the only thing that
+          # fails in the whole suite, which is exactly what happened once static/** started
+          # triggering this workflow.
+          pip install pillow
 
       # test_jd_persist is here for the same reason the others are: it encodes production
       # incidents. It guards the two stores of "we have this description" staying reconciled, the

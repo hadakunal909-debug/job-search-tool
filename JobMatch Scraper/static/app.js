@@ -349,47 +349,14 @@
     }
   }
 
-  // Company-logo fallback: if the favicon fails to load, hide the broken <img> so the
-  // colored letter-avatar behind it shows. In JS (not inline onerror=) so the CSP can
-  // forbid inline handlers.
-  // Company logos, fetched from gstatic DIRECTLY rather than through
-  // www.google.com/s2/favicons, which 301-redirects here anyway.
-  //
-  // Measured 2026-08-09 against the live service. The redirect costs a second TLS connection
-  // and a second round trip (0.140s vs 0.074s), but the real problem is caching: the 301
-  // carries max-age=1800, so every logo was re-requested every 30 minutes, while the image it
-  // points at carries max-age=604800. A feed page fires one of these per card, which is why a
-  // capture showed a dozen 301s at ~500ms each returning 0.0 kB.
-  //
-  // The shard number in the Location header varies per domain (t1, t2, t3), but any shard
-  // serves any domain: t0 and t1 both returned the identical 658-byte PNG for amazon.com. One
-  // host is also better than four over HTTP/2, which multiplexes on a single connection.
-  //
-  // Mirrored in templates/company.html for the employer page. Keep the two in step.
-  // THE URL IS RESOLVED SERVER-SIDE NOW. It used to be built here from j.logo_domain, with the
-  // identical literal hand-copied into templates/company.html and templates/job.html — three
-  // copies to keep in step, and swapping the provider meant editing all three plus the CSP.
-  // web.py::logosrc/logofavicon own it; the row carries j.logo_src and j.logo_fallback, and
-  // wireLogoFallback below walks from one to the other to the letter tile.
-
-  function wireLogoFallback(img) {
-    if (!img || img.getAttribute("data-fb-wired")) return;
-    img.setAttribute("data-fb-wired", "1");
-    function fail() {
-      var fb = img.getAttribute("data-fallback");
-      if (fb && img.getAttribute("src") !== fb) { img.src = fb; return; }
-      img.style.display = "none";
-    }
-    img.addEventListener("error", fail);
-    if (img.complete && img.naturalWidth === 0) fail();
-  }
-  function wireLogos(root) {
-    // DOCUMENT, not `feed`. The company page's header tile and its employer modal are both
-    // outside the feed container, so they were never given a fallback at all — a failed logo
-    // there stayed a white square over the letter. wireLogoFallback is idempotent.
-    var imgs = (root || document).querySelectorAll(".logo-img");
-    for (var i = 0; i < imgs.length; i++) wireLogoFallback(imgs[i]);
-  }
+  // THE LOGO FALLBACK CHAIN IS GONE, 2026-08-22, and so is the essay that used to be here
+  // about which favicon shard to request and how its 301 cached. The logos are ours now:
+  // scripts/build_logos.py harvests them, judges them on their pixels and commits them to
+  // static/logos/, and web.py::logo_url resolves the one URL server-side. A card either has a
+  // logo we shipped or it renders the monogram, so there is no second URL to walk and no
+  // wiring to do after render. That also deletes the double-fetch this file used to warn
+  // about: with no LOGODEV_KEY set, src and data-fallback were the SAME string, so every
+  // failing logo was requested twice before the <img> was removed.
 
   // Company name -> a link to that employer's page. Plain text when we're already ON that page
   // (a link to here is just a dead end) or when the row has no company.
@@ -534,10 +501,11 @@
       // one bit of card furniture that read as decoration rather than as data, and the
       // paint containment that makes a long grid cheap to scroll would have clipped it.
       '<div class="cardtop">' +
-        '<div class="logo" style="background:' + H(j.logo_color) + '">' + H(j.initial) +
-          '<img class="logo-img" src="' + H(j.logo_src || "") +
-          '" data-fallback="' + H(j.logo_fallback || "") +
-          '" alt="" width="42" height="42" loading="lazy"></div>' +
+        (j.logo
+          ? '<div class="colock"><img src="' + H(j.logo) +
+            '" alt="" loading="lazy" decoding="async"></div>'
+          : '<div class="colock"><span class="comono" aria-hidden="true">' +
+            H(j.initials || "?") + '</span></div>') +
         newFlag +
         scoreCell(j) +
       '</div>' +
@@ -885,7 +853,7 @@
     var slice = matched.slice(0, limit), html = "";
     for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
     feed.innerHTML = html;
-    formatDates(); wireLogos();
+    formatDates();
     setCount(matched.length);
     if (!matched.length) renderEmpty(null);
     setShown(emptyEl, !matched.length);
@@ -1211,7 +1179,7 @@
         for (var bi = 0; bi < DATA.length; bi++) boot += cardHTML(DATA[bi]);
         feed.innerHTML = boot;
         shown = DATA.length;
-        formatDates(); wireLogos();
+        formatDates();
         setCount(TOTAL);
         setShown(emptyEl, !TOTAL);
         if (moreBtn) {
@@ -1250,7 +1218,7 @@
       for (var k = 0; k < rows.length; k++) htmlc += cardHTML(rows[k]);
       if (reset) feed.innerHTML = htmlc; else feed.insertAdjacentHTML("beforeend", htmlc);
       shown += rows.length;                               // one row = one card
-      formatDates(); wireLogos();
+      formatDates();
       var jobs = (d && d.total) || 0;
       setCount(jobs);
       if (!jobs) renderEmpty(d && d.relax);

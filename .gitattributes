@@ -20,3 +20,17 @@
 "JobMatch Scraper/docs/MAP.md" linguist-generated=true -diff
 "JobMatch Scraper/docs/map.html" linguist-generated=true -diff
 "JobMatch Scraper/docs/img/*.svg" linguist-generated=true -diff
+# Harvested brand logos. THE -text IS LOAD-BEARING, for the same reason as the docs eol=lf
+# above and it bites harder: scripts/build_logos.py --check compares every committed file
+# against the sha256 recorded in logo_harvest.json, and core.autocrlf=true would rewrite the
+# line endings of every .svg on checkout -- so all ~750 of them would fail their own gate on a
+# fresh clone and on the deploy host, while passing on the machine that harvested them.
+"JobMatch Scraper/static/logos/**" -text linguist-generated=true -diff
+
+# The harvest ledger and the Wikidata class cache: generated, large, and reviewed by their
+# summary rather than line by line.
+# eol=lf for the same reason the docs need it: the script writes "
+", so without this
+# core.autocrlf hands it back CRLF and the next run reports the whole file rewritten.
+"JobMatch Scraper/logo_harvest.json" text eol=lf linguist-generated=true -diff
+"JobMatch Scraper/wikidata_classes.json" text eol=lf linguist-generated=true -diff

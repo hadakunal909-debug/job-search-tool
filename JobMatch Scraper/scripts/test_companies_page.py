@@ -112,6 +112,43 @@ check("does NOT ship #feed, so app.js cannot initialise here", 'id="feed"' not i
 check("does not load app.js", "app.js" not in body)
 check("loads companies.js", "companies.js" in body)
 
+# --- the 2026-08-22 rebuild. Each of these froze a defect that had shipped, so each names it. ---
+# The lone native checkbox was class="visack" WITHOUT the .ck that carries accent-color, so it
+# fell through to the global input rule (width:100%, 11px padding, 14px radius) and rendered as
+# an OS-blue tick. It was the only unstyled control in the product.
+check("no native checkbox on the page at all", 'type="checkbox"' not in body)
+check("the scope control is a segmented PAIR, not a lone boolean",
+      body.count('class="segb') == 2 and 'id="scope-live"' in body and 'id="scope-all"' in body)
+check("both scope buttons carry aria-pressed", body.count("aria-pressed=") == 2)
+# 14 sectors plus All plus Unsorted was 16 .tab pills, ~3,900px of pill across an ~1,828px
+# track, so it wrapped to two or three rows ABOVE the search box.
+check("no .tabs pill wall", 'id="cosectors"' not in body and 'class="tabs"' not in body)
+check("sector is one chip over one popover",
+      'id="chip-sector"' in body and 'id="pop-sector"' in body)
+check("the chip declares its popover for assistive tech",
+      'aria-haspopup="true"' in body and 'aria-expanded="false"' in body
+      and 'aria-controls="pop-sector"' in body)
+# .fpop is position:absolute and .feedwrap sets no position, so without a positioned ancestor
+# every popover resolves against <body>. It fails SILENTLY at scroll offset 0.
+check("the popovers have a positioned ancestor", 'class="cotools"' in body)
+check("the search box is the feed's own .fsearch shape", 'class="fsearch"' in body)
+# Shared rules this page must stop borrowing: editing any of them FOR /companies would restyle
+# /company, /admin/usage or the feed.
+check("does not use .cosearch (shared with /company and /admin/usage)", "cosearch" not in body)
+check("does not use .countrow (shared with /company and the feed)", "countrow" not in body)
+check("does not use .visack (shared with the feed's sponsorship popover)", "visack" not in body)
+# COPY RULES. Both of these were violated in shipped copy: the sort select rendered "A-Z" with
+# an EN DASH and the Unsorted note carried an EM DASH.
+# Scoped to THIS page's own visible markup. The whole body would also catch HTML comments from
+# base.html and, once the grid is client-rendered, employer names -- neither of which is copy.
+_copy = re.sub(r"<!--.*?-->", "", body[body.find('class="feedwrap"'):body.find('id="codata"')],
+               flags=re.S)
+check("no en dash or em dash in this page's copy",
+      "–" not in _copy and "—" not in _copy,
+      repr(_copy[max(0, _copy.find("–")) - 40:][:60]) if "–" in _copy else "")
+check("sort options are Title Case with the feed's Sort: prefix",
+      body.count(">Sort: ") == 3)
+
 r302 = client().get("/careers")
 check("/careers is a 301 to /companies",
       r302.status_code == 301 and r302.headers.get("Location", "").endswith("/companies"),
@@ -138,6 +175,24 @@ meta = json.loads(re.search(r'<script id="cometa" type="application/json">(.*?)<
                             body, re.S).group(1))
 check("rows parse", isinstance(blob, list) and len(blob) > 0, "%d rows" % len(blob))
 check("every row has 9 fields", all(len(r) == 9 for r in blob))
+# THE ROW SHAPE IS FROZEN AT NINE. The logo harvest therefore rides in cometa as a side map;
+# a tenth field would fail the assertion above, and the logo set is rebuilt on a different
+# cadence than the directory anyway.
+check("logos ride in cometa, not as a 10th row field", isinstance(meta.get("logos"), dict))
+check("the logo manifest carries a version and an ar map",
+      "v" in (meta.get("logos") or {}) and isinstance((meta.get("logos") or {}).get("ar"), dict))
+# Retired 2026-08-22: an 8-colour hash palette was the largest chromatic spend in the app and
+# it contradicted the rule that colour means sponsorship and everything else is ink.
+check("the hash palette no longer ships", "palette" not in meta)
+# No remote image origin may reach this page. gstatic and logo.dev were both allowed until the
+# logos became ours; a hotlink reintroduced later must fail loudly rather than silently work.
+# The two origins the logo chain used, by name. Not a bare "gstatic": fonts.gstatic.com is a
+# legitimate and unrelated font origin that base.html preconnects to.
+check("no remote logo origin in the body",
+      "faviconV2" not in body and "t0.gstatic" not in body and "logo.dev" not in body)
+check("the CSP forbids remote images",
+      "img-src 'self' data:;" in (r.headers.get("Content-Security-Policy") or ""),
+      (r.headers.get("Content-Security-Policy") or "")[:70])
 check("sectors list is non-empty", len(meta.get("sectors") or []) > 0,
       "%d sectors" % len(meta.get("sectors") or []))
 check("no duplicate or empty sector",
@@ -217,6 +272,17 @@ check("a ZERO-role employer still renders its page", rc.status_code == 200, str(
 cbody = rc.data.decode("utf-8", "replace")
 check("and shows the LinkedIn link", "linkedin.com/jobs/search" in cbody)
 check("and links back to the directory", 'href="/companies"' in cbody)
+# THE SERVER-RENDERED LOCKUP. scripts/test_logos.py freezes the JavaScript one, but /company and
+# /job build theirs in Jinja and nothing asserted on those at all. Two sites on this page, the
+# header and the employer modal, and they drifted apart once before -- the modal shipped a letter
+# tile while the header two inches above it showed the real logo.
+check("the employer page renders the lockup twice, header and modal",
+      cbody.count('class="colock"') == 2, str(cbody.count('class="colock"')))
+check("each lockup holds an image OR a monogram, never both layered",
+      cbody.count('class="colock"')
+      == cbody.count('<div class="colock"><img') + cbody.count('<div class="colock"><span'))
+check("no remote origin and no fallback URL in the lockup",
+      "data-fallback" not in cbody and "faviconV2" not in cbody and "logo.dev" not in cbody)
 
 print()
 print("=" * 92)
