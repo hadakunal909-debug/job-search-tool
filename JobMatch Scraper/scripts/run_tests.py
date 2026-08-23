@@ -100,6 +100,7 @@ SUITES = (
     Suite("test_workday_date",      "test_workday_date.py",              "root",   "offline"),
 
     # ---- scripts ----------------------------------------------------------------------------
+    Suite("test_add_board_api",     "scripts/test_add_board_api.py",     "scripts", "offline"),
     Suite("test_companies_page",    "scripts/test_companies_page.py",    "scripts", "offline"),
     Suite("test_contrast",          "scripts/test_contrast.py",          "scripts", "offline"),
     Suite("test_doc_contrast",      "scripts/test_doc_contrast.py",      "scripts", "offline"),
@@ -173,6 +174,9 @@ EXTRA_TOUCHES = {
     "test_logos":              ("static/companies.js", "static/logos/", "companies.json",
                                 "scripts/build_logos.py", "scripts/feed_parity.py"),
     "test_ext_contract":       ("extension/",),
+    # The route and popup.js are two halves of one contract: the popup reads `error` and
+    # `need_name`, and the route only bothers to set them because the popup shows them.
+    "test_add_board_api":      ("extension/",),
     "test_resume_score":       ("resume_vocab.json", "resume_keywords.json"),
     "test_resume_keywords":    ("resume_keywords.json",),
 }

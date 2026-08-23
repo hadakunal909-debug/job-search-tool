@@ -165,6 +165,15 @@ INDEX = (
         "digitas is deliberately NOT emitted by detect_board: it reads a 14 MB sitemap and must "
         "not be pointable at an arbitrary host.",
         "python scripts/verify_parsers.py"),
+    Row("Y", 'Adding a board from the EXTENSION says "Couldn\'t add" and no reason',
+        "{web.py::ext_detect_board} -- the extension's half of /add-board",
+        "the two must agree, and for months they did not: this route refused on a falsy "
+        "probe_board count and returned no `error` at all, so popup.js printed the same generic "
+        "hint for every failure it has. It also re-ran the whole detect chain on the ADD click, "
+        "half of which is a live fetch, and it stored {scraper/__init__.py::detect_board}'s "
+        "name suggestion verbatim -- see {scraper/__init__.py::name_is_sluglike} and "
+        "{scraper/__init__.py::board_display_name}, the guards /add-board already used.",
+        "python scripts/test_add_board_api.py"),
 
     # ---- scoring ----------------------------------------------------------------------------
     Row("Y", "Match percentages look wrong across the board",

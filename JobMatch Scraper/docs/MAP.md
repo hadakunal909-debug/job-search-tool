@@ -8,7 +8,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## Contents
 
-- [`web.py`](#webpy) — 7865 lines, 347 symbols — The Flask app: every route, every request hook, the feed.
+- [`web.py`](#webpy) — 7931 lines, 347 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 3101 lines, 200 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2862 lines, 177 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 7690 lines, 300 symbols — The sweep and the intake filter, plus every ATS adapter.
@@ -63,7 +63,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The Flask app: every route, every request hook, the feed.*
 
-7865 lines · 347 top-level symbols · 26 sections
+7931 lines · 347 top-level symbols · 26 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -92,7 +92,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [6284–6339](../web.py#L6284) | CSRF on cookie-authenticated writes | 2 |
 | [6340–6425](../web.py#L6340) | extension API rate limiting | 6 |
 | [6426–6532](../web.py#L6426) | feed API rate limiting | 5 |
-| [6533–7865](../web.py#L6533) | ONBOARDING | 42 |
+| [6533–7931](../web.py#L6533) | ONBOARDING | 42 |
 
 ## `core.py`
 
@@ -625,9 +625,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `/api/ext/debug` | POST,OPTIONS | [`web.py:7582`](../web.py#L7582) `ext_debug` | ONBOARDING |
 | `/api/ext/bulk_jobs` | POST,OPTIONS | [`web.py:7606`](../web.py#L7606) `ext_bulk_jobs` | ONBOARDING |
 | `/api/ext/detect_board` | POST,OPTIONS | [`web.py:7710`](../web.py#L7710) `ext_detect_board` | ONBOARDING |
-| `/api/ext/jds` | POST,OPTIONS | [`web.py:7761`](../web.py#L7761) `ext_jds` | ONBOARDING |
-| `/__react` | GET | [`web.py:7833`](../web.py#L7833) `react_harness` | ONBOARDING |
-| `/healthz` | GET | [`web.py:7849`](../web.py#L7849) `healthz` | ONBOARDING |
+| `/api/ext/jds` | POST,OPTIONS | [`web.py:7827`](../web.py#L7827) `ext_jds` | ONBOARDING |
+| `/__react` | GET | [`web.py:7899`](../web.py#L7899) `react_harness` | ONBOARDING |
+| `/healthz` | GET | [`web.py:7915`](../web.py#L7915) `healthz` | ONBOARDING |
 
 ---
 
@@ -981,9 +981,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `ext_debug` | def | [7582](../web.py#L7582) | `/api/ext/debug` Extension -&gt; capture a failing form's STRUCTURE (labels/types/options only — not the user's |
 | `ext_bulk_jobs` | def | [7606](../web.py#L7606) | `/api/ext/bulk_jobs` Extension -&gt; bulk-add postings READ FROM A PAGE in the user's own browser into the |
 | `ext_detect_board` | def | [7710](../web.py#L7710) | `/api/ext/detect_board` Extension -&gt; 'can this site be scraped DAILY?' Runs the same detection chain as |
-| `ext_jds` | def | [7761](../web.py#L7761) | `/api/ext/jds` Extension -&gt; attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled |
-| `react_harness` | def | [7833](../web.py#L7833) | `/__react` Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry. |
-| `healthz` | def | [7849](../web.py#L7849) | `/healthz` Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few |
+| `ext_jds` | def | [7827](../web.py#L7827) | `/api/ext/jds` Extension -&gt; attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled |
+| `react_harness` | def | [7899](../web.py#L7899) | `/__react` Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry. |
+| `healthz` | def | [7915](../web.py#L7915) | `/healthz` Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few |
 
 ## `core.py` — symbols
 

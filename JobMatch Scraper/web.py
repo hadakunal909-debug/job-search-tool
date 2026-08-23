@@ -7711,8 +7711,31 @@ def ext_detect_board():
     """Extension -> 'can this site be scraped DAILY?' Runs the same detection chain as
     "Add board" over the page URL plus candidates collected from the LIVE DOM (iframe
     srcs + ATS-host links) — which catches JS-injected embeds that a server-side fetch
-    of the page would never see. Body: {token, url, candidates?, add?}. With add=true
-    the found board is saved to the boards table and joins the next scrape."""
+    of the page would never see. With add=true the found board is saved to the boards
+    table and joins the next scrape.
+
+    Body: {token, url, candidates?, add?, board_url?, ats?, name?}.
+    Always answers with `error` set when it did not add, because it used not to.
+
+    This route is the extension's half of /add-board and it did NOT get the hardening that
+    page received on 2026-08-22, which cost the whole feature. Three rules it now shares:
+
+      * A FALSY PROBE COUNT IS NOT A REASON TO SAY NOTHING. The guard was `if add and n`, so
+        n=None (unreadable) and n=0 (reachable but empty) both skipped db.add_board and
+        returned {"ok": true, "added": false} with no `error` key — the popup fell through to
+        its generic "try the ➕ Add board page" for every failure it has. Reproduced against
+        smurfitwestrockta.wd1: found=true, count=None, add silently dropped. Now None is
+        refused with the reason and 0 is ADDED, exactly as /add-board treats them.
+      * THE ADD CLICK MUST NOT RE-DETECT. Half the chain below is a live fetch, so the second
+        click could miss a board the first click had found and report "couldn't add" for a
+        board that is right there. It now pins board_url + ats from the check click and
+        re-validates them through the URL rules only, which are offline and deterministic.
+      * NEVER STORE detect_board's THIRD VALUE UNCHALLENGED. It is _name_from on the URL slug,
+        which is how the boards table got "Wfscorp" for World Fuel Services and "Hdpc" for
+        Goldman Sachs — names that match nothing in the filing data, so the postings carried
+        no sponsorship signal at all. The Workday tenant `smurfitwestrockta` title-cases into
+        "Smurfitwestrockta" and was about to be written verbatim.
+    """
     import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
@@ -7722,12 +7745,26 @@ def ext_detect_board():
     if not user:
         return _cors(jsonify({"ok": False, "error": "Invalid token"})), 401
     page = (data.get("url") or "").strip()
+    want_add = bool(data.get("add"))
+    typed = (data.get("name") or "").strip()[:200]
+
     det = None
-    if page:
+    pinned, pinned_ats = (data.get("board_url") or "").strip(), (data.get("ats") or "").strip()
+    if want_add and pinned and pinned_ats in scraper.SCRAPERS:
+        # detect_board is pure URL rules — no network — so this re-validates the pinned URL
+        # instead of taking the client's word for it, and still cannot flake. It returns None
+        # for the probe-detected platforms (jibe, phenom, successfactors, paylocity), whose
+        # normalized URL the check click already computed; keep those, but only once
+        # is_http_url has cleared them. Everything reaching boards.url before this branch
+        # existed came out of a detect_* function and so was a normalized https URL; a pinned
+        # value is the first one a client supplies, and /companies renders it as an href.
+        det = scraper.detect_board(pinned) or (
+            (pinned, pinned_ats, "") if scraper.is_http_url(pinned) else None)
+    if det is None and page:
         det = (scraper.detect_board(page) or scraper.detect_paylocity(page)
                or scraper.detect_jibe(page)
                or scraper.detect_phenom(page) or scraper.detect_successfactors(page)
-               or scraper.detect_linked_ats(page))
+               or scraper.detect_linked_ats(page) or scraper.detect_jsonld(page))
     if not det:
         for c in (data.get("candidates") or [])[:10]:
             if not isinstance(c, str):
@@ -7738,23 +7775,52 @@ def ext_detect_board():
             if det:
                 break
     if not det:
-        return _cors(jsonify({"ok": True, "found": False}))
-    burl, ats, name = det
+        return _cors(jsonify({"ok": True, "found": False,
+                              "error": "No scrapeable board behind this site."}))
+    burl, ats, guess = det
     if burl in {u for u, _, _ in scraper.SOURCES}:
-        return _cors(jsonify({"ok": True, "found": True, "ats": ats, "name": name,
-                              "builtin": True}))
+        return _cors(jsonify({"ok": True, "found": True, "ats": ats, "name": guess,
+                              "builtin": True,
+                              "error": "%s is already scraped daily." % (guess or ats)}))
     try:
         n = scraper.probe_board(burl, ats)
     except Exception:
         n = None
-    added = False
-    if data.get("add") and n:
-        try:
-            added = db.add_board(burl, ats, (data.get("name") or name), added_by=user)[0]
-        except Exception:
-            added = False
+
+    # Resolve the employer on whichever click got here, so the button the user reads names the
+    # company rather than the tenant code, and a typed name is only ever asked for once.
+    #
+    # sluglike() gates the LOOKUP, never the answer: it is true for "Samsara" as well, where the
+    # slug really IS the company, so re-testing its own result would demand a typed name for a
+    # perfectly good board. Only a board that publishes nothing needs the user.
+    #
+    # `n is not None` first because board_display_name costs up to two HTTP requests and an
+    # unreadable board is refused below regardless of what it calls itself.
+    name, need_name = typed or guess, False
+    if n is not None and not typed and scraper.name_is_sluglike(name, burl):
+        resolved = scraper.board_display_name(burl, ats, timeout=8)
+        if resolved:
+            name = resolved
+        else:
+            need_name = True
+
+    added, err = False, ""
+    if want_add:
+        if n is None:
+            err = ("Detected a %s board but couldn't read a single posting from it, so it "
+                   "would join the scrape and return nothing. Check the board URL." % ats)
+        elif need_name:
+            err = ("That's a readable %s board, but its URL only carries a tenant code and "
+                   "the board won't say which employer it is. Type the company name." % ats)
+        else:
+            try:
+                ok, msg = db.add_board(burl, ats, name, added_by=user)
+                added, err = ok, ("" if ok else msg)
+            except Exception as e:
+                err = str(e)[:200]
     return _cors(jsonify({"ok": True, "found": True, "board_url": burl, "ats": ats,
-                          "name": name, "count": n, "added": added}))
+                          "name": name, "count": n, "added": added,
+                          "need_name": need_name, "error": err}))
 
 
 @app.route("/api/ext/jds", methods=["POST", "OPTIONS"])
