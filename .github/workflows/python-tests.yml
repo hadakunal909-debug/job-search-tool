@@ -81,7 +81,18 @@ jobs:
 
       - name: install
         working-directory: 'JobMatch Scraper'
-        run: pip install -r requirements-cpanel.txt
+        run: |
+          pip install -r requirements-cpanel.txt
+          # PILLOW IS A BUILD DEPENDENCY, NOT A DEPLOYMENT ONE. Only scripts/build_logos.py
+          # rasterises anything; the shipped app never imports PIL, so putting it in
+          # requirements-cpanel.txt would grow the cPanel bundle an image library it never uses.
+          #
+          # It has to be here all the same, because test_logos asserts Pillow is present rather
+          # than skipping when it is missing -- deliberately, so the pixel-judging gates cannot
+          # quietly stop being tested. Without this line that assertion is the only thing that
+          # fails in the whole suite, which is exactly what happened once static/** started
+          # triggering this workflow.
+          pip install pillow
 
       # test_jd_persist is here for the same reason the others are: it encodes production
       # incidents. It guards the two stores of "we have this description" staying reconciled, the
