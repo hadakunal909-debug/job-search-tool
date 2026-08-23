@@ -26,8 +26,13 @@ on:
   push:
     paths:
       - 'JobMatch Scraper/**.py'
-      - 'JobMatch Scraper/static/app.js'
-      - 'JobMatch Scraper/static/style.css'
+      # static/** REPLACES the two named files, 2026-08-22. The old filter listed app.js and
+      # style.css only, so static/companies.js -- which draws the whole /companies grid -- has
+      # been outside CI since it was written, and static/logos/** plus companies.json would let
+      # a whole logo harvest land without running a single test. That is precisely how 'no test
+      # asserts on logo markup' was possible.
+      - 'JobMatch Scraper/static/**'
+      - 'JobMatch Scraper/companies.json'
       - 'JobMatch Scraper/templates/**'
       # docs/ triggered NO workflow at all before 2026-08-20 — this file filtered on .py and
       # static/, and web-build.yml on web/ and static/dist/. A docs gate outside the path
@@ -38,8 +43,8 @@ on:
   pull_request:
     paths:
       - 'JobMatch Scraper/**.py'
-      - 'JobMatch Scraper/static/app.js'
-      - 'JobMatch Scraper/static/style.css'
+      - 'JobMatch Scraper/static/**'
+      - 'JobMatch Scraper/companies.json'
       - 'JobMatch Scraper/templates/**'
       - 'JobMatch Scraper/docs/**'
 
