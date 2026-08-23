@@ -90,6 +90,12 @@
       </div>
       <button class="ghost" id="boardcheck" style="margin-top:8px">🔍 Can this site be auto-scraped daily?</button>
       <div class="msg" id="boardmsg"></div>
+      <!-- Only shown when the board publishes no employer name (Workday and UltiPro render
+           their titles client-side, so their tenant code is all the URL carries). Without
+           this the popup could only report the dead end, never get past it. -->
+      <div id="boardnamewrap" style="display:none">
+        <div class="lbl">Company name</div><input id="boardname" placeholder="e.g. Smurfit Westrock">
+      </div>
       <div class="lbl" id="autostat" style="margin-top:8px">🤖 Tesla auto-import: not run yet</div>
       <button class="ghost" id="teslanow">Run Tesla import now</button>
       <div class="msg" id="teslamsg"></div>

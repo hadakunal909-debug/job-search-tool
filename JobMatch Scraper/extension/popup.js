@@ -559,23 +559,43 @@ async function refreshAutoStat() {
 // "Can this site be auto-scraped?" — first click checks (page URL + live-DOM ATS
 // candidates -> server detection chain); if a board is found, second click ADDS it
 // to the daily scraper. Strictly better than one-off imports when it works.
+//
+// The add click PINS what the check click found (board_url + ats + the resolved employer)
+// instead of resending the page URL. Half the server's detection chain is a live fetch, so
+// re-deriving the board on the second click could miss one the first click had already
+// found — and every failure it has, including that one, printed the same "try the ➕ Add
+// board page". The server now names the reason; this reports the reason it names.
 let boardFound = null;
 $("boardcheck").onclick = async () => {
   const tab = await activeTab();
   $("boardmsg").style.color = "#0b7a52";
   if (boardFound) {                                // second click = add it
+    const typed = $("boardname").value.trim();
+    if (boardFound.needName && !typed) {
+      $("boardmsg").style.color = "#c0392b";
+      $("boardmsg").textContent = "Type the company name first — this board doesn't publish one.";
+      $("boardname").focus();
+      return;
+    }
     $("boardmsg").textContent = "Adding to the daily scraper…";
     try {
       const r = await fetch(cfg.apibase + "/api/ext/detect_board", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: cfg.token, url: boardFound.pageUrl,
-                               candidates: boardFound.candidates, add: true }),
+                               candidates: boardFound.candidates, add: true,
+                               board_url: boardFound.boardUrl, ats: boardFound.ats,
+                               name: typed || boardFound.name }),
       });
       const j = await r.json();
       if (j.ok && j.added) {
         $("boardmsg").textContent = "✓ Added " + (j.name || "board") + ". It joins the next daily scrape, with full descriptions.";
         $("boardcheck").style.display = "none";
-      } else { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Couldn't add: " + (j.error || "try the ➕ Add board page."); }
+        $("boardnamewrap").style.display = "none";
+      } else {
+        $("boardmsg").style.color = "#c0392b";
+        $("boardmsg").textContent = "Couldn't add: " + (j.error || "try the ➕ Add board page.");
+        if (j.need_name) { boardFound.needName = true; $("boardnamewrap").style.display = ""; $("boardname").focus(); }
+      }
     } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error."; }
     return;
   }
@@ -594,9 +614,26 @@ $("boardcheck").onclick = async () => {
     if (!j.ok) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = j.error || "Check failed."; return; }
     if (!j.found) { $("boardmsg").textContent = "No scrapeable board behind this site. Use the import button above instead."; return; }
     if (j.builtin) { $("boardmsg").textContent = "✓ Already scraped daily (" + (j.name || j.ats) + ")."; return; }
-    boardFound = { pageUrl: tab.url, candidates: candidates };
-    $("boardmsg").textContent = "✓ Found: " + (j.name || "?") + ", " + j.ats + " board, ~" + (j.count == null ? "?" : j.count) + " postings. Click again to add it to the daily scraper.";
-    $("boardcheck").textContent = "➕ Add " + (j.name || "this board") + " to the daily scraper";
+    // count === null means the probe could not read the board, and the server refuses to add
+    // one it cannot read. Say that HERE rather than inviting a click that can never succeed.
+    if (j.count == null) {
+      $("boardmsg").style.color = "#c0392b";
+      $("boardmsg").textContent = "Found a " + j.ats + " board but couldn't read any postings from it, so it isn't scrapeable. Use the import button above instead.";
+      return;
+    }
+    boardFound = { pageUrl: tab.url, candidates: candidates, boardUrl: j.board_url,
+                   ats: j.ats, name: j.name, needName: !!j.need_name };
+    if (j.need_name) {
+      // Don't offer the tenant code as the employer — j.name is the URL slug in title case
+      // here, which is how "Hdpc" ended up on 131 Goldman Sachs postings.
+      $("boardnamewrap").style.display = "";
+      $("boardname").value = "";
+      $("boardmsg").textContent = "✓ Found a " + j.ats + " board, ~" + j.count + " postings — but it doesn't say which employer. Name it, then click to add.";
+      $("boardcheck").textContent = "➕ Add this board to the daily scraper";
+    } else {
+      $("boardmsg").textContent = "✓ Found: " + (j.name || "?") + ", " + j.ats + " board, ~" + j.count + " postings. Click again to add it to the daily scraper.";
+      $("boardcheck").textContent = "➕ Add " + (j.name || "this board") + " to the daily scraper";
+    }
   } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error. Check the App URL."; }
 };
 
