@@ -76,6 +76,14 @@ TEXT_PAIRS = [
     # The tooltip is an INVERTED bubble: it paints --text-primary as its background and
     # --bg-surface as its text, so the pair has to be checked in that order or the one
     # surface in the app that reverses the ramp goes unchecked.
+    # THE LOGO PLATE'S MONOGRAM. Roughly a third of /companies tiles have no harvestable brand
+    # logo, so two ink letters on a neutral plate is a first-class state and not a fallback.
+    # Both sides are mode-stable, declared in :root and deliberately NOT redeclared in dark,
+    # because a harvested logo is drawn for paper and most are solid black, so the surface is a
+    # property of the ARTWORK rather than of the theme. That is also why the ink cannot resolve
+    # to --text-primary, which on dark is near-white and would vanish on a near-white plate.
+    # 14px, so it is held to the text minimum.
+    ("--logo-plate-ink", "--logo-plate"),
     ("--bg-surface", "--text-primary"),
 ]
 
@@ -94,6 +102,15 @@ EXEMPT = {
     # and at 3:1 a page of them reads as a wireframe. It is held at 2.0:1 against the canvas by
     # its comment in style.css, which is a deliberate value rather than whatever grey was handy.
     "--border-card": "boundary of a panel/tile, not a control you can operate",
+    "--logo-plate": "the surface an IMAGE sits on, not text and not a control you can "
+                    "operate, so the same reasoning as --border-card. It stays lighter than "
+                    "the card in dark mode because most brand marks are drawn in dark ink for "
+                    "white paper and would otherwise vanish -- but it is no longer a near-white "
+                    "#f1f3f6 block, which read as a sticker stuck onto the card rather than "
+                    "part of it. Hugging the artwork was not enough on its own; the plate is "
+                    "dimmed to the composite it would have had at 82% alpha, and kept opaque "
+                    "so the ink pair below stays resolvable here.",
+    "--logo-plate-edge": "inset rim on the logo plate, 1.30:1 against it in both themes",
     "--match-none": "empty-track fill, never used as text",
     "--match-track": "unfilled arc, never used as text",
 }

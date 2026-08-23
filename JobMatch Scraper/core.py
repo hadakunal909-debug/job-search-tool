@@ -918,6 +918,36 @@ def sponsor_history(company, years_index):
 _norm_company_cache = {}
 
 
+# Tokens that carry no identity in a monogram. Dropped ONLY when longer than one character:
+# norm_company turns "U.S. Bank" into "u s bank", so a single letter is an acronym part and has
+# to survive or that tile reads UB. "Amazon.com Services LLC" normalises to "amazon com
+# services", which is why "com" has to go or that tile reads AC.
+_MONO_SKIP = {"com", "net", "org", "the", "and", "of", "for", "www"}
+
+
+def initials(name):
+    """Two letters for a company's monogram tile, e.g. "AS" for "Amazon.com Services LLC".
+
+    LIVES HERE BECAUSE THREE CALLERS NEED THE SAME ANSWER: web.py renders it, 
+    scripts/build_logos.py records it in the harvest ledger, and scripts/test_logos.py freezes
+    it. Two of those had identical copies of this function for a while, which is the same twin
+    problem as the filter triplet with a smaller blast radius.
+
+    Built on norm_company so the legal suffixes and the noise words go first. Measured against
+    the corpus: "U.S. Bank" is US, "Ernst & Young" is EY, "Agilent Technologies" is AG (not AT,
+    which would collide with every other "<X> Technologies"), "10x Genomics" is 10.
+    """
+    key = norm_company(name) or (name or "")
+    words = [w for w in re.split(r"[^0-9A-Za-z]+", key) if w
+             and not (len(w) > 1 and w in _MONO_SKIP)]
+    if not words:
+        return "?"
+    if not words[0][0].isalpha():
+        return words[0][:2].upper()
+    if len(words) == 1:
+        return words[0][:2].upper()
+    return (words[0][0] + words[1][0]).upper()
+
 def norm_company(company):
     """scraper._norm_name(company), memoized.
 

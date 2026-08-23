@@ -306,6 +306,40 @@
      :root on load and on resize; this is the no-JS fallback. Layout constant, not a theme token,
      so it is deliberately NOT redeclared in [data-theme="dark"]. */
   --topbar-h:65px;
+  /* THE LOGO PLATE. Mode-stable, like --topbar-h above and for the same kind of
+     reason: this is a property of the ASSETS, not of the interface. A harvested brand
+     logo is drawn for paper -- most are solid black on transparent, and
+     "Apple logo black.svg" is literally black -- so the surface it sits on is a
+     constant of the artwork. Declared here and deliberately NOT redeclared in
+     [data-theme="dark"]. There is no filter:invert in this stylesheet and this is not
+     the place to introduce one: inverting wrecks every logo that already has colour.
+
+     Built from layer 1 rather than a literal so the mode-stability is STRUCTURAL.
+     Layer 1 is never redeclared in dark, which is exactly the property this needs.
+
+     THE DARK-MODE EDGE. On #161822 the plate is a 15.9:1 step, i.e. the brightest
+     object on the tile, and that is correct -- it is paper. Two things keep it from
+     glaring, and neither is dimming it, because any plate light enough to carry solid
+     black artwork is a large step from that canvas. First the plate HUGS its artwork:
+     36x36 for a monogram is ~2% of the card, a mark rather than a light leak, where a
+     full-bleed bar would be. Second the rim is INSET and DARKER than the plate --
+     1.30:1 against the plate, 12.0:1 against the card -- so the boundary is a graded
+     step instead of a hard bright-on-dark cut, which is what actually rings.
+
+     -ink is the monogram's two letters. It CANNOT resolve to --text-primary, because the plate
+     does not invert, and on dark --text-primary is #ebedf3, which would be near-white
+     letters on a near-white plate. 9.20:1 in BOTH themes because both sides are
+     mode-stable. NB: no comment in :root may write a token name immediately followed by
+     a colon -- test_contrast.py::tokens regexes this whole body, so it reads that as a
+     DECLARATION and silently overwrites the real one with prose. */
+  /* THE PLATE HAS TO SIT IN THE CARD, NOT ON IT. --gray-100 against --bg-surface with a
+     --gray-300 ring drew a visible grey rectangle around every mark, which reads as a sticker
+     stuck to the card rather than as part of it. The plate is now one step off the card and the
+     ring is a hairline at 6% ink -- enough to hold a white-cornered logo, not enough to outline
+     the tile. Dark mode overrides both; see the note there. */
+  --logo-plate:#f6f7f9;
+  --logo-plate-edge:rgba(17,19,28,.06);
+  --logo-plate-ink:var(--gray-700);
 }
 /* Dark overrides layer 2 and layer 3 ONLY, never layer 1. The old block redefined what
    were effectively primitives, which is how --brand-d came to mean "darker" in light and
@@ -318,6 +352,21 @@
    #0f1115 canvas, which is why nothing read as elevated in dark mode. */
 [data-theme="dark"]{
   color-scheme:dark;
+  /* THE PLATE STAYS LIGHT HERE ON PURPOSE and that is not a bug: most brand marks are drawn in
+     dark ink for white paper, so on a #161822 card they would disappear. But --gray-100 is
+     #f1f3f6, and a solid near-white rectangle on a dark card is a glaring sticker -- which is
+     exactly the complaint. So it becomes TRANSLUCENT: the card shows through, the plate reads
+     as a soft lift rather than a cut-out, and a dark logo still has something to stand on.
+
+     OPAQUE, not rgba(), and that is deliberate: scripts/test_contrast.py can only resolve
+     literal colours, and an alpha value made the --logo-plate-ink pair UNRESOLVED -- the
+     monogram's dark ink would have gone unchecked in the theme where it is most at risk. This
+     is the exact composite of rgba(233,237,244,.82) over --bg-surface, so it looks identical
+     on a card and stays measurable. */
+  --logo-plate:#c3c7ce;
+  /* DARKER THAN THE PLATE, same as in light. A white rim on a light plate is invisible and
+     does nothing for a logo with white corners. */
+  --logo-plate-edge:rgba(17,19,28,.12);
   --bg-canvas:#0c0e14; --bg-sunken:#10121a; --bg-surface:#161822; --bg-raised:#1e212e;
   --bg-hover:#232738; --bg-active:#2c3045;
   --surface2:#1c1f2b;
@@ -619,7 +668,6 @@ textarea{resize:vertical}
 .backlink{display:inline-flex;align-items:center;gap:var(--space-100);color:var(--muted);font-size:var(--text-xs);text-decoration:none;margin:2px 0 12px;font-weight:500}
 .backlink:hover{color:var(--ink)}
 .cohead{display:flex;gap:var(--space-200);align-items:flex-start;margin:0 0 6px}
-.cohead .logo{width:56px;height:56px;font-size:var(--text-lg);border-radius:var(--radius-md)}
 .cohead-main{min-width:0;flex:1}
 .cohead h1{margin:0;line-height:1.2}
 .cosub{color:var(--muted);font-size:var(--text-sm);margin-top:4px}
@@ -815,7 +863,6 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .card[data-route] .agency,.card[data-route] .closed,.card[data-route] .repost,
 .card[data-route] .jdadmit{
   background:var(--on-card-veil)}
-.card[data-route] .logo{box-shadow:0 0 0 1px color-mix(in srgb,var(--text-primary) 10%,transparent)}
 
 /* The detail panel keeps a plain surface — it is a reading view, and a tint under 7,000
    characters of description is a different proposition from a tint on a card — but its Apply
@@ -849,7 +896,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 /* Loading skeleton — rendered server-side inside #feed so the user sees card-shaped
    placeholders the instant the page paints; app.js replaces them once it renders the feed. */
 .skel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 17px;display:flex;align-items:flex-start;gap:var(--space-150);min-height:118px}
-.skel-logo{width:42px;height:42px;border-radius:var(--radius-md);flex:0 0 auto}
+.skel-logo{width:88px;height:36px;border-radius:var(--radius-xs);flex:0 0 auto}
 .skel-lines{flex:1;display:flex;flex-direction:column;gap:var(--space-150);padding-top:3px}
 .skel-bar{height:11px;border-radius:var(--radius-xs);display:block}
 .skel-bar.w70{width:70%}.skel-bar.w55{width:55%}.skel-bar.w40{width:40%}
@@ -862,8 +909,6 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    of the row, and the row still reads logo-left, score-right when there is no flag. */
 .cardtop{display:flex;align-items:center;justify-content:space-between;gap:var(--space-100)}
 .newflag{margin-left:auto}
-.logo{width:42px;height:42px;border-radius:var(--radius-md);color:#fff;font-weight:700;font-size:var(--text-md);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;flex:0 0 auto;box-shadow:0 0 0 1px var(--line)}
-.logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:3px}
 /* The title is a real <a href="/job?u=..."> now. It was a <button> opening the modal, and before
    that a bare <article> click handler that no keyboard could reach. The button resets are gone
    with the button; what stays is the two-line clamp, the inherited ink colour, and CRUCIALLY the
@@ -1018,7 +1063,6 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .modal{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);max-width:760px;width:100%;box-shadow:var(--e3);animation:pop .22s ease}
 @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
 .modal-head{display:flex;gap:var(--space-200);align-items:flex-start;padding:22px 24px 8px}
-.modal-head .logo{width:46px;height:46px;font-size:var(--text-md)}
 .modal-x{margin-left:auto;border:none;background:var(--surface2);width:32px;height:32px;border-radius:var(--radius-full);font-size:0;cursor:pointer;color:var(--muted);line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
 .modal-x::before{content:"";display:block;width:14px;height:14px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center/contain no-repeat}
 .modal-x:hover{background:var(--bg-active);color:var(--ink)}
@@ -1110,7 +1154,6 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
    screen, and the two would disagree. */
 .jobwrap{max-width:var(--layout-feed-max);margin:0 auto;padding:0 var(--space-300) var(--space-600)}
 .jobhead{display:flex;gap:var(--space-200);align-items:flex-start;margin:0 0 var(--space-300)}
-.jobhead .logo{width:56px;height:56px;font-size:var(--text-lg);border-radius:var(--radius-md)}
 .jobhead h1{margin:0;line-height:1.15;font-size:var(--text-xl);letter-spacing:var(--tracking-tight)}
 .jobident{color:var(--muted);font-size:var(--text-sm);margin-top:5px;display:flex;flex-wrap:wrap;
   align-items:center;gap:4px}
@@ -2482,46 +2525,218 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 
 /* ============================================================================
    THE COMPANY DIRECTORY  (/companies)
-   One tile per employer. Deliberately fewer columns than .feedgrid at a similar
-   width: a job card carries a title, a location, a pay range and a score ring,
-   so 330px there is already dense -- a company card carries four short facts, so
-   the same width reads as generous instead of cramped. The page this replaced put
-   289 employers in an unstyled <li> wall; over-densifying is the opposite failure
-   and just as bad.
+   Rebuilt 2026-08-22. What was here read as assembled rather than designed, and
+   every cause was structural rather than a matter of taste:
 
-   Column arithmetic against .feedwrap's 1880px cap and --space-200 (16px):
-   6 across at 1880, 5 at 1440, 4 at 1280, 2 at 768, 1 at 375.
+     * .countrow's justify-content:space-between scattered ~1000px of slack into
+       three ~340px gaps, because four children summing to ~800px were spread
+       across an 1880px track. Fixed by packing left and giving ONE child an auto
+       margin, and by giving the bar a bottom rule -- which is the mechanism that
+       makes the feed's five-control .filterbar look intentional at the same
+       width. Negative space inside a framed band reads as breathing room; the
+       same space between unframed orphans reads as gaps.
+     * .results .count{margin:0} and .results .tabs{margin-top:0} never matched,
+       because this page has no .results wrapper, so .count's 16px/4px margin and
+       .tabs' 16px top margin survived and stacked with .countrow's own 14px for
+       ~34px of dead vertical space and a count sitting below the optical centre.
+     * Three type sizes in one row: .count at 13px, the controls at 14px, and the
+       .visack label at the 16px body default because it set no font-size.
+     * Three control heights (7px, 9px and 8px of padding) with --field-h:40px
+       sitting unused. Everything in .cobar is --field-h now.
+     * A wall of 16 .tab pills, ~3,900px of pill across an ~1,828px track, so it
+       wrapped to two or three rows ABOVE the search box. Now one .fchip over one
+       .fpop.
+     * A lone native checkbox that was class="visack" WITHOUT .ck, so it fell
+       through to the global input rule (width:100%, 11px padding, 14px radius)
+       and got no accent-color. It was the only unstyled control in the product.
+       It is GONE, not restyled: "it looks only one" was half the complaint, so a
+       single boolean became a .seg pair that states both halves.
 
-   No new colour token. Every chip here reuses .vt-* / .cx / .agency, so
-   scripts/test_contrast.py needs no new pair and THE COLOUR RULE at the top of
-   this file still holds: colour means sponsorship, everything else is ink.
+   The CHILDREN are the feed's components (.fsearch, .fchip, .fpop, .seg, .sel,
+   .roletile) so the two pages read as one product. The CONTAINER is scoped:
+   .filterbar's @media (max-width:900px) turns itself into a horizontal scroller
+   with .fchip-more pinned sticky-right, and this page has no overflow chip to
+   pin. Six duplicated declarations, in exchange for not coupling two pages'
+   narrow-width layouts to one rule.
+
+   Column arithmetic. Content width is min(cap, vw - 52); the cap is .feedwrap's
+   1880, rising to 2280 above a 1900 viewport. At T=288 and a 20px gap, allowing
+   16px for a scrollbar: 1 at 375, 2 at 768, 3 at 1024, 4 at 1280, 4 at 1440,
+   6 at 1920, 7 at 2560.
+   THE PREVIOUS COMMENT CLAIMED 5 AT 1440 AND WAS WRONG: 5x288 + 4x16 = 1504
+   against 1372 of track. It never rendered five. T stays at 288 rather than
+   dropping to make the old claim true -- the tile now carries a variable-width
+   logo as well, so it needs the width, and this block's own original note said
+   over-densifying is the opposite failure and just as bad.
+
+   One new token family, all neutrals off the layer-1 ramp, so the chromatic
+   budget is untouched and THE COLOUR RULE still holds. Every chip here still
+   reuses .vt-* / .cx / .agency.
    ============================================================================ */
-.codir{display:grid;grid-template-columns:repeat(auto-fill,minmax(288px,1fr));gap:var(--space-200)}
-/* min-height, not aspect-ratio: a locked box clips a two-line employer name, and
-   "Sumitomo Mitsui Banking Corporation" is a real row in this data. */
-.cocard{min-height:196px;text-decoration:none;color:inherit}
+
+/* ---- page head ---------------------------------------------------------- */
+.cohead-page{margin:0 0 var(--space-200)}
+.codeck{margin:var(--space-100) 0 0;font-size:var(--text-sm);
+  line-height:var(--leading-sm);color:var(--text-secondary);max-width:68ch}
+
+/* ---- the toolbar -------------------------------------------------------- */
+/* position:relative is load-bearing: .fpop is position:absolute and .feedwrap
+   sets no position, so without this every popover resolves against <body> and
+   lands in the wrong place at any scroll offset. It fails SILENTLY at scroll
+   offset 0, which is exactly where anyone testing it will look first. */
+.cotools{position:relative}
+.cobar{position:sticky;top:var(--topbar-h);z-index:var(--z-sticky);
+  display:flex;align-items:center;gap:var(--space-150);flex-wrap:wrap;
+  padding:var(--space-150) 0;margin:0 0 var(--space-150);
+  background:var(--bg-canvas);border-bottom:1px solid var(--border-subtle)}
+/* NEVER set justify-content here. One child takes the slack, on purpose. */
+.cobar .fsearch{flex:1 1 300px;max-width:520px}
+.cobar .fsearch input{width:100%;height:var(--field-h);padding-top:0;padding-bottom:0}
+.cobar .sel{margin-left:auto;height:var(--field-h);padding-top:0;padding-bottom:0}
+/* .seg measures ~41px (3 + 7 + a 14px line + 7 + 3) against --field-h's 40. One
+   pixel is enough to make a row of controls look untuned. */
+.cobar .seg{padding:2px}
+.cobar .segb{display:inline-flex;align-items:center;
+  height:calc(var(--field-h) - 4px);padding:0 var(--space-200);
+  font-size:var(--text-xs)}
+
+/* ---- the result line ---------------------------------------------------- */
+/* The count LEFT the toolbar. It belongs beside the grid it counts, it was the
+   only --text-xs item in a row of --text-sm controls, and down here there is
+   room for the Clear affordance this page never had. */
+.coresult{display:flex;align-items:center;gap:var(--space-050);flex-wrap:wrap;
+  margin:0 0 var(--space-250);font-size:var(--text-xs);
+  color:var(--text-secondary)}
+.coresult b{font-family:var(--font-data);font-variant-numeric:tabular-nums;
+  font-weight:var(--weight-semibold);color:var(--text-primary)}
+.coresult .btn{margin-left:var(--space-100)}
+
+/* ---- the facet list inside the popover ---------------------------------- */
+/* .roletile wholesale: a 38px row, a DRAWN tick from --tick-mark, :focus-within
+   and a right-aligned tabular count. Single-select here, so the tick is a ring
+   rather than a box -- the one-line difference from the multi-select original.
+   No @supports not selector(:has(*)) fallback is needed even though .roletile
+   has none: companies.js rebuilds this list from state on every render and sets
+   .on itself, so the tick never depends on :has(). welcome.html needed the
+   fallback because it ships no JS on that step. */
+.cofacet{display:flex;flex-direction:column;gap:var(--space-025)}
+.cofacet .roletile::before{border-radius:var(--radius-full)}
+
+/* ---- the grid ----------------------------------------------------------- */
+.codir{display:grid;grid-template-columns:repeat(auto-fill,minmax(288px,1fr));
+  gap:var(--space-200)}
+/* Following #feed's own precedent above: in a grid this long the tiles need to
+   read as separate objects. Verified to cost no column at any breakpoint. */
+@media (min-width:1200px){ .codir{gap:var(--space-250)} }
+.cosections{display:block}
+
+/* ---- section headers ---------------------------------------------------- */
+/* .sechdr is a 12px uppercase LABEL and is shared with /company (x10) and /job
+   (x7), so it is left alone and this page stops borrowing it -- it was far too
+   quiet to head a 695-tile section. "Show All" moved from a centred .morewrap
+   between two grids INTO this header, right aligned: a section control rather
+   than the most generic element on the page. */
+.cosec-h{display:flex;align-items:baseline;gap:var(--space-150);
+  margin:var(--space-500) 0 var(--space-200);padding-bottom:var(--space-100);
+  border-bottom:1px solid var(--border-subtle)}
+.cosec-h:first-child{margin-top:var(--space-100)}
+.cosec-h h2{font-size:var(--text-md);font-weight:var(--weight-semibold);
+  color:var(--text-primary);letter-spacing:var(--tracking-tight);min-width:0;
+  margin:0}
+.cosec-n{flex:0 0 auto;font-family:var(--font-data);font-size:var(--text-2xs);
+  font-variant-numeric:tabular-nums;color:var(--text-secondary)}
+.cosec-h .btn{margin-left:auto;flex:0 0 auto}
+
+/* ---- the tile ----------------------------------------------------------- */
+/* min-height is GONE. It was a magic 196 that also disagreed with .card's own
+   contain-intrinsic-size of 186, which is a live 10px scrollbar jump as tiles
+   are realised. A grid already stretches every item in a row to the tallest, so
+   evenness comes from reserving the chip band and the link band instead. */
+.cocard{contain-intrinsic-size:auto 224px;text-decoration:none;color:inherit}
 .cocard:hover{text-decoration:none}
-.cocard .logo{width:48px;height:48px}
-.cocard h3{font-size:var(--text-base);font-weight:var(--weight-semibold);margin:10px 0 2px;
-  line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  overflow:hidden}
-/* The employer name is a link so the tile is keyboard-reachable, but it must read as INK.
-   Without this it inherits the accent blue, which is 3.42:1 on a dark card -- under AA for
-   16px text -- and it spends colour on something that is not sponsorship. */
+
+/* THE LOGO LOCKUP. The invariant is a PLATE of fixed HEIGHT and variable width,
+   never a fixed box, and every tile has one -- roughly a third of them hold two
+   letters rather than an image, and that is a first-class state, not an error.
+
+   Cap height is the constant because that is what the eye measures. A 5:1
+   wordmark inside a 48x48 contain box renders at 48x9.6 and is illegible; at
+   36px TALL and free to be as wide as it needs, its letterforms land at 12-14px
+   and it carries the same optical weight as a 36px square mark.
+
+   object-position:left and width:auto put every plate on one left rule down the
+   column, which is what stops a grid of mixed square marks, wordmarks and
+   monograms from going ragged. A centred variable-width logo would give every
+   column a different optical axis, which IS the ragged failure.
+
+   And the plate HUGS its content, never width:100%. That is also the dark-mode
+   anti-glare mechanism: 36x36 is ~2% of the card, a mark rather than a light bar
+   across it. */
+.colock{display:flex;align-items:center;margin:0 0 var(--space-150);min-width:0}
+.colock > *{height:36px;min-width:36px;max-width:min(180px,100%);
+  border-radius:var(--radius-xs);background:var(--logo-plate);
+  box-shadow:inset 0 0 0 1px var(--logo-plate-edge)}
+.colock img{display:block;width:auto;object-fit:contain;object-position:left center;
+  padding:3px 5px}
+/* Two letters in the data face: an initialism is a LABEL, not prose, and the
+   mono setting makes it read as a deliberate stand-in rather than as a failed
+   logo -- the same argument that face already wins for counts and dates.
+   tabular-nums so "10x Genomics" sets evenly. Both the ink and the plate are
+   mode-stable, so this is 9.2:1 in either theme. */
+.comono{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  width:36px;font-family:var(--font-data);font-size:var(--text-sm);
+  font-weight:var(--weight-semibold);letter-spacing:.03em;
+  color:var(--logo-plate-ink);text-transform:uppercase;
+  font-variant-numeric:tabular-nums;user-select:none}
+/* A PAGE header carries a bigger plate than a card does. These replace the old
+   .cohead/.jobhead/.modal-head .logo overrides, which pointed at a class nothing
+   renders any more. Width follows height, so a wordmark still hugs. */
+.cohead .colock > *,.jobhead .colock > *{height:48px;min-width:48px;max-width:min(260px,100%)}
+.modal-head .colock > *{height:40px;min-width:40px;max-width:min(220px,100%)}
+.cohead .comono,.jobhead .comono{width:48px;font-size:var(--text-md)}
+.modal-head .comono{width:40px}
+
+.cocard h3{font-size:var(--text-base);font-weight:var(--weight-semibold);
+  margin:0 0 var(--space-050);line-height:1.25;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* The name is a real link so the tile is keyboard-reachable, but it must read as
+   INK: without this it takes the accent, which is 3.42:1 on a card and spends
+   colour on something that is not sponsorship. */
 .cocard h3 a{color:inherit;text-decoration:none}
 .cocard:hover h3 a{text-decoration:underline;text-underline-offset:2px}
-.cocard .coline{font-size:var(--text-sm);color:var(--muted)}
-.cocard .conum{font-family:var(--font-data);font-variant-numeric:tabular-nums;color:var(--ink);
-  font-weight:var(--weight-semibold)}
-.cocard .kw{margin-top:var(--space-100)}
-/* margin-top:auto pins the links to the bottom of a variable-height tile; .card is
-   already a column flex, so nothing else is needed. */
-.cocard .colinks{margin-top:auto;padding-top:var(--space-100);display:flex;
-  gap:var(--space-100);flex-wrap:wrap}
-/* The section headers in the All view. .sechdr sets the type; this only adds the
-   room a stack of grids needs to read as separate sections. */
-.codir + .sechdr,.morewrap + .sechdr{margin-top:var(--space-500)}
+.cocard .coline{font-size:var(--text-sm);line-height:1.45;color:var(--muted)}
+.cocard .conum{font-family:var(--font-data);font-variant-numeric:tabular-nums;
+  color:var(--ink);font-weight:var(--weight-semibold)}
+/* The sector, in the FLAT view only -- in the grouped view the header two inches
+   up already says it. overflow:hidden and min-width:0 are not cosmetic: a grid
+   item's automatic minimum size is its min-content width, and an unbreakable
+   nowrap run of "Engineering, Construction & Real Estate" measures ~230px, which
+   is how a grid track blows past its container. */
+.cocard .cosector{margin-top:var(--space-025);font-size:var(--text-2xs);
+  line-height:var(--leading-2xs);color:var(--text-tertiary);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* The auto margin moved UP one level, off .colinks. It used to sit on the links,
+   so the slack opened ABOVE them and the chip row floated at a different height
+   on every card in a row. Here the bottom two bands lock and the name block
+   floats from the top, which is where it should float from.
+   min-height because 818 of 2,695 employers (30%) carry no visa bits at all, so
+   without it a third of the grid has no chip band and the row reads ragged. */
+.cocard .kw{margin:var(--space-100) 0 0;margin-top:auto;min-height:21px}
+.cocard .colinks{margin-top:var(--space-150);padding-top:var(--space-150);
+  border-top:1px solid color-mix(in srgb,var(--text-primary) 12%,transparent);
+  display:flex;gap:var(--space-100);flex-wrap:wrap}
+
+@media (max-width:900px){
+  /* Deliberately NOT .filterbar's overflow-x scroller: there is no .fchip-more
+     to pin sticky-right here, so the honest narrow shape is stacked. */
+  .cobar .fsearch{flex:1 0 100%;max-width:none}
+  .cobar .sel{margin-left:auto}
+}
 @media (max-width:560px){
   .codir{grid-template-columns:1fr}
-  .cocard{min-height:0}
+  .cocard{contain-intrinsic-size:auto 200px}
+  /* Full width rather than stranded and right-aligned on its own wrapped row. */
+  .cobar .sel{margin-left:0;flex:1 1 100%}
+  /* A reserved band that nothing fills is a hole at 320px of card width. */
+  .cocard .kw{min-height:0}
 }

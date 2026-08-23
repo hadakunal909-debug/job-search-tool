@@ -277,7 +277,9 @@ in the repo is what production uses.
 | `python -m scraper.build_sponsor_counts` | `sponsor_counts.json`, `sponsor_years.json` | From DOL/USCIS xlsx. Manual. |
 | `python -m scraper.build_visa_tags` | `visa_tags.json`, `visa_tags_report.csv` | From LCA/PERM/E-Verify xlsx. Manual. |
 | `python -m scraper.build_sponsors` | `sponsors.txt` | |
-| `python scripts/build_company_domains.py` | `company_domains.json` | |
+| `python scripts/build_logos.py` | `static/logos/*`, `static/logos/index.json`, `logo_harvest.json` | Harvests real brand logos from Wikidata P154 and each employer's own site icon, and judges every candidate on its **pixels** rather than its status code. Sequential on purpose and there is no `--workers`: 12 threads measured 84% MISS against 96% paced, and a throttled fetch is recorded as a verdict. Resumable, so an interrupted run costs nothing. `--check` is the CI gate. |
+| `python scripts/build_logos.py --audit-domains` | `company_domains_audit.csv` | Stored domain vs Wikidata's curated P856, for review. Writes no JSON. |
+| `python scripts/build_logos.py --write-domains` | `company_domains.json` | Rewrites the domain map from P856, keyed on `core.norm_company`. **Replaces `build_company_domains.py`,** whose entire verification was `status_code == 200 and len(content) > 100` -- which accepted `appleinc.com` for Apple and `adp.com` for two employers who merely post through ADP. |
 | `python scripts/build_resume_vocab.py` | `resume_vocab.json`, `resume_keywords.json` | |
 | `python scripts/build_companies.py` | `companies.json` | ⚠ A **shipped runtime asset** and the data behind `/companies`. **Needs `DB_REQUIRE=proxy` + the `DB_PROXY_*` pair** — without them `db` falls back to `.streamlit/secrets.toml`, the retired Streamlit app's credentials for the Supabase this project left on 2026-08-15, and the build silently omits every employer added since. `--report` prints the sector histogram; `--check` fails if a high-traffic employer is unsorted or the bucket exceeds 5%. |
 | `python scripts/build_careers_md.py` | `careers_us.md` | Hand-edited careers/LinkedIn URLs, and a build input to the above. |

@@ -170,7 +170,7 @@ probing 249 of them found ~18% monogram, ~10% black glyph, ~5% blurry upscale â€
 3**. The black is NOT a CSS filter; there is no invert or blend mode anywhere. Those are real
 monochrome favicons composited onto `.logo img{background:#fff}`.
 
-- `scripts/build_company_domains.py` resolves every employer by **asking**: candidates from the
+- `scripts/build_logos.py --write-domains` resolves every employer from Wikidata's curated P856 (it replaced `build_company_domains.py`, which resolved by **asking**: candidates from the
   name and from the posting host, each verified against an icon probe. `company_domains.json` now
   holds **1,446 verified domains for 1,832 companies**; 201 differ from the old guess.
   **Ordering matters and is counter-intuitive** â€” the NAME is tried before the posting host.

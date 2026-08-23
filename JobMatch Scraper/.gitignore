@@ -88,3 +88,6 @@ jd_backfill_*.log
 
 # Shared secret for the scraper -> /api/db transport.
 .db_proxy_secret
+# scripts/build_logos.py --audit-domains writes this for a human to read before
+# --write-domains overwrites the map. A review artefact, regenerable, never an input.
+company_domains_audit.csv

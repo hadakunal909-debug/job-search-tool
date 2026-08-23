@@ -87,31 +87,7 @@
     .catch(function () { /* the section keeps its "not researched yet" copy */ });
 })();
 
-// Company-logo fallback, the same contract app.js gives the feed and the company page.
-//
-// This page deliberately does not load app.js, so it never got one. The logo is a coloured
-// tile with the company's initial, and the favicon <img> sits absolutely on top of it with a
-// white background — so when the favicon 404s (the domain is guessed from the company name and
-// is often wrong), the failed image stays a WHITE SQUARE covering the letter that was supposed
-// to be the fallback. Hiding the <img> lets the tile behind it show.
-//
-// In JS rather than an inline onerror= so the CSP can keep forbidding inline handlers.
-(function () {
-  var imgs = document.querySelectorAll(".logo-img");
-  for (var i = 0; i < imgs.length; i++) {
-    (function (img) {
-      // Walk the chain before giving up: logo.dev -> favicon -> the coloured letter tile.
-      // data-fallback is set server-side and is empty when there is no second provider, in
-      // which case this behaves exactly as it did before.
-      function fail() {
-        var fb = img.getAttribute("data-fallback");
-        if (fb && img.getAttribute("src") !== fb) { img.src = fb; return; }
-        img.style.display = "none";
-      }
-      img.addEventListener("error", fail);
-      // An image cached as broken, or one that failed before this ran, never fires "error".
-      // complete && naturalWidth === 0 is how you detect that after the fact.
-      if (img.complete && img.naturalWidth === 0) fail();
-    })(imgs[i]);
-  }
-})();
+// THE LOGO FALLBACK IS GONE, 2026-08-22. There is nothing to wire: web.py::logo_url resolves
+// one same-origin URL from the harvest manifest, and templates/job.html renders EITHER that
+// <img> or the monogram, never one layered over the other. The white-square bug this block
+// existed to work around was caused by that layering, so it cannot recur.
