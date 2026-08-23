@@ -91,3 +91,7 @@ jd_backfill_*.log
 # scripts/build_logos.py --audit-domains writes this for a human to read before
 # --write-domains overwrites the map. A review artefact, regenerable, never an input.
 company_domains_audit.csv
+# --discover-domains writes this one, same deal. Sorted by H-1B filings, with a
+# distinctive_tokens column, because a one-word employer name is the case a page cannot
+# disambiguate -- Alphabet corroborates perfectly against BMW's alphabet.com.
+company_domains_discovered.csv

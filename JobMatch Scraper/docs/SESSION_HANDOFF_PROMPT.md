@@ -165,6 +165,13 @@ real limiters are `date: "1"` (posted within ONE day) and `track: "mgmt"`, plus 
 one-click change in the feed's filter rail — deliberately not changed for you.
 
 ### 5. Logos — 92.2% of rows now resolve to a verified domain
+> **SUPERSEDED 2026-08-22/23. Do not act on this section.** The whole favicon chain is gone: the
+> logos are harvested by `scripts/build_logos.py`, judged on their pixels and committed to
+> `static/logos/`, and the CSP's `img-src 'self' data:` forbids every remote image origin. In
+> particular **`LOGODEV_KEY` no longer does anything** — do not set it, and ignore the "STILL
+> OPEN" note below. Current state: 1,472 of 2,695 employers (54.6%), 88.9% of live feed rows.
+> See [OPERATIONS.md](OPERATIONS.md) for the commands and `web.py::logo_url`.
+
 Measured before: 76.9% of companies got their domain from `strip-non-alphanumerics + ".com"`, and
 probing 249 of them found ~18% monogram, ~10% black glyph, ~5% blurry upscale — about **1 card in
 3**. The black is NOT a CSS filter; there is no invert or blend mode anywhere. Those are real
