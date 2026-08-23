@@ -28,8 +28,9 @@
      {%- if default_total is defined %} data-total="{{ default_total }}"{% endif %}
      {%- if company_arg %} data-company="{{ company_arg }}"{% endif %}>
   {% for _ in range(8) %}
+  {#- No logo block here since 2026-08-23. The card's mark moved onto the identity line at
+      20px, so an 88x36 placeholder promised a shape the first real paint would not have. -#}
   <div class="skel" aria-hidden="true">
-    <div class="skel-logo"></div>
     <div class="skel-lines"><span class="skel-bar w70"></span><span class="skel-bar w40"></span><span class="skel-bar w55"></span></div>
     <div class="skel-chip"></div>
   </div>

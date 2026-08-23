@@ -372,6 +372,30 @@
     return '<a href="/company?c=' + H(encodeURIComponent(name)) + '">' + esc(name) + '</a>';
   }
 
+  // THE BRAND MARK BELONGS NEXT TO THE NAME, NOT ABOVE THE TITLE. It used to be alone in
+  // .cardtop at 36px tall and up to 180px wide -- on a 294px card that is 61% of the row for a
+  // wordmark like Walmart, 51% for AMD, 49% for Centene -- while the company's actual NAME sat
+  // two lines below it. So the logo was doing the naming, at banner scale, in the card's most
+  // valuable slot. Now it is a 20px chip immediately before the name it belongs to, and the
+  // name is what identifies the employer.
+  //
+  // width/height are ATTRIBUTES, not an inline style, and they are the first consumer of
+  // logo_ar: they reserve the box before the image loads, so the identity line does not reflow
+  // on a slow connection. web.py::_build_row has shipped logo_ar since the harvest landed and
+  // nothing read it.
+  //
+  // IMAGE OR NOTHING -- deliberately no monogram twin here. The mark is variable-width, so the
+  // name's x position is ragged whether or not a missing logo reserves a slot, which means a
+  // fixed slot buys no alignment and costs a grey chip on every card we have no asset for. The
+  // monogram stays where it has a fixed-width box and no adjacent name at the same size:
+  // /companies tiles and the page headers.
+  function companyMark(j) {
+    if (!j.logo) return '';
+    return '<img class="cmark" src="' + H(j.logo) + '" alt="" loading="lazy" decoding="async"' +
+      ' height="20" width="' + Math.round(Math.min(20 * (j.logo_ar || 1), 80)) + '"' +
+      (j.logo_mono ? ' data-mono="1"' : '') + '>';
+  }
+
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
   function cardHTML(j) {
     var st = j.status || "";
@@ -496,17 +520,15 @@
     return '<article class="' + cls + '"' +
       ' data-route="' + H(route) + '"' +
       ' data-url="' + H(j.url) + '" data-status="' + H(st) + '">' +
-      // "New" sits INSIDE the top row, between the logo and the score, rather than hanging
-      // off the card's top edge as it used to. Two reasons: an overhanging sticker is the
-      // one bit of card furniture that read as decoration rather than as data, and the
-      // paint containment that makes a long grid cheap to scroll would have clipped it.
+      // "New" sits INSIDE the top row rather than hanging off the card's top edge as it used
+      // to. Two reasons: an overhanging sticker is the one bit of card furniture that read as
+      // decoration rather than as data, and the paint containment that makes a long grid cheap
+      // to scroll would have clipped it.
+      //
+      // The logo is NOT in this row any more -- see companyMark above. With the lockup gone the
+      // flag takes the free left corner it used to be pushed out of, so .newflag drops its
+      // margin-left:auto and space-between still holds the score to the right.
       '<div class="cardtop">' +
-        (j.logo
-          ? '<div class="colock"><img src="' + H(j.logo) +
-            '" alt="" loading="lazy" decoding="async"' +
-            (j.logo_mono ? ' data-mono="1"' : '') + '></div>'
-          : '<div class="colock"><span class="comono" aria-hidden="true">' +
-            H(j.initials || "?") + '</span></div>') +
         newFlag +
         scoreCell(j) +
       '</div>' +
@@ -528,7 +550,7 @@
       // identity line can never take more than one line and the chips can never be pushed
       // down by a verbose employer.
       '<div class="cmeta">' +
-        '<div class="cident">' + companyLink(j.company) + SEP +
+        '<div class="cident">' + companyMark(j) + companyLink(j.company) + SEP +
           '<span class="cloc" title="' + H(j.location || '') + '">' +
           esc(j.location || 'Location not stated') + '</span>' + posted +
         '</div>' +

@@ -100,11 +100,19 @@
   /* ONE CHILD, NEVER TWO. The old markup put an absolutely-positioned <img> with an opaque
      white background ON TOP of the letter tile, so a blank-but-200 response painted over the
      very fallback it was meant to reveal. Either/or cannot do that. */
+  /* data-mono IS EMITTED HERE TOO, and its absence was a real bug: the dark-mode rule
+     [data-theme="dark"] .colock img[data-mono="1"] never matched on this page, so all 234
+     single-ink marks kept the light plate that commit 3df171d was written to remove -- while
+     the feed, whose markup lives in app.js, un-plated them correctly. logoFor() had computed
+     the flag one line above and thrown it away.
+     Note the attribute means two different things in this file by inheritance: "one dark ink"
+     on the <img>, and the two-letter monogram on the .cocard wrapper. Both are read by
+     selectors narrow enough not to collide, but do not widen either one. */
   function lockup(name, mono) {
     var l = logoFor(name);
     if (l) {
       return '<div class="colock"><img src="' + esc(l.src) + '" alt="" loading="lazy" ' +
-             'decoding="async"></div>';
+             'decoding="async"' + (l.mono ? ' data-mono="1"' : '') + '></div>';
     }
     return '<div class="colock"><span class="comono" aria-hidden="true">' +
            esc(mono || '?') + '</span></div>';
@@ -439,7 +447,11 @@
   function toMono(img) {
     var wrap = img.parentNode;
     if (!wrap) return;
-    var tile = img.closest('[data-mono]');
+    /* .cocard, NOT [data-mono]. closest() starts at the element ITSELF, and the <img> now
+       carries data-mono="1" for the dark-mode inversion -- so the old selector matched the
+       image and every broken logo rendered a monogram reading "1". The attribute name is
+       overloaded in this file; the tile is addressed by its class instead. */
+    var tile = img.closest('.cocard');
     wrap.innerHTML = '<span class="comono" aria-hidden="true">' +
       esc((tile && tile.getAttribute('data-mono')) || '?') + '</span>';
   }
