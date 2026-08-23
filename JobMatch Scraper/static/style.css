@@ -2674,16 +2674,33 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    across it. */
 .colock{display:flex;align-items:center;margin:0 0 var(--space-150);min-width:0}
 .colock > *{height:36px;min-width:36px;max-width:min(180px,100%);
-  border-radius:var(--radius-xs);background:var(--logo-plate);
-  box-shadow:inset 0 0 0 1px var(--logo-plate-edge)}
+  border-radius:var(--radius-xs)}
+/* NO PLATE UNDER A LOGO IN LIGHT MODE, and the reason is that there is no single colour that
+   could work. A feed card is tinted by the sponsorship route it names -- five fills, from
+   #dbe7fb for H-1B through #eadffb, #d6efe0, #e7e9ee to #f6f7f9 for none -- so a fixed plate
+   blends with exactly one of them and is a visible rectangle on the other four. The first
+   attempt at this set the plate to #f6f7f9, which is --route-none-fill to the byte: it looked
+   perfect on an untinted card and stayed a white box on every tinted one.
+   Transparent is the only value that blends with all five, and every light fill is light
+   enough to carry a dark or full-colour mark unaided. */
 .colock img{display:block;width:auto;object-fit:contain;object-position:left center;
-  padding:3px 5px}
+  padding:3px 5px;background:transparent}
+/* Dark mode DOES need the plate: the same five fills are #18253f..#171a22 there, and most
+   brand marks are dark ink drawn for white paper. A light plate is a visible shape against a
+   dark card, and that is the honest trade -- an invisible logo is worse than a plated one. */
+[data-theme="dark"] .colock img{background:var(--logo-plate);
+  box-shadow:inset 0 0 0 1px var(--logo-plate-edge)}
 /* Two letters in the data face: an initialism is a LABEL, not prose, and the
    mono setting makes it read as a deliberate stand-in rather than as a failed
    logo -- the same argument that face already wins for counts and dates.
    tabular-nums so "10x Genomics" sets evenly. Both the ink and the plate are
    mode-stable, so this is 9.2:1 in either theme. */
+/* THE MONOGRAM KEEPS ITS PLATE IN BOTH THEMES, unlike the logo above. It is TEXT, and text
+   needs a surface whose contrast can be asserted -- --logo-plate-ink on --logo-plate is a
+   checked pair in test_contrast. Dropped onto a route tint instead it would be #3c414d on
+   #18253f in dark, which is unreadable. */
 .comono{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  background:var(--logo-plate);box-shadow:inset 0 0 0 1px var(--logo-plate-edge);
   width:36px;font-family:var(--font-data);font-size:var(--text-sm);
   font-weight:var(--weight-semibold);letter-spacing:.03em;
   color:var(--logo-plate-ink);text-transform:uppercase;
