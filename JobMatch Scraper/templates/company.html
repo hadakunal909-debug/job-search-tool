@@ -17,7 +17,8 @@
        then this renders the monogram INSTEAD of the image rather than underneath it. The old
        markup layered an absolutely-positioned <img> over the letter, so a blank-but-200
        response painted an opaque white square over the very fallback it was meant to reveal. #}
-    {% if info.logo %}<div class="colock"><img src="{{ info.logo }}" alt="" loading="lazy" decoding="async"></div>
+    {% if info.logo %}<div class="colock"><img src="{{ info.logo }}" alt="" loading="lazy" decoding="async"
+      {% if info.logo_mono %}data-mono="1"{% endif %}></div>
     {% else %}<div class="colock"><span class="comono" aria-hidden="true">{{ info.initials }}</span></div>{% endif %}
     <div class="cohead-main">
       <h1>{{ info.name }}</h1>
@@ -70,7 +71,8 @@
     <div class="modal-head">
       {# Kept byte-identical to the header lockup above. These two drifted apart once and this
          one shipped a letter tile while the header two inches up showed the real logo. #}
-      {% if info.logo %}<div class="colock"><img src="{{ info.logo }}" alt="" loading="lazy" decoding="async"></div>
+      {% if info.logo %}<div class="colock"><img src="{{ info.logo }}" alt="" loading="lazy" decoding="async"
+      {% if info.logo_mono %}data-mono="1"{% endif %}></div>
     {% else %}<div class="colock"><span class="comono" aria-hidden="true">{{ info.initials }}</span></div>{% endif %}
       <div class="u-grow-min">
         <h2 id="cotitle">{{ info.name }}</h2>

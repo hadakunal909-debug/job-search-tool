@@ -752,6 +752,21 @@ _FUNCCOL = re.compile(rb"(?:rgb|rgba|hsl|hsla)\(", re.I)
 _NUM = re.compile(r"-?[\d.]+")
 
 
+def _hex_is_dark(col):
+    """Is this #rrggbb (or #rgb) closer to black than to white? Relative luminance, not a naive
+    channel average -- green carries most of the perceived brightness."""
+    h = col.decode("ascii", "ignore").lstrip("#") if isinstance(col, bytes) else str(col).lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) < 6:
+        return False
+    try:
+        r, g, b = (int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    except ValueError:
+        return False
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5
+
+
 def svg_meta(raw):
     """(ar, mono, why) for a SANITISED SVG, judged structurally instead of on pixels.
 
@@ -789,11 +804,15 @@ def svg_meta(raw):
     ar = round(w / h, 3)
     if ar > MAX_AR or ar < 1.0 / MAX_AR:
         return ar, 0, "aspect"
-    # MONOCHROME IS RECORDED, NOT REJECTED -- the manifest carries the flag so the page can
-    # decide. Counting distinct literal colours in the markup is crude, and it only has to
-    # separate "one ink" from "a brand palette".
+    # MONO MEANS "ONE DARK INK, SAFE TO INVERT ON A DARK BACKGROUND", not merely "low chroma",
+    # because that is what the card does with the flag. judge() gets the dark part for free: it
+    # composites onto WHITE and rejects a blank, so an accepted raster mono logo cannot be a
+    # white knockout. Nothing composites an SVG, so the darkness has to be read here -- a
+    # fill="#fff" wordmark is monochrome and inverting it would paint it black on a dark card.
     cols = {c.lower() for c in _HEXCOL.findall(raw)}
-    mono = 1 if (len(cols) <= 1 and not _FUNCCOL.search(raw)) else 0
+    mono = 0
+    if len(cols) == 1 and not _FUNCCOL.search(raw):
+        mono = 1 if _hex_is_dark(next(iter(cols))) else 0
     return ar, mono, ""
 
 
