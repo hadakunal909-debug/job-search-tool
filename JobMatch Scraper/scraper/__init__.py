@@ -24,6 +24,7 @@ import threading
 import concurrent.futures
 import re
 import datetime
+import email.utils      # RFC-822 dates (Aquent's XML feed)
 from urllib.parse import (urljoin, urlparse, parse_qs, unquote,
                           urlsplit, urlunsplit, parse_qsl, urlencode)
 
@@ -1726,6 +1727,19 @@ MICHAELPAGE_BOARDS = [
     ("https://www.michaelpage.com/jobs", "michaelpage", "Michael Page"),   # ~9/page of 30
 ]
 
+# Aquent — the SECOND recruitment agency, and the same bargain: `company` is "Aquent" on every
+# row and the client is named only in the JD. One XML feed is the entire board, so this costs
+# one request per sweep; the long note over scrape_aquent has the measurements and the reason
+# it needs a bespoke adapter at all.
+AQUENT_BOARDS = [
+    # 649 posted -> 372 US -> 104 past the title filter -> 78 inside MAX_AGE_DAYS.
+    ("https://aquent.com/feeds/jobs.xml", "aquent", "Aquent"),
+]
+# The literal lives in the tuple above, not here, because scripts/build_docs.py counts SOURCES
+# by ast.literal_eval-ing each list in the + chain WITHOUT importing -- a Name in there evaluates
+# to nothing and the board count in the generated docs silently stops matching len(SOURCES).
+AQUENT_FEED = AQUENT_BOARDS[0][0]
+
 # Y Combinator's Work at a Startup. The company name here is only the board's label -- every row
 # scrape_workatastartup returns names the actual startup, and main()'s setdefault leaves it be.
 WORKATASTARTUP_BOARDS = [
@@ -1769,7 +1783,7 @@ EIGHTFOLD_BOARDS = [
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
-           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
+           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS + AQUENT_BOARDS
            + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
            + JOBVITE_BOARDS + WERFEN_BOARDS)
 
@@ -4951,6 +4965,132 @@ def scrape_michaelpage(board_url):
     return rows
 
 
+# ============================================================
+# AQUENT — the second recruitment AGENCY here, and the cheapest board in the sweep.
+#
+# WHAT IT IS. Aquent places creative, marketing and digital talent, so exactly as with Michael
+# Page above, `company` is "Aquent" on all of them and the actual employer is named only inside
+# the description ("Our client is a premier digital marketing agency..."). Read the
+# MICHAELPAGE_BOARDS note before adding a third: it explains why these rows read as non-sponsors
+# and why they arrive as one large single-company group. core.is_agency does not flag either
+# name, so neither is hidden by the default hideagency pref -- that is the bargain Michael Page
+# already struck, not a new one, and adding "aquent" to core._AGENCY_NAMES would badge these
+# rows honestly at the cost of hiding all 104 of them by default.
+#
+# WHY IT NEEDS A BESPOKE ADAPTER. Aquent's own sites cannot be read: talent.aquent.com is a
+# 3.8 KB Angular shell whose entire body is <app-root>, and aquent.com/find-work builds its list
+# client-side, so the whole detect chain answers None on both. But the WordPress site publishes
+# the ENTIRE board as one XML feed, and that feed is better shaped than most ATS APIs:
+#
+#   * 649 postings in ONE 3.1 MB request -- no pagination, so there is no page budget to tune
+#     and no tail for a binding SCRAPE_BUDGET_MIN to starve
+#   * a real pubDate per posting, so the freshness gate judges a date the employer STATED
+#     rather than our scrape stamp (core.is_trusted_date)
+#   * the full description inline (p50 4,210 chars, min 573), so every row reaches the keep loop
+#     with a "jd": the description rule gets to vote and score_jobs owes it no fetch
+#   * city / state / country as three separate elements, which is what makes the country rule
+#     below possible at all
+#
+# MEASURED 2026-08-23: 649 postings -> 372 US -> 104 past the title filter (28%), 6 of those
+# rescued by the description rule. Michael Page returns 31% for twelve paged requests; this is
+# the same hit rate for one. robots.txt allows /feeds/ (Crawl-delay 10, which one request per
+# sweep honours by construction), and the /find-work/<id> page every row points at carries
+# JSON-LD and the real quick-apply form -- so the apply queue and score_jobs' page_posted_date
+# both work on these rows, which is exactly what an aggregator relist could never offer.
+# ============================================================
+
+# Every title ends in its own req number -- "Creative Strategist [212490]". That is an id, not
+# part of the role, and leaving it in costs three things at once: web.py::_title_index tokenises
+# it, so "similar roles" ranks on a number; searchRank scores it; and it is the last thing the
+# eye lands on on a card. Stripped only where it TRAILS -- one row reads "IT Project Manager I
+# (212313) [212313]", and the parenthesised copy is the employer's own text, not ours to edit.
+_AQUENT_REQ_RE = re.compile(r"\s*\[\d+\]\s*$")
+
+# THE COUNTRY IS A TWO-LETTER CODE, AND A TWO-LETTER CODE IS THE TRAP. "Berlin, DE" is
+# byte-identical to the "City, ST" shape is_us_location exists to recognise: DE is Germany and
+# also Delaware, CA is Canada and also California, IN is India and also Indiana. That exact
+# ambiguity is what put 157 Casablanca / Mississauga / Kolkata rows into the feed as US jobs --
+# see the 2026-08-16 additions to NON_US. So the code is never written into a location string:
+# a US row gets its state, and every other row gets the country's NAME, which _NON_US_RE knows.
+#
+# With US_ONLY on, foreign rows are dropped here on the feed's own <country> element rather than
+# re-derived from a string downstream -- the same thing scrape_paylocity does with its
+# JobLocation.Country. That is 277 of the 649, none of which would clear the gate anyway. The
+# `or cc` fallback below is therefore reachable only with US_ONLY off, where no US gate runs.
+_AQUENT_COUNTRIES = {"AU": "Australia", "CA": "Canada", "DE": "Germany", "FR": "France",
+                     "GB": "United Kingdom", "JP": "Japan", "NL": "Netherlands"}
+
+
+def _aquent_text(item, tag):
+    """One child element's text, or "". NOT unescaped: the description is HTML source and
+    core.html_to_text unescapes it itself, so doing it here too would decode &amp;lt; twice."""
+    e = item.find(tag)
+    return (e.text or "").strip() if e is not None and e.text else ""
+
+
+def _aquent_location(item):
+    """'Tokyo', '', 'JP' -> 'Tokyo, Japan'.   'Boston', 'MA', 'US' -> 'Boston, MA'.
+
+    A US row with no city -- seven of them, all California -- would otherwise render as the bare
+    string "CA", and is_us_location only reads a state abbreviation AFTER a comma, so those rows
+    would be dropped as non-US. They get ", United States" instead, which the gate recognises
+    and which core.parse_location still resolves to state=CA, city=''."""
+    city = _aquent_text(item, "location/city")
+    state = _aquent_text(item, "location/state")
+    cc = _aquent_text(item, "location/country").upper()
+    if cc == "US":
+        parts = [city, state] if city else [state, "United States"]
+    else:
+        parts = [city, _AQUENT_COUNTRIES.get(cc) or cc]        # see the note above
+    return ", ".join(p for p in parts if p)
+
+
+def _aquent_date(s):
+    """'Sun, 23 Aug 2026 21:08:19 GMT' -> '2026-08-23'.
+
+    RFC-822, not ISO, so _posted's plain slice would hand back 'Sun, 23 Au' and the freshness
+    gate would compare that to a date. Returns "" on anything unparseable, which is what lets
+    main()'s setdefault fall back to the scrape stamp."""
+    try:
+        return email.utils.parsedate_to_datetime(s).date().isoformat()
+    except Exception:
+        return ""
+
+
+def scrape_aquent(board_url):
+    """Aquent's whole board, from the one XML feed. board_url is AQUENT_FEED itself."""
+    import xml.etree.ElementTree as ET
+    try:
+        # 90s for one 3.1 MB response: generous on purpose, because a timeout here costs the
+        # entire board rather than one posting, and it is the only request this source makes.
+        r = SESSION.get(board_url or AQUENT_FEED, headers=HEADERS, timeout=90)
+        root = ET.fromstring(r.content)
+    except Exception:
+        return []
+    rows = []
+    for item in root.findall(".//item"):
+        if US_ONLY and _aquent_text(item, "location/country").upper() != "US":
+            continue
+        title = _AQUENT_REQ_RE.sub("", html.unescape(_aquent_text(item, "title"))).strip()
+        url = _aquent_text(item, "url")
+        if not (title and is_http_url(url)):
+            continue
+        loc = _aquent_location(item)
+        # "Fully remote" ONLY. "Hybrid remote" is not remote, and promoting an office-attached
+        # role to fully remote is the one location error the filter cannot show the user -- the
+        # same reason _jobvite_location keeps "Hybrid" rather than dropping it.
+        if _aquent_text(item, "remotetype").lower() == "fully remote":
+            loc = ("%s (Remote)" % loc).strip() if loc else "Remote"
+        row = {"title": title, "url": url, "location": loc,
+               # Inline and complete -- see the note above; this is the whole point of the feed.
+               "jd": _listing_jd(_aquent_text(item, "description"))}
+        d = _aquent_date(_aquent_text(item, "pubDate"))
+        if d:
+            row["found_date"] = d
+        rows.append(row)
+    return rows
+
+
 def detect_paylocity(url):
     """Recognize a Paylocity careers link, including a link to a SINGLE posting.
 
@@ -5446,6 +5586,7 @@ SCRAPERS = {
     "workatastartup": scrape_workatastartup,
     "jobvite": scrape_jobvite,
     "werfen": scrape_werfen,
+    "aquent": scrape_aquent,
 }
 
 
@@ -5606,6 +5747,13 @@ def detect_board(url):
     if "personio.com" in host:
         sub = host.split(".")[0]
         return ("https://%s.jobs.personio.com" % sub, "personio", _name_from(sub))
+
+    if host == "aquent.com" or host.endswith(".aquent.com"):
+        # ONE feed is the whole board, so every Aquent link resolves to the same source: a
+        # talent.aquent.com/quick-apply page, a /find-work/<id> posting, the marketing site.
+        # It is already in SOURCES, and custom_sources() dedupes app-added boards against
+        # SOURCES by URL, so adding it from /add cannot make the sweep read it twice.
+        return (AQUENT_FEED, "aquent", "Aquent")
 
     if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
         _h, tenant, site = _workday_parts(url)
@@ -6014,6 +6162,11 @@ def probe_board(board_url, ats_type):
             return len(scrape_personio(board_url))
         if ats_type == "jobvite":
             return len(scrape_jobvite(board_url))
+        if ats_type == "aquent":
+            # No count endpoint to ask, so read the feed -- the same shape workable, recruitee,
+            # personio and jobvite above use. Without this the /add and extension routes refuse
+            # an Aquent link on a falsy probe count, even though detect_board resolved it.
+            return len(scrape_aquent(board_url))
         if ats_type == "jsonld":
             return len(scrape_jsonld(board_url))
     except Exception:
