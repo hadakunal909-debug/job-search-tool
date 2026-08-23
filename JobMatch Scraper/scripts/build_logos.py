@@ -1722,9 +1722,15 @@ def discover_candidates(name):
         out.append("".join(t[:2]) + ".com")
         out.append("".join(w[0] for w in t) + ".com")        # the acronym: nva.com
         out.append("".join(t[:-1]) + ".com")                 # drop a trailing generic word
+    # A DNS LABEL IS 63 OCTETS, and a guess built by squashing an employer's name blows past
+    # that easily: "Encompass Health Rehabilitation Hospital A Partner Of Washington Regional"
+    # squashes to 65 characters. urllib3 raises LocationParseError for it, which is not an
+    # IOError, so it took the whole pass down 24 employers in and lost every domain it had
+    # found. Refused here as well as caught below, because an unresolvable guess is not worth a
+    # request.
     seen = set()
     return [d for d in out
-            if len(d.split(".")[0]) >= 3 and not (d in seen or seen.add(d))][:6]
+            if 3 <= len(d.split(".")[0]) <= 63 and not (d in seen or seen.add(d))][:6]
 
 
 def name_corroborated(name, html, domain):
@@ -1804,7 +1810,13 @@ def run_discover_domains(args):
                 continue
             try:
                 r = net.get("https://" + dom + "/", ua=BROWSER_UA, timeout=(5, 10))
-            except IOError:
+            except Exception:
+                # DELIBERATELY BROADER THAN IOError, and the opposite of the harvest's rule.
+                # There, a transport failure must propagate so the row is recorded `deferred`
+                # and retried rather than being written off. Here the request is a GUESS about
+                # a domain that may not exist, be malformed, or have a broken certificate --
+                # every one of those is an answer, not an outage, and none of them is worth
+                # discarding the other 800 employers' results for.
                 continue
             if r is None:
                 continue
@@ -1962,14 +1974,16 @@ def run_write_domains(args):
 # So the gate is calibrated to the measured achievable rate with a margin below it, and its job
 # is to catch a REGRESSION rather than to assert perfection. That is what protects against the
 # 53% coming back, and unlike a floor that cannot be met it will actually be believed.
-# Measured 2026-08-22 after the full harvest: 96/143 = 67% of the 1,000+ cohort and 427/702 = 60%
-# of the 100+ cohort have a logo. The floors sit ~7 points below each, which is wide enough that
-# a source having a bad day does not fail the build and tight enough that losing a hundred logos
-# does. Raise them when a harvest beats them by more than that margin.
-HEAD_HARD = 1000        # 143 rows, 67% covered
-HARD_FLOOR = 0.60
-HEAD_SOFT = 100         # 702 rows, 60% covered
-SOFT_FLOOR = 0.53
+# Measured 2026-08-22 after the first full harvest: 96/143 = 67% of the 1,000+ cohort and
+# 427/702 = 60% of the 100+ cohort. RE-BASELINED 2026-08-23 after the homonym fix, the wider
+# site chain and the thumb fallback: 102/143 = 71.3% and 70.5%, over 1,472 logos against 1,148.
+# The floors sit ~7 points below each, which is wide enough that a source having a bad day does
+# not fail the build and tight enough that losing a hundred logos does. Raise them when a
+# harvest beats them by more than that margin -- a floor that no longer bites is not a gate.
+HEAD_HARD = 1000        # 143 rows, 71.3% covered
+HARD_FLOOR = 0.64
+HEAD_SOFT = 100         # 702 rows, 70.5% covered
+SOFT_FLOOR = 0.63
 
 
 def run_check(args):
