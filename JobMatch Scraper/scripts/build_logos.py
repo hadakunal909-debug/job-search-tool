@@ -747,6 +747,56 @@ def sanitise_svg(raw):
 
 # ---------------------------------------------------------------- storage
 
+_HEXCOL = re.compile(rb"#[0-9a-fA-F]{3,8}")
+_FUNCCOL = re.compile(rb"(?:rgb|rgba|hsl|hsla)\(", re.I)
+_NUM = re.compile(r"-?[\d.]+")
+
+
+def svg_meta(raw):
+    """(ar, mono, why) for a SANITISED SVG, judged structurally instead of on pixels.
+
+    Tier 1 never needs this: Commons renders a raster thumb for every file, and judge() measures
+    that. A site's own favicon.svg arrives with no thumb, and PIL cannot rasterise one -- adding
+    cairosvg would put a native dependency on a shared host for one gate. So the checks here are
+    the ones that survive without a renderer: a declared geometry, a plausible aspect, and a
+    colour count read off the markup.
+
+    THIS IS A WEAKER GATE THAN judge() AND IT IS SAID SO OUT LOUD. It cannot see a solid colour
+    block or a blurry upscale. What makes that acceptable is the source: a vector cannot BE a
+    blurry upscale, and the file is served by the employer's own domain, which has already had
+    to clear domain_agrees against the company name.
+    """
+    from lxml import etree
+    try:
+        root = etree.fromstring(raw, parser=etree.XMLParser(resolve_entities=False,
+                                                            no_network=True, huge_tree=False))
+    except Exception:
+        return 0, 0, "svg-unparseable"
+    vb = (root.get("viewBox") or "").strip()
+    w = h = 0.0
+    if vb:
+        nums = _NUM.findall(vb)
+        if len(nums) >= 4:
+            w, h = abs(float(nums[2])), abs(float(nums[3]))
+    if not (w and h):
+        try:
+            w = float((_NUM.findall(root.get("width") or "") or [0])[0])
+            h = float((_NUM.findall(root.get("height") or "") or [0])[0])
+        except Exception:
+            w = h = 0.0
+    if not (w and h):
+        return 0, 0, "svg-no-geometry"
+    ar = round(w / h, 3)
+    if ar > MAX_AR or ar < 1.0 / MAX_AR:
+        return ar, 0, "aspect"
+    # MONOCHROME IS RECORDED, NOT REJECTED -- the manifest carries the flag so the page can
+    # decide. Counting distinct literal colours in the markup is crude, and it only has to
+    # separate "one ink" from "a brand palette".
+    cols = {c.lower() for c in _HEXCOL.findall(raw)}
+    mono = 1 if (len(cols) <= 1 and not _FUNCCOL.search(raw)) else 0
+    return ar, mono, ""
+
+
 def store(slug, raw, is_svg):
     """Write the asset, returning (filename, bytes, sha256, why).
 
@@ -977,17 +1027,29 @@ def resolve(net, cache, name, stored):
     for order, (qid, label, desc) in enumerate(hits):
         ent = ents.get(qid) or {}
         claims = ent.get("claims") or {}
-        if label_too_specific(name, label):
-            continue                    # a product or subsidiary, not the employer
         dom = p856_domain(claims, name)
         logo = pick_logo_file(claims)
+        # THE DOMAIN IS A BETTER ARBITER THAN THE LABEL, so it is consulted first and can excuse
+        # a label that looks too specific. Measured: our corpus calls the employer "lululemon"
+        # while Wikidata's entity -- the one carrying the logo -- is labelled "Lululemon
+        # Athletica", so the subset rule below read the real company as a subsidiary of itself
+        # and threw it away. Its P856 is shop.lululemon.com, which is our own stored
+        # lululemon.com wearing a subdomain.
+        #
+        # ASYMMETRIC ON PURPOSE. Accepting a bare registrable match in both directions would let
+        # amazon.com answer for a company stored as aws.amazon.com, which is the confusion
+        # p856_domain's docstring exists to prevent. Only the entity being a SUBDOMAIN of what we
+        # stored counts: shop.lululemon.com under lululemon.com, never the reverse.
+        under = bool(dom and stored and (dom == stored or dom.endswith("." + stored)))
+        if not under and label_too_specific(name, label):
+            continue                    # a product or subsidiary, not the employer
         # AN EXACT DOMAIN MATCH OUTRANKS THE ORGANISATION GATE, and is allowed to skip it.
         # The gate exists to catch a match made on a NAME alone; when the entity's own official
         # website is the domain we already had, that is the two-source agreement the gate is a
         # proxy for. Measured: Q483959 is unambiguously PayPal -- p856 paypal.com, P154
         # "PayPal 2024.svg" -- and its P31 chain does not reach an organisation root inside six
         # hops, so the gate rejected the right entity and left a logo-less stub to win.
-        agreed = bool(dom and stored and dom == stored)
+        agreed = under
         ok, path = (True, ["p856"]) if agreed else is_org(qid, claims, cache)
         if not ok:
             continue
@@ -1123,9 +1185,33 @@ def harvest_one(net, cache, name, stored, tier):
                     continue
                 is_svg = url.lower().split("?")[0].endswith(".svg")
                 if is_svg:
-                    # Tier 2 is RASTER ONLY, on purpose: it holds the SVG sanitisation surface
-                    # to a single source (Commons). Every measured tier-2 hit except Goldman
-                    # Sachs was raster anyway, and Goldman is a P154 hit.
+                    # TIER 2 USED TO REFUSE SVG ENTIRELY, to hold the sanitisation surface to a
+                    # single source (Commons). Measured cost of that rule: Axon serves a good
+                    # favicon.svg and its two PNG icons 404, so it got no logo at all -- and
+                    # modern sites overwhelmingly ship an SVG favicon and nothing else. It was
+                    # rejecting the best asset the domain had.
+                    #
+                    # sanitise_svg is not Commons-specific: it refuses a DOCTYPE or an ENTITY on
+                    # the way IN, parses with no_network and no entity resolution, drops the
+                    # script/handler surface, and is already the only thing standing between a
+                    # Commons SVG and static/. Running a site's SVG through the same function is
+                    # the same guarantee, applied to a source that has already had to agree with
+                    # the company name.
+                    body, swhy = sanitise_svg(raw)
+                    if not body:
+                        ent.setdefault("why", swhy)
+                        continue
+                    sar, smono, swhy = svg_meta(body)
+                    if swhy:
+                        ent.setdefault("why", swhy)
+                        continue
+                    out, size, sha, owhy = store(slug, body, True)
+                    if out:
+                        ent.update(verdict="accepted", tier="site", asset=out, bytes=size,
+                                   sha256=sha, src=url, why="", license="site", artist="",
+                                   ar=sar, mono=smono)
+                        return ent
+                    ent.setdefault("why", owhy)
                     continue
                 ok, why, meta = judge(raw)
                 if not ok:

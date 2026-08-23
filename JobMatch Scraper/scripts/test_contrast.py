@@ -103,10 +103,13 @@ EXEMPT = {
     # its comment in style.css, which is a deliberate value rather than whatever grey was handy.
     "--border-card": "boundary of a panel/tile, not a control you can operate",
     "--logo-plate": "the surface an IMAGE sits on, not text and not a control you can "
-                    "operate, so the same reasoning as --border-card. It is a 15.9:1 step "
-                    "above --bg-surface in dark on purpose, because it is paper; glare is "
-                    "controlled by the plate hugging its artwork and by an inset rim darker "
-                    "than the plate, not by dimming it.",
+                    "operate, so the same reasoning as --border-card. It stays lighter than "
+                    "the card in dark mode because most brand marks are drawn in dark ink for "
+                    "white paper and would otherwise vanish -- but it is no longer a near-white "
+                    "#f1f3f6 block, which read as a sticker stuck onto the card rather than "
+                    "part of it. Hugging the artwork was not enough on its own; the plate is "
+                    "dimmed to the composite it would have had at 82% alpha, and kept opaque "
+                    "so the ink pair below stays resolvable here.",
     "--logo-plate-edge": "inset rim on the logo plate, 1.30:1 against it in both themes",
     "--match-none": "empty-track fill, never used as text",
     "--match-track": "unfilled arc, never used as text",
