@@ -48,6 +48,8 @@ COMPANIES_JSON = "companies.json"
 DOMAINS_JSON = "company_domains.json"
 LEDGER = "logo_harvest.json"
 AUDIT_CSV = "company_domains_audit.csv"
+DISCOVER_CSV = "company_domains_discovered.csv"
+DOMAINS = {}                 # norm_company -> domain; filled by run_harvest, see load_domains
 LOGO_DIR = os.path.join("static", "logos")
 MANIFEST = os.path.join(LOGO_DIR, "index.json")
 
@@ -145,8 +147,82 @@ PLATFORM_HOSTS = (
 # It returns LinkedIn Learning, LinkedIn Ireland and LinkedIn News, and Learning carries a real
 # logo -- so the loose subset match in label_ok shipped LinkedIn Learning's logo for LinkedIn
 # until that was tightened. The right entity is Q213660 and its logo is this file.
+# city-of-new-york: the employer IS a municipal government, so is_place() below correctly
+# refuses to guess an entity for it -- and correctly costs us the one Commons file in this
+# corpus where a city's own mark is the right answer. Measured: of the 13 entities is_place
+# rejects among the 1,148 we already ship, this is the only one that loses a correct logo and
+# has no domain to fall back to. So it is named here rather than weakening the rule.
+# rochester-institute-of-technology: the other side of the same coin, and the reason the list
+# is TWO entries and not a loosened rule. is_place refuses its entity, and its stored domain is
+# a name-exact guess (rochesterinstituteoftechnology.com) that declares no icon -- so tier 2
+# cannot save it either. 105 H-1B filings, so it is worth a line. Wisconsin loses its logo to
+# the same rule and does NOT get a line: 0 open roles, 0 filings, and what it lost was
+# wisconsin.gov's favicon.
+# A DOMAIN NO RULE CAN REACH, which is a different list from LOGO_OVERRIDE below because the
+# failure is different: the name is real, the guess is plausible, and it belongs to somebody else.
+#
+# 43% of the employers with no domain have a single distinctive token, and they carry 45% of the
+# filings in that cohort -- so they cannot be refused wholesale. But a one-word name cannot be
+# disambiguated from a page: measured on the head of the discovery pass, "Alphabet" (23,240 H-1B
+# filings, so unambiguously Google's parent) corroborates PERFECTLY against alphabet.com, which is
+# BMW's fleet-management business. Both the address and the page agree; they just agree about the
+# wrong company. No heuristic available here separates the two, so the answer is a named entry and
+# a human skim of company_domains_discovered.csv, which is sorted by filings for exactly that.
+#
+# keyed on core.norm_company. "" means "we have no domain and guessing is worse than not".
+DOMAIN_OVERRIDE = {
+    "alphabet": "abc.xyz",
+    # HAND-READ 2026-08-23, and this list is the ANSWER to --discover-domains rather than a
+    # supplement to it. Three tightening passes took the guess from ~1-in-3 wrong to ~1-in-6, and
+    # then it stopped converging, because the ways a guessed domain lies are open-ended: a broker
+    # with novel copy (crusoe.com sells "Strategic-Grade domain names"), an acquisition
+    # (altair.com now redirects to siemens.com, and Altair's own mark is what a card wants), a
+    # homonym (nikola.com is Nikola Engineering, not Nikola Motor; titan.com is a wealth manager;
+    # paradigm.com sells loudspeakers; maplebear.com is a Canadian school franchise, not
+    # Instacart's legal entity), a .io squat with no title at all (apexsystems.io), or simply a
+    # different company of the same name (persistentsystems.com is a US radio maker, not the
+    # Indian IT firm). None of those is reachable by reading a page harder.
+    #
+    # So the pass stays, its output does not ship, and its CSV is a WORKLIST. These twenty were
+    # opened and checked by eye; they carry ~19k H-1B filings between them, which is most of the
+    # value the whole pass was chasing. Four are the redirect TARGET rather than the guess,
+    # because that is where the icons actually live.
+    "birlasoft": "birlasoft.com",
+    "catalent": "catalent.com",
+    "centraprise": "centraprise.com",
+    "coforge": "coforge.com",
+    "cotiviti": "cotiviti.com",
+    "flatiron health": "flatiron.com",
+    "highmark health": "highmark.com",
+    "itc infotech": "itcinfotech.com",
+    "intraedge": "intraedge.com",
+    "ltimindtree": "ltm.com",
+    "marlabs": "marlabs.com",
+    "mastech digital": "mastechdigital.com",
+    "national veterinary associates": "nva.com",
+    "open avenues foundation": "openavenuesfoundation.org",
+    "paycom payroll": "paycom.com",
+    "qualcomm": "qualcomm.com",
+    "samsung electronics america": "samsung.com",
+    "tech mahindra": "techmahindra.com",
+    "visionet systems": "visionet.com",
+    "west pharmaceutical services": "westpharma.com",
+    # "" means we have no domain and guessing is worse than not. Each of these was guessed
+    # plausibly and checked, and each guess was somebody else.
+    "altair": "",
+    "apex systems": "",
+    "crusoe": "",
+    "maplebear": "",
+    "nikola": "",
+    "paradigm": "",
+    "persistent systems": "",
+    "titan": "",
+}
+
 LOGO_OVERRIDE = {
     "linkedin": "LinkedIn Logo.svg",
+    "city-of-new-york": "NYC Logo Wolff Olins.svg",
+    "rochester-institute-of-technology": "RIT 2018 logo short orange.svg",
 }
 
 
@@ -393,6 +469,36 @@ class ClassCache:
         self.dirty = False
 
 
+# Properties only a POPULATED PLACE carries. This is the sharp instrument for the whole
+# homonym class, and it was chosen by measurement rather than by reasoning: over the 508
+# entities whose acceptance went through the organisation gate, P1082 rejects 13 and catches
+# every one of the ten known-wrong rows, where widening HARD_REJECT through the subclass
+# closure caught nine and P625 (coordinate location) rejected 129 -- a quarter of the corpus,
+# because a company has a headquarters.
+#
+# What those 13 are, in full, because the cost matters as much as the catch: seven were
+# SHIPPING a municipality's crest as a company's logo (Alma -> ville.alma.qc.ca, Hays ->
+# haysusa.com which is the City of Hays, Kansas, Nice -> nice.fr, Heidelberg -> heidelberg.de,
+# CHEP -> cheptainville.fr, Clera -> ville-clerac.fr, Wawa -> wawa.cc); four matched a place
+# but had already fallen back to the right domain, so nothing changes for them; and two lose a
+# correct Commons file -- Rochester Institute of Technology, which tier 2 can still reach on
+# its own domain, and City of New York, which is in LOGO_OVERRIDE above.
+PLACE_PROPS = ("P1082",)          # population
+
+
+def is_place(claims):
+    """Is this entity a populated place wearing a company's name?
+
+    Checked BEFORE the organisation gate and before the exact-P856 bypass, because both of
+    them pass a municipality: a US municipality genuinely subclasses to Q43229 organization,
+    and a commune's own website is its own P856 so the two-source agreement the bypass looks
+    for is real -- it is just agreement about the wrong entity. Snowflake, Arizona held the
+    name "Snowflake" this way and handed tier 2 ci.snowflake.az.us while snowflake.com sat
+    unused in companies.json.
+    """
+    return any(claims.get(prop) for prop in PLACE_PROPS)
+
+
 def is_org(qid, claims, cache):
     """Does this entity's P31 reach an organisation root by P279?
 
@@ -416,8 +522,16 @@ def is_org(qid, claims, cache):
         nxt = []
         for q in frontier:
             for p in cache.parents(q):
+                # A HARD_REJECT ANYWHERE IN THE CLOSURE IS FATAL, not just at the frontier
+                # edge. Dropping the branch and walking its SIBLINGS is what let Snowflake,
+                # Arizona through: its P31 is Q15127012, whose parents are Q3957 (town, in
+                # HARD_REJECT) and Q3327870 (municipality of the US) -- so town was skipped,
+                # municipality survived, and municipality really does subclass to organization
+                # four hops later. Depth 0 already worked this way; the walk did not.
+                # Note the ORG_ROOTS test above runs FIRST at every level, so an entity that
+                # reaches "organisation" sooner than it reaches "town" is still accepted.
                 if p in HARD_REJECT:
-                    continue
+                    return False, []
                 if p not in seen:
                     seen.add(p)
                     nxt.append(p)
@@ -877,11 +991,38 @@ def store(slug, raw, is_svg):
 
 # ---------------------------------------------------------------- the site-icon leg
 
-ICON_MIN = 120
+ICON_MIN = 120          # the floor a DECLARED size must clear
+ICON_TRIES = 6          # candidates fetched per domain, best-ranked first
+
+# RANKS FOR CANDIDATES WHOSE SIZE THE PAGE NEVER STATED, and the reason this block exists.
+# sizes= is OPTIONAL on apple-touch-icon and its de-facto size is 180x180, but an absent
+# attribute used to score 0 and then fail `size >= ICON_MIN` -- so the most common
+# high-resolution icon on the web was discarded unread. Measured by fetching them anyway:
+# Skydio 180x180, Entergy 180x180, Biogen 180x180, Awardco 256x256, Astranis 256x256, Hex
+# 128x128, all thrown away. Over 25 sampled employers that have a verified domain and no logo,
+# domains yielding at least one candidate went from 8 to 15.
+#
+# An absent sizes= is not a claim that the asset is small, so it is a SORT KEY now and judge()'s
+# 128px floor is what actually decides -- which is this file's own stated principle applied to
+# its own input. An explicit sizes="16x16" is still a true statement and is still filtered out.
+RANK_SVG = 512          # vector: resolution-independent, so it outranks everything
+RANK_JSONLD = 260       # schema.org Organization.logo -- a brand logo, not an app icon
+RANK_APPLE = 180        # apple-touch-icon's de-facto size when it is not stated
+RANK_UNSIZED = 130      # any other unsized rel=icon
+RANK_WELLKNOWN = 125    # nothing was declared; ask the conventional paths
+WELL_KNOWN_ICONS = ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png",
+                    "/favicon.svg")
+# "logo": "<url>" or "logo": {"url": "<url>"}, the two shapes schema.org allows. Regex rather
+# than a JSON parse because the block is often one of several in a page and frequently invalid.
+JSONLD_LOGO = re.compile(
+    r'"logo"\s*:\s*(?:"(https?://[^"]{4,400})"'
+    r'|\{[^{}]{0,400}?"url"\s*:\s*"(https?://[^"]{4,400})")')
+# og:image is deliberately absent. It is a social share card: measured over 22 sampled
+# homepages it would have added three, all of them banners that judge() rejects as photographs.
 
 
 def site_icons(net, domain):
-    """High-resolution icon URLs declared by the site itself, largest first.
+    """Icon and logo URLs the site itself declares, best first.
 
     Measured hit rate on its own: 45% of 40 random stored domains, at 192x192 to 1024x1024.
     Second source rather than first because plenty of large sites serve no parseable link tags
@@ -907,8 +1048,14 @@ def site_icons(net, domain):
             if "icon" not in rel or not href:
                 continue
             m = re.match(r"(\d+)x", (link.get("sizes") or "").lower())
-            size = 512 if href.lower().split("?")[0].endswith(".svg") else (
-                int(m.group(1)) if m else 0)
+            if href.lower().split("?")[0].endswith(".svg"):
+                size = RANK_SVG
+            elif m:
+                size = int(m.group(1))
+            elif "apple-touch-icon" in rel:
+                size = RANK_APPLE
+            else:
+                size = RANK_UNSIZED
             cands.append((size, urljoin(r.url, href)))
         for link in soup.find_all("link"):
             if "manifest" not in " ".join(link.get("rel") or []).lower():
@@ -923,7 +1070,17 @@ def site_icons(net, domain):
             except Exception:
                 pass
             break
-        return [u for size, u in sorted(cands, reverse=True) if size >= ICON_MIN][:4]
+        for mo in JSONLD_LOGO.finditer(r.text or ""):
+            cands.append((RANK_JSONLD, urljoin(r.url, mo.group(1) or mo.group(2))))
+        for wk in WELL_KNOWN_ICONS:
+            cands.append((RANK_WELLKNOWN, urljoin(r.url, wk)))
+        seen, out = set(), []
+        for size, u in sorted(cands, key=lambda t: -t[0]):
+            if size < ICON_MIN or u in seen:
+                continue
+            seen.add(u)
+            out.append(u)
+        return out[:ICON_TRIES]
     return []
 
 
@@ -1046,6 +1203,8 @@ def resolve(net, cache, name, stored):
     for order, (qid, label, desc) in enumerate(hits):
         ent = ents.get(qid) or {}
         claims = ent.get("claims") or {}
+        if is_place(claims):
+            continue                    # a town with the company's name, not the company
         dom = p856_domain(claims, name)
         logo = pick_logo_file(claims)
         # THE DOMAIN IS A BETTER ARBITER THAN THE LABEL, so it is consulted first and can excuse
@@ -1129,6 +1288,31 @@ def commons_asset(net, filename):
 NONFREE = re.compile(r"fair\s*use|non[- ]free|copyright|all rights reserved", re.I)
 
 
+def domain_candidates(name, stored, p856):
+    """Every domain worth asking for this employer's own icon, best first.
+
+    STORED COMES FIRST, and that ordering is the fix for a whole class of wrong logo. This was
+    `p856 or stored`, so a homonymous entity's website OVERWROTE a domain we had already
+    verified -- and Wikidata is full of places that share a company's name. Measured against
+    the ledger this replaces: Snowflake harvested ci.snowflake.az.us while snowflake.com sat
+    in companies.json unused, Appian took an Italian comune's site, KLA took Klagenfurt's.
+
+    stored came from --write-domains, which records provenance per entry and is gated by
+    --check's one-domain-one-company rule. An in-run P856 is whatever entity wbsearchentities
+    ranked first. So stored is the better witness and P856 is the fallback, not the override --
+    and BOTH are tried, because the first one to yield an asset that passes judge() wins.
+    """
+    forced = DOMAIN_OVERRIDE.get(core.norm_company(name) or "")
+    if forced is not None:
+        return [forced] if forced else []
+    out = []
+    for d in (stored or "", p856 or ""):
+        d = (d or "").strip().lower()
+        if d and d not in out and domain_agrees(name, d):
+            out.append(d)
+    return out
+
+
 def harvest_one(net, cache, name, stored, tier):
     """Everything for one company. Returns a ledger entry.
 
@@ -1145,8 +1329,10 @@ def harvest_one(net, cache, name, stored, tier):
         ent.update({k: v for k, v in info.items()
                     if k in ("qid", "p856", "identity", "p279_path", "label")})
 
-    domain = info.get("p856") or stored or ""
-    ent["domain"] = domain
+    cands = domain_candidates(name, stored, info.get("p856") or "")
+    ent["domain"] = cands[0] if cands else ""
+    if not cands and (stored or info.get("p856")):
+        ent["why"] = "domain-unverified"
 
     # ---- tier 1: the Commons brand logo
     fn = override if override else info.get("logo_file") or ""
@@ -1166,39 +1352,61 @@ def harvest_one(net, cache, name, stored, tier):
             if ok:
                 is_svg = "svg" in (mime or "") or orig.lower().endswith(".svg")
                 body = net.get(orig, binary=True) if is_svg else probe
+                lost = ""
                 if body:
                     if is_svg:
-                        body, swhy = sanitise_svg(body)
-                        if not body:
-                            ent.update(verdict="rejected", why=swhy, tier="wikidata")
+                        body, lost = sanitise_svg(body)
+                    if body:
+                        out, size, sha, owhy = store(slug, body, is_svg)
+                        if out:
+                            ent.update(verdict="accepted", tier="wikidata", asset=out,
+                                       bytes=size, sha256=sha, src=orig, why="")
+                            # The stored SVG keeps the ORIGINAL aspect ratio, which the thumb
+                            # also carries, so meta's ar is right either way.
                             return ent
-                    out, size, sha, owhy = store(slug, body, is_svg)
+                        lost = lost or owhy
+                # THE THUMB ALREADY PASSED judge(), SO DO NOT THROW IT AWAY. Everything above
+                # this point is about the SVG ORIGINAL, and it can be refused for reasons that
+                # say nothing about the artwork: 40 KB is a page-weight cap, and a DOCTYPE is
+                # refused because lxml drops the DTD on serialise so a post-hoc scan of the
+                # output cannot see an entity payload. Both are correct rules. But the 192px
+                # PNG Wikimedia rendered from that same file is already in hand, already
+                # cleared the pixel gate above, and goes through the raster path -- re-encoded
+                # to WebP under the same 40 KB cap. Measured: 21 employers were being dropped
+                # this way, every one of them tier 1, including Harvard, TD Bank, Bloomberg,
+                # Grainger, Kaiser Permanente and Cardinal Health.
+                if is_svg and probe:
+                    out, size, sha, owhy = store(slug, probe, False)
                     if out:
                         ent.update(verdict="accepted", tier="wikidata", asset=out, bytes=size,
-                                   sha256=sha, src=orig, why="")
-                        # The stored SVG keeps the ORIGINAL aspect ratio, which the thumb also
-                        # carries, so meta's ar is right either way.
+                                   sha256=sha, src=thumb or orig, why="",
+                                   raster_fallback=lost or "svg-unusable")
                         return ent
-                    ent.update(verdict="rejected", why=owhy, tier="wikidata")
+                    lost = lost or owhy
+                if lost:
+                    ent.update(verdict="rejected", why=lost, tier="wikidata")
                     return ent
             else:
                 ent.update(why=why, tier="wikidata")
 
     # ---- tier 2: the company's own high-resolution site icon
     #
-    # THE DOMAIN HAS TO CORROBORATE THE NAME BEFORE ITS ICON IS TRUSTED. Tier 1 gets this for
-    # free -- P856 is checked against the name inside p856_domain -- but tier 2 also accepts the
-    # domain already stored in companies.json, and those came from the old guess-and-probe
-    # builder. Measured before this check existed: of 207 tier-2 acceptances, 2 were the
-    # employer's JOB BOARD rather than the employer. GardaWorld Security Services took
-    # appcast.io's logo and iPolarity took careerplug.com's. One percent, and exactly the
-    # confidently-wrong class that is worse than a monogram. --check asserts the property too.
-    if domain and not domain_agrees(name, domain):
-        ent["why"] = "domain-unverified"
-        domain = ""
-    if domain and tier in ("all", "site"):
+    # THE DOMAIN HAS TO CORROBORATE THE NAME BEFORE ITS ICON IS TRUSTED, and domain_candidates
+    # above is where that happens now -- every candidate it returns has already passed
+    # domain_agrees, so there is nothing left to filter here. Tier 1 gets the same property for
+    # free, because p856_domain checks P856 against the name. Measured before that check
+    # existed: of 207 tier-2 acceptances, 2 were the employer's JOB BOARD rather than the
+    # employer -- GardaWorld Security Services took appcast.io's logo and iPolarity took
+    # careerplug.com's. One percent, and exactly the confidently-wrong class that is worse than
+    # a monogram. --check asserts the property on the stored `domain` too, which is why the
+    # accepting branches below overwrite it with the candidate that actually won rather than
+    # leaving the first one we tried.
+    tried = 0
+    for domain in (cands if tier in ("all", "site") else []):
         try:
-            for url in site_icons(net, domain):
+            urls = site_icons(net, domain)
+            tried += len(urls)
+            for url in urls:
                 raw = net.get(url, ua=BROWSER_UA, binary=True, timeout=(5, 12))
                 if not raw:
                     continue
@@ -1228,7 +1436,7 @@ def harvest_one(net, cache, name, stored, tier):
                     if out:
                         ent.update(verdict="accepted", tier="site", asset=out, bytes=size,
                                    sha256=sha, src=url, why="", license="site", artist="",
-                                   ar=sar, mono=smono)
+                                   ar=sar, mono=smono, domain=domain)
                         return ent
                     ent.setdefault("why", owhy)
                     continue
@@ -1240,16 +1448,28 @@ def harvest_one(net, cache, name, stored, tier):
                 if out:
                     ent.update({k: meta[k] for k in ("w", "h", "ar", "mono") if k in meta})
                     ent.update(verdict="accepted", tier="site", asset=out, bytes=size,
-                               sha256=sha, src=url, why="", license="site", artist="")
+                               sha256=sha, src=url, why="", license="site", artist="",
+                               domain=domain)
                     return ent
                 ent.setdefault("why", owhy)
         except IOError:
             raise
 
+    ent["site_tried"] = tried
     if not ent.get("why"):
-        ent["why"] = info.get("why") or ("no-logo-claim" if info.get("qid") else "no-entity")
+        # WHY USED TO LIE BY OMISSION. When tier 2 found no candidate at all, nothing set a
+        # reason, so the entry fell through to tier 1's -- and Truist read "not-an-org" when
+        # the real story was that truist.com declares no icon this chain can use. A pass aimed
+        # at "no Wikidata entity" is a different pass from one aimed at "no site icon", so the
+        # two are named apart and the count of candidates actually fetched is recorded.
+        if cands and not tried:
+            ent["why"] = "no-site-icon"
+        else:
+            ent["why"] = info.get("why") or ("no-logo-claim" if info.get("qid")
+                                             else "no-entity")
     ent["verdict"] = "no-candidate" if ent["why"] in ("no-entity", "no-logo-claim",
-                                                      "not-an-org") else "rejected"
+                                                      "not-an-org",
+                                                      "no-site-icon") else "rejected"
     return ent
 
 
@@ -1296,9 +1516,21 @@ def write_manifest(rows, ledger):
 
 # ---------------------------------------------------------------- the harvest pass
 
+def load_domains():
+    """norm_company -> domain, this script's own output. Empty map if it is missing, which
+    degrades to companies.json's copy rather than to a crash."""
+    try:
+        with open(DOMAINS_JSON, encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("domains") or {}
+    except Exception:
+        return {}
+
+
 def run_harvest(args):
     rows = load_rows()
     ledger = load_ledger()
+    global DOMAINS
+    DOMAINS = load_domains()
     net = Net(pace=args.delay)
     cache = ClassCache(net)
 
@@ -1351,7 +1583,14 @@ def run_harvest(args):
     attempted = accepted = 0
     debug_left = 3
     for i, r in enumerate(todo, 1):
-        name, stored = r[0], (r[4] or "")
+        # THE DOMAIN MAP OUTRANKS companies.json's COPY OF IT. r[4] is a snapshot taken by
+        # whichever build_companies.py run last happened, and this script rewrites the map
+        # itself -- so the copy is stale by construction, and --check already reports the
+        # divergence as a note (38 rows when this was written). Reading the map directly also
+        # means --discover-domains takes effect immediately: no rebuild in between, and no
+        # database needed to pick up a domain that was just resolved.
+        name = r[0]
+        stored = DOMAINS.get(core.norm_company(name) or "") or (r[4] or "")
         slug = slugify(name)
         try:
             ent = harvest_one(net, cache, name, stored, args.tier)
@@ -1486,6 +1725,254 @@ def run_audit_domains(args):
     return 0
 
 
+# ---------------------------------------------------------------- domain discovery
+#
+# For the employers with NO domain at all -- 772 of them when this was written -- there is
+# nothing for either tier to ask. Wikidata has no entity, so no P856, and companies.json has no
+# r[4]. Two sources were measured and rejected before this one:
+#
+#   * the careers URL in companies.json. It is almost always an ATS host, and gating it on the
+#     name recovered 2 of 772. Dead end.
+#   * status_code == 200 on a guessed domain. That was scripts/build_company_domains.py's
+#     ENTIRE verification, and it is why Apple had appleinc.com and why two employers who
+#     merely post through ADP both had adp.com. This script exists partly to undo it.
+#
+# So: guess the domain, then make the PAGE prove it belongs to this employer. Measured yield on
+# 24 sampled employers with a crude generator: 12 resolved, 7 then produced an icon >=128px.
+DISCOVER_TLDS = (".com", ".org", ".io")
+EDU_WORDS = ("university", "college", "school", "academy")
+# A NON-.com HIT NEEDS THE STRONG CORROBORATION PATH, and that is a measured rule. In the first
+# full pass 60 of 351 hits were a full-name match on .org or .net, and the bad ones were bad in
+# a specific way -- they were all ONE-WORD employers, where the only evidence is that a domain
+# spelling the word exists and its page uses the word. citadel.org is The Citadel, a military
+# college in South Carolina, not the hedge fund; vastek.org, natsoft.org and donato.net are not
+# the IT firms that share those names.
+#
+# Banning the tld outright was the first attempt and it was wrong: it also lost mountsinai.org,
+# which is right, and every hospital and foundation. The tld is not the discriminator -- the
+# WEAKNESS OF THE MATCH is. So .org stays a candidate and the single-token path is confined to
+# .com and .edu, where a squatter is at least paying for the privilege.
+SINGLE_TOKEN_TLDS = (".com", ".edu")
+# Legal FORM only. Deliberately much shorter than SUFFIXES above, because these two lists answer
+# different questions and sharing one was the defect: SUFFIXES is for building a domain, where
+# "Technologies" and "Corporation" never appear, but for VERIFYING IDENTITY they are the name.
+# core.norm_company strips them, so "Boston Technology Corporation" became "boston" -- and
+# boston.com, which is The Boston Globe, corroborated it perfectly. Same for "Quantum
+# Technologies LLC" against Quantum Corporation's quantum.com, and "Quadrant Technologies"
+# against quadrant.org.
+LEGAL_FORMS = {"inc", "incorporated", "llc", "ltd", "limited", "plc", "lp", "llp", "corp",
+               "corporation", "co", "company", "the", "of", "and", "a", "an"}
+# WIDENED BY WHAT IT MISSED. deutschebanksecurities.com's title is literally
+# "deutschebanksecurities.com for sale | Spaceship.com" -- the old pattern needed the words
+# "domain ... for sale" adjacent, so a marketplace that leads with the domain name walked
+# straight through and was recorded as Deutsche Bank Securities' website. A bare "for sale" in a
+# TITLE is never a real employer homepage.
+PARKED = re.compile(r"\bfor sale\b|\bparked\b|godaddy|sedo\b|hugedomains|buy this domain"
+                    r"|namecheap|afternic|dan\.com|spaceship|squadhelp|brandbucket|atom\.com"
+                    r"|this domain is (?:available|for)", re.I)
+_TITLE = re.compile(r"<title[^>]*>(.{0,300}?)</title>", re.S | re.I)
+_OGSITE = re.compile(r"""og:site_name["'][^>]*content=["']([^"']{0,160})""", re.I)
+_LDNAME = re.compile(r'"name"\s*:\s*"([^"]{0,120})"')
+
+
+def raw_tokens(name):
+    """The employer's own words, with only the legal FORM removed.
+
+    This is the identity vocabulary, and it is not _tokens(). _tokens goes through
+    core.norm_company, which strips Technologies / Corporation / Group / Holdings because those
+    never appear in a domain -- correct for building a guess, wrong for checking one.
+    """
+    words = re.findall(r"[a-z0-9]+", (name or "").lower())
+    # A LEGAL FORM TRAILS A NAME, IT NEVER LEADS ONE. Stripping positionally-blind cost
+    # "LP Analyst" its first word -- "lp" is in the list -- so the name became "analyst" and
+    # analyst.com corroborated it. The first word is always part of the name.
+    return words[:1] + [w for w in words[1:] if w not in LEGAL_FORMS]
+
+
+def discover_candidates(name):
+    """Domains worth ASKING about for an employer we have no domain for at all."""
+    t = _tokens(name)
+    if not t:
+        return []
+    sq = "".join(t)
+    low = (name or "").lower()
+    tlds = list(DISCOVER_TLDS)
+    if any(w in low for w in EDU_WORDS):
+        tlds.insert(0, ".edu")
+    out = [sq + x for x in tlds[:3]]
+    if len(t) > 1:
+        out.append("".join(t[:2]) + ".com")
+        out.append("".join(w[0] for w in t) + ".com")        # the acronym: nva.com
+        out.append("".join(t[:-1]) + ".com")                 # drop a trailing generic word
+    # A DNS LABEL IS 63 OCTETS, and a guess built by squashing an employer's name blows past
+    # that easily: "Encompass Health Rehabilitation Hospital A Partner Of Washington Regional"
+    # squashes to 65 characters. urllib3 raises LocationParseError for it, which is not an
+    # IOError, so it took the whole pass down 24 employers in and lost every domain it had
+    # found. Refused here as well as caught below, because an unresolvable guess is not worth a
+    # request.
+    seen = set()
+    return [d for d in out
+            if 3 <= len(d.split(".")[0]) <= 63 and not (d in seen or seen.add(d))][:6]
+
+
+def name_corroborated(name, html, domain):
+    """(bool, why). Does the PAGE say it belongs to this employer?
+
+    EVERY distinctive token must appear, not all-but-one. Measured while sizing this pass: an
+    n-1 rule accepted "Future Secure AI" -> future.com, which is Future plc, a UK media company
+    that serves a perfectly good SVG icon -- so the pass would have SHIPPED a stranger's logo
+    under a real employer's name. That is the GardaWorld/appcast.io class and it is strictly
+    worse than a monogram, so the rule is deliberately tuned for precision over yield.
+
+    Two accept paths, and each needs agreement from TWO places:
+      * the domain's own label is the squashed name AND the page repeats it. Both the address
+        and the content agree, which is the strongest evidence available without a registry.
+      * two or more distinctive tokens all appear. One token is a coincidence -- "future" --
+        and two independent ones are not.
+    """
+    ti = (_TITLE.search(html or "") or [None, ""])[1]
+    if PARKED.search(ti or "") or PARKED.search((html or "")[:3000]):
+        return False, "parked"
+    parts = [ti or "", (_OGSITE.search(html or "") or [None, ""])[1]]
+    parts += _LDNAME.findall(html or "")[:4]
+    hay = re.sub(r"[^a-z0-9]", "", " ".join(parts).lower())
+    if not hay:
+        return False, "no-identity-text"
+    # RAW tokens, not normalised ones -- see raw_tokens(). Every distinctive one must appear.
+    raw = raw_tokens(name)
+    dist = [w for w in raw if len(w) >= 4]
+    hit = bool(dist) and all(w in hay for w in dist)
+    # A US EDUCATION EMPLOYER IS ON .edu OR IT IS NOT THEM, and this has to be tested BEFORE the
+    # strong path below can return. universityofflorida.org, universityofsouthflorida.com and
+    # universityofnewhampshire.com each corroborated on two tokens and none of them is the
+    # university (ufl.edu, usf.edu, unh.edu) -- the squashed legal name is what a squatter
+    # registers, which is exactly why two tokens agreeing is not enough here.
+    if any(w in (name or "").lower() for w in EDU_WORDS) and not (domain or "").endswith(".edu"):
+        return False, "edu-not-on-edu"
+    # TWO independent words agreeing is the strong path, and it is the only one allowed to
+    # accept any tld. One word is a coincidence waiting to happen.
+    if hit and len(dist) >= 2:
+        return True, "all-tokens-in-page"
+    # THE WEAK PATHS ARE CONFINED TO .com AND .edu. A one-word employer cannot be told apart
+    # from another organisation of the same name by reading a page -- so the tld is used as the
+    # tie-breaker it actually is: the brand is on .com, and citadel.org is a military college
+    # while citadel.com is the hedge fund. This does not refuse the employer, it refuses the
+    # wrong ADDRESS for it.
+    weak_ok = any((domain or "").endswith(t) for t in SINGLE_TOKEN_TLDS)
+    # IF WE ARE LEANING ON ONE WORD, THAT WORD HAS TO BE THE WHOLE NAME. The weak path only sees
+    # tokens of 4+ characters, so a two-word employer with a short second word collapsed to one
+    # word and then matched a domain that is only its FIRST word: "First Tek" -> first.com,
+    # "Lead IT" -> lead.com, "New Era Technology" -> new.com, "SMBC US" -> smbc.com, "Concord
+    # USA" -> concord.com, "Phantom AI" -> phantom.com. None of those is the employer. The
+    # strong two-word path is unaffected, which is what keeps paycom.com and highmark.com.
+    if hit and weak_ok and (domain or "").split(".")[0] == "".join(raw):
+        return True, "single-token-in-page"
+    # And the last resort, for a name with no 4+ character word at all: the domain label spells
+    # the squashed name and the page repeats it. The CSV marks these, because they are the
+    # Alphabet case -- see DOMAIN_OVERRIDE.
+    sq = "".join(_tokens(name))
+    label = (domain or "").split(".")[0]
+    if sq and len(sq) >= 4 and label == sq and sq in hay and not dist and weak_ok:
+        return True, "domain-and-page"
+    return False, "no-corroboration"
+
+
+def run_discover_domains(args):
+    """Resolve a domain for employers that have none, by asking the page who it belongs to.
+
+    MERGES rather than rebuilds. Every entry it adds is new -- a key already in the map is left
+    alone, because that map is --write-domains' output and has recorded provenance. Discovered
+    entries are tagged so they stay separable and revocable, and the one-domain-one-company
+    invariant --check enforces is applied here too rather than being discovered later.
+    """
+    rows = load_rows()
+    try:
+        with open(DOMAINS_JSON, encoding="utf-8") as fh:
+            blob = json.load(fh) or {}
+    except Exception:
+        blob = {}
+    out = blob.get("domains") or {}
+    prov = blob.get("provenance") or {}
+    taken = {v: k for k, v in out.items()}
+
+    todo = []
+    for r in rows:
+        key = core.norm_company(r[0])
+        if not key or out.get(key) or key in DOMAIN_OVERRIDE:
+            continue
+        todo.append((r[0], key, int(r[5] or 0)))
+    todo.sort(key=lambda t: -t[2])           # biggest sponsors first, so a --limit is useful
+    if args.limit:
+        todo = todo[:args.limit]
+    print("employers with no domain: %d" % len(todo))
+
+    net = Net(pace=args.delay)
+    found, review, n = {}, [], 0
+    for name, key, h1b in todo:
+        n += 1
+        sys.stdout.write("\r  %d/%d  found %d  (%s)%s"
+                         % (n, len(todo), len(found), name[:28], " " * 12))
+        sys.stdout.flush()
+        for dom in discover_candidates(name):
+            if dom in taken or dom in found.values():
+                continue                     # already another employer's, by construction
+            if any(h in dom for h in PLATFORM_HOSTS):
+                continue
+            try:
+                r = net.get("https://" + dom + "/", ua=BROWSER_UA, timeout=(5, 10))
+            except Exception:
+                # DELIBERATELY BROADER THAN IOError, and the opposite of the harvest's rule.
+                # There, a transport failure must propagate so the row is recorded `deferred`
+                # and retried rather than being written off. Here the request is a GUESS about
+                # a domain that may not exist, be malformed, or have a broken certificate --
+                # every one of those is an answer, not an outage, and none of them is worth
+                # discarding the other 800 employers' results for.
+                continue
+            if r is None:
+                continue
+            ok, why = name_corroborated(name, r.text or "", dom)
+            if not ok:
+                continue
+            if not domain_agrees(name, dom):
+                continue                     # the same gate every other domain here passes
+            found[key] = dom
+            review.append((name, key, dom, why, h1b))
+            break
+    print()
+
+    if not found:
+        print("nothing discovered.")
+        return 0
+    with open(DISCOVER_CSV, "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        # distinctive_tokens IS THE RISK COLUMN. A multi-token name needs two independent
+        # words to agree and is hard to get wrong; a single-token one is the Alphabet case and is
+        # what the skim is for. Sorted by filings so the rows that matter are at the top.
+        w.writerow(["name", "norm_key", "domain", "corroborated_by", "h1b_filings",
+                    "distinctive_tokens"])
+        for row in sorted(review, key=lambda t: -t[4]):
+            w.writerow(list(row) + [len([w2 for w2 in _tokens(row[0]) if len(w2) >= 4])])
+    print("wrote %s -- %d rows. READ IT before committing any asset this unlocks; it is the one "
+          "step no test can do." % (DISCOVER_CSV, len(review)))
+    if args.dry_run:
+        print("dry run. would add %d entries to %s." % (len(found), DOMAINS_JSON))
+        return 0
+    out.update(found)
+    for k in found:
+        prov[k] = "discovered"
+    blob["domains"] = out
+    blob["provenance"] = prov
+    blob["built_at"] = datetime.date.today().isoformat()
+    tmp = DOMAINS_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(blob, fh, ensure_ascii=False, indent=1, sort_keys=True)
+    os.replace(tmp, DOMAINS_JSON)
+    print("added %d discovered entries to %s (now %d)." % (len(found), DOMAINS_JSON, len(out)))
+    print("NEXT: build_logos.py --refetch-rejected picks them up; the harvest reads this map "
+          "directly, so companies.json does not have to be rebuilt first.")
+    return 0
+
+
 def run_write_domains(args):
     """Rewrite company_domains.json from the ledger's P856 values.
 
@@ -1597,14 +2084,16 @@ def run_write_domains(args):
 # So the gate is calibrated to the measured achievable rate with a margin below it, and its job
 # is to catch a REGRESSION rather than to assert perfection. That is what protects against the
 # 53% coming back, and unlike a floor that cannot be met it will actually be believed.
-# Measured 2026-08-22 after the full harvest: 96/143 = 67% of the 1,000+ cohort and 427/702 = 60%
-# of the 100+ cohort have a logo. The floors sit ~7 points below each, which is wide enough that
-# a source having a bad day does not fail the build and tight enough that losing a hundred logos
-# does. Raise them when a harvest beats them by more than that margin.
-HEAD_HARD = 1000        # 143 rows, 67% covered
-HARD_FLOOR = 0.60
-HEAD_SOFT = 100         # 702 rows, 60% covered
-SOFT_FLOOR = 0.53
+# Measured 2026-08-22 after the first full harvest: 96/143 = 67% of the 1,000+ cohort and
+# 427/702 = 60% of the 100+ cohort. RE-BASELINED 2026-08-23 after the homonym fix, the wider
+# site chain and the thumb fallback: 102/143 = 71.3% and 70.5%, over 1,472 logos against 1,148.
+# The floors sit ~7 points below each, which is wide enough that a source having a bad day does
+# not fail the build and tight enough that losing a hundred logos does. Raise them when a
+# harvest beats them by more than that margin -- a floor that no longer bites is not a gate.
+HEAD_HARD = 1000        # 143 rows, 71.3% covered
+HARD_FLOOR = 0.64
+HEAD_SOFT = 100         # 702 rows, 70.5% covered
+SOFT_FLOOR = 0.63
 
 
 def run_check(args):
@@ -1813,6 +2302,8 @@ def main():
     ap.add_argument("--prune", action="store_true", help="drop assets with no manifest entry")
     ap.add_argument("--audit-domains", action="store_true",
                     help="CSV of stored vs P856. Writes no company_domains.json.")
+    ap.add_argument("--discover-domains", action="store_true",
+                    help="guess a domain for employers that have none, verified by identity")
     ap.add_argument("--write-domains", action="store_true",
                     help="rewrite company_domains.json from P856")
     ap.add_argument("--dry-run", action="store_true", help="with --write-domains, print only")
@@ -1829,6 +2320,8 @@ def main():
         return run_prune(args)
     if args.audit_domains:
         return run_audit_domains(args)
+    if args.discover_domains:
+        return run_discover_domains(args)
     if args.write_domains:
         return run_write_domains(args)
     return run_harvest(args)

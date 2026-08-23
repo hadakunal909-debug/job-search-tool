@@ -5984,7 +5984,14 @@ def companies():
     # the served row at nine fields, and the logo set is rebuilt on a different cadence than the
     # directory anyway -- so coupling them would mean a build_companies.py run against a stale
     # logo directory silently blanking every tile. Only the entries this page can actually use
-    # are sent: ~1.9 k slugs at about 28 bytes each, which gzips to a few KB.
+    # are sent: the slugs, at about 28 bytes each, which gzips to a few KB.
+    #
+    # THE ALIAS MAP IS DELIBERATELY NOT AMONG THEM. It is keyed on core.norm_company, and
+    # companies.js looked it up by SLUG -- two different spellings of one key, so the lookup
+    # could never hit for any name, and measured over all 2,695 rows it cost zero tiles. It is
+    # not fixable client-side for the same reason the monograms below are computed here, so the
+    # ~16 KB stopped being sent rather than being sent and ignored. _logo_slug still uses it:
+    # the feed resolves server-side and genuinely needs it.
     man = _logo_manifest()
     # THE MONOGRAMS ARE COMPUTED SERVER-SIDE, index-parallel to rows, and this deletes a twin
     # rather than creating one. The rule needs core.norm_company -- which strips Technologies,
@@ -5997,7 +6004,7 @@ def companies():
                            sectors=blob.get("sectors", []),
                            prefix=blob.get("prefix", {}),
                            li_kw=blob.get("li_kw", {}),
-                           logos={"v": man["v"], "ar": man["ar"], "alias": man["alias"]},
+                           logos={"v": man["v"], "ar": man["ar"]},
                            visa_labels=core.VISA_TAG_LABELS)
 
 
