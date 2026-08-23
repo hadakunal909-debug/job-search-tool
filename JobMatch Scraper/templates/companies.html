@@ -6,32 +6,81 @@
 
    app.js is deliberately NOT loaded here. It carries the feed's card contract, it is the
    second-most-coupled file in the repo, and it holds a raw NUL that hides it from ripgrep. It
-   also early-returns without #feed, so there is nothing to gain and a diff to lose. #}
+   also early-returns without #feed, so there is nothing to gain and a diff to lose.
+
+   REBUILT 2026-08-22. The toolbar used to be a .countrow with four children spread by
+   justify-content:space-between, which scattered about 1000px of slack into three ~340px gaps,
+   plus a wall of 16 .tab pills that wrapped to two or three rows ABOVE the search box, plus the
+   product's only unstyled native checkbox -- it was class="visack" without the .ck that carries
+   accent-color, so it rendered as an OS-blue tick in a 14px-radius box stretched to width:100%.
+   The controls here are the feed's own components (.fsearch, .fchip, .fpop, .seg, .sel,
+   .roletile) so the two pages read as one product; only the .cobar container is scoped, because
+   .filterbar's narrow-width rule turns itself into a horizontal scroller with .fchip-more pinned
+   sticky-right and this page has no overflow chip to pin. #}
 {% block content %}
 <div class="feedwrap">
-  <h1>Companies</h1>
-
-  {# Sector pills. Counts are filled in by companies.js against whatever the open-roles toggle
-     is set to, so the numbers always describe what a click would actually show. #}
-  <div class="tabs" id="cosectors"></div>
-
-  <div class="countrow">
-    {# Grouped thousands, like every other count in the app. Plain {{ rows|length }} rendered
-       "2104" next to a comma-formatted "1,238" in the same sentence. #}
-    <div class="count"><span id="count">0</span> of {{ "{:,}".format(rows|length) }} companies</div>
-    <input id="q" class="cosearch" type="search" placeholder="Search companies…"
-           autocomplete="off" spellcheck="false" aria-label="Search companies">
-    <select id="sort" class="sel" aria-label="Sort companies">
-      <option value="live">Open roles</option>
-      <option value="h1b">H-1B volume</option>
-      <option value="az">A–Z</option>
-    </select>
-    {# Checked by default: 1,238 of the 2,104 employers have something open, and landing on the
-       866 that don't would make two in five cards a dead end on arrival. #}
-    <label class="visack"><input type="checkbox" id="liveonly" checked> Only with open roles</label>
+  <div class="cohead-page">
+    <h1>Companies</h1>
+    <p class="codeck">Every employer we scrape, plus every sponsor we know of and have no board
+      for. Counts and open roles are live, the sector is hand-curated for the busiest few
+      hundred.</p>
   </div>
 
-  <div class="codir" id="companies"></div>
+  {# position:relative lives on .cotools and is load-bearing: .fpop is absolutely positioned and
+     .feedwrap sets no position, so without it every popover resolves against <body> and lands in
+     the wrong place at any scroll offset. It fails SILENTLY at scroll offset 0, which is where
+     anyone testing it will look first. #}
+  <div class="cotools">
+    <div class="cobar" id="cobar">
+      <div class="fsearch">
+        <input id="q" type="search" placeholder="Search companies…" autocomplete="off"
+               spellcheck="false" aria-label="Search companies">
+      </div>
+
+      {# Sector: one chip over one popover, replacing 16 wrapping pills. #}
+      <div class="fchips">
+        <button type="button" class="fchip" id="chip-sector" data-pop="pop-sector"
+                aria-haspopup="true" aria-expanded="false" aria-controls="pop-sector">
+          <span class="fchip-l">Sector</span>
+          <span class="fchip-v" id="chipv-sector"></span>
+          <span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      {# A PARTITION, NOT A CHECKBOX. 1,238 of 2,104 employers have something open, so a
+         segmented pair states both halves where a lone boolean states one and asks you to infer
+         the other. It also leaves no native checkbox on the page, which is what was rendering as
+         an OS-default tick. aria-pressed rather than role="radiogroup": the latter would owe an
+         arrow-key contract this page has no reason to implement. #}
+      <div class="seg" id="coscope" role="group" aria-label="Which employers to show">
+        <button type="button" class="segb on" id="scope-live" data-scope="live"
+                aria-pressed="true">Hiring Now</button>
+        <button type="button" class="segb" id="scope-all" data-scope="all"
+                aria-pressed="false">All Employers</button>
+      </div>
+
+      <select id="sort" class="sel" aria-label="Sort companies">
+        <option value="live">Sort: Open Roles</option>
+        <option value="h1b">Sort: H-1B Volume</option>
+        <option value="az">Sort: Alphabetical</option>
+      </select>
+    </div>
+
+    {# Outside .cobar so a sticky bar cannot clip it, the same reason feed.html keeps its
+       popovers outside .filterbar. #}
+    <div class="fpop" id="pop-sector" hidden role="group" aria-labelledby="lab-sector">
+      <h3 class="flab" id="lab-sector">Sector</h3>
+      <div class="cofacet" id="cofacet-sector"></div>
+    </div>
+  </div>
+
+  {# The count left the toolbar. It belongs beside the grid it counts, it was the only 13px item
+     in a row of 14px controls, and down here it has room for the Clear affordance the page never
+     had. aria-live is on the number alone so a debounced keystroke announces "1,238" rather than
+     the whole sentence. #}
+  <p class="coresult" id="coresult"></p>
+
+  <div id="companies"></div>
   <div class="empty u-hide" id="empty">No company matches that search.</div>
 </div>
 
@@ -40,7 +89,7 @@
    two are attached per request by web.py::companies -- they move with every scrape, so they are
    not in companies.json. #}
 <script id="codata" type="application/json">{{ rows|tojson }}</script>
-<script id="cometa" type="application/json">{{ {'sectors': sectors, 'prefix': prefix, 'li_kw': li_kw, 'labels': visa_labels, 'logo': logo_tpl, 'palette': palette}|tojson }}</script>
+<script id="cometa" type="application/json">{{ {'sectors': sectors, 'prefix': prefix, 'li_kw': li_kw, 'labels': visa_labels, 'logos': logos, 'mono': mono}|tojson }}</script>
 <noscript><p class="u-p-200">The company directory needs JavaScript enabled to display.</p></noscript>
 {% endblock %}
 {% block scripts %}<script src="{{ static_v('companies.js') }}"></script>{% endblock %}

@@ -11,6 +11,10 @@
  *   [0] name  [1] sectorIdx (-1 = Unsorted)  [2] careers ("gh|slug" or a URL)
  *   [3] careersKind 0 none / 1 native / 2 board / 3 site-root
  *   [4] domain  [5] h1b count  [6] flagMask  [7] live open roles  [8] name to link as
+ *
+ * The ~50 lines of popover machinery near the bottom are a deliberate copy of app.js's, not a
+ * shared module. Extracting one would put a third file inside the source-text dependency graph
+ * that feed_parity.py walks, which costs more than duplicating presentation code.
  */
 (function () {
   var host = document.getElementById('companies');
@@ -28,8 +32,21 @@
   var PREFIX = META.prefix || {};
   var LI_KW = META.li_kw || {};
   var LABELS = META.labels || {};
-  var LOGO = META.logo || {};
-  var PALETTE = META.palette || ['#475569'];
+  /* The harvest manifest: slug -> [ext, aspectRatio, monoFlag], plus an alias map for the
+     spellings the corpus and the sponsor data disagree about. Absent manifest = every tile
+     renders a monogram, which is a coherent page rather than a broken one. */
+  var LOGOS = (META.logos || {}).ar || {};
+  var ALIAS = (META.logos || {}).alias || {};
+  var LOGOV = (META.logos || {}).v || 0;
+  /* Monograms come from the SERVER, index-parallel to ROWS. Deliberately not computed here:
+     the rule needs core.norm_company, which strips Technologies/Group/Labs as well as the legal
+     suffixes, and a JavaScript copy of that list is exactly the kind of twin CLAUDE.md's filter
+     triplet warns about. Measured before it was deleted: a raw-name version here disagreed with
+     Python on 225 of 2,695 names and collapsed every "<X> Technologies" employer onto AT.
+     Parked on the row itself as r[9] so nothing has to thread an index through render(); the
+     SERVED row is still nine fields, which is what test_companies_page.py freezes. */
+  var MONO = META.mono || [];
+  for (var mi = 0; mi < ROWS.length; mi++) ROWS[mi][9] = MONO[mi] || '?';
   var UNSORTED = 'Unsorted';
 
   /* Bits 0-4 are core._VISA_BITS, reused so they cannot drift from core.VISA_TAGS. The labels
@@ -40,6 +57,7 @@
   var SECTION_CAP = 24;                 /* tiles per section before "Show all" */
   var expanded = {};                    /* sectorName -> true once expanded */
   var state = { q: '', sector: '', sort: 'live', liveOnly: true };
+  var openPop = null;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -61,12 +79,35 @@
     return 'https://www.linkedin.com/jobs/search/?keywords=' +
       encodeURIComponent(LI_KW[name] || name) + '&location=United%20States';
   }
-  /* Same rule as web.py::logocolor, so a company's tile is the same colour here as on its own
-     page and on its feed cards. */
-  function logoColor(name) {
-    var s = 0, t = name || 'x';
-    for (var i = 0; i < t.length; i++) s += t.charCodeAt(i);
-    return PALETTE[s % PALETTE.length];
+
+  /* ---------------------------------------------------------------- the logo lockup */
+  /* THE TWIN OF scripts/build_logos.py::slugify AND web.py::_logo_slug. Frozen against the
+     whole corpus by scripts/test_logos.py, on the day it was introduced rather than after it
+     drifts -- the filter triplet in CLAUDE.md is what happens otherwise. */
+  function slug(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'x';
+  }
+  function logoFor(name) {
+    var s = slug(name);
+    if (!LOGOS[s]) {
+      var a = ALIAS[s];
+      s = (a && LOGOS[a]) ? a : '';
+    }
+    return s ? { src: '/static/logos/' + s + '.' + LOGOS[s][0] + '?v=' + LOGOV,
+                 ar: LOGOS[s][1], mono: LOGOS[s][2] } : null;
+  }
+  /* ONE CHILD, NEVER TWO. The old markup put an absolutely-positioned <img> with an opaque
+     white background ON TOP of the letter tile, so a blank-but-200 response painted over the
+     very fallback it was meant to reveal. Either/or cannot do that. */
+  function lockup(name, mono) {
+    var l = logoFor(name);
+    if (l) {
+      return '<div class="colock"><img src="' + esc(l.src) + '" alt="" loading="lazy" ' +
+             'decoding="async"></div>';
+    }
+    return '<div class="colock"><span class="comono" aria-hidden="true">' +
+           esc(mono || '?') + '</span></div>';
   }
 
   /* ---------------------------------------------------------------- searching */
@@ -101,9 +142,22 @@
     return out.map(function (p) { return p[1]; });
   }
 
+  /* Section order, hoisted out of render() so paintFacets() can use the SAME order. They
+     disagreed before: the pill row ordered by the SECTORS array while the sections ordered by
+     open roles, so the third pill led to the sixth section down the page. */
+  function sectorOrder(groups, names) {
+    return names.slice().sort(function (a, b) {
+      if (a === UNSORTED) return 1;
+      if (b === UNSORTED) return -1;
+      var sa = groups[a].reduce(function (t, r) { return t + r[7]; }, 0);
+      var sb = groups[b].reduce(function (t, r) { return t + r[7]; }, 0);
+      return sb - sa || groups[b].length - groups[a].length;
+    });
+  }
+
   /* ---------------------------------------------------------------- one tile */
-  function card(r) {
-    var name = r[0], domain = r[4], h1b = r[5], mask = r[6], live = r[7], linkAs = r[8] || r[0];
+  function card(r, showSector) {
+    var name = r[0], h1b = r[5], mask = r[6], live = r[7], linkAs = r[8] || r[0];
     var h = [];
 
     /* One meta line carries the whole in-feed / apply-direct distinction. No badge for it:
@@ -111,10 +165,10 @@
        explanation would be. */
     var meta = live
       ? '<span class="conum">' + num(live) + '</span> open role' + (live === 1 ? '' : 's')
-      : (r[3] === 2 ? 'Board watched · nothing open' : 'Not scraped · apply on their site');
+      : (r[3] === 2 ? 'Board watched, nothing open' : 'Not scraped, apply on their site');
 
-    /* At most three chips, and colour is the only place it appears on this page -- style.css
-       states the rule: colour means sponsorship, everything else is ink. */
+    /* At most two route chips plus cap-exempt, and colour is the only place it appears on this
+       page -- style.css states the rule: colour means sponsorship, everything else is ink. */
     var chips = [];
     if (mask & AGENCY) {
       chips.push('<span class="agency">Staffing agency</span>');
@@ -146,19 +200,20 @@
        and the tile ships with no careers or LinkedIn link at all. Same shape .card uses on the
        feed: a div, cursor:pointer, and the delegated handler below. */
     var href = '/company?c=' + encodeURIComponent(linkAs);
-    h.push('<div class="card cocard" data-href="' + esc(href) + '">');
-    h.push('<div class="logo" style="background:' + logoColor(name) + '">' + esc(name.charAt(0).toUpperCase()));
-    if (domain) {
-      h.push('<img class="logo-img" alt="" loading="lazy" src="' +
-        esc((LOGO.src || '').replace('__D__', domain)) + '" data-fallback="' +
-        esc((LOGO.fb || '').replace('__D__', domain)) + '">');
-    }
-    h.push('</div>');
+    h.push('<div class="card cocard" data-href="' + esc(href) +
+      '" data-mono="' + esc(r[9] || '?') + '">');
+    h.push(lockup(name, r[9]));
     /* The name is a real link, so the tile is reachable and openable-in-a-new-tab by keyboard
-       even though the click handler covers the rest of the surface. */
+       even though the click handler covers the rest of the surface. No tabindex on the div:
+       that would be a second, duplicate tab stop on every one of 2,695 tiles. */
     h.push('<h3><a href="' + esc(href) + '">' + esc(name) + '</a></h3>');
     h.push('<div class="coline">' + meta + '</div>');
-    if (chips.length) h.push('<div class="kw">' + chips.join('') + '</div>');
+    /* Only in the flat view. In the grouped view the section header two inches up already says
+       it, and repeating it is how a card starts looking padded. */
+    if (showSector) h.push('<div class="cosector">' + esc(sectorOf(r)) + '</div>');
+    /* ALWAYS rendered, even empty: 818 of 2,695 employers carry no visa bits at all, so a
+       conditional chip row makes a third of the grid sit at a different height. */
+    h.push('<div class="kw">' + chips.join('') + '</div>');
     h.push('<div class="colinks">' + links.join('') + '</div>');
     h.push('</div>');
     return h.join('');
@@ -167,55 +222,50 @@
   /* ---------------------------------------------------------------- rendering */
   function render() {
     var rows = visible();
-    document.getElementById('count').textContent = num(rows.length);
+    var flat = !!(state.sector || state.q);
     document.getElementById('empty').classList.toggle('u-hide', rows.length > 0);
 
-    /* Grouped only in the All view. Once a sector is picked the headers would repeat the pill
-       that is already lit, so they go away and the section renders in full. */
-    if (state.sector || state.q) {
-      host.className = 'codir';
-      host.innerHTML = rows.map(card).join('');
+    /* ONE class, one meaning. #companies used to be .codir in flat mode and '' in grouped mode,
+       with inner .codir elements, so a single selector described two different structures. */
+    host.className = 'cosections';
+    if (flat) {
+      host.innerHTML = '<div class="codir">' +
+        rows.map(function (r) { return card(r, true); }).join('') + '</div>';
     } else {
-      var groups = {}, order = [];
+      var groups = {}, names = [];
       rows.forEach(function (r) {
         var s = sectorOf(r);
-        if (!groups[s]) { groups[s] = []; order.push(s); }
+        if (!groups[s]) { groups[s] = []; names.push(s); }
         groups[s].push(r);
       });
-      /* Sections by total open roles, so the part of the directory you can act on is first.
-         Unsorted always sinks: it is a residue, not a sector, and it says so. */
-      order.sort(function (a, b) {
-        if (a === UNSORTED) return 1;
-        if (b === UNSORTED) return -1;
-        var sa = groups[a].reduce(function (t, r) { return t + r[7]; }, 0);
-        var sb = groups[b].reduce(function (t, r) { return t + r[7]; }, 0);
-        return sb - sa || groups[b].length - groups[a].length;
-      });
-      host.className = '';
-      host.innerHTML = order.map(function (s) {
+      host.innerHTML = sectorOrder(groups, names).map(function (s) {
         var list = groups[s];
         var show = expanded[s] ? list : list.slice(0, SECTION_CAP);
         var more = list.length - show.length;
-        return '<h2 class="sechdr">' + esc(s) + ' <span class="tabn">' + num(list.length) +
-          '</span></h2>' +
+        /* "Show all" moved INTO the header, right aligned. It used to be a centred button
+           floating between two grids, which was the most generic element on the page. */
+        return '<div class="cosec-h"><h2>' + esc(s) + '</h2>' +
+          '<span class="cosec-n">' + num(list.length) + '</span>' +
+          (more > 0 ? '<button type="button" class="btn sm ghost" data-more="' + esc(s) +
+            '">Show All ' + num(list.length) + '</button>' : '') +
+          '</div>' +
           /* Rewritten twice as the bucket shrank, because a note that stops being true is
              worse than no note. It began as 916 employers ("below the curation line"), and is
              now 28: names too ambiguous to place on a name alone, plus a handful the scraper
              stored badly. Guessing a sector for either would be worse than saying this. */
-          (s === UNSORTED ? '<p class="fnote">No sector assigned — the name alone is not ' +
+          (s === UNSORTED ? '<p class="fnote">No sector assigned. The name alone is not ' +
             'enough to place these, and a few are recorded oddly by the scraper. Everything ' +
             'else about them is accurate.</p>' : '') +
-          '<div class="codir">' + show.map(card).join('') + '</div>' +
-          (more > 0 ? '<div class="morewrap"><button type="button" class="btn sm ghost" ' +
-            'data-more="' + esc(s) + '">Show all ' + num(list.length) + '</button></div>' : '');
+          '<div class="codir">' +
+          show.map(function (r) { return card(r, false); }).join('') + '</div>';
       }).join('');
     }
-    paintSectors(rows);
+    paintFacets(rows.length);
   }
 
   /* Pill counts describe what a click would show, so they respect the open-roles toggle and
      the search box but NOT the sector already chosen. */
-  function paintSectors() {
+  function paintFacets(shown) {
     var q = state.q.toLowerCase(), tally = {}, total = 0;
     ROWS.forEach(function (r) {
       if (state.liveOnly && !r[7]) return;
@@ -224,15 +274,94 @@
       tally[s] = (tally[s] || 0) + 1;
       total++;
     });
-    var names = SECTORS.filter(function (s) { return tally[s]; });
-    if (tally[UNSORTED]) names.push(UNSORTED);
-    var html = ['<button class="tab' + (state.sector ? '' : ' on') + '" data-sector="">All ' +
-      '<span class="tabn">' + num(total) + '</span></button>'];
-    names.forEach(function (s) {
-      html.push('<button class="tab' + (state.sector === s ? ' on' : '') + '" data-sector="' +
-        esc(s) + '">' + esc(s) + ' <span class="tabn">' + num(tally[s]) + '</span></button>');
+    var groups = {}, names = [];
+    ROWS.forEach(function (r) {
+      if (state.liveOnly && !r[7]) return;
+      if (q && score(r[0], q) < 0) return;
+      var s = sectorOf(r);
+      if (!groups[s]) { groups[s] = []; names.push(s); }
+      groups[s].push(r);
     });
-    document.getElementById('cosectors').innerHTML = html.join('');
+
+    /* .roletile gives a 38px row, a DRAWN tick from --tick-mark, :focus-within and a
+       right-aligned tabular count for free. The radio is visually hidden but FOCUSABLE, so
+       arrow keys move through the group natively and it is one tab stop, not sixteen. */
+    function row(value, label, n, on) {
+      return '<label class="roletile' + (on ? ' on' : '') + '">' +
+        '<input type="radio" name="cosector" value="' + esc(value) + '"' +
+        (on ? ' checked' : '') + '>' +
+        '<span class="roletile-b"><span class="rolelab">' + esc(label) + '</span>' +
+        '<span class="rolen">' + num(n) + '</span></span></label>';
+    }
+    var html = [row('', 'All Sectors', total, !state.sector)];
+    sectorOrder(groups, names).forEach(function (s) {
+      html.push(row(s, s, tally[s], state.sector === s));
+    });
+    document.getElementById('cofacet-sector').innerHTML = html.join('');
+
+    var chip = document.getElementById('chip-sector');
+    document.getElementById('chipv-sector').textContent = state.sector || '';
+    chip.classList.toggle('on', !!state.sector);
+
+    document.getElementById('scope-live').setAttribute('aria-pressed', String(state.liveOnly));
+    document.getElementById('scope-all').setAttribute('aria-pressed', String(!state.liveOnly));
+    document.getElementById('scope-live').classList.toggle('on', state.liveOnly);
+    document.getElementById('scope-all').classList.toggle('on', !state.liveOnly);
+
+    /* The result line. It says what the sort is actually doing, because visible() ranks by
+       query relevance BEFORE the chosen sort, so with a query typed the select is partly
+       overridden and nothing used to admit that. */
+    var bits = ['<b>' + num(shown) + '</b> of ' + num(ROWS.length) + ' companies'];
+    bits.push('<span class="sep">·</span> ' + (state.liveOnly ? 'Hiring now' : 'All employers'));
+    if (state.sector) bits.push('<span class="sep">·</span> ' + esc(state.sector));
+    if (state.q) bits.push('<span class="sep">·</span> Ranked by name match');
+    if (state.q || state.sector || !state.liveOnly) {
+      bits.push('<button type="button" class="btn sm ghost" data-clear="1">Clear</button>');
+    }
+    document.getElementById('coresult').innerHTML = bits.join(' ');
+  }
+
+  /* ---------------------------------------------------------------- popover */
+  /* Ported from app.js. Two changes on the way in: the positioned host is #cotools rather than
+     the feed layout, and the fixed branch measures #cobar. That fixed branch is MANDATORY, not
+     optional: the @media (max-width:900px) rule that turns .fpop into a full-width sheet is
+     written unscoped in the filter-bar block, so it applies to this page too. */
+  var tools = document.querySelector('.cotools');
+  function closePop() {
+    if (!openPop) return;
+    var el = document.getElementById(openPop);
+    if (el) el.hidden = true;
+    var btn = document.querySelector('[data-pop="' + openPop + '"]');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    openPop = null;
+  }
+  function placePop(el, btn) {
+    el.hidden = false;                                    /* measurable only once shown */
+    if (getComputedStyle(el).position === 'fixed') {
+      el.style.left = '';
+      var bar = document.getElementById('cobar');
+      el.style.top = Math.round((bar ? bar.getBoundingClientRect().bottom : 56) + 6) + 'px';
+      return;
+    }
+    var hb = (tools || document.body).getBoundingClientRect();
+    var bb = btn.getBoundingClientRect();
+    var left = bb.left - hb.left;
+    if (left + el.offsetWidth > hb.width) left = Math.max(0, hb.width - el.offsetWidth);
+    el.style.left = Math.round(left) + 'px';
+    el.style.top = Math.round(bb.bottom - hb.top + 6) + 'px';
+    el.style.maxHeight = Math.max(220, Math.round(window.innerHeight - bb.bottom - 24)) + 'px';
+  }
+  function togglePop(id, btn) {
+    var was = openPop;
+    closePop();
+    if (was === id) return;
+    var el = document.getElementById(id);
+    if (!el) return;
+    placePop(el, btn);
+    btn.setAttribute('aria-expanded', 'true');
+    openPop = id;
+    var first = el.querySelector('input');
+    if (first) first.focus();
   }
 
   /* ---------------------------------------------------------------- wiring */
@@ -247,15 +376,50 @@
   document.getElementById('sort').addEventListener('change', function (e) {
     state.sort = e.target.value; render();
   });
-  document.getElementById('liveonly').addEventListener('change', function (e) {
-    state.liveOnly = e.target.checked; render();
-  });
-  document.getElementById('cosectors').addEventListener('click', function (e) {
-    var b = e.target.closest('[data-sector]');
+  document.getElementById('coscope').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-scope]');
     if (!b) return;
-    state.sector = b.getAttribute('data-sector');
+    state.liveOnly = b.getAttribute('data-scope') === 'live';
     render();
   });
+  var sectorChip = document.getElementById('chip-sector');
+  sectorChip.addEventListener('click', function (e) {
+    e.stopPropagation();
+    togglePop('pop-sector', sectorChip);
+  });
+  /* CLOSE, THEN RENDER, THEN RETURN FOCUS. render() rewrites the popover's innerHTML, which
+     destroys the focused radio and drops focus to <body>; a keyboard user would lose their
+     place after every selection. Closing on choice is what a single-select menu should do
+     anyway, and the trigger is where focus belongs afterwards. */
+  document.getElementById('pop-sector').addEventListener('change', function (e) {
+    if (!e.target || e.target.name !== 'cosector') return;
+    state.sector = e.target.value;
+    closePop();
+    render();
+    sectorChip.focus();
+  });
+  document.getElementById('coresult').addEventListener('click', function (e) {
+    if (!e.target.closest('[data-clear]')) return;
+    state.q = '';
+    state.sector = '';
+    state.liveOnly = true;
+    document.getElementById('q').value = '';
+    render();
+  });
+  document.addEventListener('click', function (e) {
+    if (!openPop) return;
+    if (e.target.closest && (e.target.closest('.fpop') || e.target.closest('.fchip'))) return;
+    closePop();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && openPop) {
+      var btn = document.querySelector('[data-pop="' + openPop + '"]');
+      closePop();
+      if (btn) btn.focus();
+    }
+  });
+  window.addEventListener('resize', closePop);
+
   host.addEventListener('click', function (e) {
     var b = e.target.closest('[data-more]');
     if (b) {
@@ -269,13 +433,22 @@
     var tile = e.target.closest('[data-href]');
     if (tile) location.href = tile.getAttribute('data-href');
   });
-  /* The logo chain, same order web.py::logosrc documents: logo.dev, then the favicon, then
-     our own letter tile showing through when both fail. */
+  /* A 404 here means the manifest and static/logos/ disagree, which scripts/build_logos.py
+     --check makes a build failure. At runtime the honest response is the monogram. The `load`
+     twin catches a 200 carrying a 1x1, which no error event ever fires for. */
+  function toMono(img) {
+    var wrap = img.parentNode;
+    if (!wrap) return;
+    var tile = img.closest('[data-mono]');
+    wrap.innerHTML = '<span class="comono" aria-hidden="true">' +
+      esc((tile && tile.getAttribute('data-mono')) || '?') + '</span>';
+  }
   host.addEventListener('error', function (e) {
+    if (e.target && e.target.tagName === 'IMG') toMono(e.target);
+  }, true);
+  host.addEventListener('load', function (e) {
     var img = e.target;
-    if (!img || img.tagName !== 'IMG') return;
-    var fb = img.getAttribute('data-fallback');
-    if (fb) { img.removeAttribute('data-fallback'); img.src = fb; } else { img.remove(); }
+    if (img && img.tagName === 'IMG' && img.naturalWidth < 8) toMono(img);
   }, true);
 
   render();

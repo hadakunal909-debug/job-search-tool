@@ -111,6 +111,7 @@ SUITES = (
     Suite("test_jdrender",          "scripts/test_jdrender.py",          "scripts", "offline"),
     Suite("test_job_page",          "scripts/test_job_page.py",          "scripts", "offline"),
     Suite("test_jobs_cache",        "scripts/test_jobs_cache.py",        "scripts", "offline"),
+    Suite("test_logos",             "scripts/test_logos.py",             "scripts", "offline"),
     Suite("test_notify",            "scripts/test_notify.py",            "scripts", "offline"),
     Suite("test_onboarding",        "scripts/test_onboarding.py",        "scripts", "offline"),
     Suite("test_paylocity",         "scripts/test_paylocity.py",         "scripts", "offline"),
@@ -166,6 +167,11 @@ EXTRA_TOUCHES = {
                                 "scripts/build_companies.py"),
     "test_jdrender":           ("scripts/fixtures/",),
     "test_jobs_cache":         ("templates/",),
+    # It lifts slug() out of companies.js by source text, judges generated images with
+    # the harvester's own rules, and drives --check against a temporary tree. None of
+    # that is reachable from the import walk.
+    "test_logos":              ("static/companies.js", "static/logos/", "companies.json",
+                                "scripts/build_logos.py", "scripts/feed_parity.py"),
     "test_ext_contract":       ("extension/",),
     "test_resume_score":       ("resume_vocab.json", "resume_keywords.json"),
     "test_resume_keywords":    ("resume_keywords.json",),

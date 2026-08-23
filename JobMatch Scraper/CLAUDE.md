@@ -38,6 +38,12 @@ setting it afterwards does nothing. One unguarded `feed_parity.py` run wrote 98.
   **required** `FILES` and on `.cpanel.yml`'s `cp` line; without it `/companies` renders nothing.
   Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`,
   and run `--check` — it fails if a high-traffic employer landed in `Unsorted`.
+- **The logos are ours, harvested and committed to `static/logos/`.** Nothing is fetched from a
+  third party at request time and `web.py`'s CSP `img-src 'self' data:` enforces it. Rebuild with
+  `python scripts/build_logos.py` (sequential on purpose, resumable, no `--workers` — 12 threads
+  measured 84% MISS against 96% paced) and gate with `--check`. Every candidate is judged on its
+  **pixels**, because the chain this replaced asked a favicon service that answers HTTP 200 even
+  when it has to invent the icon: 53% of tiles were not a usable brand logo.
 - **`careers_us.md` is a build input now, not a runtime asset.** It stopped being deployed on
   2026-08-22: `/careers` is a 301 to `/companies` and nothing reads the file at request time.
   `scripts/build_companies.py` reads it for its hand-curated careers URLs, so it is still
