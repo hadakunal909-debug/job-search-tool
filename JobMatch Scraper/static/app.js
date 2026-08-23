@@ -503,7 +503,8 @@
       '<div class="cardtop">' +
         (j.logo
           ? '<div class="colock"><img src="' + H(j.logo) +
-            '" alt="" loading="lazy" decoding="async"></div>'
+            '" alt="" loading="lazy" decoding="async"' +
+            (j.logo_mono ? ' data-mono="1"' : '') + '></div>'
           : '<div class="colock"><span class="comono" aria-hidden="true">' +
             H(j.initials || "?") + '</span></div>') +
         newFlag +
