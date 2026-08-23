@@ -1717,9 +1717,14 @@ SINGLE_TOKEN_TLDS = (".com", ".edu")
 # against quadrant.org.
 LEGAL_FORMS = {"inc", "incorporated", "llc", "ltd", "limited", "plc", "lp", "llp", "corp",
                "corporation", "co", "company", "the", "of", "and", "a", "an"}
-PARKED = re.compile(r"domain (?:is )?(?:for sale|parked)|godaddy|sedo\b|hugedomains"
-                    r"|buy this domain|namecheap|afternic|dan\.com|this domain is available",
-                    re.I)
+# WIDENED BY WHAT IT MISSED. deutschebanksecurities.com's title is literally
+# "deutschebanksecurities.com for sale | Spaceship.com" -- the old pattern needed the words
+# "domain ... for sale" adjacent, so a marketplace that leads with the domain name walked
+# straight through and was recorded as Deutsche Bank Securities' website. A bare "for sale" in a
+# TITLE is never a real employer homepage.
+PARKED = re.compile(r"\bfor sale\b|\bparked\b|godaddy|sedo\b|hugedomains|buy this domain"
+                    r"|namecheap|afternic|dan\.com|spaceship|squadhelp|brandbucket|atom\.com"
+                    r"|this domain is (?:available|for)", re.I)
 _TITLE = re.compile(r"<title[^>]*>(.{0,300}?)</title>", re.S | re.I)
 _OGSITE = re.compile(r"""og:site_name["'][^>]*content=["']([^"']{0,160})""", re.I)
 _LDNAME = re.compile(r'"name"\s*:\s*"([^"]{0,120})"')
@@ -1732,8 +1737,11 @@ def raw_tokens(name):
     core.norm_company, which strips Technologies / Corporation / Group / Holdings because those
     never appear in a domain -- correct for building a guess, wrong for checking one.
     """
-    return [w for w in re.findall(r"[a-z0-9]+", (name or "").lower())
-            if w not in LEGAL_FORMS]
+    words = re.findall(r"[a-z0-9]+", (name or "").lower())
+    # A LEGAL FORM TRAILS A NAME, IT NEVER LEADS ONE. Stripping positionally-blind cost
+    # "LP Analyst" its first word -- "lp" is in the list -- so the name became "analyst" and
+    # analyst.com corroborated it. The first word is always part of the name.
+    return words[:1] + [w for w in words[1:] if w not in LEGAL_FORMS]
 
 
 def discover_candidates(name):
@@ -1789,6 +1797,13 @@ def name_corroborated(name, html, domain):
     raw = raw_tokens(name)
     dist = [w for w in raw if len(w) >= 4]
     hit = bool(dist) and all(w in hay for w in dist)
+    # A US EDUCATION EMPLOYER IS ON .edu OR IT IS NOT THEM, and this has to be tested BEFORE the
+    # strong path below can return. universityofflorida.org, universityofsouthflorida.com and
+    # universityofnewhampshire.com each corroborated on two tokens and none of them is the
+    # university (ufl.edu, usf.edu, unh.edu) -- the squashed legal name is what a squatter
+    # registers, which is exactly why two tokens agreeing is not enough here.
+    if any(w in (name or "").lower() for w in EDU_WORDS) and not (domain or "").endswith(".edu"):
+        return False, "edu-not-on-edu"
     # TWO independent words agreeing is the strong path, and it is the only one allowed to
     # accept any tld. One word is a coincidence waiting to happen.
     if hit and len(dist) >= 2:
@@ -1799,7 +1814,13 @@ def name_corroborated(name, html, domain):
     # while citadel.com is the hedge fund. This does not refuse the employer, it refuses the
     # wrong ADDRESS for it.
     weak_ok = any((domain or "").endswith(t) for t in SINGLE_TOKEN_TLDS)
-    if hit and weak_ok:
+    # IF WE ARE LEANING ON ONE WORD, THAT WORD HAS TO BE THE WHOLE NAME. The weak path only sees
+    # tokens of 4+ characters, so a two-word employer with a short second word collapsed to one
+    # word and then matched a domain that is only its FIRST word: "First Tek" -> first.com,
+    # "Lead IT" -> lead.com, "New Era Technology" -> new.com, "SMBC US" -> smbc.com, "Concord
+    # USA" -> concord.com, "Phantom AI" -> phantom.com. None of those is the employer. The
+    # strong two-word path is unaffected, which is what keeps paycom.com and highmark.com.
+    if hit and weak_ok and (domain or "").split(".")[0] == "".join(raw):
         return True, "single-token-in-page"
     # And the last resort, for a name with no 4+ character word at all: the domain label spells
     # the squashed name and the page repeats it. The CSV marks these, because they are the
