@@ -115,10 +115,10 @@ lock = "\n".join([
     js_function(JS, "lockup"),
     "function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){"
     "return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}",
-    "var LOGOS = {'acme-inc': ['svg', 3.5, 0]};",
-    "var ALIAS = {'aliased-co': 'acme-inc'};",
+    "var LOGOS = {'acme-inc': ['svg', 3.5, 0], 'mono-co': ['webp', 1.0, 1]};",
     "var LOGOV = 42;",
     "console.log(JSON.stringify({hit: lockup('Acme Inc', 'AI'), alias: lockup('Aliased Co', 'AC'),"
+    " mono: lockup('Mono Co', 'MC'),"
     " miss: lockup('Nobody At All', 'NA'), digit: lockup('10x Genomics', '10')}));",
 ])
 with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
@@ -141,8 +141,23 @@ else:
           "/static/logos/acme-inc.svg?v=42" in m["hit"])
     check("and no monogram is layered underneath it", "comono" not in m["hit"])
     check("and no fallback URL survives", "data-fallback" not in m["hit"])
-    check("the alias map resolves a differently-spelled name",
-          "/static/logos/acme-inc.svg" in m["alias"])
+    # THERE IS NO CLIENT-SIDE ALIAS STEP, and that is the assertion. companies.js used to read
+    # ALIAS[slug(name)] while web.py keys that map on core.norm_company -- "1star networks"
+    # against a lookup of "1star-networks-llc" -- so it could never hit for any name, and the
+    # map was being shipped and ignored. A spelling the manifest does not hold is a MISS here,
+    # exactly like an unknown employer, and the fix is a build_companies.py run rather than a
+    # suffix list duplicated into JavaScript.
+    check("a spelling the manifest does not hold is a miss, not an alias lookup",
+          m["alias"].count("<img") == 0 and 'class="comono"' in m["alias"], m["alias"][:80])
+    # data-mono ON THE IMAGE. Its absence was a real bug: the dark-mode rule
+    # [data-theme="dark"] .colock img[data-mono="1"] never matched on /companies, so every
+    # single-ink mark kept the light plate that commit 3df171d was written to remove -- while
+    # the feed, whose markup lives in app.js, un-plated them correctly. logoFor() computed the
+    # flag and lockup() dropped it.
+    check("a single-ink mark carries data-mono for the dark-mode inversion",
+          'data-mono="1"' in m["mono"], m["mono"][:90])
+    check("and a full-colour mark does not, because inverting it would hue-shift the brand",
+          "data-mono" not in m["hit"], m["hit"][:90])
     # A MISS EMITS ZERO <img>. The old markup emitted one anyway and let it 404, which is how a
     # blank-but-200 response came to paint an opaque white square over the letter tile.
     check("a manifest miss emits ZERO <img>", m["miss"].count("<img") == 0, m["miss"][:70])
