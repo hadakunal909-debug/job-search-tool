@@ -172,6 +172,51 @@ PLATFORM_HOSTS = (
 # keyed on core.norm_company. "" means "we have no domain and guessing is worse than not".
 DOMAIN_OVERRIDE = {
     "alphabet": "abc.xyz",
+    # HAND-READ 2026-08-23, and this list is the ANSWER to --discover-domains rather than a
+    # supplement to it. Three tightening passes took the guess from ~1-in-3 wrong to ~1-in-6, and
+    # then it stopped converging, because the ways a guessed domain lies are open-ended: a broker
+    # with novel copy (crusoe.com sells "Strategic-Grade domain names"), an acquisition
+    # (altair.com now redirects to siemens.com, and Altair's own mark is what a card wants), a
+    # homonym (nikola.com is Nikola Engineering, not Nikola Motor; titan.com is a wealth manager;
+    # paradigm.com sells loudspeakers; maplebear.com is a Canadian school franchise, not
+    # Instacart's legal entity), a .io squat with no title at all (apexsystems.io), or simply a
+    # different company of the same name (persistentsystems.com is a US radio maker, not the
+    # Indian IT firm). None of those is reachable by reading a page harder.
+    #
+    # So the pass stays, its output does not ship, and its CSV is a WORKLIST. These twenty were
+    # opened and checked by eye; they carry ~19k H-1B filings between them, which is most of the
+    # value the whole pass was chasing. Four are the redirect TARGET rather than the guess,
+    # because that is where the icons actually live.
+    "birlasoft": "birlasoft.com",
+    "catalent": "catalent.com",
+    "centraprise": "centraprise.com",
+    "coforge": "coforge.com",
+    "cotiviti": "cotiviti.com",
+    "flatiron health": "flatiron.com",
+    "highmark health": "highmark.com",
+    "itc infotech": "itcinfotech.com",
+    "intraedge": "intraedge.com",
+    "ltimindtree": "ltm.com",
+    "marlabs": "marlabs.com",
+    "mastech digital": "mastechdigital.com",
+    "national veterinary associates": "nva.com",
+    "open avenues foundation": "openavenuesfoundation.org",
+    "paycom payroll": "paycom.com",
+    "qualcomm": "qualcomm.com",
+    "samsung electronics america": "samsung.com",
+    "tech mahindra": "techmahindra.com",
+    "visionet systems": "visionet.com",
+    "west pharmaceutical services": "westpharma.com",
+    # "" means we have no domain and guessing is worse than not. Each of these was guessed
+    # plausibly and checked, and each guess was somebody else.
+    "altair": "",
+    "apex systems": "",
+    "crusoe": "",
+    "maplebear": "",
+    "nikola": "",
+    "paradigm": "",
+    "persistent systems": "",
+    "titan": "",
 }
 
 LOGO_OVERRIDE = {
