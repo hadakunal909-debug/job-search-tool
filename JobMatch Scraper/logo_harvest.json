@@ -5592,12 +5592,12 @@
   },
   "birlasoft-inc": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "birlasoft.com",
    "name": "Birlasoft INC",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "birlasoft-inc",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "verdict": "rejected",
+   "why": "undersized"
   },
   "bishop-company-inc": {
    "checked": "2026-08-23",
@@ -8285,13 +8285,23 @@
    "why": "no-entity"
   },
   "catalent": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "catalent.webp",
+   "bytes": 2418,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "catalent.com",
+   "h": 512,
+   "license": "site",
+   "mono": true,
    "name": "Catalent",
-   "site_tried": 0,
+   "sha256": "3ddd6d73b1921a70",
    "slug": "catalent",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://www.catalent.com/android-chrome-512x512.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 512,
+   "why": ""
   },
   "catapult-solutions-group": {
    "ar": 0.601,
@@ -8785,12 +8795,12 @@
   },
   "centraprise": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "centraprise.com",
    "name": "Centraprise",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "centraprise",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "verdict": "rejected",
+   "why": "photograph"
   },
   "certara": {
    "checked": "2026-08-23",
@@ -10167,13 +10177,21 @@
    "why": "no-entity"
   },
   "coforge-limited": {
+   "ar": 1.093,
+   "artist": "",
+   "asset": "coforge-limited.svg",
+   "bytes": 702,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "coforge.com",
+   "license": "site",
+   "mono": 0,
    "name": "Coforge Limited",
-   "site_tried": 0,
+   "sha256": "5e9fbb30a7f66c05",
    "slug": "coforge-limited",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://www.coforge.com/hubfs/favicon.svg",
+   "tier": "site",
+   "verdict": "accepted",
+   "why": ""
   },
   "cogent-biosciences": {
    "checked": "2026-08-23",
@@ -11431,12 +11449,12 @@
   },
   "cotiviti": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "cotiviti.com",
    "name": "Cotiviti",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "cotiviti",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "verdict": "rejected",
+   "why": "undersized"
   },
   "coupa": {
    "ar": 1.0,
@@ -16992,12 +17010,12 @@
   },
   "flatiron-health": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "flatiron.com",
    "name": "Flatiron Health",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "flatiron-health",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "verdict": "rejected",
+   "why": "undersized"
   },
   "fleishmanhillard": {
    "checked": "2026-08-23",
@@ -20890,7 +20908,7 @@
   },
   "highmark-health": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "highmark.com",
    "identity": "label-match",
    "label": "Highmark Health",
    "name": "Highmark Health",
@@ -20899,10 +20917,10 @@
    ],
    "p856": "",
    "qid": "Q131346525",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "highmark-health",
-   "verdict": "no-candidate",
-   "why": "no-logo-claim"
+   "verdict": "rejected",
+   "why": "undersized"
   },
   "hii-s-mission-technologies-division": {
    "checked": "2026-08-23",
@@ -23065,13 +23083,23 @@
    "why": ""
   },
   "intraedge-inc": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "intraedge-inc.webp",
+   "bytes": 1882,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "intraedge.com",
+   "h": 200,
+   "license": "site",
+   "mono": false,
    "name": "Intraedge INC",
-   "site_tried": 0,
+   "sha256": "6912714f7b25454b",
    "slug": "intraedge-inc",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://intraedge.com/wp-content/uploads/2023/06/intraedge-icon-200px.jpg",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 200,
+   "why": ""
   },
   "intuit": {
    "ar": 4.902,
@@ -23368,13 +23396,23 @@
    "why": "no-entity"
   },
   "itc-infotech": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "itc-infotech.webp",
+   "bytes": 2372,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "itcinfotech.com",
+   "h": 180,
+   "license": "site",
+   "mono": false,
    "name": "ITC Infotech",
-   "site_tried": 0,
+   "sha256": "99b1a2814f13dc64",
    "slug": "itc-infotech",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://www.itcinfotech.com/apple-touch-icon.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 180,
+   "why": ""
   },
   "itech": {
    "ar": 1.0,
@@ -27486,12 +27524,12 @@
   },
   "marlabs": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "marlabs.com",
    "name": "Marlabs",
-   "site_tried": 0,
+   "site_tried": 6,
    "slug": "marlabs",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "verdict": "rejected",
+   "why": "photograph"
   },
   "marous-brothers-construction": {
    "checked": "2026-08-23",
@@ -27815,20 +27853,30 @@
    "why": "undersized"
   },
   "mastech-digital": {
+   "ar": 4.265,
+   "artist": "",
+   "asset": "mastech-digital.webp",
+   "bytes": 5742,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "mastechdigital.com",
+   "h": 68,
    "identity": "label-match",
    "label": "Mastech Digital",
+   "license": "site",
+   "mono": false,
    "name": "Mastech Digital",
    "p279_path": [
     "Q4830453"
    ],
    "p856": "",
    "qid": "Q52876645",
-   "site_tried": 0,
+   "sha256": "f202a62f5b3bafed",
    "slug": "mastech-digital",
-   "verdict": "no-candidate",
-   "why": "no-logo-claim"
+   "src": "https://5331962.fs1.hubspotusercontent-na1.net/hub/5331962/hubfs/mastech-logo.png?width=334&height=78&name=mastech-logo.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 290,
+   "why": ""
   },
   "mastercard": {
    "ar": 1.613,
@@ -30209,13 +30257,23 @@
    "why": "no-logo-claim"
   },
   "national-veterinary-associates": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "national-veterinary-associates.webp",
+   "bytes": 2310,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "nva.com",
+   "h": 256,
+   "license": "site",
+   "mono": false,
    "name": "National Veterinary Associates",
-   "site_tried": 0,
+   "sha256": "bf95153ec6e73517",
    "slug": "national-veterinary-associates",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://www.nva.com/favicon.ico",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 256,
+   "why": ""
   },
   "national-vision-inc": {
    "ar": 1.0,
@@ -32726,13 +32784,23 @@
    "why": "no-entity"
   },
   "open-avenues-foundation": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "open-avenues-foundation.webp",
+   "bytes": 4104,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "openavenuesfoundation.org",
+   "h": 192,
+   "license": "site",
+   "mono": false,
    "name": "Open Avenues Foundation",
-   "site_tried": 0,
+   "sha256": "ad3542fdd7a86d72",
    "slug": "open-avenues-foundation",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://openavenuesfoundation.org/wp-content/uploads/2025/07/cropped-fav-icon-e1753292629503-192x192.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 192,
+   "why": ""
   },
   "open-technology-fund": {
    "ar": 3.247,
@@ -33810,13 +33878,23 @@
    "why": ""
   },
   "paycom-payroll": {
+   "ar": 4.575,
+   "artist": "",
+   "asset": "paycom-payroll.webp",
+   "bytes": 2652,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "paycom.com",
+   "h": 87,
+   "license": "site",
+   "mono": false,
    "name": "Paycom Payroll",
-   "site_tried": 0,
+   "sha256": "28163a0886b71e79",
    "slug": "paycom-payroll",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://www.paycom.com/images/Paycom_Logo_color.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 398,
+   "why": ""
   },
   "payit": {
    "ar": 1.0,
@@ -38439,20 +38517,30 @@
    "why": ""
   },
   "samsung-electronics-america": {
+   "ar": 3.76,
+   "artist": "",
+   "asset": "samsung-electronics-america.webp",
+   "bytes": 2870,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "samsung.com",
+   "h": 167,
    "identity": "label-match",
    "label": "Samsung Electronics America",
+   "license": "site",
+   "mono": false,
    "name": "Samsung Electronics America",
    "p279_path": [
     "Q4830453"
    ],
    "p856": "",
    "qid": "Q21121088",
-   "site_tried": 0,
+   "sha256": "3185dd568cb419f4",
    "slug": "samsung-electronics-america",
-   "verdict": "no-candidate",
-   "why": "no-logo-claim"
+   "src": "https://images.samsung.com/is/image/samsung/assets/Samsung_Orig_Wordmark_BLUE_RGB.jpg",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 628,
+   "why": ""
   },
   "samsung-research-america": {
    "checked": "2026-08-23",
@@ -43158,13 +43246,21 @@
    "why": ""
   },
   "tech-mahindra": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "tech-mahindra.svg",
+   "bytes": 165,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "techmahindra.com",
+   "license": "site",
+   "mono": 0,
    "name": "Tech Mahindra",
-   "site_tried": 0,
+   "sha256": "395a048083d8781f",
    "slug": "tech-mahindra",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://www.techmahindra.com/themes/custom/techm/favicon/favicon.svg",
+   "tier": "site",
+   "verdict": "accepted",
+   "why": ""
   },
   "techchain-talent": {
    "checked": "2026-08-23",
@@ -49621,12 +49717,12 @@
   },
   "visionet-systems": {
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "visionet.com",
    "name": "Visionet Systems",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "visionet-systems",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "verdict": "rejected",
+   "why": "undersized"
   },
   "vitas-healthcare": {
    "ar": 2.273,
@@ -50672,13 +50768,23 @@
    "why": ""
   },
   "west-pharmaceutical-services-inc": {
+   "ar": 1.0,
+   "artist": "",
+   "asset": "west-pharmaceutical-services-inc.webp",
+   "bytes": 4006,
    "checked": "2026-08-23",
-   "domain": "",
+   "domain": "westpharma.com",
+   "h": 192,
+   "license": "site",
+   "mono": false,
    "name": "West Pharmaceutical Services INC",
-   "site_tried": 0,
+   "sha256": "7d701e40b0b8cdd1",
    "slug": "west-pharmaceutical-services-inc",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://www.westpharma.com/assets/WestPharma/images/apple-touch-icon.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 192,
+   "why": ""
   },
   "west-virginia-university": {
    "ar": 6.757,
