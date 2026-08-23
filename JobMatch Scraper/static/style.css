@@ -896,19 +896,19 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 /* Loading skeleton — rendered server-side inside #feed so the user sees card-shaped
    placeholders the instant the page paints; app.js replaces them once it renders the feed. */
 .skel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 17px;display:flex;align-items:flex-start;gap:var(--space-150);min-height:118px}
-.skel-logo{width:88px;height:36px;border-radius:var(--radius-xs);flex:0 0 auto}
 .skel-lines{flex:1;display:flex;flex-direction:column;gap:var(--space-150);padding-top:3px}
 .skel-bar{height:11px;border-radius:var(--radius-xs);display:block}
 .skel-bar.w70{width:70%}.skel-bar.w55{width:55%}.skel-bar.w40{width:40%}
 .skel-chip{width:44px;height:22px;border-radius:var(--radius-full);flex:0 0 auto}
-.skel-logo,.skel-bar,.skel-chip{background:linear-gradient(90deg,var(--line) 25%,var(--line-strong) 37%,var(--line) 63%);background-size:400% 100%;animation:skelsh 1.6s ease-in-out infinite}
+.skel-bar,.skel-chip{background:linear-gradient(90deg,var(--line) 25%,var(--line-strong) 37%,var(--line) 63%);background-size:400% 100%;animation:skelsh 1.6s ease-in-out infinite}
 @keyframes skelsh{0%{background-position:100% 0}100%{background-position:-100% 0}}
-@media (prefers-reduced-motion:reduce){.skel-logo,.skel-bar,.skel-chip{animation:none}}
-/* Three children now: logo, the optional New flag, the score. The flag's auto margin
-   absorbs the free space so it settles NEXT TO the score rather than floating in the middle
-   of the row, and the row still reads logo-left, score-right when there is no flag. */
+@media (prefers-reduced-motion:reduce){.skel-bar,.skel-chip{animation:none}}
+/* TWO children now: the optional New flag, and the score. The logo used to lead this row at
+   36px tall and up to 180px wide -- 61% of a 294px card for a wordmark -- and it has moved to
+   .cmark on the identity line, next to the name it belongs to. So the flag no longer needs
+   margin-left:auto to escape the lockup: space-between puts it in the corner the lockup left
+   and still holds the score right, and with no flag the score is alone and right-aligned. */
 .cardtop{display:flex;align-items:center;justify-content:space-between;gap:var(--space-100)}
-.newflag{margin-left:auto}
 /* The title is a real <a href="/job?u=..."> now. It was a <button> opening the modal, and before
    that a bare <article> click handler that no keyboard could reach. The button resets are gone
    with the button; what stays is the two-line clamp, the inherited ink colour, and CRUCIALLY the
@@ -946,6 +946,26 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    the mechanism. */
 .cident{display:flex;align-items:baseline;min-width:0;overflow:hidden;white-space:nowrap}
 .cident > *{flex:0 0 auto}
+/* THE BRAND MARK, ON THE LINE IT IDENTIFIES. Fixed HEIGHT and a hard WIDTH CAP, which is the
+   difference from .colock below: that rule caps width at 180px only, so everything between
+   about 3:1 and 6:1 -- 46% of the 1,148 harvested assets -- rendered at full height AND near
+   full width. Walmart was 180x35 in a 294px card. Capped at 20x80 it is 80x15, and the eye
+   reads it as part of the text run rather than as a banner over it.
+   Recognition, not legibility, is the job here: the company's name is the very next thing on
+   the line, so the mark only has to be identifiable, and that is what buys the small size.
+   align-self:center is load-bearing -- .cident is align-items:baseline and an image's baseline
+   is its bottom edge, so without it the mark rides a third of its height too high. */
+.cmark{align-self:center;display:block;height:20px;width:auto;max-width:80px;
+  object-fit:contain;object-position:left center;margin-right:var(--space-100);
+  border-radius:2px}
+/* Same two-state dark-mode rule as .colock img, at the smaller scale and for the same reason:
+   most brand logos are drawn in dark ink for white paper, a single-ink mark can be inverted
+   because it has no brand colour to protect, and a full-colour one cannot. content-box so the
+   plate grows AROUND a 20px mark instead of shrinking the artwork to 16px. */
+[data-theme="dark"] .cmark{background:var(--logo-plate);
+  box-shadow:inset 0 0 0 1px var(--logo-plate-edge);padding:2px 3px;box-sizing:content-box}
+[data-theme="dark"] .cmark[data-mono="1"]{background:transparent;box-shadow:none;
+  filter:invert(1) brightness(1.9)}
 .cloc{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* The card is the grid item, so it carries the same guard one level up. */
 .card,.cmeta{min-width:0}
@@ -2670,10 +2690,24 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    column a different optical axis, which IS the ragged failure.
 
    And the plate HUGS its content, never width:100%. That is also the dark-mode
-   anti-glare mechanism: 36x36 is ~2% of the card, a mark rather than a light bar
-   across it. */
-.colock{display:flex;align-items:center;margin:0 0 var(--space-150);min-width:0}
-.colock > *{height:36px;min-width:36px;max-width:min(180px,100%);
+   anti-glare mechanism: 24x24 is ~1% of the card, a mark rather than a light bar
+   across it.
+
+   SIZED DOWN FROM 36/180 ON 2026-08-23, with the feed. At 36 tall and 180 wide a
+   wordmark was the largest thing on the tile and read as an advertisement for the
+   employer rather than as a label on it -- and the tile carries the name directly
+   below, so the mark never had to carry identity alone. The width cap moved with
+   the height so a 5:1 wordmark stays proportionate instead of stretching to the old
+   cap at the new height.
+
+   THE BOTTOM MARGIN IS SCOPED TO THE TILE, and that is a fix, not a tidy-up. This
+   rule is shared with .cohead, .jobhead and .modal-head, which are flex ROWS with
+   align-items:center -- and align-items centres the MARGIN box, so 12px of bottom
+   margin sat the mark ~6px above the heading's optical centre and made the row 12px
+   taller than its tallest visible child. Only the tile stacks. */
+.colock{display:flex;align-items:center;margin:0;min-width:0}
+.cocard .colock{margin-bottom:var(--space-150)}
+.colock > *{height:24px;min-width:24px;max-width:min(104px,100%);
   border-radius:var(--radius-xs)}
 /* NO PLATE UNDER A LOGO IN LIGHT MODE, and the reason is that there is no single colour that
    could work. A feed card is tinted by the sponsorship route it names -- five fills, from
@@ -2683,8 +2717,12 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    perfect on an untinted card and stayed a white box on every tinted one.
    Transparent is the only value that blends with all five, and every light fill is light
    enough to carry a dark or full-colour mark unaided. */
+/* Padding came down with the box. box-sizing is border-box here, so at 3px/5px the plate
+   ate a quarter of a 24px lockup and left 18px of artwork; at 2px/3px it leaves 20 of 24,
+   the same 83% the old 30-of-36 gave. It is not decoration -- it is what stops a logo with
+   white corners sitting flush against the dark-mode plate edge. */
 .colock img{display:block;width:auto;object-fit:contain;object-position:left center;
-  padding:3px 5px;background:transparent}
+  padding:2px 3px;background:transparent}
 /* Dark mode needs SOMETHING behind a dark-ink mark: the five route fills are #18253f..#171a22
    there, and most brand logos are drawn in dark ink for white paper. A light plate is a visible
    rectangle on a dark card, so it is now the FALLBACK rather than the rule. */
@@ -2711,17 +2749,17 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    #18253f in dark, which is unreadable. */
 .comono{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
   background:var(--logo-plate);box-shadow:inset 0 0 0 1px var(--logo-plate-edge);
-  width:36px;font-family:var(--font-data);font-size:var(--text-sm);
+  width:24px;font-family:var(--font-data);font-size:var(--text-3xs);
   font-weight:var(--weight-semibold);letter-spacing:.03em;
   color:var(--logo-plate-ink);text-transform:uppercase;
   font-variant-numeric:tabular-nums;user-select:none}
 /* A PAGE header carries a bigger plate than a card does. These replace the old
    .cohead/.jobhead/.modal-head .logo overrides, which pointed at a class nothing
    renders any more. Width follows height, so a wordmark still hugs. */
-.cohead .colock > *,.jobhead .colock > *{height:48px;min-width:48px;max-width:min(260px,100%)}
-.modal-head .colock > *{height:40px;min-width:40px;max-width:min(220px,100%)}
-.cohead .comono,.jobhead .comono{width:48px;font-size:var(--text-md)}
-.modal-head .comono{width:40px}
+.cohead .colock > *,.jobhead .colock > *{height:40px;min-width:40px;max-width:min(200px,100%)}
+.modal-head .colock > *{height:32px;min-width:32px;max-width:min(140px,100%)}
+.cohead .comono,.jobhead .comono{width:40px;font-size:var(--text-sm)}
+.modal-head .comono{width:32px;font-size:var(--text-2xs)}
 
 .cocard h3{font-size:var(--text-base);font-weight:var(--weight-semibold);
   margin:0 0 var(--space-050);line-height:1.25;display:-webkit-box;
