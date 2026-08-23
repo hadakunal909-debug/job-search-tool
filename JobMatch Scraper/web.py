@@ -1364,7 +1364,7 @@ def _build_row(j, score):
             # monogram, and there is no second URL to walk. That is not a simplification, it is
             # the fix -- the old chain handed the client the SAME url twice when no logo.dev key
             # was set, so every failing logo was fetched twice before the img was removed.
-            "logo": logo_url(c), "logo_ar": logo_ar(c),
+            "logo": logo_url(c), "logo_ar": logo_ar(c), "logo_mono": logo_mono(c),
             "initials": initials(c)}
 
 
@@ -2171,6 +2171,23 @@ def logo_url(name):
     return "/static/logos/%s.%s?v=%d" % (slug, man["ar"][slug][0], man["v"])
 
 
+@app.template_filter("logomono")
+def logo_mono(name):
+    """1 when this logo is a single DARK ink, else 0.
+
+    The card inverts a mono mark in dark mode instead of putting a light plate behind it, which
+    is the difference between a logo that sits in the card and a white rectangle stuck on it.
+    Only meaningful because the harvester guarantees darkness: judge() composites onto white and
+    rejects a blank, so an accepted raster mono logo cannot be a white knockout, and svg_meta
+    checks the ink's luminance for the one source that composites nothing.
+    """
+    slug = _logo_slug(name)
+    if not slug:
+        return 0
+    row = _logo_manifest()["ar"][slug]
+    return 1 if (len(row) > 2 and row[2]) else 0
+
+
 @app.template_filter("logoar")
 def logo_ar(name):
     """The logo's intrinsic aspect ratio, or 0. The card reserves width from it, so a wide
@@ -2665,6 +2682,7 @@ def company():
         # this call site never passed one, which made 219 companies show a DIFFERENT logo on the
         # employer page from the cards listed underneath it. A name cannot disagree with itself.
         "logo": logo_url(display), "logo_ar": logo_ar(display),
+        "logo_mono": logo_mono(display),
         "initials": initials(display),
     }
     analytics.emit(user, getattr(g, "sid", ""), "page_view", page="company",

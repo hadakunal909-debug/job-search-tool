@@ -1,5 +1,5 @@
 {
- "built_at": "2026-08-22",
+ "built_at": "2026-08-23",
  "note": "company slug -> why it has or lacks a logo. Built by scripts/build_logos.py. Committed, never deployed.",
  "rows": {
   "10x-genomics": {
@@ -4247,20 +4247,33 @@
    "why": "not-an-org"
   },
   "axon": {
-   "ar": 1.111,
-   "artist": "",
+   "ar": 4.31,
+   "artist": "Axon Enterprise",
    "asset": "axon.svg",
-   "bytes": 1388,
-   "checked": "2026-08-22",
+   "bytes": 4742,
+   "checked": "2026-08-23",
+   "colours": 17,
    "domain": "axon.com",
-   "license": "site",
-   "mono": 1,
+   "edges": 0.1452,
+   "file": "AXON Company logo.svg",
+   "h": 58,
+   "identity": "domain-agree",
+   "ink": 0.2399,
+   "label": "Axon Enterprise",
+   "license": "Public domain",
+   "mono": false,
    "name": "Axon",
-   "sha256": "9d1dadbf0562c634",
+   "p279_path": [
+    "p856"
+   ],
+   "p856": "axon.com",
+   "qid": "Q690604",
+   "sha256": "74defe987cfb5807",
    "slug": "axon",
-   "src": "https://www.axon.com/favicon/favicon.svg",
-   "tier": "site",
+   "src": "https://upload.wikimedia.org/wikipedia/commons/f/fd/AXON_Company_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
    "verdict": "accepted",
+   "w": 250,
    "why": ""
   },
   "axxess-consult-inc": {
