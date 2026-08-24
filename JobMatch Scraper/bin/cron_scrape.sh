@@ -73,6 +73,19 @@ export SCRAPE_WORKERS=6
 # of the first. If the run ever does outlast the gap, the log will say SKIP rather than double
 # the outbound connections, which is the failure mode worth protecting.
 export SCRAPE_BUDGET_MIN=0
+# SLICING, and this is the line that makes the one above survivable HERE.
+#
+# Removing the deadline was right about the sweep and wrong about the box: on 2026-08-24 the
+# first two unsliced runs were both SIGKILLed (rc=137), the second after a COMPLETE 48.4-minute
+# sweep of 1,736 boards. Neither banked a single row, because the scraper held every posting in
+# memory and wrote once at the very end -- so a kill anywhere before that line cost the whole
+# run. The 12-minute budget had been hiding that by never letting the sweep get big enough.
+#
+# 300 boards a slice is ~6 slices of ~8 minutes each at the measured 1,736-boards-in-48-minutes
+# rate. Each slice is written and released before the next starts, so peak memory is a sixth of
+# what was being killed and a kill now costs at most one slice. CI leaves this at 0: a GitHub
+# runner is a whole machine and has never been killed for memory.
+export SCRAPE_SLICE=300
 # Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
 # board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
 # than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
