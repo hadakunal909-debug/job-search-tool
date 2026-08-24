@@ -383,8 +383,11 @@ def discover(company):
     for url in _careers_candidates(company):
         if not _reachable(url):
             continue
+        # detect_eightfold is last: it is the only one that can be true for a host no other
+        # detector claims, and Eightfold gates most tenants, so it fails often and cheaply.
         for fn in (scraper.detect_linked_ats, scraper.detect_phenom,
-                   scraper.detect_successfactors, scraper.detect_jibe):
+                   scraper.detect_successfactors, scraper.detect_jibe,
+                   scraper.detect_eightfold):
             try:
                 det = fn(url)
             except Exception:

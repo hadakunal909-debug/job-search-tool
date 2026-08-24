@@ -4010,6 +4010,40 @@ def _csb_is_us(loc):
 # countries don't (France uses an -FH-/-HF- gender marker, etc.), so when US_ONLY we pre-filter
 # on that pattern to avoid fetching the whole GLOBAL board just to drop most of it.
 _CSB_US_SLUG = re.compile(r"-([A-Z]{2})-\d{4,6}\b")
+# ...but a SuccessFactors tenant hiring across many countries labels the slug with an
+# ISO-3166 COUNTRY code instead of a US state, so the pattern above matches none of its US
+# postings. Wipro is the case that found this: 4,077 jobs in its sitemap, 402 tagged with a
+# USA token (e.g. Plano-...-USA-75024), and the state-code filter admitted exactly zero -- so
+# the board read as empty and the employer as unscrapeable. Its India rows carry IND, which
+# this still correctly excludes.
+_CSB_US_COUNTRY = re.compile(r"-(?:USA|US)(?:-[0-9]+)?/", re.I)
+
+
+def _csb_slug_is_us(u):
+    """True when a SuccessFactors /job/ slug looks like a US posting.
+
+    One predicate, two callers: the sitemap row builder and probe_board's count. They used to
+    disagree -- probe_board only ever read the server-rendered /search/ table, so every
+    client-rendered tenant counted as None and could never be adopted, even when the scraper
+    could read it perfectly well through the sitemap."""
+    m = _CSB_US_SLUG.search(u)
+    if m and m.group(1).upper() in US_STATE_ABBR:
+        return True
+    return bool(_CSB_US_COUNTRY.search(u))
+
+
+def _csb_sitemap_us_locs(base):
+    """The US-eligible /job/ URLs in a CSB sitemap. One request, no per-posting fetch."""
+    try:
+        r = _safe_get(base + "/sitemap.xml", timeout=30)
+    except Exception:
+        return []
+    if r.status_code != 200:
+        return []
+    locs = [u for u in re.findall(r"<loc>([^<]+)</loc>", r.text) if "/job/" in u]
+    if not US_ONLY:
+        return locs
+    return [u for u in locs if _csb_slug_is_us(unquote(u))]
 
 
 def _csb_sitemap_rows(base):
@@ -4021,8 +4055,7 @@ def _csb_sitemap_rows(base):
         return []
     locs = [u for u in re.findall(r"<loc>([^<]+)</loc>", r.text) if "/job/" in u]
     if US_ONLY:
-        cands = [u for u in locs
-                 if (lambda m: m and m.group(1).upper() in US_STATE_ABBR)(_CSB_US_SLUG.search(unquote(u)))]
+        cands = [u for u in locs if _csb_slug_is_us(unquote(u))]
     else:
         cands = locs
     rows = []
@@ -4678,6 +4711,23 @@ def scrape_avature(board_url):
 # The grid is sorted newest-first, so even a run that stops at the cap keeps the fresh end.
 # ============================================================
 PEOPLESOFT_GBL = "/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL"
+# ...but the component name is NOT universal. FSU serves HRS_HRAM_FL; Berkeley and Case
+# Western serve HRS_HRAM_EMP_FL, and there are other variants. Substituting the constant for
+# a tenant that uses a different one builds a URL that 404s, so read it off the URL we were
+# given and keep the constant only as the fallback for a URL that carries no component.
+_PS_GBL_RE = re.compile(r"(/ps[cp]/[^/]+)(/[A-Za-z0-9_]+/HRMS/c/HRS_[A-Za-z0-9_.]*HRS_CG_SEARCH[A-Za-z0-9_.]*)", re.I)
+
+
+def _peoplesoft_gbl(url):
+    """The /EMPLOYEE/HRMS/c/<COMPONENT>.GBL tail of a PeopleSoft careers URL.
+
+    Falls back to PEOPLESOFT_GBL when the URL does not carry one, which keeps every existing
+    caller behaving exactly as before."""
+    m = _PS_GBL_RE.search(url or "")
+    if not m:
+        return PEOPLESOFT_GBL
+    tail = m.group(2)
+    return tail if tail.upper().endswith(".GBL") else tail + ".GBL"
 PEOPLESOFT_MAX_ROWS = 1500          # ~30 "show more" hops; FSU needs 4
 PEOPLESOFT_MAX_HOPS = 40
 
@@ -4705,12 +4755,13 @@ def _peoplesoft_parts(url):
     return "%s://%s" % (p.scheme or "https", p.netloc), m.group(1)
 
 
-def _ps_job_url(origin, site, job_id):
+def _ps_job_url(origin, site, job_id, gbl=None):
     """Deep link to one posting. Verified to render server-side from a COLD session (no
     cookie, no prior search), so it works both as the link we store for the user and as the
     URL score_jobs fetches the description from."""
     return ("%s/psc/%s%s?Page=HRS_APP_JBPST_FL&Action=U&FOCUS=Applicant"
-            "&SiteId=1&JobOpeningId=%s&PostingSeq=1" % (origin, site, PEOPLESOFT_GBL, job_id))
+            "&SiteId=1&JobOpeningId=%s&PostingSeq=1"
+            % (origin, site, gbl or PEOPLESOFT_GBL, job_id))
 
 
 def _ps_date(s):
@@ -4743,11 +4794,12 @@ def scrape_peoplesoft(board_url):
     origin, site = _peoplesoft_parts(board_url)
     if not origin:
         return []
-    listing = "%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U" % (origin, site, PEOPLESOFT_GBL)
+    gbl = _peoplesoft_gbl(board_url)
+    listing = "%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U" % (origin, site, gbl)
     try:
         # Guest session first: this GET is what makes everything after it visible.
         _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=1&FOCUS=Applicant"
-                  % (origin, site, PEOPLESOFT_GBL), timeout=25)
+                  % (origin, site, gbl), timeout=25)
         r = _safe_get(listing, timeout=30)
     except ValueError:
         return []                                   # non-public host -> refuse (SSRF guard)
@@ -4789,7 +4841,7 @@ def scrape_peoplesoft(board_url):
         title, jid = row.get("title", ""), row.get("job_id", "")
         if not (title and jid):
             continue
-        job = {"title": title, "url": _ps_job_url(origin, site, jid),
+        job = {"title": title, "url": _ps_job_url(origin, site, jid, gbl),
                "location": row.get("location", "")}
         d = _ps_date(row.get("opened"))             # a REAL posting date, not a found-date
         if d:
@@ -5762,7 +5814,13 @@ def detect_board(url):
                     if "myworkdaysite.com" in host else "https://%s/%s" % (_h, site))
             return (norm, "workday", _name_from(tenant))
 
-    if host.endswith(".oraclecloud.com") and "/sites/" in p.path:
+    # Oracle Fusion recruiting, on its own host OR behind a vanity domain. The host test
+    # alone missed every vanity deployment -- careers.autozone.com/hcmUI/... is the same
+    # product and _oracle_parts already parses it, so the board read fine (10,172 postings)
+    # while detect_board reported "not an ATS". /hcmUI/CandidateExperience/ is specific to
+    # this product, so matching the PATH cannot collide with another vendor.
+    if ("/hcmUI/CandidateExperience/" in p.path
+            or host.endswith(".oraclecloud.com")) and "/sites/" in p.path:
         origin, site = _oracle_parts(url)
         return ("%s/hcmUI/CandidateExperience/en/sites/%s" % (origin, site),
                 "oracle", _name_from(host.split(".")[0]))
@@ -5813,7 +5871,8 @@ def detect_board(url):
     # PeopleSoft Candidate Gateway: any /ps[cp]/<site>/…/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL URL,
     # whichever page of it the user happened to copy (search, one posting, the portal frame).
     # Matched on the component name, not the host, since every institution self-hosts.
-    if "HRS_HRAM_FL" in (p.path or "") and re.search(r"/ps[cp]/[^/]+/", p.path or ""):
+    if _PS_GBL_RE.search(url or "") or ("HRS_HRAM_FL" in (p.path or "")
+                                       and re.search(r"/ps[cp]/[^/]+/", p.path or "")):
         origin, site = _peoplesoft_parts(url)
         if origin and site:
             label = [x for x in host.split(".")
@@ -5822,7 +5881,8 @@ def detect_board(url):
             # These are mostly universities, whose domain label IS an acronym — _name_from
             # would title-case "fsu" into "Fsu". Anything this short is an initialism.
             name = name.upper() if (len(name) <= 4 and name.isalpha()) else _name_from(name)
-            return ("%s/psc/%s%s" % (origin, site, PEOPLESOFT_GBL), "peoplesoft", name)
+            return ("%s/psc/%s%s" % (origin, site, _peoplesoft_gbl(url)),
+                    "peoplesoft", name)
 
     return None
 
@@ -5958,7 +6018,7 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.recruitee\.com
       | [a-z0-9-]+\.breezy\.hr
       | [a-z0-9-]+\.jobs\.personio\.com
-      | [a-z0-9.-]+\.oraclecloud\.com/hcmUI/CandidateExperience[A-Za-z0-9_/.-]*/sites/[A-Za-z0-9_]+
+      | [a-z0-9.-]+/hcmUI/CandidateExperience[A-Za-z0-9_/.-]*/sites/[A-Za-z0-9_]+
       | recruiting\d*\.ultipro\.com/[A-Za-z0-9_-]+/JobBoard/[0-9a-fA-F-]{36}
       | [a-z0-9-]+\.bamboohr\.com/careers
       | [a-z0-9-]+\.pinpointhq\.com
@@ -5966,6 +6026,7 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.avature\.net/[A-Za-z0-9_-]+
       | www\d*\.jobdiva\.com/portal/\?a=[A-Za-z0-9]+
       | recruiting\.paylocity\.com/recruiting/jobs/All/[0-9a-fA-F-]{36}/[A-Za-z0-9_-]+
+      | [a-z0-9.-]+/ps[cp]/[A-Za-z0-9_]+/[A-Za-z0-9_]+/HRMS/c/HRS_[A-Za-z0-9_.]+
     )""", re.X | re.I)
 # Four platforms we can already SCRAPE were missing from the link list above, so a careers page
 # that linked straight to one was read as "no board found":
@@ -5974,6 +6035,16 @@ _ATS_LINK_RE = re.compile(
 #   avature / jobdiva / paylocity  had fetchers and detect_board support but no link pattern.
 # Found by fingerprinting the 71 careers-page-only companies from the E-Verify+ probe: the
 # platforms behind them were overwhelmingly ones we support, not ones we lack.
+# Same lesson again on 2026-08-24, fingerprinting 473 careers-page-only companies from
+# the LinkedIn/Indeed sweeps -- two more of ours were missing:
+#   peoplesoft  absent from this list entirely, so every university that LINKS to its
+#               /psc/<site>/EMPLOYEE/HRMS/c/HRS_... search page read as no board. These
+#               are the CAP-EXEMPT employers, i.e. the ones that matter most here.
+#   oracle      pinned to the .oraclecloud.com host, which missed every vanity-domain
+#               deployment. careers.autozone.com/hcmUI/... is the same product and
+#               _oracle_parts already parsed it -- the board read 10,172 postings while
+#               detect_board called it 'not an ATS'. The PATH is the product-specific
+#               part, so match on that instead.
 
 
 def detect_linked_ats(url):
@@ -5993,6 +6064,18 @@ def detect_linked_ats(url):
         html_text = r.text
     except Exception:
         return None
+    # A careers page that REDIRECTS to its ATS is the most common miss, and the cheapest
+    # to fix: the landing URL names the vendor outright (ntrs.wd1.myworkdayjobs.com,
+    # eaton.eightfold.ai) while the SPA it serves carries no _ATS_LINK_RE match at all, so
+    # the link scan below finds nothing and the company is reported as unclassifiable.
+    # Measured 2026-08-23 over 473 employers whose careers page loaded but resolved to no
+    # board: 26 of the top 120 were already on a platform in SCRAPERS, mostly behind a
+    # Workday or Eightfold redirect. Checked FIRST because it is free -- the fetch that
+    # would tell us has already happened -- and it cannot regress the non-redirect case,
+    # where r.url is the careers host and detect_board returns None for it anyway.
+    det = detect_board(str(getattr(r, 'url', '') or url))
+    if det:
+        return det
     seen = set()
     for m in _ATS_LINK_RE.finditer(html_text):
         cand = m.group(0)
@@ -6006,6 +6089,57 @@ def detect_linked_ats(url):
             det = detect_jibe(cand)
             if det:
                 return det
+    return None
+
+
+def detect_eightfold(url):
+    """Network probe for Eightfold boards served from the company's OWN host.
+
+    detect_board only matches *.eightfold.ai, so a vanity deployment reads as "not an ATS"
+    even though the adapter can scrape it perfectly: Netflix serves
+    explore.jobs.netflix.net and yields 509 postings, 185 of them on-target.
+
+    The `domain` query param is required and is NOT always the host's own domain -- Netflix
+    answers for netflix.com while being served from netflix.net -- so candidates are tried in
+    order and the first that returns positions wins.
+
+    Expect 403 far more often than 200. Eightfold gates per tenant: Microsoft, Qualcomm,
+    Ericsson, Eaton, Lumen and TriNet all refuse this same call, so a None here is the normal
+    outcome and not a sign the probe is broken.
+    """
+    url = (url or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    host = (urlparse(url).netloc or "").split(":")[0]
+    if not host:
+        return None
+    labels = [x for x in host.split(".") if x]
+    reg = ".".join(labels[-2:]) if len(labels) >= 2 else host
+    stem = labels[-2] if len(labels) >= 2 else host
+    cands = []
+    for d in (reg, stem + ".com"):
+        if d and d not in cands:
+            cands.append(d)
+    for dom in cands:
+        try:
+            r = SESSION.get("https://%s/api/apply/v2/jobs" % host, headers=HEADERS, timeout=12,
+                            params={"domain": dom, "hl": "en", "start": 0, "num": 1})
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        try:
+            d = r.json()
+        except Exception:
+            continue
+        if not isinstance(d, dict) or not (d.get("positions") or d.get("count")):
+            continue
+        label = [x for x in labels if x not in ("www", "jobs", "careers", "career",
+                                                "explore", "apply", "com", "net", "org")]
+        name = _name_from(label[0]) if label else host
+        return ("https://%s/careers?domain=%s" % (host, dom), "eightfold", name)
     return None
 
 
@@ -6095,17 +6229,24 @@ def probe_board(board_url, ats_type):
             if m:
                 return int(m.group(1).replace(",", ""))
             soup = BeautifulSoup(r.text, "lxml")
-            return len(soup.select("tr.data-row a.jobTitle-link")) or None
+            n = len(soup.select("tr.data-row a.jobTitle-link"))
+            if n:
+                return n
+            # Client-rendered tenant: no table to count. scrape_successfactors already
+            # falls back to the sitemap, so counting anything else here would refuse a
+            # board we can actually read. Wipro: 402 US postings, previously None.
+            return len(_csb_sitemap_us_locs("%s://%s" % (p.scheme or "https", p.netloc))) or None
         if ats_type == "paylocity":
             return len(scrape_paylocity(board_url)) or None
         if ats_type == "peoplesoft":
             origin, site = _peoplesoft_parts(board_url)
+            ps_gbl = _peoplesoft_gbl(board_url)
             if not origin:
                 return None
             _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=1&FOCUS=Applicant"
-                      % (origin, site, PEOPLESOFT_GBL), timeout=15)   # guest cookie first
+                      % (origin, site, ps_gbl), timeout=15)   # guest cookie first
             r = _safe_get("%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U"
-                          % (origin, site, PEOPLESOFT_GBL), timeout=20)
+                          % (origin, site, ps_gbl), timeout=20)
             if r.status_code != 200:
                 return None
             m = _PS_TOTAL_RE.search(re.sub(r"<[^>]+>", " ", r.text))
