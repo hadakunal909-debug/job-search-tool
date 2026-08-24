@@ -11,7 +11,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`web.py`](#webpy) — 7931 lines, 347 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 3101 lines, 200 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2862 lines, 177 symbols — Storage. One PostgREST-shaped interface over four backends.
-- [`scraper/__init__.py`](#scraper__init__py) — 8684 lines, 356 symbols — The sweep and the intake filter, plus every ATS adapter.
+- [`scraper/__init__.py`](#scraper__init__py) — 8701 lines, 356 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 1986 lines, 72 symbols — Fetches descriptions and scores them against the resume.
 - [`resume_score.py`](#resume_scorepy) — 1562 lines, 127 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
@@ -169,7 +169,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The sweep and the intake filter, plus every ATS adapter.*
 
-8684 lines · 356 top-level symbols · 41 sections
+8701 lines · 356 top-level symbols · 41 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -213,7 +213,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [7551–7572](../scraper/__init__.py#L7551) | STORAGE  — plain CSV, with cross-run dedup (no database) | 3 |
 | [7573–7851](../scraper/__init__.py#L7573) | ORCHESTRATOR  — the scraper itself | 12 |
 | [7852–7859](../scraper/__init__.py#L7852) | CLOSED-POSTING DETECTION | 0 |
-| [7860–8684](../scraper/__init__.py#L7860) | Absent from this many consecutive successful fetches of its OWN board before we call it | 16 |
+| [7860–8701](../scraper/__init__.py#L7860) | Absent from this many consecutive successful fetches of its OWN board before we call it | 16 |
 
 ## `scraper/score_jobs.py`
 

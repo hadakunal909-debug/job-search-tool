@@ -8412,11 +8412,28 @@ def main():
     long_cutoff = ((datetime.date.today() - datetime.timedelta(days=db.AGE_LONG_DAYS)).isoformat()
                    if (MAX_AGE_DAYS > 0 and db.AGE_LONG_DAYS) else age_cutoff)
 
+    # SCRAPE_BUDGET_MIN IS A WHOLE-RUN DEADLINE, and slicing is what could quietly have made it
+    # a per-slice one: scrape_all reads the global when no budget_min is passed, so six slices
+    # would have meant six full budgets and, in CI, six times the timeout it was sized against.
+    # Spend it down across slices instead, and stop STARTING slices once it is gone -- the same
+    # contract scrape_all has always had for boards, one level up.
+    _sweep_t0 = time.monotonic()
     for _sl in _slices:
         def _sl_progress(done, total, found, phase="scraping", force=False):
             # Offset into whole-run terms; scrape_all only knows about its own slice.
             _progress(_swept + done, len(sources), scanned_total + found, phase, force)
-        scraped = scrape_all(_sl, progress=_sl_progress, board_results=board_results)
+        _left = None
+        if SCRAPE_BUDGET_MIN and SCRAPE_BUDGET_MIN > 0:
+            _left = SCRAPE_BUDGET_MIN - (time.monotonic() - _sweep_t0) / 60
+            if _left <= 0:
+                _rest = _slices[_slices.index(_sl):]
+                print("\n  !! %d board(s) in %d unstarted slice(s) SKIPPED -- the %g-minute budget"
+                      " went on the slices before them. Everything already swept is stored:"
+                      " each slice was written as it finished."
+                      % (sum(len(s) for s in _rest), len(_rest), SCRAPE_BUDGET_MIN))
+                break
+        scraped = scrape_all(_sl, progress=_sl_progress, board_results=board_results,
+                             budget_min=_left)
         _progress(_swept + len(_sl), len(sources), scanned_total + len(scraped),
                   phase="saving", force=True)
         # These sites publish no quota and return no usage headers, so the only honest way to know
