@@ -64,7 +64,19 @@ jobs:
     # 58 x 22 = ~1,276 of the 2,000 free Actions minutes a month, and python-tests runs on top of
     # that. This is a CEILING, not a spend -- a healthy run still finishes in ~40 -- but if the
     # bill gets close, the lever is the number of boards swept, not this line.
-    timeout-minutes: 58
+    # 58 -> 90. Raised with the scrape step (32 -> 55) for the bigger board list.
+    # The job cap exists so a runaway step cannot burn a whole hour of Actions time;
+    # it is deliberately well above the sum of the steps that actually run, because a
+    # job-level kill loses the steps that had not started and says nothing about which
+    # one misbehaved -- the per-step caps are what diagnose that.
+    #
+    # COST: this workflow runs twice a day, ~44 times a month. A run that grows from
+    # ~35 to ~55 minutes moves the monthly spend from roughly 1,500 to 2,400 minutes.
+    # The free allowance for a private repo is 2,000, and the schedule was already cut
+    # from hourly to twice daily once for exactly this reason. If the cap bites, the
+    # honest lever is the per-board Workday straggler, not a tighter sweep budget:
+    # lowering SCRAPE_BUDGET_MIN was measured in both directions and bought no time.
+    timeout-minutes: 90
 
     # WHERE THE DATABASE IS. Set at JOB level rather than repeated across the five steps below,
     # because unlike SUPABASE_* — which some steps genuinely don't need — this pair decides the
@@ -198,7 +210,12 @@ jobs:
         # board list every single run, silently. Paying for the time is better than quietly
         # dropping employers. The per-phase timing now in scraper.main() is what will say whether
         # the write phase is growing or something in it is broken.
-        timeout-minutes: 32
+        # 32 -> 55. The step must outlast the whole arithmetic, not just the sweep:
+        # 40 (budget) + ~5.4 (the 16 in-flight workers draining, measured -- a handful
+        # of Workday tenants take minutes each) + 2 (JD lookup) + ~2.3 (filter, insert,
+        # prune, reconcile, board health) = ~50. 55 leaves the same ~1 min of margin
+        # the 26-minute version had, which is what 2026-08-21 proved is not optional.
+        timeout-minutes: 55
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -238,7 +255,20 @@ jobs:
           # runs after the sweep with no budget of its own. It is absent from the 2026-08-20
           # logs and present in both 2026-08-21 failures.
           SCRAPE_WORKERS: "16"
-          SCRAPE_BUDGET_MIN: "22"
+          #
+          # 22 -> 40 on 2026-08-24. The board list went 1,265 -> 1,797 (+42%) in one
+          # session of company discovery, and Workday alone -- two thirds of the sweep
+          # cost at ~30s a board -- went 240 -> 317. Scaling the 20.6-min measurement
+          # by boards puts the sweep near 30 min, so 22 would now BIND and starve
+          # roughly a quarter of the list every run. 40 is that estimate plus real
+          # headroom; the run log prints the actual sweep time and any STARVED count,
+          # and that number, not this one, is what to tune against.
+          #
+          # Note the "no rotation" claim in the step comment above is now STALE:
+          # SCRAPE_ROTATE defaults to 1 with a stride of 137, so a binding budget no
+          # longer starves the same tail forever. It still starves SOMETHING, which is
+          # why the budget went up rather than the rotation being relied on.
+          SCRAPE_BUDGET_MIN: "40"
           # THE CLOCK ON THE DESCRIPTION LOOKUP — the phase that actually overran this step on
           # 2026-08-21; the reasoning is at JD_LOOKUP_BUDGET_MIN in scraper/__init__.py. The
           # step's arithmetic, all three terms measured: 20.6 min sweep + 2 here + ~2.3 for
