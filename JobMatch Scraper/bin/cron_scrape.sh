@@ -60,7 +60,19 @@ if ! flock -n 9; then
 fi
 
 export SCRAPE_WORKERS=6
-export SCRAPE_BUDGET_MIN=12
+# 12 -> 0. NO DEADLINE: scrape_all reads 0 as 'no cut' and dispatches every board. The 12
+# minutes was sized against ~1,265 boards; the list is now 1,802, so it starved most of them
+# every slot, and the daily rotation only changes WHICH ones get dropped.
+#
+# WORKERS STAY AT 6, deliberately. This box also serves the website, and the concurrency -- not
+# the duration -- is what makes shared hosting throttle an account. Removing the deadline makes
+# the run LONGER, not wider: expect roughly 80 minutes where CI takes 30 at 16 workers.
+#
+# That is still inside the gap between the 13:00 and 16:00 slots, and flock above is what makes
+# an overrun safe anyway -- a late run skips its slot instead of stacking a second sweep on top
+# of the first. If the run ever does outlast the gap, the log will say SKIP rather than double
+# the outbound connections, which is the failure mode worth protecting.
+export SCRAPE_BUDGET_MIN=0
 # Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
 # board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
 # than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
