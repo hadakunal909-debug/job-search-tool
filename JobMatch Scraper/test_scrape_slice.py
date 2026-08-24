@@ -34,11 +34,12 @@ def _postings(entry):
          "url": "https://x.test/%s/3" % c, "found_date": "", "jd": ""},
     ]
 
-def run(slice_size):
+def run(slice_size, budget=0):
     """Run main() with the network and the database stubbed; return the rows it wrote."""
-    written, jds = [], {}
+    written, jds, budgets = [], {}, []
 
     def fake_scrape_all(sources, workers=None, progress=None, board_results=None, budget_min=None):
+        budgets.append(budget_min)
         out = []
         for e in sources:
             rows = _postings(e)
@@ -75,6 +76,7 @@ def run(slice_size):
     old = {k: getattr(scraper, k, None) for k in stubs}
     oldb = {k: getattr(_db, k, None) for k in dbstubs}
     old_sources = scraper.SOURCES
+    old_budget = scraper.SCRAPE_BUDGET_MIN
     old_slice = scraper.SCRAPE_SLICE
     old_rotate = scraper.SCRAPE_ROTATE
     try:
@@ -83,6 +85,7 @@ def run(slice_size):
         for k, v in dbstubs.items():
             setattr(_db, k, v)
         scraper.SOURCES = list(BOARDS)
+        scraper.SCRAPE_BUDGET_MIN = budget
         scraper.SCRAPE_SLICE = slice_size
         scraper.SCRAPE_ROTATE = 0          # rotation would reorder the list, not the SET
         scraper.main()
@@ -94,17 +97,25 @@ def run(slice_size):
             if v is not None:
                 setattr(_db, k, v)
         scraper.SOURCES = old_sources
+        scraper.SCRAPE_BUDGET_MIN = old_budget
         scraper.SCRAPE_SLICE = old_slice
         scraper.SCRAPE_ROTATE = old_rotate
-    return written
+    return written, budgets
 
 def urls(batches):
     return sorted(r["url"] for b in batches for r in b)
 
 fails = []
 
-one = run(0)             # single pass, the old behaviour
-many = run(3)            # 10 boards in slices of 3 -> 4 slices
+one, one_budgets = run(0)          # single pass, the old behaviour
+many, many_budgets = run(3)        # 10 boards in slices of 3 -> 4 slices
+# THE BUDGET MUST SPAN THE RUN, NOT RESET PER SLICE. Left unhandled, slicing would have turned
+# one 22-minute deadline into six of them -- and in CI that is six times the step timeout.
+_, budgeted = run(3, budget=22)
+# An EXHAUSTED budget must stop the run STARTING slices -- and must still leave what it already
+# swept in the database. This is the assertion that would actually have failed before the fix:
+# a per-slice budget can never be exhausted, so it could never stop anything.
+spent, spent_budgets = run(3, budget=1e-9)
 
 if len(one) > 1:
     fails.append("SCRAPE_SLICE=0 should write once, wrote %d times" % len(one))
@@ -119,6 +130,22 @@ if len(urls(many)) != len(set(urls(many))):
 # the whole point: work is banked as it goes, not at the end
 if len(many) < 4:
     fails.append("expected one write per slice (4), got %d" % len(many))
+if any(b is not None for b in one_budgets + many_budgets):
+    fails.append("SCRAPE_BUDGET_MIN=0 should pass no deadline, passed %r" % (many_budgets,))
+if len(budgeted) < 2:
+    fails.append("expected several budgeted slices, got %r" % (budgeted,))
+elif not all(isinstance(b, float) for b in budgeted):
+    fails.append("a budgeted slice got a non-numeric deadline: %r" % (budgeted,))
+elif budgeted != sorted(budgeted, reverse=True):
+    fails.append("the budget must be SPENT DOWN across slices, got %r" % (budgeted,))
+elif budgeted[0] > 22:
+    fails.append("first slice got more than the whole budget: %r" % (budgeted,))
+if len(spent_budgets) >= 4:
+    fails.append("an exhausted budget started every slice anyway (%d) -- it is still per-slice"
+                 % len(spent_budgets))
+if len(spent) != len(spent_budgets):
+    fails.append("a slice that ran did not get written: %d swept, %d written"
+                 % (len(spent_budgets), len(spent)))
 # and the run's own summary file must describe the WHOLE run, not the last slice
 try:
     saved = json.load(open("last_new_jobs.json", encoding="utf-8"))
@@ -130,6 +157,8 @@ except Exception as e:
 
 print("unsliced: %d write(s), %d row(s)" % (len(one), len(urls(one))))
 print("sliced:   %d write(s), %d row(s)" % (len(many), len(urls(many))))
+print("budget spans the run: deadlines handed to the slices = %r" % ([round(b, 4) for b in budgeted],))
+print("budget exhausted:    %d of 4 slice(s) started, %d write(s)" % (len(spent_budgets), len(spent)))
 if fails:
     print("\nFAIL")
     for f in fails:
