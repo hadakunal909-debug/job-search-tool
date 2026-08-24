@@ -595,6 +595,26 @@ _CURATED_LISTS = {
 # them -- see the data-quality note in the module docstring.
 _CURATED_TAIL = {
     "Software & Internet": [
+        "CoVar", "Kobie", "Engine", "Evolve",
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "OpenGov Inc.", "Allvue Systems", "Planview", "Temporal Technologies", "Entrust",
+        "Rocket Lawyer", "Infotrust", "TRM Labs", "Anrok", "WalkMe", "Camunda", "DailyPay",
+        "Kafene", "Valon", "Acronotics", "FloQast", "FullStack", "Kochava", "LeanData",
+        "Reality Defender", "Trulioo", "6sense", "Abaka AI", "Artie", "Ashby", "Assured",
+        "AWeber", "Bitwarden", "Braintrust", "Brave", "Brellium", "Brigit", "CaptivateIQ",
+        "Cobot", "Coderio", "Coinflow", "Compa", "ConcertAI", "ControlUp", "Cordance",
+        "Credit Genie", "DeepMind", "Doxim", "EagleView", "Esri", "EvolutionIQ", "Finix",
+        "FloatMe", "Genius AI", "GetWhys", "Glance", "Gyde", "Handoff", "Handshake", "Hudl",
+        "jamf", "Keeper Security, Inc.", "KUNGFU.AI", "Legora", "Lightfield", "Lightning AI",
+        "Metaview", "NameSpace", "Oowlish", "Parloa", "Pragmatike", "PrizePicks", "Prospyr",
+        "Reducto", "Rundoo", "Simplesense", "SkySlope", "Solution Design Group", "Storable",
+        "Striveworks", "Sustainment", "Swayable", "TensorWave", "Teraswitch", "Upside", "VTS",
+        "VulnCheck", "WellBeam", "WireScreen", "Zapier", "Novig", "Tarro", "OFFICE HOURS",
+        "Everforth", "Everforth ECS", "Simple Science Inc.", "MetaHorizon", "Linea Labs",
+        "HUMAN", "Aurelian", "CBI", "Logic, Inc.", "Fortreum", "Quarterhill Inc.",
+
+        # added 2026-08-24, see the note above
+        "LivePerson", "VERISIGN",
         "QuinStreet", "Provectus", "Recorded Future", "ClickHouse", "LangChain", "OpenText",
         "STANDARD BOTS COMPANY", "Faire", "Braze", "Blackbaud", "Instructure", "IXL Learning",
         "Hopper", "Duolingo", "phData", "Bandwidth", "GoFundMe", "Moloco", "Zocdoc", "Sentry",
@@ -650,6 +670,18 @@ _CURATED_TAIL = {
         "Qurrent", "Garage Technologies, Inc.", "Y Combinator",
     ],
     "IT Services & Consulting": [
+        "Raft", "AVI-SPL",
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "A-TEK Inc", "ASRT, Inc.", "Tech Army, LLC", "techolution", "Softchoice",
+        "Computacenter", "ePlus inc.", "Dev Technology Group, Inc.", "DOMA Technologies",
+        "AnaVation LLC", "Cayuse Holdings", "CBTS", "ClearEdge", "Covista", "INA Solution",
+        "SRM Technologies", "Solvo Global", "Zensa LLC", "hatch IT", "Aquent", "Terac",
+        "USfalcon", "Wyetech, LLC", "SOSi", "Goldbelt", "Akima",
+        "Alaka`ina Foundation Family of Companies", "Intrado", "J.S. Held", "Telligen",
+        "SFDS LLC", "Post & Parcel, LLC", "Decima International",
+
+        # added 2026-08-24, see the note above
+        "ALTEN Technology USA", "REI Systems", "TriNet",
         "eClerx", "Capco", "Analytic Partners", "Bounteous", "Riveron", "Aprio",
         "LinTech Global, Inc.", "NSD International", "HyerTek Inc.", "Redapt inc",
         "THEMESOFT", "Prospance Inc", "Aries Computer Systems, Inc.", "Standish Management",
@@ -682,6 +714,9 @@ _CURATED_TAIL = {
             "Honigman LLP", "Davis Wright Tremaine", "Moore & Van Allen",
     ],
     "Semiconductors & Hardware": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Supermicro", "QTS Data Centers", "ServerFarm", "EchoStar Corporation",
+
         "Astera Labs", "Lightmatter", "Graphcore Technologies Inc.", "Onto Innovation",
         "Bourns", "SK Hynix America", "X-FAB", "TTM Technologies", "Excelitas Technologies",
         "Littelfuse", "Coherent Corp.", "Eliyan", "Keyence", "Lite-On, Inc.", "Razer",
@@ -691,6 +726,12 @@ _CURATED_TAIL = {
             "TENSORDYNE, INC",
     ],
     "Banking, Finance & Insurance": [
+        "Range",
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Credit Acceptance", "Betterment", "Nubank", "Circle", "sFOX", "Jump Trading",
+        "tastytrade, Inc.", "SelectQuote", "Kemper", "Frost", "VantageScore", "SRS Acquiom",
+        "United Educators", "Point C",
+
         "Scotiabank", "ALTRUIST", "PayJoy", "Stashinvest", "Berkadia", "Arcesium", "Lower",
         "Clear Street", "Fireblocks", "Parafin", "Convera", "William Blair & Company",
         "SMBC US", "PDT Partners", "Vestwell", "Capital Farm Credit", "DTCC USA",
@@ -703,6 +744,15 @@ _CURATED_TAIL = {
             "Sedgwick", "ServiceLink", "OKX", "FalconX", "Red Cell Partners", "FM",
     ],
     "Healthcare, Pharma & Biotech": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "U.S. Renal Care", "Medica", "Talkspace", "PatientPoint", "Genalyte, Inc.",
+        "Flagship Pioneering, Inc.", "Prokidney", "Octapharma Plasma, Inc.", "Perrigo",
+        "Siemens Healthineers", "Haleon", "Beacon Biosignals", "Sendabiosciences",
+        "IntegriChain", "Ennoble Care", "Florida Blue", "Imagen Dental Partners",
+        "Inizio Evoke", "International SOS", "Curaleaf",
+
+        # added 2026-08-24, see the note above
+        "Inovalon",
         "GSK", "Aledade", "ClinChoice", "CONMED", "UCB", "Cordis", "Cambrex", "Somatus",
         "Generate Biomedicines", "WelbeHealth", "Freedom Care", "NexHealth", "NOCD",
         "Autism Learning Partners", "Fortrea", "Ginkgo Bioworks", "Arthrex",
@@ -722,17 +772,27 @@ _CURATED_TAIL = {
             "Starkey", "ATCC", "Neuralink", "BillionToOne", "Clarioclinical", "Heidihealth.Com.Au",
     ],
     "Hospitals & Health Systems": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "AdventHealth", "AmeriHealth Caritas", "RadNet", "STERIS",
+
         "PruittHealth", "TriHealth Inc.", "HonorHealth", "CentraCare", "MaineHealth",
         "CommunityCare", "Pathways Inc", "Nysarc INC Essex County Chapter",
         "AccentCare", "Aegis Therapies", "Pristine Rehab Care",
     ],
     "Universities & Research": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Aegis Ventures",
+
         "UCLA", "Virginia Tech", "Wgu", "Administrators of the Tulane Educational Fund",
         "New Jersey Innovation Institute, Inc.", "Encyclopaedia Britannica",
         "International Student Exchange Programs", "Improve Your Tomorrow",
         "The Nature Conservancy", "Stand Together", "ActBlue Inc.", "Draper",
     ],
     "Government & Public Sector": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "City of Philadelphia", "Loudoun County Public Schools",
+        "Boys & Girls Clubs of America",
+
         "US Department of Veterans Affairs", "Fairfax County Government",
         "District of Columbia Public Schools", "Greenville County Schools",
         "Houston Independent School District", "KIPP Texas Public Schools",
@@ -746,6 +806,20 @@ _CURATED_TAIL = {
         "CALSTART", "Halvik", "Empower AI Inc.", "Torch Technologies",
     ],
     "Aerospace, Defense & Industrial": [
+        "Saronic Technologies", "JELD-WEN", "Carbon",
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Sabre Systems", "ENSCO, Inc.", "Rapiscan Systems", "Barbaricum", "Arcfield",
+        "Leonardo DRS", "SimVentions", "Mach Industries", "Merlin Labs", "Muon Space",
+        "Ursa Major", "HavocAI", "CHAOS Industries", "Helion", "E-Space", "Hubble Network",
+        "Quindar", "Virgin Galactic", "Janicki", "Panthalassa", "Neurophos", "Radiant",
+        "Path Robotics", "Carbon Robotics", "Orchard Robotics", "Lumafield", "Bombardier",
+        "Pentair", "Lincoln Electric", "Swagelok", "NIBCO INC.", "Greenheck Group",
+        "SPX Technologies", "Ball Corporation", "Constellium", "MAHLE", "OPmobility",
+        "Amerequip", "King Technologies, Inc.", "Greiner", "ANODIZE", "Kelso Industries",
+        "Springs Window Fashions", "Sub-Zero Group, Inc", "GE Appliances", "TK Elevator",
+        "ZEISS Group", "SICK", "Allegion", "Buckman", "H.B. Fuller", "Hexion Inc.", "Eastman",
+        "Milliken & Company", "Carhartt", "MicroVision", "Matthews",
+
         "Clarios", "Belden", "Trillium Flow Technologies", "Amentum", "James Hardie",
         "Merrick & Company", "Quanta Services", "Gentherm", "TechnipFMC", "Konecranes",
         "Primetals Technologies", "Generac Power Systems", "Southwire Company",
@@ -771,11 +845,24 @@ _CURATED_TAIL = {
             "Atomic Machines", "Rhombus Power", "Heidelberg",
     ],
     "Energy & Utilities": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Enviva", "Par Pacific Holdings", "HF Sinclair", "bp", "Enbridge", "RWE",
+        "Vistra Corp.", "Wabash Valley Power Alliance", "Clean Harbors", "WM",
+        "Mariana Minerals", "CMC",
+
         "NiSource US", "FirstEnergy Corp.", "Pacific Gas and Electric",
         "Southern California Edison Company", "Spire", "Avangrid", "Vitol",
         "Kinetic Inc", "Gridware", "EdgeConneX", "Renewed Vision",
     ],
     "Engineering, Construction & Real Estate": [
+        "Amrize", "Rimkus", "Hatch",
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "CDM Smith", "Woodard & Curran", "Harris & Associates", "Woolpert", "Wade Trim",
+        "Swinerton", "Brasfield & Gorrie", "MasTec Inc", "GeoStabilization International",
+        "Gene B. Glick Company", "PERI", "Reliance, Inc.", "CRANSTON",
+
+        # added 2026-08-24, see the note above
+        "Newmark", "Mott MacDonald",
         "HDR", "Allan Myers", "Luster National", "CannonDesign", "Core Spaces",
         "Lithko Contracting", "Bolton & Menk", "Mead & Hunt, Inc.", "Inframark",
         "Olsson", "Forgen", "Hypower Inc.", "LandDesign, Inc", "Ballinger",
@@ -792,6 +879,10 @@ _CURATED_TAIL = {
             "CUPERTINO ELECTRIC",
     ],
     "Transport, Logistics & Automotive": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Herc Rentals", "Iron Mountain", "Flexjet", "Ohio Cat", "HAVI", "42dot", "Uniti",
+        "BusPatrol", "Falcor Express LLC", "ABM Industries Inc.", "Continental",
+
         "RXO", "C.H. Robinson", "R+L Carriers", "AutoNation", "Syncreon", "Gotion",
         "AeroVect", "Avride", "WeRide", "Keolis", "Swissport", "BYD America",
         "Contemporary Amperex Technology Kentucky LLC", "CarMax", "Vivint",
@@ -801,6 +892,17 @@ _CURATED_TAIL = {
         "Iko", "Everpure",
     ],
     "Retail, Consumer & Hospitality": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "HSN", "Misfits Market", "BABYLIST", "goodr", "The Farmer's Dog", "Brooks Running",
+        "Garage Clothing", "Claire's", "Runnings", "Petco", "Sweetwater", "Sol de Janeiro",
+        "Primo Brands", "Simplot Company", "Gruma", "ITG Brands", "GALLO", "Johnsonville",
+        "Bruegger's Bagels", "Five Guys", "Eataly", "Flamingo", "HEB", "Staybridge Suites",
+        "gate group", "Varsity Brands", "1-800-GOT-JUNK?", "Paul Davis Restoration",
+        "COVERCRAFT INDUSTRIES", "Almo Corporation", "Border States", "BlueLinx", "Veritiv",
+        "Cencora", "PartsSource Inc.", "Sunrise Senior Living", "L'Oreal",
+
+        # added 2026-08-24, see the note above
+        "Carvana", "Whirlpool Corporation",
         "Crocs", "Crate and Barrel", "Best Western", "Five Below", "Hasbro, Inc.",
         "Puig", "Weis Markets", "Warby Parker", "New Balance", "The RealReal",
         "Richemont", "Rollins", "Golden State", "Gap Inc.", "Saks Global",
@@ -820,6 +922,12 @@ _CURATED_TAIL = {
             "The SSA Group",
     ],
     "Media, Telecom & Gaming": [
+        # discovery-sweep tail, curated 2026-08-24 -- see the note above
+        "Consumer Reports", "AXS", "Bisnow", "Twitch", "Red Ventures", "Wiley", "Level99",
+        "DAS North America", "Antares", "Solstice",
+
+        # added 2026-08-24, see the note above
+        "Ericsson", "Orchestra",
         "Nexstar", "Telus", "SiriusXM", "Genius Sports", "Scopely", "Xsolla",
         "Crunchyroll", "AccuWeather", "Real Chemistry", "Known", "VaynerMedia",
         "Taboola", "Samba TV", "Optimum", "SEMAFOR", "Relx", "Informa Markets Medica LLC",
