@@ -81,11 +81,13 @@ export SCRAPE_BUDGET_MIN=0
 # memory and wrote once at the very end -- so a kill anywhere before that line cost the whole
 # run. The 12-minute budget had been hiding that by never letting the sweep get big enough.
 #
-# 300 boards a slice is ~6 slices of ~8 minutes each at the measured 1,736-boards-in-48-minutes
-# rate. Each slice is written and released before the next starts, so peak memory is a sixth of
-# what was being killed and a kill now costs at most one slice. CI leaves this at 0: a GitHub
-# runner is a whole machine and has never been killed for memory.
-export SCRAPE_SLICE=300
+# 150 BOARDS A SLICE, AND THE NUMBER IS MEASURED. A 100-board slice scanned 78,926 postings on
+# 2026-08-24, so the unsliced 1,802-board sweep was holding roughly 1.4 MILLION posting dicts
+# plus their descriptions before it wrote anything -- which is the rc=137 in one line. 150 keeps
+# the peak near the size that has actually been observed to survive here, at ~12 slices of ~4
+# minutes. An earlier 300 was a guess made before that count existed; smaller slices cost only
+# extra round trips, and buy a smaller loss when a run is killed.
+export SCRAPE_SLICE=150
 # Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
 # board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
 # than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
