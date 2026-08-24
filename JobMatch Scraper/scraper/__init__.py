@@ -5758,10 +5758,186 @@ def scrape_google(board_url):
     return rows
 
 
+def _sitemap_locs_streamed(url, cap_mb=60, timeout=90):
+    """Every <loc> in a sitemap, read line-wise so a large one is never held in memory.
+
+    _safe_get caps a body at _MAX_FETCH_BYTES (5 MB) and is right to -- it guards user-supplied
+    URLs -- but a real careers sitemap can be much bigger: Cognizant's is 43,794 entries, and
+    _safe_get raised on it. The digitas adapter already learned this on a 14.2 MB sitemap; this is
+    the same technique, factored out. Line-wise is safe because sitemaps are line-oriented.
+
+    Raises rather than returning [], because "the sitemap could not be read" and "this employer
+    has no jobs" must not look identical to the caller.
+    """
+    r = SESSION.get(url, headers=HEADERS, timeout=timeout, stream=True)
+    try:
+        if r.status_code != 200:
+            raise ValueError("sitemap HTTP %s" % r.status_code)
+        out, seen = [], 0
+        for line in r.iter_lines(chunk_size=65536, decode_unicode=True):
+            if not line:
+                continue
+            seen += len(line)
+            if seen > cap_mb * 1024 * 1024:
+                note_truncation(url, len(out), len(out), -1,
+                                detail="sitemap exceeded %d MB, stopped reading" % cap_mb)
+                break
+            out += re.findall(r"<loc>([^<]+)</loc>", line)
+        return out
+    finally:
+        r.close()
+
+
+# ---- Generic sitemap + schema.org JobPosting -----------------------------------------------
+# For employers with no API and no supported ATS, but whose posting pages carry the same
+# JobPosting structured data Google for Jobs reads. Measured over the top 150 unreachable
+# employers this pattern only fits 4 of them -- 105 expose no sitemap at all -- so it is NOT a
+# general answer to the long tail. It is here because the ones it does fit include Cognizant,
+# the second-largest H-1B filer in the corpus, at 8 KB a page.
+#
+# THE LOCALE TRAP. Cognizant lists the same posting under /us-en/, /ca-en/, /india-en/ and
+# /global-en/, so a URL locale says nothing about where the job is: a /us-en/ posting in the
+# sample had addressCountry "Mexico". The country filter therefore comes from the JSON-LD, and
+# the locale is used only to pick ONE copy of each posting.
+JSONLD_SM_PATHS = ("/sitemap.xml", "/sitemap_index.xml")
+JSONLD_SM_MAX_PAGES = int(os.environ.get("JSONLD_SM_MAX_PAGES") or 400)
+JSONLD_SM_BUDGET_MIN = float(os.environ.get("JSONLD_SM_BUDGET_MIN") or 5)
+JSONLD_SM_LEDGER_MAX = 6000
+_JLSM_JOB_RE = re.compile(r"/jobs?/(\d+)/([a-z0-9-]+)/?$", re.I)
+_JLSM_LOCALE_RE = re.compile(r"/([a-z]{2,8}-[a-z]{2})/jobs?/", re.I)
+_JLSM_US = ("united states", "usa", "us")
+
+
+def _jlsm_sitemap_jobs(base, prefer_locale="us-en"):
+    """[(id, slug_title, url)] from a sitemap, ONE copy per posting.
+
+    Prefers `prefer_locale` when a posting appears under several, else takes the first seen --
+    picking a copy is about not fetching the same job four times, not about location.
+    """
+    locs, err = [], None
+    for sp in JSONLD_SM_PATHS:
+        try:
+            locs = _sitemap_locs_streamed(base.rstrip("/") + sp)
+        except Exception as e:
+            err = e
+            continue
+        if locs:
+            break
+    if not locs:
+        # Named, not swallowed: a sitemap we could not read must not report as an employer
+        # that stopped hiring. Same lesson the digitas adapter records above.
+        if err is not None:
+            print("   jsonld_sitemap: %s sitemap unreadable (%s: %s)"
+                  % (base, type(err).__name__, str(err)[:90]))
+        return []
+    if locs and all(("sitemap" in x or x.endswith(".xml")) for x in locs[:3]):
+        for child in locs[:8]:
+            if "job" in child.lower():
+                try:
+                    locs = _sitemap_locs_streamed(child)
+                    break
+                except Exception:
+                    pass
+    best = {}
+    for u in locs:
+        m = _JLSM_JOB_RE.search(u)
+        if not m:
+            continue
+        jid, slug = m.group(1), m.group(2).replace("-", " ").strip()
+        loc = _JLSM_LOCALE_RE.search(u)
+        pref = bool(loc and loc.group(1).lower() == prefer_locale)
+        if jid not in best or (pref and not best[jid][0]):
+            best[jid] = (pref, slug, u)
+    return [(jid, v[1], v[2]) for jid, v in best.items()]
+
+
+def _jlsm_row(url):
+    """(title, location) from a posting's JobPosting JSON-LD, US only, or None."""
+    try:
+        r = _safe_get(url, timeout=20)
+    except Exception:
+        return None
+    if r.status_code != 200 or '"JobPosting"' not in r.text:
+        return None
+    soup = BeautifulSoup(r.text, "lxml")
+    for tag in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(tag.string or "", strict=False)
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for it in list(items):
+            if isinstance(it, dict) and isinstance(it.get("@graph"), list):
+                items += it["@graph"]
+        for it in items:
+            if not isinstance(it, dict) or it.get("@type") != "JobPosting":
+                continue
+            title = _text(it.get("title"))
+            jl = it.get("jobLocation")
+            jl = jl[0] if isinstance(jl, list) and jl else jl
+            addr = (jl or {}).get("address") if isinstance(jl, dict) else None
+            addr = addr if isinstance(addr, dict) else {}
+            ctry = addr.get("addressCountry")
+            ctry = ctry.get("name") if isinstance(ctry, dict) else ctry
+            if not (title and str(ctry or "").strip().lower() in _JLSM_US):
+                continue
+            loc = ", ".join(str(x) for x in (addr.get("addressLocality"),
+                                             addr.get("addressRegion"), "United States") if x)
+            return title, loc
+    return None
+
+
+def scrape_jsonld_sitemap(board_url):
+    """Sitemap-driven JSON-LD board. Same three savings as scrape_google, same reasons.
+
+    The slug filter is what makes this affordable: the URL carries the title, so title_verdict
+    runs before any page is fetched. Cognizant: 2,053 postings -> 488 on-target -> ~4 MB.
+    """
+    base = re.match(r"^(https?://[^/]+)", board_url or "")
+    if not base:
+        return []
+    base = base.group(1)
+    jobs = _jlsm_sitemap_jobs(base)
+    if not jobs:
+        return []
+    cands = [(jid, u) for jid, slug, u in jobs if title_verdict(slug)[0]]
+    key = "jsonld_sm_seen:" + urlparse(base).netloc
+    try:
+        import db as _db
+        seen = set((_db.get_kv(key) or {}).get("ids") or [])
+    except Exception:
+        seen = set()
+    fresh = [(j, u) for j, u in cands if j not in seen] or cands[:JSONLD_SM_MAX_PAGES]
+    plan = fresh[:JSONLD_SM_MAX_PAGES]
+    stop = time.monotonic() + JSONLD_SM_BUDGET_MIN * 60
+    rows, done = [], []
+    for jid, u in plan:
+        if time.monotonic() >= stop:
+            note_truncation(board_url, len(rows), JSONLD_SM_MAX_PAGES, len(cands),
+                            detail="hit JSONLD_SM_BUDGET_MIN (%g min)" % JSONLD_SM_BUDGET_MIN)
+            break
+        got = _jlsm_row(u)
+        done.append(jid)
+        if got:
+            rows.append({"title": got[0], "url": u, "location": got[1]})
+        time.sleep(random.uniform(0.05, 0.15))
+    else:
+        if len(cands) > len(plan):
+            note_truncation(board_url, len(rows), JSONLD_SM_MAX_PAGES, len(cands),
+                            detail="hit JSONLD_SM_MAX_PAGES")
+    try:
+        import db as _db
+        _db.put_kv(key, {"ids": (list(seen) + done)[-JSONLD_SM_LEDGER_MAX:]})
+    except Exception:
+        pass
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
     "google": scrape_google,
+    "jsonld_sitemap": scrape_jsonld_sitemap,
     "digitas": scrape_digitas,
     "lever": scrape_lever,
     "ashby": scrape_ashby,
@@ -6404,6 +6580,13 @@ def probe_board(board_url, ats_type):
             # as None and could never be adopted. Defer to the scraper, which already knows
             # about both endpoints -- same shape as the paylocity and pinpoint branches.
             return len(scrape_eightfold(board_url)) or None
+        if ats_type == "jsonld_sitemap":
+            # Sitemap-only count: no per-posting fetch, so validating is one request.
+            base = re.match(r"^(https?://[^/]+)", board_url or "")
+            if not base:
+                return None
+            return len([1 for _i, s, _u in _jlsm_sitemap_jobs(base.group(1))
+                        if title_verdict(s)[0]]) or None
         if ats_type == "google":
             # The sitemap count is the honest one: it needs no per-posting fetch.
             return len([1 for _i, s, _u in _google_sitemap_jobs()
