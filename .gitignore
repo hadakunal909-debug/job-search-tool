@@ -50,6 +50,7 @@ JobMatch Scraper/visa_tags_build.log
 JobMatch Scraper/discovered_*.csv
 JobMatch Scraper/recheck_*.csv
 JobMatch Scraper/phase23_*.csv
+JobMatch Scraper/allfix_*.csv
 JobMatch Scraper/unscrapeable_boards.csv
 JobMatch Scraper/adopted_companies_*.csv
 
