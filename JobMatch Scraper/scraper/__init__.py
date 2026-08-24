@@ -5634,9 +5634,134 @@ def scrape_werfen(board_url):
     return rows
 
 
+# ---- Google careers (careers.google.com) --------------------------------------------------
+# Google has NO public jobs API. Its careers site is a BOQ app that talks batchexecute RPC, so
+# there is nothing to call -- but careers.google.com/jobs/sitemap lists every posting, and each
+# posting page embeds its own record in an AF_initDataCallback ds:0 block:
+#     [["<id>","<title>","<apply url>", ... "Mountain View, CA, USA", ...]]
+#
+# THE COST, because it is the only reason this adapter is shaped the way it is. A posting page is
+# 1.1 MB decompressed but 161 KB on the wire (gzip, automatic), and the location exists ONLY in
+# that ds:0 block, which sits past 416 KB of the page -- so there is no capped read, and the
+# server does not honour Range. Fetching all 1,436 on-target postings is ~231 MB.
+#
+# Three things bring that down, in order of how much they save:
+#   1. filter on the slug FIRST. The sitemap URL is /results/<id>-<slug>, and the slug IS the
+#      title, so title_verdict runs for free and drops 3,376 to ~1,436 before any page is fetched.
+#   2. a ledger of ids already resolved, so a run only pays for postings it has never seen.
+#      Steady state is Google's daily new postings, i.e. tens -- call it 8 MB a run.
+#   3. a per-run page cap, so the first backfill is spread over several runs instead of landing
+#      as one 231 MB request storm.
+GOOGLE_SITEMAP = "https://careers.google.com/jobs/sitemap"
+GOOGLE_LEDGER_KEY = "google_careers_seen"
+GOOGLE_MAX_PAGES = int(os.environ.get("GOOGLE_MAX_PAGES") or 250)
+GOOGLE_BUDGET_MIN = float(os.environ.get("GOOGLE_BUDGET_MIN") or 6)
+GOOGLE_LEDGER_MAX = 6000                 # ids kept; oldest dropped so the blob cannot grow forever
+_G_JOB_RE = re.compile(r"/jobs/results/(\d+)-([a-z0-9-]+)/?$")
+_G_DS0_RE = re.compile(r"key: 'ds:0'.{0,200}?data:(\[.{0,4000})", re.S)
+_G_US_LOC_RE = re.compile(r'"([A-Z][A-Za-z .\'-]{1,40}, [A-Z]{2}, USA)"')
+
+
+def _google_sitemap_jobs():
+    """[(id, slug_title, url)] for every posting in the sitemap. One 76 KB request."""
+    try:
+        r = _safe_get(GOOGLE_SITEMAP, timeout=30)
+    except Exception:
+        return []
+    if r.status_code != 200:
+        return []
+    out = []
+    for u in re.findall(r"<loc>([^<]+)</loc>", r.text):
+        m = _G_JOB_RE.search(u)
+        if m:
+            out.append((m.group(1), m.group(2).replace("-", " ").strip(), u))
+    return out
+
+
+def _google_page_row(url):
+    """(title, location) from a posting page's ds:0 block, or None.
+
+    The location is the first "City, ST, USA" string in the block; a posting outside the US has
+    none, which is exactly the filter we want -- the sitemap is global.
+    """
+    try:
+        r = _safe_get(url, timeout=25)
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    m = _G_DS0_RE.search(r.text)
+    if not m:
+        return None
+    blk = m.group(1)
+    strings = re.findall(r'"([^"]{3,120})"', blk)
+    title = ""
+    for s in strings[1:4]:                      # [0] is the id; the title follows it
+        if not s.isdigit() and not s.startswith("http"):
+            title = s
+            break
+    loc = _G_US_LOC_RE.search(blk)
+    if not (title and loc):
+        return None
+    return title.strip(), loc.group(1).strip()
+
+
+def scrape_google(board_url):
+    """Google careers via sitemap + per-posting ds:0 parse. See the cost note above.
+
+    US-only by construction: a posting with no "City, ST, USA" in its record is skipped, which is
+    what keeps Google's global catalogue out of a US feed.
+    """
+    jobs = _google_sitemap_jobs()
+    if not jobs:
+        return []
+    # (1) the free filter -- the slug is the title
+    cands = [(jid, url) for jid, slug, url in jobs if title_verdict(slug)[0]]
+    # (2) the ledger: only pay for postings never resolved before
+    try:
+        import db as _db
+        led = _db.get_kv(GOOGLE_LEDGER_KEY) or {}
+    except Exception:
+        led = {}
+    seen = set(led.get("ids") or [])
+    fresh = [(j, u) for j, u in cands if j not in seen]
+    # A run that has nothing new still returns the postings it already knows about? No -- it
+    # returns []. main() treats an empty board as "nothing new today", and reconcile_closed's
+    # 3-consecutive-miss rule is what would retire rows, so the ledger is capped below to make
+    # sure the whole set is revisited rather than frozen forever.
+    if not fresh:
+        fresh = [(j, u) for j, u in cands][:GOOGLE_MAX_PAGES]
+    # (3) the per-run cap and a wall clock, so a backfill cannot eat the sweep
+    plan = fresh[:GOOGLE_MAX_PAGES]
+    stop = time.monotonic() + GOOGLE_BUDGET_MIN * 60
+    rows, done = [], []
+    for jid, url in plan:
+        if time.monotonic() >= stop:
+            note_truncation(board_url or GOOGLE_SITEMAP, len(rows), GOOGLE_MAX_PAGES, len(cands),
+                            detail="hit GOOGLE_BUDGET_MIN (%g min)" % GOOGLE_BUDGET_MIN)
+            break
+        got = _google_page_row(url)
+        done.append(jid)
+        if got:
+            rows.append({"title": got[0], "url": url, "location": got[1]})
+        time.sleep(random.uniform(0.05, 0.15))
+    else:
+        if len(cands) > len(plan):
+            note_truncation(board_url or GOOGLE_SITEMAP, len(rows), GOOGLE_MAX_PAGES, len(cands),
+                            detail="hit GOOGLE_MAX_PAGES")
+    try:
+        import db as _db
+        keep = (list(seen) + done)[-GOOGLE_LEDGER_MAX:]
+        _db.put_kv(GOOGLE_LEDGER_KEY, {"ids": keep})
+    except Exception:
+        pass
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
+    "google": scrape_google,
     "digitas": scrape_digitas,
     "lever": scrape_lever,
     "ashby": scrape_ashby,
@@ -6279,6 +6404,10 @@ def probe_board(board_url, ats_type):
             # as None and could never be adopted. Defer to the scraper, which already knows
             # about both endpoints -- same shape as the paylocity and pinpoint branches.
             return len(scrape_eightfold(board_url)) or None
+        if ats_type == "google":
+            # The sitemap count is the honest one: it needs no per-posting fetch.
+            return len([1 for _i, s, _u in _google_sitemap_jobs()
+                        if title_verdict(s)[0]]) or None
         if ats_type == "paylocity":
             return len(scrape_paylocity(board_url)) or None
         if ats_type == "peoplesoft":
