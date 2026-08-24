@@ -806,7 +806,7 @@ _CURATED_TAIL = {
         "CALSTART", "Halvik", "Empower AI Inc.", "Torch Technologies",
     ],
     "Aerospace, Defense & Industrial": [
-        "Saronic Technologies", "JELD-WEN", "Carbon",
+        "Saronic Technologies", "JELD-WEN", "Carbon", "GRVTY",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Sabre Systems", "ENSCO, Inc.", "Rapiscan Systems", "Barbaricum", "Arcfield",
         "Leonardo DRS", "SimVentions", "Mach Industries", "Merlin Labs", "Muon Space",
@@ -899,7 +899,8 @@ _CURATED_TAIL = {
         "Bruegger's Bagels", "Five Guys", "Eataly", "Flamingo", "HEB", "Staybridge Suites",
         "gate group", "Varsity Brands", "1-800-GOT-JUNK?", "Paul Davis Restoration",
         "COVERCRAFT INDUSTRIES", "Almo Corporation", "Border States", "BlueLinx", "Veritiv",
-        "Cencora", "PartsSource Inc.", "Sunrise Senior Living", "L'Oreal",
+        "Cencora", "PartsSource Inc.", "Sunrise Senior Living", "L'Oreal", "L'Oréal",  # both spellings on purpose: norm_company maps the accented form to a DIFFERENT key
+        
 
         # added 2026-08-24, see the note above
         "Carvana", "Whirlpool Corporation",
