@@ -5210,17 +5210,32 @@ def _eightfold_domain(board_url):
 
 
 def _eightfold_rows(positions):
+    """Map Eightfold positions to feed rows, across BOTH of their payload spellings.
+
+    /api/apply/v2/jobs sends location / canonicalPositionUrl / t_create; the /api/pcsx/search
+    variant that Microsoft serves sends locations (a LIST) / positionUrl / postedTs. Reading
+    only the first spelling parsed zero rows out of a perfectly good 1,078-position response.
+    """
     rows = []
     for p in positions or []:
         # "Indianola,Pennsylvania,United States" — their own join, no space after the comma, which
         # would otherwise reach the feed looking like a formatting bug of ours.
-        loc = ", ".join(x.strip() for x in (p.get("location") or "").split(",") if x.strip())
+        raw = p.get("location")
+        if not raw:
+            alt = p.get("locations") or p.get("standardizedLocations") or []
+            raw = alt[0] if isinstance(alt, list) and alt else (alt if isinstance(alt, str) else "")
+        loc = ", ".join(x.strip() for x in (raw or "").split(",") if x.strip())
         row = {"title": (p.get("name") or "").strip(),
-               "url": p.get("canonicalPositionUrl") or "",
+               "url": p.get("canonicalPositionUrl") or p.get("positionUrl") or "",
                "location": loc}
-        try:                             # t_create is epoch SECONDS (not ms, unlike Lever)
-            row["found_date"] = datetime.datetime.fromtimestamp(
-                int(p.get("t_create"))).strftime("%Y-%m-%d")
+        try:                             # t_create is epoch SECONDS (not ms, unlike Lever);
+            ts = p.get("t_create")       # postedTs from the pcsx variant can be either
+            if ts in (None, ""):
+                ts = p.get("postedTs")
+            ts = int(ts)
+            if ts > 100000000000:                       # milliseconds
+                ts //= 1000
+            row["found_date"] = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
         except Exception:
             pass
         if row["title"] and row["url"]:
@@ -5233,17 +5248,28 @@ def scrape_eightfold(board_url):
     normal outcome here, not a broken board, and scrape_all's health tracking already records a
     board that yields nothing."""
     host = urlparse(board_url).netloc or (_sub(board_url) + ".eightfold.ai")
-    api = "https://%s/api/apply/v2/jobs" % host
     dom = _eightfold_domain(board_url)
+    # Two endpoints, same product. /api/apply/v2/jobs is the classic one; tenants on the
+    # newer front-end serve /api/pcsx/search instead and 403 the classic path outright --
+    # Microsoft is the case that found this, and it answers a plain request on pcsx while
+    # refusing apply/v2. Both wrap the same positions[] + count, so the only difference is
+    # the URL and that pcsx takes an explicit location filter (worth using: it turns a
+    # global sweep into a US one, 1,078 rows instead of the whole catalogue).
+    apis = [("https://%s/api/apply/v2/jobs" % host,
+             {"domain": dom, "hl": "en"}),
+            ("https://%s/api/pcsx/search" % host,
+             {"domain": dom, "query": "", "location": "United States"})]
+    api, extra = apis[0]
 
     def _page(start):
         for attempt in (0, 1):
             try:
-                r = SESSION.get(api, headers=HEADERS, timeout=25,
-                                params={"domain": dom, "hl": "en",
-                                        "start": start, "num": EIGHTFOLD_PAGE})
+                params = dict(extra, start=start, num=EIGHTFOLD_PAGE)
+                r = SESSION.get(api, headers=HEADERS, timeout=25, params=params)
                 if r.status_code == 200:
-                    return r.json()
+                    d = r.json()
+                    # pcsx nests the same payload one level down under "data".
+                    return d.get("data") if isinstance(d.get("data"), dict) else d
             except Exception:
                 pass
             if not attempt:
@@ -5251,6 +5277,9 @@ def scrape_eightfold(board_url):
         return {}
 
     first = _page(0)
+    if not (first.get("positions") or first.get("count")):
+        api, extra = apis[1]                       # classic path refused; try the newer one
+        first = _page(0)
     rows = _eightfold_rows(first.get("positions"))
     if not rows:
         return rows
@@ -6122,9 +6151,15 @@ def detect_eightfold(url):
     for d in (reg, stem + ".com"):
         if d and d not in cands:
             cands.append(d)
+    # Both endpoint spellings, for the same reason scrape_eightfold tries both: a tenant on
+    # the newer front-end 403s /api/apply/v2/jobs and answers /api/pcsx/search. Microsoft is
+    # that case, and probing only the classic path reported it as "not an ATS" while the
+    # scraper could read 1,077 US postings from it.
+    paths = ("/api/apply/v2/jobs", "/api/pcsx/search")
     for dom in cands:
+      for path in paths:
         try:
-            r = SESSION.get("https://%s/api/apply/v2/jobs" % host, headers=HEADERS, timeout=12,
+            r = SESSION.get("https://%s%s" % (host, path), headers=HEADERS, timeout=12,
                             params={"domain": dom, "hl": "en", "start": 0, "num": 1})
         except Exception:
             continue
@@ -6132,12 +6167,14 @@ def detect_eightfold(url):
             continue
         try:
             d = r.json()
+            if isinstance(d.get("data"), dict):        # pcsx nests one level down
+                d = d["data"]
         except Exception:
             continue
         if not isinstance(d, dict) or not (d.get("positions") or d.get("count")):
             continue
         label = [x for x in labels if x not in ("www", "jobs", "careers", "career",
-                                                "explore", "apply", "com", "net", "org")]
+                                                  "explore", "apply", "com", "net", "org")]
         name = _name_from(label[0]) if label else host
         return ("https://%s/careers?domain=%s" % (host, dom), "eightfold", name)
     return None
@@ -6236,6 +6273,12 @@ def probe_board(board_url, ats_type):
             # falls back to the sitemap, so counting anything else here would refuse a
             # board we can actually read. Wipro: 402 US postings, previously None.
             return len(_csb_sitemap_us_locs("%s://%s" % (p.scheme or "https", p.netloc))) or None
+        if ats_type == "eightfold":
+            # No count endpoint worth trusting here: the classic path 403s on newer tenants
+            # and probe_board had no eightfold branch at all, so every one of them counted
+            # as None and could never be adopted. Defer to the scraper, which already knows
+            # about both endpoints -- same shape as the paylocity and pinpoint branches.
+            return len(scrape_eightfold(board_url)) or None
         if ats_type == "paylocity":
             return len(scrape_paylocity(board_url)) or None
         if ats_type == "peoplesoft":
