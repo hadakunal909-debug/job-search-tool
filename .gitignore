@@ -42,3 +42,21 @@ JobMatch Scraper/*_run.log
 JobMatch Scraper/*_run2.log
 JobMatch Scraper/everify_probe*.log
 JobMatch Scraper/visa_tags_build.log
+
+# Review artifacts from the LinkedIn/Indeed company-discovery pipeline, same reasoning as the
+# E-Verify+ block above: every one is reproducible from the tree (scripts/discover_companies
+# -> scripts/probe_discovered -> scraper.adopt_everify_boards -> scripts/report_stem_opt_xlsx)
+# and the durable outputs are the code and the boards table, not these snapshots.
+JobMatch Scraper/discovered_*.csv
+JobMatch Scraper/recheck_*.csv
+JobMatch Scraper/phase23_*.csv
+JobMatch Scraper/unscrapeable_boards.csv
+JobMatch Scraper/adopted_companies_*.csv
+
+# Generated spreadsheets handed to the user, alongside jobmatch_companies.xlsx above.
+JobMatch Scraper/*_report*.xlsx
+JobMatch Scraper/STEM_OPT_report*.xlsx
+JobMatch Scraper/adopted_companies_*.xlsx
+JobMatch Scraper/unscrapeable_boards.xlsx
+# Excel's lock file for an open workbook.
+JobMatch Scraper/~$*.xlsx

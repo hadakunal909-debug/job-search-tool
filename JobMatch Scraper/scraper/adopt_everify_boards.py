@@ -23,6 +23,7 @@ reversible with a DELETE and never touches the 366 KB module.
     python -m scraper.adopt_everify_boards               # add the confirmed ones
     python -m scraper.adopt_everify_boards --include-bodyshops
     python -m scraper.adopt_everify_boards --no-yield-check   # skip the big-board sampling
+    python -m scraper.adopt_everify_boards --csv discovered_board_probe.csv --added-by discover:2026-08 --out discovered_adoption.csv
 """
 import os
 import sys
@@ -105,6 +106,13 @@ def main():
     dry = "--dry-run" in sys.argv
     keep_bodyshops = "--include-bodyshops" in sys.argv
     skip_yield_check = "--no-yield-check" in sys.argv
+    # Tag rows with the run that produced them. Adoption is meant to be reversible with a
+    # DELETE, and one tag for every batch ever adopted makes "undo the LinkedIn sweep"
+    # impossible to express -- so the caller names its own batch.
+    added_by = _arg("--added-by", ADDED_BY)
+    # Same reason --added-by exists: OUT was hardcoded, so a second pipeline through this
+    # script silently overwrote the first one's review artifact. Measured by doing it.
+    out = _arg("--out", OUT)
     if not os.path.exists(src):
         print("not found: %s — run `python -m scraper.probe_everify_candidates` first." % src)
         return 1
@@ -122,7 +130,17 @@ def main():
         scraper.SESSION = orig
 
     # Never add the same board URL twice, and never re-add something already in SOURCES.
+    # SOURCES *and* the boards table. custom_sources() is the half this missed: a board
+    # adopted by any earlier run lives only in that table, never in SOURCES, so it read as
+    # unknown and was re-verified and re-added on every subsequent run. db.add_board upserts
+    # on url so nothing was duplicated, but the counts were inflated and the yield check
+    # spent real network time on boards we already had. Same bug find_everify_boards
+    # ._known_sources() documents; see its docstring.
     known = {u for u, _a, _c in scraper.SOURCES}
+    try:
+        known |= {u for u, _a, _c in scraper.custom_sources()}
+    except Exception:
+        pass                                   # no DB is not a reason to skip the run
 
     # Honour the admin blocklist. The zero-yield check below catches boards that are provably
     # worthless (Whataburger: 0 of 4,640 survive the title filter), but it cannot catch a board
@@ -177,13 +195,13 @@ def main():
             continue
         try:
             import db
-            db.add_board(r["board_url"], r["ats_type"], r["employer"], added_by=ADDED_BY)
+            db.add_board(r["board_url"], r["ats_type"], r["employer"], added_by=added_by)
             r["added"] = "yes"
             added += 1
         except Exception as e:
             r["added"] = "ERROR: %s" % str(e)[:80]
 
-    with open(OUT, "w", newline="", encoding="utf-8") as f:
+    with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLS, extrasaction="ignore")
         w.writeheader()
         for r in hits:
@@ -210,7 +228,7 @@ def main():
     conf = [r for r in hits if r["verdict"] == "confirmed"]
     jobs = sum(int(r["job_count"]) for r in conf if str(r["job_count"]).isdigit())
     print("  postings behind confirmed boards: %s" % format(jobs, ","))
-    print("\nwrote %s" % os.path.abspath(OUT))
+    print("\nwrote %s" % os.path.abspath(out))
     if [r for r in hits if r["verdict"] == "review"]:
         print("\nREVIEW — board reports a different name, not added:")
         for r in hits:
