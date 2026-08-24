@@ -5933,10 +5933,170 @@ def scrape_jsonld_sitemap(board_url):
     return rows
 
 
+# ---- IBM careers (www-api.ibm.com/search/api/v2) -------------------------------------------
+# IBM's careers search is an Elasticsearch passthrough. No key, no auth, no cookie -- a plain
+# POST answers it, which is why this is 40 lines and not a browser adapter. Found the way
+# Microsoft's was: drive the page headless and pair each request with the response it produced.
+#
+# PAIRING MATTERS, and getting it wrong cost an hour. The page fires more than one query, and
+# capturing requests separately from responses meant replaying a payload that legitimately
+# matches nothing: it carried post_filter {field_keyword_08: "United States"} -- a JOB FAMILY
+# field, not a location -- and returned total 0 while looking perfectly plausible. The query that
+# actually returns the 1,498 postings has NO post_filter and lang "zz".
+#
+# Fields, none of them self-describing:
+#   field_keyword_19  LOCATION ("Austin, US", "Bangalore, IN", "Multiple Cities")
+#   field_keyword_08  job family (Consulting, Software Engineering)
+#   field_keyword_18  level (Professional, Entry Level)
+#   field_keyword_17  Hybrid / Remote / ""
+#
+# Cost: 100 rows a page at ~80 KB, so the whole board is ~1.2 MB. 18% of postings are US.
+IBM_SEARCH_API = "https://www-api.ibm.com/search/api/v2"
+IBM_PAGE = 100
+IBM_MAX_ROWS = int(os.environ.get("IBM_MAX_ROWS") or 3000)
+
+
+def _ibm_body(frm):
+    # sort by _id, NOT by the page's own [_score, pageviews]: that ordering is unstable across
+    # requests and overlapped 12 of 30 rows between consecutive pages, so paging it silently
+    # returned duplicates and missed others.
+    return {"appId": "careers", "scopes": ["careers2"], "lang": "zz",
+            "sm": {"query": "", "lang": "zz"}, "localeSelector": {},
+            "query": {"bool": {"must": []}},
+            "sort": [{"_id": "asc"}], "size": IBM_PAGE, "from": frm,
+            "_source": ["_id", "title", "url", "field_keyword_19", "field_keyword_18",
+                        "field_keyword_08", "field_keyword_17"]}
+
+
+def scrape_ibm(board_url):
+    """IBM careers, US postings only.
+
+    US-ness comes from field_keyword_19 ending ", US". "Multiple Cities" is deliberately dropped:
+    118 of the first 500 rows carry it and it names no country, so admitting it would put
+    unknown-location rows into a US feed.
+    """
+    rows, seen, frm = [], set(), 0
+    while frm < IBM_MAX_ROWS:
+        try:
+            r = SESSION.post(IBM_SEARCH_API, json=_ibm_body(frm), timeout=30,
+                             headers=dict(HEADERS, **{"Content-Type": "application/json",
+                                                      "Accept": "application/json",
+                                                      "Referer": "https://www.ibm.com/"}))
+            if r.status_code != 200:
+                break
+            payload = (r.json() or {}).get("hits") or {}
+        except Exception:
+            break
+        hits = payload.get("hits") or []
+        if not hits:
+            break
+        total = ((payload.get("total") or {}).get("value")) or 0
+        for h in hits:
+            hid = h.get("_id")
+            if hid in seen:
+                continue
+            seen.add(hid)
+            s = h.get("_source") or {}
+            loc = _text(s.get("field_keyword_19"))
+            if not loc.strip().endswith(", US"):
+                continue
+            title, url = _text(s.get("title")), _text(s.get("url"))
+            if title and url:
+                rows.append({"title": title, "url": url,
+                             "location": loc.rsplit(",", 1)[0].strip() + ", United States"})
+        frm += IBM_PAGE
+        if total and frm >= min(total, IBM_MAX_ROWS):
+            break
+        time.sleep(random.uniform(0.2, 0.5))
+    return rows
+
+
+# ---- Deloitte (apply.deloitte.com) ---------------------------------------------------------
+# No API and no sitemap -- sitemap.xml serves the SPA shell -- but the search results are
+# SERVER-RENDERED, which the browser sniff only revealed because it looked at the DOM rather than
+# just the network: zero JSON responses, ten real job links in the HTML.
+#
+# Pagination is jobOffset, found by clicking "Next >>" and reading the href. jobRecordsPerPage is
+# accepted and IGNORED -- 10, 50 and 100 all return exactly ten rows -- so the page size is not
+# tunable and the only lever is how many offsets to walk. At ~21 KB on the wire per page, the
+# whole board is ~2 MB.
+DELOITTE_SEARCH = "https://apply.deloitte.com/en_US/careers/SearchJobs/"
+DELOITTE_PAGE = 10
+DELOITTE_MAX_PAGES = int(os.environ.get("DELOITTE_MAX_PAGES") or 140)
+_DEL_JOB_RE = re.compile(r"/careers/JobDetail/[A-Za-z0-9-]+/(\d+)")
+
+
+def _deloitte_rows(html):
+    """[(id, title, location)] from one results page.
+
+    The location is the LAST cell of the row -- the block reads
+    "Senior Consultant | Deloitte US | Deloitte Consulting LLP | Tampa, Florida, United States"
+    -- so it is taken from the tail rather than by class name, which this template does not give.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    out = []
+    for a in soup.select('a[href*="/careers/JobDetail/"]'):
+        m = _DEL_JOB_RE.search(a.get("href") or "")
+        if not m:
+            continue
+        title = a.get_text(" ", strip=True)
+        if not title:
+            continue
+        loc = ""
+        block = a.find_parent(["li", "tr", "div"])
+        if block:
+            parts = [x.strip() for x in block.get_text("|", strip=True).split("|") if x.strip()]
+            # "last cell containing a comma" is NOT enough: a title like "CCaaS x AI,
+            # Manager, Technical Transformation" satisfies it and was being stored as the
+            # location for its own row. Require the cell to actually name a place, and
+            # never accept the title back.
+            for cand in reversed(parts):
+                if cand == title or len(cand) >= 90 or "," not in cand:
+                    continue
+                if _csb_is_us(cand) or re.search(r", [A-Z][a-z]+$", cand):
+                    loc = cand
+                    break
+        out.append((m.group(1), title, loc))
+    return out
+
+
+def scrape_deloitte(board_url):
+    """Deloitte US careers by walking the server-rendered result pages."""
+    rows, seen = [], set()
+    for page in range(DELOITTE_MAX_PAGES):
+        try:
+            r = _safe_get(DELOITTE_SEARCH, timeout=25,
+                          params={"jobRecordsPerPage": DELOITTE_PAGE,
+                                  "jobOffset": page * DELOITTE_PAGE})
+        except Exception:
+            break
+        if r.status_code != 200:
+            break
+        got = _deloitte_rows(r.text)
+        fresh = [x for x in got if x[0] not in seen]
+        if not fresh:
+            break                                  # a page of pure repeats is the end
+        for jid, title, loc in fresh:
+            seen.add(jid)
+            if US_ONLY and loc and not _csb_is_us(loc):
+                continue
+            rows.append({"title": title,
+                         "url": "%sJobDetail/%s" % (DELOITTE_SEARCH.rsplit("SearchJobs/", 1)[0],
+                                                    jid),
+                         "location": loc})
+        time.sleep(random.uniform(0.15, 0.4))
+    else:
+        note_truncation(board_url or DELOITTE_SEARCH, len(rows),
+                        DELOITTE_MAX_PAGES * DELOITTE_PAGE, 0, detail="hit DELOITTE_MAX_PAGES")
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
     "google": scrape_google,
+    "ibm": scrape_ibm,
+    "deloitte": scrape_deloitte,
     "jsonld_sitemap": scrape_jsonld_sitemap,
     "digitas": scrape_digitas,
     "lever": scrape_lever,
@@ -6587,6 +6747,17 @@ def probe_board(board_url, ats_type):
                 return None
             return len([1 for _i, s, _u in _jlsm_sitemap_jobs(base.group(1))
                         if title_verdict(s)[0]]) or None
+        if ats_type == "deloitte":
+            return len(scrape_deloitte(board_url)) or None
+        if ats_type == "ibm":
+            r = SESSION.post(IBM_SEARCH_API, json=_ibm_body(0), timeout=25,
+                             headers=dict(HEADERS, **{"Content-Type": "application/json",
+                                                      "Accept": "application/json",
+                                                      "Referer": "https://www.ibm.com/"}))
+            if r.status_code != 200:
+                return None
+            h = (r.json() or {}).get("hits") or {}
+            return ((h.get("total") or {}).get("value")) or None
         if ats_type == "google":
             # The sitemap count is the honest one: it needs no per-posting fetch.
             return len([1 for _i, s, _u in _google_sitemap_jobs()
