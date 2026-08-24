@@ -20,7 +20,9 @@ from scraper.score_jobs import _load_jd_cache
 # like here — so the location figures are unaffected and the salary section simply reports over
 # the rows it has. If the counts look low, run `python -m scraper.score_jobs` to refresh the
 # cache; the gate percentages below are stated per-row, not as absolutes.
-rows = db.load_jobs(cols="url,location")
+# title is bought too: the salary samples below print it, and asking for only url+location
+# made this script die on KeyError(title) every run -- it never reached the salary report.
+rows = db.load_jobs(cols="url,location,title")
 jds = _load_jd_cache()
 for r in rows:
     r["jd"] = jds.get(r.get("url") or "", "")
@@ -72,11 +74,11 @@ for r in withjd:
     if s["period"] == "year":
         yr += 1; mins.append(s["min"])
         if len(samples) < 10:
-            samples.append("%-46s %s" % (r["title"][:46], core.salary_label(s["min"], s["max"], s["period"])))
+            samples.append("%-46s %s" % ((r.get("title") or "")[:46], core.salary_label(s["min"], s["max"], s["period"])))
     elif s["period"] == "hour":
         hr += 1
         if len(samples) < 14:
-            samples.append("%-46s %s" % (r["title"][:46], core.salary_label(s["min"], s["max"], s["period"])))
+            samples.append("%-46s %s" % ((r.get("title") or "")[:46], core.salary_label(s["min"], s["max"], s["period"])))
 t = len(withjd)
 print("  JD-bearing rows: %d" % t)
 print("  annual range   : %6d (%.1f%%)   [gate: >=31%%]" % (yr, 100 * yr / t))
