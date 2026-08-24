@@ -6091,12 +6091,130 @@ def scrape_deloitte(board_url):
     return rows
 
 
+# ---- Apple (jobs.apple.com) -----------------------------------------------------------------
+# Apple looked client-rendered and is not: the results are embedded in the page as a React Router
+# hydration blob, window.__staticRouterHydrationData = JSON.parse("..."). Only the LINKS are built
+# client-side, which is why a link-based check found one job in 318 KB and concluded there was
+# nothing there. The blob is a JSON document inside a JS string literal, so it decodes twice.
+#
+# No API was needed in the end, and no browser. Cost: 20 results a page, fixed -- pageSize, limit
+# and sort are all accepted and ignored -- so 4,486 US postings is ~225 requests at ~55 KB on the
+# wire, about 12 MB. Comparable to one large Workday tenant.
+APPLE_SEARCH = "https://jobs.apple.com/en-us/search"
+APPLE_LOCATION = "united-states-USA"
+APPLE_MAX_PAGES = int(os.environ.get("APPLE_MAX_PAGES") or 240)
+# Apple Retail is excluded at the source. It is thousands of store roles, and the title filter
+# admits some of them -- "US-Operations Specialist" at The Shops at Blackstone Valley survives,
+# as do US-Manager and US-Technical Specialist. That is the same store-floor class already
+# blocked for Ulta and Family Dollar: E-Verify enrolment does not make a store job satisfy
+# STEM-OPT, because the ROLE has to relate to the degree. Excluding by teamID rather than by
+# title is exact, and it keeps Apple's corporate engineering roles, which are the point.
+APPLE_SKIP_TEAMS = frozenset(("teamsAndSubTeams-APPST",))
+_APPLE_HYDRATE_RE = re.compile(r"window\.__staticRouterHydrationData\s*=\s*JSON\.parse\(", re.S)
+
+
+def _apple_hydration(text):
+    """The decoded hydration object, or None. Two json.loads: literal -> string -> object."""
+    m = _APPLE_HYDRATE_RE.search(text)
+    if not m:
+        return None
+    try:
+        i = text.index('"', m.end())
+    except ValueError:
+        return None
+    j, n = i + 1, len(text)
+    while j < n:                                   # walk the JS string, honouring escapes
+        c = text[j]
+        if c == "\\":
+            j += 2
+            continue
+        if c == '"':
+            break
+        j += 1
+    try:
+        return json.loads(json.loads(text[i:j + 1]))
+    except Exception:
+        return None
+
+
+def _apple_results(obj):
+    """The dict holding searchResults, wherever the router nested it."""
+    if isinstance(obj, dict):
+        if isinstance(obj.get("searchResults"), list):
+            return obj
+        for v in obj.values():
+            r = _apple_results(v)
+            if r:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _apple_results(v)
+            if r:
+                return r
+    return None
+
+
+def scrape_apple(board_url):
+    """Apple US postings from the search pages' hydration blob."""
+    rows, seen, total = [], set(), 0
+    for page in range(1, APPLE_MAX_PAGES + 1):
+        try:
+            r = _safe_get(APPLE_SEARCH, timeout=30,
+                          params={"location": APPLE_LOCATION, "page": page})
+        except Exception:
+            break
+        if r.status_code != 200:
+            break
+        blk = _apple_results(_apple_hydration(r.text) or {})
+        if not blk:
+            break
+        res = blk.get("searchResults") or []
+        if not res:
+            break
+        total = total or int(blk.get("totalRecords") or 0)
+        added = 0
+        for it in res:
+            pid = _text(it.get("positionId"))
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            added += 1
+            locs = it.get("locations") or []
+            # countryID is the reliable US test; the location NAME can be a store
+            # ("The Shops at Blackstone Valley") or the bare country.
+            us = [l for l in locs if "USA" in str(l.get("countryID") or "")]
+            if US_ONLY and not us:
+                continue
+            team = it.get("team") or {}
+            if _text(team.get("teamID")) in APPLE_SKIP_TEAMS:
+                continue
+            title = _text(it.get("postingTitle"))
+            slug = _text(it.get("transformedPostingTitle"))
+            if not (title and slug):
+                continue
+            rows.append({"title": title,
+                         "url": "https://jobs.apple.com/en-us/details/%s/%s" % (pid, slug),
+                         "location": _text((us[0] if us else locs[0]).get("name")),
+                         "found_date": _text(it.get("postDateInGMT"))[:10]})
+        if not added:                              # a page of pure repeats is the end
+            break
+        if total and len(seen) >= total:
+            break
+        time.sleep(random.uniform(0.15, 0.35))
+    else:
+        if total > len(seen):
+            note_truncation(board_url or APPLE_SEARCH, len(rows), APPLE_MAX_PAGES * 20, total,
+                            detail="hit APPLE_MAX_PAGES")
+    return rows
+
+
 SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
     "google": scrape_google,
     "ibm": scrape_ibm,
     "deloitte": scrape_deloitte,
+    "apple": scrape_apple,
     "jsonld_sitemap": scrape_jsonld_sitemap,
     "digitas": scrape_digitas,
     "lever": scrape_lever,
@@ -6747,6 +6865,12 @@ def probe_board(board_url, ats_type):
                 return None
             return len([1 for _i, s, _u in _jlsm_sitemap_jobs(base.group(1))
                         if title_verdict(s)[0]]) or None
+        if ats_type == "apple":
+            # totalRecords off page one: no need to walk the board to validate it.
+            r = _safe_get(APPLE_SEARCH, timeout=25,
+                          params={"location": APPLE_LOCATION, "page": 1})
+            blk = _apple_results(_apple_hydration(r.text) or {}) or {}
+            return int(blk.get("totalRecords") or 0) or None
         if ats_type == "deloitte":
             return len(scrape_deloitte(board_url)) or None
         if ats_type == "ibm":
