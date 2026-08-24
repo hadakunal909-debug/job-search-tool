@@ -7606,6 +7606,18 @@ SCRAPE_WORKERS = _env_num("SCRAPE_WORKERS", 16, int)
 # log. Keep it comfortably under the job's timeout-minutes so the steps AFTER the scrape
 # still have room to run.
 SCRAPE_BUDGET_MIN = _env_num("SCRAPE_BUDGET_MIN", 22)
+# SLICING, which is the structural version of the paragraph above. The budget bounds how LONG
+# the sweep runs; this bounds how much it HOLDS while running. main() sweeps this many boards,
+# writes them, releases them, then takes the next batch -- so peak memory is one slice rather
+# than the whole corpus, and a run killed mid-sweep keeps every slice it finished.
+#
+# 0 = off, one pass, exactly the old behaviour. That is the default BECAUSE CI has never been
+# killed for memory -- a GitHub runner is a whole machine -- and an unsliced run is what
+# scripts/verify_parsers.py and any before/after measurement expect. bin/cron_scrape.sh turns
+# it on, because the cPanel box is shared, is already swapping, and killed two consecutive
+# unsliced runs on 2026-08-24 (rc=137) -- the second after a COMPLETE 48.4-minute sweep of
+# 1,736 boards, which banked nothing because the only write came after all of them.
+SCRAPE_SLICE = _env_num("SCRAPE_SLICE", 0, int)
 # ROTATION. main() rotates where the sweep starts, because scrape_all walks the source list in
 # order and the budget cuts whatever is left -- so a fixed order plus a binding budget starves
 # the SAME tail on every run, forever. Off (0) makes a run byte-reproducible, which is what
@@ -8351,28 +8363,32 @@ def main():
                                   "found": found, "started_at": started, "run": stamp})
     _progress(0, len(sources), 0, force=True)
     board_results = []          # per-board outcome, for the closed-posting check below
-    scraped = scrape_all(sources, progress=_progress, board_results=board_results)
-    _progress(len(sources), len(sources), len(scraped), phase="saving", force=True)
-    # These sites publish no quota and return no usage headers, so the only honest way to know
-    # what a run spends against them is to count it. Print it every run: a number in the log
-    # beats the guess in a comment. (Adzuna was counted the same way until it was removed.)
-    if JOBSPY_CALLS[0]:
-        print("JobSpy: %d quer%s, %d raw row(s)."
-              % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))
-
-    # PHASE TIMING, because the alternative is a silent gap. The 2026-08-21 run was killed by
-    # the step timeout with its last line being the JobSpy count and NOTHING for the 5m17s after
-    # it -- everything between here and the tally print is a single unlogged stretch, so the log
-    # could not say whether the filter loop, the insert, the prune or the closed-posting check
-    # had taken the time. Two runs earlier the same stretch took 2.4 minutes. `_phase` costs one
-    # line each and makes the next occurrence diagnosable instead of a guess.
-    _phase_t = [time.time()]
-
-    def _phase(label):
-        now = time.time()
-        print("  [phase] %-22s %5.1fs" % (label, now - _phase_t[0]))
-        _phase_t[0] = now
-
+    # --- THE SWEEP RUNS IN SLICES, and the reason is a production incident, not tidiness. ---
+    #
+    # On 2026-08-24 two consecutive cPanel runs were SIGKILLed (rc=137) after the deadline was
+    # lifted: one 37.5 min in, mid-sweep, the other after a COMPLETE 48.4-minute sweep of 1,736
+    # boards, two minutes into the JD lookup. Both banked nothing, because `scraped` held every
+    # posting from every board and the single db.add_jobs() came after all of it. A kill
+    # anywhere before that line cost the entire run.
+    #
+    # Slicing fixes both halves of that. Peak memory is now one slice rather than the whole
+    # corpus -- which is what the kill was about, since the box is shared and swapping -- and a
+    # slice that finishes is written before the next one starts, so a kill costs the slice in
+    # flight, not the run. The writes are idempotent upserts keyed on url (db._upsert), so a
+    # re-run after a kill re-reads the banked boards and changes nothing.
+    #
+    # SCRAPE_SLICE=0 keeps the old single-pass behaviour, which is what CI uses: a GitHub runner
+    # is a whole machine and has never been killed for memory.
+    _slices = ([sources[i:i + SCRAPE_SLICE] for i in range(0, len(sources), SCRAPE_SLICE)]
+               if SCRAPE_SLICE and SCRAPE_SLICE > 0 else [sources])
+    if len(_slices) > 1:
+        print("Sweeping in %d slices of up to %d board(s). Each slice is written before"
+              " the next starts, so a run that is killed keeps what it had banked."
+              % (len(_slices), SCRAPE_SLICE))
+    all_kept = []               # every kept row of the whole run, for the summary + notify.py
+    scanned_total = 0
+    _swept = 0                  # boards finished in earlier slices, so the progress bar is
+                                # a whole-run number rather than restarting each slice
     kept = []
     fp_seen = []            # aggregator relists caught by the fingerprint, for the run summary
     # {canonical url -> description} for rows whose board handed the JD over with the listing.
@@ -8396,127 +8412,183 @@ def main():
     long_cutoff = ((datetime.date.today() - datetime.timedelta(days=db.AGE_LONG_DAYS)).isoformat()
                    if (MAX_AGE_DAYS > 0 and db.AGE_LONG_DAYS) else age_cutoff)
 
-    # Buy descriptions for the postings the boards did not hand one over for, before the keep
-    # loop runs — so a row rescued by a FETCHED description takes exactly the same path through
-    # the loop as one rescued by a description that arrived free. See fill_missing_jds.
-    try:
-        jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked)
-        if jd_tried:
-            print("JD lookup: %d of %d returned a usable description." % (jd_got, jd_tried))
-    except Exception as e:
-        print("  note: JD lookup pass failed (%s); titles decide on their own" % str(e)[:80])
+    for _sl in _slices:
+        def _sl_progress(done, total, found, phase="scraping", force=False):
+            # Offset into whole-run terms; scrape_all only knows about its own slice.
+            _progress(_swept + done, len(sources), scanned_total + found, phase, force)
+        scraped = scrape_all(_sl, progress=_sl_progress, board_results=board_results)
+        _progress(_swept + len(_sl), len(sources), scanned_total + len(scraped),
+                  phase="saving", force=True)
+        # These sites publish no quota and return no usage headers, so the only honest way to know
+        # what a run spends against them is to count it. Print it every run: a number in the log
+        # beats the guess in a comment. (Adzuna was counted the same way until it was removed.)
+        if JOBSPY_CALLS[0]:
+            print("JobSpy: %d quer%s, %d raw row(s)."
+                  % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))
 
-    for j in scraped:
-        j["url"] = canonical_url(j.get("url", ""))
-        if j["url"].lower() in seen:
-            tally["already known"] += 1
-            continue                       # already in jobs.csv from a past run
-        # Right after the dedupe and before any title work: this is the cheapest position, and
-        # putting it in the tally makes the drop visible in the run summary. A blocklist you
-        # can't see working is one you won't trust.
-        if blocked and db.block_key(j.get("company", "")) in blocked:
-            tally["blocked company"] += 1
-            continue
-        keep, why = title_verdict(j["title"])
-        # A SECOND OPINION FROM THE DESCRIPTION, when the title said nothing useful.
-        #
-        # Plenty of employers title a delivery role "Coordinator II" or "Business Operations
-        # Specialist", and no keyword list will ever cover that. Where a board handed us the
-        # description with the listing (_listing_jd above), read it instead of guessing from
-        # eight words of title.
-        #
-        # ONLY WHEN THE REASON WAS "no matching keyword". An EXCLUDE hit is a different claim --
-        # the title named a job we do not want -- and this must never overturn it, for the same
-        # reason _REVERSED_RE runs after EXCLUDE rather than before it.
-        #
-        # The US gate below still applies: it sits in the `elif` on `keep`, so a row rescued
-        # here goes through it exactly like a title-matched one. That was the point of doing the
-        # rescue here rather than after the gate.
-        if not keep and not why.startswith("off-target"):
-            if core.admits_on_description(j["title"], j.get("jd")):
-                keep, why = True, "matched on description"
-                kept_on_jd += 1
-        if not keep:
-            tally["off-target function title" if why.startswith("off-target")
-                  else "no matching role keyword"] += 1
-        # WHEN THE LOCATION IS BLANK, ASK THE TITLE. is_us_location keeps an unknown location
-        # on purpose -- only 0.8% of the corpus has none, and dropping them would lose real US
-        # jobs from Uber, Synopsys and McKinsey, whose boards simply do not publish one. But a
-        # blank location does not mean the posting is silent about where it is: "Data Analyst
-        # (Remote, India)" arrived with an empty location field and the country in its title,
-        # and sailed straight through. It is a VETO ONLY -- see title_says_non_us.
-        elif US_ONLY and (not is_us_location(j.get("location", ""))
-                          or title_says_non_us(j.get("title", ""))):
-            keep, why = False, "non-US location (%s)" % (j.get("location") or "n/a")
-            tally["non-US location"] += 1
-        if VERBOSE:
-            print("  %s %-52s %s" % ("KEEP " if keep else "drop ", j["title"][:52], why))
-        if not keep:
-            dump_reject(j.get("title"), j.get("company"), j.get("location"), j["url"], why)
-            continue
-        # Freshness gate. This has to run BEFORE the setdefault below: that line stamps
-        # undated rows with today's date, so a gate placed after it would see every dateless
-        # board as brand new and could never reject anything. Here the value is still exactly
-        # what the employer published — a date, an empty string, or nothing at all.
-        if age_cutoff:
-            posted = (j.get("found_date") or "")[:10]
-            cut = long_cutoff if db.is_long_lived(j["url"]) else age_cutoff
-            if posted and posted < cut:
-                tally["posted over %d days ago (%d for long-lived boards)"
-                      % (MAX_AGE_DAYS, db.AGE_LONG_DAYS)] += 1
-                if VERBOSE:
-                    print("  drop  %-52s posted %s" % (j["title"][:52], posted))
-                continue
-        if sponsor_index:
-            sponsored = sponsors_h1b(j["company"], sponsor_index)
-            if REQUIRE_SPONSOR and not sponsored:
-                continue
-            j["sponsors_h1b"] = "yes" if sponsored else "no"
-        else:
-            j["sponsors_h1b"] = "unknown"
-        # Sponsor-record gate, JOBSPY ROWS ONLY. A keyword sweep of Indeed returns the long tail
-        # of small US employers — roofers, local contractors, mobile-home services — and 41% of
-        # the ones it found had no record in ANY federal file, against 10% for the corpus. The
-        # direct boards are exempt because those employers were chosen deliberately, and several
-        # are cap-exempt universities and hospitals this test would wrongly drop.
-        if jobspy_visa_gate and j.get("_src") == "jobspy":
-            co = j.get("company") or ""
-            if not core.visa_tags(co, visa_index) and not core.sponsor_strength(
-                    co, sponsor_counts)[0]:
-                tally["no federal sponsor record (aggregator)"] += 1
-                if VERBOSE:
-                    print("  drop  %-52s no LCA/PERM/E-Verify/USCIS record" % co[:52])
-                continue
-        # DEAD LAST in the chain, on purpose. This is the only drop here that can be wrong in the
-        # "lost a real job" direction, so it sees only rows that already cleared every other gate
-        # — which is what lets the line below name exactly what was suppressed and against which
-        # stored posting. It is also the most expensive check, so it should see the fewest rows.
-        dupe_of = fingerprint_duplicate(j, fingerprints)
-        if dupe_of:
-            fp_seen.append((j["title"], j["url"], dupe_of))
-            if VERBOSE or not JOBSPY_FINGERPRINT_ENFORCE:
-                print("  %s %-44s\n        we already hold %s"
-                      % ("dupe " if JOBSPY_FINGERPRINT_ENFORCE else "dupe?",
-                         j["title"][:44], dupe_of[:96]))
-            if JOBSPY_FINGERPRINT_ENFORCE:
-                tally["aggregator copy of a job we hold"] += 1
-                continue
-        j.setdefault("found_date", stamp)        # keep the JD's posting date if set
-        seen.add(j["url"].lower())               # two boards in ONE run can serve the same
-                                                 # posting (e.g. both Greenhouse hosts)
-        # Bank a description that came with the listing -- for EVERY kept row, not just the ones
-        # rescued by it. A title-matched row gets its JD for free here too, which is a straight
-        # saving against the scoring budget: a measured detail pass once spent 2,640 fetches to
-        # recover 8 usable descriptions. Guarded at _MIN_JD_CHARS so a truncated teaser can
-        # never be stored as a complete description (the 403-char JobDiva trap).
-        if len((j.get("jd") or "").strip()) >= core._MIN_JD_CHARS:
-            listing_jds[j["url"]] = j["jd"]
-        kept.append({k: j.get(k, "") for k in FIELDNAMES})
+        # PHASE TIMING, because the alternative is a silent gap. The 2026-08-21 run was killed by
+        # the step timeout with its last line being the JobSpy count and NOTHING for the 5m17s after
+        # it -- everything between here and the tally print is a single unlogged stretch, so the log
+        # could not say whether the filter loop, the insert, the prune or the closed-posting check
+        # had taken the time. Two runs earlier the same stretch took 2.4 minutes. `_phase` costs one
+        # line each and makes the next occurrence diagnosable instead of a guess.
+        _phase_t = [time.time()]
 
-    try:            # persist this run's new jobs to disk FIRST so a DB hiccup can't lose the scrape
-        json.dump(kept, open("last_new_jobs.json", "w", encoding="utf-8"))
-    except Exception:
-        pass
+        def _phase(label):
+            now = time.time()
+            print("  [phase] %-22s %5.1fs" % (label, now - _phase_t[0]))
+            _phase_t[0] = now
+
+        # Buy descriptions for the postings the boards did not hand one over for, before the keep
+        # loop runs — so a row rescued by a FETCHED description takes exactly the same path through
+        # the loop as one rescued by a description that arrived free. See fill_missing_jds.
+        kept = []
+        listing_jds = {}
+        try:
+            jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked)
+            if jd_tried:
+                print("JD lookup: %d of %d returned a usable description." % (jd_got, jd_tried))
+        except Exception as e:
+            print("  note: JD lookup pass failed (%s); titles decide on their own" % str(e)[:80])
+
+        for j in scraped:
+            j["url"] = canonical_url(j.get("url", ""))
+            if j["url"].lower() in seen:
+                tally["already known"] += 1
+                continue                       # already in jobs.csv from a past run
+            # Right after the dedupe and before any title work: this is the cheapest position, and
+            # putting it in the tally makes the drop visible in the run summary. A blocklist you
+            # can't see working is one you won't trust.
+            if blocked and db.block_key(j.get("company", "")) in blocked:
+                tally["blocked company"] += 1
+                continue
+            keep, why = title_verdict(j["title"])
+            # A SECOND OPINION FROM THE DESCRIPTION, when the title said nothing useful.
+            #
+            # Plenty of employers title a delivery role "Coordinator II" or "Business Operations
+            # Specialist", and no keyword list will ever cover that. Where a board handed us the
+            # description with the listing (_listing_jd above), read it instead of guessing from
+            # eight words of title.
+            #
+            # ONLY WHEN THE REASON WAS "no matching keyword". An EXCLUDE hit is a different claim --
+            # the title named a job we do not want -- and this must never overturn it, for the same
+            # reason _REVERSED_RE runs after EXCLUDE rather than before it.
+            #
+            # The US gate below still applies: it sits in the `elif` on `keep`, so a row rescued
+            # here goes through it exactly like a title-matched one. That was the point of doing the
+            # rescue here rather than after the gate.
+            if not keep and not why.startswith("off-target"):
+                if core.admits_on_description(j["title"], j.get("jd")):
+                    keep, why = True, "matched on description"
+                    kept_on_jd += 1
+            if not keep:
+                tally["off-target function title" if why.startswith("off-target")
+                      else "no matching role keyword"] += 1
+            # WHEN THE LOCATION IS BLANK, ASK THE TITLE. is_us_location keeps an unknown location
+            # on purpose -- only 0.8% of the corpus has none, and dropping them would lose real US
+            # jobs from Uber, Synopsys and McKinsey, whose boards simply do not publish one. But a
+            # blank location does not mean the posting is silent about where it is: "Data Analyst
+            # (Remote, India)" arrived with an empty location field and the country in its title,
+            # and sailed straight through. It is a VETO ONLY -- see title_says_non_us.
+            elif US_ONLY and (not is_us_location(j.get("location", ""))
+                              or title_says_non_us(j.get("title", ""))):
+                keep, why = False, "non-US location (%s)" % (j.get("location") or "n/a")
+                tally["non-US location"] += 1
+            if VERBOSE:
+                print("  %s %-52s %s" % ("KEEP " if keep else "drop ", j["title"][:52], why))
+            if not keep:
+                dump_reject(j.get("title"), j.get("company"), j.get("location"), j["url"], why)
+                continue
+            # Freshness gate. This has to run BEFORE the setdefault below: that line stamps
+            # undated rows with today's date, so a gate placed after it would see every dateless
+            # board as brand new and could never reject anything. Here the value is still exactly
+            # what the employer published — a date, an empty string, or nothing at all.
+            if age_cutoff:
+                posted = (j.get("found_date") or "")[:10]
+                cut = long_cutoff if db.is_long_lived(j["url"]) else age_cutoff
+                if posted and posted < cut:
+                    tally["posted over %d days ago (%d for long-lived boards)"
+                          % (MAX_AGE_DAYS, db.AGE_LONG_DAYS)] += 1
+                    if VERBOSE:
+                        print("  drop  %-52s posted %s" % (j["title"][:52], posted))
+                    continue
+            if sponsor_index:
+                sponsored = sponsors_h1b(j["company"], sponsor_index)
+                if REQUIRE_SPONSOR and not sponsored:
+                    continue
+                j["sponsors_h1b"] = "yes" if sponsored else "no"
+            else:
+                j["sponsors_h1b"] = "unknown"
+            # Sponsor-record gate, JOBSPY ROWS ONLY. A keyword sweep of Indeed returns the long tail
+            # of small US employers — roofers, local contractors, mobile-home services — and 41% of
+            # the ones it found had no record in ANY federal file, against 10% for the corpus. The
+            # direct boards are exempt because those employers were chosen deliberately, and several
+            # are cap-exempt universities and hospitals this test would wrongly drop.
+            if jobspy_visa_gate and j.get("_src") == "jobspy":
+                co = j.get("company") or ""
+                if not core.visa_tags(co, visa_index) and not core.sponsor_strength(
+                        co, sponsor_counts)[0]:
+                    tally["no federal sponsor record (aggregator)"] += 1
+                    if VERBOSE:
+                        print("  drop  %-52s no LCA/PERM/E-Verify/USCIS record" % co[:52])
+                    continue
+            # DEAD LAST in the chain, on purpose. This is the only drop here that can be wrong in the
+            # "lost a real job" direction, so it sees only rows that already cleared every other gate
+            # — which is what lets the line below name exactly what was suppressed and against which
+            # stored posting. It is also the most expensive check, so it should see the fewest rows.
+            dupe_of = fingerprint_duplicate(j, fingerprints)
+            if dupe_of:
+                fp_seen.append((j["title"], j["url"], dupe_of))
+                if VERBOSE or not JOBSPY_FINGERPRINT_ENFORCE:
+                    print("  %s %-44s\n        we already hold %s"
+                          % ("dupe " if JOBSPY_FINGERPRINT_ENFORCE else "dupe?",
+                             j["title"][:44], dupe_of[:96]))
+                if JOBSPY_FINGERPRINT_ENFORCE:
+                    tally["aggregator copy of a job we hold"] += 1
+                    continue
+            j.setdefault("found_date", stamp)        # keep the JD's posting date if set
+            seen.add(j["url"].lower())               # two boards in ONE run can serve the same
+                                                     # posting (e.g. both Greenhouse hosts)
+            # Bank a description that came with the listing -- for EVERY kept row, not just the ones
+            # rescued by it. A title-matched row gets its JD for free here too, which is a straight
+            # saving against the scoring budget: a measured detail pass once spent 2,640 fetches to
+            # recover 8 usable descriptions. Guarded at _MIN_JD_CHARS so a truncated teaser can
+            # never be stored as a complete description (the 403-char JobDiva trap).
+            if len((j.get("jd") or "").strip()) >= core._MIN_JD_CHARS:
+                listing_jds[j["url"]] = j["jd"]
+            kept.append({k: j.get(k, "") for k in FIELDNAMES})
+
+        all_kept.extend(kept)
+        scanned_total += len(scraped)
+        try:            # persist this run's new jobs to disk FIRST so a DB hiccup can't lose the scrape
+            json.dump(all_kept, open("last_new_jobs.json", "w", encoding="utf-8"))
+        except Exception:
+            pass
+        if kept:
+            _phase("filter + dedupe")
+            db.add_jobs(kept)               # (also the breadcrumb notify.py reads for this run's alerts)
+            _phase("add_jobs (%d rows)" % len(kept))
+
+        # JobSpy returns the description WITH the row, so store it for the jobs we kept. Without this
+        # they fall to score_jobs' per-URL detail fetch, which mostly 403s against the aggregators
+        # while spending the scoring budget — the rows would score 0, render as "JD pending", and
+        # never reach the match filter or the digest.
+        # ...and so do lever / ashby / jibe / pinpoint, from the same response the sweep already
+        # read. Merged into one write: both are "the description arrived with the listing", and one
+        # db.update_jds call is one round trip instead of two.
+        if kept:
+            jds = dict(listing_jds)
+            jds.update({r["url"]: JOBSPY_JDS[r["url"]]
+                        for r in kept if r.get("url") in JOBSPY_JDS})
+            if jds:
+                try:
+                    db.update_jds(jds)
+                    print("Stored %d description(s) that arrived with the listing." % len(jds))
+                except Exception as e:
+                    print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
+        del scraped                 # the slice is banked; release it before the next one
+        _swept += len(_sl)
+
     if fp_seen:
         # Broken out by host on purpose. The check keys off "is this an aggregator row", not
         # "did jobspy fetch it", so switching an aggregator source on also starts catching
@@ -8531,28 +8603,6 @@ def main():
             by_host[h] = by_host.get(h, 0) + 1
         for h, n in sorted(by_host.items(), key=lambda kv: -kv[1]):
             print("   %-38s %6d" % (h[:38], n))
-    if kept:
-        _phase("filter + dedupe")
-        db.add_jobs(kept)               # (also the breadcrumb notify.py reads for this run's alerts)
-        _phase("add_jobs (%d rows)" % len(kept))
-
-    # JobSpy returns the description WITH the row, so store it for the jobs we kept. Without this
-    # they fall to score_jobs' per-URL detail fetch, which mostly 403s against the aggregators
-    # while spending the scoring budget — the rows would score 0, render as "JD pending", and
-    # never reach the match filter or the digest.
-    # ...and so do lever / ashby / jibe / pinpoint, from the same response the sweep already
-    # read. Merged into one write: both are "the description arrived with the listing", and one
-    # db.update_jds call is one round trip instead of two.
-    if kept:
-        jds = dict(listing_jds)
-        jds.update({r["url"]: JOBSPY_JDS[r["url"]]
-                    for r in kept if r.get("url") in JOBSPY_JDS})
-        if jds:
-            try:
-                db.update_jds(jds)
-                print("Stored %d description(s) that arrived with the listing." % len(jds))
-            except Exception as e:
-                print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
 
     # Corpus pruning. This is the OTHER HALF of the freshness policy and defaults to the same
     # window as MAX_AGE_DAYS, deliberately: the gate above refuses stale postings on the way
@@ -8607,26 +8657,26 @@ def main():
         print(trunc)
 
     dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
-    print(f"\nScanned {len(scraped)} postings ({dropped or 'nothing dropped'}).")
+    print(f"\nScanned {scanned_total} postings ({dropped or 'nothing dropped'}).")
     if kept_on_jd:
         print("%d kept on the DESCRIPTION alone -- the title matched nothing." % kept_on_jd)
     if DUMP_REJECTS:
         close_reject_dump()
         print(f"Dropped-posting dump written to {DUMP_REJECTS}.")
-    print(f"{len(kept)} NEW matching job(s):")
-    for j in kept:
+    print(f"{len(all_kept)} NEW matching job(s):")
+    for j in all_kept:
         flag = "" if j["sponsors_h1b"] != "yes" else "  [sponsors H1B]"
         print(f"  - {j['title']} - {j['company']} ({j['location'] or 'n/a'}){flag}")
         print(f"    {j['url']}")
-    if kept:
+    if all_kept:
         where = db.backend_name() if db.using_supabase() else OUTPUT_CSV
         print(f"\nSaved to {where}. Run `python -m scraper.score_jobs` next to score them.")
     else:
         print("Nothing new this run.")
 
     # Scrape phase finished; scoring (score_jobs) runs next and will flip this to 'done'.
-    db.set_scrape_status({"phase": "scoring", "done": 0, "total": 0, "found": len(scraped),
-                          "new": len(kept), "started_at": started, "run": stamp})
+    db.set_scrape_status({"phase": "scoring", "done": 0, "total": 0, "found": scanned_total,
+                          "new": len(all_kept), "started_at": started, "run": stamp})
 
 
 if __name__ == "__main__":

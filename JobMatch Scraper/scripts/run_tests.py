@@ -92,6 +92,7 @@ SUITES = (
     Suite("test_resume_store",      "test_resume_store.py",              "root",   "offline"),
     Suite("test_resume_upload",     "test_resume_upload.py",             "root",   "offline"),
     Suite("test_scoring",           "test_scoring.py",                   "root",   "offline"),
+    Suite("test_scrape_slice",      "test_scrape_slice.py",              "root",   "offline"),
     # Offline by its own docstring ("No database and no network -- the indexes are built
     # inline") and yet it appeared in NEITHER loop in python-tests.yml. It has never run in CI.
     Suite("test_sponsor_flag",      "test_sponsor_flag.py",              "root",   "offline"),
