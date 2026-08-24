@@ -70,13 +70,18 @@ jobs:
     # job-level kill loses the steps that had not started and says nothing about which
     # one misbehaved -- the per-step caps are what diagnose that.
     #
-    # COST: this workflow runs twice a day, ~44 times a month. A run that grows from
-    # ~35 to ~55 minutes moves the monthly spend from roughly 1,500 to 2,400 minutes.
-    # The free allowance for a private repo is 2,000, and the schedule was already cut
-    # from hourly to twice daily once for exactly this reason. If the cap bites, the
-    # honest lever is the per-board Workday straggler, not a tighter sweep budget:
-    # lowering SCRAPE_BUDGET_MIN was measured in both directions and bought no time.
-    timeout-minutes: 90
+    # COST -- READ THIS BEFORE ASSUMING THE SCHEDULE STILL FITS. Twice a day, ~44 runs
+    # a month. At ~35 min a run that was ~1,500 minutes; at the ~55 min an unbounded
+    # sweep of 1,797 boards is expected to take it is ~2,400. The free allowance for a
+    # private repo is 2,000/month, and this schedule was ALREADY cut from hourly to
+    # twice daily when that cap was hit once before.
+    #
+    # So the sweep is now unbounded by explicit choice -- completeness over cost --
+    # and the thing to watch is the Actions bill, not the STARVED count, which should
+    # now always be zero. If the allowance runs out the options in order are: cap the
+    # per-board Workday straggler, drop to one run a day, or make the repo public.
+    # Re-tightening SCRAPE_BUDGET_MIN is the one that does not work -- measured.
+    timeout-minutes: 180
 
     # WHERE THE DATABASE IS. Set at JOB level rather than repeated across the five steps below,
     # because unlike SUPABASE_* — which some steps genuinely don't need — this pair decides the
@@ -215,7 +220,12 @@ jobs:
         # of Workday tenants take minutes each) + 2 (JD lookup) + ~2.3 (filter, insert,
         # prune, reconcile, board health) = ~50. 55 leaves the same ~1 min of margin
         # the 26-minute version had, which is what 2026-08-21 proved is not optional.
-        timeout-minutes: 55
+        # 55 -> 120. With SCRAPE_BUDGET_MIN=0 there is no graceful cut any more, so
+        # this cap is the ONLY backstop -- and an ungraceful one: a step kill loses
+        # the write phase behind the sweep, where the budget used to save every board
+        # fetched up to the deadline. It is therefore sized to never be reached in
+        # normal operation (~50 min expected) rather than sized to the estimate.
+        timeout-minutes: 120
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -268,7 +278,25 @@ jobs:
           # SCRAPE_ROTATE defaults to 1 with a stride of 137, so a binding budget no
           # longer starves the same tail forever. It still starves SOMETHING, which is
           # why the budget went up rather than the rotation being relied on.
-          SCRAPE_BUDGET_MIN: "40"
+          # 0 = NO DEADLINE. scrape_all reads this as
+          #     deadline = now + budget*60 if budget > 0 else 0
+          # and every check is `if deadline and ...`, so zero disables the cut
+          # entirely and every board in the list gets dispatched. That is the point:
+          # a budget that binds drops employers silently, and rotation only moves
+          # WHICH ones get dropped, it does not stop the dropping.
+          #
+          # The sweep is still bounded, just not by a wall clock. Each board carries
+          # its own request timeouts, and the two ats_types that bring their own HTTP
+          # stack are capped explicitly by SCRAPE_BOARD_TIMEOUT -- workday at 300s,
+          # jobspy at 90s. So one pathological tenant costs 5 minutes, not the run.
+          # Worst case is 317 Workday boards x 300s / 16 workers, which is why the
+          # step cap below is generous rather than tight; the realistic figure is
+          # ~30 min, scaled from the 20.6 min measured at 1,265 boards.
+          #
+          # If this ever has to be bounded again, cap the per-board straggler first.
+          # Lowering the sweep budget was measured in BOTH directions and bought no
+          # time: 16 min still overran at 21.4 min and cost 95 boards.
+          SCRAPE_BUDGET_MIN: "0"
           # THE CLOCK ON THE DESCRIPTION LOOKUP — the phase that actually overran this step on
           # 2026-08-21; the reasoning is at JD_LOOKUP_BUDGET_MIN in scraper/__init__.py. The
           # step's arithmetic, all three terms measured: 20.6 min sweep + 2 here + ~2.3 for
