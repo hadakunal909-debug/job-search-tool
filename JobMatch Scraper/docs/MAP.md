@@ -11,7 +11,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`web.py`](#webpy) — 8607 lines, 372 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 3198 lines, 205 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2879 lines, 178 symbols — Storage. One PostgREST-shaped interface over four backends.
-- [`scraper/__init__.py`](#scraper__init__py) — 8805 lines, 358 symbols — The sweep and the intake filter, plus every ATS adapter.
+- [`scraper/__init__.py`](#scraper__init__py) — 8831 lines, 358 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 1986 lines, 72 symbols — Fetches descriptions and scores them against the resume.
 - [`resume_score.py`](#resume_scorepy) — 1562 lines, 127 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
@@ -172,7 +172,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The sweep and the intake filter, plus every ATS adapter.*
 
-8805 lines · 358 top-level symbols · 41 sections
+8831 lines · 358 top-level symbols · 41 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -198,25 +198,25 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [4890–4973](../scraper/__init__.py#L4890) | PAYLOCITY RECRUITING (recruiting.paylocity.com) | 6 |
 | [4974–5056](../scraper/__init__.py#L4974) | MICHAEL PAGE — the one RECRUITMENT AGENCY board here, and that is worth stating. | 2 |
 | [5057–5217](../scraper/__init__.py#L5057) | AQUENT — the second recruitment AGENCY here, and the cheapest board in the sweep. | 7 |
-| [5218–5340](../scraper/__init__.py#L5218) | Eightfold AI — &lt;tenant&gt;.eightfold.ai/api/apply/v2/jobs | 6 |
-| [5341–5493](../scraper/__init__.py#L5341) | Digitas (Publicis Groupe) — a branded Drupal front end over a bot-walled iCIMS tenant | 7 |
-| [5494–5571](../scraper/__init__.py#L5494) | Jobvite | 6 |
-| [5572–5673](../scraper/__init__.py#L5572) | Werfen -- a Drupal careers view over a bot-walled iCIMS tenant | 6 |
-| [5674–5827](../scraper/__init__.py#L5674) | Google careers (careers.google.com) | 12 |
-| [5828–5972](../scraper/__init__.py#L5828) | Generic sitemap + schema.org JobPosting | 10 |
-| [5973–6050](../scraper/__init__.py#L5973) | IBM careers (www-api.ibm.com/search/api/v2) | 5 |
-| [6051–6130](../scraper/__init__.py#L6051) | Deloitte (apply.deloitte.com) | 6 |
-| [6131–6291](../scraper/__init__.py#L6131) | Apple (jobs.apple.com) | 9 |
-| [6292–7067](../scraper/__init__.py#L6292) | ADD-A-BOARD  — turn a pasted careers link into a scrapeable source | 20 |
-| [7068–7080](../scraper/__init__.py#L7068) | FILTER  — entry-level + H1B sponsor | 3 |
-| [7081–7112](../scraper/__init__.py#L7081) | "Manager, Projects" -- the reversed form INCLUDE cannot see. | 1 |
-| [7113–7188](../scraper/__init__.py#L7113) | résumé-driven terms: tune the scrape toward YOUR resume (purely additive) | 5 |
-| [7189–7220](../scraper/__init__.py#L7189) | THE REJECT DUMP. See DUMP_REJECTS near the top for why it exists at all. | 3 |
-| [7221–7654](../scraper/__init__.py#L7221) | THE SECOND OPINION FOR BOARDS THAT DO NOT HAND A DESCRIPTION OVER. | 27 |
-| [7655–7676](../scraper/__init__.py#L7655) | STORAGE  — plain CSV, with cross-run dedup (no database) | 3 |
-| [7677–7955](../scraper/__init__.py#L7677) | ORCHESTRATOR  — the scraper itself | 12 |
-| [7956–7963](../scraper/__init__.py#L7956) | CLOSED-POSTING DETECTION | 0 |
-| [7964–8805](../scraper/__init__.py#L7964) | Absent from this many consecutive successful fetches of its OWN board before we call it | 16 |
+| [5218–5350](../scraper/__init__.py#L5218) | Eightfold AI — &lt;tenant&gt;.eightfold.ai/api/apply/v2/jobs | 6 |
+| [5351–5503](../scraper/__init__.py#L5351) | Digitas (Publicis Groupe) — a branded Drupal front end over a bot-walled iCIMS tenant | 7 |
+| [5504–5581](../scraper/__init__.py#L5504) | Jobvite | 6 |
+| [5582–5683](../scraper/__init__.py#L5582) | Werfen -- a Drupal careers view over a bot-walled iCIMS tenant | 6 |
+| [5684–5837](../scraper/__init__.py#L5684) | Google careers (careers.google.com) | 12 |
+| [5838–5982](../scraper/__init__.py#L5838) | Generic sitemap + schema.org JobPosting | 10 |
+| [5983–6060](../scraper/__init__.py#L5983) | IBM careers (www-api.ibm.com/search/api/v2) | 5 |
+| [6061–6140](../scraper/__init__.py#L6061) | Deloitte (apply.deloitte.com) | 6 |
+| [6141–6301](../scraper/__init__.py#L6141) | Apple (jobs.apple.com) | 9 |
+| [6302–7077](../scraper/__init__.py#L6302) | ADD-A-BOARD  — turn a pasted careers link into a scrapeable source | 20 |
+| [7078–7090](../scraper/__init__.py#L7078) | FILTER  — entry-level + H1B sponsor | 3 |
+| [7091–7122](../scraper/__init__.py#L7091) | "Manager, Projects" -- the reversed form INCLUDE cannot see. | 1 |
+| [7123–7198](../scraper/__init__.py#L7123) | résumé-driven terms: tune the scrape toward YOUR resume (purely additive) | 5 |
+| [7199–7230](../scraper/__init__.py#L7199) | THE REJECT DUMP. See DUMP_REJECTS near the top for why it exists at all. | 3 |
+| [7231–7680](../scraper/__init__.py#L7231) | THE SECOND OPINION FOR BOARDS THAT DO NOT HAND A DESCRIPTION OVER. | 27 |
+| [7681–7702](../scraper/__init__.py#L7681) | STORAGE  — plain CSV, with cross-run dedup (no database) | 3 |
+| [7703–7981](../scraper/__init__.py#L7703) | ORCHESTRATOR  — the scraper itself | 12 |
+| [7982–7989](../scraper/__init__.py#L7982) | CLOSED-POSTING DETECTION | 0 |
+| [7990–8831](../scraper/__init__.py#L7990) | Absent from this many consecutive successful fetches of its OWN board before we call it | 16 |
 
 ## `scraper/score_jobs.py`
 
@@ -1623,158 +1623,158 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `EIGHTFOLD_WORKERS` | const | [5234](../scraper/__init__.py#L5234) |  |
 | `_eightfold_domain` | def | [5237](../scraper/__init__.py#L5237) | The `domain` query param the API requires. |
 | `_eightfold_rows` | def | [5249](../scraper/__init__.py#L5249) | Map Eightfold positions to feed rows, across BOTH of their payload spellings. |
-| `scrape_eightfold` | def | [5283](../scraper/__init__.py#L5283) | Eightfold AI boards. Returns \[\] on a 403 tenant rather than raising — a gated tenant is a |
-| `DIGITAS_MAX_JOBS` | const | [5356](../scraper/__init__.py#L5356) |  |
-| `DIGITAS_WORKERS` | const | [5357](../scraper/__init__.py#L5357) |  |
-| `_DIGITAS_JOB_RE` | const | [5358](../scraper/__init__.py#L5358) |  |
-| `_DIGITAS_TITLE_RE` | const | [5361](../scraper/__init__.py#L5361) |  |
-| `_digitas_location` | def | [5364](../scraper/__init__.py#L5364) | 'Plano' -&gt; 'Plano, TX'. |
-| `_digitas_job_urls` | def | [5386](../scraper/__init__.py#L5386) | Job urls out of a 14.2 MB sitemap without ever holding it in memory. |
-| `scrape_digitas` | def | [5423](../scraper/__init__.py#L5423) | Digitas jobs, via the brand site's sitemap plus one fetch per posting. |
-| `JOBVITE_HOST` | const | [5507](../scraper/__init__.py#L5507) |  |
-| `_JOBVITE_HREF_RE` | const | [5508](../scraper/__init__.py#L5508) |  |
-| `_JOBVITE_LOC_COUNT_RE` | const | [5511](../scraper/__init__.py#L5511) |  |
-| `_JOBVITE_WORK_MODEL_RE` | const | [5512](../scraper/__init__.py#L5512) |  |
-| `_jobvite_location` | def | [5515](../scraper/__init__.py#L5515) | 'Hybrid Remote , San Francisco, California' -&gt; 'Hybrid, Remote, San Francisco, California'. |
-| `scrape_jobvite` | def | [5536](../scraper/__init__.py#L5536) | Jobvite career sites. board_url is the tenant root, https://jobs.jobvite.com/&lt;slug&gt;. |
-| `WERFEN_MAX_PAGES` | const | [5595](../scraper/__init__.py#L5595) |  |
-| `_WERFEN_STREET_RE` | const | [5599](../scraper/__init__.py#L5599) |  |
-| `_WERFEN_ZIP_RE` | const | [5602](../scraper/__init__.py#L5602) |  |
-| `_WERFEN_SITE_WORDS` | const | [5604](../scraper/__init__.py#L5604) |  |
-| `_werfen_location` | def | [5607](../scraper/__init__.py#L5607) | 'Werfen - Bedford - 180 Hartwell Road Bedford, Massachusetts 01730 United States' |
-| `scrape_werfen` | def | [5629](../scraper/__init__.py#L5629) | Werfen jobs off the Drupal Views table at /en/careers-finder, walking ?page=N. |
-| `GOOGLE_SITEMAP` | const | [5692](../scraper/__init__.py#L5692) |  |
-| `GOOGLE_LEDGER_KEY` | const | [5693](../scraper/__init__.py#L5693) |  |
-| `GOOGLE_MAX_PAGES` | const | [5694](../scraper/__init__.py#L5694) |  |
-| `GOOGLE_BUDGET_MIN` | const | [5695](../scraper/__init__.py#L5695) |  |
-| `GOOGLE_LEDGER_MAX` | const | [5696](../scraper/__init__.py#L5696) |  |
-| `_G_JOB_RE` | const | [5697](../scraper/__init__.py#L5697) |  |
-| `_G_DS0_RE` | const | [5698](../scraper/__init__.py#L5698) |  |
-| `_G_US_LOC_RE` | const | [5699](../scraper/__init__.py#L5699) |  |
-| `_google_sitemap_jobs` | def | [5702](../scraper/__init__.py#L5702) | \[(id, slug_title, url)\] for every posting in the sitemap. One 76 KB request. |
-| `_google_page_row` | def | [5718](../scraper/__init__.py#L5718) | (title, location) from a posting page's ds:0 block, or None. |
-| `scrape_google` | def | [5746](../scraper/__init__.py#L5746) | Google careers via sitemap + per-posting ds:0 parse. See the cost note above. |
-| `_sitemap_locs_streamed` | def | [5798](../scraper/__init__.py#L5798) | Every &lt;loc&gt; in a sitemap, read line-wise so a large one is never held in memory. |
-| `JSONLD_SM_PATHS` | const | [5839](../scraper/__init__.py#L5839) |  |
-| `JSONLD_SM_MAX_PAGES` | const | [5840](../scraper/__init__.py#L5840) |  |
-| `JSONLD_SM_BUDGET_MIN` | const | [5841](../scraper/__init__.py#L5841) |  |
-| `JSONLD_SM_LEDGER_MAX` | const | [5842](../scraper/__init__.py#L5842) |  |
-| `_JLSM_JOB_RE` | const | [5843](../scraper/__init__.py#L5843) |  |
-| `_JLSM_LOCALE_RE` | const | [5844](../scraper/__init__.py#L5844) |  |
-| `_JLSM_US` | const | [5845](../scraper/__init__.py#L5845) |  |
-| `_jlsm_sitemap_jobs` | def | [5848](../scraper/__init__.py#L5848) | \[(id, slug_title, url)\] from a sitemap, ONE copy per posting. |
-| `_jlsm_row` | def | [5891](../scraper/__init__.py#L5891) | (title, location) from a posting's JobPosting JSON-LD, US only, or None. |
-| `scrape_jsonld_sitemap` | def | [5927](../scraper/__init__.py#L5927) | Sitemap-driven JSON-LD board. Same three savings as scrape_google, same reasons. |
-| `IBM_SEARCH_API` | const | [5991](../scraper/__init__.py#L5991) |  |
-| `IBM_PAGE` | const | [5992](../scraper/__init__.py#L5992) |  |
-| `IBM_MAX_ROWS` | const | [5993](../scraper/__init__.py#L5993) |  |
-| `_ibm_body` | def | [5996](../scraper/__init__.py#L5996) |  |
-| `scrape_ibm` | def | [6008](../scraper/__init__.py#L6008) | IBM careers, US postings only. |
-| `DELOITTE_SEARCH` | const | [6060](../scraper/__init__.py#L6060) |  |
-| `DELOITTE_PAGE` | const | [6061](../scraper/__init__.py#L6061) |  |
-| `DELOITTE_MAX_PAGES` | const | [6062](../scraper/__init__.py#L6062) |  |
-| `_DEL_JOB_RE` | const | [6063](../scraper/__init__.py#L6063) |  |
-| `_deloitte_rows` | def | [6066](../scraper/__init__.py#L6066) | \[(id, title, location)\] from one results page. |
-| `scrape_deloitte` | def | [6100](../scraper/__init__.py#L6100) | Deloitte US careers by walking the server-rendered result pages. |
-| `APPLE_SEARCH` | const | [6140](../scraper/__init__.py#L6140) |  |
-| `APPLE_LOCATION` | const | [6141](../scraper/__init__.py#L6141) |  |
-| `APPLE_MAX_PAGES` | const | [6142](../scraper/__init__.py#L6142) |  |
-| `APPLE_SKIP_TEAMS` | const | [6149](../scraper/__init__.py#L6149) |  |
-| `_APPLE_HYDRATE_RE` | const | [6150](../scraper/__init__.py#L6150) |  |
-| `_apple_hydration` | def | [6153](../scraper/__init__.py#L6153) | The decoded hydration object, or None. Two json.loads: literal -&gt; string -&gt; object. |
-| `_apple_results` | def | [6177](../scraper/__init__.py#L6177) | The dict holding searchResults, wherever the router nested it. |
-| `scrape_apple` | def | [6194](../scraper/__init__.py#L6194) | Apple US postings from the search pages' hydration blob. |
-| `SCRAPERS` | const | [6248](../scraper/__init__.py#L6248) |  |
-| `_LOCALES` | const | [6301](../scraper/__init__.py#L6301) |  |
-| `_name_from` | def | [6304](../scraper/__init__.py#L6304) |  |
-| `_TITLE_DECOR` | const | [6316](../scraper/__init__.py#L6316) |  |
-| `_NAME_ENDPOINTS` | const | [6322](../scraper/__init__.py#L6322) |  |
-| `_TITLE_RE` | const | [6326](../scraper/__init__.py#L6326) |  |
-| `_OG_SITE_RE` | const | [6327](../scraper/__init__.py#L6327) |  |
-| `_clean_title_name` | def | [6331](../scraper/__init__.py#L6331) |  |
-| `board_display_name` | def | [6337](../scraper/__init__.py#L6337) | What the board calls ITSELF, or "" when the platform will not say. |
-| `name_is_sluglike` | def | [6377](../scraper/__init__.py#L6377) | True when `name` carries nothing the URL did not already say. |
-| `host_is` | def | [6395](../scraper/__init__.py#L6395) | True when `host` IS one of `domains`, or a subdomain of one. Nothing else. |
-| `detect_board` | def | [6414](../scraper/__init__.py#L6414) | Map a pasted job-board URL to (normalized_board_url, ats_type, suggested_name), |
-| `detect_jibe` | def | [6573](../scraper/__init__.py#L6573) | Network probe for iCIMS 'Career Sites' (Jibe). These run on custom domains |
-| `detect_phenom` | def | [6606](../scraper/__init__.py#L6606) | Network probe for Phenom People career sites (careers.&lt;company&gt;.com style) — |
-| `detect_successfactors` | def | [6649](../scraper/__init__.py#L6649) | Network probe for SAP SuccessFactors 'Career Site Builder' sites — custom |
-| `_ATS_LINK_RE` | const | [6690](../scraper/__init__.py#L6690) |  |
-| `detect_linked_ats` | def | [6733](../scraper/__init__.py#L6733) | Follow-the-link detect: fetch a company CAREERS PAGE and look for a link to a |
-| `detect_eightfold` | def | [6778](../scraper/__init__.py#L6778) | Network probe for Eightfold boards served from the company's OWN host. |
-| `detect_jsonld` | def | [6837](../scraper/__init__.py#L6837) | Last-resort generic detect: if a page embeds schema.org JobPosting structured |
-| `probe_board` | def | [6855](../scraper/__init__.py#L6855) | Hit the board's API and return how many postings it exposes right now |
-| `custom_sources` | def | [7048](../scraper/__init__.py#L7048) | Boards the user added through the app (stored in db) as (url, ats_type, company) |
-| `_make_matcher` | def | [7070](../scraper/__init__.py#L7070) | Whole-word / whole-phrase, case-insensitive matcher. Word boundaries stop |
-| `_INCLUDE_RE` | const | [7078](../scraper/__init__.py#L7078) |  |
-| `_EXCLUDE_RE` | const | [7079](../scraper/__init__.py#L7079) |  |
-| `_REVERSED_RE` | const | [7107](../scraper/__init__.py#L7107) |  |
-| `SKILL_TO_TERMS` | const | [7116](../scraper/__init__.py#L7116) |  |
-| `resume_terms` | def | [7134](../scraper/__init__.py#L7134) | Extra role phrases derived from YOUR resume's detected skills. They AUGMENT the |
-| `apply_resume_terms` | def | [7150](../scraper/__init__.py#L7150) | Fold resume.txt's derived phrases into the live title matcher. Returns them. |
-| `title_verdict` | def | [7166](../scraper/__init__.py#L7166) | Judge a posting by its TITLE alone. Returns (keep, reason) so a VERBOSE run |
-| `is_entry_level` | def | [7184](../scraper/__init__.py#L7184) | Back-compat: title-only boolean (ignores location). |
-| `dump_reject` | def | [7194](../scraper/__init__.py#L7194) | Append one dropped posting to DUMP_REJECTS. A no-op unless that env var is set. |
-| `_dump_field` | def | [7208](../scraper/__init__.py#L7208) | One TSV cell. Collapses all whitespace, because job titles really do contain tabs and |
-| `close_reject_dump` | def | [7214](../scraper/__init__.py#L7214) | Flush and close the dump. Safe when nothing was ever opened. |
-| `JD_LOOKUP_BUDGET` | const | [7250](../scraper/__init__.py#L7250) |  |
-| `JD_LOOKUP_PER_BOARD` | const | [7251](../scraper/__init__.py#L7251) |  |
-| `JD_LOOKUP_WORKERS` | const | [7252](../scraper/__init__.py#L7252) |  |
-| `JD_LOOKUP_BUDGET_MIN` | const | [7259](../scraper/__init__.py#L7259) |  |
-| `fill_missing_jds` | def | [7262](../scraper/__init__.py#L7262) | Fetch descriptions for the postings a second opinion could plausibly rescue. |
-| `US_STATE_ABBR` | const | [7352](../scraper/__init__.py#L7352) |  |
-| `US_STATE_NAMES` | const | [7356](../scraper/__init__.py#L7356) |  |
-| `NON_US` | const | [7366](../scraper/__init__.py#L7366) |  |
-| `_STATE_ABBR_RE` | const | [7391](../scraper/__init__.py#L7391) |  |
-| `_NON_US_RE` | const | [7396](../scraper/__init__.py#L7396) |  |
-| `_fold` | def | [7401](../scraper/__init__.py#L7401) | Lowercased and stripped of accents, for matching against NON_US. |
-| `_TITLE_PLACE_RE` | const | [7414](../scraper/__init__.py#L7414) |  |
-| `_country_from_title` | def | [7417](../scraper/__init__.py#L7417) | A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -&gt; the |
-| `title_says_non_us` | def | [7426](../scraper/__init__.py#L7426) | True only when a title's trailing parenthetical NAMES a non-US place. |
-| `is_us_location` | def | [7438](../scraper/__init__.py#L7438) | Heuristic: True if the location looks US-based. Unknown/blank -&gt; kept. |
-| `load_sponsors` | def | [7459](../scraper/__init__.py#L7459) | Read employer names (one per line) from sponsors.txt. Build that file from |
-| `_LEGAL_SUFFIX` | const | [7469](../scraper/__init__.py#L7469) |  |
-| `_APOSTROPHE_RE` | const | [7493](../scraper/__init__.py#L7493) |  |
-| `_norm_name` | def | [7496](../scraper/__init__.py#L7496) | Normalize a company name for matching: lowercase, drop apostrophes, strip the remaining |
-| `_STRICT_SUFFIX` | const | [7512](../scraper/__init__.py#L7512) |  |
-| `_WORKFORCE_CEILING` | const | [7516](../scraper/__init__.py#L7516) |  |
-| `_PLAUSIBLE_FILINGS_PER_HEAD` | const | [7524](../scraper/__init__.py#L7524) |  |
-| `_GENERIC_NAME_WORDS` | const | [7529](../scraper/__init__.py#L7529) |  |
-| `_strict_norm_name` | def | [7541](../scraper/__init__.py#L7541) | _norm_name's cautious twin: lowercase and strip punctuation, but keep the words that |
-| `_safe_sponsor_match` | def | [7549](../scraper/__init__.py#L7549) | Look up an employer's H-1B filing count with the two false positives guarded. |
-| `build_sponsor_index` | def | [7610](../scraper/__init__.py#L7610) | Pre-normalize the sponsor list once so per-job lookups are fast. |
-| `sponsors_h1b` | def | [7624](../scraper/__init__.py#L7624) | True if `company` looks like a known H1B sponsor. Cached per company. |
-| `FIELDNAMES` | const | [7657](../scraper/__init__.py#L7657) |  |
-| `load_seen_urls` | def | [7659](../scraper/__init__.py#L7659) |  |
-| `append_jobs` | def | [7666](../scraper/__init__.py#L7666) |  |
-| `_env_num` | def | [7679](../scraper/__init__.py#L7679) | Numeric env override that can't take the whole module down. These are read at IMPORT |
-| `SCRAPE_WORKERS` | const | [7699](../scraper/__init__.py#L7699) |  |
-| `SCRAPE_BUDGET_MIN` | const | [7712](../scraper/__init__.py#L7712) |  |
-| `SCRAPE_SLICE` | const | [7724](../scraper/__init__.py#L7724) |  |
-| `SCRAPE_ROTATE` | const | [7729](../scraper/__init__.py#L7729) |  |
-| `SCRAPE_ROTATE_STRIDE` | const | [7733](../scraper/__init__.py#L7733) |  |
-| `SCRAPE_PER_HOST` | const | [7742](../scraper/__init__.py#L7742) |  |
-| `SCRAPE_BOARD_TIMEOUT` | const | [7785](../scraper/__init__.py#L7785) |  |
-| `_run_with_timeout` | def | [7791](../scraper/__init__.py#L7791) | fn(url), but stop WAITING on it after `secs` and raise instead. |
-| `_PER_HOST_OVERRIDE` | const | [7824](../scraper/__init__.py#L7824) |  |
-| `_host_key` | def | [7827](../scraper/__init__.py#L7827) | Which rate-limited thing this board actually talks to. |
-| `scrape_all` | def | [7846](../scraper/__init__.py#L7846) | Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes |
-| `CLOSED_AFTER_MISSES` | const | [7967](../scraper/__init__.py#L7967) |  |
-| `RECONCILE_MIN_ROWS` | const | [7970](../scraper/__init__.py#L7970) |  |
-| `RECONCILE_MIN_RATIO` | const | [7971](../scraper/__init__.py#L7971) |  |
-| `JOBSPY_FINGERPRINT_ENFORCE` | const | [7982](../scraper/__init__.py#L7982) |  |
-| `fingerprint_duplicate` | def | [7986](../scraper/__init__.py#L7986) | The stored URL this posting is an aggregator's copy of, or None. |
-| `RECONCILE_SKIP_ATS` | const | [8030](../scraper/__init__.py#L8030) |  |
-| `_url_prefix` | def | [8033](../scraper/__init__.py#L8033) | Longest common '/'-delimited prefix of a board's URLs — the namespace that board owns. |
-| `_norm_url` | def | [8057](../scraper/__init__.py#L8057) |  |
-| `BOARD_HEALTH_KEY` | const | [8061](../scraper/__init__.py#L8061) |  |
-| `BOARD_HEALTH_RUNS` | const | [8062](../scraper/__init__.py#L8062) |  |
-| `board_run_failed` | def | [8065](../scraper/__init__.py#L8065) | Did this recorded run actually FAIL, as opposed to never having happened? |
-| `save_board_health` | def | [8085](../scraper/__init__.py#L8085) | Record what every board returned this run, and print the ones worth looking at. |
-| `reconcile_closed` | def | [8202](../scraper/__init__.py#L8202) | Mark jobs that have vanished from their own board as closed. Returns (closed, considered). |
-| `_truthy_false` | def | [8287](../scraper/__init__.py#L8287) | True when the stored value already means 'not active' — avoids rewriting rows we |
-| `_explain_auth_failure` | def | [8293](../scraper/__init__.py#L8293) | Turn a proxy 401 into the one sentence that fixes it, and return True if that is what it was. |
-| `main` | def | [8323](../scraper/__init__.py#L8323) |  |
+| `scrape_eightfold` | def | [5293](../scraper/__init__.py#L5293) | Eightfold AI boards. Returns \[\] on a 403 tenant rather than raising — a gated tenant is a |
+| `DIGITAS_MAX_JOBS` | const | [5366](../scraper/__init__.py#L5366) |  |
+| `DIGITAS_WORKERS` | const | [5367](../scraper/__init__.py#L5367) |  |
+| `_DIGITAS_JOB_RE` | const | [5368](../scraper/__init__.py#L5368) |  |
+| `_DIGITAS_TITLE_RE` | const | [5371](../scraper/__init__.py#L5371) |  |
+| `_digitas_location` | def | [5374](../scraper/__init__.py#L5374) | 'Plano' -&gt; 'Plano, TX'. |
+| `_digitas_job_urls` | def | [5396](../scraper/__init__.py#L5396) | Job urls out of a 14.2 MB sitemap without ever holding it in memory. |
+| `scrape_digitas` | def | [5433](../scraper/__init__.py#L5433) | Digitas jobs, via the brand site's sitemap plus one fetch per posting. |
+| `JOBVITE_HOST` | const | [5517](../scraper/__init__.py#L5517) |  |
+| `_JOBVITE_HREF_RE` | const | [5518](../scraper/__init__.py#L5518) |  |
+| `_JOBVITE_LOC_COUNT_RE` | const | [5521](../scraper/__init__.py#L5521) |  |
+| `_JOBVITE_WORK_MODEL_RE` | const | [5522](../scraper/__init__.py#L5522) |  |
+| `_jobvite_location` | def | [5525](../scraper/__init__.py#L5525) | 'Hybrid Remote , San Francisco, California' -&gt; 'Hybrid, Remote, San Francisco, California'. |
+| `scrape_jobvite` | def | [5546](../scraper/__init__.py#L5546) | Jobvite career sites. board_url is the tenant root, https://jobs.jobvite.com/&lt;slug&gt;. |
+| `WERFEN_MAX_PAGES` | const | [5605](../scraper/__init__.py#L5605) |  |
+| `_WERFEN_STREET_RE` | const | [5609](../scraper/__init__.py#L5609) |  |
+| `_WERFEN_ZIP_RE` | const | [5612](../scraper/__init__.py#L5612) |  |
+| `_WERFEN_SITE_WORDS` | const | [5614](../scraper/__init__.py#L5614) |  |
+| `_werfen_location` | def | [5617](../scraper/__init__.py#L5617) | 'Werfen - Bedford - 180 Hartwell Road Bedford, Massachusetts 01730 United States' |
+| `scrape_werfen` | def | [5639](../scraper/__init__.py#L5639) | Werfen jobs off the Drupal Views table at /en/careers-finder, walking ?page=N. |
+| `GOOGLE_SITEMAP` | const | [5702](../scraper/__init__.py#L5702) |  |
+| `GOOGLE_LEDGER_KEY` | const | [5703](../scraper/__init__.py#L5703) |  |
+| `GOOGLE_MAX_PAGES` | const | [5704](../scraper/__init__.py#L5704) |  |
+| `GOOGLE_BUDGET_MIN` | const | [5705](../scraper/__init__.py#L5705) |  |
+| `GOOGLE_LEDGER_MAX` | const | [5706](../scraper/__init__.py#L5706) |  |
+| `_G_JOB_RE` | const | [5707](../scraper/__init__.py#L5707) |  |
+| `_G_DS0_RE` | const | [5708](../scraper/__init__.py#L5708) |  |
+| `_G_US_LOC_RE` | const | [5709](../scraper/__init__.py#L5709) |  |
+| `_google_sitemap_jobs` | def | [5712](../scraper/__init__.py#L5712) | \[(id, slug_title, url)\] for every posting in the sitemap. One 76 KB request. |
+| `_google_page_row` | def | [5728](../scraper/__init__.py#L5728) | (title, location) from a posting page's ds:0 block, or None. |
+| `scrape_google` | def | [5756](../scraper/__init__.py#L5756) | Google careers via sitemap + per-posting ds:0 parse. See the cost note above. |
+| `_sitemap_locs_streamed` | def | [5808](../scraper/__init__.py#L5808) | Every &lt;loc&gt; in a sitemap, read line-wise so a large one is never held in memory. |
+| `JSONLD_SM_PATHS` | const | [5849](../scraper/__init__.py#L5849) |  |
+| `JSONLD_SM_MAX_PAGES` | const | [5850](../scraper/__init__.py#L5850) |  |
+| `JSONLD_SM_BUDGET_MIN` | const | [5851](../scraper/__init__.py#L5851) |  |
+| `JSONLD_SM_LEDGER_MAX` | const | [5852](../scraper/__init__.py#L5852) |  |
+| `_JLSM_JOB_RE` | const | [5853](../scraper/__init__.py#L5853) |  |
+| `_JLSM_LOCALE_RE` | const | [5854](../scraper/__init__.py#L5854) |  |
+| `_JLSM_US` | const | [5855](../scraper/__init__.py#L5855) |  |
+| `_jlsm_sitemap_jobs` | def | [5858](../scraper/__init__.py#L5858) | \[(id, slug_title, url)\] from a sitemap, ONE copy per posting. |
+| `_jlsm_row` | def | [5901](../scraper/__init__.py#L5901) | (title, location) from a posting's JobPosting JSON-LD, US only, or None. |
+| `scrape_jsonld_sitemap` | def | [5937](../scraper/__init__.py#L5937) | Sitemap-driven JSON-LD board. Same three savings as scrape_google, same reasons. |
+| `IBM_SEARCH_API` | const | [6001](../scraper/__init__.py#L6001) |  |
+| `IBM_PAGE` | const | [6002](../scraper/__init__.py#L6002) |  |
+| `IBM_MAX_ROWS` | const | [6003](../scraper/__init__.py#L6003) |  |
+| `_ibm_body` | def | [6006](../scraper/__init__.py#L6006) |  |
+| `scrape_ibm` | def | [6018](../scraper/__init__.py#L6018) | IBM careers, US postings only. |
+| `DELOITTE_SEARCH` | const | [6070](../scraper/__init__.py#L6070) |  |
+| `DELOITTE_PAGE` | const | [6071](../scraper/__init__.py#L6071) |  |
+| `DELOITTE_MAX_PAGES` | const | [6072](../scraper/__init__.py#L6072) |  |
+| `_DEL_JOB_RE` | const | [6073](../scraper/__init__.py#L6073) |  |
+| `_deloitte_rows` | def | [6076](../scraper/__init__.py#L6076) | \[(id, title, location)\] from one results page. |
+| `scrape_deloitte` | def | [6110](../scraper/__init__.py#L6110) | Deloitte US careers by walking the server-rendered result pages. |
+| `APPLE_SEARCH` | const | [6150](../scraper/__init__.py#L6150) |  |
+| `APPLE_LOCATION` | const | [6151](../scraper/__init__.py#L6151) |  |
+| `APPLE_MAX_PAGES` | const | [6152](../scraper/__init__.py#L6152) |  |
+| `APPLE_SKIP_TEAMS` | const | [6159](../scraper/__init__.py#L6159) |  |
+| `_APPLE_HYDRATE_RE` | const | [6160](../scraper/__init__.py#L6160) |  |
+| `_apple_hydration` | def | [6163](../scraper/__init__.py#L6163) | The decoded hydration object, or None. Two json.loads: literal -&gt; string -&gt; object. |
+| `_apple_results` | def | [6187](../scraper/__init__.py#L6187) | The dict holding searchResults, wherever the router nested it. |
+| `scrape_apple` | def | [6204](../scraper/__init__.py#L6204) | Apple US postings from the search pages' hydration blob. |
+| `SCRAPERS` | const | [6258](../scraper/__init__.py#L6258) |  |
+| `_LOCALES` | const | [6311](../scraper/__init__.py#L6311) |  |
+| `_name_from` | def | [6314](../scraper/__init__.py#L6314) |  |
+| `_TITLE_DECOR` | const | [6326](../scraper/__init__.py#L6326) |  |
+| `_NAME_ENDPOINTS` | const | [6332](../scraper/__init__.py#L6332) |  |
+| `_TITLE_RE` | const | [6336](../scraper/__init__.py#L6336) |  |
+| `_OG_SITE_RE` | const | [6337](../scraper/__init__.py#L6337) |  |
+| `_clean_title_name` | def | [6341](../scraper/__init__.py#L6341) |  |
+| `board_display_name` | def | [6347](../scraper/__init__.py#L6347) | What the board calls ITSELF, or "" when the platform will not say. |
+| `name_is_sluglike` | def | [6387](../scraper/__init__.py#L6387) | True when `name` carries nothing the URL did not already say. |
+| `host_is` | def | [6405](../scraper/__init__.py#L6405) | True when `host` IS one of `domains`, or a subdomain of one. Nothing else. |
+| `detect_board` | def | [6424](../scraper/__init__.py#L6424) | Map a pasted job-board URL to (normalized_board_url, ats_type, suggested_name), |
+| `detect_jibe` | def | [6583](../scraper/__init__.py#L6583) | Network probe for iCIMS 'Career Sites' (Jibe). These run on custom domains |
+| `detect_phenom` | def | [6616](../scraper/__init__.py#L6616) | Network probe for Phenom People career sites (careers.&lt;company&gt;.com style) — |
+| `detect_successfactors` | def | [6659](../scraper/__init__.py#L6659) | Network probe for SAP SuccessFactors 'Career Site Builder' sites — custom |
+| `_ATS_LINK_RE` | const | [6700](../scraper/__init__.py#L6700) |  |
+| `detect_linked_ats` | def | [6743](../scraper/__init__.py#L6743) | Follow-the-link detect: fetch a company CAREERS PAGE and look for a link to a |
+| `detect_eightfold` | def | [6788](../scraper/__init__.py#L6788) | Network probe for Eightfold boards served from the company's OWN host. |
+| `detect_jsonld` | def | [6847](../scraper/__init__.py#L6847) | Last-resort generic detect: if a page embeds schema.org JobPosting structured |
+| `probe_board` | def | [6865](../scraper/__init__.py#L6865) | Hit the board's API and return how many postings it exposes right now |
+| `custom_sources` | def | [7058](../scraper/__init__.py#L7058) | Boards the user added through the app (stored in db) as (url, ats_type, company) |
+| `_make_matcher` | def | [7080](../scraper/__init__.py#L7080) | Whole-word / whole-phrase, case-insensitive matcher. Word boundaries stop |
+| `_INCLUDE_RE` | const | [7088](../scraper/__init__.py#L7088) |  |
+| `_EXCLUDE_RE` | const | [7089](../scraper/__init__.py#L7089) |  |
+| `_REVERSED_RE` | const | [7117](../scraper/__init__.py#L7117) |  |
+| `SKILL_TO_TERMS` | const | [7126](../scraper/__init__.py#L7126) |  |
+| `resume_terms` | def | [7144](../scraper/__init__.py#L7144) | Extra role phrases derived from YOUR resume's detected skills. They AUGMENT the |
+| `apply_resume_terms` | def | [7160](../scraper/__init__.py#L7160) | Fold resume.txt's derived phrases into the live title matcher. Returns them. |
+| `title_verdict` | def | [7176](../scraper/__init__.py#L7176) | Judge a posting by its TITLE alone. Returns (keep, reason) so a VERBOSE run |
+| `is_entry_level` | def | [7194](../scraper/__init__.py#L7194) | Back-compat: title-only boolean (ignores location). |
+| `dump_reject` | def | [7204](../scraper/__init__.py#L7204) | Append one dropped posting to DUMP_REJECTS. A no-op unless that env var is set. |
+| `_dump_field` | def | [7218](../scraper/__init__.py#L7218) | One TSV cell. Collapses all whitespace, because job titles really do contain tabs and |
+| `close_reject_dump` | def | [7224](../scraper/__init__.py#L7224) | Flush and close the dump. Safe when nothing was ever opened. |
+| `JD_LOOKUP_BUDGET` | const | [7260](../scraper/__init__.py#L7260) |  |
+| `JD_LOOKUP_PER_BOARD` | const | [7261](../scraper/__init__.py#L7261) |  |
+| `JD_LOOKUP_WORKERS` | const | [7262](../scraper/__init__.py#L7262) |  |
+| `JD_LOOKUP_BUDGET_MIN` | const | [7269](../scraper/__init__.py#L7269) |  |
+| `fill_missing_jds` | def | [7272](../scraper/__init__.py#L7272) | Fetch descriptions for the postings a second opinion could plausibly rescue. |
+| `US_STATE_ABBR` | const | [7362](../scraper/__init__.py#L7362) |  |
+| `US_STATE_NAMES` | const | [7366](../scraper/__init__.py#L7366) |  |
+| `NON_US` | const | [7376](../scraper/__init__.py#L7376) |  |
+| `_STATE_ABBR_RE` | const | [7417](../scraper/__init__.py#L7417) |  |
+| `_NON_US_RE` | const | [7422](../scraper/__init__.py#L7422) |  |
+| `_fold` | def | [7427](../scraper/__init__.py#L7427) | Lowercased and stripped of accents, for matching against NON_US. |
+| `_TITLE_PLACE_RE` | const | [7440](../scraper/__init__.py#L7440) |  |
+| `_country_from_title` | def | [7443](../scraper/__init__.py#L7443) | A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -&gt; the |
+| `title_says_non_us` | def | [7452](../scraper/__init__.py#L7452) | True only when a title's trailing parenthetical NAMES a non-US place. |
+| `is_us_location` | def | [7464](../scraper/__init__.py#L7464) | Heuristic: True if the location looks US-based. Unknown/blank -&gt; kept. |
+| `load_sponsors` | def | [7485](../scraper/__init__.py#L7485) | Read employer names (one per line) from sponsors.txt. Build that file from |
+| `_LEGAL_SUFFIX` | const | [7495](../scraper/__init__.py#L7495) |  |
+| `_APOSTROPHE_RE` | const | [7519](../scraper/__init__.py#L7519) |  |
+| `_norm_name` | def | [7522](../scraper/__init__.py#L7522) | Normalize a company name for matching: lowercase, drop apostrophes, strip the remaining |
+| `_STRICT_SUFFIX` | const | [7538](../scraper/__init__.py#L7538) |  |
+| `_WORKFORCE_CEILING` | const | [7542](../scraper/__init__.py#L7542) |  |
+| `_PLAUSIBLE_FILINGS_PER_HEAD` | const | [7550](../scraper/__init__.py#L7550) |  |
+| `_GENERIC_NAME_WORDS` | const | [7555](../scraper/__init__.py#L7555) |  |
+| `_strict_norm_name` | def | [7567](../scraper/__init__.py#L7567) | _norm_name's cautious twin: lowercase and strip punctuation, but keep the words that |
+| `_safe_sponsor_match` | def | [7575](../scraper/__init__.py#L7575) | Look up an employer's H-1B filing count with the two false positives guarded. |
+| `build_sponsor_index` | def | [7636](../scraper/__init__.py#L7636) | Pre-normalize the sponsor list once so per-job lookups are fast. |
+| `sponsors_h1b` | def | [7650](../scraper/__init__.py#L7650) | True if `company` looks like a known H1B sponsor. Cached per company. |
+| `FIELDNAMES` | const | [7683](../scraper/__init__.py#L7683) |  |
+| `load_seen_urls` | def | [7685](../scraper/__init__.py#L7685) |  |
+| `append_jobs` | def | [7692](../scraper/__init__.py#L7692) |  |
+| `_env_num` | def | [7705](../scraper/__init__.py#L7705) | Numeric env override that can't take the whole module down. These are read at IMPORT |
+| `SCRAPE_WORKERS` | const | [7725](../scraper/__init__.py#L7725) |  |
+| `SCRAPE_BUDGET_MIN` | const | [7738](../scraper/__init__.py#L7738) |  |
+| `SCRAPE_SLICE` | const | [7750](../scraper/__init__.py#L7750) |  |
+| `SCRAPE_ROTATE` | const | [7755](../scraper/__init__.py#L7755) |  |
+| `SCRAPE_ROTATE_STRIDE` | const | [7759](../scraper/__init__.py#L7759) |  |
+| `SCRAPE_PER_HOST` | const | [7768](../scraper/__init__.py#L7768) |  |
+| `SCRAPE_BOARD_TIMEOUT` | const | [7811](../scraper/__init__.py#L7811) |  |
+| `_run_with_timeout` | def | [7817](../scraper/__init__.py#L7817) | fn(url), but stop WAITING on it after `secs` and raise instead. |
+| `_PER_HOST_OVERRIDE` | const | [7850](../scraper/__init__.py#L7850) |  |
+| `_host_key` | def | [7853](../scraper/__init__.py#L7853) | Which rate-limited thing this board actually talks to. |
+| `scrape_all` | def | [7872](../scraper/__init__.py#L7872) | Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes |
+| `CLOSED_AFTER_MISSES` | const | [7993](../scraper/__init__.py#L7993) |  |
+| `RECONCILE_MIN_ROWS` | const | [7996](../scraper/__init__.py#L7996) |  |
+| `RECONCILE_MIN_RATIO` | const | [7997](../scraper/__init__.py#L7997) |  |
+| `JOBSPY_FINGERPRINT_ENFORCE` | const | [8008](../scraper/__init__.py#L8008) |  |
+| `fingerprint_duplicate` | def | [8012](../scraper/__init__.py#L8012) | The stored URL this posting is an aggregator's copy of, or None. |
+| `RECONCILE_SKIP_ATS` | const | [8056](../scraper/__init__.py#L8056) |  |
+| `_url_prefix` | def | [8059](../scraper/__init__.py#L8059) | Longest common '/'-delimited prefix of a board's URLs — the namespace that board owns. |
+| `_norm_url` | def | [8083](../scraper/__init__.py#L8083) |  |
+| `BOARD_HEALTH_KEY` | const | [8087](../scraper/__init__.py#L8087) |  |
+| `BOARD_HEALTH_RUNS` | const | [8088](../scraper/__init__.py#L8088) |  |
+| `board_run_failed` | def | [8091](../scraper/__init__.py#L8091) | Did this recorded run actually FAIL, as opposed to never having happened? |
+| `save_board_health` | def | [8111](../scraper/__init__.py#L8111) | Record what every board returned this run, and print the ones worth looking at. |
+| `reconcile_closed` | def | [8228](../scraper/__init__.py#L8228) | Mark jobs that have vanished from their own board as closed. Returns (closed, considered). |
+| `_truthy_false` | def | [8313](../scraper/__init__.py#L8313) | True when the stored value already means 'not active' — avoids rewriting rows we |
+| `_explain_auth_failure` | def | [8319](../scraper/__init__.py#L8319) | Turn a proxy 401 into the one sentence that fixes it, and return True if that is what it was. |
+| `main` | def | [8349](../scraper/__init__.py#L8349) |  |
 
 ## `scraper/score_jobs.py` — symbols
 
