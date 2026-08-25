@@ -31,6 +31,10 @@
   // asserts it equals core.SPONSOR_LIKELY_LABELS, so the chip and the server cannot drift.
   var SPONSOR_LIKELY_LABELS = {"h1b": "H-1B Likely", "sponsor": "Sponsor Likely",
                                "stem_opt": "STEM-OPT Likely"};
+  // The last fiscal year the sponsorship data actually covers. Read off #feed rather than
+  // hardcoded, so refreshing sponsor_years.json moves every label that quotes it in one step.
+  // Falls back to the current shipped vintage when the attribute is absent (an older template).
+  var SPONSOR_DATA_THROUGH = (feed && feed.getAttribute("data-spon-through")) || "FY2023";
 
   var q = document.getElementById("q"), minR = document.getElementById("min"),
       minLab = document.getElementById("minlab"), sortSel = document.getElementById("sort"),
@@ -64,6 +68,9 @@
       feedLayout = document.getElementById("feedlayout"),
       locInp = document.getElementById("loc"), remoteOnly = document.getElementById("remoteonly"),
       minSalSel = document.getElementById("minsal"), hideAgency = document.getElementById("hideagency"),
+      // "Only postings that state their years" — see core.DEFAULT_PREFS.expstated for the
+      // measurement (72% of results under a years filter state no number at all).
+      expStated = document.getElementById("expstated"),
       showClosed = document.getElementById("showclosed"),
       tabBtns = document.querySelectorAll(".tab");
   // The viewer's own work-authorization situation (web._visa_badge_context), which used to
@@ -93,14 +100,29 @@
   var FILTER_KEY = "jm_filters:" + (feed.getAttribute("data-user") || ""), FILTER_V = 1;
   try { localStorage.removeItem("jm_filters"); } catch (e) { /* the pre-namespace key */ }
   function _ctlMap() {
-    // #q is deliberately excluded off the main feed. Both pages have one, but they mean
-    // different things — "search every job" vs company.html's "filter these roles" — so sharing
-    // it would leak an employer-page filter back into the feed. #filterbar exists only on
-    // feed.html, which is the discriminator. #sort IS shared: that one is a global preference.
-    return { q: (feedOnly ? q : null), min: minR, sort: sortSel, date: dateSel, exp: expSel,
+    // THE COMPANY PAGE IS A SCRATCHPAD. It now carries the same filter bar the feed does
+    // (_filterbar.html), and none of it is remembered except #sort — dropping the match floor to
+    // look through one employer's 500 roles must not silently reset the feed you come back to.
+    //
+    // That rule already existed for #q alone, guarded by scripts/test_filter_memory.py ("the
+    // company page must not clobber the feed's filters"), and it held only because the employer
+    // page rendered nothing else. Giving it the full bar without widening the rule would have
+    // quietly turned every control into a writer of the feed's saved state.
+    //
+    // THE DISCRIMINATOR IS data-company, NOT the presence of #filterbar. It used to be the
+    // latter, because the bar existed only on feed.html; that test silently became true on both
+    // pages the moment the markup was shared. data-company is set by _feedgrid.html only when a
+    // company_arg was passed, which is exactly the distinction meant.
+    //
+    // Read off the DOM rather than through the COMPANY var: applyFilterState() runs during
+    // initialisation, ABOVE the line where COMPANY is assigned, so the var would read undefined
+    // on exactly the one call that restores saved filters.
+    if (feed && feed.getAttribute("data-company")) return { sort: sortSel };
+    return { q: q, min: minR, sort: sortSel, date: dateSel, exp: expSel,
              intern: internSel, minsal: minSalSel, loc: locInp, visatags: visaSel,
              track: trackSel, roles: rolesSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
-             remoteonly: remoteOnly, hideagency: hideAgency, showclosed: showClosed };
+             remoteonly: remoteOnly, hideagency: hideAgency, expstated: expStated,
+             showclosed: showClosed };
   }
   function _readStore() {
     // A stored blob from an older shape is discarded whole rather than half-applied. The
@@ -112,9 +134,10 @@
     } catch (e) { return {}; }
   }
   function saveFilterState() {
-    // MERGE over what is stored, and only for controls that exist on THIS page. company.html
-    // renders just #q and #sort; a wholesale overwrite from there would wipe the feed's other
-    // twelve filters.
+    // MERGE over what is stored, and only for the controls _ctlMap reports for THIS page. On an
+    // employer page that is #sort alone (see _ctlMap), so narrowing your way through one
+    // company's roles leaves the feed's filters exactly as you left them. A wholesale overwrite
+    // from there would wipe all fifteen.
     var s = _readStore(), m = _ctlMap(), k;
     for (k in m) if (m[k]) s[k] = (m[k].type === "checkbox") ? !!m[k].checked : m[k].value;
     if (tabBtns.length) s.tab = tab;
@@ -130,7 +153,10 @@
     }
     // The five visa checkboxes are the UI for the hidden #visatags input, so re-tick them to
     // match the value we just restored or the group would read as empty.
-    if (visaSel && "visatags" in s) {
+    // Gated on _ctlMap TOO, not just on the control existing: on an employer page visatags is
+    // not a remembered control, and ticking the boxes there without also restoring the hidden
+    // input would leave the group looking active while filtering nothing.
+    if (visaSel && ("visatags" in m) && "visatags" in s) {
       var want = String(s.visatags || "").split(","),
           boxes = document.querySelectorAll(".visack input[data-vt]");
       for (var i = 0; i < boxes.length; i++)
@@ -431,10 +457,22 @@
     // folded into visa_likely server-side now, because it has to know whether the INDEX exists
     // and whether the JD blocked the posting, and neither fact reaches this file. It was
     // rendering "H1B (top sponsor)" next to "No sponsorship" on the live feed.
+    // "top sponsor" CARRIES ITS VINTAGE. The chip is derived from the employer's cumulative
+    // filing history, and that history stops at FY2023 (sponsor_years.json has no FY2024/25) --
+    // so on a 2026 feed "top sponsor" can mean "filed a lot, for other roles, up to three years
+    // ago". The chip cannot honestly be narrowed to THIS posting or THIS year until the data is
+    // refreshed, so until then it says which window it is talking about instead of implying the
+    // present tense. The company modal has always been careful about this ("a chip means 'has
+    // filed', never 'how often'"); the card was not.
     var vtop = j.visa_likely || "";
     if (vtop)
-      badges += '<span class="vt vt-' + H(vtop) + '">' + esc(SPONSOR_LIKELY_LABELS[vtop] || vtop) +
-        (vtop === "h1b" && j.strength === "high" ? ", top sponsor" : "") + '</span>';
+      badges += '<span class="vt vt-' + H(vtop) + '"' +
+        (vtop === "h1b" && j.strength === "high"
+          ? ' title="From federal filings through ' + H(SPONSOR_DATA_THROUGH) +
+            '. It describes the employer\'s history, not this posting."' : '') + '>' +
+        esc(SPONSOR_LIKELY_LABELS[vtop] || vtop) +
+        (vtop === "h1b" && j.strength === "high"
+          ? ", top sponsor to " + esc(SPONSOR_DATA_THROUGH) : "") + '</span>';
     if (j.cap_exempt)
       badges += '<span class="cx">No lottery</span>';
     if (j.agency)
@@ -446,6 +484,16 @@
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
       badges += '<span class="exp ' + ec + '" title="The description asks for ' +
         H(j.exp_years) + ' years of experience or more.">' + H(j.exp_years) + '+ yrs</span>';
+    } else if (expSel && expSel.value !== "any") {
+      // ONLY WHILE A YEARS FILTER IS ON, because that is when the distinction matters and the
+      // badge would otherwise be noise on every card. Under "0 to 2 Years" roughly 7 in 10
+      // results are postings whose description states no number at all -- kept on purpose, but
+      // previously indistinguishable from the ones that genuinely qualify, which is how a role
+      // demanding 6+ years in its text appeared under an entry-level filter with nothing to
+      // warn you. The filter is not lying; it simply could not read that posting.
+      badges += '<span class="exp exp-unknown" title="This description states no year count, ' +
+        'so it has not been filtered by experience. Postings with no stated years are always ' +
+        'shown -- untick that in Filters to hide them.">years not stated</span>';
     }
     if (j.sponsor_jd === 'blocked')
       badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
@@ -810,7 +858,9 @@
     else if (tab === "hidden") ok = st === "hidden";
     // An active SEARCH bypasses the match filter: if you typed "deloitte" you want to
     // SEE Deloitte's jobs, not have them hidden because they score 40%.
-    else ok = (st !== "hidden") && (searching || ignoreMin || sc >= minVal);
+    // HIDDEN AND APPLIED both drop off this tab -- twin of web.py::_filter_rows, which carries
+    // the reasoning. `liked` stays: saving something is a reason to keep seeing it.
+    else ok = (st !== "hidden" && st !== "applied") && (searching || ignoreMin || sc >= minVal);
     // Search covers LOCATION too — "boston" and "remote" are things people type in here.
     if (ok && searching) {
       // Cached on the row: DATA outlives every keystroke, so the searchable text and its tokens
@@ -845,6 +895,10 @@
     // Career track: "dev" (software/data/infra) vs "mgmt" (project/product/ops). Every row
     // carries exactly one, so the two settings partition the feed — see core.role_track.
     if (ok && trackSel && trackSel.value !== "any" && j.track !== trackSel.value) ok = false;
+    // "Only postings that state their years." Twin of _filter_rows' exp_stated clause; off by
+    // default. See core.DEFAULT_PREFS.expstated for why it exists.
+    if (ok && expStated && expStated.checked &&
+        (j.exp_years === "" || j.exp_years === null || j.exp_years === undefined)) ok = false;
     // Experience filter. exp_years is the HIGHEST year count the JD states (core.
     // experience_years), so "8+ years required; 2 years of SQL preferred" is an 8-year job and
     // "<=2 yrs" drops it. A job whose JD states no year count (exp_years "") is ALWAYS kept.
@@ -898,9 +952,28 @@
   // sort are excluded because they START a search rather than narrow one, and they stay visible
   // at every width. The count is what stops a closed popover from hiding that filters are on,
   // which is the bug any disclosure invites.
+  // A search deliberately BYPASSES the match floor (web.py: "search bypasses the match floor"),
+  // because typing a company name should find it whatever it scores. That decision stands. The
+  // defect was that nothing said so: with a search active the screen showed a slider reading
+  // "MATCH 50%+", a "Filters 3" badge counting it, and a grid of cards at 30%, 28%, 26%, 24%.
+  // The user's stated minimum was silently not in force. So while `q` is non-empty the control
+  // stands DOWN visibly -- greyed, relabelled, and not counted in the badge.
+  function searchOverridesMin() {
+    return !!(q && q.value.trim());
+  }
+  function syncMinStandDown() {
+    var off = searchOverridesMin();
+    var wrap = minR && minR.closest ? minR.closest(".matchfilter") : null;
+    if (wrap) wrap.classList.toggle("stood-down", off);
+    if (minR) minR.setAttribute("aria-disabled", off ? "true" : "false");
+    if (minLab) {
+      var v = minR ? (parseInt(minR.value, 10) || 0) : 0;
+      minLab.textContent = off ? "Off while searching" : (v === 0 ? "Any" : v + "%+");
+    }
+  }
   function activeFilterCount() {
     var n = 0;
-    if (minVal > 0) n++;
+    if (minVal > 0 && !searchOverridesMin()) n++;
     if (dateSel && dateSel.value !== "any") n++;
     if (expSel && expSel.value !== "any") n++;
     if (internSel && internSel.value !== "any") n++;
@@ -912,6 +985,7 @@
     if (rolesWanted().length) n++;     // the whole role selection counts as ONE filter
     if (remoteOnly && remoteOnly.checked) n++;
     if (hideAgency && hideAgency.checked) n++;
+    if (expStated && expStated.checked) n++;
     if (showClosed && showClosed.checked) n++;
     return n;
   }
@@ -965,9 +1039,19 @@
   // noise; "1,284 of 24,918 jobs" is the useful form.
   var countTot = document.getElementById("counttot");
   var TOTAL_ALL = countTot ? (parseInt((countTot.textContent || "").replace(/[^0-9]/g, ""), 10) || 0) : 0;
+  // BOTH NUMBERS ARE WRITTEN HERE, from one value, in one tick. The filter panel's primary
+  // button ("Show N jobs") used to be filled by syncChips copying countEl's TEXT -- and
+  // syncChips runs synchronously at the end of render(), while countEl is only written later
+  // inside the /api/feed .then(). So the button showed the PREVIOUS query's count, every time,
+  // on every paged install (this one has 27,524 jobs against a _FEED_INLINE_MAX of 4000, so it
+  // is always paged). Measured: searching "product manager" returned 1293 jobs while the button
+  // still read "Show 13 jobs" -- a 100x under-report on the control the user acts on.
+  // Writing them together makes the pair structurally unable to disagree.
   function setCount(n) {
     if (countEl) countEl.textContent = n;
     if (countTot) countTot.hidden = !TOTAL_ALL || n === TOTAL_ALL;
+    var pc = document.getElementById("popcount");
+    if (pc) pc.textContent = n;
   }
 
   // Visibility for elements that start hidden in the markup via .u-hide.
@@ -994,6 +1078,7 @@
   }
   // Reads the SAME state the filters read, so a chip can never disagree with the results.
   function syncChips() {
+    syncMinStandDown();          // the match control follows the search box -- see U5
     var roles = rolesWanted();
     var rl = document.getElementById("rolebtn-t");
     chipSet("roles", roles.length,
@@ -1019,8 +1104,7 @@
     var vo = verifiedOnly && verifiedOnly.checked;
     chipSet("date", (d && d !== "any") || vo, (DL[d] || "Any time") + (vo ? " · confirmed" : ""));
 
-    var pc = document.getElementById("popcount");
-    if (pc && countEl) pc.textContent = countEl.textContent;
+    // #popcount is written by setCount(), not copied out of the DOM here -- see the note there.
   }
 
   // ---- the empty state ----
@@ -1046,16 +1130,43 @@
     hidenospon: function () { if (hideNo) hideNo.checked = false; },
     verifiedonly: function () { if (verifiedOnly) verifiedOnly.checked = false; },
     hideagency: function () { if (hideAgency) hideAgency.checked = false; },
+    expstated: function () { if (expStated) expStated.checked = false; },
     roles: function () {
       if (rolesSel) rolesSel.value = "";
       var rb = document.querySelectorAll(".rolepick input[data-role]");
       for (var r = 0; r < rb.length; r++) rb[r].checked = false;
       document.dispatchEvent(new CustomEvent("roles:sync"));   // let rolepick.js relabel
     },
-    track: function () { if (trackSel) trackSel.value = "any"; }
+    track: function () { if (trackSel) trackSel.value = "any"; },
+    // Reachable from a relax suggestion as well as from Clear all -- see the note on the Clear
+    // button for why the search box counts as a filter here.
+    q: function () { if (q) q.value = ""; }
+  };
+  // What "nothing here" MEANS depends on which tab you are on, and the generic fallback did not
+  // know. On Saved with nothing saved it rendered "No jobs match these filters" over a "Clear
+  // all filters" button -- both wrong: the cause is an empty list, not a filter, and clearing
+  // every filter provably still yields zero (confirmed live: the chips cleared and the identical
+  // message and button remained). That is a dead end offering a remedy that cannot work, which
+  // is the exact failure _relax_suggestions was written to eliminate. The relax machinery
+  // correctly produced nothing here -- there is no filter that can be relaxed into existence --
+  // and the fallback took over without knowing which tab it was on.
+  var TAB_EMPTY = {
+    liked: ["You haven't saved any job yet.",
+            "Tap Save on a card and it will show up here."],
+    applied: ["You haven't marked any job as applied yet.",
+              "Mark one applied and it moves here, and out of Recommended."],
+    hidden: ["You haven't hidden any job.",
+             "Hiding one takes it out of Recommended and parks it here."]
   };
   function renderEmpty(relax) {
     if (!emptyEl) return;
+    var own = TAB_EMPTY[tab];
+    if (own) {
+      emptyEl.innerHTML = '<p class="empty-h">' + esc(own[0]) + "</p><p>" + esc(own[1]) +
+        '</p><div class="empty-acts">' +
+        '<button type="button" class="btn sm" data-gotab="recommended">Browse Recommended</button></div>';
+      return;
+    }
     var h = '<p class="empty-h">No jobs match these filters.</p>';
     if (relax && relax.length) {
       h += "<p>";
@@ -1073,6 +1184,14 @@
     emptyEl.innerHTML = h;
   }
   if (emptyEl) emptyEl.addEventListener("click", function (e) {
+    // The status tabs' empty state offers a tab switch, not a filter reset -- see TAB_EMPTY.
+    var g = e.target.closest && e.target.closest("[data-gotab]");
+    if (g) {
+      var want = g.getAttribute("data-gotab");
+      var tb = document.querySelector('.tab[data-tab="' + want + '"]');
+      if (tb) tb.click();
+      return;
+    }
     var b = e.target.closest && e.target.closest("[data-relax]");
     if (!b) return;
     var key = b.getAttribute("data-relax");
@@ -1165,6 +1284,7 @@
     if (q && q.value.trim()) ps.push("q=" + encodeURIComponent(q.value.trim()));
     if (dateSel && dateSel.value !== "any") ps.push("date=" + encodeURIComponent(dateSel.value));
     if (expSel && expSel.value !== "any") ps.push("exp=" + encodeURIComponent(expSel.value));
+    if (expStated && expStated.checked) ps.push("expstated=1");
     var vw = visaWanted();
     if (vw.length) ps.push("visatags=" + encodeURIComponent(vw.join(",")));
     if (hideNo && hideNo.checked) ps.push("hidenospon=1");
@@ -1233,6 +1353,21 @@
         setTimeout(function () { if (mySeq === _seq) render(reset); }, Math.min(wait, 15) * 1000);
         return null;
       }
+      /* 401 gets the same explicit treatment, and for the same reason. login_required used to
+         answer an expired session with a 302 to the HTML login page; fetch follows it, gets
+         HTML with status 200, r.json() throws, and the .catch below rendered "We couldn't load
+         jobs" -- which never once mentioned being signed out, and on Load more printed nothing
+         at all. Say what happened and offer the one thing that fixes it. */
+      if (r.status === 401) {
+        if (mySeq === _seq) {
+          var here = encodeURIComponent(location.pathname + location.search);
+          feed.innerHTML = '<div class="empty">You have been signed out. ' +
+            '<a href="/login?next=' + here + '">Sign in again</a> to see your jobs.</div>';
+          setShown(emptyEl, false);
+          setShown(moreBtn, false);
+        }
+        return null;
+      }
       return r.json();
     }).then(function (d) {
       if (d === null || mySeq !== _seq) return;
@@ -1255,10 +1390,37 @@
   // After an action: small corpus re-renders locally; paged updates just the touched card in place
   // (or drops it if it no longer matches the current tab/filters) — no full refetch.
   function afterAction(j) {
-    if (!PAGED) { render(false); return; }
+    if (!PAGED) { render(false); tabCount(j); return; }
     var el = cardEl(j.url);
-    if (matches(j, dateCutoff())) { if (el) el.outerHTML = cardHTML(j); }
-    else if (el) { if (el.parentNode) el.parentNode.removeChild(el); if (countEl) { var n = parseInt(countEl.textContent, 10); if (!isNaN(n) && n > 0) countEl.textContent = n - 1; } }
+    if (matches(j, dateCutoff())) {
+      if (el) {
+        el.outerHTML = cardHTML(j);
+        // cardHTML() emits the RAW date; every other render path calls formatDates() after it
+        // and this one did not, so one Save click turned a card reading "3w ago" into
+        // "2026-07-28" while its neighbours stayed relative. Re-query the node: outerHTML
+        // replaced it, so `el` now points at something detached from the document.
+        formatDates(cardEl(j.url) || feed);
+      }
+    }
+    else if (el) { if (el.parentNode) el.parentNode.removeChild(el); if (countEl) { var n = parseInt(countEl.textContent, 10); if (!isNaN(n) && n > 0) setCount(n - 1); } }
+    tabCount(j);
+  }
+
+  // The Saved / Applied / Hidden tab counters. Server-rendered once into .tabn and then never
+  // touched, so saving a job correctly flipped the button to "Saved" while the tab beside it
+  // still read "Saved 0" until a full page load. Recomputed from the same status transition the
+  // action just made, rather than refetched.
+  function tabCount(j) {
+    var was = j._prevStatus || "", now = j.status || "";
+    if (was === now) return;
+    [was, now].forEach(function (s) {
+      if (!s) return;
+      var btn = document.querySelector('.tab[data-tab="' + s + '"] .tabn');
+      if (!btn) return;
+      var n = parseInt(btn.textContent, 10);
+      if (isNaN(n)) return;
+      btn.textContent = Math.max(0, n + (s === now ? 1 : -1));
+    });
   }
 
   // `via` is the origin of the action and reaches the `action` event's via dimension. The server
@@ -1298,6 +1460,7 @@
     var mn = parseInt(minR.min, 10) || 0, mx = parseInt(minR.max, 10) || 100, v = parseInt(minR.value, 10) || 0;
     minR.style.setProperty("--p", (mx > mn ? (v - mn) / (mx - mn) * 100 : 0) + "%");
     if (minLab) minLab.textContent = v === 0 ? "Any" : v + "%+";
+    syncMinStandDown();          // re-asserts "Off while searching" over the label just written
   }
   if (minR) {
     setFill();
@@ -1344,6 +1507,7 @@
   if (remoteOnly) remoteOnly.addEventListener("change", function () { render(true); });
   if (minSalSel) minSalSel.addEventListener("change", function () { render(true); });
   if (hideAgency) hideAgency.addEventListener("change", function () { render(true); });
+  if (expStated) expStated.addEventListener("change", function () { render(true); });
   if (showClosed) showClosed.addEventListener("change", function () { render(true); });
 
   // ---- career track: one click swaps the whole feed between the two careers in the corpus ----
@@ -1398,6 +1562,12 @@
     // interesting number. A high value means people over-filter into an empty feed, which
     // argues for a "no results — loosen these?" affordance rather than more filters.
     EV("clear_filters", { n: activeFilterCount() });
+    // The SEARCH BOX too. It is the largest, leftmost, most prominent control in the bar, and
+    // "Clear all filters" used to reset every chip and leave it still reading "data scientist"
+    // -- so the results stayed narrowed by the one input the user could see. Defensible only if
+    // search is not a filter, but then the label should not say ALL. Clearing it is the smaller
+    // surprise of the two.
+    if (q) q.value = "";
     if (minR) { minR.value = 0; minVal = 0; setFill(); }
     if (locInp) locInp.value = "";
     if (minSalSel) minSalSel.value = "";
@@ -1415,6 +1585,7 @@
     if (rclr) rclr.click();
     if (remoteOnly) remoteOnly.checked = false;
     if (hideAgency) hideAgency.checked = false;
+    if (expStated) expStated.checked = false;
     if (showClosed) showClosed.checked = false;
     render(true);
   });
@@ -1433,6 +1604,7 @@
       verifiedonly: !!(verifiedOnly && verifiedOnly.checked),
       roles: rolesWanted().join(","),
       exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
+      expstated: !!(expStated && expStated.checked),
       track: trackSel ? trackSel.value : "any",
       date: dateSel ? dateSel.value : "any", sort: sortBy
     };
@@ -1465,6 +1637,7 @@
   document.addEventListener("jm:applied", function (e) {
     var j = e.detail && byUrl[e.detail.url];
     if (!j) return;
+    j._prevStatus = j.status || "";       // tabCount() needs the transition, not just the end state
     j.status = "applied";
     afterAction(j);
   });
@@ -1480,6 +1653,7 @@
       btn.disabled = true;
       doAction(j.url, next).then(function (ok) {
         btn.disabled = false; if (!ok) return;
+        j._prevStatus = cur;              // tabCount() needs the transition, not just the end state
         j.status = next;
         // Hiding is the one action that removes the card from view, so it gets the collapse
         // + Undo treatment. The others just relabel in place and re-render as before.
@@ -1488,7 +1662,7 @@
           toast("Hidden", function () {
             doAction(j.url, cur).then(function (ok2) {
               if (!ok2) { toast("Couldn't undo. Try again."); return; }
-              j.status = cur; render(true);
+              j._prevStatus = j.status || ""; j.status = cur; tabCount(j); render(true);
             });
           });
         } else {
@@ -1649,7 +1823,12 @@
     return true;
   }
   function refreshFeedAfterScrape() {
-    fetch("/reload", { cache: "no-store" }).then(function () {
+    // POST + CSRF: /reload is admin-only now. It wipes the shared corpus cache and every
+    // user's stored scores, which is not a thing a GET should be able to do.
+    fetch("/reload", {
+      method: "POST", cache: "no-store",
+      headers: { "X-CSRF-Token": csrfToken(), "X-Requested-With": "fetch" }
+    }).then(function () {
       if (PAGED) { shown = 0; render(true); } else { location.reload(); }
     }).catch(function () { location.reload(); });
   }

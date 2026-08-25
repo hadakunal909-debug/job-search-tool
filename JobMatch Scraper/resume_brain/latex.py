@@ -13,6 +13,8 @@ RuntimeError and the caller falls back to .docx — the apply flow never hard-cr
 """
 import os
 import re
+import sys
+import hmac
 import shutil
 import tempfile
 import subprocess
@@ -179,14 +181,32 @@ def render(resume_text, profile):
 
 
 # ----------------------------- compilation -----------------------------
+# SHA-256 OF THE RELEASE TARBALL, per version and platform. Without one, this function fetched
+# ~50 MB over the network, chmod 0755'd it and EXECUTED it — reachable on demand from
+# /brain/export/resume.pdf and /api/ext/tailor, i.e. from a web request. Any TLS-terminating
+# position, or a compromised release asset, was code execution on the app server.
+#
+# The download is refused outright when the running TECTONIC_VERSION has no entry here, rather
+# than falling back to trusting it: an unpinned version is exactly the case this exists to stop,
+# and build_pdf already degrades to .docx/.txt when the binary is missing. To move to a new
+# version, add its digests — `shasum -a 256 tectonic-<v>-<target>.tar.gz` against the file
+# GitHub serves, checked from a machine you trust.
+TECTONIC_SHA256 = {
+    ("0.16.9", "x86_64-unknown-linux-musl"): "",
+    ("0.16.9", "x86_64-apple-darwin"): "",
+}
+
+
 def _bootstrap_tectonic():
     """Download the Tectonic binary into bin/ on first use (Linux/macOS hosts) so deploying by a
     plain `git pull` + restart needs NO manual step — the ~50 MB binary is gitignored and can't be
     pulled, and shared-host pip/Terminal access is flaky. Best-effort: returns the binary path, or
     None if it can't fetch it (then build_pdf falls back to .docx/.txt, same as before). Windows is
     not auto-fetched — dev vendors bin/tectonic.exe via scripts/get_tectonic.ps1. Mirrors the URL
-    scheme in scripts/get_tectonic.sh."""
-    import platform, tarfile, io
+    scheme in scripts/get_tectonic.sh.
+
+    The tarball is VERIFIED against TECTONIC_SHA256 before anything is made executable."""
+    import platform, tarfile, io, hashlib
     if os.name == "nt":
         return None
     # Linux: the STATIC musl build (no libssl/glibc deps) so it runs on old shared hosts too — the
@@ -195,6 +215,15 @@ def _bootstrap_tectonic():
     if not target:
         return None
     ver = os.environ.get("TECTONIC_VERSION", "0.16.9")
+    want = TECTONIC_SHA256.get((ver, target)) or ""
+    if not want:
+        # Unpinned: refuse rather than execute an unverified binary. Loud in the log, because
+        # the symptom otherwise is "PDF export quietly became .docx" with no stated cause.
+        sys.stderr.write(
+            "tectonic: refusing to auto-download %s/%s — no SHA-256 pinned in "
+            "resume_brain/latex.py::TECTONIC_SHA256. PDF export will fall back to .docx.\n"
+            % (ver, target))
+        return None
     url = ("https://github.com/tectonic-typesetting/tectonic/releases/download/"
            "tectonic@{v}/tectonic-{v}-{t}.tar.gz").format(v=ver, t=target).replace("@", "%40")
     bindir = os.path.join(_REPO_ROOT, "bin")
@@ -205,7 +234,14 @@ def _bootstrap_tectonic():
         os.makedirs(bindir, exist_ok=True)
         r = requests.get(url, timeout=180)
         r.raise_for_status()
+        got = hashlib.sha256(r.content).hexdigest()
+        if not hmac.compare_digest(got, want):
+            sys.stderr.write("tectonic: SHA-256 mismatch for %s (%s != %s) — NOT installing.\n"
+                             % (url, got, want))
+            return None
         with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
+            # ONE NAMED MEMBER, never extractall — so there is no path-traversal exposure here
+            # regardless of what the archive claims to contain.
             with open(tmp, "wb") as fh:
                 shutil.copyfileobj(tf.extractfile("tectonic"), fh)
         os.chmod(tmp, 0o755)

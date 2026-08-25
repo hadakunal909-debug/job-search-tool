@@ -56,34 +56,46 @@ function box(v) { return { type: "checkbox", checked: !!v }; }
 
 var IN = %(input)s;
 var PAGE = IN.page;                       // "feed" | "company"
-var feed = { getAttribute: function (a) { return a === "data-user" ? IN.user : null; } };
+// data-company is what app.js::_ctlMap uses to tell the two pages apart. It used to test for
+// #filterbar, which stopped discriminating the moment company.html started including the same
+// _filterbar.html partial the feed uses.
+var feed = { getAttribute: function (a) {
+  if (a === "data-user") return IN.user;
+  if (a === "data-company") return PAGE === "company" ? "Acme" : null;
+  return null;
+} };
 
-// Controls present on this page. company.html renders only #q and #sort.
+// Controls present on this page. company.html renders the SAME filter bar the feed does now
+// (templates/_filterbar.html), so the company branch below populates them all — what makes that
+// page different is that _ctlMap refuses to REMEMBER any of it except #sort, not that the
+// controls are absent. Modelling it the old way (everything null) would have let the scratchpad
+// rule pass vacuously.
 var q, minR, sortSel, dateSel, expSel, internSel, minSalSel, locInp, visaSel, rolesSel,
-    trackSel, hideNo, verifiedOnly, remoteOnly, hideAgency, showClosed, feedOnly, tabBtns, tab;
+    trackSel, hideNo, verifiedOnly, remoteOnly, hideAgency, expStated, showClosed,
+    feedOnly, tabBtns, tab;
 var VISABOXES = [];
 function reset(page, vals) {
   q = ctl(vals.q || "");
   sortSel = ctl(vals.sort || "score");
+  // Both pages carry the same controls. #filterbar is no longer a discriminator — see the note
+  // on the feed stub above — so feedOnly is set on both and nothing reads it to tell them apart.
+  feedOnly = {};
+  minR = ctl(vals.min || "0");
+  dateSel = ctl(vals.date || "any"); expSel = ctl(vals.exp || "any");
+  internSel = ctl(vals.intern || "any"); minSalSel = ctl(vals.minsal || "");
+  locInp = ctl(vals.loc || ""); visaSel = ctl(vals.visatags || "");
+  rolesSel = ctl(vals.roles || ""); trackSel = ctl(vals.track || "any");
+  hideNo = box(vals.hidenospon); verifiedOnly = box(vals.verifiedonly);
+  remoteOnly = box(vals.remoteonly);
+  hideAgency = box(vals.hideagency); expStated = box(vals.expstated);
+  showClosed = box(vals.showclosed);
+  VISABOXES = ["h1b", "green_card", "stem_opt", "e3", "h1b1"].map(function (t) {
+    return { type: "checkbox", checked: false, getAttribute: function () { return t; } };
+  });
   if (page === "feed") {
-    feedOnly = {};                        // #filterbar exists only on the feed
-    minR = ctl(vals.min || "0");
-    dateSel = ctl(vals.date || "any"); expSel = ctl(vals.exp || "any");
-    internSel = ctl(vals.intern || "any"); minSalSel = ctl(vals.minsal || "");
-    locInp = ctl(vals.loc || ""); visaSel = ctl(vals.visatags || "");
-    rolesSel = ctl(vals.roles || ""); trackSel = ctl(vals.track || "any");
-    hideNo = box(vals.hidenospon); verifiedOnly = box(vals.verifiedonly);
-    remoteOnly = box(vals.remoteonly);
-    hideAgency = box(vals.hideagency); showClosed = box(vals.showclosed);
     tabBtns = [{}, {}, {}, {}]; tab = vals.tab || "recommended";
-    VISABOXES = ["h1b", "green_card", "stem_opt", "e3", "h1b1"].map(function (t) {
-      return { type: "checkbox", checked: false, getAttribute: function () { return t; } };
-    });
   } else {
-    feedOnly = null; minR = dateSel = expSel = internSel = minSalSel = null;
-    locInp = visaSel = rolesSel = trackSel = hideNo = verifiedOnly = null;
-    remoteOnly = hideAgency = showClosed = null;
-    tabBtns = []; tab = "recommended"; VISABOXES = [];
+    tabBtns = []; tab = "recommended";    // no status tabs on an employer page
   }
 }
 var document = {
@@ -164,14 +176,25 @@ check("the five visa checkboxes re-ticked to match",
       got["visaboxes"] == [True, False, True, False, False], str(got["visaboxes"]))
 
 print("\nthe company page must not clobber the feed's filters")
+# It now renders the SAME filter bar the feed does, so this is load-bearing in a way it was not
+# when the employer page had only a search box: every control there is a control that could
+# overwrite your feed. The rule is that the employer page is a SCRATCHPAD — narrow it however you
+# like to read through one company's roles, and the feed you go back to is untouched. Only #sort
+# is shared, because that is a genuine global preference rather than a filter.
 saved = run("feed", "save", {"min": "45", "loc": "Boston", "date": "7"})["stored"]
-after = run("company", "save", {"sort": "newest", "q": "engineer"}, store=saved)["stored"]
+after = run("company", "save",
+            {"sort": "newest", "q": "engineer", "min": "0", "loc": "Austin", "date": "any",
+             "exp": "2", "minsal": "60000", "hideagency": True},
+            store=saved)["stored"]
 check("feed-only filters survive a company-page save",
       after.get("min") == "45" and after.get("loc") == "Boston" and after.get("date") == "7",
       json.dumps({k: after.get(k) for k in ("min", "loc", "date")}))
 check("sort IS shared across both pages", after.get("sort") == "newest")
 check("company-page search text does NOT leak into the feed's q",
       after.get("q") != "engineer", repr(after.get("q")))
+check("no company-page control leaks into the feed",
+      after.get("exp") != "2" and after.get("minsal") != "60000",
+      json.dumps({k: after.get(k) for k in ("exp", "minsal")}))
 
 print("\none browser, two accounts — filters must not follow the machine")
 # Found while testing a second account: their brand-new feed came up carrying the first

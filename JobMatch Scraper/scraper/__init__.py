@@ -2423,6 +2423,25 @@ def canonical_url(url):
                     if k.lower() not in _LINKEDIN_DROP_PARAMS]
         if hostname.endswith(".myworkdayjobs.com"):
             path = _WORKDAY_LOCALE_RE.sub("", path, count=1)
+            # LOWERCASE THE SITE SEGMENT — the first one left after the locale comes off.
+            #
+            # Workday serves the same requisition under whatever casing the link used, and
+            # `url` is the primary key on `jobs`, so /external/… and /External/… were stored as
+            # TWO rows for one posting. Everything downstream falls out of that one comparison:
+            # the feed showed the same opening twice, the second row carried whatever company
+            # label that scrape pass derived ("Amat" beside "Applied Materials"), /companies
+            # listed 117 openings as two employers with two sponsorship records, _logo_slug
+            # could not resolve the alias so one card rendered a monogram, and /job offered the
+            # posting to itself as a "Similar Role".
+            #
+            # ONLY this segment. Plenty of ATS paths are genuinely case-sensitive, and the
+            # requisition id below it certainly is; lowercasing the whole path would break them.
+            # The locale strip immediately above is the precedent for Workday-specific path
+            # normalisation living here.
+            _wd = path.split("/")
+            if len(_wd) > 1 and _wd[1]:
+                _wd[1] = _wd[1].lower()
+                path = "/".join(_wd)
         keep = [(k, v) for k, v in keep if k.lower() not in _TRACKING_PARAMS]
         if len(keep) != len(pairs):
             query = urlencode(keep)
@@ -2444,7 +2463,25 @@ def _ip_is_public(addr):
 
 def public_http_url(url):
     """The URL if it's http(s) AND its host resolves only to PUBLIC IPs, else None — so a
-    user URL can't make us reach loopback / private ranges / link-local cloud metadata."""
+    user URL can't make us reach loopback / private ranges / link-local cloud metadata.
+
+    KNOWN RESIDUAL, recorded rather than quietly carried: this is a TIME-OF-CHECK check. It
+    resolves the hostname, validates the addresses, and then returns the URL — and the caller
+    hands that URL to `requests`, which resolves it a SECOND time. A hostile DNS record that
+    answers public on the first lookup and 127.0.0.1 on the second defeats it. That is the
+    standard bypass for this shape of guard (DNS rebinding).
+
+    Closing it means pinning the validated address: resolve once, connect to the IP, and carry
+    the original Host header and TLS SNI — a custom requests HTTPAdapter. That is a change to
+    the transport every scraper in this file shares, so it is not something to land without
+    exercising it against real boards; done wrong it breaks fetching everywhere, silently and
+    all at once.
+
+    What IS closed: the redirect loop re-validates every hop, so a public host cannot bounce us
+    inward. And these are all classified correctly on Python 3.13/3.14, each checked:
+    IPv4-mapped IPv6 (::ffff:127.0.0.1), decimal and octal IPv4 literals, and NAT64
+    (64:ff9b::/96).
+    """
     if not is_http_url(url):
         return None
     p = urlparse(url)
@@ -6355,10 +6392,32 @@ def name_is_sluglike(name, board_url):
     return False
 
 
+def host_is(host, *domains):
+    """True when `host` IS one of `domains`, or a subdomain of one. Nothing else.
+
+    `"greenhouse.io" in host` is not a host test — it is a substring search, and it says yes to
+    greenhouse.io.evil.example, to notgreenhouse.io, and to anything at all with those bytes
+    somewhere in it. Several branches of detect_board then keep the CALLER'S host in the board
+    URL they return, so a spoofed hostname survived into a stored board and into probe_board's
+    fetch. Reachable from /add by any signed-in account:
+
+        https://myworkdaysite.com.169.254.169.254.nip.io/recruiting/t/s
+          -> ('https://myworkdaysite.com.169.254.169.254.nip.io/recruiting/t/s', 'workday', 'T')
+
+    An anchored suffix cannot do that. Ports are stripped so host:8080 is still the same host,
+    and a trailing dot (the DNS root form, which resolves identically) is too.
+    """
+    h = (host or "").lower().split("@")[-1].split(":")[0].rstrip(".")
+    return any(h == d or h.endswith("." + d) for d in domains)
+
+
 def detect_board(url):
     """Map a pasted job-board URL to (normalized_board_url, ats_type, suggested_name),
     or None if it isn't one of the scrapeable ATS feeds. The normalized URL is the exact
-    form the matching scrape_* function expects."""
+    form the matching scrape_* function expects.
+
+    EVERY host test here is anchored through host_is — see the note there for what an
+    unanchored `in` let through."""
     url = (url or "").strip()
     if not url:
         return None
@@ -6368,7 +6427,7 @@ def detect_board(url):
     host = p.netloc.lower()
     segs = [s for s in p.path.split("/") if s]
 
-    if "greenhouse.io" in host:
+    if host_is(host, "greenhouse.io"):
         slug = (parse_qs(p.query).get("for") or [None])[0]      # embed link: ?for=slug
         if not slug and "boards" in segs:                        # boards-api/v1/boards/<slug>/jobs
             i = segs.index("boards")
@@ -6378,20 +6437,20 @@ def detect_board(url):
         if slug:
             return ("https://job-boards.greenhouse.io/%s" % slug, "greenhouse", _name_from(slug))
 
-    if "lever.co" in host and segs:
+    if host_is(host, "lever.co") and segs:
         return ("https://jobs.lever.co/%s" % segs[0], "lever", _name_from(segs[0]))
 
-    if "ashbyhq.com" in host and segs:
+    if host_is(host, "ashbyhq.com") and segs:
         return ("https://jobs.ashbyhq.com/%s" % segs[0], "ashby", _name_from(segs[0]))
 
-    if "smartrecruiters.com" in host and segs:
+    if host_is(host, "smartrecruiters.com") and segs:
         return ("https://jobs.smartrecruiters.com/%s" % segs[0], "smartrecruiters", _name_from(segs[0]))
 
-    if "recruitee.com" in host:
+    if host_is(host, "recruitee.com"):
         sub = host.split(".")[0]
         return ("https://%s.recruitee.com" % sub, "recruitee", _name_from(sub))
 
-    if "eightfold.ai" in host:
+    if host_is(host, "eightfold.ai"):
         sub = host.split(".")[0]
         # The `domain` param is mandatory, and the tenant label is only sometimes the domain
         # ("insight" -> insight.com holds, plenty do not). Keep whatever the pasted URL carried;
@@ -6400,11 +6459,11 @@ def detect_board(url):
         dom = (parse_qs(p.query).get("domain") or [""])[0].strip() or (sub + ".com")
         return ("https://%s/careers?domain=%s" % (host, dom), "eightfold", _name_from(sub))
 
-    if "breezy.hr" in host:
+    if host_is(host, "breezy.hr"):
         sub = host.split(".")[0]
         return ("https://%s.breezy.hr" % sub, "breezy", _name_from(sub))
 
-    if "personio.com" in host:
+    if host_is(host, "personio.com", "jobs.personio.com"):
         sub = host.split(".")[0]
         return ("https://%s.jobs.personio.com" % sub, "personio", _name_from(sub))
 
@@ -6415,11 +6474,11 @@ def detect_board(url):
         # SOURCES by URL, so adding it from /add cannot make the sweep read it twice.
         return (AQUENT_FEED, "aquent", "Aquent")
 
-    if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
+    if host_is(host, "myworkdayjobs.com", "myworkdaysite.com"):
         _h, tenant, site = _workday_parts(url)
         if tenant and site:
             norm = ("https://%s/recruiting/%s/%s" % (_h, tenant, site)
-                    if "myworkdaysite.com" in host else "https://%s/%s" % (_h, site))
+                    if host_is(host, "myworkdaysite.com") else "https://%s/%s" % (_h, site))
             return (norm, "workday", _name_from(tenant))
 
     # Oracle Fusion recruiting, on its own host OR behind a vanity domain. The host test
@@ -6428,12 +6487,28 @@ def detect_board(url):
     # while detect_board reported "not an ATS". /hcmUI/CandidateExperience/ is specific to
     # this product, so matching the PATH cannot collide with another vendor.
     if ("/hcmUI/CandidateExperience/" in p.path
-            or host.endswith(".oraclecloud.com")) and "/sites/" in p.path:
+            or host_is(host, "oraclecloud.com")) and "/sites/" in p.path:
         origin, site = _oracle_parts(url)
+        # THE NAME COMES FROM /sites/<site>, NOT FROM THE TENANT SUBDOMAIN.
+        #
+        # Oracle's tenant host is an opaque code — fa-exhh-saasfaprod1 — and taking the name
+        # from it recorded Staples as "Fa Exhh Saasfaprod1". That is not cosmetic: the stored
+        # label is what core.sponsor_strength looks up, so an employer with 612 H-1B filings on
+        # record rendered as no sponsorship record at all, which is the inversion the "colour
+        # means sponsorship" rule exists to prevent. The real name was sitting in the SAME URL
+        # the whole time: …/hcmUI/CandidateExperience/en/sites/StaplesInc.
+        #
+        # Site ids are not always a name (CX_45001, CX_1). Those are rejected here and the host
+        # label is used as before, so this only ever improves on the old answer. name_is_sluglike
+        # in web.py remains the second gate on whatever comes out.
+        guess = ""
+        if site and not re.match(r"^CX[_-]?\d*$", site, re.I):
+            guess = _TITLE_DECOR.sub(" ", _name_from(site)).strip()
+            guess = re.sub(r"\s+", " ", guess)
         return ("%s/hcmUI/CandidateExperience/en/sites/%s" % (origin, site),
-                "oracle", _name_from(host.split(".")[0]))
+                "oracle", guess or _name_from(host.split(".")[0]))
 
-    if host.endswith("workable.com"):
+    if host_is(host, "workable.com"):
         slug = _workable_slug(url)
         if slug:
             return ("https://apply.workable.com/%s" % slug, "workable", _name_from(slug))
@@ -6470,7 +6545,7 @@ def detect_board(url):
         return ("https://%s/%s/SearchJobs" % (host, portal), "avature",
                 _name_from(host.split(".")[0]))
 
-    if host.endswith("jobdiva.com"):                        # www1.jobdiva.com/portal/?a=<token>
+    if host_is(host, "jobdiva.com"):                        # www1.jobdiva.com/portal/?a=<token>
         token = (parse_qs(p.query).get("a") or [""])[0]
         if token:
             return ("https://www1.jobdiva.com/portal/?a=%s" % token, "jobdiva",
@@ -6802,9 +6877,14 @@ def probe_board(board_url, ats_type):
         if ats_type == "workday":
             host, tenant, site = _workday_parts(board_url)
             cxs = "https://%s/wday/cxs/%s/%s/jobs" % (host, tenant, site)
-            hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
-            r = SESSION.post(cxs, headers=hdr, timeout=12, data=json.dumps(
-                {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}))
+            # _safe_post, NOT a raw SESSION.post. This host comes from a URL a user pasted into
+            # /add, and this was the one probe arm that skipped the hardened helpers entirely —
+            # so a hostname crafted to look like Workday reached whatever it resolved to, with
+            # no public-IP check, no redirect refusal and no size cap. The peoplesoft arm below
+            # already used _safe_get, which is why that half of the same finding was caught at
+            # probe time and this half was not.
+            r = _safe_post(cxs, {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""},
+                           timeout=12)
             return r.json().get("total") if r.status_code == 200 else None
         if ats_type == "jibe":
             p = urlparse(board_url)
@@ -7391,10 +7471,34 @@ _LEGAL_SUFFIX = re.compile(
     r"plc|gmbh|sa|ag|holdings|group|technologies|technology|labs|usa|us|na)\b")
 
 
+# Apostrophes are DELETED, not turned into a space. Every other punctuation mark separates two
+# words ("Avery-Dennison" is two words); an apostrophe is inside one, and replacing it with a
+# space split a whole class of employers into a name plus a stray "s":
+#
+#     Kohl's                              -> 'kohl s'    (misses; 'kohls' has 135 filings)
+#     Domino's Pizza                      -> 'domino s pizza'
+#     BJ's Wholesale Club                 -> 'bj s wholesale club'
+#     Children's Hospital of Philadelphia -> 'children s hospital of philadelphia'
+#
+# The DOL/USCIS source rows mostly spell these WITHOUT the apostrophe, so the two sides could
+# never meet and these employers rendered as "no sponsorship record" — the exact inversion the
+# "colour means sponsorship" rule in CLAUDE.md exists to prevent, for exactly the employers an
+# F-1 candidate most needs to see. Both curly and straight forms, because scraped board text
+# uses both.
+#
+# AFTER CHANGING THIS, REBUILD THE INDEXES: `python -m scraper.build_sponsor_counts` and the
+# visa_tags build. sponsor_counts.json was written by the OLD rule and still carries 1,316 keys
+# with a stray-s token ('a s engineers', '505 games u s'), so the index is polluted on its side
+# too until it is regenerated.
+_APOSTROPHE_RE = re.compile(r"[’ʼ']")
+
+
 def _norm_name(s):
-    """Normalize a company name for matching: lowercase, strip punctuation and
-    common legal suffixes. 'Avery-Dennison Corp.' -> 'avery dennison'."""
-    s = re.sub(r"[^a-z0-9 ]+", " ", s.lower())
+    """Normalize a company name for matching: lowercase, drop apostrophes, strip the remaining
+    punctuation and common legal suffixes. 'Avery-Dennison Corp.' -> 'avery dennison',
+    "Kohl's" -> 'kohls'."""
+    s = _APOSTROPHE_RE.sub("", s.lower())
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
     s = _LEGAL_SUFFIX.sub(" ", s)
     return re.sub(r"\s+", " ", s).strip()
 

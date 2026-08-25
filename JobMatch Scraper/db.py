@@ -1509,8 +1509,25 @@ def get_user_statuses(username):
     return _load_json(USER_JOBS_FILE).get(username, {})
 
 
+# The only values this column may hold. A CLOSED SET, and enforced HERE rather than in the two
+# routes that call it, so /api/action, /action and the extension all inherit it and a caller
+# added later cannot forget. web.py already whitelists `via` for the weaker of the two reasons —
+# "a browser writing a value that ends up in an aggregate" — while `status`, which decides
+# whether a posting is hidden from your feed forever, was passed through untouched.
+USER_STATUSES = ("liked", "hidden", "applied")
+
+
 def set_user_status(username, url, status):
-    """status: 'liked' | 'hidden' | 'applied' | '' to clear — scoped to one user."""
+    """status: 'liked' | 'hidden' | 'applied' | '' to clear — scoped to one user.
+
+    Raises ValueError on anything else. The docstring has always said this; nothing enforced it,
+    so any account could insert unbounded rows into the shared user_jobs table carrying arbitrary
+    strings, and every reader of that column had to hope.
+    """
+    status = (status or "").strip()
+    if status and status not in USER_STATUSES:
+        raise ValueError("status must be one of %s or '' to clear, not %r"
+                         % (", ".join(USER_STATUSES), status[:40]))
     if using_supabase():
         if status:
             resp = _http.post(

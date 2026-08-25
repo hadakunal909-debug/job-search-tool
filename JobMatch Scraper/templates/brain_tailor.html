@@ -61,11 +61,23 @@ fits best, which stories to feature, and what the posting is asking for that you
     <h2>Best-Matching Résumé</h2>
     {% if r.best_resume %}
       <p><strong>{{ r.best_resume.resume.name }}</strong></p>
+      {# NO ARROW WHEN THERE IS NO LIFT TO SHOW. With an empty story library `after` equals
+         `before`, and the panel rendered "30% → 30%" under an improvement arrow — promising a
+         change that cannot happen, and reading as a bug in the scorer rather than as an empty
+         library. Say which it is; the link to the Library is already a few lines down. #}
+      {% if r.after and r.after > r.before %}
       <div class="cov">
         <div class="cov-num"><span class="big">{{ r.before }}%</span><span class="muted small">this résumé</span></div>
         <div class="cov-arrow"><span class="ic ic-arrow-right" aria-hidden="true"></span></div>
         <div class="cov-num"><span class="big up">{{ r.after }}%</span><span class="muted small">with the stories below</span></div>
       </div>
+      {% else %}
+      <div class="cov">
+        <div class="cov-num"><span class="big">{{ r.before }}%</span><span class="muted small">this résumé</span></div>
+      </div>
+      <p class="muted small">No stories in your library yet, so there is nothing to add on top of
+        this. <a href="{{ url_for('brain_teach') }}">Write one</a> and this shows what it lifts.</p>
+      {% endif %}
     {% else %}<p class="muted">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in your Library</a>.</p>{% endif %}
     {% if r.missing %}<p class="muted small">Keywords to add (only if true):</p><div class="chips">{% for k in r.missing %}<span class="chip miss">{{ k }}</span>{% endfor %}</div>{% endif %}
     {% if r.mirror_terms %}<p class="muted small">Mirror this job's phrasing:</p><div class="chips">{% for k in r.mirror_terms %}<span class="chip">{{ k }}</span>{% endfor %}</div>{% endif %}

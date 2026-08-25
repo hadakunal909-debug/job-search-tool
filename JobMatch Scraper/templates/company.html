@@ -30,7 +30,9 @@
       {% if info.visa or info.cap_exempt or info.agency or info.strength == 'high' %}
       <div class="kw cochips">
         {% for k in info.visa %}<span class="vt vt-{{ k }}">{{ visa_labels[k] }}</span>{% endfor %}
-        {% if info.strength == 'high' %}<span class="vt vt-h1b">~{{ '{:,}'.format(info.strength_n) }} H-1B approvals FY2019-23</span>{% endif %}
+        {# The window is named because the data has one and it is no longer recent — see
+           web.py::sponsor_data_through. #}
+        {% if info.strength == 'high' %}<span class="vt vt-h1b">~{{ '{:,}'.format(info.strength_n) }} H-1B approvals, FY2019&ndash;{{ sponsor_data_through()[2:] }}</span>{% endif %}
         {% if info.cap_exempt %}<span class="cx">Likely cap-exempt, no H-1B lottery</span>{% endif %}
         {% if info.agency %}<span class="agency">Staffing agency</span>{% endif %}
       </div>
@@ -185,12 +187,28 @@
   </div>
 </div>
 
+  {# THE SAME FILTERS THE FEED HAS. Clicking an employer used to show every one of their roles
+     with nothing but a search box and a sort — 88 openings at Applied Materials, 527 at the
+     largest — so narrowing by role, match, date, experience or pay meant going back to the feed
+     and starting over. The server side already worked: /api/feed applies _filter_rows to the
+     company-narrowed rows, so this page was only ever missing the controls.
+
+     .feedlayout wraps it because app.js::placePop positions the popovers against #feedlayout,
+     and _filterbar.html's own note explains why the markup is shared rather than copied.
+
+     The status tabs and the visa-deadline strip stay OUT, per this file's opening note: neither
+     belongs on one employer's page. "Save as Default" stays out too — it saves the FEED's
+     default search, which would be a surprise coming from inside a company page. #}
+  <div class="feedlayout" id="feedlayout">
+  {% set show_saveprefs = False %}
+  {% set search_placeholder = "Filter these roles…" %}
+  {% set search_label = "Filter this employer's roles" %}
+  {% include "_filterbar.html" %}
+
   <div class="countrow">
     <!-- " of N openings" must stay OUTSIDE #count: app.js parses the span back out as an
          integer when a card is hidden. -->
     <div class="count"><span id="count">{{ info.n }}</span> of {{ info.n_all }} openings</div>
-    <input id="q" class="cosearch" placeholder="Filter these roles…" autocomplete="off"
-           aria-label="Filter this employer's roles">
     <select id="sort" class="sel">
       <option value="score">Sort: Best match</option>
       <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
@@ -206,6 +224,31 @@
      header instead, next to the two links that actually resolve it. #}
   {% set empty_note = "No open roles at this employer right now." %}
   {% include "_feedgrid.html" %}
+  </div>{# /.feedlayout #}
+
+{# The role picker the Roles chip opens. Same markup feed.html carries, because the chip inside
+   _filterbar.html points at #rolemodal and rolepick.js wires it by id — without this the chip
+   would open nothing. #}
+<div class="modal-overlay" id="rolemodal" role="dialog" aria-modal="true"
+     aria-labelledby="rolemodal-h">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <h2 class="u-m0 u-text-md" id="rolemodal-h">What are you looking for?</h2>
+        <p class="sub u-mt-050">Pick the roles you want to see at this employer.</p>
+      </div>
+      <button class="modal-x" type="button" id="roleclose" aria-label="Close"></button>
+    </div>
+    <div class="modal-body">
+      {% include "_rolepicker.html" %}
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn ghost sm" id="roleclear">Clear</button>
+      <span class="u-grow"></span>
+      <button type="button" class="btn primary" id="roledone">Show These Roles</button>
+    </div>
+  </div>
+</div>
 </div>
 {% endblock %}
 
@@ -213,6 +256,10 @@
 {# applyask.js before it: it defines window.ApplyAsk, which the click handler below
    parks a posting into. Clicking Apply no longer records an application -- the prompt
    on return does. #}
+{# Before app.js, exactly as on feed.html: rolepick.js seeds #roles from what the server
+   rendered and app.js reads that value on its first render. Loading it after would filter the
+   first paint against an empty selection. #}
+<script src="{{ static_v('rolepick.js') }}"></script>
 <script src="{{ static_v('applyask.js') }}"></script>
 <script src="{{ static_v('app.js') }}"></script>
 {% endblock %}

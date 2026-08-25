@@ -127,10 +127,13 @@ def run_tailor(username, jd_text="", job_url="", company_name="", company_url=""
     analysis = analyze.analyze(jd, idf) if jd else None
 
     # Company research (SHARED across users; crawl when missing or refresh asked).
-    domain = research.resolve_domain(company_name, company_url)
+    domain, _dsrc = research.resolve_domain(company_name, company_url, with_source=True)
     company = None if force_research else db.get_brain_company(domain)
     if domain and company is None:
-        pages = research.crawl_company(domain)
+        # A guessed domain must corroborate the employer before it reaches the shared cache and,
+        # from there, the AI tailor's context. See research.resolve_domain.
+        pages = research.crawl_company(domain, company_name=company_name,
+                                       verify=(_dsrc == "guess"))
         if pages:
             company = research.extract_company_knowledge(pages, company_name)
             company["domain"] = domain

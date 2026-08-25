@@ -120,7 +120,10 @@ Everything here counts toward your feed match scores. Private to your account.</
       </form>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No stories yet. Click <strong>Write a Story</strong> to add your first.
+    {# data-empty-for pairs this with the form the button above opens, so app-side CSS can hide
+       it while that form is showing. It used to stay rendered directly UNDER the open form,
+       telling the reader to press the button they had just pressed. #}
+    <div class="empty sm" data-empty-for="add-story">No stories yet. Click <strong>Write a Story</strong> to add your first.
       Stories are what let the brain tailor beyond a single résumé.</div>
   {% endif %}
 </section>
@@ -159,7 +162,7 @@ Everything here counts toward your feed match scores. Private to your account.</
       </div>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No lessons yet. Teach one above, or just give feedback while tailoring and
+    <div class="empty sm" data-empty-for="add-lesson">No lessons yet. Teach one above, or just give feedback while tailoring and
       the brain will remember it here.</div>
   {% endif %}
 </section>
@@ -173,6 +176,11 @@ Everything here counts toward your feed match scores. Private to your account.</
 (function(){
   function toggle(id){var el=document.getElementById(id);if(!el)return;
     var open=el.classList.toggle('open');
+    /* Hide the matching empty state while its form is open. "No stories yet. Click Write a
+       Story to add your first." sitting UNDER the open form is an instruction to press a button
+       the reader has already pressed. Paired by id via data-empty-for so the two cannot drift. */
+    var es=document.querySelector('[data-empty-for="'+id+'"]');
+    if(es)es.hidden=open;
     if(open){var f=el.querySelector('input,textarea');if(f)f.focus();}}
   document.addEventListener('click',function(e){
     var t=e.target.closest('.add-toggle,.edit-toggle');

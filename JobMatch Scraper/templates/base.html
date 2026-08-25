@@ -99,8 +99,30 @@ if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__top
 {# tabindex="-1" so the skip link can actually MOVE focus here. Without it the browser scrolls
    to the anchor but leaves focus on the link, and the next Tab goes back to the nav. #}
 <main id="main" tabindex="-1">
-  {% with msgs = get_flashed_messages() %}
-    {% if msgs %}<div class="flash">{% for m in msgs %}<div>{{ m }}</div>{% endfor %}</div>{% endif %}
+  {# SEVERITY, and a live region. web.py has ~80 flash() calls -- roughly 24 report a FAILURE
+     ("Couldn't reach the database", "Delete failed partway") and 21 report a SUCCESS ("Résumé
+     saved", "Jobs reloaded") -- and every one of them rendered identically in the same soft
+     brand blue, because the payload carried no severity for the template to read.
+
+     Also: no role and no aria-live anywhere on it. The inline login error has both; the flash
+     banner, which is the only feedback channel most of those 80 messages have, had neither.
+
+     NOT a breach of "colour means sponsorship" in CLAUDE.md -- that rule governs the FEED's
+     semantic colour. A form-feedback channel that cannot tell you whether your delete worked is
+     a different question, and the app already accepts red for the inline login error.
+
+     Uncategorised messages keep the old neutral treatment, so the call sites that have not been
+     given a category behave exactly as before. #}
+  {% with items = get_flashed_messages(with_categories=true) %}
+    {% if items %}
+    <div class="flashes">
+      {%- for cat, m in items %}
+      <div class="flash{{ ' is-error' if cat == 'error' else (' is-ok' if cat == 'ok' else '') }}"
+           role="{{ 'alert' if cat == 'error' else 'status' }}"
+           aria-live="{{ 'assertive' if cat == 'error' else 'polite' }}">{{ m }}</div>
+      {%- endfor %}
+    </div>
+    {% endif %}
   {% endwith %}
   {% block content %}{% endblock %}
 </main>

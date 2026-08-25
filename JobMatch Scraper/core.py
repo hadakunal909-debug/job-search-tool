@@ -77,6 +77,27 @@ location locations remote hybrid onsite office travel sponsorship visa authoriza
 status eeo position week weekly month monthly annual annually
 """.split())
 
+# Perks, benefits and compensation vocabulary that must never be SUGGESTED AS A RÉSUMÉ KEYWORD.
+#
+# Advising a candidate to add "retirement" and "dental" to their CV is the most visible way the
+# keyword panel can lose someone's trust, because the error is obvious to them while the rest of
+# the panel is not verifiable at a glance. JD_BOILERPLATE above already drops much of this at
+# EXTRACTION time; this set is the display-side backstop for what still gets through, and it
+# deliberately covers the leave/retirement/wellness vocabulary that set does not.
+#
+# SEPARATE FROM JD_BOILERPLATE ON PURPOSE. Adding these there would change which terms
+# core_terms() is computed from, i.e. every match score in the corpus. That may well be the
+# better fix, but it is a rescoring and wants measuring first; suppressing a suggestion needs
+# neither. See docs/QA_AUDIT.md U15.
+PERK_TERMS = set("""
+retirement 401k 403b pension wellness wellbeing tuition reimbursement stipend sabbatical
+parental maternity paternity bereavement leave vacation sick pto holiday holidays
+flexible flexibility hybrid remote-first commuter childcare daycare gym fitness discount
+discounts perks perk benefit benefits insurance medical dental vision life disability
+compensation salary bonus equity rsu rsus espp payroll paid unpaid
+""".split())
+
+
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+#./-]{1,}")
 
 
@@ -1430,6 +1451,30 @@ def _metro_for(tokens, state):
     return ""
 
 
+_LOC_TIDY_COMMA = re.compile(r"\s*,\s*")
+_LOC_TIDY_SPACE = re.compile(r"\s{2,}")
+
+
+def tidy_location(raw):
+    """A job's location string, punctuated the way the rest of the feed punctuates it.
+
+    PRESENTATION ONLY — parse_location below is what the filters use, and it is untouched. One
+    board writes "Santa Clara,CA" with no space after the comma, and that string was passed
+    straight through to the card, so a single board's formatting defect shipped to the UI and sat
+    beside neighbours reading "Redmond, WA, US", "Windsor, CT" and "Boston, MA".
+
+    Deliberately conservative: separators and runs of whitespace, nothing else. It does not
+    reorder, expand or re-case anything, because the raw string is frequently the only truthful
+    thing we have about where a job is.
+    """
+    s = (raw or "").strip().strip(",;/ ")
+    if not s:
+        return ""
+    s = _LOC_TIDY_COMMA.sub(", ", s)
+    s = _LOC_TIDY_SPACE.sub(" ", s)
+    return s.strip().strip(",")
+
+
 def parse_location(raw, jd=""):
     """Normalize a job's free-text location into {city, state, metro, remote}.
 
@@ -2292,6 +2337,25 @@ DEFAULT_PREFS = {
     # answered two ways. Empty = every role, so an untouched account sees the whole corpus.
     "roles": "",
     "exp": "any",         # any | 2 | 5 | senior
+    # Drop postings whose description states NO year count. Off by default, deliberately: the
+    # keep-on-unknown rule below exists because many genuine entry-level posts state no number,
+    # and dropping them silently would hide real jobs.
+    #
+    # It exists because the unknown rate makes the years control mean very little on its own.
+    # Measured live on Recommended with the match floor at 0: "Experience = any" returned 20,618
+    # jobs of which 18% of a 60-card sample carried no years badge; "0-2 yrs" returned 10,514 of
+    # which 72% carried none. The comparison itself is CORRECT -- not one card stating more than
+    # 2 years survived -- but roughly 7 in 10 results are "we could not tell", presented
+    # indistinguishably from the ones that genuinely qualify. That is why a posting demanding 6+
+    # years in its text shows up under a 0-2 filter: the requirement is in the JD,
+    # experience_years missed it, and keep-on-unknown waved it through.
+    #
+    # Raising experience_years' recall is the real fix and is a separate measurement job. This
+    # gives the reader a way to see only the population the filter can actually reason about,
+    # and the card badge names the other one.
+    # FEED ONLY, like verifiedonly: prefs_match ignores it, because every digest candidate is a
+    # job we just discovered and applying this to the email would quietly shrink it.
+    "expstated": False,
     "intern": "any",      # any | only | no
     "track": "any",       # any | dev (software/data) | mgmt (project/product/ops) — see role_track
     "date": "30",         # any | 1 | 7 | 30 | 90
@@ -2800,6 +2864,39 @@ _RESUME_PDF_MAX_PAGES = 40                     # bound the work a crafted file c
 RESUME_UPLOAD_EXTS = (".pdf", ".docx", ".txt", ".md", ".tex")
 
 
+def _readable_formats_phrase(exclude=""):
+    """Which upload formats this host can ACTUALLY read, named in a sentence.
+
+    The refusal message used to be hardcoded as "upload a plain-text or PDF copy" — and it fires
+    when the PDF extractor is missing, so it named the exact format it had just refused. That is
+    the state a fresh cPanel deploy is in until Run Pip Install has been pressed (web.py records
+    a live host hitting it), so the one person most likely to see this got the least useful
+    sentence available.
+
+    Derived by probing the imports rather than listing them, so it cannot drift from reality.
+    """
+    have = [".txt", ".md"]                     # stdlib decode; always available
+    try:
+        import pypdf                           # noqa: F401
+        have.append(".pdf")
+    except Exception:
+        pass
+    try:
+        import docx                            # noqa: F401
+        have.append(".docx")
+    except Exception:
+        pass
+    have.append(".tex")                        # pure-Python parser in this module
+    names = {".pdf": "a PDF", ".docx": "a Word .docx", ".txt": "a plain-text",
+             ".md": "a Markdown", ".tex": "a LaTeX"}
+    opts = [names[e] for e in have if e != (exclude or "").lower() and e in names]
+    if not opts:
+        return "a plain-text copy"
+    if len(opts) == 1:
+        return opts[0] + " copy"
+    return ", ".join(opts[:-1]) + " or " + opts[-1] + " copy"
+
+
 def _docx_to_text(data):
     from docx import Document                  # already a dependency: core writes .docx too
     doc = Document(BytesIO(data))
@@ -2912,8 +3009,8 @@ def resume_text_from_upload(filename, data):
         # It is an instruction for whoever runs the server, shown to whoever uploaded a file, and
         # only one of those people can act on it. Logged for the operator, plain text for the user.
         logging.warning("resume upload: no extractor installed for %s files", ext)
-        return "", ("This server can't read %s files yet. Paste the text below instead, or upload "
-                    "a plain-text or PDF copy." % ext)
+        return "", ("This server can't read %s files yet. Paste the text below instead, or "
+                    "upload %s." % (ext, _readable_formats_phrase(exclude=ext)))
     except Exception:
         # Malformed, encrypted, or not really the format its extension claims.
         return "", ("Couldn't read that %s. It may be password-protected or corrupted. "

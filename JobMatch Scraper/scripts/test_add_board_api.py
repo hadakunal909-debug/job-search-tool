@@ -54,6 +54,18 @@ WD = "https://tenantcode.wd1.myworkdayjobs.com/External"   # slug carries no emp
 web.app.config["TESTING"] = True
 web._account_state = lambda u: {}
 
+# THE EXT RATE LIMITER IS OFF FOR THIS SUITE, deliberately. detect_board carries a burst tier
+# of 10 calls per 20 seconds, and the checks below make more POSTs than that in well under a
+# second -- so from the 11th call on, every assertion was reading a 429 body instead of the
+# handler's. It fails as `need_name=None`, which looks like a contract bug and is not one.
+#
+# Stubbing _rate_hit rather than _ext_rate_limit: the limiter is registered as a
+# before_request hook, so Flask holds the original function object and rebinding the name on
+# the module would change nothing. The hook resolves _rate_hit from module globals per call.
+# The limiter itself is covered by scripts/test_feed_ratelimit.py; throttling this suite only
+# made it test the limiter by accident.
+web._rate_hit = lambda *a, **k: None
+
 writes = []
 probe = {"n": 7}
 display = {"name": "Probe Fixture Inc"}
