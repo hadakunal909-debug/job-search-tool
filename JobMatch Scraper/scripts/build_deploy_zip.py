@@ -223,7 +223,15 @@ def main():
         arc = arc or path
         z.write(path, arc)
         if arc.endswith(".sh"):
-            z.getinfo(arc).external_attr = 0o100755 << 16
+            zi = z.getinfo(arc)
+            # BOTH LINES, and the first is the one that is easy to miss. Info-ZIP reads the
+            # Unix mode out of external_attr ONLY when "version made by" says Unix; zipfile
+            # sets that from the HOST it runs on, which here is Windows (create_system 0,
+            # FAT). Setting the mode alone produced an archive listing as `-rw---- fat` that
+            # unzip extracted 0o644 -- verified against the real server, where it silently
+            # undid this whole fix. 3 = Unix.
+            zi.create_system = 3
+            zi.external_attr = 0o100755 << 16
 
     added, skipped = [], []
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
