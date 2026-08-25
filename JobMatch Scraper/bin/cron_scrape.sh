@@ -1,15 +1,26 @@
 #!/bin/bash
 # Scheduled scrape, run by cPanel cron on the same box as the app and the database.
 #
-# THE SCHEDULE, because cPanel keeps it in a web form and nowhere else. Two slots, Mon-Fri, in
-# the SERVER's local time — paste these into cPanel -> Cron Jobs, one row each:
+# THE SCHEDULE. Two slots, Mon-Fri. `crontab -l` over SSH reads the LIVE one -- cPanel's web
+# form is a view onto it, not the only copy, which an earlier version of this comment claimed:
 #
-#   0 13 * * 1-5   /bin/bash $HOME/stemjobs/bin/cron_scrape.sh
-#   0 16 * * 1-5   /bin/bash $HOME/stemjobs/bin/cron_scrape.sh
+#   0 17,20 * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh
 #
-# GitHub Actions covers the 09:00 slot (the heavy pass — verify_dates, analytics, the digest);
-# see .github/workflows/scrape.yml at the repo ROOT. Three runs a weekday in total, and none at
-# the weekend: employers do not post then, and Actions minutes are capped.
+# THAT IS UTC, WHICH IS THIS BOX'S LOCAL TIME -- `date` and `date -u` print the same thing. So
+# 17 and 20 UTC are 1pm and 4pm EDT (noon and 3pm under EST, the same DST drift scrape.yml
+# documents and accepts).
+#
+# THIS COMMENT USED TO GIVE THE LINES AS `0 13` AND `0 16` "in the SERVER's local time", and
+# both halves of that were wrong in the same direction: pasted literally they fire at 9am and
+# noon ET, three and four hours early. Wrong schedules of this shape do not announce
+# themselves -- the run succeeds, just not when anyone expected it. The live crontab was
+# separately stuck at 21 UTC (5pm ET) until 2026-08-25, five days after 562b63f moved the
+# documented slot to 4pm, because the crontab is a THIRD place the schedule lives and only the
+# other two were edited.
+#
+# GitHub Actions covers the 09:00 ET slot (the heavy pass -- verify_dates, analytics, the
+# digest); see .github/workflows/scrape.yml at the repo ROOT. Three runs a weekday in total,
+# and none at the weekend: employers do not post then, and Actions minutes are capped.
 #
 # It said "Hourly" here until 2026-08-20 and had not been hourly since the database moved to
 # cPanel. Two runs a day is the real cadence, which matters because every budget below was
