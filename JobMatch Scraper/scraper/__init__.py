@@ -5246,7 +5246,7 @@ def _eightfold_domain(board_url):
     return dom or (_sub(board_url) + ".com")
 
 
-def _eightfold_rows(positions):
+def _eightfold_rows(positions, base=""):
     """Map Eightfold positions to feed rows, across BOTH of their payload spellings.
 
     /api/apply/v2/jobs sends location / canonicalPositionUrl / t_create; the /api/pcsx/search
@@ -5262,8 +5262,18 @@ def _eightfold_rows(positions):
             alt = p.get("locations") or p.get("standardizedLocations") or []
             raw = alt[0] if isinstance(alt, list) and alt else (alt if isinstance(alt, str) else "")
         loc = ", ".join(x.strip() for x in (raw or "").split(",") if x.strip())
+        # ABSOLUTISE. canonicalPositionUrl is a full URL; positionUrl -- the pcsx spelling
+        # Microsoft and the tenants discovered through /careers?domain= serve -- is a PATH,
+        # "/careers/job/1970393556955702". Stored raw it is a dead link, and because `url` is
+        # the primary key it is dead everywhere: the card, the Apply button, the JD fetch that
+        # then reports the job as having no description. 708 rows across 10 employers were in
+        # that state on 2026-08-25 -- 438 of them Microsoft -- and nothing flagged it, because
+        # a relative path is a perfectly good string.
+        _u = p.get("canonicalPositionUrl") or p.get("positionUrl") or ""
+        if _u and base and not is_http_url(_u):
+            _u = urljoin(base, _u)
         row = {"title": (p.get("name") or "").strip(),
-               "url": p.get("canonicalPositionUrl") or p.get("positionUrl") or "",
+               "url": _u,
                "location": loc}
         try:                             # t_create is epoch SECONDS (not ms, unlike Lever);
             ts = p.get("t_create")       # postedTs from the pcsx variant can be either
@@ -5317,7 +5327,7 @@ def scrape_eightfold(board_url):
     if not (first.get("positions") or first.get("count")):
         api, extra = apis[1]                       # classic path refused; try the newer one
         first = _page(0)
-    rows = _eightfold_rows(first.get("positions"))
+    rows = _eightfold_rows(first.get("positions"), board_url)
     if not rows:
         return rows
     total = int(first.get("count") or 0)
@@ -5325,7 +5335,7 @@ def scrape_eightfold(board_url):
         starts = list(range(EIGHTFOLD_PAGE, min(total, EIGHTFOLD_MAX_JOBS), EIGHTFOLD_PAGE))
         with concurrent.futures.ThreadPoolExecutor(max_workers=EIGHTFOLD_WORKERS) as ex:
             for d in ex.map(_page, starts):
-                rows.extend(_eightfold_rows(d.get("positions")))
+                rows.extend(_eightfold_rows(d.get("positions"), board_url))
         if total > EIGHTFOLD_MAX_JOBS:
             note_truncation(board_url, EIGHTFOLD_MAX_JOBS, EIGHTFOLD_MAX_JOBS, total)
     # `start` paging occasionally re-serves a posting across page boundaries when the board is
@@ -7386,7 +7396,23 @@ NON_US = {"india", "united kingdom", "uk", "canada", "ireland", "germany", "fran
     "casablanca", "rabat", "marrakech", "sala al jadida", "buenos aires", "mississauga",
     "calgary", "winnipeg", "edmonton", "ottawa, on", "quebec", "kolkata", "calcutta",
     "ahmedabad", "kochi", "coimbatore", "jaipur", "santiago", "montevideo", "quito",
-    "san jose, cr", "cairo", "nairobi", "lagos"}
+    "san jose, cr", "cairo", "nairobi", "lagos",
+    # --- Added 2026-08-25, same tie-break as the 2026-08-16 block above and found the same
+    # way: a JLL "Project Manager" in "Bhubaneswar, OR" reached the feed, because OR is Odisha
+    # AND Oregon. "Indore, IN" is worse -- IN is India's own country code, read as Indiana.
+    # Only 5 rows were leaking, so this is a small hole, not a broken filter.
+    #
+    # MEASURED: bhubaneswar, indore, vadodara. The rest are the same class -- unambiguous
+    # Indian names with no US homonym -- added because the two-letter code they travel with
+    # (OR/IN/TN/GA/MN/AR) will read as a US state every time. Odisha, Tamil Nadu, Goa,
+    # Manipur and Arunachal are the collisions that actually exist.
+    "bhubaneswar", "indore", "vadodara", "nagpur", "mysuru", "mysore", "visakhapatnam",
+    "thiruvananthapuram", "trivandrum", "chandigarh", "lucknow", "bhopal", "mangaluru",
+    "mangalore", "madurai", "nashik", "vijayawada", "guwahati", "surat",
+    # State names, which settle the code without needing every city in them.
+    "odisha", "tamil nadu", "karnataka", "maharashtra", "telangana", "kerala", "gujarat",
+    "haryana", "west bengal", "andhra pradesh", "uttar pradesh", "madhya pradesh",
+    "rajasthan", "goa"}
 
 _STATE_ABBR_RE = re.compile(r",\s*([A-Za-z]{2})\b")
 
