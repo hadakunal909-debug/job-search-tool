@@ -53,6 +53,9 @@ NOT included, deliberately:
 import os
 import re
 import sys
+import json
+import time
+import hashlib
 import zipfile
 
 # Mirrors the /bin/cp list in .cpanel.yml. Keep the two in sync — the check below fails the
@@ -107,6 +110,50 @@ OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "v
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
+
+# ----------------------------- the drift manifest -----------------------------
+# A deploy here is a zip extracted over the top of a running app, so it OVERWRITES silently: no
+# diff, no conflict, no warning. That is fine while the server only ever runs what this script
+# shipped -- and on 2026-08-24 an audit found it does not. Production was serving a
+# templates/profile.html carrying an "Appearance" card (#themepick, window.__themeSet) that has
+# never existed in any commit, a base.html MISSING the theme toggle added in 5bb4dc7 two months
+# earlier, and a welcome.html rendering one callout twice. Hand-edited in cPanel's File Manager --
+# the same File Manager the documented deploy procedure uses -- and the next build of this zip
+# would have destroyed all of it without printing a line.
+#
+# So the bundle now carries a hash of every file it ships from the two directories a File Manager
+# edit can reach. web.py::template_drift() compares what is running against it and says so on
+# /admin. It cannot PREVENT a hand edit; it makes one impossible to miss before the deploy that
+# erases it.
+MANIFEST = "deploy_manifest.json"
+# Not all of DIRS: scraper/ and resume_brain/ are only ever touched by a deploy, so hashing them
+# would make every scraper release print a drift report about itself.
+MANIFEST_DIRS = ("templates", "static")
+
+
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def manifest_for(dirs=MANIFEST_DIRS):
+    """{posix path: sha256} over the shipped files in `dirs`. web.py reimplements these few
+    lines rather than import them, because scripts/ is not in the deploy bundle."""
+    out = {}
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for root, dirnames, filenames in os.walk(d):
+            dirnames[:] = [x for x in dirnames if x not in SKIP_DIRS]
+            for name in sorted(filenames):
+                if os.path.splitext(name)[1] in SKIP_EXT:
+                    continue
+                rel = os.path.join(root, name).replace(os.sep, "/")
+                out[rel] = file_sha256(rel)
+    return out
 
 
 def main():
@@ -183,6 +230,12 @@ def main():
                     p = os.path.join(root, name)
                     z.write(p, p.replace(os.sep, "/"))
                     added.append(p)
+        # Last, so it describes the bytes actually written above.
+        z.writestr(MANIFEST, json.dumps(
+            {"built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+             "dirs": list(MANIFEST_DIRS), "files": manifest_for()},
+            indent=1, sort_keys=True))
+        added.append(MANIFEST)
 
     size = os.path.getsize(out)
     print("Wrote %s  (%d files, %.1f MB)" % (os.path.abspath(out), len(added), size / 1e6))
@@ -190,6 +243,10 @@ def main():
         print("Not present, so not included: %s" % ", ".join(skipped))
     print("\nUpload it in cPanel -> File Manager -> the app's directory -> Upload,")
     print("then Extract, then touch tmp/restart.txt so Passenger reloads.")
+    print("")
+    print("BEFORE YOU EXTRACT: this zip OVERWRITES templates/ and static/ wholesale. If the")
+    print("server has been hand-edited that edit is gone, and no copy of it exists anywhere.")
+    print("/admin reports the drift the LAST bundle's %s recorded -- read it first." % MANIFEST)
     # This bundle is CODE ONLY. Every document reader is imported lazily, so a host missing one
     # boots fine and just loses the feature -- which is how a live server ended up answering
     # "This server can't read .pdf files yet" with pypdf sitting unread in requirements.

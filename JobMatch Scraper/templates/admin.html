@@ -24,6 +24,20 @@
 </div>
 {% endif %}
 
+{# ---- is the server running what we shipped? ----
+   A deploy here is a zip extracted over the top, so it overwrites templates/ and static/ with
+   no diff and no warning. This is the only place that can tell you a file was hand-edited in
+   File Manager BEFORE the next deploy erases it. 'unknown' is not an alarm — it means the last
+   bundle predates the manifest. #}
+{% if drift and drift.state == 'drift' %}
+<div class="banner" role="alert">
+  <b>The files on this server are not the files we shipped.</b> {{ drift.note }}
+  {% if drift.changed %}<br>Changed: <code>{{ drift.changed|join(', ') }}</code>{% endif %}
+  {% if drift.missing %}<br>Missing: <code>{{ drift.missing|join(', ') }}</code>{% endif %}
+  {% if drift.extra %}<br>Not shipped by us: <code>{{ drift.extra|join(', ') }}</code>{% endif %}
+</div>
+{% endif %}
+
 <div id="scrapebar" class="scrapebar u-hide" role="status" aria-live="polite">
   <div class="sb-row"><span id="sb-label">Starting…</span><span id="sb-meta" class="sb-meta"></span></div>
   <div class="sb-track"><div id="sb-fill" class="sb-fill"></div></div>
