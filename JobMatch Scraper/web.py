@@ -3773,6 +3773,80 @@ def _admin_stats():
     return s
 
 
+# ----------------------------- deploy drift -----------------------------
+# scripts/build_deploy_zip.py ships a deploy_manifest.json listing a sha256 for every file it
+# put into templates/ and static/. Compare it with what is on disk and you learn the one thing
+# nothing else here can tell you: whether the running app is the app we think we shipped.
+#
+# It is not a hypothetical. On 2026-08-24 production was serving a profile.html with an
+# "Appearance" card that has never existed in any commit, a base.html missing the theme toggle
+# added in 5bb4dc7, and a welcome.html rendering one callout twice — hand edits made in cPanel's
+# File Manager, invisible to git, and due to be destroyed without a word by the next zip extract.
+#
+# CHANGED, MISSING and EXTRA are all reported, because they mean different things: changed is a
+# hand edit about to be overwritten, missing is a broken deploy, extra is usually a stray backup
+# (profile.html.bak) that File Manager left behind.
+_DRIFT_MANIFEST = os.path.join(_APP_DIR, "deploy_manifest.json")
+_drift_cache = {"at": 0.0, "data": None}
+_DRIFT_TTL = 300
+
+
+def template_drift(force=False):
+    """{'state': ..., 'built_at': ..., 'changed': [...], 'missing': [...], 'extra': [...]}.
+
+    state is 'clean', 'drift', or 'unknown' — the last meaning no manifest, which is every
+    developer checkout and any server whose last deploy predates this check. 'unknown' is
+    deliberately not an alarm: it says we cannot tell, which is honest and was the situation
+    everywhere until now.
+
+    Walking two directories of small files costs ~15 ms, and it is cached for 5 minutes on top,
+    so /admin can ask on every render.
+    """
+    c = _drift_cache
+    if not force and c["data"] is not None and time.time() - c["at"] < _DRIFT_TTL:
+        return c["data"]
+    out = {"state": "unknown", "built_at": "", "changed": [], "missing": [], "extra": [],
+           "note": "No deploy_manifest.json — built before this check existed, or a dev checkout."}
+    try:
+        with open(_DRIFT_MANIFEST, encoding="utf-8") as fh:
+            man = json.load(fh)
+        want = man.get("files") or {}
+        dirs = man.get("dirs") or ["templates", "static"]
+        out["built_at"] = man.get("built_at") or ""
+        have = {}
+        for d in dirs:
+            root_dir = os.path.join(_APP_DIR, d)
+            for root, dirnames, filenames in os.walk(root_dir):
+                dirnames[:] = [x for x in dirnames if x not in ("__pycache__", ".pytest_cache")]
+                for name in sorted(filenames):
+                    if os.path.splitext(name)[1] in (".pyc", ".pyo"):
+                        continue
+                    full = os.path.join(root, name)
+                    rel = os.path.relpath(full, _APP_DIR).replace(os.sep, "/")
+                    h = hashlib.sha256()
+                    with open(full, "rb") as fh:
+                        for chunk in iter(lambda: fh.read(65536), b""):
+                            h.update(chunk)
+                    have[rel] = h.hexdigest()
+        out["changed"] = sorted(k for k in want if k in have and have[k] != want[k])
+        out["missing"] = sorted(k for k in want if k not in have)
+        out["extra"] = sorted(k for k in have if k not in want)
+        bad = out["changed"] or out["missing"] or out["extra"]
+        out["state"] = "drift" if bad else "clean"
+        out["note"] = ("Matches the bundle built %s." % (out["built_at"] or "?")) if not bad else (
+            "%d changed, %d missing, %d extra vs the bundle built %s. A changed file is a hand "
+            "edit that the next deploy will overwrite with no warning — copy it off the server "
+            "and commit it BEFORE deploying."
+            % (len(out["changed"]), len(out["missing"]), len(out["extra"]), out["built_at"] or "?"))
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        out["state"] = "unknown"
+        out["note"] = "Couldn't read the manifest: %s" % e
+    c["data"], c["at"] = out, time.time()
+    return out
+
+
 @app.route("/admin")
 @admin_required
 def admin():
@@ -3783,6 +3857,7 @@ def admin():
         get_jobs(force=True)
         _admin_stats_cache["data"] = None
         _accounts(force=True)
+        template_drift(force=True)      # re-hash too: this is the button you press after a deploy
         flash("Jobs reloaded.")
         return redirect(url_for("admin"))
     try:
@@ -3792,7 +3867,7 @@ def admin():
     return render_template(
         "admin.html", stats=_admin_stats(), status=db.get_scrape_status() or {},
         runs=_gh_runs(), users=users, gh_token=bool(_gh_token()),
-        gh_repo=GH_REPO, gh_workflow=GH_WORKFLOW,
+        gh_repo=GH_REPO, gh_workflow=GH_WORKFLOW, drift=template_drift(),
         admin_mode=("ADMIN_USERS" if _ADMIN_USERS else "sole-account"))
 
 
