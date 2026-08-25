@@ -42,5 +42,22 @@ deployment:
     - /bin/cp -rf "$SRC/resume_brain" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/templates" $DEPLOYPATH/
     - /bin/cp -rf "$SRC/static" $DEPLOYPATH/
+    # bin/cron_scrape.sh: the cPanel cron entry point, and it shipped by NEITHER deploy route
+    # until 2026-08-25. It was hand-placed once on 2026-08-15 and by 2026-08-24 had drifted 8
+    # commits behind the repo -- still carrying a scrape budget sized for a board list 500
+    # shorter, and missing the repost-map step entirely, which is why nothing had ever
+    # refreshed that map. Editing and committing the file changed nothing on the server.
+    #
+    # NOT `cp -rf "$SRC/bin"`: that directory also holds a 50 MB tectonic.exe, which is
+    # gitignored (so a git deploy would miss it) but IS on disk (so the zip builder would
+    # happily ship it). The one file that belongs on the server is named instead.
+    #
+    # chmod because the crontab invokes the script DIRECTLY, so it must be executable, and the
+    # repo cannot be trusted to carry that: core.filemode is false on the Windows machine this
+    # is developed on, so git recorded 100644 for the whole life of the file. It is 100755 in
+    # the index now, and this line means a deploy is right even if that regresses.
+    - /bin/mkdir -p $DEPLOYPATH/bin
+    - /bin/cp -f "$SRC/bin/cron_scrape.sh" $DEPLOYPATH/bin/
+    - /bin/chmod +x $DEPLOYPATH/bin/cron_scrape.sh
     - /bin/mkdir -p $DEPLOYPATH/tmp
     - /bin/touch $DEPLOYPATH/tmp/restart.txt

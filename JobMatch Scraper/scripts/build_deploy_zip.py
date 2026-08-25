@@ -85,6 +85,11 @@ FILES = [
     # optional: the other data files each dim one badge when absent, but without this one
     # /companies has nothing at all to render, so a bundle missing it should not build.
     "companies.json",
+    # The cPanel cron entry point. It shipped by NEITHER route until 2026-08-25 -- hand-placed
+    # once and 8 commits stale by the time anyone looked. Named rather than sweeping bin/ into
+    # DIRS, because that directory also holds a gitignored 50 MB tectonic.exe that DIRS (which
+    # walks the filesystem, not git) would cheerfully bundle.
+    "bin/cron_scrape.sh",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
 # contract core.load_sponsor_counts / load_everify already have — so a missing one is fine.
@@ -207,14 +212,27 @@ def main():
     except OSError:
         pass
 
+    def _ship(z, path, arc=None):
+        """z.write, plus the executable bit for shell scripts.
+
+        zipfile takes the mode from os.stat, and on Windows that is 0o666 with no exec bit at
+        all -- so a .sh unzipped on the server lands non-executable. The crontab invokes
+        cron_scrape.sh DIRECTLY, so that is not cosmetic: it is `Permission denied` at 13:00
+        with only a MAILTO to say so. Set on the central directory, which is what unzip reads.
+        """
+        arc = arc or path
+        z.write(path, arc)
+        if arc.endswith(".sh"):
+            z.getinfo(arc).external_attr = 0o100755 << 16
+
     added, skipped = [], []
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for f in FILES:
-            z.write(f, f)
+            _ship(z, f)
             added.append(f)
         for f in OPTIONAL_FILES:
             if os.path.isfile(f):
-                z.write(f, f)
+                _ship(z, f)
                 added.append(f)
             else:
                 skipped.append(f)
@@ -228,7 +246,7 @@ def main():
                     if os.path.splitext(name)[1] in SKIP_EXT:
                         continue
                     p = os.path.join(root, name)
-                    z.write(p, p.replace(os.sep, "/"))
+                    _ship(z, p, p.replace(os.sep, "/"))
                     added.append(p)
         # Last, so it describes the bytes actually written above.
         z.writestr(MANIFEST, json.dumps(
