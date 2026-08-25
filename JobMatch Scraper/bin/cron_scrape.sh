@@ -147,14 +147,32 @@ fi
 
 if [ $rc -eq 0 ] && [ -f "$APP/resume.txt" ]; then
     export SCORE_NEW_ONLY=yes
-    export SCORE_MAX_FETCH=400
-    export SCORE_BUDGET_MIN=8
+    # 400 -> 1500, AND 8 -> 25 BELOW, because the sweep fix changed the arithmetic these two
+    # were sized against. Under the old 12-minute deadline a run swept ~500 boards and added a
+    # few hundred rows, so a 400-row bite drained the backlog faster than it grew. A complete
+    # sweep adds ~5,000. On 2026-08-25 that left 6,441 rows with no description against a drain
+    # of 800 a weekday -- a backlog that DIVERGES, and since a row with no JD scores 0, every
+    # one of them is also invisible to the feed's match filter.
+    #
+    # 1500 x 2 slots = 3,000 a weekday, which roughly keeps pace with intake and pays the
+    # arrears down slowly. Not higher: much of the backlog is unfetchable rather than unfetched
+    # (a measured pass once attempted 2,640 detail fetches for 8 usable JDs, each dead URL still
+    # costing a timeout), so past a point this buys timeouts rather than descriptions.
+    export SCORE_MAX_FETCH=1500
+    # 8 -> 25. The cap bounds how much we bite off, this bounds how long we chew, and the fetch
+    # is mostly waiting on other people's servers. The sweep now runs ~75 min and the gap to the
+    # next slot is 3 hours, so ~100 min total still leaves well over an hour of headroom.
+    export SCORE_BUDGET_MIN=25
     # Bounds the ANALYSIS, which SCORE_BUDGET_MIN above does not — that one stops the JD fetch.
     # core.job_meta is ~206 ms/row, so the 1,754 new rows of a big sweep are ~6 minutes of solid
     # CPU on a shared box that is also serving the website. New-only leaves an unreached row's
     # match_score NULL and _new_only_targets picks it up on the next run, so cutting this off
     # costs a delay, never a score.
-    export SCORE_ANALYZE_BUDGET_MIN=4
+    # 4 -> 12, raised WITH the fetch cap above rather than after someone notices. core.job_meta
+    # is ~206 ms/row, so 4 minutes analyses ~1,150 rows -- less than the 1,500 now being fetched,
+    # which would just move the bottleneck one step down and leave the extra JDs sitting
+    # unanalysed. 12 minutes covers the fetch plus a bite of the unscored arrears.
+    export SCORE_ANALYZE_BUDGET_MIN=12
     echo "----- $(date -u +%FT%TZ) score start -----" >> "$LOG"
     "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
     echo "----- $(date -u +%FT%TZ) score end rc=$? -----" >> "$LOG"
