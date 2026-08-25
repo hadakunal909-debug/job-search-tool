@@ -37,11 +37,17 @@ on:
     #
     #   09:00 ET  THIS workflow      heavy pass — verify_dates, analytics rollup, digest email
     #   13:00 ET  cPanel cron        scrape + new-only score
-    #   16:00 ET  cPanel cron        scrape + new-only score   (was 17:00 until 2026-08-20)
+    #   16:00 ET  cPanel cron        scrape + new-only score
     #
-    # All three slots are Mon-Fri. The two cPanel ones are set in cPanel's WEB UI, so their
-    # crontab lines are written down at the top of bin/cron_scrape.sh — the repo is the only
-    # place they can live, and until now the schedule existed nowhere but that web form.
+    # All three slots are Mon-Fri. THE CPANEL SLOTS LIVE IN THREE PLACES -- this table, the
+    # header of bin/cron_scrape.sh, and the box's actual crontab -- and only the crontab is
+    # load-bearing. `ssh <box> crontab -l` reads it; an earlier version of this comment said the
+    # schedule "existed nowhere but that web form", which sent everyone to a cPanel web page for
+    # a value SSH will print.
+    #
+    # That mattered on 2026-08-20, when 562b63f moved the second slot 17:00 -> 16:00 ET here and
+    # in cron_scrape.sh but not in the crontab, which kept firing at 17:00 ET until 2026-08-25.
+    # For five days the schedule this file described was not the schedule that ran.
     #
     # Actions keeps the 9am slot deliberately: it is the pass that emails the digest and runs
     # verify_dates against a rate-limited service, and a GitHub runner is a whole machine for
