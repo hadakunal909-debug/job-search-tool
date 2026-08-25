@@ -155,9 +155,14 @@ def test_workday_locale_prefix_dropped_so_one_posting_is_one_row():
     # rows already carry a locale — so both shapes were in the table before any aggregator.
     bare = "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/CA---SF/PM_123"
     loc = "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/CA---SF/PM_123"
-    assert cu(loc) == cu(bare) == bare, (cu(loc), cu(bare))
+    # The SITE SEGMENT COMES BACK LOWERCASED, which is the point: Workday serves one
+    # requisition under whatever casing the link used, and `url` is the primary key on `jobs`,
+    # so /External_Career_Site/ and /external_career_site/ were two rows for one posting. So
+    # the canonical form is not `bare` -- it is `bare` with that one segment folded.
+    canon = "https://salesforce.wd12.myworkdayjobs.com/external_career_site/job/CA---SF/PM_123"
+    assert cu(loc) == cu(bare) == canon, (cu(loc), cu(bare))
     assert cu("https://msd.wd5.myworkdayjobs.com/en-GB/SearchJobs/job/Kansas/PM_9") == \
-        "https://msd.wd5.myworkdayjobs.com/SearchJobs/job/Kansas/PM_9"
+        "https://msd.wd5.myworkdayjobs.com/searchjobs/job/Kansas/PM_9"
 
 
 def test_workday_locale_rule_does_not_eat_a_real_site_name():
@@ -283,6 +288,43 @@ def test_merge_backfills_only_blank_keeper_fields():
     patch = d._merge_fields(keeper, [loser])
     assert patch["location"] == "Chicago, IL"
     assert patch["posted_verified"] == "2026-06-01"
+
+
+def test_workday_site_segment_is_case_normalised():
+    """One posting, two casings, one row.
+
+    Workday serves the same requisition under whatever casing the link carried, and `url` is the
+    primary key on `jobs` — so /external/… and /External/… were stored TWICE. That is the root
+    cause of Applied Materials appearing in the feed as two employers ("Amat" and "Applied
+    Materials"), 117 openings split across two /companies entries, a monogram instead of a logo
+    on one of them, and /job listing a posting as similar to itself.
+    """
+    import scraper
+    a = "https://amat.wd1.myworkdayjobs.com/external/job/Santa-ClaraCA/Data-Scientist_R2624867"
+    b = "https://amat.wd1.myworkdayjobs.com/External/job/Santa-ClaraCA/Data-Scientist_R2624867"
+    assert scraper.canonical_url(a) == scraper.canonical_url(b)
+    # ...and with a locale prefix, which is stripped first, so the SITE is still what gets folded.
+    c = "https://amat.wd1.myworkdayjobs.com/en-US/External/job/Santa-ClaraCA/Data-Scientist_R2624867"
+    assert scraper.canonical_url(c) == scraper.canonical_url(a)
+
+
+def test_workday_normalisation_does_not_touch_the_requisition_id():
+    """Only the site segment folds. The req id and the title slug are case-sensitive, and two
+    genuinely different postings must not collapse into one row."""
+    import scraper
+    base = "https://amat.wd1.myworkdayjobs.com/external/job/Santa-ClaraCA/"
+    assert scraper.canonical_url(base + "Data-Scientist_R2624867") != \
+           scraper.canonical_url(base + "Data-Scientist_r2624867")
+    keep = scraper.canonical_url(base + "Data-Scientist_R2624867")
+    assert "Data-Scientist_R2624867" in keep, keep
+
+
+def test_non_workday_paths_keep_their_case():
+    """The fold is Workday-specific on purpose — plenty of ATS paths mean different things in
+    different cases, so this must not become a general lowercase."""
+    import scraper
+    u = "https://job-boards.greenhouse.io/Acme/jobs/Some-Role_1234"
+    assert "Acme" in scraper.canonical_url(u)
 
 
 def test_score_coercion_handles_both_backends():

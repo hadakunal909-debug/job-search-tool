@@ -26,6 +26,10 @@
         /api/feed just to learn a number the server already knew. Absent on pages that don't
         compute it (company.html), where the bootstrap path is unused anyway. #}
      {%- if default_total is defined %} data-total="{{ default_total }}"{% endif %}
+     {# The last fiscal year the sponsorship data covers. The "top sponsor" chip quotes it, so a
+        2026 feed stops implying a claim about the present tense when the underlying USCIS/DOL
+        files stop at FY2023. One attribute, so refreshing the data moves every label at once. #}
+     data-spon-through="{{ sponsor_data_through() }}"
      {%- if company_arg %} data-company="{{ company_arg }}"{% endif %}>
   {% for _ in range(8) %}
   {#- No logo block here since 2026-08-23. The card's mark moved onto the identity line at

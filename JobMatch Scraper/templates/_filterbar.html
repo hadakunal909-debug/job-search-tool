@@ -1,0 +1,249 @@
+{# The filter chip bar and its popovers, shared by feed.html and company.html.
+
+   EXTRACTED RATHER THAN COPIED, for the same reason _feedgrid.html was: app.js is written
+   against a FIXED DOM contract (#q, #min, #date, #exp, #minsal, #intern, #visatags, #track,
+   #fbadge, #popcount, #clearfilters …) and two hand-maintained copies means a future id change
+   silently breaks one page. scripts/feed_parity.py and scripts/test_filter_memory.py drive the
+   same functions with stub controls keyed on those ids.
+
+   /company used to have only a search box and a sort. Clicking an employer showed every one of
+   their roles — 88 at Applied Materials, 527 at the largest — with no way to narrow by role,
+   match, date, experience or pay without going back to the feed and starting again. The server
+   side already worked: /api/feed applies _filter_rows to the company-narrowed rows, so the page
+   was simply missing the controls.
+
+   Callers set:
+     prefs               the user's saved search (web.py::_user_prefs)
+     visa_tag_controls   web.py::_VISA_TAG_CONTROLS
+     default_min         the match floor to seed the slider with
+     default_total       the count the "Show N jobs" button starts on
+     show_saveprefs      falsey on /company: "Save as Default" means the FEED's default search,
+                         and saving it from inside one employer's page would be a surprise.
+#}
+  <div class="filterbar" id="filterbar">
+    <div class="fsearch">
+      <input id="q" placeholder="{{ search_placeholder or 'Title, company, or location…' }}" autocomplete="off" aria-label="{{ search_label or 'Search jobs' }}">
+    </div>
+    {# Each chip OPENS the popover holding that dimension's real controls. The chip carries its
+       own value, so the bar reads as a sentence about the current search. #}
+    <div class="fchips" id="fchips">
+      <button type="button" class="fchip" id="chip-roles" data-pop="pop-roles" aria-expanded="false" aria-haspopup="true">
+        <span class="fchip-l">Roles</span><span class="fchip-v" id="chipv-roles"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="fchip" id="chip-spon" data-pop="pop-spon" aria-expanded="false" aria-haspopup="true">
+        <span class="fchip-l">Sponsorship</span><span class="fchip-v" id="chipv-spon"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="fchip" id="chip-date" data-pop="pop-date" aria-expanded="false" aria-haspopup="true">
+        <span class="fchip-l">Date Posted</span><span class="fchip-v" id="chipv-date"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="fchip fchip-more" id="fmore" data-pop="pop-more" aria-expanded="false" aria-haspopup="true">
+        <span class="fchip-l">Filters</span><span class="fbadge" id="fbadge" hidden>0</span>
+      </button>
+    </div>
+  </div>
+
+  {# Popovers. They live OUTSIDE .filterbar so a sticky, overflow-scrolling bar cannot clip
+     them, which is the same reason tip.js appends its bubble to <body>. #}
+  <div class="fpop" id="pop-roles" hidden role="group" aria-labelledby="lab-roles">
+    <h3 class="flab" id="lab-roles">Roles</h3>
+    <button type="button" id="roleopen" class="rolebtn" aria-haspopup="dialog"
+            aria-label="Choose which roles to show">
+      <span class="rolebtn-t" id="rolebtn-t">All Roles</span>
+      <span class="count-pill fbadge-role" id="rolebadge" hidden></span>
+    </button>
+  </div>
+
+  {# LOCATION IS GONE, at Kunal's request: the chip, the popover, the #loc box and the
+     Remote-only checkbox. app.js null-guards every control it reads, so with #loc absent no
+     loc argument is sent and nothing narrows by place. The server-side filter and the
+     profile's own location field stay — they still drive the daily email digest. #}
+  <div class="fpop" id="pop-spon" hidden role="group" aria-labelledby="lab-visa">
+    <h3 class="flab" id="lab-visa">Sponsorship</h3>
+    {# The tag set is carried in ONE hidden input rather than read off five checkboxes, because
+       scripts/feed_parity.py drives the JS filter with a stubbed control object and can fake a
+       single .value but not a NodeList. Same trick #track uses. #}
+    <input type="hidden" id="visatags" value="{{ prefs.visatags }}">
+    {# The swatch rides the row it describes. A separate key underneath meant reading a label,
+       then hunting the same label in a list below it; here the colour is simply next to the
+       word. Each swatch is drawn from the same token the card fill uses, so the two cannot
+       drift. VISA_TAG_TIPS still carries the long version on hover. #}
+    {% for key, label, tip in visa_tag_controls %}
+    <label class="ck visack" title="{{ tip }}">
+      <input type="checkbox" id="visa-{{ key }}" data-vt="{{ key }}"
+             {{ ' checked' if key in prefs.visatags.split(',') else '' }}>
+      <span class="visack-l">{{ label }}</span>
+      <span class="sw sw-{{ key }}" aria-hidden="true"></span></label>
+    {% endfor %}
+    {# Load-bearing and shortened, not dropped: without the second clause a missing chip reads
+       as "won't sponsor", which core.py documents as a design invariant. #}
+    <p class="fnote">From past federal filings. No route shown means no record, not a refusal.</p>
+
+    <label class="ck" title="Hides roles whose description rules out visa sponsorship, including ones that ask for citizenship, a clearance, or a green card.">
+      <input type="checkbox" id="hidenospon"{{ ' checked' if prefs.hidenospon else '' }}>
+      <span class="visack-l">Hide No-Sponsorship</span>
+      <span class="sw sw-blocked" aria-hidden="true"></span></label>
+    <label class="ck ck-static">
+      <span class="visack-l">No filing on record</span>
+      <span class="sw sw-none" aria-hidden="true"></span></label>
+  </div>
+
+  <div class="fpop" id="pop-date" hidden role="group" aria-labelledby="lab-date">
+    <h3 class="flab" id="lab-date">Date Posted</h3>
+    <select id="date" class="sel" aria-labelledby="lab-date">
+      {% for v, lab in [('any', 'Any Time'), ('1', 'Past 24 Hours'), ('7', 'Past 7 Days'), ('30', 'Past 30 Days'), ('90', 'Past 90 Days')] %}
+      <option value="{{ v }}"{{ ' selected' if prefs.date == v else '' }}>{{ lab }}</option>
+      {% endfor %}
+    </select>
+    {# Qualifies the filter above rather than standing alone: a date the scraper guessed makes
+       "Past 7 days" mean less than it looks. The title says what the alternative IS, since
+       "confirmed" alone invites the reading "verified job". #}
+    <label class="ck" title="Keep only postings whose date the employer's own board stated, or that we independently confirmed. Excludes dates the scraper had to estimate from 'Posted 30+ days ago', and postings with no date at all.">
+      <input type="checkbox" id="verifiedonly"{{ ' checked' if prefs.verifiedonly else '' }}> Confirmed Posting Date</label>
+  </div>
+
+  {# Everything that is genuinely secondary. NOTE: nothing has been CUT. The plan gates every
+     filter removal on two weeks of clean analytics, because the measurement that was supposed
+     to decide it was corrupt until 2026-08-09 (see jobmatch-analytics-trust). Demoting is
+     reversible; deleting a control people turn out to use is not. #}
+  <div class="fpop fpop-wide" id="pop-more" hidden role="group" aria-labelledby="lab-more">
+    <h3 class="flab" id="lab-more">Filters</h3>
+
+    <div class="fgroup">
+      <div class="matchfilter">
+        <div class="matchrow">
+          <span class="flab">Match</span>
+          <span class="rngval" id="minlab">{{ 'Any' if default_min == 0 else default_min ~ '%+' }}</span>
+        </div>
+        {# scripts/test_saved_search.py asserts this attribute string verbatim — don't add a
+           class, reorder it, or move aria-label ahead of value.
+
+           MAX=75 ON A 0-100 SCALE, and it is deliberate rather than a typo. Observed scores top
+           out around 54% (see the score-calibration note: MIN_SCALE=2 makes this a different
+           scale from the old one), so 75 is already generous headroom and the top quarter is
+           dead travel — a slider whose last third does nothing reads as broken. Measured live:
+           0 -> 18,440 jobs, 25 -> 2,947, 50 -> 13, 90 -> 0.
+
+           If scoring is ever rescaled this becomes wrong silently, so it belongs with the rest
+           of core.py's calibration constants rather than in markup. Left here for now because
+           the string above is frozen by a test; moving it is a change to both. #}
+        <input id="min" class="ranged" type="range" min="0" max="75" step="1" value="{{ default_min }}" aria-label="Minimum match score">
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <span class="flab">Career Track</span>
+      <input type="hidden" id="track" value="{{ prefs.track or 'any' }}">
+      <div class="seg" id="trackseg" role="group" aria-label="Career track">
+        {# Tooltips name what each track CONTAINS, which the two labels don't tell you. "All
+           roles" gets none: the label is the whole story. #}
+      {% for v, lab, tip in [
+             ('any',  'All Roles',        ''),
+             ('dev',  'Software & Data',  'Engineering, data, machine learning, DevOps, QA, and database roles'),
+             ('mgmt', 'Management',       'Project, program, product, operations, analyst')] %}
+        <button type="button" class="segb{{ ' on' if (prefs.track or 'any') == v else '' }}"
+                data-track="{{ v }}"{% if tip %} title="{{ tip }}"{% endif %}
+                aria-pressed="{{ 'true' if (prefs.track or 'any') == v else 'false' }}">{{ lab }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# THE EXPERIENCE FILTER.
+
+       It used to be three unlabelled selects under one "Pay & experience" heading, each
+       explaining itself only through a title= nobody hovers, and the experience one mixed
+       two mental models across its four options: "Entry level (0–2 years)" is a range,
+       "Mid level (up to 5 years)" is a ceiling, "Hide senior roles" is a negation.
+
+       Worse, two of those were the SAME FILTER. app.js drops a job when the years it asks
+       for exceed the selected value, and separately drops anything at 6+ when the value is
+       "senior" — so 5 keeps jobs asking up to 5, and senior keeps jobs asking up to 5.
+       Identical behaviour, two labels, one of them phrased as if it did something else.
+
+       Reframed as a fact about the READER rather than a rule about jobs, which is what
+       someone actually knows about themselves: how much experience do you have. The stored
+       values are untouched, so nothing about the filtering changes, and a saved "senior"
+       still lands on the option that behaves identically to it. #}
+    <div class="fgroup">
+      <div class="field">
+        <label class="field-label" for="exp">Your Experience</label>
+        <select id="exp" class="sel">
+          {% for v, lab in [('any', 'Any Amount'), ('2', '0 to 2 Years'), ('5', '3 to 5 Years')] %}
+          {# A stored exp=senior selects this option rather than rendering a fourth one that
+             would claim to be a different filter. It IS this filter. #}
+          <option value="{{ v }}"{{ ' selected' if prefs.exp == v or (v == '5' and prefs.exp == 'senior') else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        {# Says WHY the count barely moves, which is finding F14: core.experience_years extracts
+           no number for a large share of postings, and the keep-on-unknown rule below means
+           roughly 7 in 10 results under "0 to 2 Years" are "we could not tell" rather than
+           "qualifies". The card badge names the unknowns individually; this names the policy. #}
+        <p class="field-help">Postings with no stated years are always shown — they are marked
+          <em>years not stated</em> on the card.</p>
+        <label class="ck" title="Drops postings whose description states no year count at all. Roughly 7 in 10 results under a years filter are these, because the extractor could not find a number — not because the role is entry level.">
+          <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Only postings that state their years</label>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="minsal">Minimum Pay</label>
+        <select id="minsal" class="sel">
+          {% for v, lab in [(0, 'Any Pay'), (60000, '$60k+'), (80000, '$80k+'), (100000, '$100k+'), (130000, '$130k+')] %}
+          <option value="{{ v or '' }}"{{ ' selected' if prefs.minsal == v else '' }}>{{ lab }}</option>
+          {% endfor %}
+        </select>
+        {# Kept, shortened: without it the control looks broken rather than designed. #}
+        <p class="field-help">Only a third of postings state pay. Any minimum hides the rest.</p>
+      </div>
+
+      {# JOB TYPE. It used to be one dropdown mixing two grammars: "Intern + full-time" is
+         an inclusion, "Internships & co-ops only" is a restriction, "Exclude internships"
+         is an exclusion. Three options, three different ways of thinking, for a question
+         with exactly two things in it.
+
+         So: name the two things and let people tick what they want. The three stored
+         values are untouched and still map one-to-one, they are just derived from the
+         boxes now instead of being chosen from a list of verbs:
+             both ticked  -> any     full-time only -> no     internships only -> only
+
+         The <select> STAYS in the DOM as the value carrier, the same facade #track and
+         #visatags already use, because app.js, scripts/feed_parity.py and
+         scripts/test_saved_search.py all read #intern by id and expect an <option>. #}
+      <div class="field">
+        <span class="field-label" id="lab-jobtype">Job Type</span>
+        <select id="intern" class="sel u-hide" aria-hidden="true" tabindex="-1">
+          {% for v in ['any', 'only', 'no'] %}
+          <option value="{{ v }}"{{ ' selected' if prefs.intern == v else '' }}>{{ v }}</option>
+          {% endfor %}
+        </select>
+        <div class="typeboxes" id="jobtype" role="group" aria-labelledby="lab-jobtype">
+          <label class="ck">
+            <input type="checkbox" id="jt-full" data-jt="full"
+                   {{ ' checked' if prefs.intern != 'only' else '' }}> Full-time</label>
+          <label class="ck">
+            <input type="checkbox" id="jt-intern" data-jt="intern"
+                   {{ ' checked' if prefs.intern != 'no' else '' }}> Internships &amp; co-ops</label>
+        </div>
+        <p class="field-help">Both OPT and STEM-OPT eligible.</p>
+      </div>
+    </div>
+
+    <div class="fgroup" role="group" aria-labelledby="lab-other">
+      <h3 class="flab" id="lab-other">Other</h3>
+      {# Both keep their explanation: one is pre-checked (a filter that's already on has to say
+         why), the other describes a heuristic with an exception you can't see. #}
+      <label class="ck" title="Agencies post placement roles, not their own team's. Hidden by default.">
+        <input type="checkbox" id="hideagency"{{ ' checked' if prefs.hideagency else '' }}> Hide Staffing Agencies</label>
+    </div>
+
+    <div class="fpopfoot">
+      <button id="clearfilters" class="btn sm ghost" type="button"
+              title="Resets the filters. Search and track stay.">Clear</button>
+      <span class="spacer"></span>
+      {% if show_saveprefs %}
+      <button id="saveprefs" class="btn sm" type="button"
+              title="Your default search, and your daily email.">Save as Default</button>
+      {% endif %}
+      {# Live count, not a deferred apply: every control here still applies on change, which is
+         the behaviour feed_parity.py and test_saved_search.py both assert. #}
+      <button type="button" class="btn sm primary" data-popclose>Show <span id="popcount">{{ default_total }}</span> jobs</button>
+    </div>
+  </div>

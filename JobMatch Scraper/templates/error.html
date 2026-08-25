@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{# 404 and 500 used to be Werkzeug's stock pages: Times New Roman on white, no nav, no header,
+   no link back to the feed, no dark mode, and the stack advertised in the body. Jarring
+   specifically BECAUSE the rest of the app is careful -- there is a skip link, a three-way theme
+   toggle, a token system and contrast gated in CI -- and a mistyped URL dropped the reader out of
+   all of it with no way back but the browser's Back button. A 500 did the same, and that is the
+   one people hit when something is actually wrong.
+
+   Extends base.html, so it inherits the chrome, the theme and the tokens for free. /api/* paths
+   never reach here: web.py answers those with JSON, the same test F5 introduced. #}
+{% block content %}
+<div class="errpage">
+  <p class="errcode">{{ code }}</p>
+  <h1>{{ title }}</h1>
+  <p class="sub">{{ message }}</p>
+  <div class="erracts">
+    <a class="btn primary" href="{{ url_for('feed') }}">Back to Jobs</a>
+    <a class="btn" href="{{ url_for('companies') }}">Browse Companies</a>
+  </div>
+</div>
+{% endblock %}

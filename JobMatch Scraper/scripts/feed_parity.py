@@ -537,7 +537,10 @@ var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any
     locInp = ctl(""), minSalSel = ctl(""), sortSel = ctl("score"),
     hideNo = chk(false), verifiedOnly = chk(false), visaSel = ctl(""), rolesSel = ctl(""),
     remoteOnly = chk(false),
-    hideAgency = chk(false), showClosed = chk(false);
+    // expStated is "only postings that state their years" — the F14 toggle. It MUST be stubbed
+    // here even though it defaults off: matches() references it by name, and an unstubbed
+    // identifier is a ReferenceError that would read as a parity failure in every case.
+    hideAgency = chk(false), expStated = chk(false), showClosed = chk(false);
 var VISA_TAGS = %(visa_tags)s;
 """
 
@@ -562,6 +565,7 @@ IN.cases.forEach(function (cs) {
   visaSel.value = p.visatags || "";
   remoteOnly.checked = p.remote === "1";
   hideAgency.checked = p.hideagency === "1";
+  expStated.checked = p.expstated === "1";
   showClosed.checked = p.showclosed === "1";
 
   // `cut` comes from the Python side rather than app.js's dateCutoff(): that function reads

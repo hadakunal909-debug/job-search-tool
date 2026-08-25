@@ -594,7 +594,19 @@ details > summary:focus-visible{outline:none;box-shadow:var(--focus-ring);border
 .iconbtn:focus-visible{outline:none;box-shadow:var(--focus)}
 .inline{display:inline;margin:0}
 
-.flash{background:var(--brand-soft);border:1px solid var(--line);color:var(--ink);padding:11px 15px;border-radius:var(--r);margin-bottom:20px;font-size:var(--text-sm)}
+/* flash messages
+   One neutral style used to serve all ~80 flash() call sites, success and failure alike, so
+   "Résumé saved" and "Delete failed partway" were visually identical. Severity now comes
+   through as a Flask category and lands on these modifiers. Uncategorised stays neutral, which
+   is what every un-migrated call site still gets.
+
+   Not a "colour means sponsorship" exception: that rule is about the FEED's semantic colour.
+   These reuse the existing --danger/--ok status tokens, which test_contrast.py already gates. */
+.flashes{margin-bottom:20px}
+.flash{background:var(--brand-soft);border:1px solid var(--line);color:var(--ink);padding:11px 15px;border-radius:var(--r);margin-bottom:8px;font-size:var(--text-sm)}
+.flash:last-child{margin-bottom:0}
+.flash.is-error{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+.flash.is-ok{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 
 /* layout primitives */
 .panel{background:var(--surface);border:1px solid var(--border-card);border-radius:var(--r-lg);padding:22px 24px;margin:0 0 18px}
@@ -612,6 +624,32 @@ details > summary:focus-visible{outline:none;box-shadow:var(--focus-ring);border
 .addbox{display:none;border:1px solid var(--border-card);border-radius:var(--r);padding:16px 18px;margin:12px 0 6px;background:var(--surface2)}
 .addbox.open{display:block;animation:fade .16s ease}
 @keyframes fade{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+
+/* the change-password form on /profile. Narrow on purpose: three short fields in a column read
+   as a sequence, and a full-width password input invites the eye to look for more content. */
+.pwform{max-width:340px;margin-top:var(--space-200)}
+.pwform .field{margin-bottom:var(--space-200)}
+.pwform label{display:block;margin-bottom:4px;font-size:var(--text-xs);font-weight:600}
+.pwform input[type=password]{width:100%}
+.pwform .dim{margin:4px 0 0;font-size:var(--text-2xs)}
+
+/* The match control while a search is active. web.py deliberately bypasses the match floor when
+   the search box has text -- typing a company name should find it whatever it scores -- and the
+   defect was that the slider went on claiming "MATCH 50%+" over a grid of sub-30% cards. Greyed
+   rather than disabled: the value is still yours and comes back the moment you clear the box, so
+   the control must stay operable and only stop asserting something untrue. */
+.matchfilter.stood-down{opacity:.55}
+.matchfilter.stood-down .rngval{font-style:italic;font-weight:500}
+
+/* error pages (404 / 500)
+   Same chrome, tokens and theme as everything else -- the whole point is that a mistyped URL
+   does not drop you out of the app. The code is set large but in --muted: it is a label, not
+   the message, and the sentence under the heading is what the reader actually needs. */
+.errpage{max-width:520px;margin:12vh auto;text-align:center}
+.errcode{font-size:var(--text-xl);font-weight:700;color:var(--muted);letter-spacing:.08em;margin:0 0 4px}
+.errpage h1{margin:0 0 10px}
+.errpage .sub{color:var(--muted);line-height:1.6;margin:0 0 var(--space-300)}
+.erracts{display:flex;gap:var(--space-150);justify-content:center;flex-wrap:wrap}
 
 /* login
    The card keeps a hairline instead of a drop shadow. A shadow on the only element on an
@@ -656,7 +694,12 @@ textarea{resize:vertical}
 
 /* ---- company page ---- */
 /* The header mirrors a card's logo + meta stack, so the page reads as "one card, expanded". */
-.backlink{display:inline-flex;align-items:center;gap:var(--space-100);color:var(--muted);font-size:var(--text-xs);text-decoration:none;margin:2px 0 12px;font-weight:500}
+/* margin-right, not just the vertical pair. /company renders two of these side by side and the
+   only thing between them was a collapsed whitespace text node, so "‹ All Jobs" and "All
+   Companies" read as one phrase rather than as two destinations. inline-flex means the gap
+   property above applies INSIDE each link (icon to label), not between siblings. */
+.backlink{display:inline-flex;align-items:center;gap:var(--space-100);color:var(--muted);font-size:var(--text-xs);text-decoration:none;margin:2px var(--space-200) 12px 0;font-weight:500}
+.backlink:last-of-type{margin-right:0}
 .backlink:hover{color:var(--ink)}
 .cohead{display:flex;gap:var(--space-200);align-items:flex-start;margin:0 0 6px}
 .cohead-main{min-width:0;flex:1}
@@ -1049,6 +1092,11 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .exp-lo{background:var(--exp-entry-bg);color:var(--exp-entry-text)}
 .exp-mid{background:var(--exp-mid-bg);color:var(--exp-mid-text)}
 .exp-hi{background:var(--exp-senior-bg);color:var(--exp-senior-text)}
+/* "years not stated" — the posting was NOT filtered by experience because its description
+   carries no number. Deliberately the quietest badge on the card and set in the prose face, not
+   the data face: it is an absence of a measurement, not a measurement. Muted rather than a
+   status colour, because it is neither good nor bad news about the job. */
+.exp-unknown{font-family:inherit;font-variant-numeric:normal;background:var(--surface2);color:var(--muted);border:1px dashed var(--line)}
 /* Five controls, ~287px of card. They used to be forced onto one line, so "Mark applied"
    broke across two lines mid-phrase, every button grew to 44px tall, and the row overflowed
    its own card by 57px with Hide spilling past the edge.

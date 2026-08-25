@@ -259,19 +259,27 @@ def _loop():
             pass
 
 
+# Guards the check-then-set in _start. Without it two request threads can both see _thread is
+# None and both start a flusher, which double-flushes the buffer and registers atexit twice.
+_start_lock = threading.Lock()
+
+
 def _start():
     """Start the flusher on first use. Daemon, so it never holds up a shutdown."""
     global _thread
     if _OFF or _thread is not None:
-        return
-    try:
-        _thread = threading.Thread(target=_loop, name="analytics", daemon=True)
-        _thread.start()
-        # Best effort on shutdown. Under Passenger a killed idle worker loses at most one
-        # batch, which is the price of never touching the network on a request thread.
-        atexit.register(_flush)
-    except Exception:
-        _thread = None
+        return                       # fast path: no lock once it is running
+    with _start_lock:
+        if _thread is not None:      # another thread won the race while we waited
+            return
+        try:
+            _thread = threading.Thread(target=_loop, name="analytics", daemon=True)
+            _thread.start()
+            # Best effort on shutdown. Under Passenger a killed idle worker loses at most one
+            # batch, which is the price of never touching the network on a request thread.
+            atexit.register(_flush)
+        except Exception:
+            _thread = None
 
 
 def stats():

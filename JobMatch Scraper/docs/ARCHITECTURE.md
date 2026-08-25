@@ -45,18 +45,18 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>7,931 lines · 85 routes / 84 handlers<br/>no blueprints"]
-    T["templates/ · 31 files"]
+    W["<b>web.py</b><br/>8,607 lines · 86 routes / 85 handlers<br/>no blueprints"]
+    T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
-    S["<b>scraper/__init__.py</b><br/>8,701 lines · 38 ATS adapters<br/>1,192 boards"]
+    S["<b>scraper/__init__.py</b><br/>8,805 lines · 38 ATS adapters<br/>1,192 boards"]
     J["score_jobs.py · 1,986 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,101 lines · 32 sections<br/>db.py · 2,862 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,198 lines · 32 sections<br/>db.py · 2,879 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -109,42 +109,42 @@ flowchart TB
   JD["fill_missing_jds()<br/><i>descriptions bought before the gates</i>"]
   SRC --> JD
   G0{"already known"}
-  D0["already known<br/><i>:8474</i>"]
+  D0["already known<br/><i>:8578</i>"]
   JD --> G0
   G0 -->|dropped| D0
   class D0 trap
   G1{"blocked company"}
-  D1["blocked company<br/><i>:8480</i>"]
+  D1["blocked company<br/><i>:8584</i>"]
   G0 --> G1
   G1 -->|dropped| D1
   class D1 trap
   G2{"off-target function title"}
-  D2["off-target function title<br/><i>:8502</i>"]
+  D2["off-target function title<br/><i>:8606</i>"]
   G1 --> G2
   G2 -->|dropped| D2
   class D2 trap
   G3{"no matching role keyword"}
-  D3["no matching role keyword<br/><i>:8503</i>"]
+  D3["no matching role keyword<br/><i>:8607</i>"]
   G2 --> G3
   G3 -->|dropped| D3
   class D3 trap
   G4{"non-US location"}
-  D4["non-US location<br/><i>:8512</i>"]
+  D4["non-US location<br/><i>:8616</i>"]
   G3 --> G4
   G4 -->|dropped| D4
   class D4 trap
   G5{"posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)"}
-  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:8527</i>"]
+  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:8631</i>"]
   G4 --> G5
   G5 -->|dropped| D5
   class D5 trap
   G6{"no federal sponsor record (aggregator)"}
-  D6["no federal sponsor record (aggregator)<br/><i>:8548</i>"]
+  D6["no federal sponsor record (aggregator)<br/><i>:8652</i>"]
   G5 --> G6
   G6 -->|dropped| D6
   class D6 trap
   G7{"aggregator copy of a job we hold"}
-  D7["aggregator copy of a job we hold<br/><i>:8564</i>"]
+  D7["aggregator copy of a job we hold<br/><i>:8668</i>"]
   G6 --> G7
   G7 -->|dropped| D7
   class D7 trap
@@ -187,7 +187,7 @@ flowchart LR
     G -.->|"NEVER RUNS"| C[".cpanel.yml"]
   end
   subgraph GOOD["&#9635; the actual deploy"]
-    B["build_deploy_zip.py<br/>17 modules + 4 dirs"] --> Z["stemjobs1_deploy.zip"]
+    B["build_deploy_zip.py<br/>18 modules + 4 dirs"] --> Z["stemjobs1_deploy.zip"]
     Z --> U["File Manager<br/>upload + extract"]
     U --> T["touch tmp/restart.txt"] --> LIVE["stemjobs1.astrochakra.co"]
   end
@@ -219,13 +219,13 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1820</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 804</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1828</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 852</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
   C --- GUARD
-  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 2390 — shares the filters, skips \"posted within\"</i>"]
+  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 2454 — shares the filters, skips \"posted within\"</i>"]
   GUARD -.-> D
   classDef web fill:#e0e4fe,stroke:#4f46e5,color:#101319
   classDef client fill:#e4e7ec,stroke:#5f6573,color:#101319

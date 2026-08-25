@@ -38,7 +38,31 @@ _VERB_HINT = re.compile(r"\b(manage|lead|build|drive|deliver|coordinate|own|deve
 
 
 def _sentences(text):
-    return [s.strip() for s in _SENT_SPLIT.split(text or "") if len(s.strip()) > 20]
+    """Split into readable units, falling back to the JD renderer when there is no punctuation.
+
+    A great many scraped descriptions arrive as one run with the bullet markers and full stops
+    gone — the list was <li> elements and the text extractor joined them with spaces. Splitting
+    THAT on [.!?] returns one enormous "sentence", which is why the tailor's right rail printed
+    "…deliver recommendations in a data-driven manner Lead thoughtful and rigorous analysis
+    across large data sets and synthesize insights…" as an undifferentiated block, while /job
+    rendered the same description with proper headings, paragraphs and bullets.
+
+    /job looks right because it goes through jdrender. jdrender.jd_flat_list exists for exactly
+    this shape — it measures the full-stop density first and returns None when the text really is
+    prose, so the ordinary path is unchanged.
+    """
+    text = text or ""
+    try:
+        import jdrender
+        items = jdrender.jd_flat_list(text)
+        if items:
+            out = [re.sub(r"\s+", " ", s).strip() for s in items]
+            out = [s for s in out if len(s) > 20]
+            if len(out) > 1:
+                return out
+    except Exception:
+        pass
+    return [s.strip() for s in _SENT_SPLIT.split(text) if len(s.strip()) > 20]
 
 
 def symphony(jd_text):

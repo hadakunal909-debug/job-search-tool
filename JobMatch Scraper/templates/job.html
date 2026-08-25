@@ -55,7 +55,10 @@
         <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">{{ row.company }}</a>
         {%- if row.location %}<span class="sep" aria-hidden="true">·</span><span>{{ row.location }}</span>{% endif %}
         {%- if row.date %}<span class="sep" aria-hidden="true">·</span>
-        <span class="jobdate">{{ 'Posted' if row.date_trusted else 'Approximately' }} {{ row.date[:10] }}</span>
+        {# Same relative wording the feed cards use — see web.py's `ago` filter. The exact date
+           stays on the hover, because "3w ago" is the useful form to scan and the ISO date is
+           the useful form to check. #}
+        <span class="jobdate" title="{{ row.date[:10] }}">{{ 'Posted' if row.date_trusted else 'Approximately' }} {{ row.date | ago }}</span>
         {%- elif row.first_seen %}<span class="sep" aria-hidden="true">·</span>
         <span class="jobdate">Added {{ row.first_seen }}</span>{% endif %}
       </div>

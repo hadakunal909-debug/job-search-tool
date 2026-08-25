@@ -63,6 +63,46 @@ def _is_lowvalue(text):
     hits = len(_LOWVALUE_RE.findall(t))
     return hits >= 2 and len(t) < 1200          # consent text dominates a thin page
 
+
+# STOREFRONT COPY. For any retailer the home page is a shop, and this module was feeding that
+# shop to the AI tailor as company research. /brain/companies on production, Walmart:
+#
+#   "Shopping just got easier Try 30 days of Walmart+ for just $1 Claim trial now ... $17.84
+#    Add $ 17 84 current price $17.84 (2 pack) As I Am Rosemary Shampoo 8 fl."
+#   Core values: Deliver
+#   shop now · current price · manipulator texturizing · unisex · wifi · widescreen
+#
+# "Core values: Deliver" is extracted from shopping copy and `manipulator texturizing` is a
+# product SKU. The page itself says the cache is "shared across the team", so one bad crawl
+# poisons every user who tailors for that employer, and /brain/tailor states the research grounds
+# the generated résumé and cover letter.
+#
+# The module was already alert to this in ONE place: perks extraction is restricted to careers
+# pages precisely because "product copy elsewhere also says" the same words. The summary and the
+# keyword corpus had no such restriction. This is that restriction, generalised.
+_PRODUCT_COPY_RE = re.compile(
+    r"current price|add to (?:cart|bag|basket)|shop now|was \$\d|\bsale\b|"
+    r"\$\s?\d[\d,]*\.\d{2}|\b\d+\s?(?:pack|count|ct|fl\.? ?oz|oz|lb|ml)\b|"
+    r"free (?:shipping|delivery|pickup)|in stock|out of stock|add to list|"
+    r"\bsku\b|rollback|best seller|customer reviews?|\d+\s*stars?\b", re.I)
+
+
+def is_product_copy(text, title=""):
+    """True when this page reads as a storefront rather than as a company describing itself.
+
+    Density, not presence: a real About page can legitimately mention a price once, while a
+    product grid says "current price" and "$12.99" many times over. Three distinct hits per
+    ~1,000 characters is comfortably above anything an About or Careers page produces and
+    comfortably below a category listing.
+    """
+    t = (title or "") + " " + (text or "")
+    if not t.strip():
+        return False
+    hits = len(_PRODUCT_COPY_RE.findall(t))
+    if hits < 3:
+        return False
+    return hits >= 3 * max(1, len(t) // 1000)
+
 # Stated-value vocabulary — phrases companies use to describe what they stand for.
 _VALUE_LEXICON = (
     "integrity", "ownership", "accountability", "transparency", "innovation", "excellence",
@@ -152,21 +192,61 @@ def _norm_name(name):
     return re.sub(r"\b(inc|llc|ltd|corp|co|company|the)\b", " ", (name or "").lower()).strip()
 
 
-def resolve_domain(company_name, company_url=""):
+def resolve_domain(company_name, company_url="", with_source=False):
+    """The company's domain, and optionally HOW confident we are in it.
+
+    `source` is one of:
+      'url'   — taken from a URL the caller supplied. Known-correct.
+      'map'   — a hand-verified entry in _DOMAIN_MAP.
+      'guess' — strip the punctuation out of the name and append ".com". A GUESS, and the
+                thing that made researching Actalent return a Spanish athlete-representation
+                agency: actalent.com is somebody else's site, nothing checked, and the result
+                was cached, shared across the team and fed to the AI tailor as fact.
+
+    Callers must treat 'guess' as unverified. web.py::_research_domain now asks the app's own
+    verified company_domains.json (built by the logo harvester, which judges a candidate on its
+    pixels) BEFORE falling back here, which is the real fix for the Actalent case — a name-mention
+    check alone would not have caught it, because that site does say "ACTALENT" on it.
+    """
     if company_url:
         host = (urlparse(company_url if "//" in company_url else "//" + company_url).hostname or "")
         host = host.lower().lstrip(".")
         if host.startswith("www."):
             host = host[4:]
         if host:
-            return host
+            return (host, "url") if with_source else host
     key = _norm_name(company_name)
     if not key:
-        return ""
+        return ("", "none") if with_source else ""
     if key in _DOMAIN_MAP:
-        return _DOMAIN_MAP[key]
+        return (_DOMAIN_MAP[key], "map") if with_source else _DOMAIN_MAP[key]
     base = re.sub(r"[^a-z0-9]", "", key)
-    return (base + ".com") if base else ""
+    dom = (base + ".com") if base else ""
+    return (dom, "guess" if dom else "none") if with_source else dom
+
+
+def mentions_company(pages, company_name):
+    """Does this crawl look like it belongs to `company_name` at all?
+
+    A backstop for the 'guess' path above. It cannot separate two real businesses that share a
+    name — see resolve_domain — but it does reject the large and common class where the guessed
+    domain is a parked page, a squatter, a registrar hold page, or an unrelated business whose
+    name simply is not on it. Cheap, and strictly better than the nothing that was here: grep
+    research.py before this for verify/confirm/mentions and there were no matches at all.
+
+    Matched on the DISPLAY name's significant tokens, not the stripped key, so "Applied
+    Materials" needs both words rather than matching anything containing "appliedmaterials".
+    """
+    name = _norm_name(company_name)
+    toks = [t for t in name.split() if len(t) > 2]
+    if not toks:
+        return True                       # nothing to check against; do not invent a failure
+    hay = " ".join(((p.get("title") or "") + " " + (p.get("text") or ""))
+                   for p in (pages or [])).lower()
+    hay_squashed = re.sub(r"[^a-z0-9]", "", hay)
+    if re.sub(r"[^a-z0-9]", "", name) in hay_squashed:
+        return True                       # "AppliedMaterials" written without the space
+    return all(t in hay for t in toks)
 
 
 def _robots_checker(base, timeout=4):
@@ -221,10 +301,17 @@ def _pick_pages(home_html, base):
     return picked
 
 
-def crawl_company(domain):
+def crawl_company(domain, company_name="", verify=False):
     """Return [{'url','title','text'}] for a bounded set of the company's own pages, or [].
     Skips cookie-consent / JS-shell pages, and tries common about/careers paths directly so a
-    consent-gated homepage (which yields no links) still produces real content."""
+    consent-gated homepage (which yields no links) still produces real content.
+
+    `verify=True` says the domain was a GUESS, so the crawl must corroborate the employer before
+    the result is trusted — see mentions_company. Failing that we return nothing, which the
+    caller already handles ("Couldn't reach the company site, so this is tailored from the job
+    text only"). Saying nothing is strictly better than confidently describing another company:
+    this cache is shared across every user and is fed to the AI tailor as grounding.
+    """
     if not domain:
         return []
     base = "https://" + domain
@@ -272,6 +359,8 @@ def crawl_company(domain):
                               "headings": _headings(r.text), "items": _list_items(r.text)})
         except Exception:
             continue
+    if verify and pages and not mentions_company(pages, company_name):
+        return []
     return pages
 
 
@@ -300,6 +389,16 @@ def _substantive(sentences):
 def extract_company_knowledge(pages, company_name=""):
     """Deterministically distill crawled pages into a company knowledge record:
     what they do, mission, stated values, current initiatives, what they look for, keywords."""
+    # STOREFRONT PAGES ARE DROPPED FIRST, so they reach neither the summary nor the keyword
+    # corpus — see is_product_copy for what they were producing when they did not. The careers
+    # pages a retailer publishes are kept whatever else is on them, because those are the pages
+    # that actually describe the employer, and they are also where perks extraction already
+    # looks. If EVERY page is a shop we keep them rather than return an empty record: something
+    # imperfect beats a blank panel, and the caller has no way to tell the two apart.
+    kept = [p for p in pages
+            if _CAREERS_PAGE_RE.search((p.get("url", "") + " " + p.get("title", "")).lower())
+            or not is_product_copy(p.get("text", ""), p.get("title", ""))]
+    pages = kept or pages
     blob = " ".join(p.get("text", "") for p in pages)
     low = blob.lower()
     name = company_name or (pages[0].get("title", "").split("|")[0].strip() if pages else "")

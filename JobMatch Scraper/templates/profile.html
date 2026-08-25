@@ -169,6 +169,43 @@
   </form>
   <p class="dim">Revoking kills the old token immediately and shows a new one here.</p>
 </div>
+
+{# Change your own password. Until now the ONLY password route in the app was admin-only, so a
+   credential you leaked yourself could not be rotated without asking somebody else — the exact
+   friction the revoke-token control above exists to remove, left in place for the more important
+   of the two secrets. Behind a <details> because it is a rare action on a long page. #}
+<div class="panel">
+  <div class="section-head"><h2>Password</h2></div>
+  <details class="dim" id="pwchange">
+    <summary>Change your password</summary>
+    <form method="post" action="{{ url_for('profile_password') }}" class="pwform" autocomplete="off">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      {# The username is here, hidden, because password managers need it to know WHICH login this
+         change belongs to; without it they offer to save a credential with no account attached. #}
+      <input type="text" name="username" value="{{ current_user }}" autocomplete="username"
+             hidden aria-hidden="true" tabindex="-1" readonly>
+      <div class="field">
+        <label for="pw-cur">Current password</label>
+        <input id="pw-cur" type="password" name="current_password"
+               autocomplete="current-password" required>
+      </div>
+      <div class="field">
+        <label for="pw-new">New password</label>
+        <input id="pw-new" type="password" name="new_password" autocomplete="new-password"
+               minlength="6" required aria-describedby="pw-hint">
+        <p class="dim" id="pw-hint">At least 6 characters.</p>
+      </div>
+      <div class="field">
+        <label for="pw-again">Confirm new password</label>
+        <input id="pw-again" type="password" name="confirm_password"
+               autocomplete="new-password" minlength="6" required>
+      </div>
+      <button class="btn primary" type="submit">Change password</button>
+    </form>
+  </details>
+  <p class="dim">Forgot it entirely? There is no self-service reset yet — that needs an email
+    sender this app doesn't have — so an admin has to set a new one for you.</p>
+</div>
 {% endblock %}
 {# Neither radio carries `checked` in the markup on purpose: the answer is in localStorage,
    which the server cannot see, so anything rendered here would be a guess that is wrong for

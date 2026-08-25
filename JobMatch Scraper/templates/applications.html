@@ -46,7 +46,9 @@
       <div>
         <div class="appco">{{ a.company or 'None' }}</div>
         <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View Posting' }}<span class="ic ic-external" aria-hidden="true"></span></a>{% else %}{{ a.title or '' }}{% endif %}</div>
-        <div class="appmeta">{% if a.applied_date %}applied {{ a.applied_date[:10] }}{% else %}Not recorded{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
+        {# Relative, like the feed and /job — see web.py's `ago` filter. The ISO date is on the
+           hover and in the edit input below, so nothing is lost by not printing it twice. #}
+        <div class="appmeta">{% if a.applied_date %}<span title="{{ a.applied_date[:10] }}">applied {{ a.applied_date | ago }}</span>{% else %}Not recorded{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
     </div>

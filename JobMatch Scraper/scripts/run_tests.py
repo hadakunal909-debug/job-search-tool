@@ -85,6 +85,10 @@ SUITES = (
     Suite("test_password_rule",     "test_password_rule.py",             "root",   "offline"),
     Suite("test_pm_rule",           "test_pm_rule.py",                   "root",   "offline"),
     Suite("test_prompt_evals",      "test_prompt_evals.py",              "root",   "offline"),
+    # Guards for the QA_AUDIT findings fixed on 2026-08-24. One file rather than six, because
+    # most are one- or two-line fixes in code with no suite of its own; the finding id in each
+    # test name is what keeps them traceable. See docs/QA_AUDIT.md.
+    Suite("test_qa_audit_fixes",    "test_qa_audit_fixes.py",            "root",   "offline"),
     Suite("test_reposts",           "test_reposts.py",                   "root",   "offline"),
     Suite("test_resume_bullets",    "test_resume_bullets.py",            "root",   "offline"),
     Suite("test_resume_keywords",   "test_resume_keywords.py",           "root",   "offline"),

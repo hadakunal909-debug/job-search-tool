@@ -36,6 +36,7 @@ import datetime
 import decimal
 import json
 import re
+import threading
 import uuid
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -409,21 +410,34 @@ class Session:
         self.dsn = dsn
         self._conn = None
         self._v3 = None
+        # ONE CONNECTION, SHARED BY EVERY REQUEST THREAD, so both halves need serialising.
+        #
+        # _connect was a check-then-set race: two threads both see None, both connect, one of the
+        # two connections is overwritten and leaks. And _run then drives that single connection
+        # from every thread at once with nothing between them. autocommit=True and threadsafety-2
+        # drivers make it mostly survivable, which is the problem — the failure mode is not an
+        # error but a cursor seeing another thread's result set, and this module's own docstring
+        # says why that is the expensive kind of bug here: "a filter this layer silently
+        # mistranslates is a wrong answer, not an error."
+        #
+        # RLock, not Lock: _run calls _connect while already holding it.
+        self._lock = threading.RLock()
 
     def _connect(self):
-        if self._conn is not None:
+        with self._lock:
+            if self._conn is not None:
+                return self._conn
+            try:
+                import psycopg                          # psycopg 3
+                self._conn = psycopg.connect(self.dsn, autocommit=True)
+                self._v3 = True
+            except ImportError:
+                import psycopg2                         # psycopg 2, what cPanel usually has
+                import psycopg2.extras                  # noqa: F401  (registers the dict cursor)
+                self._conn = psycopg2.connect(self.dsn)
+                self._conn.autocommit = True
+                self._v3 = False
             return self._conn
-        try:
-            import psycopg                              # psycopg 3
-            self._conn = psycopg.connect(self.dsn, autocommit=True)
-            self._v3 = True
-        except ImportError:
-            import psycopg2                             # psycopg 2, what cPanel usually has
-            import psycopg2.extras                      # noqa: F401  (registers the dict cursor)
-            self._conn = psycopg2.connect(self.dsn)
-            self._conn.autocommit = True
-            self._v3 = False
-        return self._conn
 
     def _json(self, marked):
         """JsonValue -> the driver's jsonb wrapper. Both drivers need one; neither can bind a
@@ -456,22 +470,26 @@ class Session:
         else:
             sql, args, wants = build(method, path, params, body, prefer)
 
-        conn = self._connect()
-        try:
-            with self._cursor(conn) as cur:
-                cur.execute(sql, [self._json(a) if isinstance(a, JsonValue) else a
-                                  for a in args])
-                rows = []
-                if wants and cur.description:
-                    rows = [{k: jsonify(v) for k, v in dict(r).items()} for r in cur.fetchall()]
-        except Exception as e:
-            # Mirror PostgREST's shape: a 4xx with the driver's message, so db.py's existing
-            # "read resp.text on failure" paths keep reporting something useful.
+        # Held across execute AND fetchall: releasing between them is what lets one thread's
+        # cursor read another thread's result set off the shared connection.
+        with self._lock:
+            conn = self._connect()
             try:
-                conn.rollback()
-            except Exception:
-                pass
-            return Response(400, {"message": str(e)[:400], "sql": sql[:200]})
+                with self._cursor(conn) as cur:
+                    cur.execute(sql, [self._json(a) if isinstance(a, JsonValue) else a
+                                      for a in args])
+                    rows = []
+                    if wants and cur.description:
+                        rows = [{k: jsonify(v) for k, v in dict(r).items()}
+                                for r in cur.fetchall()]
+            except Exception as e:
+                # Mirror PostgREST's shape: a 4xx with the driver's message, so db.py's existing
+                # "read resp.text on failure" paths keep reporting something useful.
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                return Response(400, {"message": str(e)[:400], "sql": sql[:200]})
 
         if method == "HEAD":
             n = (rows[0].get("n") if rows else 0) or 0
