@@ -18,6 +18,7 @@ import time
 import html
 import threading
 import hmac
+import base64
 import hashlib
 import secrets
 import datetime
@@ -658,7 +659,12 @@ def _bust_profile(user=None):
         _profile_cache.pop(user, None)
         _profile_row_cache.pop(user, None)
         for cache in (_score_cache, _rows_cache):
-            for k in [k for k in cache if k[0] == user]:
+            # SNAPSHOT THE KEYS FIRST. Passenger serves requests on threads, so another one can
+            # be inserting into these caches while this comprehension walks them, and iterating
+            # a dict during mutation raises RuntimeError: OrderedDict mutated during iteration.
+            # list() copies the keys before the scan, which costs one small list and removes the
+            # race entirely.
+            for k in [k for k in list(cache.keys()) if k and k[0] == user]:
                 cache.pop(k, None)
     else:
         # No user named: an admin-level reset (see /reload), where wiping everything is the point.
@@ -1300,7 +1306,8 @@ def _build_row(j, score):
     speriod = j.get("salary_period") or ""
     active = j.get("is_active")
     # `or ""` not .get(k, "") throughout: a NULL column comes back as None, not a missing key.
-    return {"title": j.get("title") or "", "company": c, "location": j.get("location") or "",
+    return {"title": j.get("title") or "", "company": c,
+            "location": core.tidy_location(j.get("location") or ""),
             "loc_state": lstate, "loc_metro": lmetro, "remote": bool(lremote),
             "salary_min": smin, "salary_max": smax, "salary_period": speriod,
             "salary_label": core.salary_label(smin, smax, speriod),
@@ -1577,6 +1584,7 @@ def _prefs_as_params(prefs):
         "visatags": prefs.get("visatags") or "",
         "hidenospon": "1" if prefs.get("hidenospon") else "",
         "verifiedonly": "1" if prefs.get("verifiedonly") else "",
+        "expstated": "1" if prefs.get("expstated") else "",
         "roles": prefs.get("roles") or "",
     }
 
@@ -1838,6 +1846,7 @@ def _filter_rows(rows, statuses, p):
     loc = (p.get("loc") or "").strip().lower()
     remote_only = (p.get("remote") or "") in ("1", "true", "yes", "on")
     hide_agency = (p.get("hideagency") or "") in ("1", "true", "yes", "on")
+    exp_stated = (p.get("expstated") or "") in ("1", "true", "yes", "on")
     show_closed = (p.get("showclosed") or "") in ("1", "true", "yes", "on")
     try:
         minsal = int(p.get("minsal") or 0)
@@ -1850,7 +1859,14 @@ def _filter_rows(rows, statuses, p):
             if st != tab:
                 continue
         else:
-            if st == "hidden":
+            # HIDDEN AND APPLIED both drop off the default tab. Only `hidden` used to, so a
+            # posting you had already applied to went on competing for space in the very feed
+            # you use to decide what to apply to NEXT — while the Applied tab listed it and
+            # _autolog_application had already written a tracker row. The app knew; the
+            # recommendation surface did not consult it. ext_apply_queue reached the same
+            # conclusion for the batch filler and added its own guard; this is the human half.
+            # `liked` deliberately stays: saving something is a reason to keep seeing it.
+            if st in ("hidden", "applied"):
                 continue
             if not (searching or r["score"] >= minv):   # search bypasses the match floor
                 continue
@@ -1897,11 +1913,16 @@ def _filter_rows(rows, statuses, p):
             continue
         if track != "any" and r.get("track") != track:
             continue
+        # "Only postings that state their years." OFF by default; see core.DEFAULT_PREFS for the
+        # measurement behind it (72% of results under a years filter state no number at all).
+        if exp_stated and (r["exp_years"] == "" or r["exp_years"] is None):
+            continue
         if exp != "any":
             # exp_years is the HIGHEST year count the JD states (core.experience_years), so
             # "8+ years required; 2 years of SQL preferred" is an 8-year job and "<=2 yrs"
             # drops it. A JD that states no number is ALWAYS kept — many genuine entry-level
-            # posts state none. Mirrored in app.js matches() and core.prefs_match().
+            # posts state none, and the card badge marks them so the two populations are
+            # distinguishable. Mirrored in app.js matches() and core.prefs_match().
             ev = r["exp_years"]
             if ev != "" and ev is not None:
                 try:
@@ -1928,6 +1949,34 @@ def _filter_rows(rows, statuses, p):
     return out                                  # else already in score order (rows pre-sorted)
 
 
+def _signed_out_response(reason):
+    """How to say "you are signed out" to whoever is asking.
+
+    A 302 to an HTML login page is the right answer for a browser navigation and the WRONG one
+    for a fetch(). fetch follows the redirect, gets HTML with status 200, r.json() throws, and
+    app.js's .catch renders "We couldn't load jobs. Try again." — so a user whose 30-day cookie
+    lapsed sat on a permanently dead feed that never once said they had been signed out. On Load
+    more it was worse: `reset` is false there, so the .catch body does nothing at all and the
+    button simply stopped working.
+
+    The neighbouring code already knows this. _require_csrf answers programmatic callers with
+    JSON for exactly this reason ("A fetch() that gets a 302 to an HTML page fails silently in
+    the console"), and app.js reads a 429 explicitly because a rate-limited reply once rendered
+    as "No jobs match these filters". login_required never got the same treatment.
+    """
+    from flask import jsonify
+    if request.path.startswith("/api/"):
+        resp = jsonify({"ok": False, "error": "signed out", "signed_out": True,
+                        "message": reason or "Your session expired. Sign in again.",
+                        "login": url_for("login", next=request.path),
+                        # app.js reads `rows`/`total`; without them an older cached copy of it
+                        # renders this as an empty search rather than as a sign-out.
+                        "rows": [], "total": 0, "has_more": False})
+        resp.status_code = 401
+        return resp
+    return redirect(url_for("login", next=request.path))
+
+
 def login_required(f):
     """Session check, plus a per-request confirmation that the account still exists and is
     enabled. Without that second half, deleting or disabling an account changes nothing for up
@@ -1938,10 +1987,12 @@ def login_required(f):
     def wrap(*a, **k):
         user = session.get("user")
         if not user:
-            return redirect(url_for("login", next=request.path))
+            return _signed_out_response("")
         dead = _session_dead(user)
         if dead:
             session.clear()
+            if request.path.startswith("/api/"):
+                return _signed_out_response(dead)
             flash(dead)
             return redirect(url_for("login"))
         return f(*a, **k)
@@ -1952,6 +2003,49 @@ def login_required(f):
 def _inject():
     return {"current_user": session.get("user"),
             "csp_nonce": getattr(g, "csp_nonce", "")}
+
+
+# ----------------------------- error pages -----------------------------
+# There were no error handlers at all, so /no-such-page returned Werkzeug's stock page: Times New
+# Roman on white, no nav, no header, no link back, no dark mode, and the stack in the body. That
+# is jarring precisely BECAUSE the rest of this app is careful — skip link, three-way theme
+# toggle, a token system, contrast gated in CI — and one mistyped URL dropped the reader out of
+# every bit of it.
+#
+# JSON for /api/*, same test login_required now uses: those callers are fetch(), and an HTML body
+# with the wrong content type is how a 429 once rendered as "No jobs match these filters".
+def _error_response(code, title, message, log=None):
+    from flask import jsonify
+    if log is not None:
+        app.logger.exception("unhandled error on %s", request.path, exc_info=log)
+    if request.path.startswith("/api/"):
+        resp = jsonify({"ok": False, "error": title, "message": message,
+                        # app.js reads these; without them an error renders as an empty search.
+                        "rows": [], "total": 0, "has_more": False})
+        resp.status_code = code
+        return resp
+    # render_template can itself fail (a broken base.html, a missing static file), and a 500
+    # handler that 500s is a blank page. Fall back to plain text rather than to nothing.
+    try:
+        return render_template("error.html", code=code, title=title, message=message), code
+    except Exception:
+        return Response("%d %s\n%s\n" % (code, title, message), status=code,
+                        mimetype="text/plain")
+
+
+@app.errorhandler(404)
+def _handle_404(_e):
+    return _error_response(
+        404, "Page not found",
+        "That link doesn't lead anywhere. It may have moved, or the address has a typo in it.")
+
+
+@app.errorhandler(500)
+def _handle_500(e):
+    return _error_response(
+        500, "Something broke on our side",
+        "That is our fault, not yours. Nothing you were doing was lost — try again, and if it "
+        "keeps happening the details are in the server log.", log=e)
 
 
 # --- company logo helpers (Google favicon by domain, with a letter-avatar fallback;
@@ -2347,7 +2441,14 @@ def login():
         if not db_down:
             if rec is not None:
                 _login_fails.setdefault(u, []).append(time.time())
-            flash("Wrong username or password.")
+            # NO flash() HERE. login.html already renders an inline error beside the password
+            # field, and it is the better of the two: it sits next to the inputs, and it carries
+            # role="alert", aria-invalid and aria-describedby on BOTH fields (deliberately both,
+            # so it cannot leak which half was wrong). The banner said the same thing in
+            # different words ~450px away, and inserting it pushed the card down so the form
+            # visibly jumped on submit. The flashes above this — "Too many sign-in attempts",
+            # "Couldn't reach the database", "That account has been disabled" — stay, because
+            # the template has no field to attach those to.
             return render_template("login.html", bad_login=True, username=u)
     return render_template("login.html", username=(u if request.method == "POST" else ""))
 
@@ -2496,7 +2597,7 @@ def _research_for(display):
     # record, so the miss path is the common one. A hit is still read live; only the ABSENCE is
     # remembered, and only for _RESEARCH_TTL, so a crawl that lands mid-window is picked up within
     # five minutes rather than never.
-    doms = tuple(d for d in (company_domain(display), _research_domain(display)) if d)
+    doms = tuple(d for d in (company_domain(display), _research_domain(display)[0]) if d)
     miss_at = _research_miss.get(doms)
     if miss_at is not None and time.time() - miss_at < _RESEARCH_TTL:
         doms = ()                       # known-absent and still fresh: skip both round trips
@@ -2563,13 +2664,26 @@ def _company_profile(display, key, rows, open_rows):
         research = {}
 
     # ---- what they hire for, from their own ads ----
+    # The same three exclusions /job's keyword panel makes, because this chip list is captioned
+    # "Ranked by how heavily this employer's own descriptions weight them" and was therefore
+    # ranking "applied materials" FIRST on Applied Materials' own page, alongside bare noise like
+    # "type", "target", "website" and "trend". A company's name is not a skill it hires for, and
+    # neither is its dental plan.
     skills, seen_urls = collections.Counter(), {r["url"] for r in open_rows}
+    skill_stop = set(_SKILL_STOP) | _KEYWORD_STOP | core.PERK_TERMS
+    try:
+        skill_stop.update(w for w in core.norm_company(display or "").split() if len(w) > 2)
+    except Exception:
+        pass
     for j in get_jobs():
         if j.get("url") not in seen_urls:
             continue
         a = job_analysis(j)
         for t, w in (a.get("weight") or {}).items():
-            if t in _SKILL_STOP or len(t) < 2:
+            low = (t or "").lower()
+            if low in skill_stop or len(low) < 2:
+                continue
+            if all(p in skill_stop for p in low.split()):
                 continue
             skills[t] += w
     tracks = collections.Counter(r.get("track") or "other" for r in open_rows)
@@ -2701,6 +2815,17 @@ def company():
                            # score order on this page only. app.js's filter memory covers the
                            # feed -> company path; this covers a cold load straight to /company.
                            prefs=_user_prefs(user),
+                           # The shared filter bar (_filterbar.html) reads these. /company used
+                           # to render only #q and #sort, so an employer with 500 openings had no
+                           # way to narrow them without leaving the page. _filter_rows already
+                           # runs over the company-narrowed rows in api_feed, so this is markup
+                           # and template context only — no new server behaviour.
+                           visa_tag_controls=_VISA_TAG_CONTROLS,
+                           default_min=0,          # start unfiltered: you came here for THIS
+                                                   # employer, not for your feed's match floor
+                           default_total=len(open_rows),
+                           role_groups=core.role_families_grouped(),
+                           role_counts=role_counts(), role_max=ROLE_PICK_MAX,
                            visa_labels=core.VISA_TAG_LABELS,
                            visa_tips=core.VISA_TAG_TIPS)
 
@@ -2744,8 +2869,23 @@ def _useful_terms(terms, company, jd, cap):
         the boilerplate text is a property of this posting rather than a blacklist to maintain,
         and it is what stops the page advising somebody to put "regarding criminal" on a résumé.
     """
-    stop = set(_SKILL_STOP) | _KEYWORD_STOP
+    # PERKS AND BENEFITS. text_halves below separates the LEGAL notice, which is a different
+    # thing: an EEO paragraph is boilerplate by shape, while a benefits section is ordinary prose
+    # sitting in the body, so the "in the notice and nowhere else" rule never touched it. That is
+    # why /job offered "retirement", "dental", "tuition" and "flexible time" as keywords worth
+    # adding to a résumé — the most visible way this panel can lose a reader's trust, because
+    # the error is obvious to them while the rest of it is not verifiable at a glance.
+    stop = set(_SKILL_STOP) | _KEYWORD_STOP | core.PERK_TERMS
     stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
+    # The company as the CORPUS spells it, not only as this row does. A row mislabelled "Amat"
+    # subtracted nothing from a description that opens "Applied Materials is a global leader",
+    # which is how the employer's own name came to be marked red under a legend reading "Red is
+    # one worth adding". canonical_url now folds the Workday casing that caused that split
+    # (see the note there), and this covers the rows already stored under the alias.
+    try:
+        stop.update(w for w in core.norm_company(company or "").split() if len(w) > 2)
+    except Exception:
+        pass
     try:
         body, boiler = jdrender.text_halves(jd or "")
     except Exception:
@@ -2993,12 +3133,40 @@ _RESEARCH_COOLDOWN = int(os.environ.get("RESEARCH_COOLDOWN", 6 * 3600))
 _RESEARCH_ON = (os.environ.get("RESEARCH_ON_DEMAND", "1") or "1").lower() not in ("0", "false", "no")
 
 
-def _research_domain(company):
+def _research_domain(company, url=None):
+    """(domain, verified) for company research.
+
+    ASK THE VERIFIED MAP FIRST. company_domain() consults company_domains.json — written by
+    scripts/build_logos.py, which judges every candidate domain on the employer's own words and
+    its actual pixels — and it also takes the registrable domain off the POSTING's own URL when
+    that URL is not a hiring platform. research.resolve_domain does neither: outside its ~35-name
+    allowlist it strips the punctuation out of the name, appends ".com", and hands back whatever
+    answers there.
+
+    That is how researching Actalent (the staffing firm) returned a Spanish athlete-representation
+    agency — actalent.com belongs to somebody else — and then cached it, shared it across the
+    team and fed it to the AI tailor as grounding for a user's application.
+
+    A name-mention check would NOT have caught that one: the wrong site says "ACTALENT" on it.
+    Only a source that was verified against something other than the name can. So the guess is
+    still available as a last resort, but it comes back flagged, and the crawl that follows has
+    to corroborate it.
+    """
     try:
         from resume_brain import research
-        return research.resolve_domain(company, "")
     except Exception:
-        return ""
+        return "", False
+    try:
+        dom = (company_domain(company, url) or "").strip().lower()
+        if dom:
+            return dom, True
+    except Exception:
+        pass
+    try:
+        dom, source = research.resolve_domain(company, "", with_source=True)
+        return dom, source in ("url", "map")
+    except Exception:
+        return "", False
 
 
 def _research_eligible(company):
@@ -3013,7 +3181,7 @@ def _research_eligible(company):
             return ""
     except Exception:
         return ""
-    dom = _research_domain(company)
+    dom, _verified = _research_domain(company)
     if not dom:
         return ""
     now = time.time()
@@ -3035,7 +3203,11 @@ def _research_crawl(domain, company):
     ok = False
     try:
         from resume_brain import research
-        pages = research.crawl_company(domain)
+        # verify= is the inverse of "we trust where this domain came from". An unverified guess
+        # has to prove the site is actually this employer's before anything is written to the
+        # SHARED cache; a verified one has already proved it.
+        _dom2, verified = _research_domain(company)
+        pages = research.crawl_company(domain, company_name=company, verify=not verified)
         if pages:
             rec = research.extract_company_knowledge(pages, company)
             rec["domain"] = domain
@@ -3076,7 +3248,7 @@ def _research_start(company):
 
 def _research_fragment(company):
     """The research block for `company`, as HTML, for both the page and the poll."""
-    dom = _research_domain(company)
+    dom, _verified = _research_domain(company)
     running = False
     with _research_lock:
         running = dom in _research_inflight
@@ -3312,12 +3484,18 @@ def api_action():
     """
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
-    status = data.get("status", "")
+    status = (data.get("status") or "").strip()
     via = data.get("via") or "api"
     if via not in _ACTION_VIA:
         via = "api"
     if not url:
         return {"ok": False, "error": "no url"}, 400
+    # `via` was whitelisted and `status` was not, which had it backwards: via lands in an
+    # analytics dimension, status decides whether a posting disappears from your feed. Rejected
+    # here as a 400 so the client sees a real error rather than db.set_user_status' ValueError
+    # arriving as a 500.
+    if status and status not in db.USER_STATUSES:
+        return {"ok": False, "error": "unknown status"}, 400
     user = session["user"]
     # Read the PREVIOUS status before the write. user_jobs is current-state-only with no
     # timestamp, so like -> hide -> unhide leaves one row or none; this from/to pair is the
@@ -3353,9 +3531,33 @@ def _ev_action(user, url, prev, status, via):
         pass
 
 
-@app.route("/reload")
+@app.route("/reload", methods=["POST"])
 @login_required
 def reload_jobs():
+    """Throw away every cache, globally, and re-read the corpus.
+
+    POST + admin, where this used to be a GET open to any signed-in account. Three costs, none
+    of which the caller pays:
+
+      * a full ~12 MB corpus re-read per hit, against a 5 GB/month egress budget;
+      * _scores_clear(), which deletes the on-disk score cache for EVERY user — the one the
+        comment at the top of this file measures the alternative to at "5-15 SECONDS of CPU"
+        per user per rebuild, and a 13.8 s LCP on the live site;
+      * _account_cache and the rest, so the next request from everybody is a cold one.
+
+    As a GET it was also CSRF-exempt by design, so a single
+    <img src="https://stemjobs1.astrochakra.co/reload"> on any page a logged-in user happened to
+    visit triggered the whole thing. The admin ?refresh=1 links already had the right shape;
+    this route did not. CSRF now comes from the one before_request hook, which covers every
+    non-GET by default.
+
+    The admin test is INLINE rather than an @admin_required decorator only because that
+    decorator is defined further down this file and a decorator is evaluated at import time —
+    the module would not load. The check itself is the same one it makes.
+    """
+    if not is_admin():
+        flash("Reloading the shared job cache is admin-only.", "error")
+        return redirect(url_for("feed"))
     get_jobs(force=True)
     _score_cache.clear()
     _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
@@ -3428,13 +3630,21 @@ def api_ev():
     if user:
         try:
             body = request.get_json(silent=True) or {}
-            sid = getattr(g, "sid", "")      # server-side, never taken from the request body
-            for e in (body.get("ev") or [])[:40]:
-                if not isinstance(e, dict):
-                    continue
-                analytics.emit(user, sid, str(e.get("e") or ""), **(e.get("p") or {}))
         except Exception:
-            pass
+            body = {}
+        sid = getattr(g, "sid", "")          # server-side, never taken from the request body
+        # PER EVENT, not per batch. The try used to wrap the whole loop, so one malformed event
+        # took the rest of the batch with it — and malformed is easy to reach by accident: a
+        # props key colliding with a named parameter ("username", "sid", "event") raises
+        # TypeError inside emit, and events 5 through 40 were then lost with it. A beacon sends
+        # a batch precisely because the events are independent; the error handling should be too.
+        for e in (body.get("ev") or [])[:40]:
+            if not isinstance(e, dict):
+                continue
+            try:
+                analytics.emit(user, sid, str(e.get("e") or ""), **(e.get("p") or {}))
+            except Exception:
+                continue
     return ("", 204)
 
 
@@ -3487,7 +3697,12 @@ def _accounts(force=False):
 
 _ACCOUNT_TTL = 60
 _ACCOUNT_CACHE_MAX = 2000
-_account_cache = {}          # username -> (row or None, fetched_at)
+# ORDERED, AND EVICTED OLDEST-FIRST. It used to be a plain dict emptied wholesale at the cap,
+# which handed an unauthenticated caller a way to charge every real user a database read: spray
+# 2000 junk usernames at the CORS-open /api/ext/* routes and every genuine cached row goes with
+# them. Evicting one entry at a time bounds the worker exactly as well and cannot be aimed at
+# somebody else's entry.
+_account_cache = collections.OrderedDict()   # username -> (row or None, fetched_at)
 
 
 def _account_state(username):
@@ -3507,6 +3722,7 @@ def _account_state(username):
     now = time.time()
     hit = _account_cache.get(username)
     if hit is not None and now - hit[1] <= _ACCOUNT_TTL:
+        _account_cache.move_to_end(username)   # true LRU: a user in active use is never evicted
         return hit[0]
     row, ok = None, False
     for cols in db._USER_COLS:          # widest-first, the same ladder list_users falls down
@@ -3520,9 +3736,10 @@ def _account_state(username):
         # read as "this account was deleted" and sign somebody out of their own app. {} when we
         # have never had an answer at all, which callers treat as "can't tell" and fail open.
         return hit[0] if hit is not None else {}
-    if len(_account_cache) >= _ACCOUNT_CACHE_MAX:
-        _account_cache.clear()          # bounds a long-lived worker; a rebuild is one row each
+    while len(_account_cache) >= _ACCOUNT_CACHE_MAX:
+        _account_cache.popitem(last=False)   # oldest out, one at a time; never the whole cache
     _account_cache[username] = (row, now)
+    _account_cache.move_to_end(username)
     return row
 
 
@@ -3547,6 +3764,66 @@ def _sole_user():
     m = _accounts()
     names = list(m or {})
     return names[0] if len(names) == 1 else ""
+
+
+@app.template_filter("ago")
+def _ago_filter(value):
+    """An ISO date -> the same relative wording the feed cards use ("3w ago").
+
+    ONE presentation of one kind of fact. The app showed three: the feed card said "3w ago",
+    /job's header said "Posted 2026-07-28", and an /applications row said "applied 2026-08-24"
+    directly above a date input reading "08/24/2026" — ISO and US-numeric in the same row of the
+    same card. app.js::formatDates() already solved this for the feed and nothing equivalent ran
+    on the other two pages, because they are server-rendered and it is a client function.
+
+    Mirrors formatDates' thresholds deliberately: today / Nd / Nw / Nmo, then the ISO date once
+    a year has passed and "2 years ago" would be less useful than the date itself. Anything it
+    cannot parse comes back untouched, which is the right answer for a string we did not write.
+    """
+    s = str(value or "")[:10]
+    try:
+        d = datetime.date.fromisoformat(s)
+    except (TypeError, ValueError):
+        return s
+    days = (datetime.date.today() - d).days
+    if days < 0:
+        return s                                  # a future date is data, not recency
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    if days < 7:
+        return "%dd ago" % days
+    if days < 30:
+        return "%dw ago" % (days // 7)
+    if days < 365:
+        return "%dmo ago" % (days // 30)
+    return s
+
+
+@app.template_global()
+def sponsor_data_through():
+    """The last fiscal year our sponsorship data actually covers, e.g. "FY2023".
+
+    Every sponsorship figure in the product — the "~1,661 H-1B" chips, "top sponsor", the
+    company modal's year chart, the sponsor-rank sort — is computed from a window that closed
+    some time ago: sponsor_years.json runs FY2009 to FY2023, and today is well past that. The
+    modal has always been honest about the range it draws; the card chip was not, and "top
+    sponsor" on a 2026 feed reads as a claim about now.
+
+    DERIVED FROM THE DATA, not hardcoded, so refreshing sponsor_years.json from the USCIS
+    Employer Data Hub updates every label that quotes it without another edit. Falls back to the
+    shipped vintage rather than to a blank, because an unlabelled number is the defect.
+    """
+    try:
+        years = set()
+        for per_year in (sponsor_years() or {}).values():
+            years.update(int(y) for y in (per_year or {}))
+        if years:
+            return "FY%d" % max(years)
+    except Exception:
+        pass
+    return "FY2023"
 
 
 @app.template_global()
@@ -5214,7 +5491,10 @@ def action():
         flash("That form expired. Reload the page and try again.")
         return redirect(request.referrer or url_for("feed"))
     url = request.form.get("url", "")
-    status = request.form.get("status", "")          # liked|hidden|applied|'' (clear)
+    status = (request.form.get("status") or "").strip()   # liked|hidden|applied|'' (clear)
+    if status and status not in db.USER_STATUSES:         # the twin of the check in api_action
+        flash("That isn't an action this app knows about.", "error")
+        return redirect(request.referrer or url_for("feed"))
     via = "job" if request.form.get("via") == "job" else "form"
     user = session["user"]
     try:
@@ -5259,8 +5539,14 @@ def save_active_resume(user, text, rid=None):
             else:
                 db.set_user_resume(user, text)            # pre-migration: cache only, still usable
         _resume_cache[user] = (text, time.time())         # not the cookie (size cap)
-        _profile_cache.pop(user, None)
-        _score_cache.clear()
+        # THIS USER, not everybody. A bare _score_cache.clear() here reclaimed nothing and cost
+        # a great deal: the cache is keyed on (username, md5(resume)), so a new résumé is
+        # already a new key and the stale entry is unreachable the moment the new one is
+        # written. Clearing every OTHER user invalidated entries that were still correct and
+        # charged each of those users a full corpus rebuild (~1 s apiece) on their next page —
+        # measured at 12.2 s of worker CPU for one résumé save. _bust_profile documents exactly
+        # this and is the per-user version; it just was not called from here.
+        _bust_profile(user)
         return True
     except Exception:
         return False
@@ -5279,21 +5565,95 @@ def resume():
     return redirect(url_for("brain_home"))
 
 
+# ----------------------------- sealing a secret into the session -----------------------------
+# SIGNING IS NOT ENCRYPTION, and this app spent a while acting as though it were. Flask's default
+# SecureCookieSession signs its payload with itsdangerous so a client cannot TAMPER with it; the
+# contents are plain base64 JSON that anyone holding the cookie can read with no secret at all.
+# The user's own Gemini/Claude API key sat in that payload, and the UI reassured them it was safe
+# because it was "never written to the database" — the wrong reassurance, since the database is
+# server-side and access-controlled while the cookie jar is a file on their own disk, readable by
+# any local malware, backup, profile sync or forensic read for the full 30 days. HttpOnly and
+# Secure are both on, both good, and both irrelevant to confidentiality at rest.
+#
+# So the value is ENCRYPTED before it goes in. Encrypt-then-MAC with two keys derived from
+# app.secret_key: a keystream from HMAC-SHA256 in counter mode, then a tag over the ciphertext.
+#
+# STDLIB ONLY, deliberately. Fernet from `cryptography` would be the obvious choice and is
+# installed on this laptop — but it is NOT in requirements-cpanel.txt, and the production box
+# installs only what that file lists, so reaching for it would mean the AI key silently stopped
+# working on the one host that matters. This needs nothing that is not already imported above.
+def _seal_keys(purpose):
+    secret = str(app.secret_key).encode()
+    return (hmac.new(secret, b"seal-enc|" + purpose, hashlib.sha256).digest(),
+            hmac.new(secret, b"seal-mac|" + purpose, hashlib.sha256).digest())
+
+
+def _seal_stream(enc_key, nonce, n):
+    out = bytearray()
+    counter = 0
+    while len(out) < n:
+        out += hmac.new(enc_key, nonce + counter.to_bytes(4, "big"), hashlib.sha256).digest()
+        counter += 1
+    return bytes(out[:n])
+
+
+def seal(value, purpose=b"ai-key"):
+    """A short string -> an opaque base64url blob only this server can read."""
+    if not value:
+        return ""
+    enc_key, mac_key = _seal_keys(purpose)
+    raw = value.encode("utf-8")
+    nonce = secrets.token_bytes(16)
+    ct = bytes(a ^ b for a, b in zip(raw, _seal_stream(enc_key, nonce, len(raw))))
+    tag = hmac.new(mac_key, nonce + ct, hashlib.sha256).digest()[:16]
+    return base64.urlsafe_b64encode(nonce + ct + tag).decode("ascii")
+
+
+def unseal(blob, purpose=b"ai-key"):
+    """The reverse. Empty string on anything that does not verify — a rotated app secret, a
+    truncated cookie, a tampered blob. Never raises: the caller's fallback is "no key
+    configured", which is a working page, not a 500."""
+    if not blob:
+        return ""
+    try:
+        raw = base64.urlsafe_b64decode(blob.encode("ascii"))
+        if len(raw) < 32:
+            return ""
+        nonce, ct, tag = raw[:16], raw[16:-16], raw[-16:]
+        enc_key, mac_key = _seal_keys(purpose)
+        if not hmac.compare_digest(
+                hmac.new(mac_key, nonce + ct, hashlib.sha256).digest()[:16], tag):
+            return ""
+        return bytes(a ^ b for a, b in zip(
+            ct, _seal_stream(enc_key, nonce, len(ct)))).decode("utf-8")
+    except Exception:
+        return ""
+
+
 # ----------------------------- tailor (keyword gaps + optional AI) -----------------------------
 def _ai_key_for(_user=None):
     """The AI key to use. Precedence: server ANTHROPIC_API_KEY (Claude — preferred when configured,
-    since it's the deliberate server config and Gemini quotas run out), then a per-user Gemini key
-    saved in this session (signed HttpOnly cookie, ~30 days), then GEMINI_API_KEY from the env. The
-    key's prefix (sk-ant-… vs AIza…) selects the provider downstream in resume_brain/ai.py."""
+    since it's the deliberate server config and Gemini quotas run out), then a per-user key SEALED
+    into this session (encrypted, HttpOnly, ~30 days), then GEMINI_API_KEY from the env. The key's
+    prefix (sk-ant-… vs AIza…) selects the provider downstream in resume_brain/ai.py."""
+    sess_key = ""
     try:
-        sess_key = session.get("gemini_key")
+        sess_key = unseal(session.get("ai_key_sealed") or "")
+        if not sess_key and session.get("gemini_key"):
+            # A session issued before this was sealed. Re-seal it in place rather than logging
+            # somebody out of their own key, and drop the readable copy on the way past.
+            sess_key = session.pop("gemini_key") or ""
+            if sess_key:
+                session["ai_key_sealed"] = seal(sess_key)
     except Exception:
-        sess_key = None                                # called outside a request context (e.g. a test/script)
+        sess_key = ""                                  # outside a request context (a test/script)
     return os.environ.get("ANTHROPIC_API_KEY") or sess_key or os.environ.get("GEMINI_API_KEY")
 
 
 def _save_ai_key(key):
-    session["gemini_key"] = key
+    """Encrypted, not merely signed — see seal() for why that distinction was worth a finding."""
+    session.pop("gemini_key", None)
+    session["ai_key_sealed"] = seal(key)
     session.permanent = True       # ride the 30-day login cookie
 
 
@@ -5583,9 +5943,21 @@ def _pdf_response(text, user, filename):
         return _docx_response(text, "", filename)
 
 
+# A PDF build spawns a Tectonic process that build_pdf allows up to 180 SECONDS, so a handful of
+# concurrent presses is the whole worker pool. Every other expensive route here is limited; this
+# one was not, and it is a plain cookie-authenticated POST anyone signed in can repeat.
+_PDF_TIERS = ((3, 60), (30, 3600))
+
+
 @app.route("/brain/export/resume.pdf", methods=["POST"])
 @login_required
 def brain_export_resume_pdf():
+    hit = _rate_hit(("pdf", session["user"]), _PDF_TIERS)
+    if hit:
+        retry, cap, window = hit
+        flash("That's %d PDF builds in %ds. Each one runs a LaTeX compile, so give it %d s."
+              % (cap, window, retry), "error")
+        return redirect(request.referrer or url_for("brain_home"))
     return _pdf_response(request.form.get("content", ""), session["user"], "Tailored_Resume")
 
 
@@ -5720,7 +6092,12 @@ def brain_resume_file(fid, name=None):
         body = base64.b64decode(rec["b64"])
     except Exception:
         return Response("That stored file could not be decoded.", status=404, mimetype="text/plain")
-    fname = (rec.get("filename") or ("resume." + (rec.get("kind") or "bin"))).replace('"', "")
+    # Quotes AND control characters. Werkzeug rejects a header carrying a bare CR/LF and 500s
+    # rather than splitting the response, so this was a self-inflicted error page rather than
+    # response splitting — but the filename is user-supplied, and a response header is the wrong
+    # place to discover that. Strip everything that cannot legally appear in one.
+    fname = re.sub(r'[\r\n"\x00-\x1f\x7f]', "",
+                   rec.get("filename") or ("resume." + (rec.get("kind") or "bin"))) or "resume.bin"
     # inline, not attachment: the Original tab embeds this in an <iframe> to show the real document.
     #
     # BOTH framing headers are overridden here, and that is the whole reason the preview was blank.
@@ -6106,6 +6483,15 @@ def add_board():
     if request.method == "POST":
         url = (request.form.get("url") or "").strip()
         name = (request.form.get("name") or "").strip()
+        # BEFORE anything is detected or stored. Every sibling write path already does this —
+        # ext_save runs is_http_url + canonical_url, bulk_jobs drops non-http rows — but the
+        # apply-direct branch below took the raw form value and handed it to db.add_board, and
+        # /companies then renders it as href="…" for every user. CSP currently blocks a
+        # javascript: navigation, so this was defence in depth rather than live XSS; it was
+        # still the one input path in the app that skipped a validator all its neighbours apply.
+        if url and not scraper.is_http_url(url):
+            result = ("err", "That needs to be an http:// or https:// link to a careers page.")
+            url = ""                    # nothing below runs; the page still lists your boards
         if url:
             det = (scraper.detect_board(url) or scraper.detect_paylocity(url)
                    or scraper.detect_jibe(url)
@@ -6127,7 +6513,11 @@ def add_board():
                               "listed as apply-direct — which needs a company name. Add one "
                               "and submit again.")
                 else:
-                    ok, msg = db.add_board(url, "direct", name, added_by=session["user"])
+                    # Same normalization every detect_* branch already returns, so an
+                    # apply-direct row is stored in the one shape the rest of the app expects
+                    # rather than whatever was pasted in.
+                    ok, msg = db.add_board(scraper.canonical_url(url), "direct", name,
+                                           added_by=session["user"])
                     if ok:
                         result = ("ok", "Added %s as apply-direct. It will show in Companies "
                                   "with your link; the scraper won't read it." % name)
@@ -6181,10 +6571,36 @@ def add_board():
 @app.route("/board/delete", methods=["POST"])
 @login_required
 def board_delete():
+    """Remove a board YOU added — or anything, if you are an admin.
+
+    `boards` is a SHARED table: one row removes an employer from the next scrape and from
+    /companies, for everybody. This route had no ownership check at all, so any account could
+    delete any board. The bare `except: pass` under it meant the redirect looked identical
+    whether the delete worked, hit a database error, or named a row that does not exist — so a
+    failure was indistinguishable from a success.
+    """
+    url = (request.form.get("url") or "").strip()
+    if not url:
+        flash("No board named.", "error")
+        return redirect(url_for("add_board"))
     try:
-        db.delete_board(request.form.get("url", ""))
+        rows = db.list_boards() or []
     except Exception:
-        pass
+        flash("Couldn't reach the database, so nothing was deleted.", "error")
+        return redirect(url_for("add_board"))
+    row = next((b for b in rows if (b.get("url") or "") == url), None)
+    if row is None:
+        flash("That board is not in the list.", "error")
+        return redirect(url_for("add_board"))
+    if not is_admin() and (row.get("added_by") or "") != session["user"]:
+        flash("Someone else added that board, so only an admin can remove it.", "error")
+        return redirect(url_for("add_board"))
+    try:
+        db.delete_board(url)
+    except Exception as e:
+        flash("Delete failed: %s" % e, "error")
+        return redirect(url_for("add_board"))
+    flash("Removed %s." % (row.get("company") or url), "ok")
     return redirect(url_for("add_board"))
 
 
@@ -6276,6 +6692,18 @@ def application_delete():
     return redirect(url_for("applications"))
 
 
+# Excel and Sheets execute a cell that opens with any of these, so a scraped job title of
+# `=HYPERLINK("http://evil","Click")` runs the moment the export is opened. `company` and `title`
+# come from job boards (and from /api/ext/bulk_jobs, which any token holder can write); `notes` is
+# free user text. None of it is ours, and an export is exactly where untrusted text becomes code.
+_CSV_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(v):
+    s = "" if v is None else str(v)
+    return ("'" + s) if s.startswith(_CSV_FORMULA_LEAD) else s
+
+
 @app.route("/applications.csv")
 @login_required
 def applications_csv():
@@ -6289,8 +6717,9 @@ def applications_csv():
     w = csv.writer(buf)
     w.writerow(["company", "title", "status", "applied_date", "url", "notes"])
     for a in apps:
-        w.writerow([a.get("company", ""), a.get("title", ""), a.get("status", ""),
-                    a.get("applied_date", "") or "", a.get("url", ""), a.get("notes", "")])
+        w.writerow([_csv_cell(a.get("company", "")), _csv_cell(a.get("title", "")),
+                    _csv_cell(a.get("status", "")), _csv_cell(a.get("applied_date", "") or ""),
+                    _csv_cell(a.get("url", "")), _csv_cell(a.get("notes", ""))])
     return Response(buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=applications.csv"})
 
@@ -6337,21 +6766,98 @@ def _ext_token(username, epoch=None):
     return "%s:%s" % (username, sig)
 
 
+# What a derived token can look like at all: <username>:<32 lowercase hex>. Anything else is
+# rejected on shape, before any comparison and long before any query.
+_EXT_TOKEN_RE = re.compile(r"^([^\s:]{1,64}):([0-9a-f]{32})$")
+
+# Callers whose tokens keep failing, so a sprayer cannot buy an unbounded number of epoch
+# lookups. See _ext_user for why this exists and why a real client never reaches it.
+_EXT_BAD = collections.OrderedDict()      # rate key -> [failures, window_start]
+_EXT_BAD_MAX_KEYS = 2000
+_EXT_BAD_ALLOW = 5
+_EXT_BAD_WINDOW = 900
+
+
+def _ext_epoch_lookup_allowed():
+    """True while this caller may still spend a DATABASE read on an unverified token.
+
+    Only reached by a token that failed the epoch-0 HMAC, which for a real client happens
+    exactly never: a client either holds a valid epoch-0 token (verified with no query) or a
+    valid rotated one (verified with one query, which then succeeds and is not counted here).
+    So the budget is spent only by guesses.
+    """
+    try:
+        key = _ext_rate_key()
+    except Exception:
+        return True                        # outside a request context (a test, a script)
+    now = time.time()
+    rec = _EXT_BAD.get(key)
+    if rec is None or now - rec[1] > _EXT_BAD_WINDOW:
+        rec = [0, now]
+    if rec[0] >= _EXT_BAD_ALLOW:
+        _EXT_BAD[key] = rec
+        _EXT_BAD.move_to_end(key)
+        return False
+    return True
+
+
+def _ext_note_bad_token():
+    try:
+        key = _ext_rate_key()
+    except Exception:
+        return
+    now = time.time()
+    rec = _EXT_BAD.get(key)
+    if rec is None or now - rec[1] > _EXT_BAD_WINDOW:
+        rec = [0, now]
+    rec[0] += 1
+    while len(_EXT_BAD) >= _EXT_BAD_MAX_KEYS:
+        _EXT_BAD.popitem(last=False)
+    _EXT_BAD[key] = rec
+    _EXT_BAD.move_to_end(key)
+
+
 def _ext_user(token):
     """Username for a valid extension token, else None.
 
-    The HMAC is verified FIRST and the account state only afterwards, so an unauthenticated
-    caller spraying tokens at the CORS-open /api/ext/* routes can never make us touch the
-    account cache — only a token that already proves knowledge of the secret gets that far.
+    THE HMAC IS VERIFIED BEFORE ANY DATABASE READ. That is what the docstring here has always
+    claimed and what the code did not do: it called _ext_token(username), which resolves the
+    user's token_epoch through _account_state, which is a query. So five invalid tokens for five
+    invented usernames were five lookups — unauthenticated, on CORS-open routes, and on a shared
+    host that has been suspended for load once already.
+
+    Three gates, cheapest first:
+
+      1. SHAPE. <username>:<32 hex>, bounded length. Costs a regex.
+      2. EPOCH 0, which is every account that has never rotated its token and therefore almost
+         all of them. _ext_token(username, epoch=0) needs no state at all, so a wrong signature
+         dies here having touched nothing.
+      3. Only a token that survived neither — i.e. one claiming to belong to a user who HAS
+         rotated — is worth a query, and only while that caller still has failure budget. A real
+         rotated client spends none of it, because its lookup succeeds.
     """
-    token = (token or "").strip()
-    if ":" not in token:
+    m = _EXT_TOKEN_RE.match((token or "").strip())
+    if not m:
         return None
-    username = token.rsplit(":", 1)[0]
-    if not (username and hmac.compare_digest(_ext_token(username), token)):
+    token, username = m.group(0), m.group(1)
+    if hmac.compare_digest(_ext_token(username, epoch=0), token):
+        st = _account_state(username)
+        if st is None or st.get("disabled_at"):
+            return None
+        # An epoch-0 signature from a user who has since rotated is a REVOKED token, which is
+        # the whole point of the epoch. Check it here rather than trusting the match above.
+        try:
+            if int((st or {}).get("token_epoch") or 0):
+                return None
+        except (TypeError, ValueError):
+            return None
+        return username
+    if not _ext_epoch_lookup_allowed():
         return None
     st = _account_state(username)
-    if st is None or st.get("disabled_at"):
+    if st is None or st.get("disabled_at") or not hmac.compare_digest(
+            _ext_token(username, epoch=(st or {}).get("token_epoch") or 0), token):
+        _ext_note_bad_token()
         return None
     return username
 
@@ -6424,8 +6930,14 @@ def _require_csrf():
 #
 # Limits are per (class, token) and deliberately generous for normal use — the batch filler
 # legitimately walks 50 jobs in a sitting. They bite on the abuse shapes, not on real work.
-_ext_hits = {}                       # (class, key) -> [timestamps]
-_EXT_MAX_KEYS = 5000                 # bound the dict; cleared wholesale when exceeded
+# ONE BUCKET PER NAMESPACE, and each bounded on its own. This was a single dict shared by the
+# extension limiter and the feed limiter and emptied wholesale at the cap, so 5001 unique
+# ?token= values sprayed at the CORS-open /api/ext/* routes reset every logged-in user's FEED
+# limiter as a side effect — an anonymous caller disabling the brake that protects the worker
+# pool. Separate dicts mean one namespace can never evict another's, and oldest-first eviction
+# means a caller cannot aim the eviction at anybody in particular.
+_ext_hits = collections.defaultdict(collections.OrderedDict)   # ns -> {key: [timestamps]}
+_EXT_MAX_KEYS = 5000                 # per namespace
 
 
 def _rate_hit(key, tiers):
@@ -6440,26 +6952,36 @@ def _rate_hit(key, tiers):
     push its own retry time further out forever.
     """
     now = time.time()
-    if len(_ext_hits) > _EXT_MAX_KEYS:
-        _ext_hits.clear()
+    ns, who = key
+    bucket = _ext_hits[ns]
+    while len(bucket) > _EXT_MAX_KEYS:
+        bucket.popitem(last=False)       # oldest key out, one at a time
     longest = max(w for _, w in tiers)
-    hist = [t for t in _ext_hits.get(key, ()) if now - t < longest]
+    hist = [t for t in bucket.get(who, ()) if now - t < longest]
     for cap, window in tiers:
         recent = [t for t in hist if now - t < window]
         if len(recent) >= cap:
-            _ext_hits[key] = hist
+            bucket[who] = hist
+            bucket.move_to_end(who)
             return int(window - (now - recent[0])) + 1, cap, window
     hist.append(now)
-    _ext_hits[key] = hist
+    bucket[who] = hist
+    bucket.move_to_end(who)
     return None
+# TIERS, PLURAL — the thing _rate_hit's own docstring says a limiter must have, and the thing
+# this one did not. A lone 40-per-3600s permits all 40 landing inside one second, so the AI
+# class accepted forty runs that each spend the operator's Anthropic key and spawn a LaTeX
+# process, simultaneously; the default class accepted nine hundred. The burst tiers below are
+# sized from what the extension actually does — the batch filler walks a job at a time behind a
+# network round trip, so it cannot reach even the smallest of them.
 _EXT_CLASSES = (
-    # (path suffixes, calls, window seconds, label)
-    (("tailor", "answer", "vision"), 40, 3600,
+    # (path suffixes, tiers, label)
+    (("tailor", "answer", "vision"), ((3, 20), (40, 3600)),
      "AI calls — these spend the server's API keys, and tailor also spawns a LaTeX process"),
-    (("bulk_jobs", "jds", "debug", "detect_board"), 120, 3600,
+    (("bulk_jobs", "jds", "debug", "detect_board"), ((10, 20), (120, 3600)),
      "bulk writes into shared tables and the unrotated debug log"),
 )
-_EXT_DEFAULT = (900, 3600, "extension API")
+_EXT_DEFAULT = (((30, 10), (900, 3600)), "extension API")
 
 
 def _ext_rate_key():
@@ -6482,16 +7004,20 @@ def _ext_rate_limit():
         return None                  # CORS preflight carries no credentials and does no work
     from flask import jsonify
     leaf = request.path.rsplit("/", 1)[-1]
-    cap, window, label = _EXT_DEFAULT
-    for names, c, w, lbl in _EXT_CLASSES:
+    tiers, label = _EXT_DEFAULT
+    for names, tl, lbl in _EXT_CLASSES:
         if leaf in names:
-            cap, window, label = c, w, lbl
+            tiers, label = tl, lbl
             break
-    hit = _rate_hit((label, _ext_rate_key()), ((cap, window),))
+    hit = _rate_hit((label, _ext_rate_key()), tiers)
     if hit:
-        retry = hit[0]
-        resp = jsonify({"ok": False, "error": "Rate limit reached for %s. Try again in %d min."
-                                              % (label, max(retry // 60, 1))})
+        retry, cap, window = hit
+        # Say which tier bit and in the unit it happened in. With a burst tier in play,
+        # "try again in 1 min" for a 20-second window was both wrong and needlessly alarming.
+        wait = ("%d min" % max(retry // 60, 1)) if retry >= 60 else ("%d s" % max(retry, 1))
+        resp = jsonify({"ok": False,
+                        "error": "Rate limit reached for %s (%d in %ds). Try again in %s."
+                                 % (label, cap, window, wait)})
         resp.status_code = 429
         resp.headers["Retry-After"] = str(retry)
         return _cors(resp)           # CORS-open route: the browser must be able to READ the 429
@@ -6577,6 +7103,67 @@ def profile_tracking():
     analytics.set_optout(user, off)          # take effect now, not in five minutes
     flash("Usage recording is now %s for your account." % ("off" if off else "on")
           if ok else "Couldn't save that: " + msg[:120])
+    return redirect(url_for("profile"))
+
+
+# Rate-limited like the login route, and for the same reason: the CURRENT password is checked
+# here, so an unattended session is otherwise an offline-free oracle for guessing it.
+_PWCHANGE_TIERS = ((5, 300), (20, 3600))
+
+
+@app.route("/profile/password", methods=["POST"])
+@login_required
+def profile_password():
+    """Change your OWN password.
+
+    The only password route in this app was /admin/user/password, so a user could not rotate
+    their own credential after sharing it, typing it into the wrong window, or exposing it — and
+    a user who forgot it was locked out until an admin intervened out of band, which with a
+    single admin is a hard dependency on one person. It sat oddly beside /profile/revoke_token,
+    whose reasoning applies verbatim: "Needing an admin to rotate a credential you leaked
+    yourself is the kind of friction that means it doesn't get done."
+
+    Forgot-password is still absent and needs an email sender this app does not have. An
+    admin-issued reset remains the path for that; this covers everything short of it.
+    """
+    if not _check_csrf():
+        flash("That form expired. Reload and try again.", "error")
+        return redirect(url_for("profile"))
+    user = session["user"]
+    hit = _rate_hit(("pwchange", user), _PWCHANGE_TIERS)
+    if hit:
+        flash("Too many password attempts. Wait a few minutes and try again.", "error")
+        return redirect(url_for("profile"))
+    cur = request.form.get("current_password") or ""
+    new = request.form.get("new_password") or ""
+    again = request.form.get("confirm_password") or ""
+    try:
+        rec = db.get_user(user)
+    except Exception:
+        flash("Couldn't reach the database. Try again.", "error")
+        return redirect(url_for("profile"))
+    if not (rec and auth.verify_password(cur, rec.get("password_hash", ""))):
+        flash("That isn't your current password.", "error")
+        return redirect(url_for("profile"))
+    if new != again:
+        flash("The two new passwords don't match.", "error")
+        return redirect(url_for("profile"))
+    problem = auth.password_problem(new)
+    if problem:
+        flash(problem, "error")
+        return redirect(url_for("profile"))
+    if new == cur:
+        flash("That is the password you already have.", "error")
+        return redirect(url_for("profile"))
+    try:
+        db.set_user_password(user, auth.hash_password(new))
+    except Exception as e:
+        flash("Couldn't change your password: %s" % str(e)[:120], "error")
+        return redirect(url_for("profile"))
+    # The session stays signed in — you just proved you are you. The résumé cache is dropped for
+    # the same reason the admin route drops it: it was populated at sign-in against the old login.
+    _resume_cache.pop(user, None)
+    flash("Password changed.", "ok")
     return redirect(url_for("profile"))
 
 
@@ -7669,9 +8256,23 @@ def ext_debug():
            "company": (data.get("company") or "")[:120], "status": data.get("status", ""),
            "reason": (data.get("reason") or "")[:300], "ai": (data.get("ai") or "")[:80],
            "fields": (data.get("fields") or [])[:40]}
+    # BOUND THE RECORD, NOT THE JSON. This used to truncate the serialised object at 9000
+    # characters, which produces a line no parser can read — and `fields` carries up to 40 form
+    # descriptors, so records really do exceed it. Every oversized entry silently corrupted the
+    # log this endpoint exists to produce. Drop whole fields instead, and record that we did.
+    line = json.dumps(rec)
+    while len(line) > 9000 and rec["fields"]:
+        rec["fields"] = rec["fields"][:len(rec["fields"]) // 2]
+        rec["fields_truncated"] = True
+        line = json.dumps(rec)
+    if len(line) > 9000:                 # nothing left to drop: the scalars alone are too big
+        for k in ("reason", "url", "company", "ai"):
+            rec[k] = (rec.get(k) or "")[:60]
+        rec["fields_truncated"] = True
+        line = json.dumps(rec)
     try:
         with open("ext_debug_log.jsonl", "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec)[:9000] + "\n")
+            fh.write(line + "\n")
     except Exception:
         pass
     return _cors(jsonify({"ok": True}))
