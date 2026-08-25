@@ -34,3 +34,10 @@
 # core.autocrlf hands it back CRLF and the next run reports the whole file rewritten.
 "JobMatch Scraper/logo_harvest.json" text eol=lf linguist-generated=true -diff
 "JobMatch Scraper/wikidata_classes.json" text eol=lf linguist-generated=true -diff
+
+# Shell scripts. THE eol=lf IS LOAD-BEARING, and there was no rule here at all until
+# 2026-08-25. core.autocrlf=true gave bin/cron_scrape.sh a CRLF working copy, and a CRLF shell
+# script on Linux fails on a stray carriage return before it executes a single line. Until this
+# rule existed, every hand-deploy of that file had to be routed through `git show HEAD:...` to
+# get usable bytes -- a trap that stays disarmed only while whoever is deploying remembers it.
+*.sh text eol=lf
