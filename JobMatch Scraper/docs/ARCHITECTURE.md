@@ -49,8 +49,8 @@ flowchart TB
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
-    S["<b>scraper/__init__.py</b><br/>8,831 lines · 38 ATS adapters<br/>1,192 boards"]
-    J["score_jobs.py · 1,986 lines"]
+    S["<b>scraper/__init__.py</b><br/>8,886 lines · 38 ATS adapters<br/>1,192 boards"]
+    J["score_jobs.py · 2,054 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
@@ -109,42 +109,42 @@ flowchart TB
   JD["fill_missing_jds()<br/><i>descriptions bought before the gates</i>"]
   SRC --> JD
   G0{"already known"}
-  D0["already known<br/><i>:8604</i>"]
+  D0["already known<br/><i>:8659</i>"]
   JD --> G0
   G0 -->|dropped| D0
   class D0 trap
   G1{"blocked company"}
-  D1["blocked company<br/><i>:8610</i>"]
+  D1["blocked company<br/><i>:8665</i>"]
   G0 --> G1
   G1 -->|dropped| D1
   class D1 trap
   G2{"off-target function title"}
-  D2["off-target function title<br/><i>:8632</i>"]
+  D2["off-target function title<br/><i>:8687</i>"]
   G1 --> G2
   G2 -->|dropped| D2
   class D2 trap
   G3{"no matching role keyword"}
-  D3["no matching role keyword<br/><i>:8633</i>"]
+  D3["no matching role keyword<br/><i>:8688</i>"]
   G2 --> G3
   G3 -->|dropped| D3
   class D3 trap
   G4{"non-US location"}
-  D4["non-US location<br/><i>:8642</i>"]
+  D4["non-US location<br/><i>:8697</i>"]
   G3 --> G4
   G4 -->|dropped| D4
   class D4 trap
   G5{"posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)"}
-  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:8657</i>"]
+  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:8712</i>"]
   G4 --> G5
   G5 -->|dropped| D5
   class D5 trap
   G6{"no federal sponsor record (aggregator)"}
-  D6["no federal sponsor record (aggregator)<br/><i>:8678</i>"]
+  D6["no federal sponsor record (aggregator)<br/><i>:8733</i>"]
   G5 --> G6
   G6 -->|dropped| D6
   class D6 trap
   G7{"aggregator copy of a job we hold"}
-  D7["aggregator copy of a job we hold<br/><i>:8694</i>"]
+  D7["aggregator copy of a job we hold<br/><i>:8749</i>"]
   G6 --> G7
   G7 -->|dropped| D7
   class D7 trap
