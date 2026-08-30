@@ -67,8 +67,13 @@ def main():
                     help="how many thin hosts to list (they are the extractor to-do list)")
     args = ap.parse_args()
 
-    rows = db.load_jobs(cols="url")
+    # jd_terms as well as url, and that second column is the difference between a number and a
+    # guess. It holds core.pack_analyzed's output, whose "n" flag IS the feed's own thin verdict,
+    # so reading it here measures what the SITE does with each row rather than what this machine
+    # happens to have cached. ~18 MB, against the ~130 MB the jd column itself would cost.
+    rows = db.load_jobs(cols="url,jd_terms")
     all_urls = {r["url"] for r in rows if r.get("url")}
+    packed = {r["url"]: (r.get("jd_terms") or "").strip() for r in rows if r.get("url")}
     missing = db.urls_missing_jd() & all_urls
 
     # The repairable split needs no network at all, so report it before spending any.
@@ -81,24 +86,45 @@ def main():
     if repairable:
         print("  -> run `python -m scraper.score_jobs --new-only`; it writes these with no fetch.")
 
+    # A ROW THAT HAS NEVER BEEN ANALYSED IS NOT A ROW WITH A DESCRIPTION. An empty jd_terms
+    # means no run ever turned this posting's text into weights, so the feed cannot score it
+    # against any resume and the card reads "JD pending" -- identically to an empty jd, and
+    # invisible to every count above. 944 active rows were sitting like that on 2026-08-30,
+    # holding a median of 5,528 chars each: the largest single class of unusable description,
+    # and nothing here could see it because every count started from "the jd column is empty".
+    unanalysed = {u for u in all_urls if u not in missing and not packed.get(u)}
+    if unanalysed:
+        print("\n  NEVER ANALYSED (holds a description, has no jd_terms -- unscoreable): %d"
+              % len(unanalysed))
+        for h, n in collections.Counter(urlsplit(u).netloc for u in unanalysed).most_common(6):
+            print("     %-42s %5d" % (h[:42], n))
+        print("  -> `python -m scraper.score_jobs --new-only` picks these up with no fetch.")
+
     # THE OTHER HALF OF THE BACKLOG, and it costs no network either. A row holding a shell is
     # indistinguishable from an empty one in the feed, but every count above starts from "jd is
-    # empty" and therefore cannot see it. Read from the cache, which mirrors the column for
-    # these rows (nothing writes a thin value; score_jobs' reconciliation keeps the two in step).
+    # empty" and therefore cannot see it.
+    #
+    # Judged on jd_terms, NOT on the local cache. That cache is whatever THIS machine last
+    # downloaded, so on a laptop a week behind CI it does not contain the rows that went thin
+    # since -- it printed 550 where the database held 1,215. The lengths beside each host still
+    # come from the cache, because only text has a length; a row the cache has never seen is
+    # counted without one rather than dropped from the count.
     thin = {u: len((cached.get(u) or "").strip()) for u in all_urls
-            if u not in missing and 0 < len((cached.get(u) or "").strip()) < core._MIN_JD_CHARS}
+            if u not in missing and u not in unanalysed and '"n":1' in packed.get(u, "")}
     if thin:
         print("\n  THIN (holds a shell, not a description; scores 0 exactly like an empty one):"
               " %d" % len(thin))
         by_thin = collections.Counter(urlsplit(u).netloc for u in thin)
         for h, n in by_thin.most_common(args.thin_hosts):
-            sample = min((u for u in thin if urlsplit(u).netloc == h), key=len)
-            print("     %-42s %5d   e.g. %d chars" % (h[:42], n, thin[sample]))
+            seen = [thin[u] for u in thin if urlsplit(u).netloc == h and thin[u]]
+            print("     %-42s %5d   %s" % (h[:42], n, ("e.g. %d chars" % min(seen)) if seen
+                                           else "(not in this machine's cache)"))
         print("  -> `python scripts/refetch_thin_jds.py --host <h>` for one host now, or let the"
               "\n     scorer's own bounded per-host probe reach it (SCORE_THIN_PROBE).")
-    print("\n  usable descriptions: %d of %d (%.1f%%)"
-          % (len(all_urls) - len(missing) - len(thin), len(all_urls),
-             100.0 * (len(all_urls) - len(missing) - len(thin)) / max(len(all_urls), 1)))
+    usable = len(all_urls) - len(missing) - len(unanalysed) - len(thin)
+    print("\n  usable descriptions: %d of %d (%.1f%%)  [no jd %d, unanalysed %d, thin %d]"
+          % (usable, len(all_urls), 100.0 * usable / max(len(all_urls), 1),
+             len(missing), len(unanalysed), len(thin)))
 
     todo = sorted(missing - repairable)
     if args.host_filter:

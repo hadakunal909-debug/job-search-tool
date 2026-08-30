@@ -197,6 +197,41 @@ def jobdiva_detail_jd(url):
     return _text(scraper.jobdiva_job_detail(jid, jh)) if jh else ""
 
 
+_IBM_JOB_RE = re.compile(r"[?&]jobId=(\d+)", re.I)
+
+
+def _ibm_jd_map(needed=None):
+    """{job_url: jd} for the IBM rows a run is still missing — the bulk half of the IBM fix.
+
+    KEYED BY THE URL WE WERE GIVEN, not by one rebuilt from the feed's own `url` field, because
+    the requisition id is parsed OUT of that url: there is no second spelling for the stored one
+    to disagree with, which is the whole class of bug _canonical_keys exists to catch.
+
+    Derived entirely from `needed`, so an unset one yields {} rather than paging the board. Every
+    caller passes it (jd_map_for hands over the run's missing set), and a full IBM backfill is
+    `--full`'s job, not this function's.
+    """
+    want = {}
+    for u in (needed or ()):
+        m = _IBM_JOB_RE.search(u or "")
+        if m and "careers.ibm.com" in u:
+            want.setdefault(m.group(1), u)
+    if not want:
+        return {}
+    return {want[jid]: jd
+            for jid, jd in (scraper.ibm_job_bodies(sorted(want)) or {}).items()
+            if jid in want and jd}
+
+
+def ibm_detail_jd(url):
+    """One IBM row on its own — the per-job twin of _ibm_jd_map, for the paths that drive
+    detail_jd (refetch_thin_jds, the thin-host probe) rather than the bulk map."""
+    m = _IBM_JOB_RE.search(url or "")
+    if not m:
+        return ""
+    return (scraper.ibm_job_bodies([m.group(1)]) or {}).get(m.group(1), "")
+
+
 # Shortest plausible description from a RAW PAGE FETCH. Applies only to that last-resort path
 # in detail_jd — structured feeds and per-job APIs are trusted at any length.
 MIN_PAGE_JD_CHARS = 250
@@ -236,6 +271,14 @@ def _canonical_keys(jd_map):
         if u not in out:
             out[u] = jd
     return out
+
+
+# The ATS families whose LIST api already carries the description, so ONE request covers a whole
+# board and score_jobs owes those rows no per-job fetch. Every name here needs a branch in
+# jd_map_for and a case in _board_has_missing; a name without one is a board that gets asked and
+# silently answers nothing, which is indistinguishable from a board that has no backlog.
+BULK_JD_ATS = ("greenhouse", "lever", "ashby", "amazon", "jibe", "pinpoint", "jobdiva",
+               "phenom", "ibm")
 
 
 def jd_map_for(board_url, ats, needed=None):
@@ -314,6 +357,8 @@ def jd_map_for(board_url, ats, needed=None):
                 offset += len(hits)
     elif ats == "jobdiva":
         return _canonical_keys(_jobdiva_jd_map(board_url, needed))
+    elif ats == "ibm":
+        return _canonical_keys(_ibm_jd_map(needed))
     return _canonical_keys(out)
 
 
@@ -371,6 +416,8 @@ def _board_has_missing(board_url, ats, missing_urls):
         return any("amazon.jobs" in u for u in missing_urls)
     if ats == "jobdiva":
         return any("jobdiva.com" in u for u in missing_urls)
+    if ats == "ibm":
+        return any("careers.ibm.com" in u for u in missing_urls)
     if ats in ("jibe", "phenom"):
         # These rows store the APPLY url, whose host varies per tenant (icims.com, Oracle,
         # Salesforce, ...) — there's no cheap URL test. Actalent is the case that matters:
@@ -914,6 +961,8 @@ def detail_jd(url):
         jd = paylocity_detail_jd(url)
     if not jd and "jobdiva.com" in url:
         jd = jobdiva_detail_jd(url)
+    if not jd and "careers.ibm.com" in url:
+        jd = ibm_detail_jd(url)
     if not jd and _GH_JID_RE.search(url):           # Greenhouse on the employer's own domain
         jd = greenhouse_detail_jd(url)
     if not jd:                                      # structured data beats page text
@@ -1632,8 +1681,7 @@ def main():
         #    covers the whole board, so try these first. Boards run concurrently.
         boards = scraper.SOURCES + scraper.custom_sources()
         bulk = [(b, a, c) for b, a, c in boards
-                if a in ("greenhouse", "lever", "ashby", "amazon",
-                         "jibe", "pinpoint", "jobdiva", "phenom")
+                if a in BULK_JD_ATS
                 and _board_has_missing(b, a, missing)]
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))
@@ -1803,6 +1851,26 @@ def main():
     def _skey(u):
         return (row_seen.get(u) or "", row_date.get(u) or "", u)
     todo_order = sorted(todo, key=_skey, reverse=True)
+
+    # ...EXCEPT for the rows a PAST run left unscored, which go behind them OLDEST first.
+    #
+    # Newest-first is right for what this run just found and wrong for the backlog behind it.
+    # Every cheap pass rebuilds this same list, so a budget in front of it cuts the tail in the
+    # same place every time and an old unscored row is never reached — the analysis equivalent
+    # of the starvation the cursor fixes for the full pass, which new-only has no cursor for
+    # (it must never skip what it just fetched, so it cannot resume below one). FIFO for the
+    # backlog bounds how long a row can wait instead; measured 2026-08-30, 944 rows held a full
+    # description (median 5,528 chars) and no analysis at all, with stragglers three weeks old
+    # under the days that buried them.
+    #
+    # `fetched` stays in the head, which is what keeps this from costing freshness: a row this
+    # run got a description for is scored first either way. What moves behind the backlog is a
+    # row that is new AND still has no JD — and that one scores 0 for being empty wherever it
+    # sits in the list.
+    if new_only and unscored:
+        _back = {u for u in todo_order if u in unscored and u not in fetched}
+        todo_order = ([u for u in todo_order if u not in _back]
+                      + sorted(_back, key=_skey))
 
     # RESUMING. A budget alone still starves the tail: every run would re-analyze the same
     # newest rows and stop in the same place. The cursor is what turns repeated truncation into
