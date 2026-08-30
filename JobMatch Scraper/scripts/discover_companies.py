@@ -17,10 +17,11 @@ STAGE 1 of four. The other three already exist:
     4 adopt   -- scraper/adopt_everify_boards.py -> db.add_board
 
 HARVEST IS AN INTERFACE, NOT A LINKEDIN FUNCTION. Every channel returns the same record shape
-({company, title, url, location, posted, channel}), so adding or swapping one is a new function
-and a --channel value, never a redesign. That matters because no free channel is complete:
-LinkedIn rate-limits an unauthenticated IP within a few hundred results, so a run yields low
-hundreds of employers, not thousands. Composing channels is the only way to volume.
+({company, title, url, location, posted, channel, phrase}), so adding or swapping one is a new
+function and a --channel value, never a redesign. `phrase` is the QUERY that returned the row and
+is empty for a channel that has no query (--channel csv). That matters because no free channel
+is complete: LinkedIn rate-limits an unauthenticated IP within a few hundred results, so a run
+yields low hundreds of employers, not thousands. Composing channels is the only way to volume.
 
     python scripts/discover_companies.py --channel linkedin --hours 24
     python scripts/discover_companies.py --channel indeed,google --hours 168
@@ -46,9 +47,13 @@ from scraper import find_everify_boards as feb
 
 REPORT = "discovered_companies.csv"
 
-FIELDNAMES = ("company", "channel", "postings_seen", "pm_titles_kept", "sample_title",
-              "in_sources", "sources_name", "in_boards_table", "h1b_filings", "match_method",
-              "visa_tags", "stem_opt", "cap_exempt", "bodyshop")
+FIELDNAMES = ("company", "channel", "harvest_phrases", "postings_seen", "pm_titles_kept",
+              "sample_title", "in_sources", "sources_name", "in_boards_table", "h1b_filings",
+              "match_method", "visa_tags", "stem_opt", "cap_exempt", "bodyshop")
+# pm_titles_kept is a HISTORICAL name, not a PM-only count -- the gate is scraper.title_verdict,
+# the same full include/exclude filter the sweep uses. Do NOT rename it: both readers reach for
+# `r.get("pm_titles_kept") or 0`, so a rename makes every CSV written before it read as zero,
+# silently, and --min-pm 1 would then drop every row of an older file.
 
 # JobSpy sites that are worth asking. Kept here rather than read from JOBSPY_SITES because that
 # env var switches the real SCRAPE on, and this script must never depend on it being set.
@@ -60,6 +65,23 @@ JOBSPY_SITES = ("linkedin", "indeed", "google", "glassdoor", "zip_recruiter")
 # query still counts for the data/AI/SWE roles it also posts.
 PM_PHRASES = ("project manager", "product manager", "program manager",
               "technical program manager", "product owner", "scrum master")
+
+# The 2026-08-30 widening: every role track the title filter already admits, not just the PM
+# family. Kept here rather than pasted onto a command line because the per-role report NAMES
+# these phrases -- a report whose inputs live only in shell history cannot be re-run against.
+# Every entry was checked through scraper.title_verdict() before being added. "solutions
+# architect" and "cloud architect" are deliberately ABSENT: title_verdict excludes them
+# ("off-target function ('Architect')"), so those queries cannot contribute a scored job.
+ROLE_PHRASES = ("business analyst", "systems analyst", "product analyst",
+                "business intelligence analyst",
+                "software engineer", "software developer", "backend engineer",
+                "frontend engineer", "full stack engineer",
+                "data analyst", "data engineer", "data scientist",
+                "machine learning engineer", "ai engineer",
+                "qa engineer", "devops engineer", "cloud engineer",
+                "technical product manager")
+
+ALL_PHRASES = PM_PHRASES + ROLE_PHRASES
 
 # Column names an external list might use for the employer. Checked in order.
 _NAME_COLS = ("company", "employer", "name", "company_name", "employer_name", "organization")
@@ -129,7 +151,8 @@ def harvest_jobspy(sites, phrases, location, hours, results, verbose=False):
                             "url": r.get("url") or "",
                             "location": r.get("location") or "",
                             "posted": r.get("found_date") or "",
-                            "channel": site})
+                            "channel": site,
+                            "phrase": phrase})
             if verbose:
                 print("  %-14s %-26s %4d rows" % (site, phrase, len(rows)))
     return out
@@ -149,8 +172,8 @@ def harvest_csv(path, channel="csv"):
 
     This is the door every non-JobSpy channel comes through: a company-level API (TheirStack),
     a government feed (CareerOneStop, USAJOBS), or a list pulled by hand. Such a list usually
-    carries no title, so pm_titles_kept stays 0 for these rows and the probe queue ranks them
-    on sponsor evidence alone.
+    carries no title, so pm_titles_kept stays 0 and harvest_phrases stays empty for these rows,
+    and the probe queue ranks them on sponsor evidence alone.
     """
     if not os.path.exists(path):
         raise SystemExit("no such file: %s" % path)
@@ -167,17 +190,56 @@ def harvest_csv(path, channel="csv"):
             name = _name_from_row(r)
             if name:
                 out.append({"company": name, "title": (r.get("title") or "").strip(),
-                            "url": "", "location": "", "posted": "", "channel": channel})
+                            "url": "", "location": "", "posted": "", "channel": channel,
+                            "phrase": ""})
     else:
         for ln in lines:
             ln = ln.strip()
             if ln and not ln.startswith("#"):
                 out.append({"company": ln, "title": "", "url": "", "location": "",
-                            "posted": "", "channel": channel})
+                            "posted": "", "channel": channel, "phrase": ""})
     return out
 
 
 # ----------------------------------------------------------------------------------- screen
+
+def _fmt_phrases(counter):
+    """One cell: "product manager:12|scrum master:3" -- which queries returned this employer.
+
+    THE COUNT IS IN THE CELL, not just the phrase, because without it the per-role report can
+    say how many employers a phrase surfaced but not how much volume it carried -- and widening
+    6 phrases to 24 is being done precisely to find out which of the new ones pay for a query.
+
+    The counts SUM TO postings_seen for an aggregator row, which is what makes this column
+    checkable rather than decorative: harvest does not dedupe across queries, so a posting
+    returned by both "program manager" and "technical program manager" is genuinely two hits
+    and postings_seen already counts it twice.
+
+    Sorted by count desc so the dominant role reads first. ':' is squashed because it is the
+    separator; '|' cannot occur -- --phrases already split the caller's list on it.
+    """
+    return "|".join("%s:%d" % (p.replace(":", " ").strip(), n)
+                    for p, n in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def parse_phrases(cell):
+    """{phrase: count} back out of a harvest_phrases cell, for any reader of the CSV.
+
+    Tolerates a cell that is missing entirely, which is not hypothetical: discovered_2wk.csv,
+    discovered_month.csv and every CSV written before 2026-08-30 predate this column and must
+    keep reading as "no phrase data", never as a crash.
+    """
+    out = {}
+    for part in (cell or "").split("|"):
+        part = part.strip()
+        if not part:
+            continue
+        name, _, n = part.rpartition(":")
+        if not name:                      # a bare phrase with no count -- read it as one hit
+            name, n = part, "1"
+        out[name.strip()] = int(n) if n.strip().isdigit() else 0
+    return out
+
 
 def screen(records):
     """Collapse postings to one row per employer and tag each with what we already know.
@@ -218,8 +280,14 @@ def screen(records):
         slot = agg.get(key)
         if slot is None:
             slot = agg[key] = {"company": name, "channels": set(), "seen": 0, "kept": 0,
-                               "sample": ""}
+                               "sample": "", "phrases": collections.Counter()}
         slot["channels"].add(r.get("channel") or "")
+        # EVERY posting, not just the ones title_verdict keeps. The question this column answers
+        # is "which query surfaced this employer"; gating it on the title filter would conflate
+        # query quality with filter quality AND break the sum-to-postings_seen property above.
+        phrase = (r.get("phrase") or "").strip()
+        if phrase:
+            slot["phrases"][phrase] += 1
         slot["seen"] += 1
         title = (r.get("title") or "").strip()
         if title and scraper.title_verdict(title)[0]:
@@ -240,6 +308,7 @@ def screen(records):
         rows.append({
             "company": name,
             "channel": ",".join(sorted(c for c in s["channels"] if c)),
+            "harvest_phrases": _fmt_phrases(s["phrases"]),
             "postings_seen": s["seen"],
             "pm_titles_kept": s["kept"],
             "sample_title": s["sample"],
@@ -305,6 +374,67 @@ def summarise(records, rows):
                  r["sample_title"]))
 
 
+def phrase_stats(rows):
+    """Per harvest phrase: postings, employers, net-new, and how many ONLY that phrase found.
+
+    Works off the CSV ROWS, not the raw records, so a report generated from the written file
+    gets the same numbers this run printed -- one implementation, no drift.
+
+    net_new DOUBLE-COUNTS on purpose: an employer surfaced by five phrases is net-new for all
+    five, so that column sums to more than the run's net-new total and must never be added up.
+    `only` is the column that can be: it is a partition of the net-new set (the employers that
+    exactly one phrase found), so it sums, and it is the number that decides whether a phrase
+    earns its slot next run. A phrase with 300 net_new and 0 only bought nothing the others
+    did not already bring in.
+    """
+    def _int(v):
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    agg = {}
+    for r in rows:
+        parsed = parse_phrases(r.get("harvest_phrases"))
+        solo = len(parsed) == 1
+        new = (r.get("in_sources") or "").strip().lower() != "yes"
+        for phrase, n in parsed.items():
+            d = agg.setdefault(phrase, {"phrase": phrase, "postings": 0, "employers": 0,
+                                        "net_new": 0, "only": 0, "h1b": 0, "stem_opt": 0,
+                                        "cap_exempt": 0})
+            d["postings"] += n
+            d["employers"] += 1
+            if not new:
+                continue
+            d["net_new"] += 1
+            d["only"] += 1 if solo else 0
+            d["h1b"] += 1 if _int(r.get("h1b_filings")) else 0
+            d["stem_opt"] += 1 if (r.get("stem_opt") or "").strip().lower() == "yes" else 0
+            d["cap_exempt"] += 1 if (r.get("cap_exempt") or "").strip().lower() == "yes" else 0
+    return sorted(agg.values(), key=lambda d: (-d["only"], -d["net_new"], d["phrase"]))
+
+
+def print_phrase_breakdown(stats, asked=()):
+    """What each ROLE bought. Silent when the run had no phrases at all (--channel csv)."""
+    if not stats:
+        return
+    print("\nper-role: what each harvest phrase surfaced")
+    print("  net-new double-counts (an employer found by 5 phrases is net-new for all 5);")
+    print("  `only` is that phrase's marginal contribution, and it is the column that sums.")
+    print("  %-32s %8s %6s %7s %5s %5s %5s %4s"
+          % ("phrase", "postings", "empl", "net-new", "only", "h1b", "stem", "cap"))
+    for d in stats:
+        print("  %-32.32s %8d %6d %7d %5d %5d %5d %4d"
+              % (d["phrase"], d["postings"], d["employers"], d["net_new"], d["only"],
+                 d["h1b"], d["stem_opt"], d["cap_exempt"]))
+    # A phrase LinkedIn refused and a phrase nobody is hiring for both produce no row above, and
+    # dropping a good phrase because it got 429'd is the expensive version of that confusion.
+    # Same reasoning as the 0-postings note in main() and scraper.scrape_jobspy's own.
+    quiet = [p for p in asked if p not in {d["phrase"] for d in stats}]
+    if quiet:
+        print("  returned NOTHING (blocked, or genuinely nothing new?): %s" % ", ".join(quiet))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--channel", default="linkedin",
@@ -312,7 +442,8 @@ def main():
     ap.add_argument("--in", dest="infile", default="",
                     help="for --channel csv: a name-per-line or CSV file")
     ap.add_argument("--phrases", default="|".join(PM_PHRASES),
-                    help="pipe-separated harvest phrases")
+                    help="pipe-separated harvest phrases, or 'all' for ALL_PHRASES (%d)"
+                         % len(ALL_PHRASES))
     ap.add_argument("--location", default=scraper.JOBSPY_LOCATION)
     ap.add_argument("--hours", type=int, default=24, help="posting age window (24 or 168)")
     ap.add_argument("--results", type=int, default=100, help="results_wanted per query")
@@ -322,7 +453,10 @@ def main():
     a = ap.parse_args()
 
     channels = [c.strip().lower() for c in a.channel.replace(",", " ").split() if c.strip()]
-    phrases = [p.strip() for p in a.phrases.split("|") if p.strip()]
+    # 'all' rather than 24 quoted phrases on one command line: the shell quoting is a real
+    # error source, and a run whose inputs live only in shell history cannot be reproduced.
+    phrases = (list(ALL_PHRASES) if a.phrases.strip().lower() == "all"
+               else [p.strip() for p in a.phrases.split("|") if p.strip()])
     if not channels:
         raise SystemExit("nothing to harvest")
 
@@ -355,6 +489,7 @@ def main():
     rows = screen(records)
     write_csv(rows, a.out)
     summarise(records, rows)
+    print_phrase_breakdown(phrase_stats(rows), asked=phrases)
     print("\nwrote %s (%d rows)" % (a.out, len(rows)))
     print("next: python scripts/probe_discovered.py --csv %s" % a.out)
 
