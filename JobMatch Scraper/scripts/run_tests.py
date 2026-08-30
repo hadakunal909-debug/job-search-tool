@@ -114,6 +114,9 @@ SUITES = (
     # Symmetrical on purpose: it asserts the paced case PASSES as well as the burst case tripping.
     # A cap of 1 would satisfy a trip-only test and break the feed for everyone.
     Suite("test_feed_ratelimit",    "scripts/test_feed_ratelimit.py",    "scripts", "offline"),
+    # IBM is the only board whose posting PAGE cannot be read at all (202 + empty body), so
+    # the api shape is the only thing standing between it and 216 blank descriptions.
+    Suite("test_ibm_jd",            "scripts/test_ibm_jd.py",            "scripts", "offline"),
     Suite("test_jdrender",          "scripts/test_jdrender.py",          "scripts", "offline"),
     Suite("test_job_page",          "scripts/test_job_page.py",          "scripts", "offline"),
     Suite("test_jobs_cache",        "scripts/test_jobs_cache.py",        "scripts", "offline"),

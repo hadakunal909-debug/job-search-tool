@@ -685,6 +685,20 @@ def test_a_truncated_pass_does_not_blank_the_jdmeta_cache():
             "row %s kept its stale prior analysis instead of the one just computed" % ch
 
 
+def test_new_only_reaches_the_oldest_unscored_row_before_the_newest():
+    """The cheap pass has no cursor, so its ORDER is the only thing bounding how long a row can
+    wait. Newest-first plus a budget cuts the tail in the same place on every run: the 944 rows
+    found on 2026-08-30 holding a full description and no analysis had stragglers three weeks
+    old, buried under each day's ~2,000 new rows. Rows a past run left unscored are therefore
+    drained oldest-first, behind whatever this run fetched."""
+    rows = _budget_rows(score=None)          # every row NULL -> the whole set is the backlog
+    fake, _ = _run_budget(rows=rows, argv=["--new-only"])
+    scored = [ch for ch in _BUDGET_ROWS if fake.rows[_url(ch)]["match_score"] is not None]
+    assert scored == ["d", "e", "f"],         "scored %r; the budget must reach the OLDEST unscored rows, or the ones under a busy "         "day's ingest are never analysed at all" % (scored,)
+    for ch in "abc":
+        assert fake.rows[_url(ch)]["match_score"] is None,             "row %s was written despite the budget stopping before it" % ch
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

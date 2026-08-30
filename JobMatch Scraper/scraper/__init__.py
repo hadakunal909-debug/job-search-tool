@@ -6058,6 +6058,61 @@ def scrape_ibm(board_url):
     return rows
 
 
+IBM_JD_CHUNK = 100          # ids per terms query; the API answers a chunk in one request
+
+
+def ibm_job_bodies(job_ids):
+    """{requisition id: description text} for IBM postings, from the SAME search API the sweep
+    already pages.
+
+    THE DESCRIPTION WAS ALWAYS ONE FIELD AWAY. This endpoint returns exactly the `_source`
+    fields it is asked for, and _ibm_body asks for six that do not include `body` -- so every
+    IBM row landed with no description, and score_jobs then fell back to fetching the posting
+    PAGE, which cannot be read at all: careers.ibm.com answers a bot challenge, HTTP 202 with
+    an empty body. That made 216 rows look "gone" to a probe that only looked at the job url,
+    against a board that was serving their text the whole time. Measured 2026-08-30: 201 of
+    those 216 resolved here in 3.5 s and 0.8 MB, median 4,020 chars, none of them thin. The
+    other 15 have left IBM's index -- those postings really are closed.
+
+    NOT folded into the sweep's own paging, though the field is free there too: 81% of the
+    board is non-US and dropped by scrape_ibm, so carrying bodies through it would move ~7.7 MB
+    a sweep to keep ~1.5 MB of them. score_jobs asks for the ids it is actually missing, in the
+    same run, which reaches the same rows for a quarter of the bytes.
+
+    field_text_01 is the requisition id -- the `jobId=` of the JobDetail url -- so a terms
+    query over a chunk of ids returns one document each. An id that resolves to nothing is
+    simply absent from the result; it is never returned as "".
+    """
+    out = {}
+    ids = [str(i).strip() for i in (job_ids or []) if str(i or "").strip()]
+    for i in range(0, len(ids), IBM_JD_CHUNK):
+        chunk = ids[i:i + IBM_JD_CHUNK]
+        # size must cover the chunk: the default page size would silently truncate the answer
+        # to IBM_PAGE rows and the rest would read as "closed".
+        body = dict(_ibm_body(0), size=len(chunk),
+                    query={"bool": {"must": [{"terms": {"field_text_01": chunk}}]}},
+                    _source=["_id", "url", "body", "field_text_01"])
+        try:
+            r = SESSION.post(IBM_SEARCH_API, json=body, timeout=30,
+                             headers=dict(HEADERS, **{"Content-Type": "application/json",
+                                                      "Accept": "application/json",
+                                                      "Referer": "https://www.ibm.com/"}))
+            if r.status_code != 200:
+                continue
+            hits = ((r.json() or {}).get("hits") or {}).get("hits") or []
+        except Exception:
+            continue
+        for h in hits:
+            s = h.get("_source") or {}
+            jd = core.html_to_text(s.get("body") or "")
+            jid = str(s.get("field_text_01") or "")
+            if jid and jd:
+                out[jid] = jd
+        if len(ids) > IBM_JD_CHUNK:
+            time.sleep(random.uniform(0.2, 0.5))
+    return out
+
+
 # ---- Deloitte (apply.deloitte.com) ---------------------------------------------------------
 # No API and no sitemap -- sitemap.xml serves the SPA shell -- but the search results are
 # SERVER-RENDERED, which the browser sniff only revealed because it looked at the DOM rather than
