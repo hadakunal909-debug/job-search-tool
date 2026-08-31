@@ -603,6 +603,8 @@ _CURATED_TAIL = {
     # protein-bar startup. Sonos follows Bose/Garmin/Peloton into Retail rather than Hardware,
     # matching how this file already treats consumer audio.
     "Software & Internet": [
+        # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
+        "AMDOCS INC", "BOOMI LP", "SOPHOS INC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Fieldguide", "Otter.ai", "CompanyCam", "Fingerprint", "BeyondTrust", "NetDocuments", "Scribe", "Hightouch",
         "Veritone", "ClickUp", "Bubble", "Epicor", "Merge", "Instawork", "Cloudbeds", "Nexthink", "Entrata", "You.com",
@@ -688,6 +690,12 @@ _CURATED_TAIL = {
         "Qurrent", "Garage Technologies, Inc.", "Y Combinator",
     ],
     "IT Services & Consulting": [
+        # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
+        "ADVITHRI TECHNOLOGIES LLC", "CAPRUS IT INC", "EMONICS LLC", "GALAX-ESYSTEMS CORPORATION",
+        "INTELLYK INC", "ISPACE INC", "ITVORKS INC", "KANAP SYSTEMS LLC", "KYYBA INC", "MAVEN COMPANIES INC",
+        "MILLENNIUM INFO TECH INC", "ORPINE INC", "PEOPLE TECH GROUP INC", "RAPIDIT INC", "SOFTWORLD TECHNOLOGIES LLC",
+        "SWANKTEK INC", "TACHYON TECHNOLOGIES LLC", "TECHDATA SERVICE COMPANY LLC", "TECHNOGEN INC",
+        "VITESSE GROUP INC", "WEBILENT TECHNOLOGY INC", "XENON INFOTEK INC", "XORIANT CORPORATION",
         # + adopted 2026-08-31 from the ranked-sponsor probe. FEDERAL spellings, because that
         # is the name adopt_everify_boards stored the board under.
         "EPITEC INC", "HCL AMERICA INC",
@@ -738,6 +746,8 @@ _CURATED_TAIL = {
             "Honigman LLP", "Davis Wright Tremaine", "Moore & Van Allen",
     ],
     "Semiconductors & Hardware": [
+        # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
+        "COGNEX CORPORATION", "ENTEGRIS, INC.",
         # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
         "Tenstorrent",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
@@ -752,6 +762,8 @@ _CURATED_TAIL = {
             "TENSORDYNE, INC",
     ],
     "Banking, Finance & Insurance": [
+        # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
+        "TOWER RESEARCH CAPITAL LLC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Adyen", "DriveWealth", "SageSure", "Crum & Forster", "Hiscox", "Acrisure", "Rockefeller Capital Management",
         "GLOBAL X ETFs", "Lincoln International", "NMI", "Kasheesh",
@@ -944,6 +956,8 @@ _CURATED_TAIL = {
         "Iko", "Everpure",
     ],
     "Retail, Consumer & Hospitality": [
+        # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
+        "BEYOND INC", "ULTA INC", "WEEE INC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "24 Hour Fitness", "Guitar Center", "Inspirato", "Servpro", "HP Hood", "Atoms",
         # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
