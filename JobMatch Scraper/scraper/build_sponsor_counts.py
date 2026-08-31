@@ -148,6 +148,10 @@ GENERIC = {
     # "amazon web services", Deloitte over "deloitte tax"), so the matcher is not the problem
     # and must not be loosened or rewritten -- the deny list is the correct instrument.
     "david", "coastal",
+    # Same class, found once the companies.json roster joined our_universe(): "Horizon" had
+    # 679 approvals pooled from Horizon International Trade, Horizon Therapeutics, Horizon
+    # Media, Horizon Softech and Horizon Science Academy -- five unrelated businesses.
+    "horizon",
 }
 
 
@@ -295,7 +299,23 @@ def our_universe():
                 ln = ln.strip()
                 if ln and not ln.startswith("#"):
                     names.add(ln)
-    print("  %d names in our universe (jobs + sponsors.txt)" % len(names))
+    # companies.json is the DURABLE ROSTER -- it carries every employer the directory has
+    # ever listed, not just the ones hiring today (scripts/build_companies.py::build(carry)).
+    # Without it this function reproduces the exact bug its own docstring describes, one step
+    # further out: /companies keeps showing Sony, Zoom and Broadridge because the roster kept
+    # them, but their H-1B number reads 0 because no resolved key was written for a name that
+    # was not in this set. Sony files as "SONY INTERACTIVE ENTERTAINMENT" (772 approvals) and
+    # nothing pools it onto "sony" unless "Sony" is asked about here.
+    try:
+        before = len(names)
+        with open("companies.json", encoding="utf-8") as f:
+            for row in (json.load(f) or {}).get("rows") or []:
+                if isinstance(row, list) and row and str(row[0]).strip():
+                    names.add(str(row[0]).strip())
+        print("  +%d from the companies.json roster" % (len(names) - before))
+    except Exception as e:
+        print("  (companies.json unavailable: %s)" % str(e)[:90])
+    print("  %d names in our universe (jobs + boards + sponsors.txt + roster)" % len(names))
     return names
 
 
