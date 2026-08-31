@@ -41,8 +41,8 @@ from scraper.probe_everify_candidates import REPORT as PROBE_CSV
 OUT = "everify_adoption.csv"
 ADDED_BY = "everify+:2026-08"
 COLS = ["employer", "bucket", "size", "state", "h1b_filings", "bodyshop", "ats_type",
-        "job_count", "kept_of_fetched", "board_url", "confidence", "reported_name",
-        "verdict", "score", "added"]
+        "job_count", "kept_of_fetched", "us_of_fetched", "board_url", "confidence",
+        "reported_name", "verdict", "score", "added"]
 
 
 def verify(rec):
@@ -59,6 +59,33 @@ def verify(rec):
 # Below this many postings a useless board costs nothing to keep, so don't spend a fetch
 # checking it. Above it, one board can dominate a whole sweep.
 YIELD_CHECK_MIN_POSTINGS = 500
+
+# The location check needs no cost gate the way the yield check does -- one fetch per
+# CONFIRMED board is a few dozen requests a run. It needs no SAMPLE-SIZE gate either, and
+# that is worth spelling out because the obvious guess is wrong: _sample() pages the WHOLE
+# board, so len(rows) is the board's entire content, not a sample of it. A board whose one
+# and only posting is in Coimbatore is 100% foreign, not a thin sample -- which is exactly
+# ROBERTBOSCHLLC, and a threshold of 3 let it through. The floor exists solely to separate
+# 'fetched nothing' (unfetchable, no verdict) from 'fetched something, none of it US'.
+US_CHECK_MIN_POSTINGS = 1
+
+
+# Sampling a board costs one fetch, and TWO independent checks want it -- the title-filter
+# yield below and the location check under it. Memoise on the record so a board is never
+# fetched twice, and so a board rejected by the first check never pays for the second.
+def _sample(rec):
+    """The board's postings, fetched at most once per record. [] if unfetchable."""
+    if "_rows" in rec:
+        return rec["_rows"]
+    rows = []
+    fn = scraper.SCRAPERS.get(rec["ats_type"])
+    if fn:
+        try:
+            rows = fn(rec["board_url"]) or []
+        except Exception:
+            rows = []
+    rec["_rows"] = rows
+    return rows
 
 
 def relevance_yield(rec):
@@ -77,17 +104,43 @@ def relevance_yield(rec):
         return None, None
     if n < YIELD_CHECK_MIN_POSTINGS:
         return None, None
-    fn = scraper.SCRAPERS.get(rec["ats_type"])
-    if not fn:
-        return None, None
-    try:
-        rows = fn(rec["board_url"]) or []
-    except Exception:
-        return None, None
+    rows = _sample(rec)
     if not rows:
         return None, None
     kept = sum(1 for r in rows if scraper.title_verdict(r.get("title", ""))[0])
     return kept, len(rows)
+
+
+def us_share(rec):
+    """(us, fetched) over the board's postings, or (None, None) if not checked.
+
+    IMPOSTOR BOARDS. Slug guessing on the JSON-API ATSes finds squatted accounts whose name
+    matches the employer and whose postings have nothing to do with it. Measured 2026-08-31:
+    jobs.smartrecruiters.com/CITIBANKNA served 7 postings, all Jakarta and Bekasi, with titles
+    like "Lowongan kerja Operator Produksi PT Asmo Indonesia"; .../ROBERTBOSCHLLC served one in
+    Coimbatore. Both were graded "confirmed" and adopted.
+
+    Nothing else could see it. relevance_yield only runs above YIELD_CHECK_MIN_POSTINGS, on the
+    reasoning that a small useless board is cheap to keep -- true for a board that is merely
+    thin, false for one that will never serve a US posting. And a NAME check cannot help here:
+    those postings DO report "Citibank N.A" and "Robert Bosch LLC" as the company. The location
+    is the only tell.
+
+    Reject on ZERO US postings, never on a minority. HCL America is 6 of 10 US and is real, so a
+    ratio test would throw away legitimate multinational boards. scraper.is_us_location keeps
+    anything it cannot place, so 0-of-N means every posting NAMED somewhere foreign. And N is
+    the whole board -- _sample pages it -- so N=1 is a complete answer, not a thin sample.
+
+    It must run on the SCRAPER'S composed location, not a bare API field: that string is
+    "Detroit, MI, United States" where the raw field is just "Detroit", and
+    is_us_location("Detroit") is False -- gating on the raw field would have rejected every
+    legitimate board in the same batch.
+    """
+    rows = _sample(rec)
+    if len(rows) < US_CHECK_MIN_POSTINGS:
+        return None, None            # too small to conclude anything
+    us = sum(1 for r in rows if scraper.is_us_location(r.get("location")))
+    return us, len(rows)
 
 
 def _arg(flag, default=None, cast=str):
@@ -106,6 +159,7 @@ def main():
     dry = "--dry-run" in sys.argv
     keep_bodyshops = "--include-bodyshops" in sys.argv
     skip_yield_check = "--no-yield-check" in sys.argv
+    skip_location_check = "--no-location-check" in sys.argv
     # Tag rows with the run that produced them. Adoption is meant to be reversible with a
     # DELETE, and one tag for every batch ever adopted makes "undo the LinkedIn sweep"
     # impossible to express -- so the caller names its own batch.
@@ -159,10 +213,12 @@ def main():
                              -(int(r["job_count"]) if str(r["job_count"]).isdigit() else 0)))
 
     added, skipped_dupe, skipped_body, skipped_yield, skipped_blocked = 0, 0, 0, 0, 0
+    skipped_foreign = 0
     seen = set()
     for r in hits:
         r["added"] = "no"
         r["kept_of_fetched"] = ""
+        r["us_of_fetched"] = ""
         if r["verdict"] != "confirmed":
             continue
         if r["board_url"] in known or r["board_url"] in seen:
@@ -187,6 +243,16 @@ def main():
                     # pure scrape cost forever. Anything above zero is left to the reviewer.
                     r["added"] = "no — title filter keeps 0 of %d" % fetched
                     skipped_yield += 1
+                    continue
+        if not skip_location_check:
+            us, fetched = us_share(r)
+            if fetched:
+                r["us_of_fetched"] = "%d/%d" % (us, fetched)
+                if us == 0:
+                    # Every posting NAMED somewhere foreign -> this is not the employer we
+                    # think it is. See us_share() for the two boards that proved it.
+                    r["added"] = "no — 0 of %d postings are US" % fetched
+                    skipped_foreign += 1
                     continue
         seen.add(r["board_url"])
         if dry:
@@ -223,6 +289,9 @@ def main():
     if skipped_yield:
         print("  skipped, title filter keeps ZERO of the board: %d  (--no-yield-check to keep)"
               % skipped_yield)
+    if skipped_foreign:
+        print("  skipped, ZERO US postings (impostor board): %d  (--no-location-check to keep)"
+              % skipped_foreign)
     if skipped_blocked:
         print("  skipped, on the admin blocklist: %d" % skipped_blocked)
     conf = [r for r in hits if r["verdict"] == "confirmed"]
