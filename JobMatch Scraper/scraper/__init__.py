@@ -3011,8 +3011,19 @@ def scrape_workday(board_url):
         return None
 
     def _absorb(body):
-        """Postings from one response into `rows`. Returns how many the page carried."""
+        """Postings from one response into `rows`. Returns how many were NEW.
+
+        NEW, not how many the page carried, and the difference is a hang. Some tenants
+        ignore `offset` entirely and serve page 0 for every value of it -- Itron's
+        Early_Careers site returns its single posting for offset 0, 1, 2, 20 and 100 alike.
+        The walk below breaks on "this page added nothing", so reporting the page LENGTH
+        made that break unreachable: every request looked like progress, offset climbed by
+        20 a time, and the board was still being paged when the 300s ceiling abandoned it.
+        Measured 2026-08-31: seven Workday boards failed the sweep this way, all of them
+        small enough to fit in one page.
+        """
         jp = (body or {}).get("jobPostings") or []
+        before = len(rows)
         for j in jp:
             path = j.get("externalPath") or ""
             if not path or path in seen:
@@ -3027,7 +3038,7 @@ def scrape_workday(board_url):
                 "location": loc,
                 "found_date": _workday_date(j.get("postedOn")),
             })
-        return len(jp)
+        return len(rows) - before
 
     # Page 0 buys the board total, and the total is what makes every other offset a known URL.
     first = _fetch(0)
@@ -3038,6 +3049,15 @@ def scrape_workday(board_url):
         return rows
     total = first.get("total") or 0                      # only the FIRST page reports the real
     #                                                      count; later pages send 0
+
+    if total and total <= got:
+        # Exact fit: the first page already carried the whole board. This is the common
+        # case for a small tenant and it must return HERE -- falling through to the walk
+        # below is what hung Itron (total 1, got 1), agilon health (4), Veritone (8),
+        # DirecTV (9), UCF (11), Bullhorn (15) and King (15) on 2026-08-31. Every one of
+        # them fits in a single 20-posting page, which is exactly why they were the seven
+        # that failed.
+        return rows
 
     if total > got:
         # CONCURRENT, like scrape_avature: offset is stateless -- no cursor, no session -- so
