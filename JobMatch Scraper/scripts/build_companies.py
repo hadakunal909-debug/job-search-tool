@@ -688,6 +688,9 @@ _CURATED_TAIL = {
         "Qurrent", "Garage Technologies, Inc.", "Y Combinator",
     ],
     "IT Services & Consulting": [
+        # + adopted 2026-08-31 from the ranked-sponsor probe. FEDERAL spellings, because that
+        # is the name adopt_everify_boards stored the board under.
+        "EPITEC INC", "HCL AMERICA INC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Nortal", "Applied Information Sciences", "Computer Services", "Diversified Services Network",
         "Phenom",
@@ -976,6 +979,8 @@ _CURATED_TAIL = {
             "The SSA Group",
     ],
     "Media, Telecom & Gaming": [
+        # + adopted 2026-08-31 from the ranked-sponsor probe.
+        "ROKU INC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "2K",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
