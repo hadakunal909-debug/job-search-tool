@@ -24,7 +24,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`cpanelapi.py`](#cpanelapipy) — 135 lines, 7 symbols — cPanel UAPI calls for the admin disk/usage panel.
 - [`static/app.js`](#staticappjs) — 1867 lines, 201 symbols — The client feed. Twin of web.py's filter and card builder.
 - [`scraper/__main__.py`](#scraper__main__py) — 22 lines, 0 symbols
-- [`scraper/adopt_everify_boards.py`](#scraperadopt_everify_boardspy) — 326 lines, 12 symbols
+- [`scraper/adopt_everify_boards.py`](#scraperadopt_everify_boardspy) — 337 lines, 12 symbols
 - [`scraper/build_everify.py`](#scraperbuild_everifypy) — 187 lines, 9 symbols
 - [`scraper/build_sponsor_counts.py`](#scraperbuild_sponsor_countspy) — 544 lines, 11 symbols
 - [`scraper/build_sponsors.py`](#scraperbuild_sponsorspy) — 109 lines, 6 symbols
@@ -335,7 +335,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## `scraper/adopt_everify_boards.py`
 
-326 lines · 12 top-level symbols · 0 sections
+337 lines · 12 top-level symbols · 0 sections
 
 *No banner comments in this file.*
 
@@ -2400,10 +2400,10 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `FOREIGN_CHECK_MIN_POSTINGS` | const | [70](../scraper/adopt_everify_boards.py#L70) |  |
 | `_sample` | def | [76](../scraper/adopt_everify_boards.py#L76) | The board's postings, fetched at most once per record. \[\] if unfetchable. |
 | `relevance_yield` | def | [91](../scraper/adopt_everify_boards.py#L91) | (kept, fetched) after the scraper's own title filter, or (None, None) if not checked. |
-| `_names_non_us` | def | [114](../scraper/adopt_everify_boards.py#L114) | True only when the location NAMES a non-US place. Unrecognisable -&gt; False. |
-| `foreign_share` | def | [130](../scraper/adopt_everify_boards.py#L130) | (explicitly_foreign, fetched) over the board's postings, or (None, None) if unfetchable. |
-| `_arg` | def | [160](../scraper/adopt_everify_boards.py#L160) |  |
-| `main` | def | [170](../scraper/adopt_everify_boards.py#L170) |  |
+| `_names_non_us` | def | [120](../scraper/adopt_everify_boards.py#L120) | True only when the location NAMES a non-US place. Unrecognisable -&gt; False. |
+| `foreign_share` | def | [136](../scraper/adopt_everify_boards.py#L136) | (explicitly_foreign, fetched) over the board's postings, or (None, None) if unfetchable. |
+| `_arg` | def | [166](../scraper/adopt_everify_boards.py#L166) |  |
+| `main` | def | [176](../scraper/adopt_everify_boards.py#L176) |  |
 
 ## `scraper/build_everify.py` — symbols
 
