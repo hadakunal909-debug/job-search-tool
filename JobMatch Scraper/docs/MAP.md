@@ -29,7 +29,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`scraper/build_sponsor_counts.py`](#scraperbuild_sponsor_countspy) — 524 lines, 11 symbols
 - [`scraper/build_sponsors.py`](#scraperbuild_sponsorspy) — 109 lines, 6 symbols
 - [`scraper/build_visa_tags.py`](#scraperbuild_visa_tagspy) — 333 lines, 17 symbols
-- [`scraper/classify_everify.py`](#scraperclassify_everifypy) — 347 lines, 17 symbols
+- [`scraper/classify_everify.py`](#scraperclassify_everifypy) — 354 lines, 17 symbols
 - [`scraper/dedupe_urls.py`](#scraperdedupe_urlspy) — 255 lines, 5 symbols
 - [`scraper/discover.py`](#scraperdiscoverpy) — 154 lines, 4 symbols
 - [`scraper/find_boards.py`](#scraperfind_boardspy) — 96 lines, 10 symbols
@@ -365,11 +365,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## `scraper/classify_everify.py`
 
-347 lines · 17 top-level symbols · 1 sections
+354 lines · 17 top-level symbols · 1 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
-| [202–347](../scraper/classify_everify.py#L202) | reporting | 6 |
+| [209–354](../scraper/classify_everify.py#L209) | reporting | 6 |
 
 ## `scraper/dedupe_urls.py`
 
@@ -2476,15 +2476,15 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_TAXONOMY` | const | [95](../scraper/classify_everify.py#L95) |  |
 | `_sources_key` | def | [97](../scraper/classify_everify.py#L97) | Normalisation used for the SOURCES comparison. _strict_norm_name, not _norm_name: |
 | `categorise` | def | [104](../scraper/classify_everify.py#L104) | Coarse industry bucket from the employer/DBA text, or 'unclassified'. |
-| `build_sources_matcher` | def | [113](../scraper/classify_everify.py#L113) | Return match(name) -&gt; the SOURCES company name we already scrape, or ''. |
-| `load_rows` | def | [153](../scraper/classify_everify.py#L153) | \[{employer, dba, size, state, sites}, ...\] from the USCIS csv or xlsx export. |
-| `classify` | def | [178](../scraper/classify_everify.py#L178) | Tag every row with category / bucket / filings. Returns the same list, mutated. |
-| `BUCKET_LABEL` | const | [203](../scraper/classify_everify.py#L203) |  |
-| `_pct` | def | [211](../scraper/classify_everify.py#L211) |  |
-| `write_csv` | def | [215](../scraper/classify_everify.py#L215) |  |
-| `write_insights` | def | [227](../scraper/classify_everify.py#L227) |  |
-| `_arg` | def | [304](../scraper/classify_everify.py#L304) |  |
-| `main` | def | [314](../scraper/classify_everify.py#L314) |  |
+| `build_sources_matcher` | def | [113](../scraper/classify_everify.py#L113) | Return match(name) -&gt; the company name we already scrape, or ''. |
+| `load_rows` | def | [160](../scraper/classify_everify.py#L160) | \[{employer, dba, size, state, sites}, ...\] from the USCIS csv or xlsx export. |
+| `classify` | def | [185](../scraper/classify_everify.py#L185) | Tag every row with category / bucket / filings. Returns the same list, mutated. |
+| `BUCKET_LABEL` | const | [210](../scraper/classify_everify.py#L210) |  |
+| `_pct` | def | [218](../scraper/classify_everify.py#L218) |  |
+| `write_csv` | def | [222](../scraper/classify_everify.py#L222) |  |
+| `write_insights` | def | [234](../scraper/classify_everify.py#L234) |  |
+| `_arg` | def | [311](../scraper/classify_everify.py#L311) |  |
+| `main` | def | [321](../scraper/classify_everify.py#L321) |  |
 
 ## `scraper/dedupe_urls.py` — symbols
 
