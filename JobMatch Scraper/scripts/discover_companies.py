@@ -255,7 +255,14 @@ def screen(records):
     counts = core.load_sponsor_counts() or {}
     visa = core.load_visa_tags() or {}
     known, _urls = feb._known_sources()        # SOURCES *and* the boards table -- see its docstring
-    match_source = ce.build_sources_matcher()  # which SOURCES name, for the report column
+    # Pass the boards table in too. SOURCES alone leaves every ADOPTED board invisible to the
+    # prefix match, so "COGNIZANT TECHNOLOGY SOLUTIONS US" and "DELOITTE CONSULTING LLP" read
+    # as unknown when both are already scraped and carry 73 and 302 live jobs.
+    try:
+        _adopted = [c for _u, _a, c in scraper.custom_sources()]
+    except Exception:
+        _adopted = []
+    match_source = ce.build_sources_matcher(_adopted)  # which known name, for the report
 
     # The boards-table half on its own, so a row can say WHERE we already have it. A company
     # adopted by a past probe lives only here, and reading it as unknown is the exact bug
@@ -312,7 +319,20 @@ def screen(records):
             "postings_seen": s["seen"],
             "pm_titles_kept": s["kept"],
             "sample_title": s["sample"],
-            "in_sources": "yes" if (key in known or key.replace(" ", "") in known) else "no",
+            # THREE matchers, because each alone leaves a hole and the cost of a miss is a
+            # wasted probe slot on a board we already scrape. _known_sources() is exact (plus
+            # a de-spaced variant), so it answers "no" for every federal spelling that is
+            # longer than our own: _norm_name("META PLATFORMS INC") is "meta platforms" and
+            # SOURCES holds "meta". build_sources_matcher() IS able to see that -- it is a
+            # whole-word prefix match, longest wins, and it already refuses token containment
+            # (which had paired "IT AMERICA INC" with "Samsung Research America"). Until
+            # 2026-08-31 its answer only reached the REPORT column while the FLAG that
+            # probe_discovered.load_candidates() filters on ignored it, so the two disagreed
+            # by construction. Measured on a 1,971-row ranked-sponsor screen: 125 of the
+            # 1,674 rows queued for probing were already scraped -- Amazon, Meta, Oracle,
+            # JPMorgan Chase, Comcast, Rivian. 7% of the queue, every run.
+            "in_sources": "yes" if (key in known or key.replace(" ", "") in known
+                                    or match_source(name)) else "no",
             "sources_name": match_source(name) or "",
             "in_boards_table": "yes" if key in table else "no",
             "h1b_filings": n,

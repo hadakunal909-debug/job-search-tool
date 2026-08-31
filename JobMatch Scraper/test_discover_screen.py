@@ -26,7 +26,10 @@ import discover_companies as dc
 def _stub():
     """Cut the three lookups screen() makes, so the suite is genuinely offline."""
     dc.feb._known_sources = lambda: (set(), set())
-    dc.ce.build_sources_matcher = lambda: (lambda name: "")
+    # Takes the boards-table names now (build_sources_matcher(extra=())), so the stub must
+    # accept them too -- a zero-arg lambda here would TypeError inside screen() and the
+    # failure would look like a screen() bug rather than a stale stub.
+    dc.ce.build_sources_matcher = lambda extra=(): (lambda name: "")
     dc.scraper.custom_sources = lambda: []
 
 
