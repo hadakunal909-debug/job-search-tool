@@ -458,10 +458,11 @@
     // and whether the JD blocked the posting, and neither fact reaches this file. It was
     // rendering "H1B (top sponsor)" next to "No sponsorship" on the live feed.
     // "top sponsor" CARRIES ITS VINTAGE. The chip is derived from the employer's cumulative
-    // filing history, and that history stops at FY2023 (sponsor_years.json has no FY2024/25) --
-    // so on a 2026 feed "top sponsor" can mean "filed a lot, for other roles, up to three years
-    // ago". The chip cannot honestly be narrowed to THIS posting or THIS year until the data is
-    // refreshed, so until then it says which window it is talking about instead of implying the
+    // filing history over a WINDOW that ends before today (FY2021-2025 as of 2026-08-31). The
+    // exact range rides in on data-spon-through rather than living here, so this comment can
+    // not go stale again -- so on a 2026 feed "top sponsor" can mean "filed a lot, for other
+    // roles, in a year that has already closed". The chip cannot honestly be narrowed to THIS
+    // posting or THIS year, so it says which window it is talking about instead of implying the
     // present tense. The company modal has always been careful about this ("a chip means 'has
     // filed', never 'how often'"); the card was not.
     var vtop = j.visa_likely || "";

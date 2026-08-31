@@ -594,7 +594,25 @@ _CURATED_LISTS = {
 # genuinely unrecognisable one-offs. Those stay Unsorted, which is the correct answer for
 # them -- see the data-quality note in the module docstring.
 _CURATED_TAIL = {
+    # 2026-08-31 refresh: _prominent() admits any employer with h1b >= 100, so the refreshed
+    # counts pushed 14 employers over that line and `--check` failed until they were sectored.
+    # The ambiguous ones were resolved from their BOARD URL, never their name -- "ICE" is
+    # careers.ice.com, i.e. Intercontinental Exchange (which owns the NYSE, and already sits
+    # in the block above as "Intercontinental Exchange Holdings") and emphatically NOT
+    # Immigration and Customs Enforcement; "Coastal" is Coastal Community Bank; "David" is the
+    # protein-bar startup. Sonos follows Bose/Garmin/Peloton into Retail rather than Hardware,
+    # matching how this file already treats consumer audio.
     "Software & Internet": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Fieldguide", "Otter.ai", "CompanyCam", "Fingerprint", "BeyondTrust", "NetDocuments", "Scribe", "Hightouch",
+        "Veritone", "ClickUp", "Bubble", "Epicor", "Merge", "Instawork", "Cloudbeds", "Nexthink", "Entrata", "You.com",
+        "Endor Labs", "Exiger", "Edmentum", "Imagine Learning", "Art of Problem Solving", "RealPage Inc",
+        "Office Ally", "Pylon", "Vast.ai", "Unwrap", "Authorium", "Kargo", "Blitzy", "Vendelux", "Emergence AI",
+        "Rillet", "Nabla", "Aptos Labs", "Taxbit", "Luminai", "Salient", "Campus", "AfterQuery", "Warp", "Quilt",
+        "RF-SMART", "OpenEye", "Beacon AI", "Vorto", "Sesame", "Gradera", "Revivn", "Atticus", "turing", "Air", "FacilityOS",
+        "OneCrew", "Pryzm", "Agave", "Air Apps", "Bobyard", "Lab37", "Odyssey",
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "Klaviyo", "ZoomInfo",
         "CoVar", "Kobie", "Engine", "Evolve",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "OpenGov Inc.", "Allvue Systems", "Planview", "Temporal Technologies", "Entrust",
@@ -670,6 +688,9 @@ _CURATED_TAIL = {
         "Qurrent", "Garage Technologies, Inc.", "Y Combinator",
     ],
     "IT Services & Consulting": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Nortal", "Applied Information Sciences", "Computer Services", "Diversified Services Network",
+        "Phenom",
         "Raft", "AVI-SPL",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "A-TEK Inc", "ASRT, Inc.", "Tech Army, LLC", "techolution", "Softchoice",
@@ -714,6 +735,8 @@ _CURATED_TAIL = {
             "Honigman LLP", "Davis Wright Tremaine", "Moore & Van Allen",
     ],
     "Semiconductors & Hardware": [
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "Tenstorrent",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Supermicro", "QTS Data Centers", "ServerFarm", "EchoStar Corporation",
 
@@ -726,6 +749,11 @@ _CURATED_TAIL = {
             "TENSORDYNE, INC",
     ],
     "Banking, Finance & Insurance": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Adyen", "DriveWealth", "SageSure", "Crum & Forster", "Hiscox", "Acrisure", "Rockefeller Capital Management",
+        "GLOBAL X ETFs", "Lincoln International", "NMI", "Kasheesh",
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "ICE", "Early Warning Services", "Polymarket", "Coastal",
         "Range",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Credit Acceptance", "Betterment", "Nubank", "Circle", "sFOX", "Jump Trading",
@@ -744,6 +772,11 @@ _CURATED_TAIL = {
             "Sedgwick", "ServiceLink", "OKX", "FalconX", "Red Cell Partners", "FM",
     ],
     "Healthcare, Pharma & Biotech": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Abridge", "Everlywell", "SmithRx", "Impiricus", "Octave", "Emmes Group", "HealthPRO Heritage", "Alteva RCM",
+        "Envista Holdings",
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "Intuitive",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "U.S. Renal Care", "Medica", "Talkspace", "PatientPoint", "Genalyte, Inc.",
         "Flagship Pioneering, Inc.", "Prokidney", "Octapharma Plasma, Inc.", "Perrigo",
@@ -789,6 +822,8 @@ _CURATED_TAIL = {
         "The Nature Conservancy", "Stand Together", "ActBlue Inc.", "Draper",
     ],
     "Government & Public Sector": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "State of New Mexico", "City of Charleston",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "City of Philadelphia", "Loudoun County Public Schools",
         "Boys & Girls Clubs of America",
@@ -806,6 +841,11 @@ _CURATED_TAIL = {
         "CALSTART", "Halvik", "Empower AI Inc.", "Torch Technologies",
     ],
     "Aerospace, Defense & Industrial": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Advanced Space", "Acron Aviation", "Stratasys", "Innomotics", "Amphenol", "Mueller Industries",
+        "Klein Tools", "TGW Systems", "Ceco Environmental", "Messer", "Urban Sky", "Sofar Ocean",
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "General Atomics",
         "Saronic Technologies", "JELD-WEN", "Carbon", "GRVTY",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Sabre Systems", "ENSCO, Inc.", "Rapiscan Systems", "Barbaricum", "Arcfield",
@@ -845,6 +885,10 @@ _CURATED_TAIL = {
             "Atomic Machines", "Rhombus Power", "Heidelberg",
     ],
     "Energy & Utilities": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Arcadia",
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "Landis+Gyr",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Enviva", "Par Pacific Holdings", "HF Sinclair", "bp", "Enbridge", "RWE",
         "Vistra Corp.", "Wabash Valley Power Alliance", "Clean Harbors", "WM",
@@ -855,6 +899,9 @@ _CURATED_TAIL = {
         "Kinetic Inc", "Gridware", "EdgeConneX", "Renewed Vision",
     ],
     "Engineering, Construction & Real Estate": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "Oldcastle BuildingEnvelope", "Mesa Associates, Inc.", "Qualus", "Castle Rock Associates", "Boccard",
+        "Johns Manville", "Haworth", "Graybar",
         "Amrize", "Rimkus", "Hatch",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "CDM Smith", "Woodard & Curran", "Harris & Associates", "Woolpert", "Wade Trim",
@@ -879,6 +926,8 @@ _CURATED_TAIL = {
             "CUPERTINO ELECTRIC",
     ],
     "Transport, Logistics & Automotive": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "TrueCar, Inc.",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Herc Rentals", "Iron Mountain", "Flexjet", "Ohio Cat", "HAVI", "42dot", "Uniti",
         "BusPatrol", "Falcor Express LLC", "ABM Industries Inc.", "Continental",
@@ -892,6 +941,10 @@ _CURATED_TAIL = {
         "Iko", "Everpure",
     ],
     "Retail, Consumer & Hospitality": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "24 Hour Fitness", "Guitar Center", "Inspirato", "Servpro", "HP Hood", "Atoms",
+        # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
+        "Fanatics", "Tapestry", "Sonos, Inc.", "David",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "HSN", "Misfits Market", "BABYLIST", "goodr", "The Farmer's Dog", "Brooks Running",
         "Garage Clothing", "Claire's", "Runnings", "Petco", "Sweetwater", "Sol de Janeiro",
@@ -923,6 +976,8 @@ _CURATED_TAIL = {
             "The SSA Group",
     ],
     "Media, Telecom & Gaming": [
+        # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
+        "2K",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Consumer Reports", "AXS", "Bisnow", "Twitch", "Red Ventures", "Wiley", "Level99",
         "DAS North America", "Antares", "Solstice",

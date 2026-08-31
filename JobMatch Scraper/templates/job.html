@@ -184,7 +184,7 @@
         {%- if filed %}{{ row.company }} has a federal filing history for {{ filed }}.
         {%- else %}There is no federal filing record on file for {{ row.company }}.{% endif %}
         {%- if about.strength_n %} {{ '{:,}'.format(about.strength_n) }} H-1B approvals across
-        FY2019-23.{% endif %}
+        {{ sponsor_window() }}.{% endif %}
       </p>
       <p class="coprose">
         {%- if row.sponsor_jd == 'blocked' %}<strong>This posting rules sponsorship out.</strong>
