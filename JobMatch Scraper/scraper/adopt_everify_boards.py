@@ -245,7 +245,7 @@ def main():
             skipped_dupe += 1
             continue
         try:
-            if blocked and _db.block_key(r["employer"]) in blocked:
+            if blocked and _db.is_blocked(r["employer"], blocked):
                 r["added"] = "no — company is on the admin blocklist"
                 skipped_blocked += 1
                 continue

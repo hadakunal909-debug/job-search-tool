@@ -8379,7 +8379,7 @@ def ext_bulk_jobs():
             dropped["us"] += 1
             continue
         company = (j.get("company") or "").strip()[:200]
-        if blocked and db.block_key(company) in blocked:
+        if blocked and db.is_blocked(company, blocked):
             dropped["blocked"] += 1
             continue
         seen.add(url)
