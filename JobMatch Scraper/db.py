@@ -1371,6 +1371,51 @@ def block_key(name):
     return normalize_label(name)
 
 
+# Legal suffixes, for blocklist matching ONLY -- block_key itself deliberately keeps them.
+# Bare 'co' is excluded on purpose: it would reduce 'Home Co' to 'home', and the spelled-out
+# 'company' covers the form federal data actually uses.
+_BLOCK_SUFFIX_RE = re.compile(
+    r"\s+(?:inc|llc|l\s?l\s?c|corp|corporation|ltd|limited|llp|plc|pllc|lp|company)\.?$")
+
+
+def _block_core(key):
+    """A block_key with any trailing legal suffixes removed. 'ulta inc' -> 'ulta'."""
+    prev = None
+    while key and key != prev:
+        prev = key
+        key = _BLOCK_SUFFIX_RE.sub("", key).strip()
+    return key
+
+
+def is_blocked(name, blocked):
+    """True when `name` is on the blocklist, allowing a legal suffix on EITHER side.
+
+    block_key does not strip suffixes, for a good documented reason: reducing 'Apple Inc' to
+    'apple' would also match 'Apple Hospitality'. But taking that literally let the blocklist be
+    bypassed by spelling. Measured 2026-08-31: 'ulta' and 'autozone' had BOTH been blocked, with
+    the measured reasons still attached -- and a sponsor sweep adopted both anyway, because the
+    USCIS spelling is 'ULTA INC' and 'AUTOZONE INC', whose keys are 'ulta inc' and 'autozone
+    inc'. Two boards worth ~20,000 postings a rotation walked straight past a blocklist that
+    already named them.
+
+    The fix keeps the anti-over-match property: cores are compared EXACTLY, on both sides, never
+    as a prefix. So blocked 'apple' matches 'Apple Inc' (core 'apple') and still does NOT match
+    'Apple Hospitality' (core 'apple hospitality'), and blocked 'mercy' does not reach 'Mercy
+    Corps'. Widening is exactly one legal suffix, which is what the spelling gap is made of.
+    """
+    if not name or not blocked:
+        return False
+    key = block_key(name)
+    if not key:
+        return False
+    if key in blocked:
+        return True
+    core = _block_core(key)
+    if not core:
+        return False
+    return core in blocked or core in {_block_core(k) for k in blocked if k}
+
+
 def blocked_company_keys():
     """set() of normalized names the ingestion paths must refuse. Empty on any failure."""
     try:

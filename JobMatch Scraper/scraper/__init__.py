@@ -7340,7 +7340,7 @@ def fill_missing_jds(scraped, seen, blocked):
         url = canonical_url(j.get("url", ""))
         if not url or url.lower() in seen:
             continue                                  # already in the corpus: never re-judged
-        if blocked and db.block_key(j.get("company", "")) in blocked:
+        if blocked and db.is_blocked(j.get("company", ""), blocked):
             continue
         title = j.get("title") or ""
         # THE US GATE, APPLIED EARLY AND ONLY HERE. In the keep loop it deliberately runs after
@@ -8661,7 +8661,7 @@ def main():
             # Right after the dedupe and before any title work: this is the cheapest position, and
             # putting it in the tally makes the drop visible in the run summary. A blocklist you
             # can't see working is one you won't trust.
-            if blocked and db.block_key(j.get("company", "")) in blocked:
+            if blocked and db.is_blocked(j.get("company", ""), blocked):
                 tally["blocked company"] += 1
                 continue
             keep, why = title_verdict(j["title"])

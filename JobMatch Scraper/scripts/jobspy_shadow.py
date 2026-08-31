@@ -68,7 +68,7 @@ def _classify(job, seen, fingerprints, blocked, age_cutoff):
         return "unusable url", None
     if job["url"].lower() in seen:
         return "already known (url)", None
-    if blocked and db.block_key(job.get("company", "")) in blocked:
+    if blocked and db.is_blocked(job.get("company", ""), blocked):
         return "blocked company", None
     keep, why = scraper.title_verdict(job.get("title") or "")
     if not keep:
