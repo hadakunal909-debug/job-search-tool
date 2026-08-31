@@ -67,7 +67,7 @@ YIELD_CHECK_MIN_POSTINGS = 500
 # and only posting is in Coimbatore is 100% foreign, not a thin sample -- which is exactly
 # ROBERTBOSCHLLC, and a threshold of 3 let it through. The floor exists solely to separate
 # 'fetched nothing' (unfetchable, no verdict) from 'fetched something, none of it US'.
-US_CHECK_MIN_POSTINGS = 1
+FOREIGN_CHECK_MIN_POSTINGS = 1
 
 
 # Sampling a board costs one fetch, and TWO independent checks want it -- the title-filter
@@ -111,36 +111,50 @@ def relevance_yield(rec):
     return kept, len(rows)
 
 
-def us_share(rec):
-    """(us, fetched) over the board's postings, or (None, None) if not checked.
+def _names_non_us(loc):
+    """True only when the location NAMES a non-US place. Unrecognisable -> False.
+
+    A VETO, deliberately, and NOT scraper.is_us_location inverted. That distinction is the whole
+    correctness of the check below, and getting it wrong is not hypothetical -- the first version
+    of this guard used `not is_us_location(...)` and rejected five cap-exempt universities:
+    University of North Dakota (0 of 420 postings 'US'), UNLV (0/133), University of Louisville
+    (0/126), NJIT (0/77) and Clemson (0/9). Their boards report BUILDING names -- 'Tiernan Hall',
+    'UNLV1-Main Campus, Las Vegas', 'Clemson University' -- which carry no country signal at all,
+    and is_us_location answers False for anything it cannot place, not just for things abroad.
+    scraper.title_says_non_us' docstring makes the same point about the same function.
+    """
+    low = scraper._fold(loc or "")
+    return bool(low) and bool(scraper._NON_US_RE.search(low))
+
+
+def foreign_share(rec):
+    """(explicitly_foreign, fetched) over the board's postings, or (None, None) if unfetchable.
 
     IMPOSTOR BOARDS. Slug guessing on the JSON-API ATSes finds squatted accounts whose name
     matches the employer and whose postings have nothing to do with it. Measured 2026-08-31:
     jobs.smartrecruiters.com/CITIBANKNA served 7 postings, all Jakarta and Bekasi, with titles
     like "Lowongan kerja Operator Produksi PT Asmo Indonesia"; .../ROBERTBOSCHLLC served one in
-    Coimbatore. Both were graded "confirmed" and adopted.
+    Coimbatore; .../MERKLEINC one in Chennai. All three were graded "confirmed".
 
-    Nothing else could see it. relevance_yield only runs above YIELD_CHECK_MIN_POSTINGS, on the
-    reasoning that a small useless board is cheap to keep -- true for a board that is merely
-    thin, false for one that will never serve a US posting. And a NAME check cannot help here:
-    those postings DO report "Citibank N.A" and "Robert Bosch LLC" as the company. The location
-    is the only tell.
+    Nothing else could see them. relevance_yield only runs above YIELD_CHECK_MIN_POSTINGS, on the
+    reasoning that a small useless board is cheap to keep -- true for a board that is merely thin,
+    false for one that will never serve a US posting. And a NAME check cannot help: those postings
+    DO report "Citibank N.A" and "Robert Bosch LLC" as the company. Location is the only tell.
 
-    Reject on ZERO US postings, never on a minority. HCL America is 6 of 10 US and is real, so a
-    ratio test would throw away legitimate multinational boards. scraper.is_us_location keeps
-    anything it cannot place, so 0-of-N means every posting NAMED somewhere foreign. And N is
-    the whole board -- _sample pages it -- so N=1 is a complete answer, not a thin sample.
+    Rejects only when EVERY posting explicitly names somewhere abroad. Two separate asymmetries,
+    both load-bearing:
+      * ALL, not a majority. HCL America is 6 of 10 US and is a real board.
+      * explicitly-foreign, not un-provably-US. See _names_non_us.
 
-    It must run on the SCRAPER'S composed location, not a bare API field: that string is
-    "Detroit, MI, United States" where the raw field is just "Detroit", and
-    is_us_location("Detroit") is False -- gating on the raw field would have rejected every
-    legitimate board in the same batch.
+    It reads the SCRAPER'S composed location rather than a raw API field, because that string is
+    "Chennai, TN, India" where the raw city is just "Chennai" -- and note the "TN" there is Tamil
+    Nadu, not Tennessee, which is why the veto keys on the country and never on a state code.
     """
     rows = _sample(rec)
-    if len(rows) < US_CHECK_MIN_POSTINGS:
-        return None, None            # too small to conclude anything
-    us = sum(1 for r in rows if scraper.is_us_location(r.get("location")))
-    return us, len(rows)
+    if len(rows) < FOREIGN_CHECK_MIN_POSTINGS:
+        return None, None
+    foreign = sum(1 for r in rows if _names_non_us(r.get("location")))
+    return foreign, len(rows)
 
 
 def _arg(flag, default=None, cast=str):
@@ -245,13 +259,13 @@ def main():
                     skipped_yield += 1
                     continue
         if not skip_location_check:
-            us, fetched = us_share(r)
+            foreign, fetched = foreign_share(r)
             if fetched:
-                r["us_of_fetched"] = "%d/%d" % (us, fetched)
-                if us == 0:
-                    # Every posting NAMED somewhere foreign -> this is not the employer we
-                    # think it is. See us_share() for the two boards that proved it.
-                    r["added"] = "no — 0 of %d postings are US" % fetched
+                r["us_of_fetched"] = "%d/%d foreign" % (foreign, fetched)
+                if foreign == fetched:
+                    # Every posting NAMES somewhere abroad -> this is not the employer we
+                    # think it is. See foreign_share() for the boards that proved it.
+                    r["added"] = "no — all %d postings name a non-US place" % fetched
                     skipped_foreign += 1
                     continue
         seen.add(r["board_url"])
@@ -290,7 +304,7 @@ def main():
         print("  skipped, title filter keeps ZERO of the board: %d  (--no-yield-check to keep)"
               % skipped_yield)
     if skipped_foreign:
-        print("  skipped, ZERO US postings (impostor board): %d  (--no-location-check to keep)"
+        print("  skipped, every posting abroad (impostor board): %d  (--no-location-check to keep)"
               % skipped_foreign)
     if skipped_blocked:
         print("  skipped, on the admin blocklist: %d" % skipped_blocked)
