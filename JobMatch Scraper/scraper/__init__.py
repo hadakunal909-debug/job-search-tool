@@ -129,7 +129,9 @@ EXTRA_BOARDS = [
     # --- Added 2026-06-01: find_boards.py probe of the DOL sponsor list (20 hits) ---
     ("https://job-boards.greenhouse.io/anaplan",            "greenhouse", "Anaplan"),
     ("https://job-boards.greenhouse.io/celonis",            "greenhouse", "Celonis"),
-    ("https://job-boards.greenhouse.io/aurorainnovation",   "greenhouse", "Aurora Innovation"),
+    # Moved off Greenhouse (every slug 404s) to Ashby, where the tenant is the LEGAL name
+    # "aurora-operations-inc" -- found from the apply link on aurora.tech, not by guessing.
+    ("https://jobs.ashbyhq.com/aurora-operations-inc",      "ashby",      "Aurora Innovation"),
     ("https://job-boards.greenhouse.io/alixpartners",       "greenhouse", "AlixPartners"),
     ("https://job-boards.greenhouse.io/worldquant",         "greenhouse", "WorldQuant"),
     ("https://job-boards.greenhouse.io/newrelic",           "greenhouse", "New Relic"),
@@ -325,7 +327,9 @@ EXTRA_BOARDS = [
     ("https://jobs.lever.co/lyrahealth", "lever", "Lyra Health"),                            # ~526
     ("https://honorhealth.wd12.myworkdayjobs.com/HonorHealth_careers", "workday", "HonorHealth"), # ~513
     ("https://careers.crocs.com", "successfactors", "Crocs"),                                # ~511
-    ("https://careers.teradyne.com", "successfactors", "Teradyne"),                          # ~501
+    # careers.teradyne.com went dead: SAP answers it with CN=certificate-not-found.jobs2web.com,
+    # its own placeholder for a hostname it has no cert for. The tenant moved (2026-08-31, 249 rows).
+    ("https://jobs.teradyne.com", "successfactors", "Teradyne"),                             # ~249
     ("https://hckd.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "oracle", "Molina Healthcare"), # ~442
     ("https://jobs.lever.co/shieldai", "lever", "Shield AI"),                                # ~433
     ("https://jobs.ferrero.com", "successfactors", "Ferrero"),                               # ~431
@@ -607,7 +611,12 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/everlaw", "greenhouse", "Everlaw"),                   # ~32
     ("https://job-boards.greenhouse.io/nexamp", "greenhouse", "Nexamp"),                     # ~32
     ("https://job-boards.greenhouse.io/quinstreet", "greenhouse", "QuinStreet"),             # ~32
-    ("https://jobs.ashbyhq.com/safetyculture", "ashby", "SafetyCulture"),                    # ~32
+    # SafetyCulture rebranded to MITTI: safetyculture.com/jobs now redirects to mitti.com/jobs and
+    # the Ashby slug is "mitti", which is why the old one 404s. The DISPLAY NAME stays
+    # "SafetyCulture" on purpose -- the federal filings are under that name and carry its e3 tag
+    # (Australian company, E-3 is the Australian visa), while "Mitti" resolves to nothing yet.
+    # Rename once the disclosure data catches up.
+    ("https://jobs.ashbyhq.com/mitti", "ashby", "SafetyCulture"),                            # ~37
     ("https://job-boards.greenhouse.io/backblaze", "greenhouse", "Backblaze"),               # ~32
     ("https://job-boards.greenhouse.io/bandwidth", "greenhouse", "Bandwidth"),               # ~31
     ("https://careers.certara.com", "jibe", "Certara"),                                      # ~31
