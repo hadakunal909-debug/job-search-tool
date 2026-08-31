@@ -110,8 +110,15 @@ def categorise(name, dba=""):
     return "unclassified"
 
 
-def build_sources_matcher():
-    """Return match(name) -> the SOURCES company name we already scrape, or ''.
+def build_sources_matcher(extra=()):
+    """Return match(name) -> the company name we already scrape, or ''.
+
+    `extra` folds in names that are scraped but are NOT in the static SOURCES list -- in
+    practice the `boards` DB table, which is where every adopted board lives. Without it this
+    answers "" for Cognizant and Deloitte (73 and 302 live jobs, both adopted into `boards`),
+    and discover_companies then queues them for a probe we do not need. SOURCES-only was the
+    original scope because the E-Verify classifier had no DB handle; callers that do should
+    pass one.
 
     Exact equality alone undercounts badly: the federal list says "Marriott International" and
     "BLACKROCK FINANCIAL MANAGEMENT INC" where SOURCES says "Marriott" and "BlackRock". So we
@@ -127,7 +134,7 @@ def build_sources_matcher():
     are not sponsors anyway, and the CSV exists to be eyeballed, so it is left alone.
     """
     by_key = {}
-    for _url, _ats, company in scraper.SOURCES:
+    for company in [c for _u, _a, c in scraper.SOURCES] + list(extra):
         if not company:
             continue
         k = _sources_key(company)
