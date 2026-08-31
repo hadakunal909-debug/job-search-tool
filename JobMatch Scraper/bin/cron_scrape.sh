@@ -98,7 +98,18 @@ export SCRAPE_BUDGET_MIN=0
 # the peak near the size that has actually been observed to survive here, at ~12 slices of ~4
 # minutes. An earlier 300 was a guess made before that count existed; smaller slices cost only
 # extra round trips, and buy a smaller loss when a run is killed.
-export SCRAPE_SLICE=150
+# 150 -> 100 on 2026-08-31, after two consecutive runs were SIGKILLed again -- the cron mailed
+# "line 131: 177876 Killed" and the same for a second pid. Same failure as 2026-08-24, and the
+# reason it came back is above: 150 was measured against a 1,802-board list and the list is now
+# 1,947. Most of that growth is one batch -- 81 boards adopted from the ranked-sponsor probe on
+# 2026-08-31 -- so this is the cost of that batch, not drift. 100 is not a guess either: the
+# note above records a 100-board slice scanning 78,926 postings on the day the slicing was
+# added, which is the largest peak this box has been observed to survive.
+#
+# WORKERS ARE DELIBERATELY NOT TOUCHED. The note above says 6 is a throttling decision about
+# concurrency, not a memory one, and lowering it would trade a documented judgement for an
+# undocumented guess. Slice size is the lever that bounds the peak.
+export SCRAPE_SLICE=100
 # Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
 # board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
 # than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
