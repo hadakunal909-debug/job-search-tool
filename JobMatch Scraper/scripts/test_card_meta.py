@@ -160,8 +160,13 @@ process.stdout.write(JSON.stringify(out));
 # cardHTML is 90 lines and needs a whole card's worth of data, so rather than lift it and stub its
 # world, lift JUST its badge branch — condition and template — out of app.js by text. A change to
 # either the threshold or the agency guard then fails here instead of shipping silently.
+# The append changed shape on 2026-08-31: cardHTML collects chips as _chip(priority, html)
+# and renders only the top CARD_CHIP_MAX, so badges are no longer concatenated in source
+# order. The priority is matched as a NUMBER rather than a literal on purpose -- this shim
+# guards the repost threshold and the agency condition, and pinning the rank would fail the
+# suite every time the chip order is retuned, which is a product decision, not a regression.
 _REPOST_RE = re.compile(
-    r"if \(j\.repost > 2 && !j\.agency\)\s*\n\s*badges \+= (.*?);\s*\n\s*if \(j\.closed\)", re.S)
+    r"if \(j\.repost > 2 && !j\.agency\)\s*\n\s*_chip\(\d+, (.*?)\);\s*\n\s*if \(j\.closed\)", re.S)
 
 
 def repost_shim():

@@ -220,7 +220,7 @@ worth of context, and all three must agree.
 ```mermaid
 flowchart TB
   S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1828</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 853</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 873</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD

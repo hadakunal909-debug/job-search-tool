@@ -423,6 +423,9 @@
   }
 
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
+  // How many chips a card may show. Three fits one line at the narrowest card width
+  // the grid produces; a fourth wraps and reintroduces the wall this cap removed.
+  var CARD_CHIP_MAX = 3;
   function cardHTML(j) {
     var st = j.status || "";
     // "New" mirrors the card's own date label: show it iff the displayed date renders as "Today".
@@ -437,9 +440,22 @@
     // broken SILENTLY, taking the badge off every fresh card.
     var d0 = daysAgo(j.date);
     var newFlag = (d0 !== null && d0 <= 0) ? '<span class="newflag">New</span>' : '';
+    // CHIPS ARE PRIORITISED AND CAPPED, they are not appended in source order any more.
+    // A card could render eleven of these at once -- internship, visa route, no-lottery,
+    // agency, years, sponsors/no-sponsorship, pay, remote, matched-on-description, repost,
+    // closed -- on top of the logo, company, location, date, score ring and five actions.
+    // Eleven facts in a row is not eleven facts read; it is a wall the eye skips.
+    //
+    // The order is by CONSEQUENCE to an F-1 reader, not by tidiness: a disqualifier first
+    // (no sponsorship, closed), then the strongest positive the posting itself states
+    // (Sponsors), then the employer's filing history, then cap-exempt, then pay. Anything
+    // that ranks below the cap is not lost -- the job page renders all of it, with the
+    // caveats that never fitted on a card.
+    var _cl = [];
+    function _chip(p, h) { _cl.push([p, h]); }
     var badges = "";
     if (j.intern)
-      badges += '<span class="intl" title="OPT &amp; STEM-OPT eligible">Internship</span>';
+      _chip(10, '<span class="intl" title="OPT &amp; STEM-OPT eligible">Internship</span>');
     // ONE chip, hedged. core.sponsor_likely is the single definition and the server ran it on
     // the tuple ALREADY narrowed by this posting's own text, so a JD that closes a route can
     // never surface a chip for it.
@@ -467,24 +483,24 @@
     // filed', never 'how often'"); the card was not.
     var vtop = j.visa_likely || "";
     if (vtop)
-      badges += '<span class="vt vt-' + H(vtop) + '"' +
+      _chip(4, '<span class="vt vt-' + H(vtop) + '"' +
         (vtop === "h1b" && j.strength === "high"
           ? ' title="From federal filings through ' + H(SPONSOR_DATA_THROUGH) +
             '. It describes the employer\'s history, not this posting."' : '') + '>' +
         esc(SPONSOR_LIKELY_LABELS[vtop] || vtop) +
         (vtop === "h1b" && j.strength === "high"
-          ? ", top sponsor to " + esc(SPONSOR_DATA_THROUGH) : "") + '</span>';
+          ? ", top sponsor to " + esc(SPONSOR_DATA_THROUGH) : "") + '</span>');
     if (j.cap_exempt)
-      badges += '<span class="cx">No lottery</span>';
+      _chip(5, '<span class="cx">No lottery</span>');
     if (j.agency)
-      badges += '<span class="agency">Agency</span>';
+      _chip(9, '<span class="agency">Agency</span>');
     // Set in the data face with tabular figures, so "5+ yrs" reads as a measurement rather
     // than as a plus sign someone left in a sentence. It keeps a tooltip because "5+" alone
     // never said WHOSE five years it meant.
     if (j.exp_years !== "" && j.exp_years != null) {
       var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
-      badges += '<span class="exp ' + ec + '" title="The description asks for ' +
-        H(j.exp_years) + ' years of experience or more.">' + H(j.exp_years) + '+ yrs</span>';
+      _chip(7, '<span class="exp ' + ec + '" title="The description asks for ' +
+        H(j.exp_years) + ' years of experience or more.">' + H(j.exp_years) + '+ yrs</span>');
     } else if (expSel && expSel.value !== "any") {
       // ONLY WHILE A YEARS FILTER IS ON, because that is when the distinction matters and the
       // badge would otherwise be noise on every card. Under "0 to 2 Years" roughly 7 in 10
@@ -492,20 +508,20 @@
       // previously indistinguishable from the ones that genuinely qualify, which is how a role
       // demanding 6+ years in its text appeared under an entry-level filter with nothing to
       // warn you. The filter is not lying; it simply could not read that posting.
-      badges += '<span class="exp exp-unknown" title="This description states no year count, ' +
+      _chip(13, '<span class="exp exp-unknown" title="This description states no year count, ' +
         'so it has not been filtered by experience. Postings with no stated years are always ' +
-        'shown -- untick that in Filters to hide them.">years not stated</span>';
+        'shown -- untick that in Filters to hide them.">years not stated</span>');
     }
     if (j.sponsor_jd === 'blocked')
-      badges += '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>';
+      _chip(1, '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>');
     else if (j.sponsor_jd === 'open')
-      badges += '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>';
+      _chip(3, '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>');
     // Pay needs no tooltip — the chip shows the range. Remote keeps the "per the posting" hedge,
     // which is the single place that caveat now lives (the rail checkbox dropped its copy).
     if (j.salary_label)
-      badges += '<span class="pay">' + H(j.salary_label) + '</span>';
+      _chip(6, '<span class="pay">' + H(j.salary_label) + '</span>');
     if (j.remote)
-      badges += '<span class="rem" title="Remote per the posting">Remote</span>';
+      _chip(8, '<span class="rem" title="Remote per the posting">Remote</span>');
     // Posted N times. A COUNT, not a verdict: we can prove this role has been advertised under N
     // distinct URLs at one location inside the window, and we cannot prove why. "Ghost job" is the
     // inference the reader is entitled to draw, not a claim the card is entitled to make.
@@ -518,19 +534,23 @@
     // net stays auditable -- if these start reading as junk, the rule that admits them is named
     // and tunable (core.PM_ANCHORS / PM_MIN_POINTS) rather than anonymous.
     if (j.jd_admit)
-      badges += '<span class="jdadmit" title="This job’s title matched none of our role ' +
+      _chip(12, '<span class="jdadmit" title="This job’s title matched none of our role ' +
         'keywords. It is here because its description reads like project / programme delivery ' +
-        'work.">matched on description</span>';
+        'work.">matched on description</span>');
     if (j.repost > 2 && !j.agency)
-      badges += '<span class="repost" title="This role has been advertised at ' + H(j.repost) +
+      _chip(11, '<span class="repost" title="This role has been advertised at ' + H(j.repost) +
         ' different URLs at this location in the last 90 days. Often a role that is not getting' +
-        ' filled.">Posted ' + H(j.repost) + '&times;</span>';
+        ' filled.">Posted ' + H(j.repost) + '&times;</span>');
     if (j.closed)
-      badges += '<span class="closed">Closed</span>';
+      _chip(2, '<span class="closed">Closed</span>');
     // Some employers publish no posting date anywhere, so the card falls back to when the job
     // reached us. It carries data-added so formatDates() labels it "Added …" and styles it
     // apart — an approximate arrival date must never read as a posting date. The text starts
     // out as "Added <iso>" so there's no flash of a bare date before formatDates() runs.
+    // Lowest priority number wins. Stable within a priority, so equal-rank chips keep
+    // source order.
+    _cl.sort(function (a, b) { return a[0] - b[0]; });
+    badges = _cl.slice(0, CARD_CHIP_MAX).map(function (c) { return c[1]; }).join("");
     var posted = '';
     if (j.date) {
       // data-approx marks a DERIVED date so formatDates can hedge its tooltip instead of

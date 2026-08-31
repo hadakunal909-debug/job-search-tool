@@ -10,7 +10,24 @@
    meaningless outside this product, so it gets its own vocabulary rather than borrowing
    --brand-soft and --ok-soft, which chained the taxonomy to the accent and to "success".
 
-   THE COLOUR RULE, 2026-08-10. Colour means sponsorship. Everything else is ink.
+   THE COLOUR RULE, 2026-08-31. ONE HUE: blue. Everything else is ink.
+
+   Superseded the 2026-08-10 rule below at the owner's explicit direction after seeing the
+   feed: violet for Green Card and green for STEM-OPT are folded into the same blue as
+   H-1B, so the product now spends its whole chromatic budget on ONE accent.
+
+   What that costs, recorded so it is a decision and not an accident: route is no longer
+   distinguishable at a glance -- a Green Card chip and an H-1B chip are the same colour.
+   What carries it instead is the LABEL, which already named the route in full
+   (core.SPONSOR_LIKELY_LABELS / VISA_TAG_LABELS): the hue was reinforcing the word, not
+   replacing it. So the fact survives; only the glanceability does not.
+
+   The token NAMES stay --visa-gc-* / --visa-stem-* rather than collapsing to one name,
+   because ~700 lines of component CSS and scripts/test_contrast.py reference them, and
+   because reverting is then a four-value edit here rather than a hunt.
+
+   The rule it replaced, kept for the reasoning:
+   Colour means sponsorship. Everything else is ink.
 
    Actions are ink: black on light, white on dark, no hue at all. Selection is an ink
    border over a neutral fill rather than a coloured wash. That is not minimalism for its
@@ -125,12 +142,16 @@
   --visa-h1b-text:var(--blue-700);   --visa-h1b-bg:var(--blue-50);
   --visa-e3-text:var(--blue-700);    --visa-e3-bg:var(--blue-50);
   --visa-h1b1-text:var(--blue-700);  --visa-h1b1-bg:var(--blue-50);
-  --visa-gc-text:var(--violet-600);  --visa-gc-bg:var(--violet-50);
-  --visa-stem-text:#0f7a43;          --visa-stem-bg:#e6f6ec;
+  --visa-gc-text:var(--blue-700);    --visa-gc-bg:var(--blue-50);
+  --visa-stem-text:var(--blue-700);  --visa-stem-bg:var(--blue-50);
   --visa-blocked-text:var(--gray-700); --visa-blocked-bg:var(--gray-100);
   --visa-unknown-text:var(--gray-650); --visa-unknown-bg:var(--gray-100);
-  --match-track:var(--gray-200);  --match-strong:var(--green-700);
-  --match-good:var(--amber-700);  --match-weak:var(--red-700);
+  /* ONE HUE, THREE DEPTHS. Was green/amber/red, which put three more colours on every
+     single card and was the loudest thing in the feed. A sequential ramp of one hue is the
+     standard way to encode MAGNITUDE, which is what a match score is; green-to-red encodes
+     good-vs-bad, a judgement the number already makes, printed inside the ring. */
+  --match-track:var(--gray-200);  --match-strong:var(--blue-700);
+  --match-good:var(--blue-500);   --match-weak:#3b6fd4;   /* 6.70 / 5.17 / 4.76 on white */
   --match-none:var(--gray-300);
   /* Opaque, not a veil: the arc must read the same on all five route washes. */
   --match-pill:var(--bg-surface);
@@ -399,14 +420,14 @@
   --visa-h1b-text:#93c5fd;  --visa-h1b-bg:#152340;
   --visa-e3-text:#93c5fd;   --visa-e3-bg:#152340;
   --visa-h1b1-text:#93c5fd; --visa-h1b1-bg:#152340;
-  --visa-gc-text:#c4b5fd;   --visa-gc-bg:#241a3d;
-  --visa-stem-text:#5fd08a; --visa-stem-bg:#0f2b1c;
+  --visa-gc-text:#93c5fd;   --visa-gc-bg:#152340;
+  --visa-stem-text:#93c5fd; --visa-stem-bg:#152340;
   --visa-blocked-text:#9ea5b8; --visa-blocked-bg:#232738;
   --visa-unknown-text:#9ea5b8; --visa-unknown-bg:#232738;
   /* The traffic light, lifted for a dark surface. Same three values the status tokens use,
      which are already carried at this weight elsewhere in the theme. */
-  --match-track:#2c3045; --match-strong:#6ee7a0; --match-good:#f0c05a;
-  --match-weak:#f5a3a3;  --match-none:#454d5d;
+  --match-track:#2c3045; --match-strong:#93c5fd; --match-good:#6f9de8;
+  --match-weak:#5f8fd8;  --match-none:#454d5d;   /* 9.80 / 6.45 / 5.39 on #161822 */
   --match-pill:var(--bg-surface);
   --kw-have-bg:var(--status-success-bg);  --kw-have-text:var(--status-success-text);
   --kw-miss-bg:var(--status-danger-bg);   --kw-miss-text:var(--status-danger-text);
