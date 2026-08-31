@@ -257,8 +257,15 @@ print("NO-DESCRIPTION STATES")
 print("=" * 88)
 r = get(PENDING)
 body = r.data.decode("utf-8", "replace")
-check("a pending row renders and says the description is too short",
-      r.status_code == 200 and "too short to score" in body, str(r.status_code))
+# The copy stopped claiming "too short" on 2026-08-31: the server cannot know that. Feed rows
+# do not carry the jd column and jd_unavailable is decided by a HOST blocklist, so a NULL
+# jd_terms means "not analysed yet" and nothing about the length -- 30 rows carrying a real
+# description were being told they were too short. What this suite actually freezes is the
+# DISTINCTION below, not the wording: pending promises a score, blocked must not.
+check("a pending row renders and says it is not scored yet",
+      r.status_code == 200 and "Not scored yet" in body, str(r.status_code))
+check("a pending row promises a score is still coming",
+      "match score after the next scoring run" in body)
 check("a pending row does NOT claim the employer publishes nothing",
       "doesn" not in body.split("Profile Match")[-1][:400].replace("doesn't publish", "X"))
 
@@ -268,8 +275,8 @@ check("a blocked row renders", r.status_code == 200, str(r.status_code))
 check("a blocked row says the employer publishes nothing we can read",
       "publish a description we can read" in body)
 check("a blocked row does NOT promise a score is coming",
-      "too short to score" not in body,
-      "that copy ends 'once the full job description is fetched' — it never will be")
+      "match score after the next scoring run" not in body and "Not scored yet" not in body,
+      "the pending copy promises a score; for a blocked employer one never arrives")
 
 rows = {j["url"]: web._build_row(j, 0) for j in JOBS if j["url"] in (PENDING, BLOCKED)}
 check("jd_unavailable is set only for the walled host",

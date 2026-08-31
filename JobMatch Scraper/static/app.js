@@ -269,7 +269,7 @@
     if (j && j.jd_unavailable)
       return '<span class="score-pending" title="This employer does not publish a description we can read, so this job cannot be scored against your r\u00e9sum\u00e9. Open the posting to read it.">No description</span>';
     if (j && j.score_pending)
-      return '<span class="score-pending" title="This description is too short to score reliably yet. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
+      return '<span class="score-pending" title="Not scored yet: no full description has been read for this posting. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);
   }
   function toast(msg, undoFn) {

@@ -87,7 +87,8 @@
             <p class="jobnote">This employer doesn&rsquo;t publish a description we can read, so
               this job can&rsquo;t be scored. Open the posting to read it.</p>
             {% elif row.score_pending %}
-            <p class="jobnote">This description is too short to score reliably yet.</p>
+            <p class="jobnote">Not scored yet &mdash; no full description has been read for
+              this posting. It gets a match score after the next scoring run.</p>
             {% else %}
             <b class="{{ 'meter-strong' if row.score >= 70 else ('meter-good' if row.score >= 40 else 'meter-weak') }}">{{ row.score }}%</b>
             {% endif %}
