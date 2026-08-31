@@ -106,7 +106,13 @@ def relevance_yield(rec):
         return None, None
     rows = _sample(rec)
     if not rows:
-        return None, None
+        # FETCHED NOTHING is not the same as NOT CHECKED, and conflating them adopted a
+        # dead board: AutoZone's probe reported 10,855 postings from its careers page while
+        # scrape_oracle read 0 rows off the same URL, relevance_yield returned (None, None),
+        # and 10,855 phantom postings entered the sweep to be re-fetched forever for nothing.
+        # A board the probe calls big and the scraper cannot read at all is unusable TODAY,
+        # whatever the careers page claims, so report it as a zero rather than a silence.
+        return 0, 0
     kept = sum(1 for r in rows if scraper.title_verdict(r.get("title", ""))[0])
     return kept, len(rows)
 
@@ -250,6 +256,11 @@ def main():
             continue
         if not skip_yield_check:
             kept, fetched = relevance_yield(r)
+            if (kept, fetched) == (0, 0):
+                r["kept_of_fetched"] = "unreadable"
+                r["added"] = "no — probe claimed %s postings, scraper reads 0" % r["job_count"]
+                skipped_yield += 1
+                continue
             if fetched:
                 r["kept_of_fetched"] = "%d/%d" % (kept, fetched)
                 if kept == 0:
