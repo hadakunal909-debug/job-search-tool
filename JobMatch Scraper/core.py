@@ -877,15 +877,63 @@ def is_cap_exempt(company):
 # VOLUME (a company that files thousands of H-1Bs is a far safer bet than one with two).
 # Needs an optional sponsor_counts.json {normalized_name: count}; degrades to '' without it.
 # ------------------------------------------------------------
-def load_sponsor_counts(path="sponsor_counts.json"):
-    """Optional {normalized_company: H1B_filing_count} built from DOL LCA data.
-    Returns {} when the file is absent (strength just isn't shown)."""
+_SPONSOR_META = {}          # path -> the "#meta" provenance block the loader popped
+
+
+def _load_sponsor_json(path):
+    """Load one of the sponsor indexes, lifting its "#meta" block out of the mapping.
+
+    THE POP IS LOAD-BEARING, not tidiness. Both files carry a "#meta" dict describing the
+    fiscal-year window they were built from (see scraper/build_sponsor_counts.py). Two callers
+    walk these mappings rather than .get()-ing them, and one fails SILENTLY:
+
+      web.py::sponsor_data_through iterates sponsor_years().values() and int()s each inner
+      key, inside a bare `except Exception: pass` that falls through to a hardcoded "FY2023".
+      A "#meta" value is a dict of strings, exactly like every real value there, so int("built")
+      raises, the except swallows it, and the vintage label freezes at FY2023 — after a refresh
+      whose entire purpose was to move it. No error, no log line.
+
+      scraper/__init__.py::build_sponsor_index does set(sponsor_counts) into its `wide` index.
+
+    Popping here fixes both, because every runtime reader goes through these two loaders.
+    "#" cannot survive _norm_name, so no company lookup could ever collide with the key.
+    """
     if not os.path.exists(path):
         return {}
     try:
-        return json.load(open(path, encoding="utf-8")) or {}
+        d = json.load(open(path, encoding="utf-8")) or {}
     except Exception:
         return {}
+    if not isinstance(d, dict):
+        return {}
+    _SPONSOR_META[path] = d.pop("#meta", None) or {}
+    return d
+
+
+def sponsor_meta(path="sponsor_years.json"):
+    """The provenance block: which fiscal years the shipped counts actually cover.
+
+    Reads sponsor_years.json by default rather than sponsor_counts.json — the block is
+    identical in both and that file is 0.2 MB against 2.9 MB, so asking for the vintage never
+    drags the wide index into memory.
+    """
+    if path not in _SPONSOR_META:
+        _load_sponsor_json(path)
+    return _SPONSOR_META.get(path) or {}
+
+
+def sponsor_window():
+    """The tier window as a label, e.g. "FY2021-2025". "" when the data predates #meta."""
+    yrs = [int(y) for y in (sponsor_meta().get("years") or []) if str(y).isdigit()]
+    if not yrs:
+        return ""
+    return "FY%d-%d" % (min(yrs), max(yrs)) if min(yrs) != max(yrs) else "FY%d" % yrs[0]
+
+
+def load_sponsor_counts(path="sponsor_counts.json"):
+    """Optional {normalized_company: H1B_approval_count} built from the USCIS Data Hub.
+    Returns {} when the file is absent (strength just isn't shown)."""
+    return _load_sponsor_json(path)
 
 
 def load_sponsor_years(path="sponsor_years.json"):
@@ -893,16 +941,11 @@ def load_sponsor_years(path="sponsor_years.json"):
     behind the company panel's chart, built by scraper.build_sponsor_counts from the USCIS
     Data Hub bulk CSVs. Returns {} when the file is absent (the chart just isn't drawn).
 
-    Small on purpose (~0.2 MB / ~1,600 employers): it covers only names in our own universe,
+    Small on purpose (~0.1 MB / ~2,200 employers): it covers only names in our own universe,
     because the panel can only be opened for an employer that is in the corpus. sponsor_counts
     stays the wide index, since the tier lookup has to resolve any spelling.
     """
-    if not os.path.exists(path):
-        return {}
-    try:
-        return json.load(open(path, encoding="utf-8")) or {}
-    except Exception:
-        return {}
+    return _load_sponsor_json(path)
 
 
 def _sponsor_key(company):

@@ -55,6 +55,7 @@ import csv
 import json
 import argparse
 import collections
+import datetime
 
 if hasattr(sys.stdout, "reconfigure"):      # absent under Passenger / some cron wrappers
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -67,7 +68,17 @@ OUT = "sponsor_counts.json"
 # asked about, while OUT keeps every USCIS spelling so the tier lookup can fall back on one.
 OUT_YEARS = "sponsor_years.json"
 
+# "raw_csv" FIRST, and it has no fiscal-year span in its name on purpose. The original folder
+# was called raw_csv_fy2009-2023, which meant every refresh that added a year was a code edit
+# here. Worse, that folder's h1b_2023.csv is a PARTIAL year (33,332 rows against the 57,415 the
+# Hub reports today — USCIS published it in May 2023, four months before FY2023 closed), so a
+# fallback that silently found it would understate every employer. It stays in the list only so
+# an unconverted checkout still builds something, and it stays on DISK because the sibling
+# "USCIS H-1B Data Hub/majors_with_careers.py" globs that literal name and would silently
+# return zero files if it were renamed. Populate raw_csv/ with scripts/convert_hub_crosstab.py.
 DEFAULT_DIRS = [
+    os.path.join("..", "USCIS H-1B Data Hub", "raw_csv"),
+    os.path.join("USCIS H-1B Data Hub", "raw_csv"),
     os.path.join("..", "USCIS H-1B Data Hub", "raw_csv_fy2009-2023"),
     os.path.join("USCIS H-1B Data Hub", "raw_csv_fy2009-2023"),
 ]
@@ -98,6 +109,23 @@ ALIASES = {
     "hcl": ("hcl america",),                # "HCL Technologies" -> "hcl" once the suffix is stripped
     "exl service": ("exlservice",),
     "instacart": ("maplebear",),            # files as MAPLEBEAR INC DBA INSTACART
+    # Both of these were WRONG ON THE LIVE FEED until 2026-08-31, and neither was a refresh
+    # regression — they predate it. Found by scanning corpus employers whose tier was low or
+    # blank while a de-spaced variant of their name held thousands of approvals.
+    #   Walmart files as "WAL-MART ASSOCIATES INC" -> "wal mart associates". Our card says
+    #   "Walmart" -> "walmart", which is not a token prefix of it, so 817 live job cards showed
+    #   ('low', 7) for a 13,791-approval employer -- the wrong sponsorship COLOUR, on the one
+    #   number a student would act on.
+    "walmart": ("wal mart",),
+    #   Same shape, opposite spelling: the board writes "JPMorganChase" as one word, USCIS
+    #   files as "JPMORGAN CHASE & CO". 37 live jobs, tier was blank.
+    "jpmorganchase": ("jpmorgan chase",),
+    "supermicro": ("super micro computer",),    # board says "Supermicro", files as "Super Micro"
+    "spacex": ("space exploration",),           # Space Exploration Technologies Corp
+    # REJECTED while compiling the four above, and listed so nobody "helpfully" adds them: the
+    # same scan proposed WM -> "w m rice university" (Waste Management onto RICE UNIVERSITY) and
+    # BD -> "bdo" (Becton Dickinson onto the accounting firm). Two-letter names are the "US Bank
+    # -> bank" trap; resolve() already refuses them as too generic, and it is right to.
 }
 
 # A company name that normalizes to one of these (or to fewer than 4 characters) is too
@@ -108,6 +136,18 @@ GENERIC = {
     "american", "united", "first", "general", "state", "city", "county", "school", "research",
     "capital", "financial", "insurance", "energy", "media", "network", "networks", "partners",
     "associates", "enterprises", "international", "industries", "science", "sciences", "care",
+    # GIVEN NAMES AND PLACE WORDS. Everything above is a generic BUSINESS word; these are words
+    # that many unrelated small businesses happen to START with, which the prefix expansion then
+    # pools into one number. Both were caught in 2026-08-31's --check as newly "prominent":
+    #   "David"   -- the protein-bar startup, board job-boards.greenhouse.io/david. Prefix
+    #                expansion credited it with 135 approvals pooled from David Yurman, David
+    #                Oppenheimer, David Evans & Associates and nine other unrelated businesses.
+    #   "Coastal" -- Coastal Community Bank (jobs.ashbyhq.com/coastal), credited with 111
+    #                including Coastal Carolina University's 56.
+    # Pooling is RIGHT for the other 96 of 98 single-token names measured (Amazon over
+    # "amazon web services", Deloitte over "deloitte tax"), so the matcher is not the problem
+    # and must not be loosened or rewritten -- the deny list is the correct instrument.
+    "david", "coastal",
 }
 
 
@@ -355,9 +395,24 @@ def resolve(names, totals, by_year=None):
 def main():
     ap = argparse.ArgumentParser(description="Build sponsor_counts.json from the USCIS H-1B Data Hub CSVs.")
     ap.add_argument("directory", nargs="?", default=None, help="folder of h1b_YYYY.csv files")
-    ap.add_argument("--years", default="2019-2023",
-                    help="fiscal years to count (default 2019-2023 — recent filings predict "
+    ap.add_argument("--years", default="2021-2025",
+                    help="fiscal years to count (default 2021-2025 — recent filings predict "
                          "current sponsoring far better than a 15-year sum)")
+    # WHY FIVE YEARS, AND WHY THESE FIVE. core.sponsor_strength tiers on ABSOLUTE counts
+    # (>=1000 high, >=100 medium), so the tier is a direct function of how WIDE this window is,
+    # and nothing downstream renormalizes. Measured on the raw CSVs: narrowing FY2019-2023 to a
+    # three-year window cuts the "high" tier from 169 employers to 95. So the invariant to hold
+    # across a refresh is the WIDTH, not the specific years — keep it at five.
+    #
+    # FY2021-2025 rather than a later end: FY2026 is only published through Q3 and a partial
+    # year in a SUM depresses each employer by a different fraction (the old FY2023 file was 38%
+    # of a normal year nationally but 26% for Amazon). Excluded from the history too, or it
+    # draws a false cliff as the last bar of every company chart — which is the exact artifact
+    # this refresh existed to remove.
+    #
+    # FY2021 rather than FY2020 as the start: the pre-FY2020 Hub exports carry no CONSOLIDATED
+    # employer row, only small per-TaxID ones, so Microsoft reads 13 in FY2019 and ~7,000 in
+    # FY2020. Any window straddling that boundary mixes two different things.
     args = ap.parse_args()
 
     directory = args.directory
@@ -377,6 +432,23 @@ def main():
           % (len(totals), format(sum(totals.values()), ","),
              ", ".join(str(y) for y in sorted(seen)) or "n/a"))
 
+    # PER-FISCAL-YEAR CANARY. Print this and read it every time. A complete Hub year has run
+    # 380k-480k approvals since FY2020, so a year that lands far below its neighbours is a
+    # partial export, not a decline in sponsorship — and it is invisible in the total above.
+    # The shipped FY2023 file was 176,950 against FY2022's 466,191 and nothing said so for
+    # three months; the whole tier was built on a window with a hole in it.
+    per_fy = collections.Counter()
+    for yrs in by_year.values():
+        for fy, n in yrs.items():
+            per_fy[fy] += n
+    if per_fy:
+        typical = sorted(per_fy.values())[len(per_fy) // 2]
+        print("  approvals by fiscal year (in-window years marked *):")
+        for fy in sorted(per_fy):
+            flag = "*" if not years or fy in years else " "
+            warn = "   <-- LOOKS PARTIAL vs the others" if per_fy[fy] < typical * 0.6 else ""
+            print("    %s FY%d  %11s%s" % (flag, fy, format(per_fy[fy], ","), warn))
+
     print("\nResolving our company names onto those aggregates...")
     names = our_universe()
     extra, extra_years, report, examples = resolve(names, totals, by_year)
@@ -392,23 +464,52 @@ def main():
             for line in examples[kind]:
                 print("      %s" % line)
 
+    # PROVENANCE. Until 2026-08-31 neither of these files recorded anything about itself, so
+    # the only way to know what fiscal years a shipped sponsor_counts.json covered was to read
+    # the --years DEFAULT in this file and hope nobody had passed the flag. That is how the
+    # window silently kept a partial FY2023 in it. Same "#meta" convention as visa_tags.json.
+    #
+    # "years" (the tier window) and "history" (every FY present) are deliberately SEPARATE:
+    # read_hub_csvs reads every file and only SUMS the window, so they are different facts, and
+    # web.py::sponsor_data_through labels a number that comes from the window.
+    #
+    # SAFETY: this key is popped in core.load_sponsor_counts / load_sponsor_years, because
+    # web.py::sponsor_data_through iterates the VALUES of sponsor_years and int()s their keys
+    # inside a bare `except` — a dict of strings there would be swallowed and pin the vintage
+    # label at "FY2023" forever. "#" cannot survive _norm_name, so no company lookup can
+    # collide with it.
+    meta = {
+        "built": datetime.datetime.now().isoformat(timespec="seconds"),
+        "source": "USCIS H-1B Employer Data Hub",
+        "dir": os.path.abspath(directory),
+        "files": sorted(f for f in os.listdir(directory) if f.lower().endswith(".csv")),
+        "years": sorted(years) if years else sorted(seen),
+        "history": sorted(seen),
+        "approvals_by_fy": {str(fy): per_fy[fy] for fy in sorted(per_fy)},
+    }
+
     # Our resolved keys go in LAST so they win over any same-key USCIS aggregate.
     out = dict(totals)
     out.update(extra)
+    out["#meta"] = dict(meta, keys=len(out) + 1)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)
 
     tiers = collections.Counter()
-    for n in out.values():
+    for k, n in out.items():
+        if k == "#meta":                    # provenance, not an employer — never a tier
+            continue
         tiers["high" if n >= 1000 else "medium" if n >= 100 else "low"] += 1
     print("\nWrote %s (%d keys, %.1f MB)."
-          % (OUT, len(out), os.path.getsize(OUT) / 1e6))
+          % (OUT, len(out) - 1, os.path.getsize(OUT) / 1e6))
     print("Tiers as core.sponsor_strength will read them: high %d · medium %d · low %d"
           % (tiers["high"], tiers["medium"], tiers["low"]))
 
     # Per-year history, resolved names only — see the note in resolve().
+    years_out = dict(extra_years)
+    years_out["#meta"] = dict(meta, employers=len(extra_years))
     with open(OUT_YEARS, "w", encoding="utf-8") as f:
-        json.dump(extra_years, f, separators=(",", ":"), sort_keys=True)
+        json.dump(years_out, f, separators=(",", ":"), sort_keys=True)
     span = sorted({int(y) for h in extra_years.values() for y in h})
     print("Wrote %s (%d employers, FY%s-%s, %.1f MB)."
           % (OUT_YEARS, len(extra_years), span[0] if span else "?", span[-1] if span else "?",

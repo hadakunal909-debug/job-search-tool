@@ -3803,19 +3803,33 @@ def _ago_filter(value):
 
 @app.template_global()
 def sponsor_data_through():
-    """The last fiscal year our sponsorship data actually covers, e.g. "FY2023".
+    """The last fiscal year the sponsorship COUNTS cover, e.g. "FY2025".
 
     Every sponsorship figure in the product — the "~1,661 H-1B" chips, "top sponsor", the
     company modal's year chart, the sponsor-rank sort — is computed from a window that closed
-    some time ago: sponsor_years.json runs FY2009 to FY2023, and today is well past that. The
-    modal has always been honest about the range it draws; the card chip was not, and "top
-    sponsor" on a 2026 feed reads as a claim about now.
+    some time ago, and today is well past its end. The modal has always been honest about the
+    range it draws; the card chip was not, and "top sponsor" on a 2026 feed reads as a claim
+    about now.
 
-    DERIVED FROM THE DATA, not hardcoded, so refreshing sponsor_years.json from the USCIS
-    Employer Data Hub updates every label that quotes it without another edit. Falls back to the
-    shipped vintage rather than to a blank, because an unlabelled number is the defect.
+    READS THE TIER WINDOW, not the history. Those differ: build_sponsor_counts reads every
+    fiscal year on disk into sponsor_years (so the chart can show a long history) but SUMS only
+    --years into the counts. The number this label sits next to is the windowed one, so quoting
+    the history's last year would overstate it by however many partial or out-of-window years
+    happen to be present.
+
+    DERIVED FROM THE DATA, so refreshing the indexes moves every label at once. Falls back to
+    the history, then to the shipped vintage — an unlabelled number is the defect.
     """
     try:
+        yrs = [int(y) for y in (core.sponsor_meta().get("years") or []) if str(y).isdigit()]
+        if yrs:
+            return "FY%d" % max(yrs)
+    except Exception:
+        pass
+    try:
+        # Pre-#meta files (anything built before 2026-08-31) carry no window, so fall back to
+        # the history. Safe now: core.load_sponsor_years pops "#meta", without which the int()
+        # below would raise on its string keys and this whole function would return "FY2023".
         years = set()
         for per_year in (sponsor_years() or {}).values():
             years.update(int(y) for y in (per_year or {}))
@@ -3824,6 +3838,17 @@ def sponsor_data_through():
     except Exception:
         pass
     return "FY2023"
+
+
+@app.template_global()
+def sponsor_window():
+    """The whole tier window as a label, e.g. "FY2021-2025".
+
+    The templates used to hardcode the START of this range ("FY2019&ndash;{{ ... }}") next to a
+    number summed over whatever --years the last build happened to use. Sliding the window then
+    silently made the label a lie. Both ends come from the data now.
+    """
+    return core.sponsor_window() or "FY2019-2023"
 
 
 @app.template_global()

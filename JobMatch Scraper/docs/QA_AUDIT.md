@@ -41,7 +41,7 @@ file rather than re-deriving it.
 | S9 | Med | Résumé | Fixed (unverified) | Tectonic tarball verified against `TECTONIC_SHA256` before `chmod`; an unpinned version is refused loudly. `/brain/export/resume.pdf` rate-limited. **⚠ The digest table is empty — see "Needs your input" below.** |
 | S10 | Low | Web | Fixed (unverified) | `_csv_cell()` prefixes `= + - @ \t \r` in `/applications.csv`. |
 | S11 | **High** | Résumé | Fixed (unverified) | The AI key is sealed (HMAC-CTR encrypt-then-MAC, stdlib only) instead of sitting readable in the signed cookie. Old plaintext sessions are re-sealed in place. Copy corrected. |
-| F1 | High | Scraper | **Partially fixed** | `_norm_name` deletes apostrophes instead of splitting on them, so `Kohl's` → `kohls`. **The indexes still need rebuilding** — see below. |
+| F1 | High | Scraper | **Fixed 2026-08-31** | Indexes rebuilt. But the "1,316 stray-`s` keys" half of this was **mis-diagnosed** — see below. |
 | F2 | — | Tests | **Not reproducible** | Baseline on this machine was **47/47**, not 43/45; the audit ran on a different checkout. F1's defect is real and was confirmed live — the suite simply has no case for it. It does now. |
 | F3 | Low | Ext API | Fixed (unverified) | `ext_debug` bounds the record before serialising, so the JSONL stays parseable. |
 | F4 | Low | Analytics | Fixed (unverified) | `try` moved inside the `/api/ev` loop. |
@@ -56,7 +56,7 @@ file rather than re-deriving it.
 | F13 | Med | Feed | Fixed (unverified) | `applied` drops off the default tab alongside `hidden`, in both twins. `liked` deliberately stays. |
 | F14 | **High** | Feed | **Partially fixed** | Cards carry a **"years not stated"** badge while a years filter is on, and a new *Only postings that state their years* toggle (off by default) hides them. **Raising `experience_years` recall — the actual defect — is not done.** |
 | F15 | **High** | Brain | Fixed (unverified) | Research asks the verified `company_domains.json` + posting URL first; a guessed domain must corroborate the employer before anything is cached. |
-| F16 | Med | Data | **Partially fixed** | Every count now carries its vintage, derived from the data (`sponsor_data_through()`), so "top sponsor" reads "top sponsor to FY2023". **The refresh itself needs new USCIS/DOL files.** |
+| F16 | Med | Data | **Fixed 2026-08-31** | Refreshed to USCIS FY2021-2025 and DOL LCA/PERM FY2026 Q3. Both indexes now carry a `#meta` provenance block, and every label derives BOTH ends of the window from it (`sponsor_window()`), so no template hardcodes a year any more. The refresh also found the shipped FY2023 file was a **partial year** — 33,332 rows against 57,415 — so the old window was ~4.4 years, not 5. |
 | F17 | Med | Feed | **Deferred** | Depends on F16's data half. Role-level matching also needs the LCA titles indexed, which they are not. |
 | M1 | **High** | Auth | Fixed (unverified) | Change-password form on `/profile`, rate-limited, through `auth.password_problem`/`hash_password`. Forgot-password still needs an email sender; the page says so. |
 | M2 | Low | Company | Fixed (unverified) | Filter bar extracted to `_filterbar.html` and included on `/company`, so an employer's roles narrow by role/match/date/experience/pay without leaving the page. |
@@ -96,16 +96,22 @@ file rather than re-deriving it.
 * **D1 — pull `templates/` off the cPanel box** and diff it against the repo. Production carries
   a `#themepick` appearance card that exists in no commit, a `base.html` missing the theme toggle
   from `5bb4dc7`, and a doubled `/welcome` callout. The next zip extract destroys all three.
-* **F16 — the H-1B refresh** needs the USCIS Employer Data Hub bulk CSVs for FY2024/25 and the
-  DOL disclosure files. Those are downloads; say the word and I'll confirm the files and sizes
-  first.
+* **F16 — DONE 2026-08-31.** USCIS FY2020-2025 via the Hub's Tableau crosstab export (the static
+  per-year CSVs stop at FY2023 and that one is partial — see `scripts/convert_hub_crosstab.py`);
+  DOL LCA + PERM FY2026 Q3 by direct download. Window is now FY2021-2025, held at five years so
+  `core.sponsor_strength`'s absolute thresholds stay calibrated.
 
 ### Data jobs, once the code is verified
-* **F1 — rebuild the sponsor indexes.** `sponsor_counts.json` was written by the old rule and
-  still carries 1,316 stray-`s` keys, so the index is polluted on its own side until:
-  ```bash
-  python -m scraper.build_sponsor_counts
-  ```
+* **F1 — rebuilt 2026-08-31, but the stated remedy was wrong.** The indexes did need rebuilding
+  (vintage), and they were. The "1,316 stray-`s` keys are old-apostrophe pollution that a rebuild
+  clears" claim does not survive measurement: after a full rebuild with the *current* `_norm_name`
+  there are still **1,224**. They are not an apostrophe artifact — `_norm_name` does
+  `re.sub(r"[^a-z0-9 ]+", " ", s)`, so periods and ampersands produce them too
+  (`505 Games U.S.` → `505 games u s`, `A & S Madison Ave` → `a and s madison ave`).
+  **They are also not a defect.** The lookup side calls the same `_norm_name`, so
+  `sponsor_strength("505 Games U.S.")` normalizes to exactly that key and resolves. The keys are
+  ugly, self-consistent, and working. Closing this rather than "fixing" the normalizer, which is
+  shared with the lookup and would break far more than it tidied.
 * **F7 — merge the duplicate Workday rows.** `canonical_url` stops new ones; the existing pairs
   (117 Applied Materials openings split across two directory entries) need a one-off sweep,
   preferring the spelling that resolves a logo.

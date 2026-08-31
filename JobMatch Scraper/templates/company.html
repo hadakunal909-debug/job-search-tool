@@ -32,7 +32,7 @@
         {% for k in info.visa %}<span class="vt vt-{{ k }}">{{ visa_labels[k] }}</span>{% endfor %}
         {# The window is named because the data has one and it is no longer recent — see
            web.py::sponsor_data_through. #}
-        {% if info.strength == 'high' %}<span class="vt vt-h1b">~{{ '{:,}'.format(info.strength_n) }} H-1B approvals, FY2019&ndash;{{ sponsor_data_through()[2:] }}</span>{% endif %}
+        {% if info.strength == 'high' %}<span class="vt vt-h1b">~{{ '{:,}'.format(info.strength_n) }} H-1B approvals, {{ sponsor_window() }}</span>{% endif %}
         {% if info.cap_exempt %}<span class="cx">Likely cap-exempt, no H-1B lottery</span>{% endif %}
         {% if info.agency %}<span class="agency">Staffing agency</span>{% endif %}
       </div>
@@ -97,7 +97,7 @@
       <div class="costats">
         <div class="costat">
           <b>{{ '{:,}'.format(info.strength_n) if info.strength_n else 'None' }}</b>
-          <span>H-1B approvals<br>FY2019-23</span></div>
+          <span>H-1B approvals<br>{{ sponsor_window() }}</span></div>
         <div class="costat"><b>{{ about.jd_open }}</b><span>current roles that<br>offer sponsorship</span></div>
         <div class="costat"><b>{{ about.jd_blocked }}</b><span>current roles that<br>rule it out</span></div>
         <div class="costat"><b>{{ about.jd_silent }}</b><span>that say<br>nothing either way</span></div>
