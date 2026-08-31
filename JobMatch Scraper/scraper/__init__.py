@@ -2187,6 +2187,83 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
            "Accept": "application/json, text/plain, */*"}
 
 
+# Hosts that RESET the connection when the client offers TLS 1.3, and serve a normal 200 the
+# moment it is capped at 1.2. Measured 2026-08-31 against nine SuccessFactors boards that failed
+# the sweep with 'Connection was reset': careers.andritz.com, jobs.igt.com, careers.dentons.com,
+# jobs.farmersinsurance.com and jobs.peri.com all return 95-767 KB of real listings over TLS 1.2
+# and reset every single time over 1.3. Not a bot block -- a browser User-Agent changes nothing
+# and the cap alone is sufficient. Almost certainly a middlebox in front of SAP's jobs2web.
+#
+# LEARNED AT RUNTIME rather than hardcoded, because the set is a property of whichever jobs2web
+# node a tenant happens to sit behind, not of the tenant: the same failure moved hosts before.
+_TLS12_HOSTS = set()
+_TLS12_LOCK = threading.Lock()
+_TLS12_SESSION = None
+
+
+def _tls12_session():
+    """A second Session identical to SESSION but capped at TLS 1.2. Built once, on demand.
+
+    A SEPARATE session rather than downgrading SESSION: TLS 1.3 is the right default for the
+    other ~1,900 boards, and a global cap to work around five of them would be a security
+    regression paid by all of them."""
+    global _TLS12_SESSION
+    with _TLS12_LOCK:
+        if _TLS12_SESSION is None:
+            import ssl
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.ssl_ import create_urllib3_context
+
+            class _Tls12Adapter(HTTPAdapter):
+                def init_poolmanager(self, *a, **kw):
+                    ctx = create_urllib3_context()
+                    ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+                    kw["ssl_context"] = ctx
+                    return super().init_poolmanager(*a, **kw)
+
+            s = requests.Session()
+            ad = _Tls12Adapter(max_retries=0, pool_connections=8, pool_maxsize=8)
+            s.mount("https://", ad)
+            _TLS12_SESSION = s
+    return _TLS12_SESSION
+
+
+def _is_conn_reset(exc):
+    """True for the peer-reset / TLS-handshake-abort family, which is what these hosts do."""
+    s = ("%s %s" % (type(exc).__name__, exc)).lower()
+    return ("connection reset" in s or "connection aborted" in s
+            or "recv failure" in s or "sslerror" in s and "reset" in s)
+
+
+class _ResilientSession(requests.Session):
+    """SESSION, plus a one-shot TLS-1.2 retry when a peer resets the connection.
+
+    It lives on the SESSION rather than at the call sites because there are 31 direct
+    SESSION.get/.post callers across this module and the reset is a property of the HOST, not
+    of any one scraper. Putting it here fixed SuccessFactors and Pinpoint boards in one edit;
+    patching call sites would have fixed whichever ones someone remembered.
+
+    The fallback session is a PLAIN requests.Session, so a reset on the retry raises instead of
+    recursing."""
+
+    def request(self, method, url, **kw):
+        host = ""
+        try:
+            host = (urlparse(url).netloc or "").lower()
+        except Exception:
+            pass
+        if host and host in _TLS12_HOSTS:
+            return _tls12_session().request(method, url, **kw)
+        try:
+            return super().request(method, url, **kw)
+        except Exception as exc:
+            if not (host and _is_conn_reset(exc)):
+                raise
+            with _TLS12_LOCK:
+                _TLS12_HOSTS.add(host)
+            return _tls12_session().request(method, url, **kw)
+
+
 def _make_session():
     """One shared HTTP session for every fetch: connection pooling (keep-alive per ATS
     host — much faster than a new TLS handshake per request) + automatic retries with
@@ -2199,7 +2276,7 @@ def _make_session():
                   status_forcelist=(429, 500, 502, 503, 504),
                   allowed_methods=frozenset({"GET", "POST", "HEAD"}),
                   respect_retry_after_header=True)
-    s = requests.Session()
+    s = _ResilientSession()
     # Sized for the scrape's worker count, not below it. pool_connections is how many
     # per-HOST pools stay cached — the board list spans ~1,200 hosts, so a small number
     # evicts pools constantly and pays a fresh TLS handshake per board. pool_maxsize is
