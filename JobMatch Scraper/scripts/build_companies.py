@@ -1355,7 +1355,22 @@ def _visa_index():
     return blob
 
 
-def build():
+def _previous_members(path=OUT_JSON):
+    """{norm_key: name} from the companies.json already on disk, or {} if absent."""
+    try:
+        rows = (json.load(open(path, encoding="utf-8")) or {}).get("rows") or []
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        name = (r[0] if isinstance(r, list) and r else "") or ""
+        key = core.norm_company(name)
+        if key:
+            out.setdefault(key, name)
+    return out
+
+
+def build(carry=True):
     uni, boards = _universe()
     counts, spellings = _corpus_counts()
 
@@ -1363,6 +1378,27 @@ def build():
     # hide employers with live jobs, which is the worst bug this page could have.
     for key, name in spellings.items():
         uni.setdefault(key, name)
+
+    # CARRY FORWARD everything the previous build knew about. Membership otherwise tracks
+    # LIVE postings -- _universe() is SOURCES + boards + sponsors.txt, plus corpus spellings
+    # above -- so an employer whose postings all expired and who has no board simply vanishes
+    # from the directory. Measured across six days in Aug 2026: 470 companies dropped and 182
+    # arrived, and the 468 that were truly gone included Sony, Zoom, Nutanix, Citadel
+    # Securities, Wells Fargo Bank and Capgemini America -- all real employers who simply had
+    # nothing open that week. A directory that forgets them is worse than one that carries a
+    # few stale rows: the H-1B history and careers link are still true, and the live count is
+    # computed per request (web.py::_company_stats), so a quiet employer honestly reads 0.
+    #
+    # setdefault, so a fresh spelling still wins over the one already on disk.
+    carried = 0
+    if carry:
+        for key, name in _previous_members().items():
+            if key not in uni:
+                uni[key] = name
+                carried += 1
+        if carried:
+            print("carried forward %d company/companies with no live postings and no board"
+                  % carried)
 
     native_by_key = {core.norm_company(n): u for n, u in NATIVE.items()}
     md_by_key = {core.norm_company(n): u for n, u in _read_careers_md().items()}
@@ -1446,7 +1482,9 @@ def _prominent(report, top=400):
 def main(argv):
     want_report = "--report" in argv
     want_check = "--check" in argv
-    blob, report, hist, unsorted_rows = build()
+    # --no-carry rebuilds membership from the live universe only, dropping employers with
+    # no postings and no board. That is the pre-2026-08-31 behaviour; use it to prune.
+    blob, report, hist, unsorted_rows = build(carry="--no-carry" not in argv)
     total = len(report)
 
     if want_report or want_check:

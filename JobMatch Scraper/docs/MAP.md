@@ -26,7 +26,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`scraper/__main__.py`](#scraper__main__py) — 22 lines, 0 symbols
 - [`scraper/adopt_everify_boards.py`](#scraperadopt_everify_boardspy) — 243 lines, 8 symbols
 - [`scraper/build_everify.py`](#scraperbuild_everifypy) — 187 lines, 9 symbols
-- [`scraper/build_sponsor_counts.py`](#scraperbuild_sponsor_countspy) — 524 lines, 11 symbols
+- [`scraper/build_sponsor_counts.py`](#scraperbuild_sponsor_countspy) — 544 lines, 11 symbols
 - [`scraper/build_sponsors.py`](#scraperbuild_sponsorspy) — 109 lines, 6 symbols
 - [`scraper/build_visa_tags.py`](#scraperbuild_visa_tagspy) — 333 lines, 17 symbols
 - [`scraper/classify_everify.py`](#scraperclassify_everifypy) — 354 lines, 17 symbols
@@ -347,7 +347,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## `scraper/build_sponsor_counts.py`
 
-524 lines · 11 top-level symbols · 0 sections
+544 lines · 11 top-level symbols · 0 sections
 
 *No banner comments in this file.*
 
@@ -2424,12 +2424,12 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `DEFAULT_DIRS` | const | [79](../scraper/build_sponsor_counts.py#L79) |  |
 | `ALIASES` | const | [90](../scraper/build_sponsor_counts.py#L90) |  |
 | `GENERIC` | const | [133](../scraper/build_sponsor_counts.py#L133) |  |
-| `parse_years` | def | [154](../scraper/build_sponsor_counts.py#L154) | '2019-2023' or '2021,2022' -&gt; a set of ints. |
-| `_col` | def | [169](../scraper/build_sponsor_counts.py#L169) | First column whose lowercased name starts with `prefix` — the Hub renamed |
-| `read_hub_csvs` | def | [178](../scraper/build_sponsor_counts.py#L178) | Aggregate approvals per USCIS employer spelling. |
-| `our_universe` | def | [262](../scraper/build_sponsor_counts.py#L262) | Distinct company names the app actually shows: the jobs table + every configured |
-| `resolve` | def | [302](../scraper/build_sponsor_counts.py#L302) | Map our company spellings onto the USCIS aggregates. |
-| `main` | def | [395](../scraper/build_sponsor_counts.py#L395) |  |
+| `parse_years` | def | [158](../scraper/build_sponsor_counts.py#L158) | '2019-2023' or '2021,2022' -&gt; a set of ints. |
+| `_col` | def | [173](../scraper/build_sponsor_counts.py#L173) | First column whose lowercased name starts with `prefix` — the Hub renamed |
+| `read_hub_csvs` | def | [182](../scraper/build_sponsor_counts.py#L182) | Aggregate approvals per USCIS employer spelling. |
+| `our_universe` | def | [266](../scraper/build_sponsor_counts.py#L266) | Distinct company names the app actually shows: the jobs table + every configured |
+| `resolve` | def | [322](../scraper/build_sponsor_counts.py#L322) | Map our company spellings onto the USCIS aggregates. |
+| `main` | def | [415](../scraper/build_sponsor_counts.py#L415) |  |
 
 ## `scraper/build_sponsors.py` — symbols
 
