@@ -1710,7 +1710,18 @@ def _base_rows(persist=False):
         # minutes. The cost of that choice, stated plainly: a worker that starts cold in the
         # window between a corpus move and the next tick finds no matching file and pays a full
         # build. Bounded at five minutes, against 2.1 s charged to a real request every time.
-        if persist:
+        # PERSIST WHEN THE BUILD WAS FULL, not only when /warm asks. The cost/benefit differs
+        # sharply between the two shapes and treating them the same was a regression:
+        #
+        #   * No prior to build from (a fresh worker, or a changed derived signature) means a
+        #     FULL build -- 7,101 ms measured on production. Writing costs ~2,100 ms once and
+        #     saves every other cold worker the whole 7 s. Skipping it meant each worker rebuilt
+        #     independently until the next five-minute tick, which is worse the more workers
+        #     there are. Measured as a user-visible LCP of 7.36 s right after a restart.
+        #   * A prior exists, so this is the incremental path at ~55 ms. Writing would put
+        #     2,100 ms of gzip in front of a request to save nobody very much; /warm has it
+        #     within five minutes.
+        if persist or prior is None:
             _rows_write(key, sig, built)
             _base_rows_cache["persisted"] = (key, sig)
         _base_rows_cache["by_url"] = by_url
