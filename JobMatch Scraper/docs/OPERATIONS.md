@@ -230,6 +230,30 @@ patch moves neither half of the fingerprint and a file, unlike a process, does n
 
 `row_cache/` is disposable and gitignored; `_ROWS_MAX_FILES` bounds it at 3.
 
+**And the rows are built INCREMENTALLY, which is what makes a moving corpus survivable.**
+`jobs_fingerprint()` is (row count, max first_seen), so one new posting invalidated the built
+rows for 40,000 unchanged ones. Measured at 40,294 rows:
+
+| after a scrape lands | before | after |
+|---|---|---|
+| a REQUEST | 5,425 ms | **55 ms** (rebuilds only the changed rows) |
+| a cold worker | 6,221 ms | **503 ms** (reads the file) |
+
+Reuse is **by value, not by url**, and that is the correctness argument rather than an
+optimisation detail: a scrape does not only add rows, it flips `is_active` when a posting closes
+and fills `posted_verified`. Reusing a built row because its url looked familiar would show a
+closed job as open. Comparing the source dict is 28 ms over the whole corpus and short-circuits
+on the first differing key.
+
+**Only `/warm` writes the file.** The gzip is 2,153 ms of the 2,291 ms a fingerprint move used to
+cost, so a request never pays it; `persist=True` is passed by `/warm` alone. The cost of that
+choice, stated plainly: a worker starting cold in the window between a corpus move and the next
+five-minute tick finds no matching file and pays a full build.
+
+`/warm` reports `base_rows.rebuilt` for exactly this reason. On an ordinary tick after a scrape it
+should read a few hundred; if it ever reports the whole corpus, the incremental path has stopped
+working and the cron log is where that is visible.
+
 ---
 
 ## 4. Running it locally

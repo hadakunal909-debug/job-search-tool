@@ -703,11 +703,20 @@ def row_files():
         web._jd_blocked_hosts = set()
         web._repost_clusters = {}
 
-        fresh = web._base_rows()                      # builds and writes
+        # persist=True is what /warm passes. A plain request deliberately does NOT write: the
+        # gzip is 2,153 ms of the 2,291 ms that a fingerprint move used to cost, and charging
+        # that to whoever loads the feed next is the whole reason this argument exists.
+        fresh = web._base_rows(persist=True)
         files = [f for f in os.listdir(tmp) if f.endswith(".json.gz")]
-        want("a cold build writes one file", len(files) == 1, "%d file(s)" % len(files))
+        want("a cold build with persist=True writes one file", len(files) == 1,
+             "%d file(s)" % len(files))
 
-        web._base_rows_cache.update(fp=None, rows=None)
+        web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, persisted=None)
+        web._base_rows()                              # a REQUEST must not write a second file
+        want("a request does NOT write",
+             len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]) == 1)
+
+        web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, persisted=None)
         loaded = web._base_rows()                     # must come from the file
         want("row COUNT matches", len(loaded) == len(fresh))
         want("row ORDER matches", [r["url"] for r in loaded] == [r["url"] for r in fresh])
@@ -749,6 +758,37 @@ def row_files():
         web._rows_clear()
         want("_rows_clear empties it",
              not [f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+
+        # ---- the incremental path, which is what makes a moving corpus survivable ----
+        web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, persisted=None)
+        web._base_rows(persist=True)
+        n_after_warm = len([f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+        base_n = len([r for r in rows if r.get("url")])
+        # a scrape lands: some rows added, and some EXISTING rows updated
+        added = [dict(r, url="https://added.example/%d" % i) for i, r in enumerate(rows[:5])]
+        moved = [dict(r) for r in rows] + added
+        for r in moved[:2]:
+            r["is_active"] = "False"                  # a posting closed
+        web._jobs_cache.update(rows=moved, at=10 ** 12, fp=(len(moved), "moved"))
+        out = web._base_rows()
+        want("only the delta is rebuilt", web._base_rows_cache["fresh"] == len(added) + 2,
+             "rebuilt %s, expected %d" % (web._base_rows_cache["fresh"], len(added) + 2))
+        want("every row is present", len(out) == base_n + len(added))
+        # THE CORRECTNESS ARGUMENT: reuse is by VALUE, so an updated row must NOT be reused.
+        # Reusing on url alone would serve a closed posting as open, and nothing would notice.
+        want("an UPDATED row is rebuilt, not reused",
+             all(r.get("closed") for r in out[:2]))
+        want("a request still wrote nothing",
+             len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]) == n_after_warm,
+             "%d files, unchanged from %d" %
+             (len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]), n_after_warm))
+        # ...and /warm persists the new corpus rather than short-circuiting on the memory hit,
+        # which it did until 2026-09-01: a stale early return meant the file froze for ever.
+        web._base_rows(persist=True)
+        want("/warm persists after a request built it",
+             len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]) == n_after_warm + 1,
+             "%d files, was %d" %
+             (len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]), n_after_warm))
     finally:
         web._ROWS_DIR = saved[0]
         web._jobs_cache.clear(); web._jobs_cache.update(saved[1])
