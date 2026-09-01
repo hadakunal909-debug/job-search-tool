@@ -394,9 +394,29 @@ def base_rows():
     else:
         rows = [{"url": "u%d" % i, "title": "Data Engineer %d" % i, "company": "Acme %d" % (i % 7),
                  "location": "Boston, MA", "found_date": "2026-08-0%d" % (1 + i % 9),
-                 "jd_terms": '{"w":{"python":2,"sql":1},"n":2}', "match_score": i % 100}
+                 # n is the THIN flag (0 = scoreable). A truthy n makes _row_pending true
+                 # and _build_row forces score to 0, which would leave every row here tied.
+                 "jd_terms": '{"w":{"python":2,"sql":1},"n":0}', "match_score": i % 100}
                 for i in range(60)]
         print("  (no snapshot -- %d synthetic rows)" % len(rows))
+
+    # ONE POSTING FROM TWO HOSTS, APPENDED WHATEVER THE CORPUS IS.
+    #
+    # Without this the whole point of the suite is vacuous on CI. _dedupe_rows only collapses a
+    # group spanning more than one host, the 60 synthetic rows above are all distinct, and CI has
+    # no snapshot -- so "dedupe runs after the overlay" was asserted against a dedupe that
+    # collapsed nothing, and a regression moving it into _base_rows() would have passed.
+    #
+    # Greenhouse serving one posting as both boards.greenhouse.io and job-boards.greenhouse.io is
+    # the real case _dedupe_rows documents. Neither host is in _AGGREGATOR_HOSTS and neither row
+    # carries date_verified, so _dupe_rank falls through to the SCORE -- which is exactly the
+    # tie-break that does not exist yet while the base rows are all sitting at 0.
+    _DUPE = {"title": "Staff Platform Engineer", "company": "Dupeco",
+             "location": "Boston, MA, United States", "found_date": "2026-08-15",
+             "jd_terms": '{"w":{"python":3,"kubernetes":2},"n":0}', "match_score": 0}
+    DUPE_LOSER = "https://boards.greenhouse.io/dupeco/jobs/1"
+    DUPE_WINNER = "https://job-boards.greenhouse.io/dupeco/jobs/1"
+    rows = list(rows) + [dict(_DUPE, url=DUPE_LOSER), dict(_DUPE, url=DUPE_WINNER)]
 
     saved = (dict(web._jobs_cache), dict(web._base_rows_cache))
     try:
@@ -427,6 +447,8 @@ def base_rows():
         web._base_rows_cache.update(fp=None, rows=None)
         web._rows_cache.clear()
         scores = {r["url"]: (i * 7) % 101 for i, r in enumerate(rows) if r.get("url")}
+        # Force the tie-break to have a right answer: same posting, one copy scored and one not.
+        scores[DUPE_LOSER], scores[DUPE_WINNER] = 0, 77
         web._score_cache[("u", hashlib.md5(b"cv").hexdigest())] = scores
         got = web.ranked_rows("u", "cv")
 
@@ -439,6 +461,17 @@ def base_rows():
              [r["url"] for r in got] == [r["url"] for r in ref])
         diff = sum(1 for a, b in zip(got, ref) if a != b)
         want("no row differs in ANY field", diff == 0, "%d differing" % diff)
+
+        # ...and the dedupe was not a no-op, or the three checks above proved nothing about it.
+        # Counted over the PAIR, not over the corpus: the real snapshot already collapses ~20
+        # other cross-host duplicates, so any assertion of the form "out == in - 1" holds only
+        # on synthetic input and fails on the corpus it matters most on.
+        urls = set(r["url"] for r in got)
+        survivors = [u for u in (DUPE_WINNER, DUPE_LOSER) if u in urls]
+        want("the dedupe actually collapsed the pair", len(survivors) == 1,
+             "%d of 2 survived" % len(survivors))
+        want("and kept the SCORED copy, not the first one", survivors == [DUPE_WINNER],
+             survivors[0][8:40] if survivors else "neither")
 
         # The point of the whole thing: two users share the underlying build.
         web._score_cache[("v", hashlib.md5(b"cv2").hexdigest())] = scores
