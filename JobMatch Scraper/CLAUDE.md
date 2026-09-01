@@ -30,10 +30,14 @@ setting it afterwards does nothing. One unguarded `feed_parity.py` run wrote 98.
   git normalizes on commit — but a script that reads a working-copy file with universal newlines
   and writes `\n` leaves the *whole file* looking rewritten locally, burying the real change in
   `git status` and your editor. Write back what you read, or write CRLF.
-- **`static/app.js` is invisible to ripgrep** — a raw NUL at offset 46372 (line 733) makes it
-  report `binary file matches` with no line numbers or content. Git also classifies it `-text`
-  (binary), so `git diff` won't show it either. Use `grep -a` (GNU grep handles it fine),
-  `git grep`, or `docs/MAP.md`. It is the second-most-coupled file in the repo.
+- **`static/app.js` is invisible to ripgrep** — **two** raw NUL bytes make it report
+  `binary file matches` with no line numbers or content. They are deliberate: `_withinMemo`
+  (~line 733) builds its cache key by joining a, b and k with a real 0x00 between each,
+  chosen because it cannot occur in either operand. Described rather than quoted as a byte
+  offset, because the offset moves with every edit above it — this file said 46372 when it
+  was 47063. Git also classifies the file `-text` (binary), so `git diff` won't show it
+  either. Use `grep -a` (GNU grep handles it fine), `git grep`, or `docs/MAP.md`. It is the
+  second-most-coupled file in the repo.
 - **`companies.json` is a shipped runtime asset**, not a cache. It is in `build_deploy_zip.py`'s
   **required** `FILES` and on `.cpanel.yml`'s `cp` line; without it `/companies` renders nothing.
   Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`,
@@ -117,6 +121,27 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   four alias it) and `scripts/test_contrast.py` gates it in CI. Routes are still named in full on
   `/job` and `/companies`, which have room for them. Everything else is ink. **Don't reintroduce
   a per-route colour or a second chip on the card** — that has now been walked back twice.
+- **A card field that isn't the score belongs to the POSTING, not to the reader.**
+  `_build_row` emits 41 keys and exactly one, `score`, depends on who is asking. `_base_rows()`
+  builds the other 40 once per corpus and `ranked_rows` overlays the score onto shallow copies:
+  1,941 ms → 198 ms per user, byte-identical over all 21,960 rows. **`_dedupe_rows` must stay
+  AFTER that overlay** — `_dupe_rank` tie-breaks on the score, so folding duplicates while every
+  base score is 0 keeps a different copy. Moving it into `_base_rows` for speed passes every
+  other test; `scripts/test_speed_caches.py` is the one that catches it.
+- **Don't persist the built rows to disk.** Measured: 1,360 ms to build against 282 ms to read
+  back from a 1.4 MB gzip, so it looks free. It isn't — a built row embeds `logo_url`,
+  `sponsor_counts` and `visa_index` output, and **none of those three is covered by
+  `jobs_fingerprint()`**, so new logos without a scrape would leave a file serving stale badges
+  for ever where an in-memory cache dies with the worker. Reasoning in `docs/OPERATIONS.md`.
+  If more cold-start speed is needed, make `_build_row` cheaper (62 µs/row) — that helps the
+  warm path too and adds no cache.
+- **The fonts are ours too, and the CSP is what enforces it.** Six woff2 in `static/fonts/`,
+  `@font-face` at the top of `style.css`. `font-src 'self'` with no remote origin left in
+  `style-src` either — the same bargain as `img-src` for the logos. What this replaced was a
+  render-blocking stylesheet on `fonts.googleapis.com` pointing at a *second* host for the
+  binaries: two third-party handshakes in front of first paint, on the cold visit only, which is
+  the whole shape of "slow the first time, fine the second". Gated by
+  `python scripts/test_fonts.py`.
 - **`db.list_users()` returning nothing is not "nothing to test."** That assumption is why the
   extension contract test sat outside CI for months.
 - **Verify by behaviour, not substring.** Several past sessions reported false failures where the

@@ -119,6 +119,18 @@ INDEX = (
         "{web.py::_invalidate_jobs} is what a write must call. The on-disk gzip snapshot is "
         "{web.py::_snapshot_read} / {web.py::_snapshot_write}, shared across Passenger workers.",
         "python scripts/test_jobs_cache.py"),
+    Row("Y", "The FIRST page load is slow and every one after it is fast",
+        "{web.py::_base_rows} -- every card field except the score, built once per CORPUS",
+        "of the 41 keys {web.py::_build_row} emits, exactly one -- score -- depends on who is "
+        "asking, so {web.py::ranked_rows} overlays that onto shallow copies of a shared list. "
+        "Two rules hold it together. {web.py::_dedupe_rows} must run AFTER the overlay, because "
+        "{web.py::_dupe_rank} tie-breaks on the score and folding duplicates while every base "
+        "score is still 0 keeps a different copy. And the cache refuses to key on "
+        "jobs_fingerprint()'s \"don't know\" answer, (None, \"\"), which is a NON-EMPTY and "
+        "therefore truthy tuple -- {web.py::_invalidate_jobs} clears it outright because the "
+        "extension's JD patch moves neither half of that fingerprint. {web.py::warm} builds the "
+        "shared half off the user's path; {web.py::_cache_max} charges it one entry.",
+        "python scripts/test_speed_caches.py"),
     Row("B", '"Similar roles" on a job page looks unrelated',
         "{web.py::_title_index} and {web.py::_similar_roles}",
         "{web.py::_TITLE_STOP} is the rail's list and is deliberately SHORT -- seniority and "
@@ -247,6 +259,27 @@ INDEX = (
         "python scripts/dump_schema.py"),
 
     # ---- the app surface --------------------------------------------------------------------
+    Row("B", "Text renders in a fallback face, or a font is refused in the console",
+        "the @font-face block at the top of static/style.css -- six woff2 in static/fonts/",
+        "the fonts are OURS, exactly like the logos: nothing is fetched from Google at request "
+        "time and {web.py::_CSP_TEMPLATE} says font-src 'self' with no remote origin left in "
+        "style-src either, so a re-added <link> to fonts.googleapis.com fails visibly instead of "
+        "quietly putting two third-party handshakes in front of first paint. A preload href in "
+        "templates/base.html must equal its @font-face src BYTE FOR BYTE, ?v= included, or the "
+        "file is fetched twice; and ?v= is also what earns the immutable Cache-Control.",
+        "python scripts/test_fonts.py"),
+    Row("B", "Load more, a tab switch or a filter change gives no feedback",
+        "{static/app.js::skeletonHTML}, {static/app.js::animateIn} and "
+        "{static/app.js::moreLoading}",
+        "skeletonHTML is the twin of the eight .skel tiles in templates/_feedgrid.html, which "
+        "the server paints once and the first render then wipes for good. animateIn is called "
+        "with the index of the first NEW card, so a Load more animates the page it appended "
+        "rather than re-flashing the feed, and its delay is capped -- uncapped, card 60 waits "
+        "1.1 s. moreLoading must be cleared on EVERY exit from {static/app.js::renderServer}, "
+        "including the 429 and 401 branches, or a failed page leaves the button spinning. Any "
+        "new animation needs its own prefers-reduced-motion rule: the global one in style.css "
+        "clamps animation-duration and says nothing about animation-DELAY.",
+        "python scripts/run_tests.py --only card_meta"),
     Row("Y", "A POST returns 400, or a new form silently fails",
         "{web.py::_require_csrf} -- runs before EVERY cookie-authenticated write",
         "{web.py::_CSRF_EXEMPT} has four entries and each carries its justification. New routes "
