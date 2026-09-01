@@ -8269,6 +8269,52 @@ def board_run_failed(run):
     return bool(run.get("err")) or run.get("secs") is not None
 
 
+def _rss_mb():
+    """Resident set size in MB, or 0.0 where /proc is unavailable (Windows, macOS).
+
+    Read straight from /proc rather than through psutil: the cPanel box does not have it, and
+    a scrape must not take on a dependency to report its own size.
+    """
+    try:
+        with open("/proc/self/status", encoding="ascii") as f:
+            for ln in f:
+                if ln.startswith("VmRSS:"):
+                    return int(ln.split()[1]) / 1024.0
+    except Exception:
+        pass
+    return 0.0
+
+
+def _release_memory():
+    """Hand freed arenas back to the OS between slices. Best-effort, never raises.
+
+    WHY THIS IS NOT REDUNDANT WITH THE `del` ABOVE IT, which is the obvious objection.
+    Measured 2026-09-01 on a manual run launched to test SCRAPE_SLICE=100: RSS climbed
+    204 -> 374 -> 747 -> 789 -> 836 -> 947 -> 1143 -> 1205 MB across eight slices and the run
+    was SIGKILLed at 801 boards -- and it NEVER dropped at a single slice boundary, even though
+    every slice already ended in `del scraped`. `del` drops the reference and CPython frees the
+    objects, but pymalloc keeps its arenas and glibc keeps the heap top, so RSS is a high-water
+    mark rather than a measure of what is live. The account is killed on RSS, so the high-water
+    mark is the number that has to come down.
+
+    That run also settled what the kill is NOT: slice size. 150 died and 100 died at the same
+    ~1.2 GB ceiling, on a box with 67 GB free -- so it is a per-account physical-memory cap
+    (CloudLinux LVE PMEM), invisible from inside the account: `ulimit -v`/`-m` both report
+    unlimited and /proc/lve is unreadable. Do not go looking for it in ulimits again, and do
+    not cut the slice further expecting a different outcome.
+
+    glibc-only on purpose: malloc_trim does not exist on musl or Windows, and tidying up is
+    never worth failing a scrape for.
+    """
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
 def save_board_health(board_results):
     """Record what every board returned this run, and print the ones worth looking at.
 
@@ -8709,7 +8755,9 @@ def main():
     # Spend it down across slices instead, and stop STARTING slices once it is gone -- the same
     # contract scrape_all has always had for boards, one level up.
     _sweep_t0 = time.monotonic()
+    _slice_n = 0
     for _sl in _slices:
+        _slice_n += 1
         def _sl_progress(done, total, found, phase="scraping", force=False):
             # Offset into whole-run terms; scrape_all only knows about its own slice.
             _progress(_swept + done, len(sources), scanned_total + found, phase, force)
@@ -8896,6 +8944,17 @@ def main():
                     print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
         del scraped                 # the slice is banked; release it before the next one
         _swept += len(_sl)
+        # MEMORY IS THE BUDGET THAT ACTUALLY ENDS THIS RUN, so it is measured every slice
+        # rather than inferred afterwards from a cron mail that only says 'Killed'. One
+        # line per slice makes the next rc=137 diagnosable from the log alone: whether RSS
+        # is flat (something outside the sweep grew) or climbing, and whether what is held
+        # is board_results (bounded by the whole board list, not by the slice) or the rows.
+        _urls_held = sum(len(br.get("urls") or ()) for br in board_results)
+        _release_memory()
+        print("  [mem] rss %6.0f MB after slice %d/%d -- holding %d board result(s),"
+              " %d url(s), %d kept row(s)"
+              % (_rss_mb(), _slice_n, len(_slices), len(board_results),
+                 _urls_held, len(all_kept)))
 
     if fp_seen:
         # Broken out by host on purpose. The check keys off "is this an aggregator row", not
