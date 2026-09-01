@@ -503,6 +503,164 @@ def base_rows():
     return bad
 
 
+def score_pct_equivalence():
+    """core.score_pct must equal core.score_against(...)[0] on EVERY analysed row, not a sample.
+
+    score_pct exists because user_scores reads only [0] while score_against also builds and
+    fully sorts `have` and `missing` for consumers that are not on that path -- ~78,000 discarded
+    sorts per pass at this corpus size. It took the scoring pass from 8.7 s to 0.77 s at 38,805
+    rows. The entire justification is that the ANSWER did not move.
+
+    Checked over every row rather than a handful because this is the number every match
+    percentage in the product is made of, and a divergence would look like a plausible score.
+    The two rules most likely to drift are the confidence cap (a thin JD cannot claim a strong
+    match) and the clean-sweep rule (100 requires nothing in the whole JD to be absent), so the
+    resumes below are chosen to drive rows to both ends of the range.
+    """
+    print("=" * 74)
+    print("core.score_pct == core.score_against[0]")
+    print("=" * 74)
+    bad = []
+
+    snap = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "jobs_snapshot.json.gz")
+    if os.path.exists(snap):
+        with gzip.open(snap, "rt", encoding="utf-8") as fh:
+            rows = (json.load(fh) or {}).get("rows") or []
+    else:
+        rows = synthetic()
+        print("  (no snapshot -- %d synthetic rows)" % len(rows))
+
+    analyses = [web.job_analysis(j) for j in rows]
+    analyses = [a for a in analyses if a.get("terms")]
+
+    RESUMES = {
+        "typical": ("python flask sql postgres docker aws kubernetes spark airflow pandas "
+                    "roadmap analytics jira agile pytest product manager engineer data etl "),
+        "empty": "",
+        # Drives rows to a clean sweep, which is the only path where `missing` changes the score.
+        "kitchen sink": " ".join(sorted({t for a in analyses[:400] for t in a["terms"]})),
+    }
+    for label, txt in RESUMES.items():
+        low = txt.lower()
+        n = worst = 0
+        for a in analyses:
+            want = core.score_against(low, a)[0]
+            got = core.score_pct(low, a)
+            if want != got:
+                n += 1
+                worst = max(worst, abs(want - got))
+        print("  %s %-30s %d rows, %d disagreements%s"
+              % ("ok " if n == 0 else "FAIL", "resume: " + label, len(analyses), n,
+                 "  (max delta %d)" % worst if n else ""))
+        if n:
+            bad.append("score_pct != score_against for resume %r" % label)
+
+    # And the memo must not change the answer either, cold or warm.
+    core._term_present.cache_clear()
+    low = RESUMES["typical"].lower()
+    cold = [core.score_pct(low, a) for a in analyses[:800]]
+    warm = [core.score_pct(low, a) for a in analyses[:800]]
+    core._term_present.cache_clear()
+    recold = [core.score_pct(low, a) for a in analyses[:800]]
+    same = cold == warm == recold
+    print("  %s %-30s hits=%d misses=%d"
+          % ("ok " if same else "FAIL", "_term_present memo is faithful",
+             core._term_present.cache_info().hits, core._term_present.cache_info().misses))
+    if not same:
+        bad.append("_term_present memo changed a score")
+    return bad
+
+
+def warm_user_scores():
+    """/warm's per-user half must write the file the FEED will actually look for.
+
+    The whole mechanism turns on one equivalence: web._warm_user_scores keys the stored file on
+    md5(db.profile_text(u)), while a real request keys it on md5(current_profile()). If those two
+    ever differ, every file /warm writes is ignored -- silently, with no error raised and no slow
+    path fixed, which is the worst failure shape available. So it is asserted behaviourally here
+    rather than trusted from reading current_profile once.
+    """
+    print("=" * 74)
+    print("web._warm_user_scores")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    PROFILES = {"alice": "python sql aws flask docker", "bob": "roadmap discovery stakeholder",
+                "carol": ""}
+    saved = (db.list_users, db.profile_text, web._ensure_resume_migrated,
+             dict(web._jobs_cache), dict(web._base_rows_cache))
+    tmp = tempfile.mkdtemp(prefix="warmscores-")
+    saved_dir, web._SCORES_DIR = web._SCORES_DIR, tmp
+    try:
+        rows = [{"url": "w%d" % i, "title": "Data Engineer %d" % i, "company": "Acme",
+                 "location": "Boston, MA", "found_date": "2026-08-15",
+                 "jd_terms": '{"w":{"python":3,"sql":2},"n":0}', "match_score": 0}
+                for i in range(40)]
+        web._jobs_cache.update(rows=rows, at=10 ** 12, fp=(len(rows), "warmtest"))
+        web._base_rows_cache.update(fp=None, rows=None)
+        web._score_cache.clear()
+        web._rows_cache.clear()
+        web._ensure_resume_migrated = lambda u: None
+        db.profile_text = lambda u: PROFILES.get(u, "")
+        db.list_users = lambda: [{"username": u, "disabled_at": None} for u in PROFILES]
+
+        # THE EQUIVALENCE, behaviourally: what a request would score against, per user.
+        for u in ("alice", "bob"):
+            with web.app.test_request_context("/"):
+                from flask import session
+                session["user"] = u
+                web._profile_cache.pop(u, None)
+                want("current_profile() == db.profile_text(%r)" % u,
+                     web.current_profile() == db.profile_text(u))
+
+        r = web._warm_user_scores()
+        want("reports the account count it saw", r.get("accounts") == 3, repr(r))
+        want("computed the two with a resume", r.get("computed") == 2, repr(r.get("computed")))
+        want("skipped the one without", r.get("no_resume") == 1)
+        want("nothing failed", r.get("failed") == 0)
+
+        # ...and the file it wrote is the one a request finds.
+        for u in ("alice", "bob"):
+            md5 = hashlib.md5(PROFILES[u].encode("utf-8")).hexdigest()
+            stored = web._scores_read(u, md5, web._jobs_cache["fp"])
+            want("the file for %r is what a request reads" % u,
+                 stored is not None and len(stored) == len(rows),
+                 "%d scores" % (len(stored) if stored else 0))
+
+        # A second call must be nearly free -- it is on every keep-warm tick.
+        web._score_cache.clear()
+        r2 = web._warm_user_scores()
+        want("a second pass recomputes nothing", r2.get("already_warm") == 2, repr(r2))
+
+        # A moved corpus must invalidate, or a scrape would serve yesterday's scores.
+        web._jobs_cache["fp"] = (len(rows), "moved")
+        web._score_cache.clear()
+        r3 = web._warm_user_scores()
+        want("a moved fingerprint recomputes", r3.get("computed") == 2, repr(r3))
+
+        # An empty account list is a REPORTED zero, not a silent success.
+        db.list_users = lambda: []
+        want("no accounts is reported, not assumed",
+             web._warm_user_scores().get("accounts") == 0)
+        db.list_users = lambda: (_ for _ in ()).throw(RuntimeError("db down"))
+        want("a dead db is reported, not raised",
+             "error" in web._warm_user_scores())
+    finally:
+        (db.list_users, db.profile_text, web._ensure_resume_migrated) = saved[0], saved[1], saved[2]
+        web._jobs_cache.clear(); web._jobs_cache.update(saved[3])
+        web._base_rows_cache.update(saved[4])
+        web._SCORES_DIR = saved_dir
+        web._score_cache.clear(); web._rows_cache.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -531,6 +689,8 @@ def main():
     fails += score_files()
     fails += cache_budget()
     fails += base_rows()
+    fails += score_pct_equivalence()
+    fails += warm_user_scores()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 

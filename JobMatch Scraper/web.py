@@ -1063,7 +1063,10 @@ def user_scores(username, resume):
         analyzed = job_analysis(j)
         if resume and analyzed.get("terms"):
             try:
-                scores[u] = int(core.score_against(resume_low, analyzed)[0])
+                # score_pct, not score_against(...)[0]. Identical answer; it skips the have /
+                # missing lists, which are two full sorts per row that only the job page and
+                # the resume tailorer ever read. See core.score_pct.
+                scores[u] = core.score_pct(resume_low, analyzed)
             except Exception:
                 scores[u] = 0
         elif resume:
@@ -8771,7 +8774,65 @@ def warm():
     _stage("visa_index", visa_index)
     _stage("logo_manifest", lambda: _logo_manifest().get("ar") or {})
     _stage("base_rows", _base_rows)
+    # THE PER-USER HALF, and it is the one that was actually hurting. Skippable with &users=0.
+    if (request.args.get("users") or "1") != "0":
+        a = time.time()
+        out["users"] = _warm_user_scores()
+        out["users"]["ms"] = int((time.time() - a) * 1000)
     out["total_ms"] = int((time.time() - t0) * 1000)
+    return out
+
+
+# Bounded on purpose: this is real CPU on a shared host, and an account list that grows without
+# anyone noticing should degrade into "some users warmed" rather than into a timeout.
+_WARM_USER_MAX = int(os.environ.get("WARM_USER_MAX") or 50)
+
+
+def _warm_user_scores():
+    """Write every live account's score file, so no user's first render pays the scoring pass.
+
+    THIS IS THE POINT OF /warm, and until now it could not be done. The stored score files are
+    keyed on (user, résumé md5) WITH the corpus fingerprint inside, so a scrape invalidates all
+    of them — and the next person to open the feed paid a full pass over every row: measured at
+    8.7 s before the scorer work and 2.1 s after, at 38,805 rows. Three scrapes a weekday plus
+    Passenger recycling workers freely is why 46% of live feed renders were over two seconds.
+    Reading a file instead is 0.08 s.
+
+    Safe to call on every keep-warm tick, and that is deliberate: user_scores returns from the
+    process dict or the stored file whenever the fingerprint still matches, so this costs almost
+    nothing except in the one window it exists for — right after a scrape moved the corpus.
+
+    `db.profile_text(u)` is EXACTLY what current_profile() would return for that user; the
+    session only supplies the username. If that ever stops being true the md5 keys diverge and
+    every file written here is ignored — silently, with no error and no slow path fixed. That
+    equivalence is asserted in scripts/test_speed_caches.py.
+    """
+    out = {"accounts": 0, "computed": 0, "already_warm": 0, "no_resume": 0, "failed": 0}
+    try:
+        users = db.list_users() or []
+    except Exception as e:
+        return {"error": str(e)[:140]}
+    # Reported, not assumed. An empty list is a real answer worth seeing in the cron log --
+    # "db.list_users() returning nothing is not 'nothing to test'" is a lesson this repo has
+    # already paid for once, and the same applies to "nothing to warm".
+    out["accounts"] = len(users)
+    fp = _jobs_cache.get("fp")
+    for rec in users[:_WARM_USER_MAX]:
+        u = ((rec or {}).get("username") or "").strip()
+        if not u or (rec or {}).get("disabled_at"):
+            continue
+        try:
+            _ensure_resume_migrated(u)
+            txt = db.profile_text(u) or ""
+            if not txt.strip():
+                out["no_resume"] += 1        # no résumé means no meaningful score to precompute
+                continue
+            rmd5 = hashlib.md5(txt.encode("utf-8")).hexdigest()
+            fresh = _scores_read(u, rmd5, fp) is None
+            user_scores(u, txt)              # computes AND persists, or returns the stored copy
+            out["computed" if fresh else "already_warm"] += 1
+        except Exception:
+            out["failed"] += 1               # one bad account must not stop the rest
     return out
 
 
