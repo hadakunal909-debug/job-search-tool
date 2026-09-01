@@ -9036,7 +9036,7 @@ def main():
         print(f"  - {j['title']} - {j['company']} ({j['location'] or 'n/a'}){flag}")
         print(f"    {j['url']}")
     if all_kept:
-        where = db.backend_name() if db.using_supabase() else OUTPUT_CSV
+        where = db.backend_name() if db.has_remote_db() else OUTPUT_CSV
         print(f"\nSaved to {where}. Run `python -m scraper.score_jobs` next to score them.")
     else:
         print("Nothing new this run.")

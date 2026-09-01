@@ -79,7 +79,7 @@ def main(argv):
 
     elif cmd == "list":
         users = db.list_users()
-        backend = "Supabase" if db.using_supabase() else "local users.json"
+        backend = "Supabase" if db.has_remote_db() else "local users.json"
         print("%d user(s) [%s]:" % (len(users), backend))
         for u in users:
             print("  - %s   (created %s)" % (u.get("username", "?"), u.get("created_at", "")))

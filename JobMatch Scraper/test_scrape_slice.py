@@ -70,7 +70,7 @@ def run(slice_size, budget=0):
         "prune_old_jobs": lambda *a, **k: 0,
         "stale_urls": lambda *a, **k: [],
         "set_scrape_status": lambda *a, **k: None,
-        "using_supabase": lambda: True,
+        "has_remote_db": lambda: True,
         "backend_name": lambda: "stub",
     }
     old = {k: getattr(scraper, k, None) for k in stubs}

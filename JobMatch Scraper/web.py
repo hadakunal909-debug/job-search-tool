@@ -129,17 +129,39 @@ def _fallback_secret():
     return hashlib.sha256(seed.encode()).hexdigest()
 
 
-# Session signing key: explicit APP_SECRET, else the (secret, server-side) Supabase key,
-# else a machine-local dev fallback. Stable across restarts so logins persist.
+# Session signing key: explicit APP_SECRET, else a machine-local dev fallback.
+#
+# THE MIDDLE OPTION IS GONE, and it was load-bearing. Until 2026-09-01 this read
+# `db._creds()[1]` — the Supabase key — and hashed it into the session secret, so an install
+# that never set APP_SECRET was signing every session cookie and extension token with a
+# credential from a database this project left on 2026-08-15. Deleting the Supabase transport
+# deletes that source, which means:
+#
+#   * the signing key CHANGES on the deploy that lands this, so every existing session cookie
+#     and extension token is invalidated once. Unavoidable: the old key was derived from a
+#     secret being removed. Setting APP_SECRET to sha256(old_supabase_key) preserves them if
+#     that matters more than a clean break.
+#   * _fallback_secret() must never be what a real deployment lands on. It is sha256 over
+#     hostname + this file's path — deterministic, so logins survive a restart, and therefore
+#     GUESSABLE by anyone who knows both. Its own docstring calls it a dev key.
+#
+# So: with a remote database configured, refuse to start rather than sign with it. Same rule
+# db._check_backend_intent applies one module over — a half-configured process fails in one
+# second instead of doing something that looks like working.
 _explicit_secret = os.environ.get("APP_SECRET")
-_supabase_key = db._creds()[1]
-app.secret_key = (_explicit_secret
-                  or (hashlib.sha256(_supabase_key.encode()).hexdigest() if _supabase_key
-                      else _fallback_secret()))
-if not _explicit_secret and not _supabase_key:
+app.secret_key = _explicit_secret or _fallback_secret()
+if not _explicit_secret:
     import sys as _sys
-    print("WARNING: no APP_SECRET or SUPABASE_KEY set. Using a machine-local dev signing "
-          "key. Set APP_SECRET in production so sessions/tokens can't be forged.", file=_sys.stderr)
+    if db.has_remote_db():
+        raise RuntimeError(
+            "APP_SECRET is not set, and this process has a real database (%s). The session key "
+            "would fall back to a machine-local value derived from the hostname and this file's "
+            "path, which is guessable — sessions and extension tokens could be forged. Set "
+            "APP_SECRET to a long random string (cPanel: Setup Python App -> Environment "
+            "variables). Note it invalidates existing logins once; set it to the sha256 of the "
+            "old SUPABASE_KEY instead if you need them to survive." % db.backend_name())
+    print("WARNING: no APP_SECRET set. Using a machine-local dev signing key, which is fine "
+          "offline and unsafe anywhere real.", file=_sys.stderr)
 
 app.permanent_session_lifetime = 60 * 60 * 24 * 30      # 30-day login
 # Cookie hardening: HttpOnly (no JS access) + SameSite=Lax (blocks cross-site POST CSRF on
@@ -3280,7 +3302,7 @@ def _research_eligible(company):
     # read-modify-write of a whole JSON file, so two workers crawling two employers can lose a
     # record. One condition removes the only data-loss path this feature has.
     try:
-        if not db.using_supabase():
+        if not db.has_remote_db():
             return ""
     except Exception:
         return ""
@@ -5412,13 +5434,13 @@ def _require_supabase():
     """"" when it's safe to touch data, else the reason to refuse.
 
     Every db.* function silently falls through to a local *_local.json / jobs.csv when
-    using_supabase() is false, and most of those files do not exist on the deployed box. So
+    has_remote_db() is false, and most of those files do not exist on the deployed box. So
     with Supabase briefly unreachable a delete would walk an empty local file, report
     "0 removed", and leave the real rows untouched. Reading that as "there was nothing to
     delete" is precisely how you delete the wrong thing on the retry, so destructive actions
     refuse rather than no-op. The count probe doubles as the liveness check.
     """
-    if not db.using_supabase():
+    if not db.has_remote_db():
         return ("No database is configured. Refusing to run against the local-file "
                 "fallback. Nothing here would touch the real database.")
     if db.table_count(db.TABLE) is None:

@@ -240,7 +240,7 @@ INDEX = (
         ".env is read relative to the CURRENT WORKING DIRECTORY, so a script that does not cd "
         "here first silently writes somewhere else and exits 0. {db.py::_check_backend_intent} "
         "plus DB_REQUIRE is how you make that fail loudly. {db.py::backend_name} tells you which "
-        "backend you have; using_supabase() answers True for three of them and will not.",
+        "backend you have; has_remote_db() answers True for three of them and will not.",
         "python scripts/probe_db_proxy.py"),
     Row("Y", "A query works locally but 403s from GitHub Actions",
         "{dbproxy.py::ALLOWED_TABLES} -- the proxy's allowlist",

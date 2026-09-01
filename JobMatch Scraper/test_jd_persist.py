@@ -90,7 +90,7 @@ class _FakeDB(object):
     def backend_name(self):
         return "fake"
 
-    def using_supabase(self):
+    def has_remote_db(self):
         return True
 
 
