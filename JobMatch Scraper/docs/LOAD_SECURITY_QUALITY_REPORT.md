@@ -73,6 +73,40 @@ problem.
 Also removed: `will-change:transform` on every `.card`, which asked the compositor for a layer per
 card (120+ on a paged feed) to serve a 3px lift one card uses at a time.
 
+### The scorer, and the first render (same date, after the above)
+
+The row build was not the dominant term on production; the **per-user scoring pass** was, because
+every scrape invalidates every stored score file. Profiling found `_term_present` taking **76% of
+the pass** at 3.2M calls with only ~50k distinct answers, and `score_against` building and fully
+sorting `have`/`missing` on every row for consumers that are not on that path.
+
+| scoring pass, per user, at 38,805 rows | |
+|---|---|
+| as shipped | **8.68 s** |
+| `_term_present` memoised (96.8% hit rate) | 2.13 s |
+| plus `core.score_pct`, the score-only path | **2.09 s cold-memo** *(0.77 s with the memo already warm)* |
+
+Scores are **identical on all 21,494 analysed rows** across three rÃ©sumÃ©s, including one built to
+force clean sweeps -- and that third one is load-bearing: a deliberately broken score_pct was
+caught only by it, 6 rows at delta 1. Pinned in `scripts/test_speed_caches.py`.
+
+**First render per user, measured end to end** over HTTP against the real app, worker warm on
+shared state and the score file on disk, extrapolated x1.77 to 38,805 rows:
+
+| | local (21,980) | at 38,805 |
+|---|---|---|
+| p50 | 356 ms | **628 ms** |
+| p90 | 498 ms | **879 ms** |
+| max | 590 ms | 1,041 ms |
+
+Against **7,617 ms** locally before the change, and **15,659 ms** recorded on the live site. The
+remaining per-worker cost is `_base_rows` at 3.84 s, which `/warm` absorbs off the user path --
+the one request that pays it is the first to a brand-new worker.
+
+Caveat on all of it: measured on a 1.8 GHz laptop and scaled by row count. Production is a shared
+throttled slice and may be slower; the pre-change model predicted ~11 s against 15.7 s observed,
+so treat these as the right order rather than the exact figure.
+
 ### Suite state at this date
 
 **51 offline suites pass**, of 57 registered — the other 6 need database credentials and are

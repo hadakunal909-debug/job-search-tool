@@ -131,6 +131,18 @@ INDEX = (
         "extension's JD patch moves neither half of that fingerprint. {web.py::warm} builds the "
         "shared half off the user's path; {web.py::_cache_max} charges it one entry.",
         "python scripts/test_speed_caches.py"),
+    Row("R", "The first feed load after a scrape takes many seconds",
+        "{web.py::_warm_user_scores} -- every account's score file, written off the request path",
+        "the shared half was never the dominant term here. Score files are keyed on (user, "
+        "résumé) with the corpus fingerprint inside, so a scrape invalidates all of them and the "
+        "next visitor paid a full pass over every row: 46% of live renders were over 2 s, median "
+        "5.0 s, one at 15.7 s. {web.py::warm} writes them now, and it is safe on every keep-warm "
+        "tick because a still-valid file short-circuits. The pass itself is ~4x cheaper too: "
+        "{core.py::_term_present} is memoised (76% of the pass, 96.8% hit rate) and "
+        "{core.py::score_pct} skips the have/missing sorts {web.py::user_scores} throws away. "
+        "score_pct MUST stay equal to {core.py::score_against}[0] -- that is every match "
+        "percentage in the product.",
+        "python scripts/test_speed_caches.py"),
     Row("B", '"Similar roles" on a job page looks unrelated',
         "{web.py::_title_index} and {web.py::_similar_roles}",
         "{web.py::_TITLE_STOP} is the rail's list and is deliberately SHORT -- seniority and "

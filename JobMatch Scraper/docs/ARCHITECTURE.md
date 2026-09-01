@@ -45,7 +45,7 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>8,787 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>8,848 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
@@ -56,7 +56,7 @@ flowchart TB
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,273 lines · 32 sections<br/>db.py · 2,952 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,323 lines · 32 sections<br/>db.py · 2,952 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -219,13 +219,13 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1900</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1903</i>"]
   C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 813</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
   C --- GUARD
-  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 2529 — shares the filters, skips \"posted within\"</i>"]
+  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 2579 — shares the filters, skips \"posted within\"</i>"]
   GUARD -.-> D
   classDef web fill:#e0e4fe,stroke:#4f46e5,color:#101319
   classDef client fill:#e4e7ec,stroke:#5f6573,color:#101319

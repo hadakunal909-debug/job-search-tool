@@ -159,6 +159,22 @@ fill everything that is the same for everybody:
 | `visa_index()` | 79 ms (2.9 MB) |
 | `_logo_manifest()` | 4 ms |
 | `_base_rows()` | **~1,400 ms at 21,960 rows** |
+| every account's score file | ~2.2 s per user with a résumé (see below) |
+
+**It warms the PER-USER half too, and that is the half that was hurting.** The stored score
+files are keyed on (user, résumé) with the corpus fingerprint inside, so **every scrape
+invalidates all of them** and the next person to open the feed paid a full scoring pass. Measured
+on the live site before this: **46% of feed renders (52 of 114 over a week) took two seconds or
+more, median 5.0 s**, with one at 15.7 s. `/warm` now writes every live account's file, so nobody's
+first render pays it.
+
+Safe on every tick, by construction: `user_scores` returns the stored file whenever the
+fingerprint still matches, so a repeat call costs ~80 ms per user and only does real work in the
+one window it exists for -- right after a scrape moved the corpus. Skip it with `&users=0`;
+bound it with `WARM_USER_MAX` (default 50).
+
+Measured first render per user, worker warm on shared state, file on disk -- extrapolated to
+38,805 rows: **p50 628 ms, p90 879 ms**, against 15,659 ms observed live beforehand.
 
 **Gated on a shared secret, and it 404s without one** — it is seconds of CPU on a shared host, so
 an open URL would be a free way to pin a worker. Set `WARM_TOKEN` in `.env` to any long random
