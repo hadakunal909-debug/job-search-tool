@@ -73,6 +73,74 @@ problem.
 Also removed: `will-change:transform` on every `.card`, which asked the compositor for a layer per
 card (120+ on a paged feed) to serve a 3px lift one card uses at a time.
 
+### Load test, 2026-09-01 — multi-process, and the thing that dominates is the cache cap
+
+First run with **separate worker processes** rather than a thread pool in one: a feed render is
+CPU-bound, so one process measures the GIL, not the pool. Harness committed as
+`scripts/loadtest.py` — the first reproducible one this report has had.
+
+**4 workers did not fit on the test box**: 297 MB RSS each against 947 MB free, so the runs below
+are 2 workers (a real Passenger pool size) and 1 worker where memory forced it. 16 distinct users,
+distinct résumés, `GET /` unless stated.
+
+**S1 — 2 workers, default `CACHE_BUDGET_MB=256`.** Zero non-200s at every level.
+
+| conc | rps | p50 | p95 | p99 | RSS/worker |
+|---|---|---|---|---|---|
+| 4 | 4.8 | 984 | 1,522 | 1,614 | 275 / 281 |
+| 8 | **8.2** | 899 | 2,036 | 2,772 | 309 / 300 |
+| 16 | 5.7 | 2,280 | 5,327 | 6,961 | 298 / 330 |
+| 32 | 6.1 | 4,866 | 6,918 | 9,386 | 330 / 329 |
+| 64 | 4.8 | 9,985 | 15,365 | 17,823 | 363 / 342 |
+
+Knee at **concurrency 8, 8.2 rps on 2 workers (~4 rps/worker)**; past it latency climbs with no
+throughput gain. Consistent with the 2026-08-12 closed-loop figure of ~5.2-5.6 rps/worker.
+
+**S2 — THE HEADLINE, and it is not the scorer.** Same 16 users, 1 worker, concurrency 4:
+
+| `CACHE_BUDGET_MB` | `_cache_max()` | rps | p50 | p95 | RSS |
+|---|---|---|---|---|---|
+| 256 (default) | 4 | 2.4 | 1,627 | 4,103 | 278 MB |
+| 800 | fits all 16 | **50.2** | **76** | **119** | 524 MB |
+
+**21x throughput and p50 1,627 -> 76 ms, for +246 MB per worker.** With more concurrently active
+users than `_cache_max()`, every request evicts somebody and pays a rebuild; under it, nothing
+does. **On production `_cache_max()` is 2 at 38,805 rows, so the third concurrent distinct user
+triggers this.** Whether to raise it is a straight latency-for-memory trade and memory is the
+binding constraint on shared hosting (§2.3) — recorded here as a measured option, not a
+recommendation.
+
+**S4 — post-scrape with `/warm` NOT run** (cron missed, or a worker spawned mid-window), 2
+workers, concurrency 4: **1.0 rps, p50 3,545 ms, p95 11,468 ms.** This is the case `/warm` exists
+to remove.
+
+**S5 — `/api/feed?q=` surfaced a pre-existing 500. See below.** The rate limiter was deliberately
+left on; the failures were 500s, not 429s.
+
+### DEFECT: `_row_haystack` races itself, and search 500s under concurrency
+
+`web.py:1827-1840`. Reproduced at **3 failures in 39 requests (~8%)** at concurrency 12 on one
+worker, each a `KeyError` on a job URL:
+
+```
+_hay_idx["hay"][u] = h
+_hay_idx["words"][u] = searchSplit(h)
+return h, _hay_idx["words"][u]
+```
+
+`hay[u]` is written **before** `words[u]`, so any other thread that observes `hay[u]` in that
+window takes the `h is not None` path and reads `words[u]`, which does not exist yet ->
+`KeyError` -> **HTTP 500 from `/api/feed?q=`**. The wider window is the same: a thread that hits
+the fingerprint-reset branch replaces both maps with fresh empty dicts while another is mid-fill.
+
+Introduced 2026-08-12 in `a7bb62f`; none of this session's commits touch it. Production exposure
+depends on whether Passenger serves concurrent requests per process — unknown, and worth
+establishing, because the symptom is a 500 on every search rather than a slow one.
+
+Not fixed here: this was a measurement run. The shape of the fix is to write `words[u]` last (so
+observing `hay[u]` implies `words[u]` exists) and return the locally computed value rather than
+re-reading the dict.
+
 ### The scorer, and the first render (same date, after the above)
 
 The row build was not the dominant term on production; the **per-user scoring pass** was, because
