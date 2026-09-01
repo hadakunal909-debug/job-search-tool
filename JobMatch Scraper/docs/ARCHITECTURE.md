@@ -45,18 +45,18 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>8,632 lines · 86 routes / 85 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>8,660 lines · 86 routes / 85 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
     S["<b>scraper/__init__.py</b><br/>9,051 lines · 38 ATS adapters<br/>1,192 boards"]
-    J["score_jobs.py · 2,054 lines"]
+    J["score_jobs.py · 2,081 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,241 lines · 32 sections<br/>db.py · 2,924 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,241 lines · 32 sections<br/>db.py · 2,952 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -220,7 +220,7 @@ worth of context, and all three must agree.
 ```mermaid
 flowchart TB
   S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1828</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 873</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 813</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD

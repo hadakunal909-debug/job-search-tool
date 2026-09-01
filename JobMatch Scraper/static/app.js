@@ -25,12 +25,11 @@
     "e3": "Has filed E-3 applications (Australian nationals).",
     "h1b1": "Has filed H-1B1 applications (Chile / Singapore nationals)."
   };
-  // The ONE chip a card shows, keyed by j.visa_likely. Three values, not five: green_card, e3
-  // and h1b1 collapse into "sponsor" because E-3 and H-1B1 are gated on nationality and were
-  // never worth naming on a card. Also a strict JSON literal — feed_parity.py lifts this and
-  // asserts it equals core.SPONSOR_LIKELY_LABELS, so the chip and the server cannot drift.
-  var SPONSOR_LIKELY_LABELS = {"h1b": "H-1B Likely", "sponsor": "Sponsor Likely",
-                               "stem_opt": "STEM-OPT Likely"};
+  // core.SPONSOR_LIKELY_LABELS used to be mirrored here, because the card named the route:
+  // "H-1B Likely" / "Sponsor Likely" / "STEM-OPT Likely". It does not any more — see the chip
+  // in cardHTML — so the copy is gone rather than left sitting unused next to the server's.
+  // /job and /company still name all five routes; company.html and companies.js hold the
+  // labels for those, and core.py remains the single definition.
   // The last fiscal year the sponsorship data actually covers. Read off #feed rather than
   // hardcoded, so refreshing sponsor_years.json moves every label that quotes it in one step.
   // Falls back to the current shipped vintage when the attribute is absent (an older template).
@@ -423,9 +422,6 @@
   }
 
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
-  // How many chips a card may show. Three fits one line at the narrowest card width
-  // the grid produces; a fourth wraps and reintroduces the wall this cap removed.
-  var CARD_CHIP_MAX = 3;
   function cardHTML(j) {
     var st = j.status || "";
     // "New" mirrors the card's own date label: show it iff the displayed date renders as "Today".
@@ -440,117 +436,61 @@
     // broken SILENTLY, taking the badge off every fresh card.
     var d0 = daysAgo(j.date);
     var newFlag = (d0 !== null && d0 <= 0) ? '<span class="newflag">New</span>' : '';
-    // CHIPS ARE PRIORITISED AND CAPPED, they are not appended in source order any more.
-    // A card could render eleven of these at once -- internship, visa route, no-lottery,
-    // agency, years, sponsors/no-sponsorship, pay, remote, matched-on-description, repost,
-    // closed -- on top of the logo, company, location, date, score ring and five actions.
-    // Eleven facts in a row is not eleven facts read; it is a wall the eye skips.
+    // ONE CHIP, AND IT IS THE ONLY ONE.
     //
-    // The order is by CONSEQUENCE to an F-1 reader, not by tidiness: a disqualifier first
-    // (no sponsorship, closed), then the strongest positive the posting itself states
-    // (Sponsors), then the employer's filing history, then cap-exempt, then pay. Anything
-    // that ranks below the cap is not lost -- the job page renders all of it, with the
-    // caveats that never fitted on a card.
-    var _cl = [];
-    function _chip(p, h) { _cl.push([p, h]); }
+    // A card could render eleven at once -- internship, visa route, no-lottery, agency, years,
+    // sponsors/no-sponsorship, pay, remote, matched-on-description, repost, closed. Capping
+    // that at three earlier the same day was not enough, and the screenshot that prompted this
+    // says why: the three that survived the cap were "H-1B Likely, top sponsor to FY2025", "No
+    // lottery" and "years not stated", which is a card spending its whole width telling you
+    // what it does not know.
+    //
+    // A card is for ONE question -- can this employer sponsor me -- so it answers that and
+    // stops. Nothing is lost: /job renders pay, remote, internship, years, cap-exempt, agency,
+    // repost and matched-on-description, with the caveats that never fitted on a card, and
+    // that is where a reader who has decided to open a posting already is.
+    //
+    // THREE STATES, TWO LABELS, AND SILENCE FOR THE THIRD. The posting rules sponsorship out,
+    // or the employer has a federal filing record, or we have neither -- and the third gets NO
+    // chip. core.py's own rule is "no route shown means no record, not a refusal", so calling
+    // 2,020 rows "unlikely" on the strength of an empty index would be inventing a verdict we
+    // do not hold. A missing chip already reads as "nothing known", and /job says it in words.
+    //
+    // NO ROUTE NAME. The chip used to read "H-1B Likely" / "Sponsor Likely" / "STEM-OPT
+    // Likely". Which route an employer has filed for is a fact about the EMPLOYER, and /job
+    // and /company both name all five; on a card it was a distinction the reader had to decode
+    // before it meant anything. core.sponsor_likely still decides the KEY server-side and it
+    // still runs on the tuple this posting's own text has already narrowed, so a JD that
+    // closes a route can never produce a "likely" chip for it. Only the wording generalised.
+    //
+    // .spon / .nospon rather than a new pair of classes: both already exist, both are already
+    // in the base chip rules, and their names mean exactly what these two chips now say.
     var badges = "";
-    if (j.intern)
-      _chip(10, '<span class="intl" title="OPT &amp; STEM-OPT eligible">Internship</span>');
-    // ONE chip, hedged. core.sponsor_likely is the single definition and the server ran it on
-    // the tuple ALREADY narrowed by this posting's own text, so a JD that closes a route can
-    // never surface a chip for it.
-    //
-    // It used to render up to three chips plus a "+2 more", so First Solar read
-    // "H-1B · Green Card · H-1B1". That is not three facts, it is one fact spread thin, and it
-    // claimed a confidence one quarter of DOL filings cannot support. "Likely" is the entire
-    // claim: this employer has a federal record for this route. The job page names all five
-    // routes, shows the ones with no record AS no record, and carries the caveats.
-    //
-    // NO tooltip, per the same reasoning that removed them from the old chips: a paragraph of
-    // hover text on every card was a wall, and the detail page is the right place to read it
-    // once instead of forty times down a feed.
-    // ONE branch. The pre-visa_tags.json seed-list fallback used to be a second one here; it is
-    // folded into visa_likely server-side now, because it has to know whether the INDEX exists
-    // and whether the JD blocked the posting, and neither fact reaches this file. It was
-    // rendering "H1B (top sponsor)" next to "No sponsorship" on the live feed.
-    // "top sponsor" CARRIES ITS VINTAGE. The chip is derived from the employer's cumulative
-    // filing history over a WINDOW that ends before today (FY2021-2025 as of 2026-08-31). The
-    // exact range rides in on data-spon-through rather than living here, so this comment can
-    // not go stale again -- so on a 2026 feed "top sponsor" can mean "filed a lot, for other
-    // roles, in a year that has already closed". The chip cannot honestly be narrowed to THIS
-    // posting or THIS year, so it says which window it is talking about instead of implying the
-    // present tense. The company modal has always been careful about this ("a chip means 'has
-    // filed', never 'how often'"); the card was not.
     var vtop = j.visa_likely || "";
-    if (vtop)
-      _chip(4, '<span class="vt vt-' + H(vtop) + '"' +
-        (vtop === "h1b" && j.strength === "high"
-          ? ' title="From federal filings through ' + H(SPONSOR_DATA_THROUGH) +
-            '. It describes the employer\'s history, not this posting."' : '') + '>' +
-        esc(SPONSOR_LIKELY_LABELS[vtop] || vtop) +
-        (vtop === "h1b" && j.strength === "high"
-          ? ", top sponsor to " + esc(SPONSOR_DATA_THROUGH) : "") + '</span>');
-    if (j.cap_exempt)
-      _chip(5, '<span class="cx">No lottery</span>');
-    if (j.agency)
-      _chip(9, '<span class="agency">Agency</span>');
-    // Set in the data face with tabular figures, so "5+ yrs" reads as a measurement rather
-    // than as a plus sign someone left in a sentence. It keeps a tooltip because "5+" alone
-    // never said WHOSE five years it meant.
-    if (j.exp_years !== "" && j.exp_years != null) {
-      var ec = j.exp_level === 'senior' ? 'exp-hi' : (j.exp_level === 'mid' ? 'exp-mid' : 'exp-lo');
-      _chip(7, '<span class="exp ' + ec + '" title="The description asks for ' +
-        H(j.exp_years) + ' years of experience or more.">' + H(j.exp_years) + '+ yrs</span>');
-    } else if (expSel && expSel.value !== "any") {
-      // ONLY WHILE A YEARS FILTER IS ON, because that is when the distinction matters and the
-      // badge would otherwise be noise on every card. Under "0 to 2 Years" roughly 7 in 10
-      // results are postings whose description states no number at all -- kept on purpose, but
-      // previously indistinguishable from the ones that genuinely qualify, which is how a role
-      // demanding 6+ years in its text appeared under an entry-level filter with nothing to
-      // warn you. The filter is not lying; it simply could not read that posting.
-      _chip(13, '<span class="exp exp-unknown" title="This description states no year count, ' +
-        'so it has not been filtered by experience. Postings with no stated years are always ' +
-        'shown -- untick that in Filters to hide them.">years not stated</span>');
+    if (j.sponsor_jd === "blocked") {
+      badges += '<span class="nospon" title="' + H(j.sponsor_reason) +
+        '">Sponsorship unlikely</span>';
+    } else if (vtop || j.sponsor_jd === "open") {
+      // THE STAR REPLACES A CLAUSE. This chip used to append ", top sponsor to FY2025", which
+      // doubled its width on 30% of cards to carry one bit. The mark carries the vintage in
+      // its tooltip and the feed prints the legend once above the grid, so the window is still
+      // stated -- once per page instead of once per card. SPONSOR_DATA_THROUGH rides in on
+      // #feed's data-spon-through, so refreshing the sponsorship files moves both at once.
+      var top = (vtop === "h1b" && j.strength === "high");
+      badges += '<span class="spon"' +
+        (top ? ' title="Top H-1B sponsor by federal filings through ' + H(SPONSOR_DATA_THROUGH) +
+               '. It describes the employer\'s history, not this posting."' : '') +
+        '>Sponsorship likely' +
+        (top ? ' <span class="topspon" aria-hidden="true">\u2605</span>' : '') + '</span>';
     }
-    if (j.sponsor_jd === 'blocked')
-      _chip(1, '<span class="nospon" title="' + H(j.sponsor_reason) + '">No sponsorship</span>');
-    else if (j.sponsor_jd === 'open')
-      _chip(3, '<span class="spon" title="' + H(j.sponsor_reason) + '">Sponsors</span>');
-    // Pay needs no tooltip — the chip shows the range. Remote keeps the "per the posting" hedge,
-    // which is the single place that caveat now lives (the rail checkbox dropped its copy).
-    if (j.salary_label)
-      _chip(6, '<span class="pay">' + H(j.salary_label) + '</span>');
-    if (j.remote)
-      _chip(8, '<span class="rem" title="Remote per the posting">Remote</span>');
-    // Posted N times. A COUNT, not a verdict: we can prove this role has been advertised under N
-    // distinct URLs at one location inside the window, and we cannot prove why. "Ghost job" is the
-    // inference the reader is entitled to draw, not a claim the card is entitled to make.
-    //
-    // Suppressed on agency rows on purpose. Re-advertising the same role IS a staffing agency's
-    // product — Actalent alone held 167 of the 528 clusters — so the badge would fire on a third
-    // of them saying nothing the "Agency" chip beside it does not already say. That is the same
-    // mistake the three sponsorship chips made: one fact spread thin reads as several.
-    // The title said nothing; the DESCRIPTION carried this one. Stated on the card so a wider
-    // net stays auditable -- if these start reading as junk, the rule that admits them is named
-    // and tunable (core.PM_ANCHORS / PM_MIN_POINTS) rather than anonymous.
-    if (j.jd_admit)
-      _chip(12, '<span class="jdadmit" title="This job’s title matched none of our role ' +
-        'keywords. It is here because its description reads like project / programme delivery ' +
-        'work.">matched on description</span>');
-    if (j.repost > 2 && !j.agency)
-      _chip(11, '<span class="repost" title="This role has been advertised at ' + H(j.repost) +
-        ' different URLs at this location in the last 90 days. Often a role that is not getting' +
-        ' filled.">Posted ' + H(j.repost) + '&times;</span>');
-    if (j.closed)
-      _chip(2, '<span class="closed">Closed</span>');
+    // NOT a fact chip -- the posting is dead. Closed rows are hidden from the default feed
+    // (web.py::_filter_rows) but come back in Saved and Applied, and a card that says nothing
+    // about it there is a lie rather than a tidy one.
+    if (j.closed) badges += '<span class="closed">Closed</span>';
     // Some employers publish no posting date anywhere, so the card falls back to when the job
     // reached us. It carries data-added so formatDates() labels it "Added …" and styles it
     // apart — an approximate arrival date must never read as a posting date. The text starts
     // out as "Added <iso>" so there's no flash of a bare date before formatDates() runs.
-    // Lowest priority number wins. Stable within a priority, so equal-rank chips keep
-    // source order.
-    _cl.sort(function (a, b) { return a[0] - b[0]; });
-    badges = _cl.slice(0, CARD_CHIP_MAX).map(function (c) { return c[1]; }).join("");
     var posted = '';
     if (j.date) {
       // data-approx marks a DERIVED date so formatDates can hedge its tooltip instead of

@@ -36,6 +36,12 @@ import core
 
 APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = open(os.path.join(APP, "static", "app.js"), encoding="utf-8").read()
+# app.js WITHOUT its line comments. Several checks below ask "does a card still render X", and
+# the answer must not be yes because the comment above the branch explains what X used to be --
+# which is exactly what happened: this file documents the labels and the clause it removed, and
+# a grep over the raw source read that prose as the feature. Comments are the record of a
+# decision; only code is the decision.
+CODE = "\n".join(re.sub(r"//.*$", "", ln) for ln in SRC.splitlines())
 
 FAILS = []
 
@@ -47,13 +53,27 @@ def check(name, cond, extra=""):
 
 
 # ----------------------------------------------------------------------------------
-# 1. The chip. Key chosen server-side by core.sponsor_likely, label looked up in app.js.
+# 1. The chip. The KEY is still chosen server-side by core.sponsor_likely; since 2026-08-31 the
+#    card no longer looks a LABEL up from it, so there is no client-side table to compare.
 # ----------------------------------------------------------------------------------
-print("\nONE HEDGED CHIP")
+print("\nONE CHIP, AND IT NAMES NO ROUTE")
 
-LABELS = js_json(SRC, "SPONSOR_LIKELY_LABELS")
-check("app.js SPONSOR_LIKELY_LABELS == core's", LABELS == dict(core.SPONSOR_LIKELY_LABELS),
-      repr(LABELS))
+# The label table is gone from app.js, not merely unused. A copy left behind would be a second
+# vocabulary free to drift from core's, and a silent one, because nothing would read it.
+check("app.js no longer mirrors SPONSOR_LIKELY_LABELS",
+      "SPONSOR_LIKELY_LABELS =" not in SRC,
+      "the card renders two fixed strings; /job and /company name the routes")
+check("the two strings are the whole vocabulary",
+      "Sponsorship likely" in SRC and "Sponsorship unlikely" in SRC,
+      "one question, answered or not answered")
+check("no route name survives on a card",
+      not any(x in CODE for x in ("H-1B Likely", "Sponsor Likely", "STEM-OPT Likely")),
+      "which route an employer filed for is a fact about the EMPLOYER, not this posting")
+# The third state is SILENCE. core.py's own rule is "no route shown means no record, not a
+# refusal", so a card with neither a verdict nor a filing record must render no chip at all --
+# 2,020 rows in the live 30-day feed, which would otherwise be told "unlikely" on no evidence.
+check("no record renders no chip", core.sponsor_likely(()) == "",
+      "absence is not a refusal; the card stays quiet and /job says so in words")
 
 # First Solar is the reported case: h1b | green_card | h1b1 read as three chips.
 CHIP_CASES = [
@@ -75,12 +95,37 @@ for key in core.SPONSOR_LIKELY_LABELS:
           core.SPONSOR_LIKELY_LABELS[key].endswith("Likely"),
           core.SPONSOR_LIKELY_LABELS[key])
 
-# The old three-chip machinery must be GONE, not merely unreachable. A dead rankVisa() next to
+print("\nTHE STAR, which replaced ', top sponsor to FY2025'")
+# Gated on BOTH halves. j.strength alone would star every employer with a filing history, and
+# vtop alone would star every card -- the mark means "top H-1B sponsor", which is one specific
+# claim about volume, not a decoration for having any record at all.
+check("the star is gated on h1b AND a high strength",
+      'vtop === "h1b" && j.strength === "high"' in SRC,
+      "~30% of cards; the other 70% carry the chip without it")
+check("the star is a mark, not a sentence",
+      "\\u2605" in CODE and ", top sponsor to " not in CODE,
+      "the clause doubled the chip's width on 30% of cards to carry one bit")
+# A mark nobody can decode is decoration. The legend prints the sentence once, above the grid,
+# in the include BOTH /feed and /company render -- not in a tooltip on 8,000 cards.
+GRID = open(os.path.join(APP, "templates", "_feedgrid.html"), encoding="utf-8").read()
+check("the grid prints the star's legend once",
+      "sponkey" in GRID and "&#9733;" in GRID and "sponsor_data_through()" in GRID,
+      "and it quotes the same window the chip's tooltip does")
+
+# The old multi-chip machinery must be GONE, not merely unreachable. A dead rankVisa() next to
 # chips that are no longer ranked is worse than no comment at all.
 check("rankVisa() deleted", "function rankVisa" not in SRC)
 check("_wantVisa cache deleted", "_wantVisa = visaWanted()" not in SRC)
 check('"+N more" chip deleted', "vt-more" not in SRC)
+check("the chip priority list deleted", "_chip(" not in SRC and "CARD_CHIP_MAX" not in SRC,
+      "capping eleven chips at three was the previous answer; one chip needs no ranking")
 check("cardHTML reads j.visa_likely", "j.visa_likely" in SRC)
+# Every chip below the old cap had to LAND somewhere, and these are the two that had no
+# job-page equivalent. Trimming the card without moving them would have deleted them.
+JOBHTML = open(os.path.join(APP, "templates", "job.html"), encoding="utf-8").read()
+for _cls in ("pay", "rem", "intl", "exp", "cx", "agency", "repost", "jdadmit"):
+    check("/job still renders the %r chip" % _cls, 'class="%s' % _cls in JOBHTML,
+          "the card dropped it; the detail page is where it went")
 # The FULL list must survive: the visa filter narrows on it, and narrowing on the single chip
 # would hide every green-card employer whose chip reads H-1B.
 check("visaHit still filters on the full j.visa list",
@@ -152,43 +197,26 @@ for (const n of %(scores)s) {
 }
 out.pill = scoreRing(72).indexOf('fill="var(--match-pill)"') >= 0;
 out.weight800 = scoreRing(72).indexOf('font-weight="800"') >= 0;
-out.repost = [];
-for (const c of %(reposts)s) out.repost.push(REPOST_BADGE({repost: c[0], agency: c[1]}));
 process.stdout.write(JSON.stringify(out));
 """
 
-# cardHTML is 90 lines and needs a whole card's worth of data, so rather than lift it and stub its
-# world, lift JUST its badge branch — condition and template — out of app.js by text. A change to
-# either the threshold or the agency guard then fails here instead of shipping silently.
-# The append changed shape on 2026-08-31: cardHTML collects chips as _chip(priority, html)
-# and renders only the top CARD_CHIP_MAX, so badges are no longer concatenated in source
-# order. The priority is matched as a NUMBER rather than a literal on purpose -- this shim
-# guards the repost threshold and the agency condition, and pinning the rank would fail the
-# suite every time the chip order is retuned, which is a product decision, not a regression.
-_REPOST_RE = re.compile(
-    r"if \(j\.repost > 2 && !j\.agency\)\s*\n\s*_chip\(\d+, (.*?)\);\s*\n\s*if \(j\.closed\)", re.S)
-
-
-def repost_shim():
-    m = _REPOST_RE.search(SRC)
-    if not m:
-        raise SystemExit("could not find cardHTML's repost badge branch in app.js — did it move? "
-                         "This shim is text-lifted on purpose; update the regex, do not retype "
-                         "the badge.")
-    return ("function H(x){return String(x);}\n"
-            "function REPOST_BADGE(j){ if (j.repost > 2 && !j.agency) return %s; return null; }"
-            % m.group(1))
+# THE SHIM IS GONE WITH THE BRANCH. This used to text-lift cardHTML's repost branch out of
+# app.js and evaluate it under node, because the threshold and the agency guard were arithmetic
+# worth running. The chip moved to templates/job.html on 2026-08-31 when the card was cut to one
+# chip, and a Jinja `{%- if row.repost > 2 and not row.agency %}` has nothing to evaluate: the
+# condition IS the assertion. It is checked against the template source below instead, which is
+# the same guarantee by a cheaper route -- and REPOST_CASES stays as the table of what the rule
+# is supposed to decide, now read by a Python mirror rather than by node.
 
 
 def run_js():
     fns = "\n".join(js_function(SRC, f) for f in
                     ("parseRowDate", "hasClock", "daysAgo", "relTime", "scoreRing"))
     src = DRIVER % {
-        "fns": fns + "\n" + repost_shim(),
+        "fns": fns,
         "dates": json.dumps([c[0] for c in DATE_CASES]),
         "news": json.dumps([c[0] for c in NEW_CASES]),
         "scores": json.dumps([c[0] for c in RING_CASES]),
-        "reposts": json.dumps([[c[0], c[1]] for c in REPOST_CASES]),
     }
     with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False,
                                      encoding="utf-8", dir=APP) as fh:
@@ -209,7 +237,7 @@ print("\nTHE MATCH METER, green >= 70, amber 40 to 69, red < 40")
 for (score, want), g in zip(RING_CASES, got["ring"]):
     check("scoreRing(%d)" % score, g == want, "%-12s" % g)
 check("the arc sits on an opaque pill", got["pill"],
-      "otherwise a green ring vanishes into the green STEM-OPT card wash")
+      "the card carries a tint, and a ring drawn straight onto it loses its own edge")
 check("font-weight 800 is gone", not got["weight800"], "the type scale tops out at bold")
 
 print("\nRELATIVE DATES, hours only where the row carries a clock")
@@ -230,40 +258,46 @@ bare_rel = [g for (s, _w, _y), g in zip(DATE_CASES, got["rel"])
 check("no bare date ever renders hours", not any("h ago" in g or g == "Just now" for g in bare_rel),
       repr(bare_rel))
 
-print("\nTHE REPOST BADGE, a count and not a verdict")
-for (n, agency, want, why), g in zip(REPOST_CASES, got["repost"]):
+print("\nTHE REPOST BADGE, a count and not a verdict — now on /job")
+# The Jinja condition, mirrored in Python. Same table, same decisions; what changed is only
+# which file states the rule. A drift in either number fails here.
+_M = re.search(r"\{%-\s*if row\.repost > (\d+) and not row\.agency\s*%\}", JOBHTML)
+check("the branch exists and is still (count > N and not agency)", _M is not None,
+      "if this moved, update the regex rather than retyping the rule")
+_floor = int(_M.group(1)) if _M else -1
+for (n, agency, want, why) in REPOST_CASES:
     label = "repost=%-4s agency=%-5s" % (n, agency)
-    if want is None:
-        check(label + " -> no badge", g is None, why)
-    else:
-        check(label + " -> %r" % want, g is not None and want in g, why)
+    fires = (n is not None and n > _floor and not agency)
+    check(label + (" -> no badge" if want is None else " -> %r" % want),
+          fires == (want is not None), why)
+check("the threshold matches detect_reposts' published default", _floor == 2,
+      "the badge and scripts/detect_reposts.py must agree on what a repost IS")
 # The wording matters as much as the threshold: we can prove the count, not the motive.
-badge = next((g for g in got["repost"] if g), "")
+_row = next((l for l in JOBHTML.splitlines() if 'class="repost"' in l), "")
 check("the badge states a count, not a judgement",
-      "ghost" not in badge.lower() and "fake" not in badge.lower(),
+      _row and "ghost" not in _row.lower() and "fake" not in _row.lower(),
       "we can prove N postings; we cannot prove why")
 check("the tooltip says where the number comes from",
-      "different URLs" in badge and "90 days" in badge, "otherwise 'Posted 5x' is unfalsifiable")
-check("the threshold matches detect_reposts' published default",
-      "j.repost > 2" in SRC,
-      "the badge and scripts/detect_reposts.py must agree on what a repost IS")
+      "different URLs" in _row and "90 days" in _row,
+      "otherwise 'Posted 5x' is unfalsifiable")
 
-print("\nTHE 'MATCHED ON DESCRIPTION' CHIP, added 2026-08-20")
-# Asserted against the SOURCE rather than through the shim, because this branch is a plain
-# `if (j.jd_admit)` with no arithmetic in it — there is nothing to evaluate, only wording and
-# placement to hold still. Placement is the part that bit once already: this chip originally
-# sat between the repost branch and `if (j.closed)`, which is exactly the span REPOST_RE above
-# anchors on, and the lifted shim silently absorbed it and still passed.
+print("\nTHE 'MATCHED ON DESCRIPTION' CHIP, added 2026-08-20 — now on /job")
+# Wording and provenance, asserted against the template it now lives in. There is no
+# arithmetic here — a plain `{%- if row.jd_admit %}` — so there was never anything to evaluate,
+# only claims to hold still.
 check("the chip exists and reads as provenance",
-      "j.jd_admit" in SRC and "matched on description" in SRC,
+      "row.jd_admit" in JOBHTML and "Matched on description" in JOBHTML,
       "the whole point of the wider net is that you can see which rule admitted a row")
 check("its tooltip explains the rule rather than asserting quality",
-      "description reads like" in SRC and "matched none of our role" in SRC,
+      "description reads like" in JOBHTML and "matched none of our role" in JOBHTML,
       "'matched on description' alone tells the reader nothing they can act on")
-check("it sits BEFORE the repost branch",
-      SRC.find("j.jd_admit") < SRC.find("j.repost > 2"),
-      "between repost and j.closed it lands inside REPOST_RE's anchor and breaks that test "
-      "silently rather than loudly")
+# The CHIP moved; the FIELD stays. rolesMatch() reads j.jd_admit to decide which role
+# families a title-less row may answer (see core.roles_match), so asserting the field were gone
+# would demand deleting a filter twin feed_parity.py checks.
+check("the card no longer renders it", "matched on description" not in CODE,
+      "it moved rather than being duplicated; two copies is one place for the wording to drift")
+check("but the FILTER still reads the flag", "j.jd_admit" in CODE,
+      "rolesMatch needs it; only the chip was on the card")
 check("web.py derives the flag instead of reading a column",
       "_admitted_on_description" in open(
           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web.py"),

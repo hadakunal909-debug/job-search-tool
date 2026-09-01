@@ -603,20 +603,27 @@ def run_js(rows, cases, cuts, scratch):
     if js_labels != dict(web.core.VISA_TAG_LABELS):
         raise SystemExit("feed_parity: VISA_LABELS differs between app.js and core.py:\n  js=%r\n  py=%r"
                          % (js_labels, dict(web.core.VISA_TAG_LABELS)))
-    # The single chip every card now shows. The KEY is chosen server-side by
-    # core.sponsor_likely and the LABEL is looked up client-side, so a card can mislabel a
-    # route without any row-level diff noticing — the two halves live in different files.
-    js_likely = js_json(src, "SPONSOR_LIKELY_LABELS")
-    if js_likely != dict(web.core.SPONSOR_LIKELY_LABELS):
-        raise SystemExit("feed_parity: SPONSOR_LIKELY_LABELS differs between app.js and core.py:"
-                         "\n  js=%r\n  py=%r" % (js_likely, dict(web.core.SPONSOR_LIKELY_LABELS)))
-    # And every key the server can emit must HAVE a label, or the chip falls back to printing
-    # the raw key ("stem_opt") at the reader.
+    # THE CARD NAMES NO ROUTE, so there is no client-side label table left to compare.
+    #
+    # What stood here asserted app.js's SPONSOR_LIKELY_LABELS equalled core's, because the key
+    # was chosen server-side and the LABEL looked up client-side — two halves in two files, free
+    # to drift. The card renders one of two fixed strings now ("Sponsorship likely" /
+    # "Sponsorship unlikely") and the key only decides WHICH, so that drift cannot happen.
+    #
+    # The check becomes its inverse: assert the table has not come BACK. A reintroduced copy
+    # would be a second vocabulary again, and a silent one, since nothing would read it.
+    if "SPONSOR_LIKELY_LABELS =" in src:
+        raise SystemExit("feed_parity: app.js declares SPONSOR_LIKELY_LABELS again. The card "
+                         "renders two fixed strings and names no route; /job and /company are "
+                         "where routes are named, from core.SPONSOR_LIKELY_LABELS directly.")
+    # The chip's EXISTENCE is still decided server-side, and "" is how core says "no record" —
+    # which the card reads as "show nothing at all". A None would render as a chip.
     for _tags in ([], ["h1b"], ["green_card"], ["e3"], ["h1b1"], ["stem_opt"]):
         _k = web.core.sponsor_likely(_tags)
-        if _k and _k not in js_likely:
-            raise SystemExit("feed_parity: core.sponsor_likely(%r) returns %r, which app.js's "
-                             "SPONSOR_LIKELY_LABELS cannot label" % (_tags, _k))
+        if not isinstance(_k, str):
+            raise SystemExit("feed_parity: core.sponsor_likely(%r) returned %r, not a string. "
+                             "cardHTML branches on truthiness and needs '' for 'no record'."
+                             % (_tags, _k))
     driver = DRIVER_PREAMBLE % {"hours": hours, "visa_tags": json.dumps(js_tags)}
     for fn in JS_FUNCS:
         driver += "\n" + js_function(src, fn) + "\n"

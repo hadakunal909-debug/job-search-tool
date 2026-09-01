@@ -51,6 +51,12 @@ class _FakeDB(object):
     def urls_missing_jd(self):
         return {u for u, r in self.rows.items() if not (r.get("jd") or "").strip()}
 
+    def urls_missing_jd_terms(self):
+        # The analysis backlog, which is a DIFFERENT question from the one above: score_jobs
+        # subtracts these two to find rows holding a description nothing ever analysed. A fake
+        # that answered only the first would make that subtraction return every row here.
+        return {u for u, r in self.rows.items() if not (r.get("jd_terms") or "").strip()}
+
     # --- writes ------------------------------------------------------------------
     def update_jds(self, jds):
         for u, jd in jds.items():

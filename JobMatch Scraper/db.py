@@ -809,6 +809,34 @@ def urls_missing_jd():
     return {r["url"] for r in _read_csv() if not (r.get("jd") or "").strip()}
 
 
+def urls_missing_jd_terms():
+    """Set of job URLs with NO stored ANALYSIS — jd_terms NULL or empty.
+
+    The sibling of urls_missing_jd(), and a different question. "Has a description" and "has an
+    analysis of that description" came apart on 2026-08-30: 944 active rows held a full
+    description (median 5,528 chars) with jd_terms empty, which the feed renders as "JD pending"
+    identically to a row holding nothing, because _row_pending keys off THIS column and not off
+    the text. Coverage has to be read here, not off the jd column.
+
+    Urls only, same shape and cost as urls_missing_jd() — ~1,000 rows against the ~18 MB the
+    jd_terms values themselves would move, which is why this is a filter and not a narrowed
+    load_jobs(cols=...).
+
+    NULL *or* empty for the same reason as urls_missing_jd: core.pack_analyzed returns "" rather
+    than storing a term-less analysis, so a matched-but-unreadable row can hold '' and
+    `if not packed` treats it as absent. Empty set on error, which a caller must read as "no
+    backlog known" rather than "everything is analysed".
+    """
+    if using_supabase():
+        try:
+            return {r["url"] for r in _fetch_all(TABLE, {"select": "url",
+                                                         "or": "(jd_terms.is.null,jd_terms.eq.)"})
+                    if r.get("url")}
+        except Exception:
+            return set()
+    return {r["url"] for r in _read_csv() if not (r.get("jd_terms") or "").strip()}
+
+
 def urls_with_jd():
     """Set of job URLs that have a stored JD — for 'has a description?' checks without
     pulling the JD text. Cheap (urls only). Empty set on error.

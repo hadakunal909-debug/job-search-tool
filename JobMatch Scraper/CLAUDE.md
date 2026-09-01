@@ -109,8 +109,14 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   and ranking is destroyed. If it needs rescaling, rescale what it measures (`core.core_terms`).
 - **Don't reach for a job aggregator.** Adzuna was removed 2026-08-16: at 6% of the feed it was
   38% of every job with no usable description. Reasoning in `docs/OPERATIONS.md`.
-- **Colour means sponsorship.** `static/style.css` states the rule and enforces a three-layer
-  token system; `scripts/test_contrast.py` gates it in CI. Everything else is ink.
+- **One hue, and the card answers one question.** Colour used to mean *which* sponsorship route.
+  As of 2026-08-31 every card wears the same blue and shows a single chip — "Sponsorship likely"
+  / "Sponsorship unlikely", a star for a top H-1B sponsor, and no chip at all where there is no
+  filing record. Both at the owner's direction after seeing the live feed. `static/style.css`
+  states the rule (in the `--route-*` block, where only the h1b trio holds a value and the other
+  four alias it) and `scripts/test_contrast.py` gates it in CI. Routes are still named in full on
+  `/job` and `/companies`, which have room for them. Everything else is ink. **Don't reintroduce
+  a per-route colour or a second chip on the card** — that has now been walked back twice.
 - **`db.list_users()` returning nothing is not "nothing to test."** That assumption is why the
   extension contract test sat outside CI for months.
 - **Verify by behaviour, not substring.** Several past sessions reported false failures where the
