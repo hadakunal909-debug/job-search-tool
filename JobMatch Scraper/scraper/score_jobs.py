@@ -1798,15 +1798,28 @@ def main():
     # description later -- the reconciliation pass above, a new extractor, an extension patch --
     # and it is in neither set: not NULL any more, and not something this run fetched. jd_terms
     # stays empty, so the feed renders it "JD pending" and the match filter cannot see it,
-    # permanently. Measured on the live corpus: 8 active rows holding full text were stranded
-    # there, and every hole of this shape is silent by construction.
+    # permanently. Every hole of this shape is silent by construction.
     #
-    # ROWS WITH NO DESCRIPTION AT ALL ARE DELIBERATELY EXCLUDED, and that subtraction is the
-    # difference between a fix and a treadmill. Analysing an empty string writes match_score 0
-    # and leaves jd_terms NULL, so those rows would re-enter this set on every single run,
-    # forever, and spend the tail of the analysis budget re-deriving nothing -- ahead of rows
-    # that do have text. They already have a queue: the JD FETCH, which is where a missing
+    # ROWS WITH NO DESCRIPTION AT ALL ARE DELIBERATELY EXCLUDED, because analysing an empty
+    # string writes match_score 0 and leaves jd_terms empty, so they would re-enter this set on
+    # every run forever. They already have a queue: the JD FETCH, which is where a missing
     # description is actually fixable.
+    #
+    # THE SUBTRACTION IS NOT AIRTIGHT, and the measurement is worth more than the intention:
+    # urls_missing_jd() matches jd NULL or jd = '', so a row holding WHITESPACE or a truncated
+    # fragment is "not missing" and does land here. Measured on the live corpus 2026-09-01, the
+    # whole set was 8 rows -- 7 of them 1 character or less, one between 10 and 399, and NOT ONE
+    # with a real description. Those cannot gain terms (core.analyze_jd flags them thin and
+    # pack_analyzed stores "" rather than a term-less analysis), so they do re-enter every run.
+    # Left alone on purpose: at that size the analysis is a few microseconds each and a length
+    # filter would have to read the jd column to apply, which is the ~130 MB read this whole
+    # path exists to avoid. If that count ever grows into the hundreds, filter on length inside
+    # urls_missing_jd_terms rather than here.
+    #
+    # And do not read the count above as the size of the WIN. The class this closes is mostly
+    # drained by the match_score-is-NULL line already -- of 169 never-analysed active rows
+    # measured earlier the same day, 161 carried a NULL score and were reachable without this.
+    # What this adds is that the remainder stops being permanent, not a large one-off recovery.
     #
     # urls_missing_jd() is re-read rather than reusing `db_missing` from the top of the run: the
     # reconciliation pass above has since written descriptions for some of those rows, and the
