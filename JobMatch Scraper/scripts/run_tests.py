@@ -115,6 +115,7 @@ SUITES = (
     # Symmetrical on purpose: it asserts the paced case PASSES as well as the burst case tripping.
     # A cap of 1 would satisfy a trip-only test and break the feed for everyone.
     Suite("test_feed_ratelimit",    "scripts/test_feed_ratelimit.py",    "scripts", "offline"),
+    Suite("test_fonts",             "scripts/test_fonts.py",             "scripts", "offline"),
     # IBM is the only board whose posting PAGE cannot be read at all (202 + empty body), so
     # the api shape is the only thing standing between it and 216 blank descriptions.
     Suite("test_ibm_jd",            "scripts/test_ibm_jd.py",            "scripts", "offline"),
@@ -161,6 +162,9 @@ SUITES = (
 # source (see _touches), so this covers only what a suite reads by PATH rather than by import.
 EXTRA_TOUCHES = {
     "test_contrast":           ("static/style.css",),
+    # Neither of these is an import, so neither is discoverable from the AST: the suite reads
+    # style.css and templates/ as DATA, and the woff2 files are what it asserts exist.
+    "test_fonts":              ("static/style.css", "templates/", "static/fonts/"),
     "test_doc_contrast":       ("docs/doc.css", "static/style.css"),
     "test_card_meta":          ("static/app.js",),
     "test_apply_confirm":      ("static/app.js", "static/applyask.js",

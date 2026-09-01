@@ -1,7 +1,7 @@
 # JobMatch
 
-A personal job-search app. Flask + a 1,173-board scrape pipeline across 29 applicant-tracking
-systems + an offline résumé grader + a Chrome extension that fills application forms. ~23,000
+A personal job-search app. Flask + a 1,192-board scrape pipeline across 28 applicant-tracking
+systems + an offline résumé grader + a Chrome extension that fills application forms. ~38,800
 jobs, three scrape runs a weekday. Live at **stemjobs1.astrochakra.co** on shared cPanel.
 
 <img src="docs/img/surfaces.svg" width="900" alt="Three runtime surfaces — the Flask app, the scrape pipeline and the Chrome extension — over a shared spine of core.py and db.py, and the four database backends db.py chooses between.">
@@ -26,7 +26,7 @@ jobs, three scrape runs a weekday. Live at **stemjobs1.astrochakra.co** on share
 
 | …this area | Start here |
 |---|---|
-| a page renders wrong, a route 404s | `web.py` — 82 routes, no blueprints → [docs/MAP.md](docs/MAP.md) |
+| a page renders wrong, a route 404s | `web.py` — 87 routes, no blueprints → [docs/MAP.md](docs/MAP.md) |
 | a job is missing from the feed | the intake funnel → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | a board suddenly returns nothing | the ATS adapters in `scraper/__init__.py` → [docs/MAP.md](docs/MAP.md) |
 | match scores look wrong | `core.py` scoring cluster + `scraper/score_jobs.py` |
