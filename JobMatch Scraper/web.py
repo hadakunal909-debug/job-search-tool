@@ -365,7 +365,8 @@ _rows_cache = collections.OrderedDict()    # (username, resume_md5) -> [row w/o 
 # Measured over all 21,960 rows: 1,941 ms -> 184 ms, with zero rows differing in any field and
 # an identical row order. The dedupe and the sort stay per-user; see ranked_rows for why the
 # dedupe in particular cannot move in here.
-_base_rows_cache = {"fp": None, "rows": None}
+_base_rows_cache = {"fp": None, "sig": None, "rows": None, "by_url": None, "fresh": 0,
+                    "persisted": None}
 # BOUNDED BY MEMORY, NOT BY COUNT, and the difference is the whole point.
 #
 # This was `_SCORE_CACHE_MAX = 64` for the life of the app, and it was safe when the corpus
@@ -917,7 +918,8 @@ def _invalidate_jobs():
     # The FILE has to go with it, and more urgently: an in-memory cache dies with the worker, so
     # it self-heals within minutes. A file keyed on an unchanged fingerprint would outlive the
     # patch indefinitely.
-    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None
+    _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None)
     _rows_clear()
     try:
         os.remove(_JOBS_SNAPSHOT)
@@ -1625,7 +1627,7 @@ def _rows_clear():
         pass
 
 
-def _base_rows():
+def _base_rows(persist=False):
     """Every posting as a card row with score 0, built ONCE per corpus and shared by everyone.
 
     This is the impersonal 40/41ths of _build_row: sponsor tier, visa routes, logo, dates, pay
@@ -1645,20 +1647,83 @@ def _base_rows():
     # revalidation with `fp[0] is not None` twenty lines up; this is the same test.
     key = tuple(fp) if fp and fp[0] is not None else None
     hit = _base_rows_cache
-    if key is not None and hit["rows"] is not None and hit["fp"] == key:
-        return hit["rows"]
+    # NOTE there is exactly ONE early return here, and it tests the derived signature as well as
+    # the fingerprint. An earlier version of this function had a second, fingerprint-only check
+    # sitting above it: that one fired first, so the signature was never consulted and /warm's
+    # persist step was never reached. Both bugs were silent -- new logos would not have moved a
+    # single card, and the shared file would have frozen at whichever corpus wrote it last.
     # Three layers, cheapest first, the same shape user_scores uses: this process's dict above,
     # then the shared FILE, then the build. Only the last one is slow, and it is the one the
     # other two exist to stop repeating -- across workers, which is the part a per-process
     # cache cannot do however often it is warmed.
     sig = _derived_signature() if key is not None else ""
+    if key is not None and hit["rows"] is not None and hit["fp"] == key and hit.get("sig") == sig:
+        # THE MEMORY HIT MUST NOT SHORT-CIRCUIT THE WRITE, and it did until this line existed.
+        # A request builds incrementally and deliberately does not persist; /warm then arrives,
+        # hits this branch, and returned in 0 ms having written nothing -- so the file stayed at
+        # whatever fingerprint it was last written with, and every cold worker rebuilt from
+        # scratch for ever. The whole file mechanism silently stopped updating, with /warm
+        # reporting success the entire time.
+        if persist and hit.get("persisted") != (key, sig):
+            _rows_write(key, sig, hit["rows"])
+            hit["persisted"] = (key, sig)
+        return hit["rows"]
+
     built = _rows_read(key, sig) if key is not None else None
     if built is None:
-        built = [_build_row(j, 0) for j in rows if j.get("url")]
-        _rows_write(key, sig, built)
-    # One entry, replaced not appended: a different fingerprint means the old corpus is gone.
+        # INCREMENTAL, and this is what makes a moving corpus survivable. jobs_fingerprint() is
+        # (row count, max first_seen), so ONE new posting invalidates the built rows for 40,000
+        # unchanged ones -- measured on production as a 4 s rebuild plus a 2.5 MB write, on the
+        # request path, every time the extension imported a board.
+        #
+        # REUSE IS BY VALUE, NOT BY URL, and that distinction is the whole correctness argument.
+        # A scrape does not only ADD rows: it updates is_active when a posting closes, fills
+        # posted_verified, moves last_seen. Reusing a built row because its url is familiar would
+        # serve a closed job as open and an unverified date as confirmed. Comparing the source
+        # dict is a C-level equality over ~24 keys that short-circuits on the first difference,
+        # so it costs a few tens of ms over the corpus against ~4,000 ms to rebuild it.
+        #
+        # A changed derived signature (logos, sponsor counts, visa tags, the two KV maps) still
+        # forces a FULL rebuild, because those move every row at once and no per-row comparison
+        # would notice.
+        prior = hit.get("by_url") if (hit.get("by_url") and hit.get("sig") == sig) else None
+        built, by_url, fresh = [], {}, 0
+        for j in rows:
+            u = j.get("url")
+            if not u:
+                continue
+            was = prior.get(u) if prior else None
+            if was is not None and was[0] == j:
+                r = was[1]                       # unchanged source -> the built row still holds
+            else:
+                r = _build_row(j, 0)
+                fresh += 1
+            built.append(r)
+            by_url[u] = (j, r)
+        # WRITING IS 94% OF THIS PATH, so a request does not do it. Measured at 40,294 rows:
+        # the incremental build is 138 ms (28 ms to value-compare every row, 105 ms to rebuild
+        # the url map, 4 ms to build the ~120 genuinely new ones) while _rows_write is 2,153 ms
+        # of gzip. Persisting on every fingerprint move put all of that in front of whoever
+        # happened to load the feed next.
+        #
+        # /warm passes persist=True, so the file is refreshed off the user's path every five
+        # minutes. The cost of that choice, stated plainly: a worker that starts cold in the
+        # window between a corpus move and the next tick finds no matching file and pays a full
+        # build. Bounded at five minutes, against 2.1 s charged to a real request every time.
+        if persist:
+            _rows_write(key, sig, built)
+            _base_rows_cache["persisted"] = (key, sig)
+        _base_rows_cache["by_url"] = by_url
+        _base_rows_cache["fresh"] = fresh        # what /warm reports, so the win is observable
+    else:
+        # Came from the file, so there are no source rows to diff against next time. Pair them
+        # up now: the alternative is that the first fingerprint move after a cold start pays a
+        # full rebuild anyway, which is the case this whole path exists to remove.
+        _base_rows_cache["by_url"] = {r["url"]: (j, r) for j, r in
+                                      zip((x for x in rows if x.get("url")), built)}
+        _base_rows_cache["fresh"] = 0
     # An unusable key stores None, so the next call rebuilds rather than trusting this one.
-    _base_rows_cache["fp"], _base_rows_cache["rows"] = key, built
+    _base_rows_cache["fp"], _base_rows_cache["sig"], _base_rows_cache["rows"] = key, sig, built
     return built
 
 
@@ -3831,7 +3896,8 @@ def reload_jobs():
     _score_cache.clear()
     _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
     _rows_cache.clear()
-    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
+    _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None)   # the shared half of _rows_cache
     _rows_clear()                                              # ...and its on-disk copy
     _profile_cache.clear()
     _resume_cache.clear()
@@ -5600,7 +5666,8 @@ def _bust_job_caches():
     _score_cache.clear()
     _scores_clear()
     _rows_cache.clear()
-    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
+    _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None)   # the shared half of _rows_cache
     _rows_clear()                                              # ...and its on-disk copy
     _sponsor_cache.clear()
     _admin_stats_cache["data"] = None
@@ -8941,7 +9008,13 @@ def warm():
     _stage("sponsor_counts", sponsor_counts)
     _stage("visa_index", visa_index)
     _stage("logo_manifest", lambda: _logo_manifest().get("ar") or {})
-    _stage("base_rows", _base_rows)
+    _stage("base_rows", lambda: _base_rows(persist=True))
+    # How many rows had to be REBUILT, as opposed to reused from the previous corpus. A scrape
+    # that adds 120 postings should show ~120 here, not 40,000 -- if it ever shows the whole
+    # corpus on an ordinary tick, the incremental path has stopped working and the cron log is
+    # where that becomes visible.
+    if isinstance(out.get("base_rows"), dict):
+        out["base_rows"]["rebuilt"] = _base_rows_cache.get("fresh")
     # THE PER-USER HALF, and it is the one that was actually hurting. Skippable with &users=0.
     if (request.args.get("users") or "1") != "0":
         a = time.time()
