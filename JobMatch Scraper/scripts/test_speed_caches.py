@@ -737,17 +737,18 @@ def row_files():
         want("an unavailable fingerprint is never a key",
              web._rows_read((None, ""), sig) is None)
 
-        # The two KV maps have no file to stat, so they must be IN the signature.
+        # THE KV MAPS ARE DELIBERATELY *NOT* IN THE SIGNATURE, and this asserts that rather
+        # than the reverse. They arrive over the network and their readers swallow a failure
+        # into an empty map, so including them meant two workers computed different keys for
+        # the same corpus and ping-ponged the shared file, each rebuilding 7 s and overwriting
+        # the other. A key must be computable from the filesystem alone.
         web._repost_clusters = {"someclusterkey": 4}
-        want("changing repost_clusters moves the signature",
-             web._derived_signature() != sig)
+        want("repost_clusters does NOT move the signature", web._derived_signature() == sig)
         web._repost_clusters = {}
         web._jd_blocked_hosts = {"blocked.example.com"}
-        want("changing jd_host_verdicts moves the signature",
-             web._derived_signature() != sig)
+        want("jd_host_verdicts does NOT move the signature", web._derived_signature() == sig)
         web._jd_blocked_hosts = set()
-        want("...and back to the same inputs gives the same signature",
-             web._derived_signature() == sig)
+        want("the signature is stable for identical inputs", web._derived_signature() == sig)
 
         # Bounded, and _invalidate_jobs must take the file with it.
         for i in range(6):

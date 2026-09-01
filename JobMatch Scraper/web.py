@@ -1538,11 +1538,25 @@ _ROWS_TUPLE_KEYS = ("visa",)
 
 
 def _derived_signature():
-    """A short hash of everything a built row depends on that is NOT the corpus.
+    """A short hash of the FILES a built row depends on that the corpus fingerprint does not cover.
 
-    Three data files, by mtime and size, and the two maps that come from the KV table and so
-    have no file to stat. Forcing those two memos costs one db.get_kv each and only happens on
-    the cold path -- a warm worker returns from the in-process dict before reaching here.
+    DETERMINISTIC BY CONSTRUCTION, and that is the whole requirement. Every worker must compute
+    the same value from the same filesystem, because this keys a file they all share.
+
+    IT USED TO INCLUDE THE TWO KV MAPS -- repost_clusters and jd_host_verdicts -- and that was a
+    live defect, not a nicety. Both arrive through db.get_kv, i.e. over the network, and both
+    _repost_count and _host_jd_blocked swallow a failed read and fall back to an empty map. So a
+    worker whose read failed computed a DIFFERENT signature, missed the shared file, paid the
+    full 7,101 ms build, and -- having had no prior to build from -- wrote the file back with its
+    own signature. The next worker missed in the other direction. Measured on production
+    2026-09-01: renders pairing 63 ms and 8,401 ms at the same second, two workers ping-ponging
+    a file neither could ever read. A cache key must never depend on a call that can fail
+    silently.
+
+    What covers those two maps instead: both are written by the scrape (scraper.reposts and
+    scripts/close_dead_jds.py), and a scrape moves jobs_fingerprint(), which IS in the key. The
+    residue is a script run on its own without a scrape -- run /reload after one, which clears
+    the file outright.
     """
     parts = []
     for p in (_LOGO_MANIFEST_PATH,
@@ -1553,13 +1567,6 @@ def _derived_signature():
             parts.append("%s:%d:%d" % (os.path.basename(p), st.st_mtime_ns, st.st_size))
         except Exception:
             parts.append(os.path.basename(p) + ":absent")
-    try:
-        _repost_count("", "", "")          # forces _repost_clusters
-        _host_jd_blocked("")               # forces _jd_blocked_hosts
-        parts.append(json.dumps(sorted((_repost_clusters or {}).items()), separators=(",", ":")))
-        parts.append(json.dumps(sorted(_jd_blocked_hosts or ()), separators=(",", ":")))
-    except Exception:
-        parts.append("kv:unknown")         # never key on a guess; see below
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
 
 
