@@ -121,19 +121,37 @@ def test_only_counts_employers_exactly_one_phrase_found():
 
 
 def test_prior_artifacts_still_read_as_no_phrase_data():
+    """A CSV written BEFORE harvest_phrases existed must still read as no phrase data.
+
+    The property under test is about the COLUMN, not about the filename, and conflating the
+    two made this suite fail the moment anyone actually ran the tool: discovered_companies.csv
+    is discover_companies.py's DEFAULT --out, so a real harvest overwrites the 'prior artifact'
+    with a current one that has the column populated -- and the assertion then fires on a file
+    that is not prior at all. Measured 2026-09-01, after a li+indeed sweep wrote 1,933 rows
+    over it. CI never saw it because all three names are gitignored and absent there, which is
+    exactly the kind of gap that makes a suite pass in CI and fail on the machine that did the
+    work. So decide on the header: a file carrying phrase data is skipped as CURRENT, and only
+    a file genuinely lacking it is held to the no-phrase-data contract.
+    """
     import csv
     here = os.path.dirname(os.path.abspath(__file__))
-    seen = 0
+    seen, skipped = 0, 0
     for name in ("discovered_2wk.csv", "discovered_month.csv", "discovered_companies.csv"):
         path = os.path.join(here, name)
         if not os.path.exists(path):        # gitignored artifacts; absent on a fresh clone
             continue
-        seen += 1
         with open(path, encoding="utf-8-sig", newline="") as f:
-            rows = list(csv.DictReader(f))
+            reader = csv.DictReader(f)
+            cols = reader.fieldnames or []
+            rows = list(reader)
         assert rows, name
+        if "harvest_phrases" in cols and any((r.get("harvest_phrases") or "").strip()
+                                             for r in rows):
+            skipped += 1                    # a CURRENT artifact, not a prior one
+            continue
+        seen += 1
         assert dc.phrase_stats(rows) == [], name
-    print("      (checked %d prior artifact(s))" % seen)
+    print("      (checked %d prior artifact(s), skipped %d current)" % (seen, skipped))
 
 
 def test_sort_order_is_unchanged():
