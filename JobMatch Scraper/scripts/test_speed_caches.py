@@ -359,6 +359,102 @@ def cache_budget():
     return bad
 
 
+def base_rows():
+    """web._base_rows() is shared and web.ranked_rows() must not have changed any ANSWER.
+
+    The saving: _build_row emits 41 keys and exactly ONE of them, `score`, depends on who is
+    asking. Deriving the other 40 per (user, resume) cost 1,941 ms per user per worker at
+    21,960 rows. They are built once per corpus now and ranked_rows overlays the score.
+
+    That is only safe if the output is IDENTICAL, so this rebuilds the old way -- _build_row
+    with the real score, then dedupe, then sort -- and compares field by field and position by
+    position. It is the same shape of check as score_files(): the fast path is only worth
+    anything if it agrees with the slow one on every row.
+
+    THE ORDERING TRAP THIS PINS. _dupe_rank tie-breaks on r["score"], so folding duplicates
+    while every score is still 0 picks a different survivor. The dedupe therefore has to run
+    AFTER the overlay, and a future refactor that moves it into _base_rows() for speed would
+    pass every other test in this file.
+    """
+    print("=" * 74)
+    print("web._base_rows sharing + ranked_rows equivalence")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    snap = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "jobs_snapshot.json.gz")
+    if os.path.exists(snap):
+        with gzip.open(snap, "rt", encoding="utf-8") as fh:
+            rows = (json.load(fh) or {}).get("rows") or []
+    else:
+        rows = [{"url": "u%d" % i, "title": "Data Engineer %d" % i, "company": "Acme %d" % (i % 7),
+                 "location": "Boston, MA", "found_date": "2026-08-0%d" % (1 + i % 9),
+                 "jd_terms": '{"w":{"python":2,"sql":1},"n":2}', "match_score": i % 100}
+                for i in range(60)]
+        print("  (no snapshot -- %d synthetic rows)" % len(rows))
+
+    saved = (dict(web._jobs_cache), dict(web._base_rows_cache))
+    try:
+        web._jobs_cache["rows"], web._jobs_cache["at"] = rows, 10 ** 12
+        web._jobs_cache["fp"] = (len(rows), "test")
+        web._base_rows_cache.update(fp=None, rows=None)
+        web._rows_cache.clear()
+        web._score_cache.clear()
+
+        b1 = web._base_rows()
+        b2 = web._base_rows()
+        want("same corpus reuses the built rows", b1 is b2, "%d rows" % len(b1))
+        want("every score in the base is 0", all(r["score"] == 0 for r in b1))
+
+        # A moved corpus must replace it, or a scrape would serve yesterday's cards.
+        web._jobs_cache["fp"] = (len(rows), "moved")
+        want("a moved fingerprint rebuilds", web._base_rows() is not b1)
+
+        # "Don't know" is db.jobs_fingerprint()'s (None, "") -- a TRUTHY tuple, which is the
+        # whole reason the guard tests fp[0] rather than fp.
+        web._jobs_cache["fp"] = (None, "")
+        web._base_rows_cache.update(fp=None, rows=None)
+        web._base_rows()
+        want("an unavailable fingerprint is not a key", web._base_rows_cache["fp"] is None)
+
+        # ...and equivalence, against the algorithm this replaced.
+        web._jobs_cache["fp"] = (len(rows), "test")
+        web._base_rows_cache.update(fp=None, rows=None)
+        web._rows_cache.clear()
+        scores = {r["url"]: (i * 7) % 101 for i, r in enumerate(rows) if r.get("url")}
+        web._score_cache[("u", hashlib.md5(b"cv").hexdigest())] = scores
+        got = web.ranked_rows("u", "cv")
+
+        ref = [web._build_row(j, scores.get(j.get("url"), 0)) for j in rows if j.get("url")]
+        ref = web._dedupe_rows(ref)
+        ref.sort(key=lambda r: r["score"], reverse=True)
+
+        want("row COUNT matches", len(got) == len(ref), "%d vs %d" % (len(got), len(ref)))
+        want("row ORDER matches",
+             [r["url"] for r in got] == [r["url"] for r in ref])
+        diff = sum(1 for a, b in zip(got, ref) if a != b)
+        want("no row differs in ANY field", diff == 0, "%d differing" % diff)
+
+        # The point of the whole thing: two users share the underlying build.
+        web._score_cache[("v", hashlib.md5(b"cv2").hexdigest())] = scores
+        web.ranked_rows("v", "cv2")
+        want("a second user did not rebuild the base", web._base_rows() is web._base_rows_cache["rows"])
+        want("per-user rows are copies, not the shared dicts",
+             all(g is not b for g, b in zip(got[:20], web._base_rows()[:20])))
+    finally:
+        web._jobs_cache.clear()
+        web._jobs_cache.update(saved[0])
+        web._base_rows_cache.update(saved[1])
+        web._rows_cache.clear()
+        web._score_cache.clear()
+    return bad
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -386,6 +482,7 @@ def main():
     fails += scorer_memos()
     fails += score_files()
     fails += cache_budget()
+    fails += base_rows()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 

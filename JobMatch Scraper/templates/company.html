@@ -259,7 +259,7 @@
 {# Before app.js, exactly as on feed.html: rolepick.js seeds #roles from what the server
    rendered and app.js reads that value on its first render. Loading it after would filter the
    first paint against an empty selection. #}
-<script src="{{ static_v('rolepick.js') }}"></script>
-<script src="{{ static_v('applyask.js') }}"></script>
-<script src="{{ static_v('app.js') }}"></script>
+<script defer src="{{ static_v('rolepick.js') }}"></script>
+<script defer src="{{ static_v('applyask.js') }}"></script>
+<script defer src="{{ static_v('app.js') }}"></script>
 {% endblock %}

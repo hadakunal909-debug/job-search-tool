@@ -202,8 +202,14 @@ def _csp_nonce():
 _CSP_TEMPLATE = (
     "default-src 'self'; "
     "script-src 'self' 'nonce-%s'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src https://fonts.gstatic.com; "
+    # NO REMOTE ORIGIN IN EITHER, since the fonts were self-hosted. This is the same move
+    # img-src makes for the logos: the policy is what ENFORCES "nothing is fetched from a third
+    # party at request time", so a stray <link href="https://fonts.googleapis.com"> creeping
+    # back into a template fails visibly in the console instead of quietly re-adding two
+    # handshakes to first paint. Note font-src previously did not include 'self' at all -- only
+    # gstatic -- so self-hosting could not have worked without changing this line.
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
     "img-src 'self' data:; "
     "connect-src 'self'; "
     # pdf.js starts its worker from a blob: URL, and worker-src has no fallback to script-src -- it
@@ -323,6 +329,21 @@ _jobs_cache = {"rows": None, "at": 0}
 # no matter how recently they had asked for a page.
 _score_cache = collections.OrderedDict()   # (username, resume_md5) -> {url: score}
 _rows_cache = collections.OrderedDict()    # (username, resume_md5) -> [row w/o status], by score desc
+# THE CARD FIELDS THAT ARE NOT YOURS. _build_row emits 41 keys and exactly ONE of them --
+# `score` -- depends on who is asking. Everything else (the sponsor tier, the visa routes, the
+# logo, the dates, the pay label, the badges) is a property of the POSTING. Before this cache
+# existed, every distinct (user, résumé) re-derived all 40 impersonal fields for all ~22k rows
+# purely to attach a different integer to each: 1,941 ms measured, per user, per worker.
+#
+# So build them once per CORPUS and let ranked_rows overlay the score. Keyed on the jobs
+# fingerprint -- the same value _scores_read already trusts to decide a stored file is still
+# about this corpus -- and holding exactly one entry, because a second fingerprint means the
+# first is dead, not colder.
+#
+# Measured over all 21,960 rows: 1,941 ms -> 184 ms, with zero rows differing in any field and
+# an identical row order. The dedupe and the sort stay per-user; see ranked_rows for why the
+# dedupe in particular cannot move in here.
+_base_rows_cache = {"fp": None, "rows": None}
 # BOUNDED BY MEMORY, NOT BY COUNT, and the difference is the whole point.
 #
 # This was `_SCORE_CACHE_MAX = 64` for the life of the app, and it was safe when the corpus
@@ -359,8 +380,14 @@ def _cache_max():
     """
     rows = len(_jobs_cache.get("rows") or ()) or 20000
     per_entry_mb = max(1.0, rows * _ROW_CACHE_BYTES_PER_ROW / 1048576.0)
+    # _base_rows_cache holds one corpus-worth of the same dicts and is charged one entry here.
+    # It is shared by every user, so it is not free and it is not per-user: leaving it out of
+    # the arithmetic would grow the worker by a whole corpus with the budget none the wiser.
+    # Below the point where one entry fits, this goes negative and the floor returns 1 -- which
+    # is the same answer the un-adjusted form gave, so the invariants in
+    # scripts/test_speed_caches.py::cache_budget still hold.
     return max(_SCORE_CACHE_MIN, min(_SCORE_CACHE_CEIL,
-                                     int(_CACHE_BUDGET_MB / per_entry_mb)))
+                                     int((_CACHE_BUDGET_MB - per_entry_mb) / per_entry_mb)))
 # Above this many jobs, the feed stops shipping EVERY job inline and switches to top-N inline +
 # server-side search/paging (/api/feed), so the payload + browser parse stay small at any corpus
 # size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
@@ -843,6 +870,12 @@ def _invalidate_jobs():
     """
     _jobs_cache["at"] = 0
     _jobs_cache["fp"] = None
+    # A FOURTH line, and it is here for the reason the fp=None note above gives. _base_rows_cache
+    # is keyed on jobs_fingerprint(), which is (row count, max first_seen) -- and the extension's
+    # JD patch moves neither. So a re-read would come back with an fp EQUAL to the stored one and
+    # the built rows would keep serving jd_admit / score_pending / sponsor badges derived from
+    # descriptions that have since changed. Clearing it here covers every caller at once.
+    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None
     try:
         os.remove(_JOBS_SNAPSHOT)
     except Exception:
@@ -1431,6 +1464,35 @@ def _dedupe_rows(rows):
     return out
 
 
+def _base_rows():
+    """Every posting as a card row with score 0, built ONCE per corpus and shared by everyone.
+
+    This is the impersonal 40/41ths of _build_row: sponsor tier, visa routes, logo, dates, pay
+    label, badges. None of it is a fact about the reader, so none of it belongs in a per-user
+    cache -- and rebuilding it per user is what made a cold feed render take 1,941 ms.
+
+    Keyed on the jobs fingerprint rather than a TTL, so a scrape replaces it and nothing else
+    does. get_jobs() FIRST: it is the call that refreshes the fingerprint, exactly as
+    user_scores documents for the stored score file.
+    """
+    rows = get_jobs()
+    fp = _jobs_cache.get("fp")
+    # "DON'T KNOW" IS NOT A KEY, and the test for it is fp[0], not fp. db.jobs_fingerprint()
+    # answers (None, "") when the probe is unavailable -- which is a non-empty tuple and so
+    # perfectly TRUTHY. Keyed on that, two different unknown corpora compare equal and the
+    # first one's rows are served for the life of the worker. get_jobs() guards its own
+    # revalidation with `fp[0] is not None` twenty lines up; this is the same test.
+    key = tuple(fp) if fp and fp[0] is not None else None
+    hit = _base_rows_cache
+    if key is not None and hit["rows"] is not None and hit["fp"] == key:
+        return hit["rows"]
+    built = [_build_row(j, 0) for j in rows if j.get("url")]
+    # One entry, replaced not appended: a different fingerprint means the old corpus is gone.
+    # An unusable key stores None, so the next call rebuilds rather than trusting this one.
+    _base_rows_cache["fp"], _base_rows_cache["rows"] = key, built
+    return built
+
+
 def ranked_rows(username, resume):
     """The FULL corpus as card rows, sorted by this user's match score (desc), cached per
     (user, profile). Reuses user_scores; the master ordering for both the inline top-N and the
@@ -1441,7 +1503,17 @@ def ranked_rows(username, resume):
         _rows_cache.move_to_end(key)         # a read is a use: see _score_cache
         return _rows_cache[key]
     scores = user_scores(username, resume)
-    rows = [_build_row(j, scores.get(j.get("url"), 0)) for j in get_jobs() if j.get("url")]
+    # Shallow copies over the shared base, so a per-user row can carry a per-user score without
+    # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
+    # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
+    # missing number rather than a false one.
+    rows = [dict(r, score=(0 if r["score_pending"] else scores.get(r["url"], 0)))
+            for r in _base_rows()]
+    # DEDUPE AFTER THE OVERLAY, NOT BEFORE, and this is the one ordering constraint here.
+    # _dupe_rank tie-breaks on r["score"] -- it prefers the copy that HAS a score -- so folding
+    # duplicates in _base_rows() while every score is still 0 would pick a different survivor
+    # than this user's scores imply, and the two feeds would disagree about which host's copy of
+    # a Greenhouse posting they are showing.
     rows = _dedupe_rows(rows)
     rows.sort(key=lambda r: r["score"], reverse=True)
     # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
@@ -3590,6 +3662,7 @@ def reload_jobs():
     _score_cache.clear()
     _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
     _rows_cache.clear()
+    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
     _profile_cache.clear()
     _resume_cache.clear()
     _status_cache.clear()
@@ -5357,6 +5430,7 @@ def _bust_job_caches():
     _score_cache.clear()
     _scores_clear()
     _rows_cache.clear()
+    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
     _sponsor_cache.clear()
     _admin_stats_cache["data"] = None
     _admin_usage_cache["data"] = None
@@ -8644,8 +8718,61 @@ def react_harness():
 def healthz():
     """Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few
     minutes to keep the Passenger process (and its warm job/score/status caches) alive, so
-    visitors don't pay the cold-start re-import + cache refill. See docs/OPERATIONS.md."""
+    visitors don't pay the cold-start re-import + cache refill. See docs/OPERATIONS.md.
+
+    It keeps a worker ALIVE and that is all it can do — it builds nothing, so on its own it
+    never removed a single millisecond from a first feed render. /warm below is the half that
+    actually fills the caches."""
     return Response("ok", mimetype="text/plain")
+
+
+# How long a /warm response is allowed to claim it did nothing. Purely cosmetic: the JSON
+# reports per-stage milliseconds so a cron log says which stage is slow, not just that it ran.
+@app.route("/warm")
+def warm():
+    """Build the caches that are the SAME for everybody, so the first real visitor doesn't.
+
+    /healthz cannot do this. It has no user and touches no data, which docs/OPERATIONS.md
+    records as the reason the keep-warm cron "prevents a cold worker, it cannot warm one".
+    The per-user half is already solved by the stored score files (see user_scores); what was
+    left was the shared half, and since _base_rows() made that a single corpus-wide build, one
+    unauthenticated call can now do all of it:
+
+        get_jobs()        the corpus, from the snapshot or the database
+        sponsor_counts()  ~3.3 MB of filing counts
+        visa_index()      ~2.9 MB of visa routes
+        _logo_manifest()  the logo lookup
+        _base_rows()      every card row except the score
+
+    NO LOGIN, and deliberately not on `/`: OPERATIONS.md warns against pointing the cron at the
+    feed because that needs a session and does per-user work. This does neither.
+
+    GATED ON A SHARED SECRET, and 404 rather than 403 when it is unset or wrong. It is several
+    seconds of CPU on a shared host, so an open URL would be a free way to pin a worker at
+    100%; and answering 404 means an unconfigured deployment does not advertise that the route
+    exists at all. Set WARM_TOKEN in .env and put the same value in the cron URL.
+    """
+    want = os.environ.get("WARM_TOKEN") or ""
+    if not want or not hmac.compare_digest(request.args.get("t") or "", want):
+        abort(404)
+    out, t0 = {}, time.time()
+
+    def _stage(name, fn):
+        a = time.time()
+        try:
+            n = len(fn() or ())
+        except Exception as e:                     # a warm-up must never be the thing that pages
+            out[name] = {"error": str(e)[:120]}
+            return
+        out[name] = {"ms": int((time.time() - a) * 1000), "n": n}
+
+    _stage("jobs", get_jobs)
+    _stage("sponsor_counts", sponsor_counts)
+    _stage("visa_index", visa_index)
+    _stage("logo_manifest", lambda: _logo_manifest().get("ar") or {})
+    _stage("base_rows", _base_rows)
+    out["total_ms"] = int((time.time() - t0) * 1000)
+    return out
 
 
 # WSGI alias. cPanel's generated stub does `application = wsgi.<entry point>`, and its

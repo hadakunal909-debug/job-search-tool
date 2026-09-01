@@ -15,8 +15,40 @@ from io import BytesIO
 from collections import Counter
 from functools import lru_cache
 
-import requests
-from bs4 import BeautifulSoup
+
+
+# THE WEB APP DOES NOT SCRAPE, AND IT WAS PAYING FOR THE SCRAPER ANYWAY.
+#
+# `import requests` costs ~370 ms and `import bs4` ~130 ms, measured with -X importtime. Both
+# sat at module scope here, so every Flask worker paid half a second of start-up for libraries
+# the feed never touches: between them there are four `requests.` call sites (fetch_jd and the
+# three AI-tailoring functions) and two BeautifulSoup ones (html_to_text, fetch_jd), and not
+# one of them is on the path that renders a job card.
+#
+# Same shape as db.py's _LazyHTTP, and for the same reason it gives there. Every call site
+# below is unchanged -- `requests.get(...)` and `BeautifulSoup(raw, "lxml")` both still read
+# exactly as they did -- so this is an import-time change and nothing else.
+class _LazyModule(object):
+    """Imports the real module on first attribute access, then gets out of the way."""
+    def __init__(self, name):
+        self._name, self._mod = name, None
+
+    def __getattr__(self, attr):
+        if self._mod is None:
+            import importlib
+            self._mod = importlib.import_module(self._name)
+        return getattr(self._mod, attr)
+
+
+requests = _LazyModule("requests")
+
+
+def BeautifulSoup(*args, **kwargs):
+    """bs4's parser, imported on first parse. A function rather than a _LazyModule because
+    every call site uses it as a CALLABLE, not as an attribute of a module."""
+    from bs4 import BeautifulSoup as _BeautifulSoup
+    return _BeautifulSoup(*args, **kwargs)
+
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                          "AppleWebKit/537.36 (KHTML, like Gecko) "
