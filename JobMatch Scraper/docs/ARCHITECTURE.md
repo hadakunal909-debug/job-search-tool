@@ -25,7 +25,7 @@ opens offline in a browser, [map.html](map.html).
 | **3–4 h** | [SESSION_HANDOFF_PROMPT.md](SESSION_HANDOFF_PROMPT.md), end to end | The most honest document here: every claim is measured, not remembered. It's fourth because it's organised as a session log, not an introduction. |
 | **Day 1, PM** | Change one string in a template and ship it end to end through the zip | So the deploy path is muscle memory *before* it's urgent at 11pm. Highest-value onboarding exercise in the repo. |
 
-Deliberately **not** in the first day: `scraper/__init__.py`'s ATS adapters. They're 29 variations
+Deliberately **not** in the first day: `scraper/__init__.py`'s ATS adapters. They're 38 variations
 on one theme; read the one you need when you need it.
 
 ---
@@ -252,6 +252,47 @@ stay a top-level `function`, not a `var`.
 
 ---
 
+## 5. The read path, and the caches behind it
+
+Nothing about this was in this document before 2026-09-01, which is a gap: a feed render touches
+five caches and the difference between hitting them and missing them is 11 ms against 2.2 s.
+
+Read top to bottom; each layer exists because the one below it is expensive.
+
+| layer | scope | key | bound / TTL |
+|---|---|---|---|
+| `_jobs_cache` | process | â | `_JOBS_TTL` 3600 s |
+| `jobs_snapshot.json.gz` | **file, shared by every worker** | â | revalidated against `db.jobs_fingerprint()` up to `_SNAPSHOT_MAX_AGE` 24 h |
+| `db.load_jobs(include_jd=False)` | the database | â | last resort; the JD column is the difference between ~11 MB and ~168 MB |
+| `score_cache/<sha256>.json.gz` | **file, shared by every worker** | (user, rÃ©sumÃ© md5), corpus fingerprint stored inside | `_SCORES_MAX_FILES` 64, oldest mtime evicted |
+| `_score_cache` | process, LRU | (user, rÃ©sumÃ© md5) | `_cache_max()` |
+| `_base_rows_cache` | process, **exactly one entry** | the corpus fingerprint | replaced, never appended |
+| `_rows_cache` | process, LRU | (user, rÃ©sumÃ© md5) | `_cache_max()` |
+| `_status_cache` | process | user | `_STATUS_TTL` 30 s, busted on every action |
+| `_profile_cache` / `_resume_cache` | process | user | `_RESUME_TTL` 60 s |
+
+**A file is the only cache several short-lived processes can share.** Passenger runs a pool and
+recycles it freely, so the two on-disk layers are what stop each new worker paying full price â
+and why a keep-warm ping alone never fixed the cold feed.
+
+**Only `score` is per-user.** `_build_row` emits 41 keys and one of them depends on the reader, so
+`_base_rows()` builds the other 40 once per corpus and `ranked_rows` overlays the score onto
+shallow copies. Two consequences that are easy to undo by accident:
+
+- `_dedupe_rows` must run **after** the overlay, because `_dupe_rank` tie-breaks on the score.
+- `_cache_max()` charges the shared build one entry, so it is honest about the memory it holds.
+  At the live corpus of 38,805 rows that leaves **2** per-user entries; at 21,980 it is 4. An
+  eviction used to cost a ~1.9 s rebuild and now costs ~200 ms, which is what makes a small cap
+  acceptable.
+
+**Invalidation, and the trap in it.** `jobs_fingerprint()` is `(row count, max first_seen)` â and
+`db.update_job_fields`, which the extension's JD patch calls, moves **neither**. A re-read
+therefore returns an *equal* fingerprint while the underlying descriptions have changed, so
+anything keyed on it would serve stale rows for ever. `_invalidate_jobs()` exists for exactly this
+and clears the jobs cache, the base rows and the snapshot together; `/reload` and
+`_bust_job_caches` additionally drop the stored score files. The same function also refuses to key
+on the probe's "don't know" answer, `(None, "")`, which is a non-empty and therefore truthy tuple.
+
 ## The module tour
 
 | File | Owns | Note |
@@ -261,7 +302,7 @@ stay a top-level `function`, not a `var`.
 | `db.py` | Storage | One PostgREST-shaped interface, four backends, chosen at first use. |
 | `pgrest.py` | Transport 1 | Reimplements PostgREST's verbs over psycopg, so the same call works locally and on the box. |
 | `dbproxy.py` | Transport 2 | HMAC-signed HTTPS. The only way off-host code reaches the database, since `PG_DSN` is loopback-only. |
-| `scraper/__init__.py` | The sweep, the intake filter, and 29 ATS adapters | Also the add-a-board detect chain. |
+| `scraper/__init__.py` | The sweep, the intake filter, and 38 ATS adapters | Also the add-a-board detect chain. |
 | `scraper/score_jobs.py` | Fetching descriptions and scoring them | Resumable, budgeted, and reconciles two stores of the same data. |
 | `resume_score.py` | The offline résumé rubric | No network, no model, deterministic. ~25 checks behind a weight table. |
 | `resume_brain/` | The AI tailoring layer | Separate product from the grader; they share `core.py`'s matcher and one voice module, so they can't disagree about what a filler word is. |
@@ -290,7 +331,17 @@ Things that are true on purpose, and expensive to rediscover.
 5. **`jobs.jd_terms` is TEXT, not jsonb, and its key order is semantic.** It's the analyzer's
    frozen term order; it breaks ties in the skill panel, and the scorer diffs the stored string to
    decide whether to write at all. Converting it re-upserts the whole corpus every run.
-6. **Colour means sponsorship.** `static/style.css` states the rule and enforces a three-layer
-   token system, and CI checks the contrast. These docs use a different palette on purpose.
-7. **Never load-test production.** Shared cPanel throttles at the account level, no restart
+6. **One hue, and the card answers one question.** Colour used to mean *which* sponsorship
+   route; since 2026-08-31 every card wears the same blue and shows a single chip, at the
+   owner's direction after seeing the live feed. The route survives as the LABEL, which
+   already named it in full — the hue was reinforcing the word, not replacing it. What is
+   lost, recorded so it is a decision and not an accident: route is no longer distinguishable
+   at a glance. `static/style.css` states the rule, `scripts/test_contrast.py` gates it, and
+   `CLAUDE.md` is the source of truth if these ever disagree again. Everything else is ink;
+   these docs use a different palette on purpose.
+7. **A card field that is not the score belongs to the posting, not to the reader.**
+   `_build_row` emits 41 keys and exactly one depends on who is asking, so the other 40 are
+   built once per corpus (§5). The dedupe must stay **after** the score overlay, because
+   `_dupe_rank` tie-breaks on the score and folding duplicates at 0 keeps a different copy.
+8. **Never load-test production.** Shared cPanel throttles at the account level, no restart
    clears it, and the previous account was suspended once.
