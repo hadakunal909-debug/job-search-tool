@@ -661,6 +661,104 @@ def warm_user_scores():
     return bad
 
 
+def row_files():
+    """The shared row file must be byte-faithful, and its key must cover every input.
+
+    web._base_rows() is ~4,100 ms on production and lives in a per-process dict, so every worker
+    paid it once. /warm cannot fix that -- one HTTP request reaches one worker -- so the rows go
+    to a file the whole pool reads, exactly like score_cache/.
+
+    THE KEY IS THE INTERESTING PART. A built row embeds logo_url, sponsor_counts and visa_tags
+    output plus two KV maps, and jobs_fingerprint() covers none of them. A file keyed on the
+    fingerprint alone would serve rows built against last week's logos indefinitely -- where an
+    in-memory cache gets away with it only because it dies with the worker. So the derived
+    signature is asserted here as carefully as the round trip.
+    """
+    print("=" * 74)
+    print("web._rows_read / _rows_write (the shared base-rows file)")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-48s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    snap = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "jobs_snapshot.json.gz")
+    if os.path.exists(snap):
+        with gzip.open(snap, "rt", encoding="utf-8") as fh:
+            rows = (json.load(fh) or {}).get("rows") or []
+    else:
+        rows = synthetic()
+        print("  (no snapshot -- %d synthetic rows)" % len(rows))
+
+    tmp = tempfile.mkdtemp(prefix="rowcache-")
+    saved = (web._ROWS_DIR, dict(web._jobs_cache), dict(web._base_rows_cache))
+    web._ROWS_DIR = tmp
+    try:
+        FP = (len(rows), "rowtest")
+        web._jobs_cache.update(rows=rows, at=10 ** 12, fp=FP)
+        web._base_rows_cache.update(fp=None, rows=None)
+        web._jd_blocked_hosts = set()
+        web._repost_clusters = {}
+
+        fresh = web._base_rows()                      # builds and writes
+        files = [f for f in os.listdir(tmp) if f.endswith(".json.gz")]
+        want("a cold build writes one file", len(files) == 1, "%d file(s)" % len(files))
+
+        web._base_rows_cache.update(fp=None, rows=None)
+        loaded = web._base_rows()                     # must come from the file
+        want("row COUNT matches", len(loaded) == len(fresh))
+        want("row ORDER matches", [r["url"] for r in loaded] == [r["url"] for r in fresh])
+        diff = sum(1 for a, b in zip(fresh, loaded) if a != b)
+        want("no row differs in ANY field", diff == 0, "%d differing" % diff)
+
+        # JSON has no tuples. If this regresses, _filter_rows and the client both still work,
+        # which is exactly why it needs an assertion rather than a code review.
+        tup = [k for k in web._ROWS_TUPLE_KEYS
+               if loaded and not isinstance(loaded[0].get(k), tuple)]
+        want("tuple fields survive the round trip", not tup, ",".join(tup) or "visa is a tuple")
+
+        sig = web._derived_signature()
+        want("a moved corpus fingerprint misses",
+             web._rows_read((len(rows) + 1, "rowtest"), sig) is None)
+        want("a moved derived signature misses",
+             web._rows_read(FP, "0" * 32) is None)
+        want("an unavailable fingerprint is never a key",
+             web._rows_read((None, ""), sig) is None)
+
+        # The two KV maps have no file to stat, so they must be IN the signature.
+        web._repost_clusters = {"someclusterkey": 4}
+        want("changing repost_clusters moves the signature",
+             web._derived_signature() != sig)
+        web._repost_clusters = {}
+        web._jd_blocked_hosts = {"blocked.example.com"}
+        want("changing jd_host_verdicts moves the signature",
+             web._derived_signature() != sig)
+        web._jd_blocked_hosts = set()
+        want("...and back to the same inputs gives the same signature",
+             web._derived_signature() == sig)
+
+        # Bounded, and _invalidate_jobs must take the file with it.
+        for i in range(6):
+            web._rows_write((len(rows) + 10 + i, "rowtest"), sig, fresh[:5])
+        n = len([f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+        want("the directory stays bounded", n <= web._ROWS_MAX_FILES,
+             "%d files, cap %d" % (n, web._ROWS_MAX_FILES))
+        web._rows_clear()
+        want("_rows_clear empties it",
+             not [f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+    finally:
+        web._ROWS_DIR = saved[0]
+        web._jobs_cache.clear(); web._jobs_cache.update(saved[1])
+        web._base_rows_cache.update(saved[2])
+        web._jd_blocked_hosts = None
+        web._repost_clusters = None
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -691,6 +789,7 @@ def main():
     fails += base_rows()
     fails += score_pct_equivalence()
     fails += warm_user_scores()
+    fails += row_files()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 

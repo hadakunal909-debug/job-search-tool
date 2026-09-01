@@ -206,15 +206,29 @@ Two things worth being precise about:
   the cron gets there first — which is the case `/warm` is for.
 - Don't point either at `/` — that needs login and does per-user work.
 
-**Deliberately NOT persisted to disk.** `_base_rows()` was measured at 1,360 ms to build and
-282 ms to read back from a 1.4 MB gzip, so a `row_cache/` file on the model of `score_cache/`
-would save ~1.1 s on a cold worker. It was rejected: a built row embeds `logo_url()`,
-`sponsor_counts()` and `visa_index()` output, and **none of those three is covered by
-`jobs_fingerprint()`** — so shipping a new `sponsor_counts.json` or new logos without a scrape
-would leave a file serving stale badges indefinitely, where an in-memory cache simply dies with
-the worker. The saving is on the one event this cron exists to prevent; the hazard would be
-permanent. If more cold-start speed is ever needed, optimise `_build_row` itself (62 µs/row) —
-that helps the warm path too and adds no cache.
+**`_base_rows()` IS persisted, to `row_cache/`, and the argument that said otherwise was wrong.**
+
+This section previously read "deliberately NOT persisted", on the grounds that the saving lands
+on the one event this cron prevents. That premise does not hold, and it took a live measurement
+to see it: **`/warm` is one HTTP request, so it reaches ONE worker.** Passenger runs several with
+no session affinity and recycles them freely, so cold workers keep appearing and each one's first
+request paid the full build. Measured 2026-09-01 against production: after warming four workers in
+parallel, **three of the next eight probes still hit a cold worker at 6.3-7.0 s.** A cron cannot
+win that race. A shared file removes it -- which is exactly why the score files, which are a
+shared file, have worked all along.
+
+| a cold worker | before | after |
+|---|---|---|
+| `_base_rows` | 4,126 ms | **305 ms** (1.4 MB gzip) |
+
+The objection in the old text was the right one, and it is answered in the KEY rather than by
+refusing the cache. `_rows_read` validates the corpus fingerprint **and** `_derived_signature()`:
+mtime+size of `static/logos/index.json`, `sponsor_counts.json` and `visa_tags.json`, plus a hash
+of the two KV maps (`repost_clusters`, `jd_host_verdicts`) that have no file to stat. Change any
+of them and the file misses. `_invalidate_jobs()` deletes it outright, because the extension's JD
+patch moves neither half of the fingerprint and a file, unlike a process, does not self-heal.
+
+`row_cache/` is disposable and gitignored; `_ROWS_MAX_FILES` bounds it at 3.
 
 ---
 

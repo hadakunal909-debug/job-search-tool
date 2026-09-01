@@ -778,7 +778,23 @@ def _snapshot_read(max_age):
 
 def _snapshot_write(rows, fingerprint):
     """Replace the shared snapshot atomically. Written to a pid-suffixed temp file and renamed,
-    because two workers can refresh at once and a reader must never see a partial file."""
+    because two workers can refresh at once and a reader must never see a partial file.
+
+    AN EMPTY CORPUS IS NEVER WORTH PERSISTING, and this guard is here because it happened.
+    The caller is `rows = db.load_jobs(include_jd=False) or []`, so a read that fails softly --
+    a transient network blip, a permissions change, or simply no backend configured -- hands
+    over []. Without the guard that becomes a 95-byte file with fingerprint [null, ""] written
+    over a multi-megabyte good one, for EVERY worker, since the snapshot is the cross-worker
+    cache. It self-heals on the next request (an empty read is falsy, so get_jobs falls through
+    to the database) but only after every worker has paid a full corpus read, and in the window
+    between the two a feed can render with nothing in it.
+
+    Measured locally on 2026-09-01: a script run with no backend configured blanked a 4.4 MB
+    snapshot to 95 bytes. Refusing to write is strictly better -- the old file stays valid and
+    the fingerprint check decides whether to trust it.
+    """
+    if not rows:
+        return
     try:
         tmp = "%s.%d.tmp" % (_JOBS_SNAPSHOT, os.getpid())
         # compresslevel=6, matching _compress. The default is 9, and at ~25k rows this file is
@@ -897,7 +913,12 @@ def _invalidate_jobs():
     # JD patch moves neither. So a re-read would come back with an fp EQUAL to the stored one and
     # the built rows would keep serving jd_admit / score_pending / sponsor badges derived from
     # descriptions that have since changed. Clearing it here covers every caller at once.
+    #
+    # The FILE has to go with it, and more urgently: an in-memory cache dies with the worker, so
+    # it self-heals within minutes. A file keyed on an unchanged fingerprint would outlive the
+    # patch indefinitely.
     _base_rows_cache["fp"] = _base_rows_cache["rows"] = None
+    _rows_clear()
     try:
         os.remove(_JOBS_SNAPSHOT)
     except Exception:
@@ -1489,6 +1510,121 @@ def _dedupe_rows(rows):
     return out
 
 
+# The built rows on disk, shared by every worker. Same shape and the same reasoning as
+# score_cache/ above, and it exists because the reasoning I first wrote here was WRONG.
+#
+# I measured the build at ~4,100 ms on production and decided not to persist it, on the grounds
+# that "/warm builds the shared half off the user's path". That premise does not hold: /warm is
+# one HTTP request, so it reaches ONE worker. Passenger runs several with no session affinity
+# and recycles them freely, so cold workers keep appearing and each one's first request paid the
+# full build. Measured live 2026-09-01: after warming four workers in parallel, three of the
+# next eight probes still landed on a cold one at 6.3-7.0 s. A cron cannot win that race; a
+# shared file removes it, which is exactly why the score files DO work.
+#
+# THE KEY IS NOT JUST THE FINGERPRINT, and that was the real objection worth keeping. A built
+# row embeds logo_url, sponsor_counts and visa_tags output plus two KV maps, and
+# jobs_fingerprint() covers NONE of them -- so a key of the fingerprint alone would serve rows
+# built against last week's logos for ever. An in-memory cache gets away with that because it
+# dies with the worker. A file does not, so every input is in the key.
+_ROWS_DIR = os.environ.get("ROWS_DIR") or os.path.join(_APP_DIR, "row_cache")
+_ROWS_MAX_FILES = 3               # one live corpus, one mid-scrape, one spare
+# Tuples that JSON cannot round-trip. Measured over all 21,960 snapshot rows: `visa` is the
+# only field that comes back a list, and scripts/test_speed_caches.py asserts a read equals a
+# fresh build over the whole corpus, so a second one appearing later fails there rather than
+# silently changing a card.
+_ROWS_TUPLE_KEYS = ("visa",)
+
+
+def _derived_signature():
+    """A short hash of everything a built row depends on that is NOT the corpus.
+
+    Three data files, by mtime and size, and the two maps that come from the KV table and so
+    have no file to stat. Forcing those two memos costs one db.get_kv each and only happens on
+    the cold path -- a warm worker returns from the in-process dict before reaching here.
+    """
+    parts = []
+    for p in (_LOGO_MANIFEST_PATH,
+              os.path.join(_APP_DIR, "sponsor_counts.json"),
+              os.path.join(_APP_DIR, "visa_tags.json")):
+        try:
+            st = os.stat(p)
+            parts.append("%s:%d:%d" % (os.path.basename(p), st.st_mtime_ns, st.st_size))
+        except Exception:
+            parts.append(os.path.basename(p) + ":absent")
+    try:
+        _repost_count("", "", "")          # forces _repost_clusters
+        _host_jd_blocked("")               # forces _jd_blocked_hosts
+        parts.append(json.dumps(sorted((_repost_clusters or {}).items()), separators=(",", ":")))
+        parts.append(json.dumps(sorted(_jd_blocked_hosts or ()), separators=(",", ":")))
+    except Exception:
+        parts.append("kv:unknown")         # never key on a guess; see below
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
+def _rows_path(fp):
+    h = hashlib.sha256(("rows|%s" % (list(fp),)).encode("utf-8")).hexdigest()[:32]
+    return os.path.join(_ROWS_DIR, "%s.json.gz" % h)
+
+
+def _rows_read(fp, sig):
+    """The stored rows for this (corpus, derived-inputs) pair, or None.
+
+    None on anything unexpected -- absent, unreadable, or built against different inputs. Every
+    failure path rebuilds, which is slow but never wrong.
+    """
+    if not fp or fp[0] is None or not sig:
+        return None
+    try:
+        with _gzip.open(_rows_path(fp), "rt", encoding="utf-8") as fh:
+            blob = json.load(fh)
+        if list(blob.get("fingerprint") or ()) != list(fp) or blob.get("sig") != sig:
+            return None
+        rows = blob.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return None
+        for r in rows:                      # JSON has no tuples; restore the ones that were
+            for k in _ROWS_TUPLE_KEYS:
+                v = r.get(k)
+                if isinstance(v, list):
+                    r[k] = tuple(v)
+        return rows
+    except Exception:
+        return None
+
+
+def _rows_write(fp, sig, rows):
+    """Persist the built rows. Atomic, bounded, and never fails a request."""
+    if not fp or fp[0] is None or not sig or not rows:
+        return
+    try:
+        os.makedirs(_ROWS_DIR, exist_ok=True)
+        try:                                # bound the directory, oldest mtime first
+            kept = sorted((os.path.getmtime(os.path.join(_ROWS_DIR, n)),
+                           os.path.join(_ROWS_DIR, n))
+                          for n in os.listdir(_ROWS_DIR) if n.endswith(".json.gz"))
+            for _, path in kept[:max(0, len(kept) - _ROWS_MAX_FILES + 1)]:
+                os.remove(path)
+        except Exception:
+            pass
+        target = _rows_path(fp)
+        tmp = "%s.%d.tmp" % (target, os.getpid())
+        with _gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as fh:
+            json.dump({"fingerprint": list(fp), "sig": sig, "rows": rows}, fh)
+        os.replace(tmp, target)             # two workers may write at once; readers see one file
+    except Exception:
+        pass                                # an optimization only
+
+
+def _rows_clear():
+    """Drop every stored row file. /reload and any corpus write mean rebuild."""
+    try:
+        for n in os.listdir(_ROWS_DIR):
+            if n.endswith(".json.gz"):
+                os.remove(os.path.join(_ROWS_DIR, n))
+    except Exception:
+        pass
+
+
 def _base_rows():
     """Every posting as a card row with score 0, built ONCE per corpus and shared by everyone.
 
@@ -1511,7 +1647,15 @@ def _base_rows():
     hit = _base_rows_cache
     if key is not None and hit["rows"] is not None and hit["fp"] == key:
         return hit["rows"]
-    built = [_build_row(j, 0) for j in rows if j.get("url")]
+    # Three layers, cheapest first, the same shape user_scores uses: this process's dict above,
+    # then the shared FILE, then the build. Only the last one is slow, and it is the one the
+    # other two exist to stop repeating -- across workers, which is the part a per-process
+    # cache cannot do however often it is warmed.
+    sig = _derived_signature() if key is not None else ""
+    built = _rows_read(key, sig) if key is not None else None
+    if built is None:
+        built = [_build_row(j, 0) for j in rows if j.get("url")]
+        _rows_write(key, sig, built)
     # One entry, replaced not appended: a different fingerprint means the old corpus is gone.
     # An unusable key stores None, so the next call rebuilds rather than trusting this one.
     _base_rows_cache["fp"], _base_rows_cache["rows"] = key, built
@@ -3688,6 +3832,7 @@ def reload_jobs():
     _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
     _rows_cache.clear()
     _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
+    _rows_clear()                                              # ...and its on-disk copy
     _profile_cache.clear()
     _resume_cache.clear()
     _status_cache.clear()
@@ -5456,6 +5601,7 @@ def _bust_job_caches():
     _scores_clear()
     _rows_cache.clear()
     _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
+    _rows_clear()                                              # ...and its on-disk copy
     _sponsor_cache.clear()
     _admin_stats_cache["data"] = None
     _admin_usage_cache["data"] = None

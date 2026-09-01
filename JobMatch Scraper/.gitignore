@@ -22,6 +22,7 @@ jobs_snapshot.json.gz
 jobs_snapshot.json.gz.*.tmp
 # Per-user match scores, same idea as the snapshot above: a rebuildable cache, not state.
 score_cache/
+row_cache/
 # The stored job descriptions, carried between CI runs via actions/cache so the heavy scoring
 # pass doesn't re-download ~128 MB from the database every day. Rebuilt from the DB on a miss.
 jd_cache.json.gz
