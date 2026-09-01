@@ -245,10 +245,15 @@ and fills `posted_verified`. Reusing a built row because its url looked familiar
 closed job as open. Comparing the source dict is 28 ms over the whole corpus and short-circuits
 on the first differing key.
 
-**Only `/warm` writes the file.** The gzip is 2,153 ms of the 2,291 ms a fingerprint move used to
-cost, so a request never pays it; `persist=True` is passed by `/warm` alone. The cost of that
-choice, stated plainly: a worker starting cold in the window between a corpus move and the next
-five-minute tick finds no matching file and pays a full build.
+**A request persists only when its build was FULL**, and the distinction matters more than it
+looks. A worker with no prior to build from (fresh process, or a changed derived signature) does
+the whole 7,101 ms build; writing costs ~2,100 ms once and saves every other cold worker all 7 s.
+A worker that has a prior is on the ~55 ms incremental path, and writing there would put 2,100 ms
+of gzip in front of a request to save almost nobody -- `/warm` has it within five minutes.
+
+Getting that wrong is not theoretical: making requests never persist meant each cold worker
+rebuilt independently after a restart, and a real LCP measured **7.36 s**, worse than before the
+cache existed.
 
 `/warm` reports `base_rows.rebuilt` for exactly this reason. On an ordinary tick after a scrape it
 should read a few hundred; if it ever reports the whole corpus, the incremental path has stopped
