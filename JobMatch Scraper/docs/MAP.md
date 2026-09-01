@@ -12,7 +12,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`core.py`](#corepy) — 3273 lines, 211 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2952 lines, 182 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 9051 lines, 368 symbols — The sweep and the intake filter, plus every ATS adapter.
-- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2081 lines, 76 symbols — Fetches descriptions and scores them against the resume.
+- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2094 lines, 76 symbols — Fetches descriptions and scores them against the resume.
 - [`resume_score.py`](#resume_scorepy) — 1562 lines, 127 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
 - [`resume_bullets.py`](#resume_bulletspy) — 248 lines, 18 symbols — Per-bullet review: verb, scope, result.
@@ -222,11 +222,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Fetches descriptions and scores them against the resume.*
 
-2081 lines · 76 top-level symbols · 1 sections
+2094 lines · 76 top-level symbols · 1 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
-| [1141–2081](../scraper/score_jobs.py#L1141) | Thin descriptions: a bounded, self-scheduling retry | 21 |
+| [1141–2094](../scraper/score_jobs.py#L1141) | Thin descriptions: a bounded, self-scheduling retry | 21 |
 
 ## `resume_score.py`
 
