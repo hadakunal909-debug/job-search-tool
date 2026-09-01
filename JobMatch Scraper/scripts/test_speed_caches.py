@@ -418,8 +418,22 @@ def base_rows():
     DUPE_WINNER = "https://job-boards.greenhouse.io/dupeco/jobs/1"
     rows = list(rows) + [dict(_DUPE, url=DUPE_LOSER), dict(_DUPE, url=DUPE_WINNER)]
 
-    saved = (dict(web._jobs_cache), dict(web._base_rows_cache))
+    saved = (dict(web._jobs_cache), dict(web._base_rows_cache),
+             web._jd_blocked_hosts, web._repost_clusters)
     try:
+        # OFFLINE BY CONSTRUCTION, not by luck. _build_row reaches for the database in exactly two
+        # places, both db.get_kv against a KV row and both memoised for the life of the worker:
+        # _repost_count (repost_clusters) and _host_jd_blocked (jd_host_verdicts). Each is wrapped
+        # in its own try/except, so the suite passes either way -- but on a CI runner with no
+        # credentials that is a call which can retry with backoff before it raises, measured
+        # elsewhere in this project at 18 s. Seeding both memos makes the count ZERO, verified by
+        # counting db attempts with every db function stubbed to raise.
+        #
+        # It was _repost_count, not _host_jd_blocked, that the first attempt here missed -- which
+        # is this file's own lesson restated: stubbing the read path of ONE db function is not
+        # what makes a test offline, and the way to know is to count, not to reason.
+        web._jd_blocked_hosts = set()
+        web._repost_clusters = {}
         web._jobs_cache["rows"], web._jobs_cache["at"] = rows, 10 ** 12
         web._jobs_cache["fp"] = (len(rows), "test")
         web._base_rows_cache.update(fp=None, rows=None)
@@ -483,6 +497,7 @@ def base_rows():
         web._jobs_cache.clear()
         web._jobs_cache.update(saved[0])
         web._base_rows_cache.update(saved[1])
+        web._jd_blocked_hosts, web._repost_clusters = saved[2], saved[3]
         web._rows_cache.clear()
         web._score_cache.clear()
     return bad
