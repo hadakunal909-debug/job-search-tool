@@ -8,7 +8,8 @@ beautifulsoup4
 lxml
 rapidfuzz
 python-docx
-# Cloud storage (Supabase) needs no extra package — db.py uses the REST API via `requests`.
+# The remote database needs no extra package — db.py speaks PostgREST over `requests`, and the
+# cPanel app uses psycopg via pgrest.py. (There was a Supabase transport here until 2026-09-01.)
 
 # AI résumé tailoring + form-answering. Uses Claude (Anthropic) when ANTHROPIC_API_KEY is set
 # (preferred — set it + restart), else Google Gemini. BOTH go over REST via the `requests` dep above —

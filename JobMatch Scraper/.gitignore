@@ -7,7 +7,7 @@
 __pycache__/
 *.pyc
 
-# local data (lives in Supabase once you go cloud; keep local runs out of git)
+# local data (the real corpus lives in the remote database; keep local runs out of git)
 jobs.csv
 user_jobs.json
 log.txt
@@ -23,7 +23,7 @@ jobs_snapshot.json.gz.*.tmp
 # Per-user match scores, same idea as the snapshot above: a rebuildable cache, not state.
 score_cache/
 # The stored job descriptions, carried between CI runs via actions/cache so the heavy scoring
-# pass doesn't re-download ~128 MB from Supabase every day. Rebuilt from the DB on a cache miss.
+# pass doesn't re-download ~128 MB from the database every day. Rebuilt from the DB on a miss.
 jd_cache.json.gz
 jd_cache.json.gz.tmp
 brain_kb_local.json
@@ -83,7 +83,9 @@ jd_backfill_*.log
 # Generated Postgres DSN (contains the database password).
 .pg_dsn
 
-# Supabase session-pooler URL (contains the database password).
+# .supabase_dsn is kept listed on purpose even though the file was deleted on 2026-09-01: an old
+# script or a stale checkout must not be able to reintroduce a credential file. (.pg_dsn, which
+# holds the live password, is already listed below.)
 .supabase_dsn
 
 # Shared secret for the scraper -> /api/db transport.
