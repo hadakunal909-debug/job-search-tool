@@ -16,12 +16,13 @@ no --host flag here. The driver spawns its own workers on 127.0.0.1 and talks on
 
 THREE THINGS THAT MAKE THE NUMBERS MEAN SOMETHING, each of which was got wrong first:
 
-  * OFFLINE IS ENFORCED, NOT ASSUMED. db._creds() falls through to .streamlit/secrets.toml, so
-    db.using_supabase() is True on a developer box with no env vars set at all -- and the
-    unstubbed reads (db.get_job_jd, get_brain_company, jobs_fingerprint) would then make live
-    HTTPS calls, capped at 8 connections per process and retrying with Retry-After honoured. That
-    injects multi-second stalls from a remote limiter into your p99, and hammers a third party.
-    Each worker patches socket.connect to refuse anything that is not loopback.
+  * OFFLINE IS ENFORCED, NOT ASSUMED. This mattered more than it looks when the harness was
+    written: db resolved to a live Supabase project from a stale .streamlit/secrets.toml with no
+    env vars set at all, so the unstubbed reads made real HTTPS calls -- somebody else's rate
+    limiter inside the p99, and a third party hammered. That transport was removed on 2026-09-01
+    and the guard stays, because "no remote is reachable" should be a property of the harness
+    rather than of today's configuration. Each worker patches socket.connect to refuse
+    anything that is not loopback.
 
   * DISTINCT RESUMES, ONE EACH. The score cache is keyed on md5 of the profile text, so N users
     sharing a résumé is one cache entry measured N times. One résumé each also keeps the score

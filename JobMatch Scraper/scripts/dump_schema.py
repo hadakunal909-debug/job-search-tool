@@ -34,14 +34,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DSN_FILE = ".supabase_dsn"
+# .pg_dsn, not .supabase_dsn. This script printed "the live schema" from the database the
+# project left on 2026-08-15 for the two weeks after the migration, because the filename was
+# never updated with the backend. PG_DSN wins when set so a run on the box needs no file.
+DSN_FILE = ".pg_dsn"
 
 
 def dsn():
+    s = (os.environ.get("PG_DSN") or "").strip()
+    if s:
+        return s
     try:
         s = open(DSN_FILE, encoding="utf-8").read().strip()
     except Exception:
-        sys.exit("No %s — put the Supabase session-pooler URL there first." % DSN_FILE)
+        sys.exit("No PG_DSN and no %s. The DSN is loopback-only, so this has to run on the "
+                 "cPanel box (or through a tunnel)." % DSN_FILE)
     if not s:
         sys.exit("%s is empty." % DSN_FILE)
     return s

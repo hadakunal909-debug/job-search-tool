@@ -285,6 +285,13 @@ def _run_one(suite, ci):
     # The one rule this script exists to make unbreakable. analytics.py caches it at import.
     env["EV_OFF"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    # A FIXED, OBVIOUSLY-FAKE SESSION KEY, because since 2026-09-01 web.py refuses to import
+    # with a real database configured and no APP_SECRET (it used to hash the Supabase key into
+    # the session secret, and that key is gone). The --db suites set DB_PROXY_* and import web,
+    # so without this they would fail on the guard rather than on anything they test. Set here
+    # rather than in each suite so there is one place to look, and deliberately not random:
+    # a stable value means a suite can sign a cookie in one process and read it in another.
+    env.setdefault("APP_SECRET", "loadbearing-test-key-not-a-secret")
     t0 = time.time()
     try:
         r = subprocess.run([sys.executable, suite.path], cwd=APP, env=env,

@@ -85,12 +85,26 @@ is GitHub. Use `python scripts/build_deploy_zip.py`, then upload/extract in File
 
 ## Database
 
-Three transports behind one interface, resolved in `db.py::_LazyHTTP`: `PG_DSN` → direct psycopg
-(the cPanel app); `DB_PROXY_URL` + `DB_PROXY_SECRET` → HMAC HTTPS (Actions, your laptop); neither
-→ Supabase → local CSV. A **half-set** `DB_PROXY_*` pair raises rather than falling through.
+**Two** transports behind one interface, resolved in `db.py::_LazyHTTP`: `PG_DSN` → direct
+psycopg (the cPanel app); `DB_PROXY_URL` + `DB_PROXY_SECRET` → HMAC HTTPS (Actions, your laptop);
+neither → local CSV. A **half-set** `DB_PROXY_*` pair raises rather than falling through, and so
+does asking for a session with nothing configured at all.
 
-`db.using_supabase()` means "is there a remote database at all" and answers **True for all three**
-— the name is historical. `db.backend_name()` is the one that tells you which.
+`db.has_remote_db()` means "is there a remote database at all" and answers True for both.
+`db.backend_name()` is the one that tells you which.
+
+**There was a third, and it was the default.** An unauthenticated Supabase REST session, removed
+2026-09-01. It resolved from `.streamlit/secrets.toml`, so *any* process started here without
+`PG_DSN` or `DB_PROXY_*` silently read and wrote the database this project left on 2026-08-15 —
+including `scripts/dump_schema.py`, which had been printing that database's schema as "live" for
+two weeks. If you are reading old code or docs that mention it: `using_supabase()` was renamed to
+`has_remote_db()` (99 call sites) because a predicate named after a backend that no longer exists
+is worse than a wide diff.
+
+**`APP_SECRET` is now required whenever a remote database is configured.** The session key used to
+fall back to `sha256(SUPABASE_KEY)`; with that gone, the only fallback left is a machine-local dev
+value derived from the hostname and file path, which is guessable — so `web.py` refuses to import
+rather than sign cookies and extension tokens with it.
 
 - **`db.load_jobs()` with no `cols` downloads ~130 MB** of descriptions. Four scripts have done
   this; `db._warn_full_jd_read` is the tripwire it added.

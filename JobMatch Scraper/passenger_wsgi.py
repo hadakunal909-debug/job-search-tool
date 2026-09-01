@@ -6,8 +6,8 @@ app folder is on the path and is the working directory (so relative files like
 idf.json / careers_us.md / sponsors.txt resolve), then expose the Flask app.
 
 Set these in the Python App's "Environment variables" section (cPanel):
-    SUPABASE_URL = https://<your-project>.supabase.co
-    SUPABASE_KEY = <your service/secret key>
+    PG_DSN    = host=127.0.0.1 port=5432 dbname=<db> user=<user> password=<pw>
+    APP_SECRET = <a long random string; required, see web.py>
     APP_SECRET   = <any long random string>   (optional; signs the login cookie)
 """
 import os

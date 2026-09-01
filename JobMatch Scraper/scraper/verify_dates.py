@@ -161,7 +161,7 @@ def _ensure_columns():
     """Fail FAST (before spending rate-limited API calls) if the Supabase jobs table is
     missing the verified-date columns. No-op for the local-CSV backend (columns are just
     dict keys there)."""
-    if not db.using_supabase():
+    if not db.has_remote_db():
         return
     r = db._http.get(db._rest(db.TABLE), headers=db._headers(),
                      params={"select": "posted_verified", "limit": 1}, timeout=30)

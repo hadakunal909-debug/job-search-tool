@@ -132,7 +132,7 @@ def main():
     ap.add_argument("--cache-days", type=int, default=CACHE_DAYS)
     a = ap.parse_args()
 
-    if not db.using_supabase():
+    if not db.has_remote_db():
         print("No Supabase credentials — nothing to do.")
         return 0
     if db.table_count(db.EVENTS_TABLE) is None:

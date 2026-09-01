@@ -112,8 +112,8 @@ def jd_cache():
     # afterwards), and in CI, where there are no credentials, _upsert retries three times with
     # 3+6+9s of sleeps and then raises, so the suite fails after stalling for eighteen seconds.
     wrote = []
-    real_fetch, real_supa, real_upsert = db._fetch_all, db.using_supabase, db._upsert
-    db._fetch_all, db.using_supabase = fake_fetch, lambda: True
+    real_fetch, real_supa, real_upsert = db._fetch_all, db.has_remote_db, db._upsert
+    db._fetch_all, db.has_remote_db = fake_fetch, lambda: True
     db._upsert = lambda rows, chunk=200: wrote.extend(rows)
     db._jd_cache.clear()
     try:
@@ -144,7 +144,7 @@ def jd_cache():
         want("the cache stays bounded", len(db._jd_cache) <= db._JD_CACHE_MAX,
              "%d entries, max %d" % (len(db._jd_cache), db._JD_CACHE_MAX))
     finally:
-        db._fetch_all, db.using_supabase, db._upsert = real_fetch, real_supa, real_upsert
+        db._fetch_all, db.has_remote_db, db._upsert = real_fetch, real_supa, real_upsert
         db._jd_cache.clear()
     print()
     return bad

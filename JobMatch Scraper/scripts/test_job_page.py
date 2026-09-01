@@ -111,7 +111,7 @@ web.user_statuses = lambda u: {}
 web.sponsor_counts = lambda: {}
 web.sponsor_years = lambda: {}
 db.get_job_jd = lambda url: next((j["jd"] for j in JOBS if j["url"] == url), "")
-db.using_supabase = lambda: False          # so no research thread is ever started
+db.has_remote_db = lambda: False          # so no research thread is ever started
 db.get_brain_company = lambda dom: {}
 db.list_brain_companies = lambda: {}
 # scripts/close_dead_jds.py records this after probing; _host_jd_blocked reads it and caches.

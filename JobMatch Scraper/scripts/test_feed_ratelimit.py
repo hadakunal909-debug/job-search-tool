@@ -64,7 +64,7 @@ web._snapshot_touch = lambda *a, **k: None
 _TMP = tempfile.mkdtemp(prefix="jm_rl_")
 web._SCORES_DIR = _TMP
 atexit.register(lambda: shutil.rmtree(_TMP, ignore_errors=True))
-db.using_supabase = lambda: False
+db.has_remote_db = lambda: False
 db.get_profile = lambda u: {}
 db._upsert = lambda *a, **k: None
 analytics.emit = lambda *a, **k: None

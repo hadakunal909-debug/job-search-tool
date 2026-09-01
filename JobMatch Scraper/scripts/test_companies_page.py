@@ -55,7 +55,7 @@ web.user_statuses = lambda u: {}
 web.sponsor_counts = lambda: {"accenture": 11703}
 web.sponsor_years = lambda: {}
 web.visa_index = lambda: {}
-db.using_supabase = lambda: False
+db.has_remote_db = lambda: False
 db.get_brain_company = lambda dom: {}
 db.list_brain_companies = lambda: {}
 web._rows_cache.clear()
