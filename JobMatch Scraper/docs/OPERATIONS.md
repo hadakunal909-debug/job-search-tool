@@ -255,6 +255,15 @@ Getting that wrong is not theoretical: making requests never persist meant each 
 rebuilt independently after a restart, and a real LCP measured **7.36 s**, worse than before the
 cache existed.
 
+**THE FIRST LOAD AFTER A DEPLOY IS ALWAYS A FULL BUILD, and that is correct rather than a bug.**
+Extracting the zip replaces `static/` wholesale, which moves `static/logos/index.json`'s mtime,
+which is in the signature -- so the cache invalidates because the logos genuinely might have
+changed. Budget one ~7 s build per deploy and spend it deliberately: hit `/warm` yourself after
+`touch tmp/restart.txt` and before opening the feed, rather than letting a page load pay it.
+
+A plain restart with no deploy does NOT invalidate it: the file mtimes are unchanged, so a cold
+worker reads the file instead of rebuilding.
+
 `/warm` reports `base_rows.rebuilt` for exactly this reason. On an ordinary tick after a scrape it
 should read a few hundred; if it ever reports the whole corpus, the incremental path has stopped
 working and the cron log is where that is visible.
