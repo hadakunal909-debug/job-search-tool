@@ -36,6 +36,12 @@ GONE = "https://boards.example.com/acme/pruned"
 # "it'll get a match score once the full job description is fetched" is a promise we cannot keep.
 PENDING = "https://boards.example.com/acme/pending"
 BLOCKED = "https://www.walled-example.com/careers/9"
+# ...and the third, which is neither. UNANALYSED holds a FULL description and no analysis of it,
+# because the row arrived after the last scoring run. It is the case the owner reported on
+# 2026-08-31: the page renders the whole description and the rail above it says "Not scored yet",
+# because score_pending is derived from the jd_terms COLUMN while the page had the text in its
+# hands the entire time. 169 active rows were in this state when it was measured.
+UNANALYSED = "https://boards.example.com/acme/unanalysed"
 
 JD = ("About the Role\n"
       "Build and operate the payments service.\n\n"
@@ -44,6 +50,31 @@ JD = ("About the Role\n"
       "- Strong SQL and Kubernetes\n\n"
       "What We Offer\n"
       "A short deploy pipeline and real ownership.")
+
+# LONG ENOUGH TO BE SCORED, which JD above is not: it is ~230 characters and
+# core._MIN_JD_CHARS is 400, so core.analyze_jd flags it thin and the page is right to refuse a
+# number for it. That is not incidental to this file — the first version of the UNANALYSED case
+# below reused JD and "failed", and the failure was the thin guard doing its job. A test for
+# "the page scores what it just read" needs a description a real scoring run would also accept.
+JD_FULL = (
+    "About the Role\n"
+    "We are hiring a payments engineer to build and operate the settlement service that moves "
+    "money between our merchants and their banks. You will own the pipeline end to end, from "
+    "the ingestion of ledger events through reconciliation and into the reporting warehouse.\n\n"
+    "What You Will Do\n"
+    "- Design and ship Python services that process several million ledger events a day\n"
+    "- Model and query the settlement data in SQL, and keep the warehouse tables trustworthy\n"
+    "- Run the service on Kubernetes, with Terraform describing every piece of its "
+    "infrastructure on AWS\n"
+    "- Build and schedule the batch jobs in Airflow, and the streaming paths in Spark\n"
+    "- Containerise the whole stack with Docker so a new engineer can run it in one command\n\n"
+    "Basic Qualifications\n"
+    "- Five or more years writing production Python\n"
+    "- Strong SQL, and real experience with a columnar warehouse\n"
+    "- Working knowledge of Kubernetes, Docker and Terraform on AWS\n\n"
+    "What We Offer\n"
+    "A short deploy pipeline, real ownership of the service, and a team that reviews code "
+    "carefully and ships every day.")
 
 JOBS = [
     {"url": LIVE, "title": "Staff Platform Engineer", "company": "Acme Corp",
@@ -63,6 +94,12 @@ JOBS = [
     {"url": BLOCKED, "title": "Inference Engineer", "company": "Walled Co",
      "location": "Palo Alto, CA", "found_date": "2026-08-05", "match_score": 0,
      "is_active": True, "jd": "", "sponsors_h1b": "", "first_seen": "2026-08-05"},
+    # A real description, and NO jd_terms — which is what makes _row_pending say pending. The
+    # match_score is 0 for the same reason the live rows' were: it was scored before the text
+    # arrived. Nothing here is exotic; it is the ordinary shape of a row between two cron runs.
+    {"url": UNANALYSED, "title": "Payments Engineer", "company": "Acme Corp",
+     "location": "Boston, MA", "found_date": "2026-08-06", "match_score": 0,
+     "is_active": True, "jd": JD_FULL, "sponsors_h1b": "", "first_seen": "2026-08-06"},
 ]
 
 # Keep this test off the network and off the database.
@@ -283,6 +320,55 @@ check("jd_unavailable is set only for the walled host",
       rows[BLOCKED]["jd_unavailable"] is True and rows[PENDING]["jd_unavailable"] is False)
 check("both are still score_pending, so neither shows a fake 0%",
       rows[BLOCKED]["score_pending"] and rows[PENDING]["score_pending"])
+
+print()
+print("A ROW THAT HOLDS A DESCRIPTION NOBODY ANALYSED — the reported defect")
+# The cache is cleared first ON PURPOSE. jd_meta() stores its analysis under the url, and
+# _row_pending reads that cache BEFORE the column — so a second visit takes a different code
+# path and would pass without the fix. The cold path is the one that was broken.
+web._jdmeta.pop(UNANALYSED, None)
+web._rows_cache.clear()
+pending_row = web._build_row(next(j for j in JOBS if j["url"] == UNANALYSED), 0)
+check("the row really is score_pending before the page runs",
+      pending_row["score_pending"] is True and pending_row["jd_unavailable"] is False,
+      "otherwise this test proves nothing")
+
+web._jdmeta.pop(UNANALYSED, None)
+web._rows_cache.clear()
+r = get(UNANALYSED)
+body = r.data.decode("utf-8", "replace")
+check("it renders", r.status_code == 200, str(r.status_code))
+check("the description is on the page", "settlement service" in body)
+check("and it is one a scoring run would also accept",
+      not core.analyze_jd(JD_FULL).get("thin"),
+      "if this were thin the page would be RIGHT to withhold a number")
+check("and so is a real percentage", re.search(r'class="meter-\w+">\d+%<', body) is not None,
+      "the page analysed this description; it must show what that came to")
+check("it does NOT also say it has not been read",
+      "Not scored yet" not in body and "match score after the next scoring run" not in body,
+      "a page cannot render a description and call itself unread in the same breath")
+# The event has to agree with the page for the same reason: "how many of the jobs I open have no
+# score" is one of the few numbers here worth trusting.
+opens = [p for n, p in EMITS if n == "job_open"]
+check("job_open reports it as scored, not pending",
+      len(opens) == 1 and opens[0]["pending"] is False and opens[0]["score"] > 0,
+      repr(opens[0] if opens else None))
+
+# THIN IS NOT THE SAME QUESTION and must keep the pending note: a score derived from a handful
+# of generic terms is the fake ~100% core.analyze_jd's thin flag exists to prevent.
+web._jdmeta.pop(UNANALYSED, None)
+web._rows_cache.clear()
+_real_meta = web.jd_meta
+web.jd_meta = lambda job, idf: {"analyzed": dict(_real_meta(job, idf)["analyzed"], thin=True)}
+try:
+    body = get(UNANALYSED).data.decode("utf-8", "replace")
+finally:
+    web.jd_meta = _real_meta
+    web._jdmeta.pop(UNANALYSED, None)
+    web._rows_cache.clear()
+check("a THIN description still says it is not scored",
+      "Not scored yet" in body,
+      "an honest 'we have not read this' beats a confident wrong number")
 
 print()
 print("LIST COPY")

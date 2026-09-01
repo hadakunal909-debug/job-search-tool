@@ -198,11 +198,26 @@
               heavy. The answer was neither end.
        -line  the border, a step up in saturation so the card has a definite edge.
        -ink   the Apply button and the filter swatches, full strength with white type. */
+  /* ONE ROUTE COLOUR, 2026-08-31, at the owner's direction after seeing the live grid.
+
+     Every card wears the same blue. The wash no longer says which route an employer has filed
+     for, because the CHIP says it and the hue was only ever repeating the word. Four cards side
+     by side in four colours read as four categories the eye then has to decode; one colour reads
+     as one list, which is what a feed is.
+
+     This finishes the "one hue" pass earlier the same day, which recoloured the CHIP tokens
+     below and left these -- so the chips went blue while the cards under them stayed plum,
+     green and grey, which is the state the owner was looking at when he asked again.
+
+     Only the h1b trio holds a value; the other four ALIAS it rather than repeating the hex, so
+     one hue is structurally true instead of five literals somebody has to keep in sync. That is
+     the drift this file has been bitten by before. test_contrast.py follows var() chains, so all
+     five pairs stay checked, and reverting is un-aliasing four lines. */
   --route-h1b-fill:#dbe7fb;     --route-h1b-line:#a9c6f4;     --route-h1b-ink:#1d4ed8;
-  --route-gc-fill:#eadffb;      --route-gc-line:#cdb2f2;      --route-gc-ink:#6d28d9;
-  --route-stem-fill:#d6efe0;    --route-stem-line:#a2d8bd;    --route-stem-ink:#0f7a43;
-  --route-blocked-fill:#e7e9ee; --route-blocked-line:#c8ccd6; --route-blocked-ink:#4e5462;
-  --route-none-fill:#f6f7f9;    --route-none-line:#e2e5ea;    --route-none-ink:#4e5462;
+  --route-gc-fill:var(--route-h1b-fill);      --route-gc-line:var(--route-h1b-line);      --route-gc-ink:var(--route-h1b-ink);
+  --route-stem-fill:var(--route-h1b-fill);    --route-stem-line:var(--route-h1b-line);    --route-stem-ink:var(--route-h1b-ink);
+  --route-blocked-fill:var(--route-h1b-fill); --route-blocked-line:var(--route-h1b-line); --route-blocked-ink:var(--route-h1b-ink);
+  --route-none-fill:var(--route-h1b-fill);    --route-none-line:var(--route-h1b-line);    --route-none-ink:var(--route-h1b-ink);
   /* The label on an -ink button. White in BOTH themes, which is why it is its own token rather
      than the on-accent one, which flips to near-black in dark mode because the accent there is
      light ink. The route inks stay saturated in both themes and would render dark text on
@@ -438,19 +453,22 @@
   /* Dark mode inverts the method rather than the values: the fill is the hue mixed UP out of
      the canvas instead of down out of white, so a card still sits above the page and the type
      on it is still the theme's own light text. */
-  /* The three inks are a touch darker than they look like they should be. That is deliberate
-     and measured: white on the values they used to carry (#3b76ef, #8b5cf6, #1f9d55) came to
-     4.18, 4.23 and 3.49 to 1, all under the 4.5 this theme enforces everywhere else, so the
-     Apply label on a dark-mode card had been failing since the route palette shipped. Nobody
-     noticed because the pairs were unreachable by test_contrast.py until --route-on-ink
-     replaced a hardcoded white. These are the nearest darker values that clear 4.5 while
-     staying above 3:1 against their own card fill, which is why they were not darkened
-     further. */
+  /* ONE TRIO HERE TOO, and the other four are deliberately ABSENT rather than restated.
+
+     They alias the h1b trio up in :root, and a custom property is substituted on the element
+     that uses it -- so under this theme var(--route-gc-fill) walks to the h1b line below and
+     lands on the dark value. Restating them here would be four more literals free to drift from
+     these three, which is the whole reason they became aliases. test_contrast.py resolves them
+     the same way: its dark table starts as a copy of light and only overrides what this block
+     declares.
+
+     The ink is a touch darker than it looks like it should be, and that is measured: white on
+     the value it used to carry (#3b76ef) came to 4.18:1, under the 4.5 this theme enforces
+     everywhere else, so the Apply label on a dark-mode card had been failing since the route
+     palette shipped. Nobody noticed because the pair was unreachable by test_contrast.py until
+     --route-on-ink replaced a hardcoded white. This is the nearest darker value that clears 4.5
+     while staying above 3:1 against its own card fill. */
   --route-h1b-fill:#18253f;     --route-h1b-line:#2d4a7f;     --route-h1b-ink:#3870e3;
-  --route-gc-fill:#241a3c;      --route-gc-line:#4b3080;      --route-gc-ink:#8558ec;
-  --route-stem-fill:#132c20;    --route-stem-line:#255c40;    --route-stem-ink:#1b8749;
-  --route-blocked-fill:#1c1f28; --route-blocked-line:#39404f; --route-blocked-ink:#5f6779;
-  --route-none-fill:#171a22;    --route-none-line:#282d3a;    --route-none-ink:#5f6779;
   /* Still white. Restated rather than inherited so the value is visible next to the inks it
      has to sit on, which is where anyone darkening one of them will be looking. */
   --route-on-ink:#fff;
@@ -859,35 +877,30 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    each one is realised. 186px is the measured resting height of a two-line title. */
 .card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;will-change:transform;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 186px}
 
-/* ---- THE ROUTE WASH ----------------------------------------------------------------
-   The whole card is tinted by the sponsorship route it names. app.js sets data-route from
-   j.visa_likely, the SAME field the chip's label comes from, so the wash and the chip are
-   one fact and cannot disagree.
+/* ---- THE CARD WASH ------------------------------------------------------------------
+   ONE RULE, because the wash carries no information any more. It used to tint each card by the
+   sponsorship route it names; the chip names the route in words, and painting the same fact
+   twice bought a four-colour grid for nothing.
 
-   Scoped on the ATTRIBUTE, not on .card. Resume Brain reuses the .card class for its
-   panels, and a bare `.card` rule would have tinted all of them.
+   The per-route overrides are DELETED rather than left resolving to the same colour. Four dead
+   rules sitting next to a palette that no longer varies is how somebody later concludes the
+   distinction is still meant to exist and re-colours one of them.
 
-   THREE ROUTES, not five. core.sponsor_likely collapses green_card, e3 and h1b1 into
-   "sponsor", so there is no data-route="e3" or "h1b1" any more: E-3 and H-1B1 are gated on
-   nationality and were never worth a colour of their own on a card. "sponsor" takes the
-   Green Card plum because a PERM filing is what it means for almost every employer in that
-   bucket. Anything unrecognised falls through to the no-record neutral, which is what makes
-   a stale cached app.js degrade to grey rather than to nothing. */
-.card[data-route]{background:var(--route-none-fill);border-color:var(--route-none-line)}
-.card[data-route="h1b"]{background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
-.card[data-route="sponsor"]{background:var(--route-gc-fill);border-color:var(--route-gc-line)}
-.card[data-route="stem_opt"]{background:var(--route-stem-fill);border-color:var(--route-stem-line)}
-.card[data-route="blocked"]{background:var(--route-blocked-fill);border-color:var(--route-blocked-line)}
+   Scoped on the ATTRIBUTE, not on .card. Resume Brain reuses the .card class for its panels,
+   and a bare `.card` rule would have tinted all of them.
+
+   data-route STAYS on the article even though nothing here reads its value: the swipe deck and
+   scripts/test_jdrender.py key off it, and leaving the hook costs nothing. */
+.card[data-route]{background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
 
 /* Hover deepens the card's OWN colour rather than swapping its border for a neutral, which
    would wipe the route on the one interaction where the reader most wants to still see it. */
 .card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px)}
 .card[data-route]:hover,.card[data-route]:focus-within{filter:saturate(1.35)}
 
-/* APPLY TAKES THE ROUTE AT FULL STRENGTH. The card names the route quietly, the button says
-   it loudly, and between them no black is left anywhere in the grid. Blocked and no-record
-   get a neutral ink because there is no route to name, but they still get a FILLED button:
-   a hollow one reads as disabled, and neither state means you cannot apply. */
+/* APPLY AT FULL STRENGTH. The card wears the pale blue, the button wears the saturated one,
+   and between them no black is left anywhere in the grid. Every state gets a FILLED button --
+   a hollow one reads as disabled, and no sponsorship verdict means you cannot apply. */
 /* Scoped on [data-apply] rather than on .btn.primary, and on the ATTRIBUTE rather than on
    .card. Two reasons.
    - The /job page carries data-route on its wrapper, so its two Apply buttons inherit these
@@ -897,11 +910,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
      primary action too, and painting it with the sponsorship colour would say something about
      the route that the button has nothing to do with. data-apply marks precisely the outbound
      link to the employer, on the card and on the page alike. */
-[data-route] .btn.primary[data-apply]{background:var(--route-none-ink);border-color:var(--route-none-ink);color:var(--route-on-ink)}
-[data-route="h1b"] .btn.primary[data-apply]{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink)}
-[data-route="sponsor"] .btn.primary[data-apply]{background:var(--route-gc-ink);border-color:var(--route-gc-ink)}
-[data-route="stem_opt"] .btn.primary[data-apply]{background:var(--route-stem-ink);border-color:var(--route-stem-ink)}
-[data-route="blocked"] .btn.primary[data-apply]{background:var(--route-blocked-ink);border-color:var(--route-blocked-ink)}
+[data-route] .btn.primary[data-apply]{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:var(--route-on-ink)}
 /* One veil rather than a second shade per route, so adding a route later needs no new token. */
 [data-route] .btn.primary[data-apply]:hover{background-image:linear-gradient(var(--ink-veil),var(--ink-veil))}
 
@@ -912,21 +921,26 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .card[data-route] .btn:not(.primary):hover,
 .card[data-route] .ico:hover{background:var(--on-card-veil)}
 .card[data-route] .cardact{border-top-color:color-mix(in srgb,var(--text-primary) 12%,transparent)}
-/* The NEUTRAL chips go translucent. The ROUTE chips keep their own colours, because those
-   agree with the card rather than competing with it. */
-.card[data-route] .pay,.card[data-route] .rem,.card[data-route] .exp,.card[data-route] .intl,
-.card[data-route] .agency,.card[data-route] .closed,.card[data-route] .repost,
-.card[data-route] .jdadmit{
-  background:var(--on-card-veil)}
+/* A card renders at most two chips now -- the sponsorship verdict, and Closed on a dead
+   posting -- so this list is down to the one of them that is neutral. The rest still exist and
+   are still styled; they render on /job, which is not inside a .card. */
+.card[data-route] .closed{background:var(--on-card-veil)}
+/* THE HAIRLINE IS WHAT KEEPS THE VERDICT CHIP A CHIP.
+   Every card wears the blue wash now, and in DARK the chip fill (#152340) and the card fill
+   (#18253f) are two steps apart -- so "Sponsorship likely" lost its pill and read as loose
+   blue text floating on the card. Measured, not eyeballed: the light theme is fine because its
+   chip is LIGHTER than the card it sits on and dark inverts that relationship.
+   currentColor rather than a border token, so each chip outlines itself in its own ink -- blue
+   for likely, grey for unlikely -- in both themes, with nothing new to keep in sync. The fills
+   stay, because grey-vs-blue is the fastest read on the card and the border only restores the
+   edge that the one-hue card took away. */
+.card[data-route] .spon,.card[data-route] .nospon{
+  border:1px solid color-mix(in srgb,currentColor 22%,transparent)}
 
 /* The detail panel keeps a plain surface — it is a reading view, and a tint under 7,000
    characters of description is a different proposition from a tint on a card — but its Apply
    carries the route, so the action does not change colour on the way in. */
-.modal-overlay[data-route="h1b"] .btn.primary,
-.modal-overlay[data-route="e3"] .btn.primary,
-.modal-overlay[data-route="h1b1"] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:#fff}
-.modal-overlay[data-route="green_card"] .btn.primary{background:var(--route-gc-ink);border-color:var(--route-gc-ink);color:#fff}
-.modal-overlay[data-route="stem_opt"] .btn.primary{background:var(--route-stem-ink);border-color:var(--route-stem-ink);color:#fff}
+.modal-overlay[data-route] .btn.primary{background:var(--route-h1b-ink);border-color:var(--route-h1b-ink);color:#fff}
 
 /* "New" — today's freshly pulled jobs. Rides IN the top row between the logo and the score
    rather than hanging off the card's edge, because an overhanging sticker was the one piece
@@ -1075,6 +1089,19 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 @keyframes sbslide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .ev{background:var(--visa-stem-bg);color:var(--visa-stem-text)}
 .nospon{background:var(--visa-blocked-bg);color:var(--visa-blocked-text)}
+/* THE STAR, and the legend that gives it a meaning.
+
+   It replaced ", top sponsor to FY2025" inside the chip, which doubled the chip's width on 30%
+   of cards to carry one bit. A mark can only mean something if it is explained somewhere the
+   reader will actually pass, so .sponkey prints the sentence ONCE above the grid rather than
+   relying on a tooltip nobody hovers.
+
+   No colour of its own: it inherits the chip's, which is the point of putting it inside. The
+   nudge is optical -- a star's ink sits low in its em box, so without it the mark reads as
+   sitting below the text beside it. */
+.topspon{font-size:1.02em;line-height:1;position:relative;top:.5px}
+.sponkey{font-size:var(--text-2xs);color:var(--muted);margin:0 0 var(--space-150)}
+.sponkey .topspon{color:var(--visa-h1b-text)}
 .agency{background:var(--posting-agency-bg);color:var(--posting-agency-text)}
 /* Work-authorization deadline strip. Only rendered when core.visa_alert finds something
    inside 90 days, so it must read as information, not as a permanent warning banner. */
@@ -1256,12 +1283,8 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
 /* The route band carries the card's own wash, so walking from the feed to this page does not
    change colour underneath the reader. The rest of the page stays a plain reading surface: a
    tint under 7,000 characters of description is a different proposition from a tint on a card. */
-.jobrail{background:var(--route-none-fill);border:1px solid var(--route-none-line);
+.jobrail{background:var(--route-h1b-fill);border:1px solid var(--route-h1b-line);
   border-radius:var(--radius-lg);padding:var(--space-200);margin:0 0 var(--space-300)}
-[data-route="h1b"] .jobrail{background:var(--route-h1b-fill);border-color:var(--route-h1b-line)}
-[data-route="sponsor"] .jobrail{background:var(--route-gc-fill);border-color:var(--route-gc-line)}
-[data-route="stem_opt"] .jobrail{background:var(--route-stem-fill);border-color:var(--route-stem-line)}
-[data-route="blocked"] .jobrail{background:var(--route-blocked-fill);border-color:var(--route-blocked-line)}
 .jobrail-facts{display:flex;flex-wrap:wrap;gap:var(--space-400);margin-bottom:var(--space-200)}
 .jobrail .eyebrow{display:block;font-family:var(--font-data);font-size:var(--text-3xs);
   text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--muted);margin-bottom:2px}
@@ -1288,17 +1311,13 @@ mark.kw-miss{background:var(--kw-miss-bg);color:var(--kw-miss-text);
    keeps the per-route detail and the year by year chart. */
 
 /* OTHER ROLES AT THIS EMPLOYER, in the rail. A sideways jump, so it belongs beside the posting
-   rather than inside it. Each row carries its own route colour as a 3px edge — the one place a
-   route still reads as a stripe, because at this size a full wash would fight the rail's own
-   surface. */
+   rather than inside it. The 3px edge is the accent at full strength rather than the pale line,
+   because at this size a wash would not read at all — but it is one colour now, like the cards:
+   the stripe marks the row, it no longer classifies it. */
 .simlist{list-style:none;margin:0 0 var(--space-200);padding:0}
 .simrow{padding:9px 0 9px 10px;border-bottom:1px solid var(--border-subtle);
-  border-left:3px solid var(--route-none-line)}
+  border-left:3px solid var(--route-h1b-ink)}
 .simrow:last-child{border-bottom:0}
-.simrow[data-route="h1b"]{border-left-color:var(--route-h1b-ink)}
-.simrow[data-route="sponsor"]{border-left-color:var(--route-gc-ink)}
-.simrow[data-route="stem_opt"]{border-left-color:var(--route-stem-ink)}
-.simrow[data-route="blocked"]{border-left-color:var(--route-blocked-line)}
 .simtitle{display:block;font-size:var(--text-xs);font-weight:600;color:var(--ink);
   text-decoration:none;line-height:1.4}
 .simtitle:hover{text-decoration:underline}
@@ -2162,14 +2181,16 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
 .visack-l{flex:1;min-width:0}
 .ck-static{cursor:default;color:var(--text-tertiary)}
 /* The SATURATED value, not the card fill. A 22x14 chip of the card's own pale tint is very
-   nearly invisible, which defeats the point of putting it here; the ink is the same route
-   colour at a size where it can actually be seen, and it is what the Apply button wears. */
+   nearly invisible, which defeats the point of putting it here; the ink is what the Apply button
+   wears, at a size where it can actually be seen.
+
+   These stopped telling the routes apart when the palette collapsed, and that is fine HERE: this
+   is a list of checkboxes whose own labels name the routes, so the swatch marks a row as a route
+   filter rather than identifying which. .sw-none keeps the pale fill and a ring, because "no
+   record" is the one option in the list that is not a route. */
 .sw{flex:0 0 auto;width:20px;height:12px;border-radius:var(--radius-full)}
-.sw-h1b,.sw-e3,.sw-h1b1{background:var(--route-h1b-ink)}
-.sw-green_card{background:var(--route-gc-ink)}
-.sw-stem_opt{background:var(--route-stem-ink)}
-.sw-blocked{background:var(--route-blocked-ink)}
-.sw-none{background:var(--route-none-fill);box-shadow:inset 0 0 0 1px var(--route-none-line)}
+.sw-h1b,.sw-e3,.sw-h1b1,.sw-green_card,.sw-stem_opt,.sw-blocked{background:var(--route-h1b-ink)}
+.sw-none{background:var(--route-none-fill);box-shadow:inset 0 0 0 1px var(--route-h1b-ink)}
 /* The last row has no checkbox, so its label needs the checkbox's width to line up with the
    ones above it. 13px control + the row gap. */
 .ck-static .visack-l{padding-left:calc(13px + var(--space-100))}

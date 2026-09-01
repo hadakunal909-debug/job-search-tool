@@ -3023,9 +3023,31 @@ def job_page():
     analyzed = job_analysis(raw)
     if not analyzed.get("terms"):
         analyzed = jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"]
-    have, missing = [], []
+    # THE PAGE HAS THE DESCRIPTION IN ITS HANDS, SO IT MUST NOT SAY "not scored yet".
+    #
+    # This is the defect the owner reported: open a job, read a full description, and the rail
+    # above it announces "Not scored yet -- no full description has been read for this posting."
+    # The line below was already computing a real score into `_score` and throwing it away,
+    # while the rail rendered row.score_pending -- which is derived from the jd_terms COLUMN. A
+    # row whose description arrived after the last scoring run has the text and not the column,
+    # so this page could analyse it, score it, list its keywords, and still call itself unread.
+    # 169 active rows were in exactly that state when this was measured.
+    #
+    # THIN IS NOT UNSCORED and keeps its pending note. core.analyze_jd flags a description that
+    # is a loading shell or a truncated teaser, and a number derived from six generic terms a
+    # broad resume fully covers is the fake ~100% that flag exists to prevent. An honest "we
+    # have not read this" beats a confident wrong number.
+    #
+    # NOTHING IS MUTATED. `row` comes out of ranked_rows' cache and is shared with the feed and
+    # /company, so the live number travels to the template as its own variable rather than being
+    # written back into a cached dict. jd_meta() has already cached the analysis under this url
+    # (it caches whenever there was JD text), and _row_pending reads _jdmeta before it reads the
+    # column -- so the CARD for this row stops saying "JD pending" too, in this worker.
+    have, missing, live_score = [], [], None
     if resume and analyzed.get("terms"):
-        _score, have, missing = core.score_against(resume.lower(), analyzed)
+        jd_score, have, missing = core.score_against(resume.lower(), analyzed)
+        if row.get("score_pending") and not analyzed.get("thin"):
+            live_score = int(jd_score)
     # Filtered, not just truncated. The chip lists and the inline marks share one filter and
     # differ only in how many they keep: a list is scanned, so it can be longer, while forty
     # marks in a description is a highlighter accident rather than a signal.
@@ -3085,19 +3107,25 @@ def job_page():
     # its intent in Sec-Purpose (verified in a real browser: rel=prefetch sends "prefetch" plus
     # Sec-Fetch-Dest: empty, where a real navigation sends neither), so the page is still
     # rendered and still cached — only the event is withheld.
-    pending = bool(row.get("score_pending"))
+    #
+    # live_score folded in, and no field added or renamed. A page that renders a real percentage
+    # must not report the open as pending: "how many of the jobs I open have no score" is one of
+    # the few numbers here worth trusting, and letting it count rows this page just scored is the
+    # same class of defect as the two that inflated every usage figure until 2026-08-09.
+    pending = bool(row.get("score_pending")) and live_score is None
+    shown_score = live_score if live_score is not None else int(row.get("score") or 0)
     prefetching = "prefetch" in (request.headers.get("Sec-Purpose") or "").lower()
     if not prefetching:
         analytics.emit(user, getattr(g, "sid", ""), "job_open", job_url=url,
                        company=company, source=_host(raw or row),
-                       score=0 if pending else int(row.get("score") or 0), pending=pending)
+                       score=0 if pending else int(shown_score), pending=pending)
     resp = app.make_response(render_template(
         "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
         similar=similar, similar_roles=similar_roles,
         jd_html=jdrender.render_jd(jd, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
         jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
         sec_labels=jdrender.SEC_LABELS,
-        have=have, missing=missing, has_resume=bool(resume),
+        have=have, missing=missing, has_resume=bool(resume), live_score=live_score,
         about=brief, researching=research_pending, research_pending=research_pending,
         chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE))
     # NO Cache-Control here, and it is a deliberate refusal. `private, max-age=30` makes the

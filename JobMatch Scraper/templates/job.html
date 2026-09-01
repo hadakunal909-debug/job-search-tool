@@ -83,6 +83,12 @@
             {% if not has_resume %}
             <p class="jobnote">No profile yet. Add a résumé in
               <a href="{{ url_for('brain_home') }}">Resume Brain</a> to see how this job matches you.</p>
+            {# BEFORE the two "we cannot score this" branches, because live_score existing is the
+               proof that we can: web.py analysed the very description this page is about to
+               render. Both branches below describe a row we could not read; this is one we just
+               did. gone=True renders no rail at all, so live_score is always defined here. #}
+            {% elif live_score is not none %}
+            <b class="{{ 'meter-strong' if live_score >= 70 else ('meter-good' if live_score >= 40 else 'meter-weak') }}">{{ live_score }}%</b>
             {% elif row.jd_unavailable %}
             <p class="jobnote">This employer doesn&rsquo;t publish a description we can read, so
               this job can&rsquo;t be scored. Open the posting to read it.</p>
@@ -121,6 +127,14 @@
           {%- if row.cap_exempt %}<span class="cx">Likely cap-exempt, no H-1B lottery</span>{% endif %}
           {%- if row.agency %}<span class="agency">Staffing agency</span>{% endif %}
           {%- if row.closed %}<span class="closed">Closed</span>{% endif %}
+          {# THE TWO THE CARD DROPPED THAT NOTHING ELSE CARRIED. Every other chip the feed used
+             to render already had a home on this page; these two did not, so trimming the card
+             to one chip would have destroyed them rather than moved them. Wording and tooltips
+             are the card's own, because the claim has not changed -- only where it is made. #}
+          {%- if row.repost > 2 and not row.agency %}
+          <span class="repost" title="This role has been advertised at {{ row.repost }} different URLs at this location in the last 90 days. Often a role that is not getting filled.">Posted {{ row.repost }}&times;</span>{% endif %}
+          {%- if row.jd_admit %}
+          <span class="jdadmit" title="This job’s title matched none of our role keywords. It is here because its description reads like project / programme delivery work.">Matched on description</span>{% endif %}
         </div>
       </div>
 

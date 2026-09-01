@@ -12,6 +12,21 @@
      company_arg  optional; pins every /api/feed request to this employer (the company page)
      empty_note   what to say when nothing matches
 #}
+{# THE STAR'S LEGEND. A mark can only mean something if it is explained where the reader
+   passes, and a tooltip on 8,000 cards is not that place -- so the sentence is printed ONCE,
+   here, above the grid it applies to.
+
+   It lives in the shared include for the same reason the grid does: /feed and /company both
+   render these cards, and two hand-maintained copies is how a legend ends up describing a mark
+   that has since changed. sponsor_data_through() is the same helper #feed's data-spon-through
+   uses, so the window quoted here and the window inside every chip's tooltip cannot disagree.
+
+   Unconditional. It is one muted line, and gating it on "does any card on this page carry a
+   star" would mean counting the starred rows server-side on a page that is otherwise rendered
+   entirely from a JSON bootstrap. #}
+<p class="sponkey"><span class="topspon">&#9733;</span> marks a top H-1B sponsor by federal
+  filing volume through {{ sponsor_data_through() }}. It describes the employer&rsquo;s history,
+  not the individual posting.</p>
 <div id="feed" class="feedgrid"
      data-paged="{{ '1' if paged else '' }}"
      data-visa="{{ (visa_ctx or {})|tojson|forceescape }}"

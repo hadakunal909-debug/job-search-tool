@@ -1791,6 +1791,33 @@ def main():
     # edits since last run); new-only does just what this run pulled.
     # A stored score of NULL means no run has ever scored this row -- see _new_only_targets.
     unscored = {r["url"] for r in rows if r.get("url") and r.get("match_score") is None}
+    # ...PLUS the rows a past run scored BEFORE they had a description.
+    #
+    # "match_score is NULL" was the whole backlog, and it has a hole a row never comes back out
+    # of. Score a row while it holds no description and it gets match_score 0; give it a
+    # description later -- the reconciliation pass above, a new extractor, an extension patch --
+    # and it is in neither set: not NULL any more, and not something this run fetched. jd_terms
+    # stays empty, so the feed renders it "JD pending" and the match filter cannot see it,
+    # permanently. Measured on the live corpus: 8 active rows holding full text were stranded
+    # there, and every hole of this shape is silent by construction.
+    #
+    # ROWS WITH NO DESCRIPTION AT ALL ARE DELIBERATELY EXCLUDED, and that subtraction is the
+    # difference between a fix and a treadmill. Analysing an empty string writes match_score 0
+    # and leaves jd_terms NULL, so those rows would re-enter this set on every single run,
+    # forever, and spend the tail of the analysis budget re-deriving nothing -- ahead of rows
+    # that do have text. They already have a queue: the JD FETCH, which is where a missing
+    # description is actually fixable.
+    #
+    # urls_missing_jd() is re-read rather than reusing `db_missing` from the top of the run: the
+    # reconciliation pass above has since written descriptions for some of those rows, and the
+    # stale snapshot would exclude exactly the ones it just repaired. Both calls select `url`
+    # alone, so the pair costs ~50 KB.
+    if new_only:
+        stranded = db.urls_missing_jd_terms() - db.urls_missing_jd()
+        if stranded:
+            print("Picking up %d row(s) holding a description no run ever analysed."
+                  % len(stranded))
+        unscored |= stranded
     if new_only and unscored:
         print("Picking up %d row(s) a previous run left unscored." % len(unscored))
     todo = _new_only_targets(all_urls, fetched, unscored) if new_only else set(row_jd)
