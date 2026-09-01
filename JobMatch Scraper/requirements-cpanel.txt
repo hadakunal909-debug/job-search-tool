@@ -17,5 +17,5 @@ pypdf==6.15.0
 # falls back to .docx (or .txt if python-docx is also missing).
 
 # Postgres driver — only imported when PG_DSN is set (pgrest.py talks to a self-hosted
-# database instead of Supabase PostgREST). Harmless when unset: the import is lazy.
+# database directly). Harmless when unset: the import is lazy.
 psycopg2-binary>=2.9
