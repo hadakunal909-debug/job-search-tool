@@ -145,8 +145,36 @@ serves for each user paid a full re-score of the corpus — 5-15 seconds, and th
 LCP reported on the live site. That is fixed by the stored score files (`score_cache/`, see
 `web.user_scores`), not by this cron. Both are wanted; neither replaces the other.
 
-`/healthz` is a public, no-database, two-byte endpoint for exactly this. In cPanel, under
-**Cron Jobs**, every five minutes:
+#### `/warm` — the half that builds something (2026-08-31)
+
+The paragraph above is still true of `/healthz`, and it is why `/warm` exists. Until
+`web._base_rows()` landed, the shared work could not be warmed without a logged-in user, because
+the row build was keyed per (user, résumé). It is keyed per CORPUS now, so one anonymous call can
+fill everything that is the same for everybody:
+
+| stage | what it costs cold |
+|---|---|
+| `get_jobs()` | 320 ms (snapshot decode) |
+| `sponsor_counts()` | 80 ms (3.3 MB) |
+| `visa_index()` | 79 ms (2.9 MB) |
+| `_logo_manifest()` | 4 ms |
+| `_base_rows()` | **~1,400 ms at 21,960 rows** |
+
+**Gated on a shared secret, and it 404s without one** — it is seconds of CPU on a shared host, so
+an open URL would be a free way to pin a worker. Set `WARM_TOKEN` in `.env` to any long random
+string and put the same value in the cron. Point the cron at `/warm`, not `/healthz`: it keeps
+the process alive *and* fills the caches, so `/healthz` becomes redundant for this purpose.
+
+```bash
+*/5 * * * * curl -fsS -m 60 -o /dev/null "https://stemjobs1.astrochakra.co/warm?t=YOUR_WARM_TOKEN"
+```
+
+Note `-m 60`, not `-m 20`: the very first call after a restart does the whole build and a 20 s
+timeout would kill it partway. It answers JSON with per-stage milliseconds, so `-o /dev/null` can
+be dropped when you want to see where the time goes.
+
+`/healthz` is a public, no-database, two-byte endpoint. If you would rather not put a token in a
+cron line, it still prevents the process being spun down:
 
 ```bash
 */5 * * * * curl -fsS -m 20 -o /dev/null https://stemjobs1.astrochakra.co/healthz
@@ -157,9 +185,20 @@ which cPanel cron cannot; cPanel cron has no third-party account that can lapse.
 
 Two things worth being precise about:
 
-- It **prevents** a cold worker, it cannot warm one. After a deploy (`touch tmp/restart.txt`)
-  every worker is cold again and the next visitor pays for it regardless.
-- Don't point it at `/` — that needs login and does real work.
+- `/healthz` **prevents** a cold worker, it cannot warm one; `/warm` warms one. After a deploy
+  (`touch tmp/restart.txt`) every worker is cold again and the first visitor pays for it unless
+  the cron gets there first — which is the case `/warm` is for.
+- Don't point either at `/` — that needs login and does per-user work.
+
+**Deliberately NOT persisted to disk.** `_base_rows()` was measured at 1,360 ms to build and
+282 ms to read back from a 1.4 MB gzip, so a `row_cache/` file on the model of `score_cache/`
+would save ~1.1 s on a cold worker. It was rejected: a built row embeds `logo_url()`,
+`sponsor_counts()` and `visa_index()` output, and **none of those three is covered by
+`jobs_fingerprint()`** — so shipping a new `sponsor_counts.json` or new logos without a scrape
+would leave a file serving stale badges indefinitely, where an in-memory cache simply dies with
+the worker. The saving is on the one event this cron exists to prevent; the hazard would be
+permanent. If more cold-start speed is ever needed, optimise `_build_row` itself (62 µs/row) —
+that helps the warm path too and adds no cache.
 
 ---
 

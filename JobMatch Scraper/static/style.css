@@ -1,4 +1,45 @@
 /* ==================================================================
+   FONTS, SELF-HOSTED. Two families, six files, 187 KB on disk.
+
+   They used to come from Google: a render-blocking <link> to fonts.googleapis.com whose
+   reply then pointed at a SECOND host, fonts.gstatic.com, for the binaries. That is two
+   extra DNS lookups and two extra TLS handshakes standing between a cold visitor and the
+   first pixel -- paid on exactly the first visit that was being complained about, and
+   never on the second, which is why the app felt fine on a reload.
+
+   Same typefaces, same weights, byte-identical files (fetched from gstatic once and
+   committed). Now they are same-origin on a connection the HTML already opened, and the
+   CSP can say font-src 'self' with no remote origin at all -- which is what ENFORCES the
+   decision rather than merely recording it, exactly as img-src does for the logos.
+
+   unicode-range is what keeps this cheap: latin-ext is only fetched when a glyph actually
+   needs it, so the usual cost is inter-400-700-latin (48 KB) plus one Plex Mono weight.
+   ?v=1 earns the immutable Cache-Control in web.py; bump it if a file is ever replaced.
+
+   font-display:swap matches the &display=swap the Google URL carried, so text paints in a
+   fallback immediately and swaps when the face lands. Nothing here is invisible while it
+   loads.
+   ================================================================== */
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;
+  src:url(/static/fonts/ibm-plex-mono-500-latin.woff2?v=1) format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;
+  src:url(/static/fonts/ibm-plex-mono-500-latin-ext.woff2?v=1) format('woff2');
+  unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;
+  src:url(/static/fonts/ibm-plex-mono-600-latin.woff2?v=1) format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;
+  src:url(/static/fonts/ibm-plex-mono-600-latin-ext.woff2?v=1) format('woff2');
+  unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 700;font-display:swap;
+  src:url(/static/fonts/inter-400-700-latin.woff2?v=1) format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 700;font-display:swap;
+  src:url(/static/fonts/inter-400-700-latin-ext.woff2?v=1) format('woff2');
+  unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+
+/* ==================================================================
    TOKENS. Three layers, and the rule that keeps them honest:
    a component may reference layer 2 and layer 3, NEVER layer 1.
 
@@ -875,7 +916,13 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    view, which matters on a grid that routinely runs past a hundred. contain-intrinsic-size
    is the height it should ASSUME for a skipped card — without it the scrollbar jumps as
    each one is realised. 186px is the measured resting height of a two-line title. */
-.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;will-change:transform;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 186px}
+/* will-change moved OFF this rule and onto :hover below. It is a hint to promote the element to
+   its own compositor layer, and it applied to EVERY card -- 60 on first paint and 60 more per
+   Load more, so a scrolled feed asked the compositor to hold hundreds of layers for a 3px lift
+   that at most one card is using at a time. The MDN warning is exactly this case: applied
+   broadly and left on, will-change costs more than it saves. On :hover the promotion happens
+   when the lift is about to run and is released when the pointer leaves. */
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:var(--space-100);cursor:pointer;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 186px}
 
 /* ---- THE CARD WASH ------------------------------------------------------------------
    ONE RULE, because the wash carries no information any more. It used to tint each card by the
@@ -895,7 +942,31 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 
 /* Hover deepens the card's OWN colour rather than swapping its border for a neutral, which
    would wipe the route on the one interaction where the reader most wants to still see it. */
-.card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px)}
+.card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px);will-change:transform}
+
+/* --- ARRIVAL ---------------------------------------------------------------------------
+   Cards fade up 8px as they land. app.js sets animation-delay per card (capped at 10 steps
+   of 18ms in animateIn, so the 60th card does not wait a second) and adds .card-in only to
+   the ones that are actually new -- a Load more animates the appended page, not the whole
+   feed. `both` holds the from-state during the delay so a card cannot flash in and then
+   restart.
+
+   The reduced-motion rule below is NOT redundant with the global override at the top of this
+   file. That one clamps animation-duration but says nothing about animation-DELAY, so with
+   `both` still in force a card would sit at opacity 0 for its full delay and only then snap
+   in -- turning "less motion" into "content appears late", which is worse than the animation
+   it was meant to remove. animation:none drops the fill mode with it. */
+@keyframes cardin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.card.card-in{animation:cardin .18s var(--ease-out) both}
+@media (prefers-reduced-motion:reduce){.card.card-in{animation:none}}
+
+/* The brand mark fades when the image itself decodes, which is later than the card for a
+   lazily-loaded logo. NO fill mode and no opacity on .cmark itself, deliberately: the resting
+   state is fully visible, so if the load event is ever missed -- a cached image that decodes
+   before app.js attaches its listener, say -- the logo simply appears without a fade. A fade
+   that can leave a logo permanently invisible would be a much worse bug than a pop. */
+@keyframes markin{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
+.cmark.mark-in{animation:markin .22s var(--ease-out)}
 .card[data-route]:hover,.card[data-route]:focus-within{filter:saturate(1.35)}
 
 /* APPLY AT FULL STRENGTH. The card wears the pale blue, the button wears the saturated one,
@@ -1437,6 +1508,25 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 
 /* page progress */
 .page-progress{position:fixed;top:0;left:0;height:2px;background:var(--accent);z-index:var(--z-progress);pointer-events:none;width:0;opacity:0;border-radius:0 var(--radius-full) var(--radius-full) 0}
+
+/* --- BETWEEN PAGES ----------------------------------------------------------------------
+   A cross-fade on same-origin navigations. Two lines of CSS, no JavaScript and no framework:
+   the browser snapshots the old page, loads the new one and fades between them. Browsers
+   without support ignore the at-rule entirely and navigate exactly as they do today, so there
+   is nothing to feature-detect and nothing to fall back to.
+
+   It complements #pgbar rather than replacing it -- the bar says "something is happening" for
+   a slow route, this smooths the swap once the bytes arrive.
+
+   150ms on purpose. The default is 250ms, which on a fast internal link reads as the app
+   being sluggish rather than as polish. The global reduced-motion override at the top of this
+   file cannot reach these: it selects *, *::before and *::after, and none of those match a
+   ::view-transition pseudo-element. So they are silenced explicitly. */
+@view-transition{navigation:auto}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.15s;animation-timing-function:var(--ease-out)}
+@media (prefers-reduced-motion:reduce){
+  ::view-transition-old(root),::view-transition-new(root){animation:none}
+}
 
 /* ============ Resume Brain ============ */
 .rb{max-width:920px;margin:0 auto}

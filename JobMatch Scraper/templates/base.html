@@ -9,17 +9,22 @@
   {# Ink, matching the palette. The mark is a filing stamp: a rounded square with a ring
      and a centre, which reads at 16px where anything more literal would not. #}
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23101319'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Ccircle cx='16' cy='16' r='3.6' fill='white'/%3E%3C/svg%3E">
-  {# Two fixes over the old font link. fonts.gstatic.com is where the font BINARY comes from
-     and it was never preconnected, so the expensive handshake was the one we weren't warming.
-     And this asks for the VARIABLE face (400..700) instead of five static weights, which is
-     one file rather than five. Weight 800 is gone because the type scale bans it.
+  {# THE FONTS ARE OURS NOW. @font-face lives at the top of style.css; the files are in
+     static/fonts/. What this replaced was a render-blocking stylesheet on fonts.googleapis.com
+     that then pointed at fonts.gstatic.com for the binaries -- two third-party DNS lookups and
+     two TLS handshakes in front of first paint, on the cold visit and never on the warm one.
 
-     IBM Plex Mono rides the SAME request rather than adding a second stylesheet round trip,
-     and takes only the two weights the data type actually uses. It sets every number, date
-     and count in the app; see --font-data in style.css for why. #}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400..700&display=swap" rel="stylesheet">
+     PRELOADED, because a font referenced only from inside style.css is not discovered until the
+     browser has downloaded and parsed 212 KB of CSS. These two are the faces the first screen
+     actually paints with: Inter sets everything, Plex Mono 500 sets every match %, date and
+     count on every card. The latin-ext pair and Plex Mono 600 are deliberately NOT preloaded --
+     unicode-range means they are usually never fetched at all.
+
+     crossorigin is REQUIRED even though these are same-origin: fonts are always fetched in CORS
+     mode, and a preload without it downloads the file a second time instead of matching.
+     The href must match the @font-face src byte for byte, ?v=1 included, for the same reason. #}
+  <link rel="preload" href="/static/fonts/inter-400-700-latin.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/ibm-plex-mono-500-latin.woff2?v=1" as="font" type="font/woff2" crossorigin>
   {# Paints the phone's own browser chrome to match the canvas, so a scroll past the top of
      the page doesn't reveal a white bar above a dark app. ONE entry now, kept in sync by the
      script below: the theme is our choice rather than the OS's, so a prefers-color-scheme
@@ -167,11 +172,17 @@ if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__top
    per page view — the script itself, and the /healthz round trip it fires to get a DB-free
    server baseline — to print a table into a console nobody had open. Diagnostics you can turn
    on are worth keeping; diagnostics everyone pays for are not. #}
-{% if request.args.get('perf') %}<script src="{{ static_v('perf.js') }}"></script>{% endif %}
+{% if request.args.get('perf') %}<script defer src="{{ static_v('perf.js') }}"></script>{% endif %}
 {# Loaded for everyone, logged in or not: the login page has no tooltips today but the
    promotion is lazy, so an app with none costs one listener registration and nothing else. #}
-<script src="{{ static_v('tip.js') }}"></script>
-{% if current_user %}<script src="{{ static_v('ev.js') }}"></script>{% endif %}
+{# defer, not bare. These sit at the end of <body> so they were never blocking the PARSE, but
+   a plain <script src> still blocks on the network before the next one is even requested, and
+   nothing here needs to run before DOMContentLoaded. defer preserves document order, so the
+   guarantees the per-page block below relies on -- rolepick.js before app.js, applyask.js
+   defining window.ApplyAsk first -- all still hold. The two inline nonce'd scripts above are
+   deliberately NOT deferred: the theme one must run before first paint or the page flashes. #}
+<script defer src="{{ static_v('tip.js') }}"></script>
+{% if current_user %}<script defer src="{{ static_v('ev.js') }}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

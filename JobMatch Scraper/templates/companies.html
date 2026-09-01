@@ -92,4 +92,4 @@
 <script id="cometa" type="application/json">{{ {'sectors': sectors, 'prefix': prefix, 'li_kw': li_kw, 'labels': visa_labels, 'logos': logos, 'mono': mono}|tojson }}</script>
 <noscript><p class="u-p-200">The company directory needs JavaScript enabled to display.</p></noscript>
 {% endblock %}
-{% block scripts %}<script src="{{ static_v('companies.js') }}"></script>{% endblock %}
+{% block scripts %}<script defer src="{{ static_v('companies.js') }}"></script>{% endblock %}

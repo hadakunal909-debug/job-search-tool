@@ -876,6 +876,47 @@
     }
     return ok;
   }
+  // ---- arrival: skeletons, then a staggered fade for whatever just landed ----------------
+  //
+  // TWIN OF templates/_feedgrid.html's skeleton block, and the same eight tiles. The server
+  // renders those into #feed so they paint with the HTML; the first innerHTML of any render
+  // path then wipes them and they never come back. That left every LATER wait -- switching to
+  // Saved, moving the match slider, typing in the search box -- showing one small spinner
+  // instead, which is a weaker signal than the one the page opened with. Now every reset
+  // render puts the same skeletons back.
+  //
+  // Kept as a string here rather than cloned from the DOM: by the time a filter changes, the
+  // originals have been gone since first paint, so there is nothing left to clone.
+  var SKEL_N = 8;
+  function skeletonHTML() {
+    return new Array(SKEL_N + 1).join(
+      '<div class="skel" aria-hidden="true"><div class="skel-lines">' +
+      '<span class="skel-bar w70"></span><span class="skel-bar w40"></span>' +
+      '<span class="skel-bar w55"></span></div><div class="skel-chip"></div></div>');
+  }
+
+  // How many cards may stagger before the delay stops growing. Without the cap the 60th card
+  // of a page waits 60 x 18ms = ~1.1s to appear, so the feature that was meant to make the
+  // feed feel quicker would make the bottom of it visibly slower than no animation at all.
+  var CARD_IN_MAX = 10;
+  function animateIn(from) {
+    var cs = feed.querySelectorAll(".card");
+    for (var i = from; i < cs.length; i++) {
+      cs[i].style.animationDelay = (Math.min(i - from, CARD_IN_MAX) * 18) + "ms";
+      cs[i].classList.add("card-in");
+    }
+  }
+
+  // The Load-more button's own busy state. .btn.is-loading already exists in style.css with
+  // its spinner, its reduced-motion handling and pointer-events:none -- which is also what
+  // stops a second click queueing a second page. aria-busy is the half a screen reader gets.
+  function moreLoading(on) {
+    if (!moreBtn) return;
+    moreBtn.classList.toggle("is-loading", !!on);
+    if (on) moreBtn.setAttribute("aria-busy", "true");
+    else moreBtn.removeAttribute("aria-busy");
+  }
+
   function renderLocal(reset) {
     if (reset) limit = PAGE;
     var cut = dateCutoff(), matched = [];
@@ -890,7 +931,13 @@
     // One row = one card, so `limit` paginates jobs directly.
     var slice = matched.slice(0, limit), html = "";
     for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);
+    // This path re-renders the WHOLE slice even on Load more, so every node is new and
+    // animateIn(0) would re-flash the cards already on screen. The previous page boundary is
+    // limit - PAGE, because the click handler grows `limit` before calling render(false).
+    var localFrom = reset ? 0 : Math.max(0, limit - PAGE);
     feed.innerHTML = html;
+    animateIn(localFrom);
+    moreLoading(false);
     formatDates();
     setCount(matched.length);
     if (!matched.length) renderEmpty(null);
@@ -1282,6 +1329,7 @@
         var boot = "";
         for (var bi = 0; bi < DATA.length; bi++) boot += cardHTML(DATA[bi]);
         feed.innerHTML = boot;
+        animateIn(0);
         shown = DATA.length;
         formatDates();
         setCount(TOTAL);
@@ -1294,7 +1342,10 @@
         return;
       }
     }
-    if (reset) { shown = 0; feed.innerHTML = '<div class="loading-jd" style="padding:28px"><span class="spin"></span>Loading…</div>'; }
+    // Skeletons, not a lone spinner. skeletonHTML() is the same eight tiles the server paints
+    // on first load, so a tab switch or a filter change now looks like the page opening rather
+    // than like a different, smaller kind of wait.
+    if (reset) { shown = 0; feed.innerHTML = skeletonHTML(); }
     var mySeq = ++_seq;                                   // ignore out-of-order responses
     fetch("/api/feed?" + buildParams(reset ? 0 : shown)).then(function (r) {
       /* 429 is read EXPLICITLY. This used to be a bare r.json(), so a rate-limited reply
@@ -1309,6 +1360,10 @@
           feed.innerHTML = '<div class="loading-jd" style="padding:28px">' +
             '<span class="spin"></span>Catching up\u2026</div>';
         }
+        // The spinner STAYS for this one, deliberately. "Catching up" is a different state
+        // from "loading" and should not look identical to it: skeletons promise cards are
+        // moments away, where this is a throttle being waited out.
+        moreLoading(false);
         /* One retry, and only if nothing newer has been asked for. render() bumps _seq, so
            a later keystroke supersedes this and no retry storm can build up. */
         setTimeout(function () { if (mySeq === _seq) render(reset); }, Math.min(wait, 15) * 1000);
@@ -1327,6 +1382,7 @@
           setShown(emptyEl, false);
           setShown(moreBtn, false);
         }
+        moreLoading(false);
         return null;
       }
       return r.json();
@@ -1335,7 +1391,13 @@
       var rows = (d && d.rows) || [], htmlc = "";
       for (var i = 0; i < rows.length; i++) byUrl[rows[i].url] = rows[i];
       for (var k = 0; k < rows.length; k++) htmlc += cardHTML(rows[k]);
+      // `shown` is still the PREVIOUS card count here -- it is incremented two lines down, and
+      // one row is one card -- so it is exactly the index of the first card being appended.
+      // Reading it after the += would animate nothing at all on a Load more.
+      var appendFrom = reset ? 0 : shown;
       if (reset) feed.innerHTML = htmlc; else feed.insertAdjacentHTML("beforeend", htmlc);
+      animateIn(appendFrom);
+      moreLoading(false);
       shown += rows.length;                               // one row = one card
       formatDates();
       var jobs = (d && d.total) || 0;
@@ -1343,7 +1405,10 @@
       if (!jobs) renderEmpty(d && d.relax);
       setShown(emptyEl, !jobs);
       if (moreBtn) { var more = !!(d && d.has_more); setShown(moreBtn, more); if (more) moreBtn.textContent = "Load more (" + (jobs - shown) + " more)"; }
-    }).catch(function () { if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">We couldn\'t load jobs. Try again.</div>'; });
+    }).catch(function () {
+      moreLoading(false);       // or a failed page leaves the button spinning for ever
+      if (mySeq === _seq && reset) feed.innerHTML = '<div class="empty">We couldn\'t load jobs. Try again.</div>';
+    });
   }
 
   function debouncedRender() { if (_deb) clearTimeout(_deb); _deb = setTimeout(function () { render(true); }, 250); }
@@ -1591,7 +1656,14 @@
       toast("Couldn't save your default search.");
     });
   });
-  if (moreBtn) moreBtn.addEventListener("click", function () { limit += PAGE; render(false); });
+  if (moreBtn) moreBtn.addEventListener("click", function () {
+    // Cleared by whichever render path finishes -- including every failure path, or a dead
+    // page would leave the button spinning for ever. .btn.is-loading sets pointer-events:none,
+    // which is also what stops a second click queueing a second page.
+    moreLoading(true);
+    limit += PAGE;
+    render(false);
+  });
 
   // applyask.js owns the "did you apply?" prompt and does not know what a card is, so it says
   // so and this repaints. Nothing happens if the confirmed job is not on screen.
@@ -1728,7 +1800,13 @@
   }, true);
   feed.addEventListener("load", function (e) {
     var img = e.target;
-    if (img && img.tagName === "IMG" && img.naturalWidth < 8) dropMark(img);
+    if (!img || img.tagName !== "IMG") return;
+    // The 1x1-carried-on-a-200 case still wins: drop it rather than fading it in.
+    if (img.naturalWidth < 8) { dropMark(img); return; }
+    // Otherwise fade it in, because a lazily-loaded mark decodes well after its card landed.
+    // .mark-in has no fill mode and .cmark carries no opacity of its own, so missing this
+    // event costs a fade and never a missing logo -- see the rule in style.css.
+    if (img.classList && img.classList.contains("cmark")) img.classList.add("mark-in");
   }, true);
 
   // ---- "More about this employer" panel (company page only) ----

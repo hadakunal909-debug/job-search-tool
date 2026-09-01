@@ -122,10 +122,17 @@
 {% block scripts %}
 {# Before app.js: it seeds #roles from what the server rendered, and app.js reads that value on
    its first render. Loading it after would filter the first paint against an empty selection. #}
-<script src="{{ static_v('rolepick.js') }}"></script>
+{# defer on all three. They are already at the end of <body>, so this is not about the parse --
+   it is that a bare <script src> waits for the previous one to arrive before the next is even
+   requested. defer downloads them in parallel and still executes them in DOCUMENT ORDER, which
+   is the guarantee the two comments above depend on: rolepick.js seeds #roles before app.js
+   reads it, and applyask.js defines window.ApplyAsk before the click handler parks anything in
+   it. Deferred scripts also run before DOMContentLoaded fires, so nothing listening for it is
+   missed. #}
+<script defer src="{{ static_v('rolepick.js') }}"></script>
 {# applyask.js before it: it defines window.ApplyAsk, which the click handler below
    parks a posting into. Clicking Apply no longer records an application -- the prompt
    on return does. #}
-<script src="{{ static_v('applyask.js') }}"></script>
-<script src="{{ static_v('app.js') }}"></script>
+<script defer src="{{ static_v('applyask.js') }}"></script>
+<script defer src="{{ static_v('app.js') }}"></script>
 {% endblock %}
