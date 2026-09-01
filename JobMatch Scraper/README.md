@@ -1,6 +1,6 @@
 # JobMatch
 
-A personal job-search app. Flask + a 1,192-board scrape pipeline across 28 applicant-tracking
+A personal job-search app. Flask + a 1,192-board scrape pipeline across 38 applicant-tracking
 systems + an offline résumé grader + a Chrome extension that fills application forms. ~38,800
 jobs, three scrape runs a weekday. Live at **stemjobs1.astrochakra.co** on shared cPanel.
 

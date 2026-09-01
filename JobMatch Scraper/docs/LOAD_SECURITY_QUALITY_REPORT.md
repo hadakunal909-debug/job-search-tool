@@ -2,6 +2,93 @@
 
 **Date:** 2026-08-12 · **Corpus:** 20,278 job rows
 
+## ADDENDUM 2026-09-01 — the per-user row build, and what binds now
+
+**Corpus: 38,805 live rows** (measured through the read-only proxy). The addendum below it was
+taken at 21,982, so the per-request figures there are optimistic by roughly the ratio.
+
+Measured on the same 1.8 GHz laptop, against the local 21,980-row snapshot unless stated. Still
+not load-tested against production, for the reason in §1.
+
+### What changed
+
+`ranked_rows` rebuilt every card row per **(user, résumé)**. Of the 41 keys `_build_row` emits,
+exactly one — `score` — depends on who is asking, so the other 40 are now built once per corpus
+(`web._base_rows`) and the score is overlaid onto shallow copies.
+
+| | before | after |
+|---|---|---|
+| per-user row build, repeat rebuild | 873 ms | **168 ms** |
+| per-user row build, first in a worker | 1,941 ms | **198 ms** |
+| feed render after an eviction or a prefs save | 933 ms | **201 ms** |
+| feed render, fully warm | — | **11 ms** |
+| `import web` (requests + bs4 deferred out of `core.py`) | ~1,200 ms | **~850 ms** |
+| genuinely cold worker, first `/` | — | **~2.2 s** |
+
+Output verified identical: 0 rows differing in any field and an identical order over all 21,960
+rows, pinned in `scripts/test_speed_caches.py`.
+
+### What binds now, and it is no longer the row build
+
+The 2026-08-21 addendum found memory binding first, at **~31 MB of Python objects per additional
+active user**, because each user's `_rows_cache` entry held the whole corpus. That entry still
+exists, but two things changed:
+
+- **`_cache_max()` went 5 → 4 entries**, because the shared build is now charged one entry against
+  `CACHE_BUDGET_MB`. Leaving it out of the arithmetic would have grown the worker by a whole
+  corpus with the budget none the wiser.
+- **An eviction stopped being expensive.** It cost ~1.9 s of rebuild; it now costs ~200 ms. The
+  concurrency ceiling is therefore much softer than the old "~8–10 distinct users at once" — past
+  the cap, users are re-derived cheaply instead of re-scored.
+
+**The remaining cold cost is the shared build itself (~1.4 s at 21,960 rows, more at 38,805), and
+it is paid once per worker.** `/warm` exists to pay it off the user's path; `/healthz` never could,
+because it has no user and builds nothing.
+
+### Persisting the built rows: measured and rejected
+
+1,360 ms to build against **282 ms** to read back from a **1.4 MB** gzip — so a `row_cache/` file
+on the model of `score_cache/` would save ~1.1 s on a cold worker. Rejected: a built row embeds
+`logo_url`, `sponsor_counts` and `visa_index` output, and **none of those three is covered by
+`jobs_fingerprint()`**, so shipping new logos or sponsor data without a scrape would leave a file
+serving stale badges indefinitely, where an in-memory cache dies with the worker. The saving is on
+the one event the keep-warm cron exists to prevent; the hazard would be permanent. If more
+cold-start speed is wanted, make `_build_row` cheaper — 62 µs/row, and it helps the warm path too.
+
+(A JSON round trip also turns the `visa` **tuple into a list**. It is the only field that changes.)
+
+### Front end
+
+Two third-party origins left the critical path: a render-blocking stylesheet on
+`fonts.googleapis.com` whose reply pointed at `fonts.gstatic.com` for the binaries. Six woff2 in
+`static/fonts/`, 187 KB on disk, **78 KB actually fetched** (`unicode-range` means latin-ext is not
+pulled in practice). Verified in composited Chromium: **0 requests to either Google host**, no CSP
+violations, and **0 horizontal overflow at 375 / 768 / 900 / 1200 / 1440 / 1920**.
+
+First-byte payload of `/`, unchanged in shape and worth recording: **100,492 bytes of HTML,
+14,771 gzipped**, of which the 60-row inline bootstrap is 68,805 raw / **7,150 gzipped**. The feed
+has shipped 60 rows inline plus server paging since before this pass — the payload was never the
+problem.
+
+Also removed: `will-change:transform` on every `.card`, which asked the compositor for a layer per
+card (120+ on a paged feed) to serve a 3px lift one card uses at a time.
+
+### Suite state at this date
+
+**51 offline suites pass**, of 57 registered — the other 6 need database credentials and are
+skipped by `run_tests.py` unless you pass `--db`. `scripts/feed_parity.py` reports **82/82 filter
+cases agreeing** plus the `/api/feed` page walk. `scripts/build_docs.py --check` passes. The suite
+counts in the sections below are what was true on *their* dates and are left as measured.
+
+### Method note
+
+`scripts/run_tests.py` reported every suite **2–4× slower** during this session (`feed_parity`
+3.5 s → 15.6 s) purely from a concurrent session's load on the same machine, and one combined
+command hit a 10-minute tool timeout that was contention, not a hang. **Don't read a timing
+regression off a shared box** without checking what else is running.
+
+---
+
 ## ADDENDUM 2026-08-21 — re-measured after the cPanel move and the score cache
 
 **Corpus 21,982 rows.** Everything below is a fresh measurement, because two things invalidated
