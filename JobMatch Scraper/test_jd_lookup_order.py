@@ -167,10 +167,82 @@ check("resetting re-arms the budget", tried_d == 3, "tried=%d" % tried_d)
 
 # An exhausted CLOCK stops the pass without touching the network, the same way the count does.
 scraper.reset_jd_lookup_budget()
-scraper._JD_RUN["deadline"] = 0.0                                 # monotonic() is always > 0
+scraper._JD_RUN["secs_left"] = 0.0
 calls_e, tried_e, _ = run(slice_of(40), budget=10, reset=False)
-check("an expired run deadline fetches nothing",
+check("an exhausted run clock fetches nothing",
       tried_e == 0 and not calls_e.detail, "tried=%d" % tried_e)
+
+
+# ---------------------------------------------------------------------------------------------
+print("\nthe clock counts time SPENT FETCHING, not wall-clock since the run began")
+#
+# THE REGRESSION THIS PINS, which shipped for exactly one deploy. The first run-wide budget was
+# `deadline = now + JD_LOOKUP_BUDGET_MIN * 60`, set once before the slice loop. That is right for
+# a phase that runs once and wrong for one called per slice: slice 1 spends ~4 minutes fetching
+# BOARDS before fill_missing_jds is reached, so a 3-minute clock had already expired the first
+# time it was asked -- and every slice after it. Measured on a full 21-slice sweep: the phase
+# logged nothing at all. 63 minutes of JD lookup had become zero, which is not a fix, it is the
+# same bug pointing the other way.
+#
+# A fake monotonic clock is the only honest way to assert this: the property is "a slice that
+# STARTS ten minutes into the run still gets its budget", and real time cannot be made to pass.
+
+
+class FakeClock(object):
+    """`time` with a monotonic() we control. Everything else proxies to the real module."""
+
+    def __init__(self, real, t=1000.0):
+        self._real, self.t = real, t
+
+    def monotonic(self):
+        return self.t
+
+    def advance(self, secs):
+        self.t += secs
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+import time as _real_time
+_clock = FakeClock(_real_time)
+_saved_time = scraper.time
+scraper.time = _clock
+try:
+    old_min = scraper.JD_LOOKUP_BUDGET_MIN
+    scraper.JD_LOOKUP_BUDGET_MIN = 3                  # 180 seconds for the whole run
+    scraper.reset_jd_lookup_budget()
+    _clock.advance(10 * 60)                           # the sweep spends ten minutes on BOARDS
+    calls_f, tried_f, _ = run(slice_of(50), budget=10, reset=False)
+    check("a slice reached ten minutes into the run still fetches",
+          tried_f == 3, "tried=%d -- a wall-clock deadline would have returned 0" % tried_f)
+    check("the purse was charged nothing, because the fetches took no fake time",
+          scraper._JD_RUN["secs_left"] == 180.0, "secs_left=%r" % scraper._JD_RUN["secs_left"])
+
+    # ...and it IS spent by time inside the phase. The stub advances the clock per fetch.
+    scraper.reset_jd_lookup_budget()
+    _real_detail = score_jobs.detail_jd
+
+    def slow_detail(url):
+        _clock.advance(100)                           # 100 fake seconds per fetch
+        return url, JD, ""
+    rows_g = slice_of(60, 4)
+    score_jobs.detail_jd = slow_detail
+    try:
+        scraper.fill_missing_jds(rows_g, set(), None, "", "")
+    finally:
+        score_jobs.detail_jd = _real_detail
+    check("time spent fetching draws the purse down",
+          scraper._JD_RUN["secs_left"] == 0.0,
+          "secs_left=%r after 4 fetches of 100s against a 180s purse"
+          % scraper._JD_RUN["secs_left"])
+    calls_h, tried_h, _ = run(slice_of(70), budget=10, reset=False)
+    check("and once it is empty the next slice fetches nothing",
+          tried_h == 0 and not calls_h.detail, "tried=%d" % tried_h)
+    scraper.JD_LOOKUP_BUDGET_MIN = old_min
+finally:
+    scraper.time = _saved_time
+    scraper.reset_jd_lookup_budget()
 
 # ---------------------------------------------------------------------------------------------
 print("\nphenom: asked by id, never by the apply url")

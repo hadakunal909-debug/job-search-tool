@@ -7465,15 +7465,29 @@ JD_LOOKUP_PER_KEPT_BOARD = int(os.environ.get("JD_LOOKUP_PER_KEPT_BOARD") or 300
 #
 # main() arms this once before the slice loop. A direct call arms it lazily, so a unit test or a
 # one-off script still gets a bounded pass without knowing the protocol.
-_JD_RUN = {"spent": 0, "deadline": None, "armed": False}
+_JD_RUN = {"spent": 0, "secs_left": None, "armed": False}
 
 
 def reset_jd_lookup_budget():
-    """Start a new run's description budget. Called once by main(), before the slices."""
+    """Start a new run's description budget. Called once by main(), before the slices.
+
+    `secs_left` is a PURSE OF SECONDS SPENT FETCHING, not a wall-clock deadline, and the
+    difference is the whole reason this function is worth reading.
+
+    The first version of this set `deadline = now + JD_LOOKUP_BUDGET_MIN * 60`. That is right for
+    a phase that runs once and wrong for one called per slice: slice 1 spends ~4 minutes fetching
+    BOARDS before fill_missing_jds is reached at all, so a 3-minute run-wide clock had already
+    expired the first time it was asked and every slice after it returned (0, 0). Measured on a
+    full 21-slice sweep: the phase logged nothing whatsoever -- 63 minutes of JD lookup had become
+    zero. Both numbers are wrong; the budget is meant to bound the phase, not to race the sweep.
+
+    So the clock only ticks while this phase is actually fetching. Sweep time, filtering time and
+    database time are not charged to it, because none of them are what the budget is protecting
+    against.
+    """
     _JD_RUN["spent"] = 0
     _JD_RUN["armed"] = True
-    _JD_RUN["deadline"] = ((time.monotonic() + JD_LOOKUP_BUDGET_MIN * 60)
-                           if JD_LOOKUP_BUDGET_MIN > 0 else None)
+    _JD_RUN["secs_left"] = (JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
 
 
 def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
@@ -7517,7 +7531,8 @@ def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
     left = JD_LOOKUP_BUDGET - _JD_RUN["spent"]
     if left <= 0:
         return 0, 0
-    if _JD_RUN["deadline"] is not None and time.monotonic() >= _JD_RUN["deadline"]:
+    secs_left = _JD_RUN["secs_left"]
+    if secs_left is not None and secs_left <= 0:
         return 0, 0
 
     from . import score_jobs                           # lazy: see the note above
@@ -7612,10 +7627,12 @@ def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
     # Truncating is the same no-op the docstring promises for a failed fetch: an unfetched row
     # drops on its title, and since it was never stored it is offered again on the next run.
     got, tried = 0, 0
-    # THE RUN'S deadline, not a fresh one per slice. Computing it here was the whole per-slice
-    # bug: with SCRAPE_SLICE=100 over 2,032 boards this line handed out twenty-one separate
-    # three-minute budgets. See _JD_RUN.
-    deadline = _JD_RUN["deadline"]
+    # WHAT IS LEFT IN THE RUN'S PURSE, not a fresh budget per slice. Computing
+    # `now + JD_LOOKUP_BUDGET_MIN * 60` here was the original per-slice bug: with
+    # SCRAPE_SLICE=100 over 2,032 boards it handed out twenty-one separate three-minute budgets.
+    # The purse is drawn down in the `finally` below by the time this phase actually spends.
+    _t0 = time.monotonic()
+    deadline = (_t0 + secs_left) if secs_left is not None else None
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
     try:
         futures = [ex.submit(one, j) for j in want]
@@ -7636,6 +7653,10 @@ def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
                   % (JD_LOOKUP_BUDGET_MIN, tried, len(want)))
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+        # Charged in the `finally` so an exception cannot leave the purse full and let the next
+        # slice spend the same seconds again.
+        if secs_left is not None:
+            _JD_RUN["secs_left"] = max(0.0, secs_left - (time.monotonic() - _t0))
     # Spend against the RUN's allowance, not this slice's. Counting `tried` rather than
     # len(want) keeps a slice cut short by the deadline from being charged for work it never
     # did -- which matters because the next slice reads what is left to decide its own size.
