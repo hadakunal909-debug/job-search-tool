@@ -866,6 +866,7 @@ state states city york county country federal laws law legal notice notices leas
 website site email phone contact address information available provide provided
 please based employment technology technologies tools services service solutions
 business teams environment opportunity support various including needs help
+employees members people individuals others colleagues
 """.split())
 
 # Generic soft skills. Every posting says them, so naming them tells a reader nothing.

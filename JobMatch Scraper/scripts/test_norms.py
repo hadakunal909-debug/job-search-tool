@@ -28,11 +28,11 @@ def _synthetic():
         "_meta": {"built": "2026-01-01", "postings": 1000, "role_keys": list(core.ROLE_KEYS)},
         "corpus": {"n": 1000, "df": {"tableau": 40, "sql": 200, "jira": 100, "python": 300,
                                      "confluence": 100, "maine": 90, "clearance": 90,
-                                     "rareterm": 5}},
+                                     "stairs": 100, "rareterm": 5}},
         # jira 5% is below the family floor; confluence is exactly ON it, which the floor keeps.
         "fam": {"ops": {"n": 400, "df": {"tableau": 200, "sql": 120, "jira": 20, "python": 30,
                                          "confluence": 40, "maine": 80, "clearance": 80,
-                                         "rareterm": 4, "operations": 380}}},
+                                         "stairs": 30, "rareterm": 4, "operations": 380}}},
         "co": {"acme": {"n": 50, "name": "Acme", "fam": {"ops": 50},
                         "tools": {"tableau": 40, "jira": 3, "sql": 15}}},
     }
@@ -88,6 +88,17 @@ def test_distinctive_is_a_band_not_a_rarity_ranking():
     assert "rareterm" not in got, "below the band, so nothing can be said"
     assert "python" in got, got            # 7.5% of ops, inside the band
     assert abs(got["python"] - 0.075) < 1e-9, got
+
+
+def test_distinctive_refuses_a_word_that_could_not_be_a_skill():
+    """"stairs" is 7.5% of the family, squarely inside the band, and genuinely unusual -- and
+    it is not a thing to tell anyone. Before the vocabulary restriction the line read "unusual
+    for this role: salaried, stairs, https, jobs, problems, together". A RATIO floor was tried
+    first and measured worse than useless: at 1.5 it let "employees" into the ops norm and at
+    2.0 it dropped "reporting" and "stakeholder", which the role really does ask for."""
+    got = dict(norms.distinctive("ops", ["stairs", "python"], blob=_synthetic()))
+    assert "stairs" not in got, got
+    assert "python" in got, got
 
 
 def test_coverage_counts_and_names_what_is_missing():
