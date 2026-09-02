@@ -45,6 +45,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import sys
 import time
 
@@ -280,6 +281,11 @@ def _select(args, firstparty):
     return picked
 
 
+# One directory for the whole run, removed at the end. Per-run rather than per-suite so the
+# cross-worker sharing these files exist for is still exercised, just not against real ones.
+_SCRATCH = tempfile.mkdtemp(prefix="jobmatch-tests-")
+
+
 def _run_one(suite, ci):
     env = dict(os.environ)
     # The one rule this script exists to make unbreakable. analytics.py caches it at import.
@@ -292,6 +298,16 @@ def _run_one(suite, ci):
     # rather than in each suite so there is one place to look, and deliberately not random:
     # a stable value means a suite can sign a cookie in one process and read it in another.
     env.setdefault("APP_SECRET", "loadbearing-test-key-not-a-secret")
+    # A SCRATCH CACHE DIRECTORY PER RUN, and this is a correctness rule now rather than tidiness.
+    # row_cache/ and score_cache/ are keyed on (corpus fingerprint, derived signature) and a
+    # worker will read one WITHOUT loading the corpus -- that is the whole point of _corpus_fp.
+    # So a suite that stubs web.get_jobs with six synthetic jobs, and does nothing else, still
+    # finds the developer's real 40,294-row file sitting under the real fingerprint and renders
+    # THAT. It happened to scripts/test_job_page.py on 2026-09-01 and the symptom was six
+    # unrelated assertions failing at once. Pointing both directories somewhere empty means no
+    # suite can read, or corrupt, the caches the developer is actually running the app against.
+    env["ROWS_DIR"] = os.path.join(_SCRATCH, "row_cache")
+    env["SCORES_DIR"] = os.path.join(_SCRATCH, "score_cache")
     t0 = time.time()
     try:
         r = subprocess.run([sys.executable, suite.path], cwd=APP, env=env,
@@ -400,4 +416,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        _code = main()
+    finally:
+        shutil.rmtree(_SCRATCH, ignore_errors=True)
+    sys.exit(_code)

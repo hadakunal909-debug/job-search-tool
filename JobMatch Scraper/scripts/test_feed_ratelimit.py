@@ -51,7 +51,9 @@ JOBS = [{"url": "https://b.example/%d" % i,
         for i in range(200)]
 
 web.get_jobs = lambda: JOBS
-web._jobs_cache["rows"], web._jobs_cache["fp"] = JOBS, (len(JOBS), "2026-08-18")
+# `at` MATTERS: without it the cache reads as expired, _corpus_fp falls through to the
+# sidecar or the database probe, and _base_rows reads a real row file under a real key.
+web._jobs_cache.update(rows=JOBS, fp=(len(JOBS), "2026-08-18"), at=time.time())
 web._session_dead = lambda u: ""
 web._needs_onboarding = lambda u: False
 web.current_profile = lambda: "python sql project management delivery"

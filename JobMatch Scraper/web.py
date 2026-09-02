@@ -26,7 +26,9 @@ import functools
 import collections
 import math
 
+import io
 import gzip as _gzip
+import pickle as _pickle
 
 # Anchor to this file's directory BEFORE core/db import, because both read files by relative
 # path (.env, idf.json, sponsor_counts.json, sponsors.txt, everify.txt).
@@ -366,7 +368,7 @@ _rows_cache = collections.OrderedDict()    # (username, resume_md5) -> [row w/o 
 # an identical row order. The dedupe and the sort stay per-user; see ranked_rows for why the
 # dedupe in particular cannot move in here.
 _base_rows_cache = {"fp": None, "sig": None, "rows": None, "by_url": None, "fresh": 0,
-                    "persisted": None}
+                    "persisted": None, "meta": None}
 # BOUNDED BY MEMORY, NOT BY COUNT, and the difference is the whole point.
 #
 # This was `_SCORE_CACHE_MAX = 64` for the life of the app, and it was safe when the corpus
@@ -400,8 +402,17 @@ def _cache_max():
     Uses the rows already in memory, so it costs a len() and needs no configuration. Falls
     back to a pessimistic 20k when the corpus has not been read yet — guessing LOW there
     would raise the cap on a worker that is about to load a large corpus, which is backwards.
+
+    THE BUILT ROWS COUNT TOO, and since 2026-09-01 they are usually the only ones there. A
+    worker serving from row_cache/ never loads the corpus at all, so _jobs_cache stays empty and
+    the 20k fallback fired against a 40,294-row corpus: per-entry halved, the cap doubled, and
+    a shared-host worker sized itself at ~340 MB where the budget said 170. They are also the
+    better estimate of the two -- a per-user entry is a shallow copy of THESE dicts, not of the
+    source rows.
     """
-    rows = len(_jobs_cache.get("rows") or ()) or 20000
+    rows = (len(_jobs_cache.get("rows") or ())
+            or len(_base_rows_cache.get("rows") or ())
+            or 20000)
     per_entry_mb = max(1.0, rows * _ROW_CACHE_BYTES_PER_ROW / 1048576.0)
     # _base_rows_cache holds one corpus-worth of the same dicts and is charged one entry here.
     # It is shared by every user, so it is not free and it is not per-user: leaving it out of
@@ -745,6 +756,12 @@ _JOBS_TTL = 3600             # jobs change only on the daily scrape; force-refre
 # every read and write is best-effort, so if the path isn't writable the app simply degrades to
 # the old per-worker behaviour rather than failing a request.
 _JOBS_SNAPSHOT = os.environ.get("JOBS_SNAPSHOT") or os.path.join(_APP_DIR, "jobs_snapshot.json.gz")
+# THE FINGERPRINT, WITHOUT THE 46 MB IT IS STORED INSIDE. The snapshot carries its own
+# fingerprint, so reading it meant parsing the whole corpus -- 616 ms measured at 40,294
+# rows -- even on a request that wanted only the KEY, in order to look up built rows it
+# already had on disk. This sidecar holds the same tuple in ~120 bytes, stamped with the
+# snapshot's own (mtime_ns, size) so a stale or hand-copied one can never be believed.
+_JOBS_SNAPSHOT_FP = _JOBS_SNAPSHOT + ".fp.json"
 
 # How old a snapshot may be and still be worth REVALIDATING (not serving blind — see get_jobs).
 # Correctness comes from the fingerprint, so this is not a freshness limit; it is a bound on the
@@ -763,6 +780,82 @@ _JOBS_SNAPSHOT = os.environ.get("JOBS_SNAPSHOT") or os.path.join(_APP_DIR, "jobs
 _SNAPSHOT_MAX_AGE = int(os.environ.get("JOBS_SNAPSHOT_MAX_AGE") or 24 * 3600)
 
 
+def _snapshot_fp_write(fingerprint):
+    """Stamp the sidecar with the snapshot's fingerprint and the snapshot's own stat.
+
+    Best-effort in every direction: a read-only deploy simply never gets the fast path back.
+    """
+    try:
+        st = os.stat(_JOBS_SNAPSHOT)
+        tmp = "%s.%d.tmp" % (_JOBS_SNAPSHOT_FP, os.getpid())
+        with io.open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"fingerprint": list(fingerprint or ()),
+                       "st": [st.st_mtime_ns, st.st_size]}, fh)
+        os.replace(tmp, _JOBS_SNAPSHOT_FP)
+    except Exception:
+        pass
+
+
+def _snapshot_fp(max_age):
+    """The snapshot's fingerprint WITHOUT parsing the snapshot, or None if it cannot be trusted.
+
+    THE STAMP IS THE WHOLE SAFETY ARGUMENT. A fingerprint keys the shared row file, so believing
+    a wrong one serves another corpus's cards for the life of the worker. The sidecar therefore
+    records the (st_mtime_ns, st_size) of the snapshot it was written from, and anything that
+    rewrites or re-times the snapshot -- _snapshot_write, _snapshot_touch's os.utime -- restamps
+    it. A mismatch is not repaired here; it just returns None, and the caller pays the full read
+    it would have paid anyway.
+
+    max_age mirrors get_jobs' own gate exactly, so this answers only in the window where
+    get_jobs would have served those same rows without a probe. Outside it, None -> the caller
+    falls back to get_jobs and its fingerprint revalidation runs unchanged.
+    """
+    try:
+        st = os.stat(_JOBS_SNAPSHOT)
+        if time.time() - st.st_mtime > max_age:
+            return None
+        with io.open(_JOBS_SNAPSHOT_FP, encoding="utf-8") as fh:
+            blob = json.load(fh)
+        if list(blob.get("st") or ()) != [st.st_mtime_ns, st.st_size]:
+            return None
+        fp = tuple(blob.get("fingerprint") or ())
+        return fp if fp and fp[0] is not None else None
+    except Exception:
+        return None
+
+
+def _corpus_fp():
+    """The corpus fingerprint, without loading the corpus when that can be avoided.
+
+    Everything keyed on the corpus -- the stored scores, the stored rows -- needs the KEY before
+    it needs the rows, and on a cold worker whose caches are on disk it never needs the rows at
+    all. get_jobs stays the fallback and its semantics are unchanged; this only skips ahead when
+    the sidecar can answer inside get_jobs' own TTL window.
+    """
+    if _jobs_cache["rows"] is not None and time.time() - _jobs_cache["at"] <= _JOBS_TTL:
+        return _jobs_cache.get("fp")
+    fp = _snapshot_fp(_JOBS_TTL)
+    if fp is not None:
+        return fp
+    # THE DATABASE ALREADY KNOWS, and asking it is the cheapest answer that is always available.
+    # jobs_fingerprint() is a HEAD plus a one-row select -- the same probe get_jobs uses to
+    # revalidate -- so it costs a round trip against the 616 ms parse it replaces. This is the
+    # branch that covers the two cases the sidecar cannot: right after a deploy, which rewrites
+    # the snapshot's mtime and so invalidates the stamp, and on a quiet site where nothing has
+    # touched the snapshot for over an hour. Both are exactly when a cold worker appears.
+    #
+    # "Don't know" is (None, "") and must NOT be keyed on -- see _base_rows. Falling through to
+    # get_jobs from here is the old behaviour, unchanged.
+    try:
+        probe = db.jobs_fingerprint()
+    except Exception:
+        probe = None
+    if probe and probe[0] is not None:
+        return tuple(probe)
+    get_jobs()
+    return _jobs_cache.get("fp")
+
+
 def _snapshot_read(max_age):
     """(rows, fingerprint) from the shared snapshot if it exists and is younger than max_age
     seconds, else (None, None)."""
@@ -772,7 +865,12 @@ def _snapshot_read(max_age):
         with _gzip.open(_JOBS_SNAPSHOT, "rt", encoding="utf-8") as fh:
             blob = json.load(fh)
         rows = blob.get("rows") or None
-        return rows, tuple(blob.get("fingerprint") or ())
+        fp = tuple(blob.get("fingerprint") or ())
+        # Self-healing: we have just paid the parse, so leave the sidecar behind for the next
+        # worker. That matters after a deploy, which ships a snapshot and no sidecar.
+        if rows and fp and fp[0] is not None and _snapshot_fp(max_age) != fp:
+            _snapshot_fp_write(fp)
+        return rows, fp
     except Exception:
         return None, None            # missing, half-written, or corrupt -> just re-read
 
@@ -804,6 +902,7 @@ def _snapshot_write(rows, fingerprint):
         with _gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as fh:
             json.dump({"rows": rows, "fingerprint": list(fingerprint or ())}, fh)
         os.replace(tmp, _JOBS_SNAPSHOT)
+        _snapshot_fp_write(fingerprint)    # the sidecar is only ever as new as the file it names
     except Exception:
         pass                          # an optimization only; never fail a request over it
 
@@ -821,6 +920,10 @@ def _snapshot_touch(rows, fingerprint):
         os.utime(_JOBS_SNAPSHOT, None)
     except OSError:
         _snapshot_write(rows, fingerprint)     # missing or unwritable: do the real write
+        return
+    # os.utime MOVED st_mtime_ns, which is half of what the sidecar is stamped with, so without
+    # this line every revalidation would invalidate the fast path it exists to feed.
+    _snapshot_fp_write(fingerprint)
 
 
 def get_jobs(force=False):
@@ -919,7 +1022,7 @@ def _invalidate_jobs():
     # it self-heals within minutes. A file keyed on an unchanged fingerprint would outlive the
     # patch indefinitely.
     _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
-                            persisted=None)
+                            persisted=None, meta=None)
     _rows_clear()
     try:
         os.remove(_JOBS_SNAPSHOT)
@@ -1084,9 +1187,12 @@ def user_scores(username, resume):
     if key in _score_cache:
         _score_cache.move_to_end(key)        # a read is a use: keeps active users out of the evictor
         return _score_cache[key]
-    # get_jobs() FIRST: it is what refreshes the fingerprint the stored file is keyed on.
-    rows = get_jobs()
-    fp = _jobs_cache.get("fp")
+    # THE FINGERPRINT, NOT THE CORPUS. This is the key the stored file is written under, and
+    # on a hit the rows are never touched -- so asking get_jobs for them first meant a 46 MB
+    # parse to discover it was not needed. _corpus_fp falls back to get_jobs whenever it cannot
+    # answer cheaply, so the fingerprint is exactly as authoritative as it was.
+    rows = None
+    fp = _corpus_fp()
     stored = _scores_read(username, rmd5, fp)
     if stored is not None:
         if len(_score_cache) >= _cache_max():
@@ -1094,6 +1200,9 @@ def user_scores(username, resume):
         _score_cache[key] = stored
         return stored
     resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
+    # A real scoring pass is the one thing here that does need the corpus.
+    rows = get_jobs()
+    fp = _jobs_cache.get("fp") or fp
     scores = {}
     for j in rows:
         u = j.get("url")
@@ -1512,6 +1621,65 @@ def _dedupe_rows(rows):
     return out
 
 
+def _dedupe_plan(base):
+    """_dedupe_rows' decisions, as INDICES into base, computed once per corpus.
+
+    Which rows are duplicates of each other is a fact about the postings -- title, company,
+    location, host -- and none of it depends on the reader. Only the CHOICE among a group does,
+    because _dupe_rank tie-breaks on the score. So the grouping moves here and the choice stays
+    per-user, which is the same split _base_rows already makes for the rows themselves.
+
+    Worth doing because the ratio is extreme. Measured at 40,294 rows: _dupe_key over the corpus
+    is 225 ms of the 280 ms dedupe, and it decides ONE HUNDRED AND SIXTY-FIVE rows -- 0.41% --
+    are contested. Every user was paying a whole-corpus normalisation pass to arbitrate 68 tiny
+    groups.
+
+    The plan is a list in _dedupe_rows' exact output order, where an int passes a row through
+    and a list is a group to arbitrate. Reproducing the ORDER matters and is not decoration:
+    ranked_rows sorts on score immediately afterwards and Python's sort is stable, so two rows
+    on the same score keep whatever order this produced. scripts/test_speed_caches.py asserts
+    the two paths agree row for row over the whole corpus.
+    """
+    groups, plan = {}, []
+    for i, r in enumerate(base):
+        k = _dupe_key(r)
+        if k is None:                        # missing title or company: never merge blindly
+            plan.append(i)
+        else:
+            groups.setdefault(k, []).append(i)
+    for grp in groups.values():
+        if len(grp) > 1 and len({_host(base[i]) for i in grp}) > 1:
+            plan.append(grp)
+        else:
+            plan.extend(grp)
+    return plan
+
+
+def _apply_dedupe_plan(base, plan, score_of):
+    """The scored, deduplicated corpus -- byte-for-byte what _dedupe_rows(overlay(base)) gives.
+
+    One pass, one dict copy per surviving row, and _dupe_rank still runs on SCORED copies so a
+    group's survivor is chosen exactly as before.
+    """
+    out = []
+    for e in plan:
+        if type(e) is int:
+            r = base[e]
+            out.append(dict(r, score=score_of(r)))
+        else:
+            out.append(min((dict(base[i], score=score_of(base[i])) for i in e), key=_dupe_rank))
+    return out
+
+
+def _role_counts_for(rows):
+    """{role_key: how many postings} over raw job dicts -- a corpus fact, so built with them."""
+    counts = {k: 0 for k in core.ROLE_KEYS}
+    for j in rows:
+        for k in core.roles_for_title(j.get("title")):
+            counts[k] += 1
+    return counts
+
+
 # The built rows on disk, shared by every worker. Same shape and the same reasoning as
 # score_cache/ above, and it exists because the reasoning I first wrote here was WRONG.
 #
@@ -1530,11 +1698,25 @@ def _dedupe_rows(rows):
 # dies with the worker. A file does not, so every input is in the key.
 _ROWS_DIR = os.environ.get("ROWS_DIR") or os.path.join(_APP_DIR, "row_cache")
 _ROWS_MAX_FILES = 3               # one live corpus, one mid-scrape, one spare
-# Tuples that JSON cannot round-trip. Measured over all 21,960 snapshot rows: `visa` is the
-# only field that comes back a list, and scripts/test_speed_caches.py asserts a read equals a
-# fresh build over the whole corpus, so a second one appearing later fails there rather than
-# silently changing a card.
-_ROWS_TUPLE_KEYS = ("visa",)
+_ROWS_SUFFIX = ".rows.gz"
+# PICKLE, NOT JSON, and the reason is measured rather than stylistic. At 40,294 rows the same
+# blob costs, read back cold:
+#
+#     json + gzip6   587 ms   2.5 MB      <- what this used to be
+#     pickle + gzip1 343 ms   3.3 MB      <- what it is
+#     pickle, raw    227 ms  18.3 MB
+#
+# gzip1 over raw because this ships to a shared host where disk is the contended resource and
+# 15 MB x _ROWS_MAX_FILES is a poor trade for 116 ms. On top of the 244 ms, pickle round-trips
+# a tuple as a tuple: `visa` used to come back a list and needed a fix-up pass over every row
+# (another ~200 ms) to put it back. The file is written by this app, into a directory this app
+# owns, and is read with the same trust as jobs_snapshot.json.gz next to it -- but the format
+# is not self-describing, so the NAME changed with it. An old .json.gz is now simply never
+# read, and _rows_write sweeps it away on the next write.
+_ROWS_PROTOCOL = 4                # 3.4+, and stable; not pickle.HIGHEST_PROTOCOL, which moves
+
+
+_derived_sig_memo = {"stat": None, "sig": None}
 
 
 def _derived_signature():
@@ -1557,26 +1739,60 @@ def _derived_signature():
     scripts/close_dead_jds.py), and a scrape moves jobs_fingerprint(), which IS in the key. The
     residue is a script run on its own without a scrape -- run /reload after one, which clears
     the file outright.
+
+    IT IS THE CONTENT, NOT THE MTIME, and that distinction is worth 6.3 seconds on the one
+    render nobody can avoid. A deploy is a zip extract: it rewrites static/ and the data files
+    wholesale, so every mtime moves even where not one byte changed. Keyed on mtime, the first
+    visitor after every upload paid a full 6.9 s rebuild of 40,294 rows that were still exactly
+    correct. Keyed on content, an identical file is identical and the stored rows survive the
+    deploy -- which is precisely the "slow the first time I open it" case, since a deploy is
+    when a cold worker is guaranteed.
+
+    Hashing 6.2 MB is 11.9 ms, so it is memoised on the cheap (mtime_ns, size) triple: the hash
+    is recomputed only when a stat actually moves, i.e. once per worker per deploy. The memo is
+    a fast path, never an authority -- a stat that matches is only ever used to REUSE a hash of
+    those same bytes.
     """
-    parts = []
-    for p in (_LOGO_MANIFEST_PATH,
-              os.path.join(_APP_DIR, "sponsor_counts.json"),
-              os.path.join(_APP_DIR, "visa_tags.json")):
+    paths = (_LOGO_MANIFEST_PATH,
+             os.path.join(_APP_DIR, "sponsor_counts.json"),
+             os.path.join(_APP_DIR, "visa_tags.json"))
+    stat_key = []
+    for p in paths:
         try:
             st = os.stat(p)
-            parts.append("%s:%d:%d" % (os.path.basename(p), st.st_mtime_ns, st.st_size))
+            stat_key.append((os.path.basename(p), st.st_mtime_ns, st.st_size))
         except Exception:
-            parts.append(os.path.basename(p) + ":absent")
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
+            stat_key.append((os.path.basename(p), -1, -1))
+    stat_key = tuple(stat_key)
+    memo = _derived_sig_memo
+    if memo["stat"] == stat_key and memo["sig"]:
+        return memo["sig"]
+    h = hashlib.sha256()
+    for p in paths:
+        try:
+            with io.open(p, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+        except Exception:
+            h.update(("absent:" + os.path.basename(p)).encode("utf-8"))
+        h.update(b"|")                       # so two files cannot run into one another
+    sig = h.hexdigest()[:32]
+    memo.update(stat=stat_key, sig=sig)
+    return sig
 
 
 def _rows_path(fp):
     h = hashlib.sha256(("rows|%s" % (list(fp),)).encode("utf-8")).hexdigest()[:32]
-    return os.path.join(_ROWS_DIR, "%s.json.gz" % h)
+    return os.path.join(_ROWS_DIR, "%s%s" % (h, _ROWS_SUFFIX))
+
+
+def _rows_stale(name):
+    """Is this directory entry a row file (current format or the JSON one it replaced)?"""
+    return name.endswith(_ROWS_SUFFIX) or name.endswith(".json.gz")
 
 
 def _rows_read(fp, sig):
-    """The stored rows for this (corpus, derived-inputs) pair, or None.
+    """(rows, meta) for this (corpus, derived-inputs) pair, or None.
 
     None on anything unexpected -- absent, unreadable, or built against different inputs. Every
     failure path rebuilds, which is slow but never wrong.
@@ -1584,25 +1800,25 @@ def _rows_read(fp, sig):
     if not fp or fp[0] is None or not sig:
         return None
     try:
-        with _gzip.open(_rows_path(fp), "rt", encoding="utf-8") as fh:
-            blob = json.load(fh)
+        with _gzip.open(_rows_path(fp), "rb") as fh:
+            blob = _pickle.load(fh)
+        if not isinstance(blob, dict):
+            return None
         if list(blob.get("fingerprint") or ()) != list(fp) or blob.get("sig") != sig:
             return None
         rows = blob.get("rows")
         if not isinstance(rows, list) or not rows:
             return None
-        for r in rows:                      # JSON has no tuples; restore the ones that were
-            for k in _ROWS_TUPLE_KEYS:
-                v = r.get(k)
-                if isinstance(v, list):
-                    r[k] = tuple(v)
-        return rows
+        meta = blob.get("meta")
+        if not isinstance(meta, dict) or "plan" not in meta:
+            return None                     # written by an older build: rebuild rather than guess
+        return rows, meta
     except Exception:
         return None
 
 
-def _rows_write(fp, sig, rows):
-    """Persist the built rows. Atomic, bounded, and never fails a request."""
+def _rows_write(fp, sig, rows, meta):
+    """Persist the built rows and their corpus-derived metadata. Atomic, bounded, never fatal."""
     if not fp or fp[0] is None or not sig or not rows:
         return
     try:
@@ -1610,15 +1826,16 @@ def _rows_write(fp, sig, rows):
         try:                                # bound the directory, oldest mtime first
             kept = sorted((os.path.getmtime(os.path.join(_ROWS_DIR, n)),
                            os.path.join(_ROWS_DIR, n))
-                          for n in os.listdir(_ROWS_DIR) if n.endswith(".json.gz"))
+                          for n in os.listdir(_ROWS_DIR) if _rows_stale(n))
             for _, path in kept[:max(0, len(kept) - _ROWS_MAX_FILES + 1)]:
                 os.remove(path)
         except Exception:
             pass
         target = _rows_path(fp)
         tmp = "%s.%d.tmp" % (target, os.getpid())
-        with _gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as fh:
-            json.dump({"fingerprint": list(fp), "sig": sig, "rows": rows}, fh)
+        with _gzip.open(tmp, "wb", compresslevel=1) as fh:
+            _pickle.dump({"fingerprint": list(fp), "sig": sig, "rows": rows, "meta": meta},
+                         fh, protocol=_ROWS_PROTOCOL)
         os.replace(tmp, target)             # two workers may write at once; readers see one file
     except Exception:
         pass                                # an optimization only
@@ -1628,7 +1845,7 @@ def _rows_clear():
     """Drop every stored row file. /reload and any corpus write mean rebuild."""
     try:
         for n in os.listdir(_ROWS_DIR):
-            if n.endswith(".json.gz"):
+            if _rows_stale(n):
                 os.remove(os.path.join(_ROWS_DIR, n))
     except Exception:
         pass
@@ -1642,11 +1859,21 @@ def _base_rows(persist=False):
     cache -- and rebuilding it per user is what made a cold feed render take 1,941 ms.
 
     Keyed on the jobs fingerprint rather than a TTL, so a scrape replaces it and nothing else
-    does. get_jobs() FIRST: it is the call that refreshes the fingerprint, exactly as
-    user_scores documents for the stored score file.
+    does.
+
+    THE CORPUS IS LOADED ONLY IF SOMETHING HAS TO BE BUILT, and that is where most of a cold
+    render went. This used to open with get_jobs(), on the reasoning that it is what refreshes
+    the fingerprint -- true, but the fingerprint is the only part needed, and _corpus_fp answers
+    it from a 120-byte sidecar under exactly the conditions get_jobs would have answered it from
+    the snapshot. A cold worker whose row file matches now serves the feed without parsing
+    46 MB of JSON it would immediately have thrown away: 616 ms measured at 40,294 rows.
+
+    persist=True (i.e. /warm) still loads it, deliberately. That path is off every user's
+    request, and having the source rows in hand is what lets the NEXT fingerprint move be
+    incremental instead of a full rebuild.
     """
-    rows = get_jobs()
-    fp = _jobs_cache.get("fp")
+    rows = get_jobs() if persist else None
+    fp = _jobs_cache.get("fp") if persist else _corpus_fp()
     # "DON'T KNOW" IS NOT A KEY, and the test for it is fp[0], not fp. db.jobs_fingerprint()
     # answers (None, "") when the probe is unavailable -- which is a non-empty tuple and so
     # perfectly TRUTHY. Keyed on that, two different unknown corpora compare equal and the
@@ -1672,12 +1899,24 @@ def _base_rows(persist=False):
         # scratch for ever. The whole file mechanism silently stopped updating, with /warm
         # reporting success the entire time.
         if persist and hit.get("persisted") != (key, sig):
-            _rows_write(key, sig, hit["rows"])
+            _rows_write(key, sig, hit["rows"], hit.get("meta") or {})
             hit["persisted"] = (key, sig)
         return hit["rows"]
 
-    built = _rows_read(key, sig) if key is not None else None
+    got = _rows_read(key, sig) if key is not None else None
+    built, meta = got if got is not None else (None, None)
     if built is None:
+        if rows is None:                         # only now is the corpus actually needed
+            rows = get_jobs()
+            fp = _jobs_cache.get("fp")
+            # get_jobs may have found the corpus moved under the sidecar's answer. Re-key on
+            # what it actually read, or the file would be written under the wrong fingerprint.
+            key2 = tuple(fp) if fp and fp[0] is not None else None
+            if key2 != key:
+                key, sig = key2, (_derived_signature() if key2 is not None else "")
+                got = _rows_read(key, sig) if key is not None else None
+                if got is not None:
+                    built, meta = got
         # INCREMENTAL, and this is what makes a moving corpus survivable. jobs_fingerprint() is
         # (row count, max first_seen), so ONE new posting invalidates the built rows for 40,000
         # unchanged ones -- measured on production as a 4 s rebuild plus a 2.5 MB write, on the
@@ -1707,6 +1946,10 @@ def _base_rows(persist=False):
                 fresh += 1
             built.append(r)
             by_url[u] = (j, r)
+        # The corpus-derived half of what the per-user paths would otherwise recompute: which
+        # rows are duplicates of which, and how many postings each role family has. Both are
+        # facts about the postings, both were being paid per user, and both travel in the file.
+        meta = {"plan": _dedupe_plan(built), "roles": _role_counts_for(rows)}
         # WRITING IS 94% OF THIS PATH, so a request does not do it. Measured at 40,294 rows:
         # the incremental build is 138 ms (28 ms to value-compare every row, 105 ms to rebuild
         # the url map, 4 ms to build the ~120 genuinely new ones) while _rows_write is 2,153 ms
@@ -1729,19 +1972,24 @@ def _base_rows(persist=False):
         #     2,100 ms of gzip in front of a request to save nobody very much; /warm has it
         #     within five minutes.
         if persist or prior is None:
-            _rows_write(key, sig, built)
+            _rows_write(key, sig, built, meta)
             _base_rows_cache["persisted"] = (key, sig)
         _base_rows_cache["by_url"] = by_url
         _base_rows_cache["fresh"] = fresh        # what /warm reports, so the win is observable
     else:
-        # Came from the file, so there are no source rows to diff against next time. Pair them
-        # up now: the alternative is that the first fingerprint move after a cold start pays a
-        # full rebuild anyway, which is the case this whole path exists to remove.
-        _base_rows_cache["by_url"] = {r["url"]: (j, r) for j, r in
-                                      zip((x for x in rows if x.get("url")), built)}
+        # Came from the file. PAIR THE SOURCE ROWS UP ONLY IF WE ALREADY HAVE THEM -- otherwise
+        # this would reintroduce the 46 MB read the file hit just avoided, to buy an incremental
+        # rebuild on some later fingerprint move that /warm reaches first anyway. persist=True
+        # always has them, so /warm keeps the incremental path alive off the request path.
+        if rows is not None:
+            _base_rows_cache["by_url"] = {r["url"]: (j, r) for j, r in
+                                          zip((x for x in rows if x.get("url")), built)}
+        else:
+            _base_rows_cache["by_url"] = None
         _base_rows_cache["fresh"] = 0
     # An unusable key stores None, so the next call rebuilds rather than trusting this one.
     _base_rows_cache["fp"], _base_rows_cache["sig"], _base_rows_cache["rows"] = key, sig, built
+    _base_rows_cache["meta"] = meta
     return built
 
 
@@ -1754,19 +2002,25 @@ def ranked_rows(username, resume):
     if key in _rows_cache:
         _rows_cache.move_to_end(key)         # a read is a use: see _score_cache
         return _rows_cache[key]
+    base = _base_rows()
     scores = user_scores(username, resume)
     # Shallow copies over the shared base, so a per-user row can carry a per-user score without
     # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
     # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
     # missing number rather than a false one.
-    rows = [dict(r, score=(0 if r["score_pending"] else scores.get(r["url"], 0)))
-            for r in _base_rows()]
+    def score_of(r):
+        return 0 if r["score_pending"] else scores.get(r["url"], 0)
     # DEDUPE AFTER THE OVERLAY, NOT BEFORE, and this is the one ordering constraint here.
     # _dupe_rank tie-breaks on r["score"] -- it prefers the copy that HAS a score -- so folding
-    # duplicates in _base_rows() while every score is still 0 would pick a different survivor
-    # than this user's scores imply, and the two feeds would disagree about which host's copy of
-    # a Greenhouse posting they are showing.
-    rows = _dedupe_rows(rows)
+    # duplicates while every score is still 0 would pick a different survivor than this user's
+    # scores imply, and the two feeds would disagree about which host's copy of a Greenhouse
+    # posting they are showing. _apply_dedupe_plan preserves that: the GROUPING is corpus work
+    # and moved into _base_rows, the CHOICE still runs here against scored copies.
+    plan = (_base_rows_cache.get("meta") or {}).get("plan")
+    if plan is not None and len(plan) <= len(base):
+        rows = _apply_dedupe_plan(base, plan, score_of)
+    else:                                    # no plan (older file, or an unusable key): as before
+        rows = _dedupe_rows([dict(r, score=score_of(r)) for r in base])
     rows.sort(key=lambda r: r["score"], reverse=True)
     # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
     # against — so it gets the same derived limit rather than a second constant to keep in step.
@@ -3915,7 +4169,7 @@ def reload_jobs():
     _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
     _rows_cache.clear()
     _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
-                            persisted=None)   # the shared half of _rows_cache
+                            persisted=None, meta=None)   # the shared half of _rows_cache
     _rows_clear()                                              # ...and its on-disk copy
     _profile_cache.clear()
     _resume_cache.clear()
@@ -5685,7 +5939,7 @@ def _bust_job_caches():
     _scores_clear()
     _rows_cache.clear()
     _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
-                            persisted=None)   # the shared half of _rows_cache
+                            persisted=None, meta=None)   # the shared half of _rows_cache
     _rows_clear()                                              # ...and its on-disk copy
     _sponsor_cache.clear()
     _admin_stats_cache["data"] = None
@@ -7654,9 +7908,17 @@ def role_counts():
         return _role_counts_cache["v"]
     counts = {k: 0 for k in core.ROLE_KEYS}
     try:
-        for j in get_jobs():
-            for k in core.roles_for_title(j.get("title")):
-                counts[k] += 1
+        # THE CORPUS IS NOT LOADED FOR THIS. It is a whole-corpus pass over raw titles on the
+        # hottest route in the app, and on a cold worker that meant parsing 46 MB of snapshot
+        # for a handful of integers -- after _base_rows had just served the feed without it.
+        # The counts are built with the rows and travel in the same file; falling back to
+        # get_jobs only when there is no file to read keeps the old behaviour available.
+        _base_rows()
+        stored = (_base_rows_cache.get("meta") or {}).get("roles")
+        if stored:
+            counts = {k: int(stored.get(k, 0)) for k in core.ROLE_KEYS}
+        else:
+            counts = _role_counts_for(get_jobs())
     except Exception:
         pass                                   # a picker without counts still works
     _role_counts_cache.update(at=now, v=counts)

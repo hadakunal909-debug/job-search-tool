@@ -15,6 +15,7 @@ QUIETLY rather than loudly:
 import os
 import re
 import sys
+import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -104,6 +105,17 @@ JOBS = [
 
 # Keep this test off the network and off the database.
 web.get_jobs = lambda: [dict(j) for j in JOBS]
+# STUBBING get_jobs IS NOT ENOUGH ON ITS OWN. web._corpus_fp() answers the corpus
+# fingerprint from a sidecar or the database probe WITHOUT loading the corpus, and
+# _base_rows then reads row_cache/ under that key -- so with a real fingerprint in
+# reach these synthetic jobs are silently replaced by whatever the developer last
+# built. Filling _jobs_cache (rows, a fake fp, and a FRESH `at`) makes the memory
+# branch win, which is the same thing .claude/devpreview.py does and for the same
+# reason. scripts/run_tests.py also points ROWS_DIR at an empty directory.
+web._jobs_cache.update(rows=[dict(j) for j in JOBS], fp=(len(JOBS), "jobpage"),
+                       at=time.time())
+web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None, meta=None)
 web._session_dead = lambda u: ""
 web._needs_onboarding = lambda u: False
 web.current_profile = lambda: "python sql aws docker terraform spark airflow"
@@ -199,8 +211,9 @@ check("jobpage.js is loaded, app.js is not",
 # app.js keys off #feed to decide it is on a feed page. Shipping one here would have it try to
 # render a card grid into the job page.
 check("no #feed on the page", 'id="feed"' not in body)
-check("the route attribute is present", 'data-route="' in body,
-      re.search(r'data-route="([a-z_]*)"', body).group(1))
+_route = re.search(r'data-route="([a-z_]*)"', body)
+check("the route attribute is present", _route is not None,
+      _route.group(1) if _route else "no data-route in %d bytes" % len(body))
 
 print()
 print("THE DESCRIPTION")

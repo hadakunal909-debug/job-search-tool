@@ -254,7 +254,7 @@ footer {
 <body>
 <div class=wrap>
 <h1>JobMatch &mdash; the shape of it</h1>
-<p class=lede>Four pictures. Everything on them is extracted from the code by <code>scripts/build_docs.py</code>, so a number here cannot be older than the last commit. 46 files, 2,085 top-level symbols, 87 routes, 1,192 boards.</p>
+<p class=lede>Four pictures. Everything on them is extracted from the code by <code>scripts/build_docs.py</code>, so a number here cannot be older than the last commit. 46 files, 2,094 top-level symbols, 87 routes, 1,192 boards.</p>
 <div class=key>
 <span><i class=web></i>&#9635; request-scoped &mdash; has session and request</span>
 <span><i class=sched></i>&#9719; scheduled &mdash; no session, filesystem discarded</span>
@@ -270,7 +270,7 @@ footer {
 <text class="t-web" x="14" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
 <text class="t-ink" x="14" y="80" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">FLASK APP</text>
 <text class="t-dim" x="14" y="99" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">Serves every page and API</text>
-<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  9,107 lines</text>
+<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  9,369 lines</text>
 <text class="t-dim" x="14" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">87 routes / 86 handlers</text>
 <text class="t-dim" x="14" y="147" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">NO blueprints -- one module</text>
 <text class="t-dim" x="14" y="163" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">templates/  33 files</text>
@@ -477,7 +477,7 @@ footer {
 <text class="t-web" x="14" y="56" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
 <text class="t-ink" x="14" y="76" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">the server feed</text>
 <text class="t-dim" x="14" y="95" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">web.py::_filter_rows</text>
-<text class="t-dim" x="14" y="111" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">line 2152</text>
+<text class="t-dim" x="14" y="111" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">line 2406</text>
 <text class="t-dim" x="14" y="127" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">docstring: &quot;Server-side mirror of app.js&quot;</text>
 <rect class="s-client" x="580" y="40" width="380" height="111" rx="10" fill="#e4e7ec" stroke="#5f6573" stroke-width="1.5"/>
 <text class="t-client" x="594" y="56" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3c414d">◻ BROWSER</text>
@@ -532,6 +532,7 @@ footer {
 <tr><td><code>jd_cache.json.gz</code></td><td>fetched descriptions <em>&mdash; second store of jobs.jd; they have diverged</em></td></tr>
 <tr><td><code>jdmeta.json</code></td><td>precomputed per-job term maps <em>&mdash; built on the Actions runner, whose filesystem is discarded</em></td></tr>
 <tr><td><code>jobs_snapshot.json.gz</code></td><td>cross-worker feed cache</td></tr>
+<tr><td><code>jobs_snapshot.json.gz.fp.json</code></td><td>its fingerprint, without the 46 MB around it <em>&mdash; stamped with the snapshot's stat; a mismatch is refused, never repaired</em></td></tr>
 <tr><td><code>last_new_jobs.json</code></td><td>one run's new rows <em>&mdash; the digest's only input</em></td></tr>
 <tr><td><code>jobs.csv</code></td><td>the no-credentials fallback store</td></tr>
 </tbody></table></div>
