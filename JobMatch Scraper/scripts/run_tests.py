@@ -131,6 +131,11 @@ SUITES = (
     Suite("test_jobs_cache",        "scripts/test_jobs_cache.py",        "scripts", "offline"),
     Suite("test_logos",             "scripts/test_logos.py",             "scripts", "offline"),
     Suite("test_notify",            "scripts/test_notify.py",            "scripts", "offline"),
+    # The role/employer norms. The synthetic half runs anywhere; the corpus half asserts
+    # against the committed norms.json, which is where a builder regression shows up --
+    # geography or an eligibility gate back inside "what this role asks for" passes every
+    # synthetic test.
+    Suite("test_norms",             "scripts/test_norms.py",             "scripts", "offline"),
     Suite("test_onboarding",        "scripts/test_onboarding.py",        "scripts", "offline"),
     Suite("test_paylocity",         "scripts/test_paylocity.py",         "scripts", "offline"),
     Suite("test_peoplesoft",        "scripts/test_peoplesoft.py",        "scripts", "offline"),
