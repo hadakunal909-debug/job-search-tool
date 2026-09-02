@@ -51,15 +51,15 @@
   {% endif %}
 </div>
 <p class="muted u-subnote">
-  A floor, not the billed figure — it counts this app's own tables only.
+  A floor, not the bill &mdash; this app's own tables only.
   {% if dbi.host and dbi.host.databases %}
   This account holds {{ dbi.host.databases|length }} Postgres database{{ '' if dbi.host.databases|length == 1 else 's' }}
   totalling {{ dbi.host.db_total_bytes|filesizeformat }}:
   {% for d in dbi.host.databases %}<b>{{ d.name }}</b> {{ d.bytes|filesizeformat }}{{ ', ' if not loop.last }}{% endfor %}.
   {% elif not dbi.host %}
-  Account-level disk and inode figures need <code>CPANEL_HOST</code>, <code>CPANEL_USER</code>
-  and <code>CPANEL_API_TOKEN</code> in the app environment — use a token restricted to
-  <code>Quota</code> and <code>Postgresql</code>.
+  Disk and inode figures need <code>CPANEL_HOST</code>, <code>CPANEL_USER</code> and
+  <code>CPANEL_API_TOKEN</code> in the environment. Restrict the token to <code>Quota</code> and
+  <code>Postgresql</code>.
   {% elif dbi.host.errors %}
   Could not read the host figures: {{ dbi.host.errors|join('; ') }}
   {% endif %}
@@ -68,7 +68,7 @@
 <section class="panel">
   <h2>Tables</h2>
   <p class="muted">
-    A wide Rows/<b>Est.</b> gap means stale statistics, not a bad count.
+    A wide Rows/<b>Est.</b> gap means stale stats, not a bad count.
   </p>
   <table class="adm-t">
     <thead><tr>
@@ -119,7 +119,7 @@
     <h2 class="u-m0">Health Checks</h2>
     <button id="runchecks" class="btn sm" type="button">Run Checks</button>
   </div>
-  <p class="muted">Not run on page load, because it is expensive.</p>
+  <p class="muted">Not run on page load &mdash; too expensive.</p>
   <div id="checks">
     {% if health %}{% include "_health_rows.html" %}
     {% else %}<p class="muted">Not run yet.</p>{% endif %}
@@ -131,8 +131,8 @@
   <h2>Remove Jobs</h2>
   {# Guardrail on a delete form — kept. Trimmed, not cut. #}
   <p class="muted">
-    Previews only; the delete is on the next screen. Liked, applied and hidden rows are always
-    kept. Max {{ '{:,}'.format(delete_max) }} rows.
+    Preview only &mdash; the delete is on the next screen. Saved, applied and hidden rows are
+    always kept. Max {{ '{:,}'.format(delete_max) }} rows.
   </p>
   <form method="post" action="{{ url_for('admin_jobs_preview') }}" class="delform">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
@@ -149,7 +149,7 @@
 <section class="panel">
   <h2>Blocked Companies</h2>
   <p class="muted">
-    Stops new rows arriving; doesn't remove stored ones. That's what makes a delete stick.
+    Stops new rows arriving. Doesn't remove stored ones &mdash; but it makes a delete stick.
   </p>
   {% if blocked %}
   <table class="adm-t">
@@ -213,11 +213,9 @@
     <span class="count-pill">{{ boards.tracked }} boards tracked{% if boards.updated_at %} · {{ boards.updated_at[:16]|replace('T', ' ') }}{% endif %}</span>
   </div>
   <p class="muted">
-    Cost by ATS on the most recent run, over the {{ boards.timed }} board(s) that actually ran.
-    Grouped by ATS rather than by board because the fix for a slow board is nearly always a fix
-    to its adapter, and one adapter carries hundreds of boards. The sweep is budgeted
-    (<code>SCRAPE_BUDGET_MIN</code>), so whatever dominates this table decides how much of the
-    board list a single run can reach.
+    Cost by ATS on the last run, over the {{ boards.timed }} board(s) that ran. By ATS, not by
+    board: one adapter carries hundreds of boards, so the adapter is where a slow board gets
+    fixed. Whatever dominates here decides how much of the board list a run reaches.
   </p>
   <table class="adm-t">
     <thead><tr><th>ATS</th><th class="num">Boards</th><th class="num">Seconds</th>
@@ -256,10 +254,9 @@
       <span class="count-pill">{{ boards.silent|length }}</span>
     </div>
     <p class="muted">
-      Fetched <b>successfully</b> and returned <b>nothing</b> for {{ boards.silent_runs }}+ runs
-      in a row. Not an error — which is exactly why it is easy to miss: the board has been
-      renamed, emptied, or walled off, and we are still paying its full fetch cost every run for
-      no postings. These are the candidates to retire.
+      Fetched fine, returned <b>nothing</b>, {{ boards.silent_runs }}+ runs running. Not an
+      error, which is why it hides: the board was renamed, emptied or walled off and we still pay
+      its full cost every run. Retire these.
     </p>
     <div class="adm-scroll">
       <table class="adm-t">
@@ -281,11 +278,10 @@
       <span class="count-pill">{{ boards.failing|length }}</span>
     </div>
     <p class="muted">
-      The last fetch <b>errored</b>, so we know nothing about what the board holds. Louder than
-      quiet, and treated separately on purpose: the closed-posting reconcile refuses to retire
-      anything from a board it could not read, so a failure here costs freshness rather than
-      inventory. A board the budget never <em>reached</em> is not in this list — it never
-      failed at anything, and counting it here is what used to bury the handful that did.
+      The last fetch <b>errored</b>, so we know nothing about this board. Separate from quiet on
+      purpose: the reconcile won't retire rows from a board it couldn't read, so this costs
+      freshness, not inventory. Boards the budget never <em>reached</em> are listed below, not
+      here &mdash; counting them here buried the ones that really failed.
     </p>
     <div class="adm-scroll">
       <table class="adm-t">
@@ -313,11 +309,9 @@
     <span class="count-pill">{{ boards.starved_n }}</span>
   </div>
   <p class="muted">
-    Never started, so there is nothing wrong with them — <code>SCRAPE_BUDGET_MIN</code> ran out
-    first. The sweep rotates its starting point daily so the starved slice moves, which means a
-    <b>streak</b> is the number that matters: one skip is the budget working as designed, a long
-    run of them is a board the rotation is not covering. The repair for a large count here is a
-    cheaper sweep, not a bigger budget.
+    Never started &mdash; <code>SCRAPE_BUDGET_MIN</code> ran out. The sweep rotates its start
+    point daily, so the <b>streak</b> is what matters: one skip is the budget working, a long run
+    is a board the rotation misses. Fix with a cheaper sweep, not a bigger budget.
   </p>
   <div class="adm-scroll">
     <table class="adm-t">
