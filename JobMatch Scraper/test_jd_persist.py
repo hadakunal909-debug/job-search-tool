@@ -705,6 +705,59 @@ def test_new_only_reaches_the_oldest_unscored_row_before_the_newest():
         assert fake.rows[_url(ch)]["match_score"] is None,             "row %s was written despite the budget stopping before it" % ch
 
 
+def test_the_probed_window_moves_from_one_run_to_the_next():
+    """THREE FIXED ROWS MUST NOT SPEAK FOR A WHOLE HOST.
+
+    _thin_retry_plan took `sorted(by_host[h])[:3]` -- the same three urls, alphabetically, on
+    every run forever. The daily seed rotated which HOSTS were due; nothing rotated which ROWS.
+    So a host whose first three urls happened to be unfetchable recorded a failure every single
+    run, doubled its backoff toward 64 days, and the rest of its backlog was never touched.
+
+    Measured on the live corpus 2026-09-01: apply.actalentservices.com held 755 rows the feed
+    was calling "JD pending" and sat at f=2, next=2026-09-05, while 31 of those rows were still
+    listed on the board and would have returned a 5,393-character description on request.
+    """
+    urls = ["https://shell.com/job/%02d" % i for i in range(30)]
+    day1 = sj._host_window(urls, 3, 40)
+    day2 = sj._host_window(urls, 3, 41)
+    assert day1 != day2, "the window did not move between runs: %r" % (day1,)
+    assert not (set(day1) & set(day2)),         "consecutive runs re-probed %r -- the offset must step by the WINDOW, not by 1"         % (sorted(set(day1) & set(day2)),)
+
+    # ...and it eventually reaches every row, which is the property the host-level backoff needs
+    # in order to ever be re-earned.
+    seen = set()
+    for d in range(len(urls)):
+        seen.update(sj._host_window(urls, 3, d))
+    assert seen == set(urls), "%d of %d rows are unreachable by any seed" % (len(seen), len(urls))
+
+
+def test_the_window_still_bounds_itself_at_the_edges():
+    """The rotation must not change the size of the bite, or THIN_PROBE_MAX stops bounding the
+    run -- and a wrapped window must not silently return fewer rows than it was asked for."""
+    urls = ["https://shell.com/job/%02d" % i for i in range(10)]
+    for seed in range(0, 97):
+        w = sj._host_window(urls, 3, seed)
+        assert len(w) == 3, "seed %d returned %d rows" % (seed, len(w))
+        assert len(set(w)) == 3, "seed %d returned a duplicate: %r" % (seed, w)
+        assert set(w) <= set(urls), "seed %d invented a url: %r" % (seed, w)
+    assert sj._host_window(urls, 3, 0) == urls[:3], "seed 0 must keep the plain head"
+    assert sj._host_window(urls[:2], 3, 7) == urls[:2], "a short list must not wrap onto itself"
+    assert sj._host_window([], 3, 7) == []
+    assert sj._host_window(urls, 0, 7) == []
+
+
+def test_rotation_does_not_loosen_the_per_host_cap():
+    """The cap is what makes an unreachable ledger safe. Rotating WHICH rows are taken must not
+    change HOW MANY -- the bound is by construction, not by the ledger."""
+    rows = _thin_rows(40)
+    cache = {r["url"]: _SHELL for r in rows}
+    for seed in (0, 1, 7, 13):
+        plan, hosts = sj._thin_retry_plan(sorted(cache), {}, sj._extractor_rev(),
+                                          "2026-09-02", seed=seed)
+        assert len(plan) == sj.THIN_PROBE_PER_HOST,             "seed %d planned %d probes; the cap is %d" % (seed, len(plan), sj.THIN_PROBE_PER_HOST)
+        assert hosts == ["shell.com"], hosts
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

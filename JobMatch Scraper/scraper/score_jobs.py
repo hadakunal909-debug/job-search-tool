@@ -48,6 +48,32 @@ PHENOM_JD_DETAILS_MAX = int(os.environ.get("PHENOM_JD_DETAILS_MAX") or 400)
 PHENOM_JD_WORKERS = 6
 
 
+def phenom_jd_by_id(origin, jid):
+    """The full description for one Phenom posting, from its jobDetail widget. "" on any failure.
+
+    PUBLIC and standalone because there are now two callers and they are in different modules:
+    _phenom_jd_map below (which has to pair applyUrl -> jobId off the search feed first) and the
+    SWEEP, which already holds the jobId from the listing response and needs no pairing at all.
+    One definition, because the two differ only in where the id came from.
+
+    Ask by id rather than fetching the Phenom job PAGE. Both work -- careers.<tenant>.com
+    /us/en/job/<id> renders the same text -- but the page is ~708 KB against a few KB of JSON
+    here, and at 400 rows a run that difference is ~280 MB of transfer on a box that is already
+    being SIGKILLed at a 1.2 GB memory cap.
+    """
+    try:
+        body = scraper._phenom_body(0, 1)
+        body.update({"ddoKey": "jobDetail", "jobId": jid,
+                     "pageName": "job-details", "pageId": "page-job-details"})
+        r = scraper._safe_post(origin.rstrip("/") + "/widgets", body, timeout=20)
+        if r.status_code != 200:
+            return ""
+        job = (((r.json() or {}).get("jobDetail") or {}).get("data") or {}).get("job") or {}
+        return _text(job.get("description") or "")
+    except Exception:
+        return ""
+
+
 def _phenom_jd_map(board_url, needed):
     """{applyUrl: full description} for a Phenom board.
 
@@ -97,17 +123,7 @@ def _phenom_jd_map(board_url, needed):
 
     def _detail(item):
         u, jid = item
-        try:
-            body = scraper._phenom_body(0, 1)
-            body.update({"ddoKey": "jobDetail", "jobId": jid,
-                         "pageName": "job-details", "pageId": "page-job-details"})
-            r = scraper._safe_post(origin + "/widgets", body, timeout=20)
-            if r.status_code != 200:
-                return u, ""
-            job = (((r.json() or {}).get("jobDetail") or {}).get("data") or {}).get("job") or {}
-            return u, _text(job.get("description") or "")
-        except Exception:
-            return u, ""
+        return u, phenom_jd_by_id(origin, jid)
 
     out = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=PHENOM_JD_WORKERS) as ex:
@@ -1312,6 +1328,39 @@ def _thin_host(url):
     return (urlparse(url or "").netloc or "?").lower()
 
 
+def _host_window(urls, n, seed):
+    """The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow.
+
+    This used to be `sorted(by_host[h])[:n]` -- the same three URLs, alphabetically, on every
+    single run forever. The daily `seed` above rotates which HOSTS are due; nothing rotated which
+    ROWS within a host, so a host whose first three URLs happened to be unfetchable recorded a
+    failure every time, doubled its backoff toward 64 days, and the rest of its backlog was never
+    touched at all.
+
+    That is not hypothetical. Measured on the live corpus 2026-09-01: apply.actalentservices.com
+    held 755 rows the feed called "JD pending" and sat at f=2 with next=2026-09-05, while 31 of
+    those rows were still listed on the board and would have returned a 5,393-character
+    description on request. Three fixed draws spoke for 755 rows.
+
+    The offset is `seed * n`, not `seed`. With a bare seed, consecutive days share n-1 of their n
+    rows -- day 40 draws [40,41,42] and day 41 draws [41,42,43] -- so a host is re-probed almost
+    entirely on rows that just failed. Stepping by the window size makes each run a fresh window
+    and walks the whole backlog in len(urls)/n runs.
+
+    seed=0 keeps the plain head, which is what the existing tests pin and what a caller that does
+    not care about rotation gets.
+    """
+    if not urls or n <= 0:
+        return []
+    if not seed or len(urls) <= n:
+        return urls[:n]
+    off = (seed * n) % len(urls)
+    # Modulo indexing rather than a slice, so the window wraps instead of being truncated when
+    # the offset lands near the end -- otherwise the tail of every list is probed less often than
+    # its head, which is a quieter version of the bug this function exists to fix.
+    return [urls[(off + i) % len(urls)] for i in range(n)]
+
+
 def _thin_retry_plan(thin_urls, ledger, rev, today, seed=0):
     """(urls to probe, hosts probed) for this run.
 
@@ -1343,7 +1392,8 @@ def _thin_retry_plan(thin_urls, ledger, rev, today, seed=0):
     for fails, _neg, h in due:
         rec = hosts.get(h) or {}
         hot = int(rec.get("f") or 0) == 0 and int(rec.get("ok") or 0) > 0
-        take = sorted(by_host[h])[:(THIN_DRAIN_MAX if hot else THIN_PROBE_PER_HOST)]
+        take = _host_window(sorted(by_host[h]),
+                            THIN_DRAIN_MAX if hot else THIN_PROBE_PER_HOST, seed)
         if not take:
             continue
         probed.append(h)
