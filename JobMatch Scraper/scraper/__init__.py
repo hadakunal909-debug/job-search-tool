@@ -3898,9 +3898,28 @@ def scrape_phenom(board_url):
             seen.add(url)
             loc = ", ".join(x for x in (j.get("city"), j.get("state"), j.get("country")) if x) \
                   or (j.get("cityState") or "")
-            rows.append({"title": (j.get("title") or "").strip(), "url": url,
-                         "location": loc,
-                         "found_date": (str(j.get("postedDate") or j.get("dateCreated") or ""))[:10]})
+            row = {"title": (j.get("title") or "").strip(), "url": url,
+                   "location": loc,
+                   "found_date": (str(j.get("postedDate") or j.get("dateCreated") or ""))[:10]}
+            # CARRY THE ID FORWARD, because for a Phenom tenant with an external applyUrl the
+            # stored url is the ONLY thing about this posting that cannot be read later.
+            #
+            # Actalent is the case that proves it. Its applyUrl is a Salesforce Lightning app
+            # that serves one 448,446-byte shell for every job -- byte-identical across four
+            # postings, measured -- so detail_jd gets nothing from the row we store. The
+            # description is available the whole time from this tenant's own jobDetail widget,
+            # keyed by exactly the id sitting in this response.
+            #
+            # And the window is SHORT. Measured 2026-09-01 against the live board: of 755
+            # Actalent rows the feed was calling "JD pending", only 31 (4.1%) were still listed.
+            # 724 had already left. Coming back for the description a few hours later loses that
+            # race ~96% of the time, which is why this is captured here rather than queued for
+            # score_jobs. FIELDNAMES filters the row on the way into the database, so these two
+            # keys never reach a column.
+            if j.get("jobId"):
+                row["_phenom_jid"] = j["jobId"]
+                row["_phenom_origin"] = base
+            rows.append(row)
         offset += len(jobs)
         if total and offset >= total:
             break
@@ -7428,18 +7447,82 @@ JD_LOOKUP_WORKERS = int(os.environ.get("JD_LOOKUP_WORKERS") or 8)
 # The runner killed it 0.14 s after it printed its last line, and because GitHub skips every
 # later step once one fails, that one overrun also cost the score pass and the digest.
 JD_LOOKUP_BUDGET_MIN = float(os.environ.get("JD_LOOKUP_BUDGET_MIN") or 3)
+# A LOWER PER-EMPLOYER CEILING FOR THE RESCUE QUEUE THAN FOR THE KEEP QUEUE. A rescued posting is
+# a guess we are paying to check; a kept one is a job that is going into the feed either way and
+# will read "JD pending" without this. Same shape, different price.
+JD_LOOKUP_PER_KEPT_BOARD = int(os.environ.get("JD_LOOKUP_PER_KEPT_BOARD") or 300)
+
+# BOTH BUDGETS ABOVE SPAN THE RUN, NOT THE SLICE -- and until 2026-09-02 neither did.
+#
+# fill_missing_jds is called once per SLICE, and both ceilings were evaluated fresh on every
+# call, so SCRAPE_SLICE=100 over a 2,032-board list turned "1,200 fetches and 3 minutes" into 21
+# x 1,200 = 25,200 fetches and 63 minutes. The 2026-09-01 20:00 cron run spent its entire life
+# in this phase: two slices of twenty-one in fifteen minutes, 1,688 description fetches, and 4
+# descriptions stored for the 121 rows it actually kept.
+#
+# test_scrape_slice.py already froze this exact lesson for SCRAPE_BUDGET_MIN ("THE BUDGET MUST
+# SPAN THE RUN, NOT RESET PER SLICE"). This pair was added after the slicing and never got it.
+#
+# main() arms this once before the slice loop. A direct call arms it lazily, so a unit test or a
+# one-off script still gets a bounded pass without knowing the protocol.
+_JD_RUN = {"spent": 0, "deadline": None, "armed": False}
 
 
-def fill_missing_jds(scraped, seen, blocked):
-    """Fetch descriptions for the postings a second opinion could plausibly rescue.
+def reset_jd_lookup_budget():
+    """Start a new run's description budget. Called once by main(), before the slices."""
+    _JD_RUN["spent"] = 0
+    _JD_RUN["armed"] = True
+    _JD_RUN["deadline"] = ((time.monotonic() + JD_LOOKUP_BUDGET_MIN * 60)
+                           if JD_LOOKUP_BUDGET_MIN > 0 else None)
 
-    Mutates rows in place, setting j["jd"]. Returns (fetched, rescued_candidates) for the run
-    summary. Never raises: a JD lookup failing is a posting that drops on its title, which is
-    exactly what would have happened without this pass.
+
+def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
+    """Buy descriptions for this slice's postings, KEPT ONES FIRST.
+
+    Mutates rows in place, setting j["jd"]. Returns (attempted, usable) for the run summary.
+    Never raises: a JD lookup failing is a posting that drops on its title or reads "JD pending"
+    for a while, which is exactly what would have happened without this pass.
+
+    TWO QUEUES, AND THE ORDER BETWEEN THEM IS THE WHOLE POINT OF THIS FUNCTION.
+
+      KEEP    the posting already passed the title filter, so it is going into the corpus, and it
+              has no description. Without one it lands with an empty jd and an empty jd_terms, and
+              the card reads "JD pending" with no match number until some later scoring pass gets
+              to it -- if the posting is still readable by then, which on a fast-turnover board it
+              will not be.
+      RESCUE  the title said nothing useful and a description might overturn that. This is what
+              the function was originally built for, and it is now SECOND rather than only.
+
+    Until 2026-09-02 the keep queue did not exist: the loop below read `if keep: continue` and
+    every fetch went to the rescue queue. What that looked like in production, from the cron log
+    of the 2026-09-01 20:00 run, one slice:
+
+        JD lookup: fetching 1200 description(s) for title-rejected postings
+        JD lookup: 1200 of 1200 returned a usable description.
+        add_jobs (105 rows)
+        Stored 4 description(s) that arrived with the listing.
+
+    1,200 descriptions bought for postings that were then discarded; 4 for the 105 rows kept.
+    Measured the same day: 404 of the 2,274 rows added (17.8%) landed with no description at all
+    -- Google 148, Cognizant 113, and a 143-row tail -- every one of them readable on request.
+    Nothing had asked.
+
+    The keep queue is CHEAP, which is why this is a reordering rather than a new cost: roughly
+    400 fetches for a whole run, against the 25,200 the rescue queue could previously reach.
     """
     if JD_LOOKUP_BUDGET <= 0:
         return 0, 0
-    per_board, want = {}, []
+    if not _JD_RUN["armed"]:                          # direct call (test, one-off script)
+        reset_jd_lookup_budget()
+    left = JD_LOOKUP_BUDGET - _JD_RUN["spent"]
+    if left <= 0:
+        return 0, 0
+    if _JD_RUN["deadline"] is not None and time.monotonic() >= _JD_RUN["deadline"]:
+        return 0, 0
+
+    from . import score_jobs                           # lazy: see the note above
+    keep_board, resc_board = {}, {}
+    priority, rescue = [], []
     for j in scraped:
         if len((j.get("jd") or "").strip()) >= core._MIN_JD_CHARS:
             continue                                  # the board already gave us one
@@ -7459,26 +7542,61 @@ def fill_missing_jds(scraped, seen, blocked):
                         or title_says_non_us(title)):
             continue
         keep, why = title_verdict(title)
-        if keep or why.startswith("off-target"):
-            continue                                  # kept already, or vetoed and not ours to
-        if not core.pm_title_gate(title):             # overturn
+        if keep:
+            # THE FRESHNESS GATE, MIRRORED FROM THE KEEP LOOP RATHER THAN APPROXIMATED -- same
+            # expression, including the per-row long-lived choice. A looser rule here would buy
+            # descriptions for postings the loop is about to drop on their age; a tighter one
+            # would skip rows it is about to admit.
+            if age_cutoff:
+                posted = (j.get("found_date") or "")[:10]
+                cut = long_cutoff if db.is_long_lived(url) else age_cutoff
+                if posted and posted < cut:
+                    continue
+            bucket, per_board, cap = priority, keep_board, JD_LOOKUP_PER_KEPT_BOARD
+        elif why.startswith("off-target"):
+            continue                                  # vetoed, and not ours to overturn
+        elif not core.pm_title_gate(title):
             continue
+        else:
+            bucket, per_board, cap = rescue, resc_board, JD_LOOKUP_PER_BOARD
         c = j.get("company", "")
-        if per_board.get(c, 0) >= JD_LOOKUP_PER_BOARD:
+        if per_board.get(c, 0) >= cap:
             continue
         per_board[c] = per_board.get(c, 0) + 1
-        want.append(j)
-        if len(want) >= JD_LOOKUP_BUDGET:
+        if len(bucket) < left:
+            bucket.append(j)
+        # Stop only when BOTH queues are full. Breaking on the rescue queue alone is how a
+        # priority queue silently turns back into a second rescue queue: on a slice whose first
+        # boards are title-poor, rescue fills in the first few hundred postings and every kept
+        # row after that would never be seen.
+        if len(priority) >= left and len(rescue) >= left:
             break
+
+    want = priority[:left]
+    n_keep = len(want)
+    if len(want) < left:
+        want += rescue[:left - len(want)]
     if not want:
         return 0, 0
 
-    from . import score_jobs                           # lazy: see the note above
-    print("JD lookup: fetching %d description(s) for title-rejected postings across %d employer(s)"
-          % (len(want), len(per_board)))
+    # The employer count is derived from `want`, not from the per-board tallies. Those keep
+    # counting after a queue is full, so they describe what was CONSIDERED -- and this line is
+    # read as a description of what is about to be fetched.
+    print("JD lookup: fetching %d description(s) -- %d for postings we are KEEPING, %d to"
+          " second-guess a title -- across %d employer(s)"
+          % (len(want), n_keep, len(want) - n_keep,
+             len({j.get("company", "") for j in want})))
 
     def one(j):
         try:
+            # ASK PHENOM BY ID. For a Phenom tenant with an external applyUrl the url we store is
+            # an apply app that renders no description at all (Actalent serves one 448 KB shell
+            # for every job), so detail_jd on it is a guaranteed-empty round trip. scrape_phenom
+            # carried the jobId here for exactly this. One definition of the request, over in
+            # score_jobs, shared with _phenom_jd_map.
+            jid, origin = j.get("_phenom_jid"), j.get("_phenom_origin")
+            if jid and origin:
+                return j, score_jobs.phenom_jd_by_id(origin, jid)
             _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
             return j, jd or ""
         except Exception:
@@ -7494,7 +7612,10 @@ def fill_missing_jds(scraped, seen, blocked):
     # Truncating is the same no-op the docstring promises for a failed fetch: an unfetched row
     # drops on its title, and since it was never stored it is offered again on the next run.
     got, tried = 0, 0
-    deadline = (time.monotonic() + JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
+    # THE RUN'S deadline, not a fresh one per slice. Computing it here was the whole per-slice
+    # bug: with SCRAPE_SLICE=100 over 2,032 boards this line handed out twenty-one separate
+    # three-minute budgets. See _JD_RUN.
+    deadline = _JD_RUN["deadline"]
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
     try:
         futures = [ex.submit(one, j) for j in want]
@@ -7510,11 +7631,15 @@ def fill_missing_jds(scraped, seen, blocked):
         except concurrent.futures.TimeoutError:
             # NOT the builtin: on 3.9 concurrent.futures.TimeoutError is its own class and is not
             # a subclass of builtins.TimeoutError. On 3.11+ it is an alias, so this covers both.
-            print("  !! JD lookup budget of %g min ran out after %d of %d fetch(es) -- the rest"
-                  " drop on their titles and are offered again next run."
+            print("  !! JD lookup budget of %g min ran out for the RUN after %d of %d fetch(es)"
+                  " in this slice -- the rest are offered again next run."
                   % (JD_LOOKUP_BUDGET_MIN, tried, len(want)))
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+    # Spend against the RUN's allowance, not this slice's. Counting `tried` rather than
+    # len(want) keeps a slice cut short by the deadline from being charged for work it never
+    # did -- which matters because the next slice reads what is left to decide its own size.
+    _JD_RUN["spent"] += tried
     # `tried`, not len(want): the caller prints this as "N of M returned a usable description",
     # and M has to be what was actually asked for or a truncated pass reads as a failure rate.
     return tried, got
@@ -8315,6 +8440,45 @@ def _release_memory():
         pass
 
 
+SCRAPE_MEMPROF = (os.environ.get("SCRAPE_MEMPROF") or "").strip() in ("1", "true", "yes")
+
+
+def _memprof_report(slice_n, top=10):
+    """Name what is actually holding memory at a slice boundary. Off unless SCRAPE_MEMPROF=1.
+
+    WHY THIS EXISTS RATHER THAN A GUESS. The [mem] line above already answers "how much" and it
+    has been enough to rule things OUT, but not to find the cause. On 2026-09-01 it read 262 MB
+    after slice 1 and 483 MB after slice 2 of 21, and the only quantity it names -- the urls held
+    in board_results -- grew by 85,356 strings over that step, which is roughly 19 MB. So about
+    200 MB of the 221 MB was something the instrumentation could not see, and the run was
+    SIGKILLed at the ~1.2 GB CloudLinux LVE cap three slices in.
+
+    _release_memory() has already run by the time this is called, so what it reports is what
+    SURVIVED a gc.collect() and a malloc_trim -- live objects, not allocator high-water mark.
+    That distinction is the whole reason the earlier arena theory was worth testing and wrong.
+
+    tracemalloc roughly doubles allocation cost, which is why this is opt-in: it is a diagnostic
+    to run once against a real sweep, not something to leave on in cron.
+    """
+    if not SCRAPE_MEMPROF:
+        return
+    try:
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            tracemalloc.start(1)
+            print("  [memprof] tracing started; the first slice is the baseline")
+            return
+        snap = tracemalloc.take_snapshot()
+        print("  [memprof] top %d allocation sites after slice %d" % (top, slice_n))
+        for st in snap.statistics("lineno")[:top]:
+            fr = st.traceback[0]
+            print("      %8.1f MB  %6d blocks  %s:%d"
+                  % (st.size / 1048576.0, st.count,
+                     fr.filename.replace(os.getcwd() + os.sep, ""), fr.lineno))
+    except Exception as e:
+        print("  [memprof] unavailable (%s)" % str(e)[:70])
+
+
 def save_board_health(board_results):
     """Record what every board returned this run, and print the ones worth looking at.
 
@@ -8756,6 +8920,9 @@ def main():
     # contract scrape_all has always had for boards, one level up.
     _sweep_t0 = time.monotonic()
     _slice_n = 0
+    # Arm the description budget ONCE for the whole run. fill_missing_jds is called per slice and
+    # used to re-derive both its ceilings on every call; see _JD_RUN.
+    reset_jd_lookup_budget()
     for _sl in _slices:
         _slice_n += 1
         def _sl_progress(done, total, found, phase="scraping", force=False):
@@ -8801,7 +8968,8 @@ def main():
         kept = []
         listing_jds = {}
         try:
-            jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked)
+            jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked,
+                                                age_cutoff, long_cutoff)
             if jd_tried:
                 print("JD lookup: %d of %d returned a usable description." % (jd_got, jd_tried))
         except Exception as e:
@@ -8955,6 +9123,7 @@ def main():
               " %d url(s), %d kept row(s)"
               % (_rss_mb(), _slice_n, len(_slices), len(board_results),
                  _urls_held, len(all_kept)))
+        _memprof_report(_slice_n)
 
     if fp_seen:
         # Broken out by host on purpose. The check keys off "is this an aggregator row", not
