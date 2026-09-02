@@ -7451,6 +7451,23 @@ JD_LOOKUP_BUDGET_MIN = float(os.environ.get("JD_LOOKUP_BUDGET_MIN") or 3)
 # a guess we are paying to check; a kept one is a job that is going into the feed either way and
 # will read "JD pending" without this. Same shape, different price.
 JD_LOOKUP_PER_KEPT_BOARD = int(os.environ.get("JD_LOOKUP_PER_KEPT_BOARD") or 300)
+# THE KEEP QUEUE IS UNCAPPED BY DEFAULT, AND THAT IS THE WHOLE POINT.
+#
+# A posting that has passed the title filter is going into the feed. If it goes in without a
+# description it reads "JD pending" with no match number, and on a fast-turnover board the
+# posting is gone before any later pass can fetch one -- measured on Actalent, only 31 of 755
+# such rows were still on their board when we went back. So the description has to be bought
+# now, and a counter running out is not a good enough reason not to buy it.
+#
+# 0 = no count limit. The variable exists so a pathological run can be pegged from the
+# environment without a deploy, not because a limit is wanted.
+#
+# The clock is a runaway guard, not a budget: 45 minutes against a measured ~20 (about 700 of
+# the 917 rows a full 21-slice sweep keeps need a fetch, at ~34 fetches/min on 6 workers) and
+# a 3-hour gap between the 17:00 and 20:00 UTC cron slots. A phase with no clock at all is what
+# overran the CI step in August; a guard that never fires costs nothing.
+JD_KEEP_BUDGET = int(os.environ.get("JD_KEEP_BUDGET") or 0)
+JD_KEEP_BUDGET_MIN = float(os.environ.get("JD_KEEP_BUDGET_MIN") or 45)
 
 # BOTH BUDGETS ABOVE SPAN THE RUN, NOT THE SLICE -- and until 2026-09-02 neither did.
 #
@@ -7465,7 +7482,10 @@ JD_LOOKUP_PER_KEPT_BOARD = int(os.environ.get("JD_LOOKUP_PER_KEPT_BOARD") or 300
 #
 # main() arms this once before the slice loop. A direct call arms it lazily, so a unit test or a
 # one-off script still gets a bounded pass without knowing the protocol.
-_JD_RUN = {"spent": 0, "secs_left": None, "armed": False}
+# TWO PURSES, because the two queues are not the same kind of work. Keeping them in one dict
+# rather than two module globals keeps reset_jd_lookup_budget the single place they are armed.
+_JD_RUN = {"keep_spent": 0, "keep_secs": None,
+           "resc_spent": 0, "resc_secs": None, "armed": False}
 
 
 def reset_jd_lookup_budget():
@@ -7485,9 +7505,72 @@ def reset_jd_lookup_budget():
     database time are not charged to it, because none of them are what the budget is protecting
     against.
     """
-    _JD_RUN["spent"] = 0
+    _JD_RUN["keep_spent"] = _JD_RUN["resc_spent"] = 0
     _JD_RUN["armed"] = True
-    _JD_RUN["secs_left"] = (JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
+    _JD_RUN["keep_secs"] = (JD_KEEP_BUDGET_MIN * 60) if JD_KEEP_BUDGET_MIN > 0 else None
+    _JD_RUN["resc_secs"] = (JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
+
+
+def _fetch_jd_queue(items, secs_left, label, score_jobs):
+    """Fetch descriptions for one queue. Returns (tried, got, seconds_left_after).
+
+    ONE QUEUE PER CALL, and that is what lets the two purses have different clocks:
+    as_completed takes a single timeout, so two queues sharing one executor would have to share
+    one deadline, and the uncapped keep queue would then hand its 45 minutes to the rescue queue
+    it is supposed to outrank. Calling this twice also makes "kept rows first" structural rather
+    than an artefact of the order `want` happened to be built in.
+
+    Mutates the rows in place, setting j["jd"]. Never raises.
+    """
+    if not items:
+        return 0, 0, secs_left
+
+    def one(j):
+        try:
+            # ASK PHENOM BY ID. For a Phenom tenant with an external applyUrl the url we store is
+            # an apply app that renders no description for any job (Actalent serves one 448 KB
+            # shell for every posting), so detail_jd on it is a guaranteed-empty round trip.
+            # scrape_phenom carried the jobId here for exactly this.
+            jid, origin = j.get("_phenom_jid"), j.get("_phenom_origin")
+            if jid and origin:
+                return j, score_jobs.phenom_jd_by_id(origin, jid)
+            _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
+            return j, jd or ""
+        except Exception:
+            return j, ""
+
+    got, tried = 0, 0
+    t0 = time.monotonic()
+    deadline = (t0 + secs_left) if secs_left is not None else None
+    # ex.map WOULD NOT HAVE SURVIVED THE TIMEOUT, which is why this is submit/as_completed: map
+    # submits every future up front, so the `with` block's shutdown(wait=True) drains all of them
+    # on the way out no matter where the loop stopped. Only shutdown(cancel_futures=True) drops
+    # the queued work. The requests already in flight still finish, so the overshoot is one fetch
+    # per worker, not one pass. cancel_futures needs Python 3.9, which is what cPanel runs.
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
+    try:
+        futures = [ex.submit(one, j) for j in items]
+        try:
+            for f in concurrent.futures.as_completed(
+                    futures,
+                    timeout=None if deadline is None else max(0.1, deadline - time.monotonic())):
+                j, jd = f.result()
+                tried += 1
+                if len(jd) >= core._MIN_JD_CHARS:
+                    j["jd"] = jd
+                    got += 1
+        except concurrent.futures.TimeoutError:
+            # NOT the builtin: on 3.9 concurrent.futures.TimeoutError is its own class and is not
+            # a subclass of builtins.TimeoutError. On 3.11+ it is an alias, so this covers both.
+            print("  !! JD lookup clock ran out while %s -- %d of %d fetched in this slice;"
+                  " the rest are offered again next run." % (label, tried, len(items)))
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+        # Charged in the `finally` so an exception cannot leave the purse full and let the next
+        # slice spend the same seconds again.
+        if secs_left is not None:
+            secs_left = max(0.0, secs_left - (time.monotonic() - t0))
+    return tried, got, secs_left
 
 
 def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
@@ -7524,15 +7607,20 @@ def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
     The keep queue is CHEAP, which is why this is a reordering rather than a new cost: roughly
     400 fetches for a whole run, against the 25,200 the rescue queue could previously reach.
     """
-    if JD_LOOKUP_BUDGET <= 0:
-        return 0, 0
     if not _JD_RUN["armed"]:                          # direct call (test, one-off script)
         reset_jd_lookup_budget()
-    left = JD_LOOKUP_BUDGET - _JD_RUN["spent"]
-    if left <= 0:
-        return 0, 0
-    secs_left = _JD_RUN["secs_left"]
-    if secs_left is not None and secs_left <= 0:
+    # ROOM IN EACH PURSE, INDEPENDENTLY. keep_room None means uncapped, which is the default.
+    # Note there is no `if JD_LOOKUP_BUDGET <= 0: return` any more: that used to disable the
+    # whole phase, and now zero means "buy nothing speculative", which must not stop us buying
+    # descriptions for postings we are about to store.
+    keep_room = None if JD_KEEP_BUDGET <= 0 else max(0, JD_KEEP_BUDGET - _JD_RUN["keep_spent"])
+    resc_room = max(0, JD_LOOKUP_BUDGET - _JD_RUN["resc_spent"]) if JD_LOOKUP_BUDGET > 0 else 0
+    keep_secs, resc_secs = _JD_RUN["keep_secs"], _JD_RUN["resc_secs"]
+    if keep_secs is not None and keep_secs <= 0:
+        keep_room = 0                                 # clock spent: same effect as no room
+    if resc_secs is not None and resc_secs <= 0:
+        resc_room = 0
+    if keep_room == 0 and resc_room == 0:
         return 0, 0
 
     from . import score_jobs                           # lazy: see the note above
@@ -7577,93 +7665,48 @@ def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
         c = j.get("company", "")
         if per_board.get(c, 0) >= cap:
             continue
+        # ROOM CHECKED BEFORE THE PER-EMPLOYER TALLY IS INCREMENTED. It used to increment first
+        # and then test `len(bucket) < left`, so a full queue kept charging employers for rows it
+        # was not taking -- which inflated the per-employer count and, once the queue emptied
+        # again, could refuse an employer that had never actually had a fetch spent on it.
+        room = keep_room if bucket is priority else resc_room
+        if room is not None and len(bucket) >= room:
+            continue                                  # that purse is full; the other may not be
         per_board[c] = per_board.get(c, 0) + 1
-        if len(bucket) < left:
-            bucket.append(j)
+        bucket.append(j)
         # Stop only when BOTH queues are full. Breaking on the rescue queue alone is how a
         # priority queue silently turns back into a second rescue queue: on a slice whose first
         # boards are title-poor, rescue fills in the first few hundred postings and every kept
-        # row after that would never be seen.
-        if len(priority) >= left and len(rescue) >= left:
+        # row after that would never be seen. With keep_room None the keep queue is never full,
+        # so this never fires -- which is correct, and the reason it is the only stop condition.
+        if keep_room is not None and len(priority) >= keep_room and len(rescue) >= resc_room:
             break
 
-    want = priority[:left]
-    n_keep = len(want)
-    if len(want) < left:
-        want += rescue[:left - len(want)]
-    if not want:
+    if not priority and not rescue:
         return 0, 0
 
-    # The employer count is derived from `want`, not from the per-board tallies. Those keep
-    # counting after a queue is full, so they describe what was CONSIDERED -- and this line is
-    # read as a description of what is about to be fetched.
+    # The employer count is derived from the queues themselves rather than the per-board
+    # tallies, because this line is read as a description of what is about to be fetched.
+    #
+    # THE ABSENCE OF THIS LINE IS THE FAILURE SIGNAL. A clock bug on 2026-09-02 made the whole
+    # phase return (0, 0) on every slice of a 21-slice sweep, and the only evidence was that this
+    # print appeared nowhere in the log. Grep for "JD lookup" before believing a run worked.
     print("JD lookup: fetching %d description(s) -- %d for postings we are KEEPING, %d to"
           " second-guess a title -- across %d employer(s)"
-          % (len(want), n_keep, len(want) - n_keep,
-             len({j.get("company", "") for j in want})))
+          % (len(priority) + len(rescue), len(priority), len(rescue),
+             len({j.get("company", "") for j in priority + rescue})))
 
-    def one(j):
-        try:
-            # ASK PHENOM BY ID. For a Phenom tenant with an external applyUrl the url we store is
-            # an apply app that renders no description at all (Actalent serves one 448 KB shell
-            # for every job), so detail_jd on it is a guaranteed-empty round trip. scrape_phenom
-            # carried the jobId here for exactly this. One definition of the request, over in
-            # score_jobs, shared with _phenom_jd_map.
-            jid, origin = j.get("_phenom_jid"), j.get("_phenom_origin")
-            if jid and origin:
-                return j, score_jobs.phenom_jd_by_id(origin, jid)
-            _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
-            return j, jd or ""
-        except Exception:
-            return j, ""
-
-    # ex.map WOULD NOT HAVE SURVIVED A `break`, which is why this is submit/as_completed rather
-    # than the obvious two-line edit: map submits every future up front, so the `with` block's
-    # shutdown(wait=True) drains all 1,200 of them on the way out no matter where the loop
-    # stopped. Only shutdown(cancel_futures=True) drops the queued work. The requests already in
-    # flight still finish, so the overshoot is one fetch per worker, not one pass. cancel_futures
-    # needs Python 3.9, which is what cPanel runs (bin/cron_scrape.sh) -- that is the floor here.
-    #
-    # Truncating is the same no-op the docstring promises for a failed fetch: an unfetched row
-    # drops on its title, and since it was never stored it is offered again on the next run.
-    got, tried = 0, 0
-    # WHAT IS LEFT IN THE RUN'S PURSE, not a fresh budget per slice. Computing
-    # `now + JD_LOOKUP_BUDGET_MIN * 60` here was the original per-slice bug: with
-    # SCRAPE_SLICE=100 over 2,032 boards it handed out twenty-one separate three-minute budgets.
-    # The purse is drawn down in the `finally` below by the time this phase actually spends.
-    _t0 = time.monotonic()
-    deadline = (_t0 + secs_left) if secs_left is not None else None
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
-    try:
-        futures = [ex.submit(one, j) for j in want]
-        try:
-            for f in concurrent.futures.as_completed(
-                    futures,
-                    timeout=None if deadline is None else max(0.1, deadline - time.monotonic())):
-                j, jd = f.result()
-                tried += 1
-                if len(jd) >= core._MIN_JD_CHARS:
-                    j["jd"] = jd
-                    got += 1
-        except concurrent.futures.TimeoutError:
-            # NOT the builtin: on 3.9 concurrent.futures.TimeoutError is its own class and is not
-            # a subclass of builtins.TimeoutError. On 3.11+ it is an alias, so this covers both.
-            print("  !! JD lookup budget of %g min ran out for the RUN after %d of %d fetch(es)"
-                  " in this slice -- the rest are offered again next run."
-                  % (JD_LOOKUP_BUDGET_MIN, tried, len(want)))
-    finally:
-        ex.shutdown(wait=False, cancel_futures=True)
-        # Charged in the `finally` so an exception cannot leave the purse full and let the next
-        # slice spend the same seconds again.
-        if secs_left is not None:
-            _JD_RUN["secs_left"] = max(0.0, secs_left - (time.monotonic() - _t0))
-    # Spend against the RUN's allowance, not this slice's. Counting `tried` rather than
-    # len(want) keeps a slice cut short by the deadline from being charged for work it never
-    # did -- which matters because the next slice reads what is left to decide its own size.
-    _JD_RUN["spent"] += tried
-    # `tried`, not len(want): the caller prints this as "N of M returned a usable description",
-    # and M has to be what was actually asked for or a truncated pass reads as a failure rate.
-    return tried, got
+    # KEPT ROWS FIRST, and in their own call, so the rescue queue cannot spend their clock.
+    kt, kg, keep_secs = _fetch_jd_queue(priority, keep_secs, "buying the ones we keep", score_jobs)
+    _JD_RUN["keep_spent"] += kt
+    _JD_RUN["keep_secs"] = keep_secs
+    rt, rg, resc_secs = _fetch_jd_queue(rescue, resc_secs, "second-guessing titles", score_jobs)
+    _JD_RUN["resc_spent"] += rt
+    _JD_RUN["resc_secs"] = resc_secs
+    # `tried`, not the queue lengths: the caller prints this as "N of M returned a usable
+    # description", and M has to be what was actually asked for or a truncated pass reads as a
+    # failure rate.
+    return kt + rt, kg + rg
 
 
 US_STATE_ABBR = {"AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
