@@ -25,6 +25,7 @@ import core
 import db
 import web
 import analytics
+import scraper.liveness as liveness
 
 USER = "jobpage@test"
 LIVE = "https://boards.example.com/acme/1"
@@ -333,6 +334,37 @@ check("jd_unavailable is set only for the walled host",
       rows[BLOCKED]["jd_unavailable"] is True and rows[PENDING]["jd_unavailable"] is False)
 check("both are still score_pending, so neither shows a fake 0%",
       rows[BLOCKED]["score_pending"] and rows[PENDING]["score_pending"])
+
+# ---------------------------------------------------------------------------------------------
+# WHICH VERDICTS COUNT AS "no description is coming". The block above stubs the resolved host
+# SET; this exercises the step that builds it from the KV row close_dead_jds writes.
+#
+# Only "blocked" counted until 2026-09-02, and the larger class was "unknown" -- a 200 with a
+# real page and nothing extractable, which is what a client-rendered apply app looks like
+# (Actalent serves one 448 KB shell for every job). Both mean the same thing to a reader, so
+# both must set the badge; the rest must not.
+_saved_hosts = web._jd_blocked_hosts
+_saved_get_kv = db.get_kv
+VERDICTS = {"blocked": "walled.example.com", "unknown": "shell.example.com",
+            "gone": "dead.example.com", "transient": "flaky.example.com",
+            "mixed": "disagreed.example.com", "readable": "fine.example.com"}
+db.get_kv = lambda key: ({"hosts": {h: {"verdict": v} for v, h in VERDICTS.items()}}
+                         if key == web._JD_VERDICT_KEY else {})
+web._jd_blocked_hosts = None                    # force the cached read to happen again
+try:
+    for verdict, host in sorted(VERDICTS.items()):
+        want = verdict in ("blocked", "unknown")
+        got = web._host_jd_blocked("https://%s/careers/1" % host)
+        check("verdict %-10s -> %s" % (verdict, "unavailable" if want else "still pending"),
+              got is want, "got %r" % got)
+    check("'mixed' is close_dead_jds' own label for probes that DISAGREED, not a finding",
+          "mixed" not in web._JD_UNREADABLE)
+    check("every verdict web.py acts on is one liveness.classify can actually return",
+          web._JD_UNREADABLE <= set(liveness.VERDICT_NOTES) | {"blocked", "unknown"})
+finally:
+    db.get_kv = _saved_get_kv
+    web._jd_blocked_hosts = _saved_hosts
+    web._rows_cache.clear()
 
 print()
 print("A ROW THAT HOLDS A DESCRIPTION NOBODY ANALYSED — the reported defect")

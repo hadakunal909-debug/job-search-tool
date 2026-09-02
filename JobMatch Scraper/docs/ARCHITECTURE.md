@@ -45,12 +45,12 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,369 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,380 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
-    S["<b>scraper/__init__.py</b><br/>9,051 lines · 38 ATS adapters<br/>1,192 boards"]
-    J["score_jobs.py · 2,094 lines"]
+    S["<b>scraper/__init__.py</b><br/>9,217 lines · 38 ATS adapters<br/>1,192 boards"]
+    J["score_jobs.py · 2,144 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
@@ -109,42 +109,42 @@ flowchart TB
   JD["fill_missing_jds()<br/><i>descriptions bought before the gates</i>"]
   SRC --> JD
   G0{"already known"}
-  D0["already known<br/><i>:8813</i>"]
+  D0["already known<br/><i>:8978</i>"]
   JD --> G0
   G0 -->|dropped| D0
   class D0 trap
   G1{"blocked company"}
-  D1["blocked company<br/><i>:8819</i>"]
+  D1["blocked company<br/><i>:8984</i>"]
   G0 --> G1
   G1 -->|dropped| D1
   class D1 trap
   G2{"off-target function title"}
-  D2["off-target function title<br/><i>:8841</i>"]
+  D2["off-target function title<br/><i>:9006</i>"]
   G1 --> G2
   G2 -->|dropped| D2
   class D2 trap
   G3{"no matching role keyword"}
-  D3["no matching role keyword<br/><i>:8842</i>"]
+  D3["no matching role keyword<br/><i>:9007</i>"]
   G2 --> G3
   G3 -->|dropped| D3
   class D3 trap
   G4{"non-US location"}
-  D4["non-US location<br/><i>:8851</i>"]
+  D4["non-US location<br/><i>:9016</i>"]
   G3 --> G4
   G4 -->|dropped| D4
   class D4 trap
   G5{"posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)"}
-  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:8866</i>"]
+  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:9031</i>"]
   G4 --> G5
   G5 -->|dropped| D5
   class D5 trap
   G6{"no federal sponsor record (aggregator)"}
-  D6["no federal sponsor record (aggregator)<br/><i>:8887</i>"]
+  D6["no federal sponsor record (aggregator)<br/><i>:9052</i>"]
   G5 --> G6
   G6 -->|dropped| D6
   class D6 trap
   G7{"aggregator copy of a job we hold"}
-  D7["aggregator copy of a job we hold<br/><i>:8903</i>"]
+  D7["aggregator copy of a job we hold<br/><i>:9068</i>"]
   G6 --> G7
   G7 -->|dropped| D7
   class D7 trap
@@ -219,7 +219,7 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2406</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2417</i>"]
   C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 813</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]

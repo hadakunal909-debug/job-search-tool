@@ -1254,6 +1254,17 @@ _INTERN_RE = re.compile(
 
 
 _JD_VERDICT_KEY = "jd_host_verdicts"
+# BOTH verdicts mean the same thing to a reader: no description is coming from this employer.
+# "blocked" is a bot wall or a refusal (Tesla behind Akamai, 403 on every request); "unknown" is
+# a 200 with a real page and no extractable text (a client-rendered apply app -- Actalent serves
+# one 448 KB shell for every job). Only "blocked" counted here until 2026-09-02, which left the
+# larger of the two classes still promising "it'll get a match score once the full job
+# description is fetched".
+#
+# Deliberately NOT "gone" (that closes the row, so it leaves the feed entirely), not "transient"
+# (a 5xx says nothing about the posting), and not "mixed" -- close_dead_jds uses that for probes
+# that disagreed, which is an admission of ignorance rather than a finding.
+_JD_UNREADABLE = frozenset(("blocked", "unknown"))
 _jd_blocked_hosts = None
 
 
@@ -1271,7 +1282,7 @@ def _host_jd_blocked(url):
         try:
             hosts = (db.get_kv(_JD_VERDICT_KEY) or {}).get("hosts") or {}
             _jd_blocked_hosts = {h for h, v in hosts.items()
-                                 if (v or {}).get("verdict") == "blocked"}
+                                 if (v or {}).get("verdict") in _JD_UNREADABLE}
         except Exception:
             _jd_blocked_hosts = set()
     if not _jd_blocked_hosts:
