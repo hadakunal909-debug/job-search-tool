@@ -4,7 +4,7 @@
 <text class="t-web" x="14" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
 <text class="t-ink" x="14" y="80" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">FLASK APP</text>
 <text class="t-dim" x="14" y="99" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462">Serves every page and API</text>
-<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  9,380 lines</text>
+<text class="t-dim" x="14" y="115" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">web.py  9,346 lines</text>
 <text class="t-dim" x="14" y="131" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">87 routes / 86 handlers</text>
 <text class="t-dim" x="14" y="147" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">NO blueprints -- one module</text>
 <text class="t-dim" x="14" y="163" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">templates/  33 files</text>
@@ -33,7 +33,7 @@
 <text class="t-dim" x="0" y="26" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="13" fill="#4e5462" text-anchor="start" font-weight="400">Three places code runs. Colour means which.</text>
 <rect class="s-plain" x="0" y="246" width="960" height="104" rx="10" fill="#ffffff" stroke="#d3d7df" stroke-width="1.5"/>
 <text class="t-ink" x="14" y="268" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">THE SPINE  --  imported by all three</text>
-<text class="t-dim" x="14" y="287" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">core.py  3,323 lines, 32 sections  --  filtering, scoring, sponsorship, visa tags,</text>
+<text class="t-dim" x="14" y="287" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">core.py  3,648 lines, 33 sections  --  filtering, scoring, sponsorship, visa tags,</text>
 <text class="t-dim" x="14" y="303" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">   location, salary, role tracks, saved-search prefs, work-auth timelines</text>
 <text class="t-dim" x="14" y="319" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">db.py  2,929 lines  --  one interface, four backends, chosen at first use</text>
 <path class="edge" d="M480 350 L480 386" stroke="#d3d7df" stroke-width="1.5" fill="none"/>

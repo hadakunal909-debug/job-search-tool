@@ -3126,12 +3126,10 @@ def feed():
 
 # Words that carry no signal in a "what does this employer hire for" list: they appear in
 # almost every posting, so ranking by weight surfaces them above the actual tools.
-_SKILL_STOP = frozenset("""
-communication teamwork leadership collaboration interpersonal verbal written organizational
-problem solving detail oriented time management customer service work experience team player
-fast paced self starter multi task english degree bachelor master responsibilities requirements
-qualifications preferred required ability able strong excellent knowledge understanding
-""".split())
+# MOVED TO core.SKILL_STOP so resume_brain can reach it too -- web imports resume_brain and not
+# the other way round, which is why only one of three surfaces used to filter. See
+# core.display_terms. Aliased rather than renamed: _company_profile also reads this name.
+_SKILL_STOP = core.SKILL_STOP
 
 
 def _clean_research_list(items, lo=2, hi=48, cap=14, no_digits=False):
@@ -3436,63 +3434,27 @@ _HL_TERMS = 10
 # "applicable federal", "york", "posted", "state" and "laws" as keywords to add to a résumé. The
 # boilerplate rule below catches most of that class by shape; these are the leftovers that sit in
 # ordinary prose.
-_KEYWORD_STOP = frozenset("""
-posted posting position role job company employer candidate applicant applicants
-state states city york county country federal laws law legal notice notices least
-website site email phone contact address information available provide provided
-please based employment technology technologies tools services service solutions
-business teams environment opportunity support various including needs help
-""".split())
+# MOVED TO core.KEYWORD_STOP, alongside SKILL_STOP and the new ELIGIBILITY_TERMS.
+_KEYWORD_STOP = core.KEYWORD_STOP
 
 
 def _useful_terms(terms, company, jd, cap):
-    """Keywords worth showing a reader, weight order preserved.
+    """core.display_terms for a STORED description: split the legal notice off, then filter.
 
-    Four things get dropped, in cheapness order:
-      * the generic-skill stoplist _company_profile already uses, plus the ones above
-      * the employer's own name. It is genuinely one of the highest-weighted terms in any
-        description and says nothing: "Capital One" was marked six times in one posting.
-      * anything under three characters, or a multi-word term made only of stopwords
-      * TERMS THAT ONLY EVER APPEAR IN LEGAL BOILERPLATE. analyze_jd reads the whole
-        description, EEO notice included, so the raw list contains phrases from it. Subtracting
-        the boilerplate text is a property of this posting rather than a blacklist to maintain,
-        and it is what stops the page advising somebody to put "regarding criminal" on a résumé.
+    The rules live in core so /tailor and /brain/tailor share them -- see the note there. This
+    wrapper is only the jdrender step, which core is not allowed to import.
     """
-    # PERKS AND BENEFITS. text_halves below separates the LEGAL notice, which is a different
-    # thing: an EEO paragraph is boilerplate by shape, while a benefits section is ordinary prose
-    # sitting in the body, so the "in the notice and nowhere else" rule never touched it. That is
-    # why /job offered "retirement", "dental", "tuition" and "flexible time" as keywords worth
-    # adding to a résumé — the most visible way this panel can lose a reader's trust, because
-    # the error is obvious to them while the rest of it is not verifiable at a glance.
-    stop = set(_SKILL_STOP) | _KEYWORD_STOP | core.PERK_TERMS
-    stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
-    # The company as the CORPUS spells it, not only as this row does. A row mislabelled "Amat"
-    # subtracted nothing from a description that opens "Applied Materials is a global leader",
-    # which is how the employer's own name came to be marked red under a legend reading "Red is
-    # one worth adding". canonical_url now folds the Workday casing that caused that split
-    # (see the note there), and this covers the rows already stored under the alias.
-    try:
-        stop.update(w for w in core.norm_company(company or "").split() if len(w) > 2)
-    except Exception:
-        pass
     try:
         body, boiler = jdrender.text_halves(jd or "")
     except Exception:
+        # NOT SILENT ANY MORE. This fell back to an empty `boiler` on every description carrying
+        # a metadata header, because text_halves raised TypeError on the kv node kind -- and an
+        # empty boiler makes the "in the notice and nowhere else" rule drop nothing at all.
+        # Degrading is still right, since a keyword panel must not 500 a job page, but a filter
+        # that quietly stops filtering is exactly what hid this.
+        app.logger.exception("text_halves failed; legal-boilerplate filter degraded")
         body, boiler = (jd or "").lower(), ""
-    out = []
-    for t in terms:
-        low = (t or "").strip().lower()
-        if len(low) < 3 or low in stop:
-            continue
-        if all(w in stop or len(w) < 3 for w in low.split()):
-            continue
-        # In the notice but not in the rest of the posting: it is a legal phrase, not a skill.
-        if boiler and low in boiler and low not in body:
-            continue
-        out.append(t)
-        if len(out) >= cap:
-            break
-    return out
+    return core.display_terms(terms, company, cap, body=body, boiler=boiler)
 
 
 def _company_brief(display, open_rows):
@@ -6316,6 +6278,10 @@ def tailor():
     jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
     if resume and jd:
         score, have, missing = core.score_against(resume.lower(), jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"])
+        # THE SAME FILTER /job USES. Without it this page offered "collaboration", "teamwork",
+        # "tuition reimbursement" and "consideration regarding" as keywords worth adding.
+        have = _useful_terms(have, job.get("company"), jd, _SKILL_SHOWN)
+        missing = _useful_terms(missing, job.get("company"), jd, _SKILL_SHOWN)
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     return render_template("tailor.html", job=job, score=int(score or 0),

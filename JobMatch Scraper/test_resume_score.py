@@ -407,6 +407,69 @@ def test_new_mechanical_checks_fire():
     assert _check(r, "capitalization_consistency")["score"] < 10.0     # Title Case vs ALL CAPS
     assert _check(r, "punctuation_consistency")["score"] is not None
 
+# ---- the half-word bug (2026-09-02) -----------------------------------------------------------
+_SKILLS_DOC = """Jane Doe
+jane@example.com
+
+SKILLS
+Tools: Excel, Power BI, Business Intelligence Dashboards, Jira
+Methods: Cross-functional Collaboration; Continuous Improvement Methodologies
+Stakeholder Management and Communication | SQL | C++
+
+EXPERIENCE
+Acme Corp - Operations Manager (2020-2024)
+- Built Jira dashboards that cut cycle time 18% across three teams.
+- Ran SQL reporting for the ops review.
+"""
+
+
+def _skills_check():
+    _h, secs = rs.split_sections(_SKILLS_DOC)
+    items, _ = rs._experience_items(secs)
+    return secs, rs._check_skills_demonstrated(secs, items, "mid")
+
+
+def test_skills_offenders_are_whole_entries():
+    """The window this replaced was 29 characters wide with no trailing boundary, so it cut
+    mid-word and emitted BOTH halves: "Business Intelligence Dashboards" came out as
+    "Business Intelligence Dashboa" + "rds", and "Cross-functional Collaboration" lost its
+    final letter outright."""
+    _secs, (_score, _msg, offenders, _spans) = _skills_check()
+    for o in offenders:
+        assert o in _SKILLS_DOC, "offender is not a substring of the resume: %r" % o
+    assert "Business Intelligence Dashboards" in offenders, offenders
+    assert not any(o in ("rds", "ologies") or o.endswith("Dashboa") for o in offenders), offenders
+
+
+def test_a_skills_category_label_is_not_a_skill():
+    """"Tools:" and "Methods:" name the CATEGORY. Both were being reported as skills the resume
+    never demonstrates."""
+    _secs, (_score, _msg, offenders, _spans) = _skills_check()
+    assert "Tools" not in offenders and "Methods" not in offenders, offenders
+
+
+def test_every_offender_span_slices_out_its_own_token():
+    """The old code added len(tok) to m.start() AFTER strip() had removed leading characters, so
+    every <mark> in the resume document panel sat left of the word by however much it stripped.
+    Invisible unless asserted."""
+    secs, _res = _skills_check()
+    for s in secs:
+        if s["group"] != "skills":
+            continue
+        for it in s["items"]:
+            for tok, off in rs._skill_entries(it["text"]):
+                a = it["start"] + off
+                assert _SKILLS_DOC[a:a + len(tok)] == tok, \
+                    "span %d..%d is %r, not %r" % (a, a + len(tok),
+                                                   _SKILLS_DOC[a:a + len(tok)], tok)
+
+
+def test_a_demonstrated_skill_is_not_an_offender():
+    _secs, (_score, _msg, offenders, _spans) = _skills_check()
+    for shown in ("Jira", "SQL"):
+        assert shown not in offenders, "%r IS demonstrated in the experience section" % shown
+
+
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
