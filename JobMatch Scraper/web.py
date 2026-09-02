@@ -2626,15 +2626,15 @@ def _error_response(code, title, message, log=None):
 def _handle_404(_e):
     return _error_response(
         404, "Page not found",
-        "That link doesn't lead anywhere. It may have moved, or the address has a typo in it.")
+        "That link doesn't lead anywhere. It may have moved, or the address has a typo.")
 
 
 @app.errorhandler(500)
 def _handle_500(e):
     return _error_response(
         500, "Something broke on our side",
-        "That is our fault, not yours. Nothing you were doing was lost — try again, and if it "
-        "keeps happening the details are in the server log.", log=e)
+        "Our fault, not yours. Nothing was lost — try again. If it keeps happening, "
+        "the details are in the server log.", log=e)
 
 
 # --- company logo helpers (Google favicon by domain, with a letter-avatar fallback;
@@ -2998,7 +2998,7 @@ def login():
         u = (request.form.get("username") or "").strip()
         p = request.form.get("password") or ""
         if u and _too_many_logins(u):              # short-circuit BEFORE the expensive hash
-            flash("Too many sign-in attempts. Please wait a few minutes and try again.")
+            flash("Too many sign-in attempts. Wait a few minutes.")
             return render_template("login.html", bad_login=True, username=u)
         rec = None
         db_down = False
@@ -4173,7 +4173,7 @@ def reload_jobs():
     the module would not load. The check itself is the same one it makes.
     """
     if not is_admin():
-        flash("Reloading the shared job cache is admin-only.", "error")
+        flash("Reloading the shared job cache is admin only.", "error")
         return redirect(url_for("feed"))
     get_jobs(force=True)
     _score_cache.clear()
@@ -4528,7 +4528,7 @@ def admin_required(f):
             flash("That page is admin-only.")
             return redirect(url_for("feed"))
         if request.method not in ("GET", "HEAD", "OPTIONS") and not _check_csrf():
-            flash("That form expired. Reload the page and try again.")
+            flash("That form expired. Reload and try again.")
             return redirect(url_for("admin_users"))
         return f(*a, **k)
     return wrap
@@ -5870,7 +5870,7 @@ def admin_user_revoke_token():
         try:
             db.bump_token_epoch(name)
             _accounts(force=True)
-            flash("Revoked '%s' extension tokens. They can copy a new one from their profile."
+            flash("Revoked '%s' extension tokens. They copy a new one from their profile."
                   % name)
         except Exception as e:
             flash("Couldn't revoke that. Has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
@@ -5901,12 +5901,12 @@ def admin_user_delete():
                                total=sum(counts.values()))
 
     if (request.form.get("confirm") or "").strip() != name:
-        flash("Type the username exactly to confirm.")
+        flash("Type the username exactly.")
         return redirect(url_for("admin_user_delete", username=name))
     try:
         removed = db.delete_user(name)
     except Exception as e:
-        flash("Delete failed partway. The account was left in place. (%s)" % e)
+        flash("Delete failed partway. The account is still there. (%s)" % e)
         return redirect(url_for("admin_users"))
     _accounts(force=True)
     _resume_cache.pop(name, None)
@@ -6004,7 +6004,7 @@ def admin_jobs_preview():
     company = (request.form.get("company") or "").strip()
     urls = [u for u in re.split(r"[\s,]+", request.form.get("urls") or "") if u.startswith("http")]
     if mode == "urls" and not urls:
-        flash("Give a company name, or paste at least one job URL.")
+        flash("Give a company name, or at least one job URL.")
         return redirect(url_for("admin_data"))
     plan = _build_plan(mode, company, urls[:ADMIN_DELETE_MAX])
     if not plan["n"]:
@@ -6040,13 +6040,13 @@ def admin_jobs_apply():
         return redirect(url_for("admin_data"))
     plan = session.get("del_plan") or {}
     if not plan or time.time() - (plan.get("at") or 0) > _PLAN_TTL:
-        flash("That confirmation expired. Start again so the counts are current.")
+        flash("That confirmation expired. Start again for current counts.")
         return redirect(url_for("admin_data"))
 
     fresh = _build_plan(plan["mode"], plan.get("company", ""), plan.get("urls") or [])
     expected = plan.get("company") if plan["mode"] == "company" else "DELETE %d JOBS" % plan["n"]
     if (request.form.get("confirm") or "").strip() != expected:
-        flash("Type the confirmation exactly as shown.")
+        flash("Type the confirmation exactly.")
         return redirect(url_for("admin_data"))
     # A scrape landing between preview and apply changes what you agreed to. Refuse rather
     # than delete a different set than the one on the screen.
@@ -6108,7 +6108,7 @@ def admin_block():
     if remove:
         db.remove_blocked(remove)
         db.audit_log(actor, "company.unblock", remove, 1)
-        flash("Unblocked. It can be scraped again from the next run.")
+        flash("Unblocked. Scraped again from the next run.")
     else:
         name = (request.form.get("name") or "").strip()
         if not name:
@@ -6136,7 +6136,7 @@ def action():
     simply stops appearing, which is interpretable rather than confusing.
     """
     if not _check_csrf():
-        flash("That form expired. Reload the page and try again.")
+        flash("That form expired. Reload and try again.")
         return redirect(request.referrer or url_for("feed"))
     url = request.form.get("url", "")
     status = (request.form.get("status") or "").strip()   # liked|hidden|applied|'' (clear)
@@ -6513,7 +6513,7 @@ def brain_feedback():
     rb.apply_feedback(user, jd_terms, story_ids, request.form.get("feedback", ""),
                       request.form.get("company", ""))
     _bust_profile(user)
-    flash("Learned. The brain will weight these for similar jobs from now on.")
+    flash("Learned. These now weight similar jobs.")
     return redirect(url_for("brain_home"))
 
 
@@ -6534,7 +6534,7 @@ def brain_rewrite():
               "jd": (request.form.get("jd") or "").strip(),
               "intensity": (request.form.get("intensity") or "").strip()}
     if not key:
-        flash("Add an AI key to use AI rewrite (the field on the tailor page).")
+        flash("Add an AI key on the tailor page to use AI rewrite.")
         return redirect(url_for("brain_home"))
     data = rb.run_tailor(user, jd_text=inputs["jd"], job_url=inputs["job_url"],
                          company_name=inputs["company"], company_url=inputs["company_url"],
@@ -6694,7 +6694,7 @@ def brain_resume_save():
     back = request.form.get("back") or "brain_teach"
     back = back if back in ("brain_teach", "brain_home") else "brain_teach"
     if not (content or "").strip():
-        flash(err or "Nothing to save. Attach a file or paste the text.")
+        flash(err or "Nothing to save. Attach a file or paste text.")
         return redirect(url_for(back))
     name = (request.form.get("name") or "").strip()
     if not name and uploaded:
@@ -7241,7 +7241,7 @@ def board_delete():
         flash("That board is not in the list.", "error")
         return redirect(url_for("add_board"))
     if not is_admin() and (row.get("added_by") or "") != session["user"]:
-        flash("Someone else added that board, so only an admin can remove it.", "error")
+        flash("Someone else added that board. Only an admin can remove it.", "error")
         return redirect(url_for("add_board"))
     try:
         db.delete_board(url)
@@ -7562,7 +7562,7 @@ def _require_csrf():
         return jsonify({"ok": False,
                         "error": "That page has been open a while and its security token expired. "
                                  "Reload and try again."}), 400
-    flash("That page has been open a while and its security token expired. Reload and try again.")
+    flash("That page sat too long and its token expired. Reload and try again.")
     return redirect(request.referrer or url_for("feed"))
 
 
@@ -7780,7 +7780,7 @@ def profile_password():
     user = session["user"]
     hit = _rate_hit(("pwchange", user), _PWCHANGE_TIERS)
     if hit:
-        flash("Too many password attempts. Wait a few minutes and try again.", "error")
+        flash("Too many password attempts. Wait a few minutes.", "error")
         return redirect(url_for("profile"))
     cur = request.form.get("current_password") or ""
     new = request.form.get("new_password") or ""
@@ -7801,7 +7801,7 @@ def profile_password():
         flash(problem, "error")
         return redirect(url_for("profile"))
     if new == cur:
-        flash("That is the password you already have.", "error")
+        flash("That is already your password.", "error")
         return redirect(url_for("profile"))
     try:
         db.set_user_password(user, auth.hash_password(new))
@@ -7826,7 +7826,7 @@ def profile_revoke_token():
     try:
         db.bump_token_epoch(session["user"])
         _accounts(force=True)
-        flash("Old tokens revoked. Paste the new one below into the extension.")
+        flash("Old tokens revoked. Paste the new one into the extension.")
     except Exception:
         flash("Couldn't revoke that token. The database may need "
               "SUPABASE_ADMIN_MIGRATION.sql run first.")
@@ -8144,7 +8144,7 @@ def welcome():
 
     if request.method == "POST":
         if not _check_csrf():
-            flash("That form expired. Please fill it in again.")
+            flash("That form expired. Fill it in again.")
             return redirect(url_for("welcome"))
         f = request.form
         try:

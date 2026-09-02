@@ -24,8 +24,8 @@
   <h1>This Posting Is No Longer in Your Feed</h1>
   {# A 404 with a reason rather than a redirect: a redirect would break the Back button and say
      nothing about what happened. Postings leave the corpus after 30 days without being seen. #}
-  <p class="coprose">Jobs drop out about thirty days after they stop appearing on the employer's
-    own board, so this one has most likely been filled or withdrawn. The link you followed was
+  <p class="coprose">Jobs drop out about thirty days after they leave the employer&rsquo;s own
+      board, so this one was most likely filled or withdrawn. The link you followed was
     <span class="jobgone-url">{{ gone_url }}</span>.</p>
   <p class="coprose"><a class="btn primary" href="{{ url_for('feed') }}">Back to the Feed</a></p>
 </div>
@@ -141,7 +141,7 @@
       {# ---- 2. THE DESCRIPTION. This is what the click was for, so it comes first. ---- #}
       <h2 class="sechdr">Job Description</h2>
       {% if not has_jd %}
-      <p class="coprose">No description is stored for this posting yet. Open Apply to read it on
+      <p class="coprose">No description stored yet. Open Apply to read it on
         the employer's own site.</p>
       {% else %}
       {% if jd_jumps %}
@@ -170,8 +170,9 @@
       {% endif %}
 
       <h2 class="sechdr">Tailor Your Résumé</h2>
-      <p class="coprose">Resume Brain reads this description, ranks your stored résumés and stories
-        against it, and drafts the rewrite. It also researches the employer, which is what fills the
+      <p class="coprose">Resume Brain reads this description, ranks your stored r&eacute;sum&eacute;s
+              and stories against it, and drafts the rewrite. It researches the employer too, which fills
+              the
         section below.</p>
       <p><a class="btn primary" href="{{ url_for('brain_tailor_page') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a></p>
 

@@ -56,9 +56,9 @@
   <section class="panel">
     <h2>Does the Score Predict What They Do?</h2>
     <p class="muted">
-      Their own medians, not everyone's. A gap between <b>applied</b> and <b>hidden</b> is
-      evidence the score works <i>for this person</i>; the same median for both means the match
-      filter is decorative on their feed regardless of how it behaves in aggregate.
+      Their medians, not everyone's. A gap between <b>applied</b> and <b>hidden</b> means the
+      score works <i>for this person</i>; one median for both means the match filter does nothing
+      on their feed, whatever it does in aggregate.
     </p>
     <table class="adm-t">
       <thead><tr><th>Action</th><th class="num">Scored</th><th class="num">Median</th><th class="num">Mean</th></tr></thead>
@@ -172,8 +172,8 @@
 <section class="panel">
   <h2>Every Action <span class="count-pill">{{ d.flag_rows }}</span></h2>
   <p class="muted">
-    Newest rows are not identifiable &mdash; <code>user_jobs</code> carries no timestamp, so this
-    is in table order, not time order. A blank company is a posting that has since been pruned.
+    Newest rows can't be identified &mdash; <code>user_jobs</code> has no timestamp, so this is
+    in table order, not time order. A blank company is a posting since pruned.
   </p>
   {# Capped in HEIGHT, not in count: one account with 400 actions must not make this page four
      screens long. The rows scroll inside the panel. #}

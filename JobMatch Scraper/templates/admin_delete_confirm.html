@@ -31,13 +31,13 @@
 {% if plan.protected %}
 {# Guardrail on the irreversible screen — kept, trimmed. #}
 <p class="muted u-subnote">
-  Liked, applied and hidden rows are never deleted here. Overriding that needs shell access
+  Saved, applied and hidden rows are never deleted here. Overriding needs shell access
   (<code>scripts/prune_stale.py --include-flagged</code>).
 </p>
 {% endif %}
 
 <section class="panel">
-  <h2>A Sample of What Goes</h2>
+  <h2>Sample of What Goes</h2>
   <table class="adm-t">
     <thead><tr><th>Title</th><th>Company</th><th>Date</th></tr></thead>
     <tbody>
@@ -60,15 +60,15 @@
     {# The "delete looks like it silently failed" consequence is the whole reason this checkbox
        exists — that clause stays. #}
     <p class="muted">
-      Recommended: without a block these rows are back within a day and the delete looks like it
-      failed. Reversible from the Data page.
+      Recommended. Without a block they return within a day and the delete looks like it
+      failed. Undo from the Data page.
     </p>
     <label class="blockrow">
       <input type="checkbox" name="block" value="1" checked>
       <span>Block these companies so the scraper stops collecting them</span>
     </label>
     <p class="muted u-sechead">
-      All aliases selected, because one employer often posts under several labels.
+      All aliases selected &mdash; one employer often posts under several names.
     </p>
     {% for label, n in plan.labels %}
     <label class="blockrow">

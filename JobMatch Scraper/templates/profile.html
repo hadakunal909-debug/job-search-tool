@@ -13,7 +13,7 @@
 <h1>Profile</h1>
 {# "Private to your account" dropped — the usage-data section below covers privacy properly, and
    the EEO note moved onto the EEO heading where it applies. #}
-<p class="sub">These answers auto-fill application forms via the browser extension.</p>
+<p class="sub">These auto-fill application forms through the browser extension.</p>
 <form method="post">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <div class="pgrid">
@@ -109,7 +109,7 @@
   {# Two choices, and no "System". Following the OS used to be the default, which meant a
      laptop set to dark decided what this app looked like before you had said anything at
      all. White is the default now and this is the only thing that changes it. #}
-  <p class="dim">Kept in this browser, so it does not follow you to another device.
+  <p class="dim">Kept in this browser, so it doesn&rsquo;t follow you to another device.
   It applies the moment you pick it — there is nothing to save.</p>
   <div id="themepick">
     <label class="blockrow"><input type="radio" name="theme" value="light"><span>Light</span></label>
@@ -124,13 +124,13 @@
      no-results-searches exception. Only the connective prose went. Details collapses the
      exclusion list, which is the half nobody reads twice. #}
   <p class="dim">
-    Pages you open, jobs shown, opened, saved, applied to and hidden, their match score, and your filters,
-    recorded <b>against your username</b> (not anonymous), kept 90 days, then daily totals only.
+    Pages you open; jobs shown, opened, saved, applied to and hidden, with their match score and
+        your filters. Stored <b>against your username</b>, kept 90 days, then daily totals only.
   </p>
   <details class="dim">
     <summary>What it never records</summary>
-    <p>Your IP address, browser, location, résumé or profile details, application notes, or your
-    answers to the demographic questions. Searches are stored only when they returned no
+    <p>Your IP, browser, location, r&eacute;sum&eacute; or profile details, application notes, or
+        your answers to the demographic questions. Searches are stored only when they returned no
     results, because that shows what the feed is missing.</p>
   </details>
   <form method="post" action="{{ url_for('profile_tracking') }}">
@@ -167,7 +167,7 @@
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <button class="btn sm danger" type="submit">Revoke this token</button>
   </form>
-  <p class="dim">Revoking kills the old token immediately and shows a new one here.</p>
+  <p class="dim">Revoking kills the old token at once and shows a new one here.</p>
 </div>
 
 {# Change your own password. Until now the ONLY password route in the app was admin-only, so a
@@ -203,8 +203,8 @@
       <button class="btn primary" type="submit">Change password</button>
     </form>
   </details>
-  <p class="dim">Forgot it entirely? There is no self-service reset yet — that needs an email
-    sender this app doesn't have — so an admin has to set a new one for you.</p>
+  <p class="dim">Forgotten it? There&rsquo;s no self-service reset &mdash; that needs an email
+      sender this app doesn&rsquo;t have &mdash; so an admin has to set a new one.</p>
 </div>
 {% endblock %}
 {# Neither radio carries `checked` in the markup on purpose: the answer is in localStorage,

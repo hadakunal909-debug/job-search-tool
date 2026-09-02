@@ -8,10 +8,10 @@
 {# ---- tracked behaviour (needs the events migration) ---- #}
 {% if not ev.have %}
 <div class="banner">
-  <b>Usage tracking isn't switched on yet.</b> Run <code>{{ ev.sql_file }}</code> against the database →
-  SQL Editor. Everything below still works, because it is derived from data the app already stores,
-  but the funnel, filter adoption and dead-route detection need event history, and that
-  <b>starts the day you run it</b>. It can't be backfilled.
+  <b>Usage tracking is off.</b> Run <code>{{ ev.sql_file }}</code> against the database.
+  Everything below still works &mdash; it comes from data the app already stores &mdash; but the
+  funnel, filter adoption and dead-route detection need event history, which
+  <b>starts the day you run it</b> and cannot be backfilled.
   {% if evstats.off %}<br>Note: <code>EV_OFF</code> is also set, which disables recording entirely.{% endif %}
 </div>
 {% else %}
@@ -42,7 +42,7 @@
   <h2>Does a Higher Score Get Applied To?</h2>
   <p class="muted">
     Per score band, from the score <b>as shown</b> at click time. Flat means the score isn't
-    separating good from bad and the min-score slider is decorative.
+    sorting good from bad, and the min-score slider does nothing.
   </p>
   <table class="adm-t">
     <thead><tr><th>Band</th><th class="num">Opens</th><th class="num">Applies</th><th class="num">Apply rate</th></tr></thead>
@@ -102,8 +102,8 @@
 <section class="panel">
   <h2>Searches That Found Nothing</h2>
   <p class="muted">
-    The clearest list of what the corpus is missing. Each row is a company or role someone
-    looked for and the feed couldn't answer. Search text is stored <i>only</i> in this case.
+    What the corpus is missing: a company or role someone searched for and the feed couldn't
+    answer. Search text is stored <i>only</i> here.
   </p>
   <table class="adm-t">
     <tbody>
@@ -118,11 +118,10 @@
 
 <div class="banner">
   <b>Two limits worth knowing before you read anything below.</b>
-  Saved actions carry <b>no timestamp</b>. The <code>user_jobs</code> table stores current state
-  only, so there is no history and an action that was later undone left no trace. And match scores
-  are re-derived on every scoring run, so a score shown next to a like is <b>today's</b> score, not
-  the score at the moment of the click. Both are fixed by event tracking (Phase 4), which starts
-  accumulating the day it ships and cannot be backfilled.
+  Saved actions carry <b>no timestamp</b>: <code>user_jobs</code> holds current state only, so
+  an action later undone left no trace. And scores are re-derived every run, so a score next to a
+  like is <b>today's</b>, not the one at click time. Event tracking (Phase 4) fixes both, from the
+  day it ships.
 </div>
 
 <div class="tiles">
@@ -151,8 +150,8 @@
 <section class="panel">
   <h2>Features Nobody Uses</h2>
   <p class="muted">
-    Derived from what is stored, not from click tracking, so this catches features that are
-    never <i>completed</i>, not ones that are opened and abandoned. Phase 4 adds the latter.
+    From what is stored, not from clicks, so it catches features never <i>finished</i> &mdash;
+    not ones opened and abandoned. Phase 4 adds those.
   </p>
   <table class="adm-t">
     <tbody>
@@ -210,8 +209,8 @@
 <section class="panel">
   <h2>Does the Match Score Predict Behaviour?</h2>
   <p class="muted">
-    If <b>applied</b> and <b>hidden</b> sit on the same median, the score is not separating good
-    from bad and the match filter is decorative. A clear gap is evidence the scoring engine works.
+    If <b>applied</b> and <b>hidden</b> share a median, the score isn't sorting good from bad and
+    the match filter does nothing. A clear gap means it works.
   </p>
   <table class="adm-t">
     <thead><tr><th>Action</th><th class="num">Scored jobs</th><th class="num">Median</th><th class="num">Mean</th></tr></thead>
@@ -226,9 +225,9 @@
 
   <h3 class="u-sechead-sm">Corpus Supply vs Revealed Demand</h3>
   <p class="muted">
-    What the scraper collects (grey) against what anyone liked or applied to (colour), both as a
-    share of their own total. If demand sits far to the right of supply, the scraper is fetching
-    the wrong jobs regardless of how good the scoring is.
+    What the scraper collects (grey) against what people saved or applied to (colour), each as a
+    share of its own total. Demand far right of supply means the scraper is fetching the wrong
+    jobs, however good the scoring is.
   </p>
   <div class="hist">
     {% for i in range(5) %}

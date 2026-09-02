@@ -8,7 +8,7 @@
 {% if result %}
   <div class="result {{ result[0] }}">
     {% if result[0]=='sql' %}
-      One-time setup: your Supabase needs a <code>boards</code> table. Run this in the SQL editor, then retry:
+      One-time setup: the database needs a <code>boards</code> table. Run this, then retry:
       <pre>{{ sql }}</pre>
     {% else %}{{ result[1] }}{% endif %}
   </div>
