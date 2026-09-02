@@ -11,7 +11,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`web.py`](#webpy) — 9380 lines, 395 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 3323 lines, 212 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2929 lines, 180 symbols — Storage. One PostgREST-shaped interface over four backends.
-- [`scraper/__init__.py`](#scraper__init__py) — 9217 lines, 373 symbols — The sweep and the intake filter, plus every ATS adapter.
+- [`scraper/__init__.py`](#scraper__init__py) — 9241 lines, 373 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2144 lines, 78 symbols — Fetches descriptions and scores them against the resume.
 - [`resume_score.py`](#resume_scorepy) — 1562 lines, 127 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
@@ -172,7 +172,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The sweep and the intake filter, plus every ATS adapter.*
 
-9217 lines · 373 top-level symbols · 41 sections
+9241 lines · 373 top-level symbols · 41 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -212,11 +212,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [7271–7302](../scraper/__init__.py#L7271) | "Manager, Projects" -- the reversed form INCLUDE cannot see. | 1 |
 | [7303–7378](../scraper/__init__.py#L7303) | résumé-driven terms: tune the scrape toward YOUR resume (purely additive) | 5 |
 | [7379–7410](../scraper/__init__.py#L7379) | THE REJECT DUMP. See DUMP_REJECTS near the top for why it exists at all. | 3 |
-| [7411–7963](../scraper/__init__.py#L7411) | THE SECOND OPINION FOR BOARDS THAT DO NOT HAND A DESCRIPTION OVER. | 30 |
-| [7964–7985](../scraper/__init__.py#L7964) | STORAGE  — plain CSV, with cross-run dedup (no database) | 3 |
-| [7986–8264](../scraper/__init__.py#L7986) | ORCHESTRATOR  — the scraper itself | 12 |
-| [8265–8272](../scraper/__init__.py#L8265) | CLOSED-POSTING DETECTION | 0 |
-| [8273–9217](../scraper/__init__.py#L8273) | Absent from this many consecutive successful fetches of its OWN board before we call it | 20 |
+| [7411–7987](../scraper/__init__.py#L7411) | THE SECOND OPINION FOR BOARDS THAT DO NOT HAND A DESCRIPTION OVER. | 30 |
+| [7988–8009](../scraper/__init__.py#L7988) | STORAGE  — plain CSV, with cross-run dedup (no database) | 3 |
+| [8010–8288](../scraper/__init__.py#L8010) | ORCHESTRATOR  — the scraper itself | 12 |
+| [8289–8296](../scraper/__init__.py#L8289) | CLOSED-POSTING DETECTION | 0 |
+| [8297–9241](../scraper/__init__.py#L8297) | Absent from this many consecutive successful fetches of its OWN board before we call it | 20 |
 
 ## `scraper/score_jobs.py`
 
@@ -1765,64 +1765,64 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `JD_LOOKUP_PER_KEPT_BOARD` | const | [7453](../scraper/__init__.py#L7453) |  |
 | `_JD_RUN` | const | [7468](../scraper/__init__.py#L7468) |  |
 | `reset_jd_lookup_budget` | def | [7471](../scraper/__init__.py#L7471) | Start a new run's description budget. Called once by main(), before the slices. |
-| `fill_missing_jds` | def | [7479](../scraper/__init__.py#L7479) | Buy descriptions for this slice's postings, KEPT ONES FIRST. |
-| `US_STATE_ABBR` | const | [7645](../scraper/__init__.py#L7645) |  |
-| `US_STATE_NAMES` | const | [7649](../scraper/__init__.py#L7649) |  |
-| `NON_US` | const | [7659](../scraper/__init__.py#L7659) |  |
-| `_STATE_ABBR_RE` | const | [7700](../scraper/__init__.py#L7700) |  |
-| `_NON_US_RE` | const | [7705](../scraper/__init__.py#L7705) |  |
-| `_fold` | def | [7710](../scraper/__init__.py#L7710) | Lowercased and stripped of accents, for matching against NON_US. |
-| `_TITLE_PLACE_RE` | const | [7723](../scraper/__init__.py#L7723) |  |
-| `_country_from_title` | def | [7726](../scraper/__init__.py#L7726) | A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -&gt; the |
-| `title_says_non_us` | def | [7735](../scraper/__init__.py#L7735) | True only when a title's trailing parenthetical NAMES a non-US place. |
-| `is_us_location` | def | [7747](../scraper/__init__.py#L7747) | Heuristic: True if the location looks US-based. Unknown/blank -&gt; kept. |
-| `load_sponsors` | def | [7768](../scraper/__init__.py#L7768) | Read employer names (one per line) from sponsors.txt. Build that file from |
-| `_LEGAL_SUFFIX` | const | [7778](../scraper/__init__.py#L7778) |  |
-| `_APOSTROPHE_RE` | const | [7802](../scraper/__init__.py#L7802) |  |
-| `_norm_name` | def | [7805](../scraper/__init__.py#L7805) | Normalize a company name for matching: lowercase, drop apostrophes, strip the remaining |
-| `_STRICT_SUFFIX` | const | [7821](../scraper/__init__.py#L7821) |  |
-| `_WORKFORCE_CEILING` | const | [7825](../scraper/__init__.py#L7825) |  |
-| `_PLAUSIBLE_FILINGS_PER_HEAD` | const | [7833](../scraper/__init__.py#L7833) |  |
-| `_GENERIC_NAME_WORDS` | const | [7838](../scraper/__init__.py#L7838) |  |
-| `_strict_norm_name` | def | [7850](../scraper/__init__.py#L7850) | _norm_name's cautious twin: lowercase and strip punctuation, but keep the words that |
-| `_safe_sponsor_match` | def | [7858](../scraper/__init__.py#L7858) | Look up an employer's H-1B filing count with the two false positives guarded. |
-| `build_sponsor_index` | def | [7919](../scraper/__init__.py#L7919) | Pre-normalize the sponsor list once so per-job lookups are fast. |
-| `sponsors_h1b` | def | [7933](../scraper/__init__.py#L7933) | True if `company` looks like a known H1B sponsor. Cached per company. |
-| `FIELDNAMES` | const | [7966](../scraper/__init__.py#L7966) |  |
-| `load_seen_urls` | def | [7968](../scraper/__init__.py#L7968) |  |
-| `append_jobs` | def | [7975](../scraper/__init__.py#L7975) |  |
-| `_env_num` | def | [7988](../scraper/__init__.py#L7988) | Numeric env override that can't take the whole module down. These are read at IMPORT |
-| `SCRAPE_WORKERS` | const | [8008](../scraper/__init__.py#L8008) |  |
-| `SCRAPE_BUDGET_MIN` | const | [8021](../scraper/__init__.py#L8021) |  |
-| `SCRAPE_SLICE` | const | [8033](../scraper/__init__.py#L8033) |  |
-| `SCRAPE_ROTATE` | const | [8038](../scraper/__init__.py#L8038) |  |
-| `SCRAPE_ROTATE_STRIDE` | const | [8042](../scraper/__init__.py#L8042) |  |
-| `SCRAPE_PER_HOST` | const | [8051](../scraper/__init__.py#L8051) |  |
-| `SCRAPE_BOARD_TIMEOUT` | const | [8094](../scraper/__init__.py#L8094) |  |
-| `_run_with_timeout` | def | [8100](../scraper/__init__.py#L8100) | fn(url), but stop WAITING on it after `secs` and raise instead. |
-| `_PER_HOST_OVERRIDE` | const | [8133](../scraper/__init__.py#L8133) |  |
-| `_host_key` | def | [8136](../scraper/__init__.py#L8136) | Which rate-limited thing this board actually talks to. |
-| `scrape_all` | def | [8155](../scraper/__init__.py#L8155) | Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes |
-| `CLOSED_AFTER_MISSES` | const | [8276](../scraper/__init__.py#L8276) |  |
-| `RECONCILE_MIN_ROWS` | const | [8279](../scraper/__init__.py#L8279) |  |
-| `RECONCILE_MIN_RATIO` | const | [8280](../scraper/__init__.py#L8280) |  |
-| `JOBSPY_FINGERPRINT_ENFORCE` | const | [8291](../scraper/__init__.py#L8291) |  |
-| `fingerprint_duplicate` | def | [8295](../scraper/__init__.py#L8295) | The stored URL this posting is an aggregator's copy of, or None. |
-| `RECONCILE_SKIP_ATS` | const | [8339](../scraper/__init__.py#L8339) |  |
-| `_url_prefix` | def | [8342](../scraper/__init__.py#L8342) | Longest common '/'-delimited prefix of a board's URLs — the namespace that board owns. |
-| `_norm_url` | def | [8366](../scraper/__init__.py#L8366) |  |
-| `BOARD_HEALTH_KEY` | const | [8370](../scraper/__init__.py#L8370) |  |
-| `BOARD_HEALTH_RUNS` | const | [8371](../scraper/__init__.py#L8371) |  |
-| `board_run_failed` | def | [8374](../scraper/__init__.py#L8374) | Did this recorded run actually FAIL, as opposed to never having happened? |
-| `_rss_mb` | def | [8394](../scraper/__init__.py#L8394) | Resident set size in MB, or 0.0 where /proc is unavailable (Windows, macOS). |
-| `_release_memory` | def | [8410](../scraper/__init__.py#L8410) | Hand freed arenas back to the OS between slices. Best-effort, never raises. |
-| `SCRAPE_MEMPROF` | const | [8440](../scraper/__init__.py#L8440) |  |
-| `_memprof_report` | def | [8443](../scraper/__init__.py#L8443) | Name what is actually holding memory at a slice boundary. Off unless SCRAPE_MEMPROF=1. |
-| `save_board_health` | def | [8479](../scraper/__init__.py#L8479) | Record what every board returned this run, and print the ones worth looking at. |
-| `reconcile_closed` | def | [8596](../scraper/__init__.py#L8596) | Mark jobs that have vanished from their own board as closed. Returns (closed, considered). |
-| `_truthy_false` | def | [8681](../scraper/__init__.py#L8681) | True when the stored value already means 'not active' — avoids rewriting rows we |
-| `_explain_auth_failure` | def | [8687](../scraper/__init__.py#L8687) | Turn a proxy 401 into the one sentence that fixes it, and return True if that is what it was. |
-| `main` | def | [8717](../scraper/__init__.py#L8717) |  |
+| `fill_missing_jds` | def | [7493](../scraper/__init__.py#L7493) | Buy descriptions for this slice's postings, KEPT ONES FIRST. |
+| `US_STATE_ABBR` | const | [7669](../scraper/__init__.py#L7669) |  |
+| `US_STATE_NAMES` | const | [7673](../scraper/__init__.py#L7673) |  |
+| `NON_US` | const | [7683](../scraper/__init__.py#L7683) |  |
+| `_STATE_ABBR_RE` | const | [7724](../scraper/__init__.py#L7724) |  |
+| `_NON_US_RE` | const | [7729](../scraper/__init__.py#L7729) |  |
+| `_fold` | def | [7734](../scraper/__init__.py#L7734) | Lowercased and stripped of accents, for matching against NON_US. |
+| `_TITLE_PLACE_RE` | const | [7747](../scraper/__init__.py#L7747) |  |
+| `_country_from_title` | def | [7750](../scraper/__init__.py#L7750) | A place named in a trailing parenthetical, e.g. "Data Analyst (Remote, India)" -&gt; the |
+| `title_says_non_us` | def | [7759](../scraper/__init__.py#L7759) | True only when a title's trailing parenthetical NAMES a non-US place. |
+| `is_us_location` | def | [7771](../scraper/__init__.py#L7771) | Heuristic: True if the location looks US-based. Unknown/blank -&gt; kept. |
+| `load_sponsors` | def | [7792](../scraper/__init__.py#L7792) | Read employer names (one per line) from sponsors.txt. Build that file from |
+| `_LEGAL_SUFFIX` | const | [7802](../scraper/__init__.py#L7802) |  |
+| `_APOSTROPHE_RE` | const | [7826](../scraper/__init__.py#L7826) |  |
+| `_norm_name` | def | [7829](../scraper/__init__.py#L7829) | Normalize a company name for matching: lowercase, drop apostrophes, strip the remaining |
+| `_STRICT_SUFFIX` | const | [7845](../scraper/__init__.py#L7845) |  |
+| `_WORKFORCE_CEILING` | const | [7849](../scraper/__init__.py#L7849) |  |
+| `_PLAUSIBLE_FILINGS_PER_HEAD` | const | [7857](../scraper/__init__.py#L7857) |  |
+| `_GENERIC_NAME_WORDS` | const | [7862](../scraper/__init__.py#L7862) |  |
+| `_strict_norm_name` | def | [7874](../scraper/__init__.py#L7874) | _norm_name's cautious twin: lowercase and strip punctuation, but keep the words that |
+| `_safe_sponsor_match` | def | [7882](../scraper/__init__.py#L7882) | Look up an employer's H-1B filing count with the two false positives guarded. |
+| `build_sponsor_index` | def | [7943](../scraper/__init__.py#L7943) | Pre-normalize the sponsor list once so per-job lookups are fast. |
+| `sponsors_h1b` | def | [7957](../scraper/__init__.py#L7957) | True if `company` looks like a known H1B sponsor. Cached per company. |
+| `FIELDNAMES` | const | [7990](../scraper/__init__.py#L7990) |  |
+| `load_seen_urls` | def | [7992](../scraper/__init__.py#L7992) |  |
+| `append_jobs` | def | [7999](../scraper/__init__.py#L7999) |  |
+| `_env_num` | def | [8012](../scraper/__init__.py#L8012) | Numeric env override that can't take the whole module down. These are read at IMPORT |
+| `SCRAPE_WORKERS` | const | [8032](../scraper/__init__.py#L8032) |  |
+| `SCRAPE_BUDGET_MIN` | const | [8045](../scraper/__init__.py#L8045) |  |
+| `SCRAPE_SLICE` | const | [8057](../scraper/__init__.py#L8057) |  |
+| `SCRAPE_ROTATE` | const | [8062](../scraper/__init__.py#L8062) |  |
+| `SCRAPE_ROTATE_STRIDE` | const | [8066](../scraper/__init__.py#L8066) |  |
+| `SCRAPE_PER_HOST` | const | [8075](../scraper/__init__.py#L8075) |  |
+| `SCRAPE_BOARD_TIMEOUT` | const | [8118](../scraper/__init__.py#L8118) |  |
+| `_run_with_timeout` | def | [8124](../scraper/__init__.py#L8124) | fn(url), but stop WAITING on it after `secs` and raise instead. |
+| `_PER_HOST_OVERRIDE` | const | [8157](../scraper/__init__.py#L8157) |  |
+| `_host_key` | def | [8160](../scraper/__init__.py#L8160) | Which rate-limited thing this board actually talks to. |
+| `scrape_all` | def | [8179](../scraper/__init__.py#L8179) | Scrape boards CONCURRENTLY (each is an independent host) so the whole run takes |
+| `CLOSED_AFTER_MISSES` | const | [8300](../scraper/__init__.py#L8300) |  |
+| `RECONCILE_MIN_ROWS` | const | [8303](../scraper/__init__.py#L8303) |  |
+| `RECONCILE_MIN_RATIO` | const | [8304](../scraper/__init__.py#L8304) |  |
+| `JOBSPY_FINGERPRINT_ENFORCE` | const | [8315](../scraper/__init__.py#L8315) |  |
+| `fingerprint_duplicate` | def | [8319](../scraper/__init__.py#L8319) | The stored URL this posting is an aggregator's copy of, or None. |
+| `RECONCILE_SKIP_ATS` | const | [8363](../scraper/__init__.py#L8363) |  |
+| `_url_prefix` | def | [8366](../scraper/__init__.py#L8366) | Longest common '/'-delimited prefix of a board's URLs — the namespace that board owns. |
+| `_norm_url` | def | [8390](../scraper/__init__.py#L8390) |  |
+| `BOARD_HEALTH_KEY` | const | [8394](../scraper/__init__.py#L8394) |  |
+| `BOARD_HEALTH_RUNS` | const | [8395](../scraper/__init__.py#L8395) |  |
+| `board_run_failed` | def | [8398](../scraper/__init__.py#L8398) | Did this recorded run actually FAIL, as opposed to never having happened? |
+| `_rss_mb` | def | [8418](../scraper/__init__.py#L8418) | Resident set size in MB, or 0.0 where /proc is unavailable (Windows, macOS). |
+| `_release_memory` | def | [8434](../scraper/__init__.py#L8434) | Hand freed arenas back to the OS between slices. Best-effort, never raises. |
+| `SCRAPE_MEMPROF` | const | [8464](../scraper/__init__.py#L8464) |  |
+| `_memprof_report` | def | [8467](../scraper/__init__.py#L8467) | Name what is actually holding memory at a slice boundary. Off unless SCRAPE_MEMPROF=1. |
+| `save_board_health` | def | [8503](../scraper/__init__.py#L8503) | Record what every board returned this run, and print the ones worth looking at. |
+| `reconcile_closed` | def | [8620](../scraper/__init__.py#L8620) | Mark jobs that have vanished from their own board as closed. Returns (closed, considered). |
+| `_truthy_false` | def | [8705](../scraper/__init__.py#L8705) | True when the stored value already means 'not active' — avoids rewriting rows we |
+| `_explain_auth_failure` | def | [8711](../scraper/__init__.py#L8711) | Turn a proxy 401 into the one sentence that fixes it, and return True if that is what it was. |
+| `main` | def | [8741](../scraper/__init__.py#L8741) |  |
 
 ## `scraper/score_jobs.py` — symbols
 
