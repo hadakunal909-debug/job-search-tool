@@ -17,7 +17,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
 - [`resume_bullets.py`](#resume_bulletspy) — 248 lines, 18 symbols — Per-bullet review: verb, scope, result.
 - [`jdrender.py`](#jdrenderpy) — 725 lines, 45 symbols — Job description -> HTML. Kept out of web.py and core.py.
-- [`norms.py`](#normspy) — 264 lines, 17 symbols — What the corpus knows about a ROLE and an EMPLOYER. Kept out of core.py for the reason jdrender is: the scraper and the digest import core and need neither.
+- [`norms.py`](#normspy) — 288 lines, 17 symbols — What the corpus knows about a ROLE and an EMPLOYER. Kept out of core.py for the reason jdrender is: the scraper and the digest import core and need neither.
 - [`pgrest.py`](#pgrestpy) — 561 lines, 20 symbols — Transport 1: PostgREST verbs reimplemented over psycopg.
 - [`dbproxy.py`](#dbproxypy) — 250 lines, 10 symbols — Transport 2: HMAC-signed HTTPS, how off-host code reaches the DB.
 - [`analytics.py`](#analyticspy) — 289 lines, 24 symbols — Event capture. Reads EV_OFF once, at import.
@@ -283,7 +283,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *What the corpus knows about a ROLE and an EMPLOYER. Kept out of core.py for the reason jdrender is: the scraper and the digest import core and need neither.*
 
-264 lines · 17 top-level symbols · 0 sections
+288 lines · 17 top-level symbols · 0 sections
 
 *No banner comments in this file.*
 
@@ -2174,17 +2174,17 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `FAM_FLOOR` | const | [42](../norms.py#L42) |  |
 | `CORPUS_DF_MIN` | const | [44](../norms.py#L44) |  |
 | `MIN_EMPLOYER` | const | [46](../norms.py#L46) |  |
-| `DISTINCT_MIN` | const | [49](../norms.py#L49) |  |
-| `DISTINCT_MAX` | const | [50](../norms.py#L50) |  |
-| `_reset_cache` | def | [53](../norms.py#L53) |  |
-| `load_norms` | def | [58](../norms.py#L58) | The norms blob, or {} if it was never built. Never raises. |
-| `built` | def | [75](../norms.py#L75) | The _meta dict, so a page can state the vintage instead of implying freshness. |
-| `_own_words` | def | [80](../norms.py#L80) | The words a family is NAMED by. `ops` postings say "operations" 95% of the time, which is |
-| `_dedupe_by_stem` | def | [91](../norms.py#L91) | `budget` at 55% and `budgeting` at 57% are one fact. Keep the stronger spelling. |
-| `role_norm` | def | [101](../norms.py#L101) | \[(term, share_in_family, share_in_corpus)\] — what this role usually asks for. |
-| `company_tools` | def | [136](../norms.py#L136) | (top, unusual) for one employer, keyed by db.block_key(company). |
-| `distinctive` | def | [188](../norms.py#L188) | \[(term, share_in_family)\] — what THIS posting asks for that most of the role does not. |
-| `coverage` | def | [243](../norms.py#L243) | (held, total, missing) over what this role usually asks for, or None if there is no norm. |
+| `DISTINCT_MIN` | const | [60](../norms.py#L60) |  |
+| `DISTINCT_MAX` | const | [61](../norms.py#L61) |  |
+| `_reset_cache` | def | [64](../norms.py#L64) |  |
+| `load_norms` | def | [69](../norms.py#L69) | The norms blob, or {} if it was never built. Never raises. |
+| `built` | def | [86](../norms.py#L86) | The _meta dict, so a page can state the vintage instead of implying freshness. |
+| `_own_words` | def | [91](../norms.py#L91) | The words a family is NAMED by. `ops` postings say "operations" 95% of the time, which is |
+| `_dedupe_by_stem` | def | [102](../norms.py#L102) | `budget` at 55% and `budgeting` at 57% are one fact. Keep the stronger spelling. |
+| `role_norm` | def | [112](../norms.py#L112) | \[(term, share_in_family, share_in_corpus)\] — what this role usually asks for. |
+| `company_tools` | def | [147](../norms.py#L147) | (top, unusual) for one employer, keyed by db.block_key(company). |
+| `distinctive` | def | [199](../norms.py#L199) | \[(tool, share_in_family)\] — TOOLS this posting names that most of the role does not. |
+| `coverage` | def | [267](../norms.py#L267) | (held, total, missing) over what this role usually asks for, or None if there is no norm. |
 
 ## `pgrest.py` — symbols
 

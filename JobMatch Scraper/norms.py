@@ -44,10 +44,21 @@ FAM_FLOOR = 0.10
 CORPUS_DF_MIN = 20
 # An employer needs this many openings before a share of them means anything.
 MIN_EMPLOYER = 12
-# "Unusual for this role" is a BAND. Below the floor the term is unknowable for the family;
-# above the ceiling it is the norm rather than a departure from it.
+# THE BAND. Below the floor a term is unknowable for the family; above the ceiling it is the
+# norm rather than a departure from it.
+#
+# 0.25 measured over 1,200 postings, against the 0.35 it replaces. The ceiling is the ONLY lever
+# that changed anything -- two other ideas were tried first and both were measured to do nothing
+# at all, which is why they are not here:
+#   * drawing candidates from core.core_terms(analyzed) rather than every term the posting names,
+#     on the theory that "asked for here" should mean "emphasised here". BYTE-IDENTICAL output:
+#     core_terms is the top 90% of a posting's weight, which for most postings is nearly all of
+#     it, so it does not discriminate.
+#   * subtracting the role norm shown above the line, to avoid repeating it. Redundant with the
+#     ceiling: the norm's own floor is 10% and the ceiling is 25%, so there is almost nothing in
+#     both, and below a 0.10 ceiling the two outputs are identical.
 DISTINCT_MIN = 0.02
-DISTINCT_MAX = 0.35
+DISTINCT_MAX = 0.25
 
 
 def _reset_cache():
@@ -186,14 +197,23 @@ def company_tools(ckey, cap=8, min_share=0.15, min_gap=0.05, blob=None):
 
 
 def distinctive(key, terms, cap=6, blob=None):
-    """[(term, share_in_family)] — what THIS posting asks for that most of the role does not.
+    """[(tool, share_in_family)] — TOOLS this posting names that most of the role does not.
 
     A band, not a ranking of rarity: below DISTINCT_MIN the term is unknowable for the family
     and above DISTINCT_MAX it IS the norm. Ranked ascending, so the least usual comes first.
 
-    Presented as "asked for here, but not by most X postings" rather than as anything stronger.
-    A mid-prevalence term is "unusual" by construction of the band, so a label promising the
-    reader something worth their attention would be overclaiming on the arithmetic.
+    TOOLS AND NOT THE WHOLE CURATED SET, for the same reason company_tools is: the domain half of
+    ATS_KEYWORDS is the vocabulary every posting is WRITTEN in, so it drowns the answer. Measured
+    over 1,200 postings, the whole set offered "onboarding, business requirements, deliverables,
+    risk management, data analysis" -- true, rare-ish for the family, and not a thing anyone
+    needed told. Restricted to core.ATS_TOOLS the same postings give "microsoft project 16%" for
+    a Clinical Project Manager, "sdlc 8%, product owner 14%, backlog 15%, jira 19%" for a
+    Business Analyst, "six sigma 5%" for a Construction PM, "sap 9%" for an AP Process Analyst.
+    Concrete, checkable, and the reader can act on it.
+
+    THE COST IS THAT IT IS EMPTY 43% OF THE TIME, and that is the right trade: "this posting names
+    no unusual tools" is an honest answer, the panel above it still has the role norm and the
+    employer's tools, and a line that claims to be worth attention has to be.
     """
     blob = load_norms() if blob is None else blob
     fam = (blob.get("fam") or {}).get(key)
@@ -213,7 +233,7 @@ def distinctive(key, terms, cap=6, blob=None):
     #
     # Sparse and right beats plentiful and noisy here, because the line makes a claim about
     # what is worth a reader's attention.
-    vocab = core.ATS_KEYWORDS
+    vocab = core.ATS_TOOLS
     out = []
     for term in (terms or []):
         low = (term or "").lower()
@@ -230,7 +250,11 @@ def distinctive(key, terms, cap=6, blob=None):
     out.sort()
     seen, res = set(), []
     for share, term in out:
-        k = " ".join(core._stem(w) for w in term.split())
+        # CANONICAL FORM as well as stem. Stems alone collapse "kpi"/"kpis" but not
+        # "ms project"/"microsoft project", which are one tool under two names -- a Clinical
+        # Project Manager posting was offering both at 16% as if they were two findings.
+        # core.SKILL_ALIASES already knows the mapping; this is the read side of it.
+        k = " ".join(core._stem(w) for w in core._canon_phrase(term).split())
         if k in seen:
             continue
         seen.add(k)
