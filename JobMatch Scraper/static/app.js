@@ -266,7 +266,7 @@
     // (Akamai, an AWS WAF challenge) so no run will ever change it. Promising a score that
     // cannot arrive is worse than saying so.
     if (j && j.jd_unavailable)
-      return '<span class="score-pending" title="This employer does not publish a description we can read, so this job cannot be scored against your r\u00e9sum\u00e9. Open the posting to read it.">No description</span>';
+      return '<span class="score-pending" title="This employer does not publish a description we can read, so this job cannot be scored against your r\u00e9sum\u00e9. Open the posting to read it.">No JD</span>';
     if (j && j.score_pending)
       return '<span class="score-pending" title="Not scored yet: no full description has been read for this posting. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
     return scoreRing((j && j.score) || 0);

@@ -1043,12 +1043,29 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .skel-bar,.skel-chip{background:linear-gradient(90deg,var(--line) 25%,var(--line-strong) 37%,var(--line) 63%);background-size:400% 100%;animation:skelsh 1.6s ease-in-out infinite}
 @keyframes skelsh{0%{background-position:100% 0}100%{background-position:-100% 0}}
 @media (prefers-reduced-motion:reduce){.skel-bar,.skel-chip{animation:none}}
-/* TWO children now: the optional New flag, and the score. The logo used to lead this row at
-   36px tall and up to 180px wide -- 61% of a 294px card for a wordmark -- and it has moved to
-   .cmark on the identity line, next to the name it belongs to. So the flag no longer needs
-   margin-left:auto to escape the lockup: space-between puts it in the corner the lockup left
-   and still holds the score right, and with no flag the score is alone and right-aligned. */
+/* TWO children, and the second one is OPTIONAL -- which is the whole reason margin-left:auto
+   is back below. The logo used to lead this row at 36px tall and up to 180px wide (61% of a
+   294px card for a wordmark) and it has moved to .cmark on the identity line, so the New flag
+   took the corner the lockup left behind and space-between was judged enough to hold the score
+   right.
+
+   IT IS NOT, AND THE COMMENT THAT USED TO SIT HERE SAID THE OPPOSITE: "with no flag the score
+   is alone and right-aligned". A single flex child under justify-content:space-between is laid
+   out at main-START, not main-end -- space-between only distributes the FREE SPACE BETWEEN
+   items, and one item has none. So every card without a New flag drew its ring or its "JD
+   pending" chip on the LEFT, and the feed switched sides depending on how old the newest job
+   on screen happened to be. Reported from the live site 2026-09-02: the default feed (fresh
+   jobs, flags present) put the score right, and any search that surfaced older rows put it
+   left.
+
+   margin-left:auto on the score is correct with one child and with two, so it does not depend
+   on the flag existing. space-between stays because it costs nothing and keeps the intent
+   readable; the auto margin is what enforces it. Scoped to .cardtop on purpose -- the same
+   three score classes are reused on /job, where the enclosing row is not this one. */
 .cardtop{display:flex;align-items:center;justify-content:space-between;gap:var(--space-100)}
+.cardtop > .score-ring,
+.cardtop > .score-pending,
+.cardtop > .score-none{margin-left:auto}
 /* The title is a real <a href="/job?u=..."> now. It was a <button> opening the modal, and before
    that a bare <article> click handler that no keyboard could reach. The button resets are gone
    with the button; what stays is the two-line clamp, the inherited ink colour, and CRUCIALLY the
@@ -1496,7 +1513,25 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .ring-good{--ring-color:var(--match-good);--ring-track:var(--match-track)}
 .ring-low{--ring-color:var(--match-weak);--ring-track:var(--match-track)}
 .score-ring{flex-shrink:0;display:block}
-.score-pending{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;padding:0 4px;border-radius:var(--radius-md);font-size:var(--text-3xs);font-weight:700;line-height:1.15;text-align:center;color:var(--muted);background:var(--surface2);border:1px dashed var(--warn-line)}
+/* A CIRCLE, because everything else in this slot is one. It was radius-md -- a rounded square
+   sitting between .score-ring (an SVG circle) and .score-none (a dashed circle), at the same
+   46px, in the same corner. Three states, two shapes, and the odd one out was the one that
+   appears most often. Reported from the live feed 2026-09-02 as looking like a different kind
+   of element, which is exactly what it was.
+
+   The labels stay INSIDE the circle rather than moving to the chip row: "don't add a second
+   chip to the card" is a decision this project has already walked back twice, and the whole
+   point of this slot is that one glance at the top-right corner answers "how well does this
+   match me". An empty circle would have matched .score-none more cleanly, but it would make
+   "not read yet" and "can never be read" identical -- a distinction that cost real work to
+   establish -- and a bare glyph in this circle has already been tried and read as a rendering
+   artefact.
+
+   font-size stays on the type scale at --text-3xs. That is what forced "No description" to
+   become "No JD" in app.js: "description" is ~62px at 11px type and the circle's usable chord
+   is ~40px, so the honest choices were a shorter word or a font size the rest of the product
+   never uses. The tooltip still carries the full sentence. */
+.score-pending{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;padding:0 3px;border-radius:var(--radius-full);font-size:var(--text-3xs);font-weight:700;line-height:1.1;text-align:center;color:var(--muted);background:var(--surface2);border:1px dashed var(--warn-line)}
 /* No résumé: the card holds the ring's space but shows no number, so the layout doesn't shift
    once scoring starts and nothing on the card claims a match we cannot compute. Deliberately
    quiet — this is an absence, not a warning, and an empty dashed ring says that on its own
