@@ -30,6 +30,7 @@ _PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "norms.json")
 # Memoised the way core.load_idf is: read once per process, and let a long-lived worker pick up
 # a rebuilt file through _reset_cache() (web.py's /reload calls it).
 _cache = {"blob": None, "loaded": False}
+_skills_cache = {"key": None, "vocab": None}
 
 # A family smaller than this gets no norm at all -- at 150 rows a "10% of postings" claim rests
 # on fifteen documents. Kept here rather than in the builder because a READER has to know which
@@ -53,6 +54,7 @@ DISTINCT_MAX = 0.35
 def _reset_cache():
     _cache["blob"] = None
     _cache["loaded"] = False
+    _skills_cache["key"] = None
 
 
 def load_norms(path=_PATH):
@@ -96,6 +98,26 @@ def _dedupe_by_stem(scored):
         if k not in best or row[0] > best[k][0]:
             best[k] = row
     return sorted(best.values(), reverse=True)
+
+
+def _skill_vocab(blob):
+    """The vocabulary that can be called a SKILL: the curated tools and domain terms, plus
+    anything a family norm has validated as role-relevant.
+
+    Derived at READ time rather than stored, so a term newly added to core.KEYWORD_STOP drops
+    out of it without rebuilding the artifact -- role_norm below filters through
+    core.display_terms, so the two stay in step by construction.
+
+    Memoised per blob identity: it is 21 role_norm passes and `distinctive` is called per page.
+    """
+    key = id(blob)
+    if _skills_cache.get("key") != key:
+        vocab = set(core.ATS_KEYWORDS)
+        for fam_key in (blob.get("fam") or {}):
+            vocab |= {t for t, _pf, _pc in role_norm(fam_key, 60, blob=blob)}
+        _skills_cache["key"] = key
+        _skills_cache["vocab"] = vocab
+    return _skills_cache["vocab"]
 
 
 def role_norm(key, cap=12, blob=None):
@@ -198,9 +220,17 @@ def distinctive(key, terms, cap=6, blob=None):
     n = float(fam["n"])
     corpus = blob.get("corpus") or {}
     cdf = corpus.get("df") or {}
+    # ONLY THINGS THAT COULD BE A SKILL. Without this the line read "unusual for this role:
+    # salaried, stairs, https, jobs, problems, together" -- every one of them genuinely rare for
+    # the family and none of them a thing to know. A ratio floor was tried first and measured
+    # WORSE than useless: at 1.5 it let "employees" into the ops norm and at 2.0 it dropped
+    # "reporting" and "stakeholder", which the role really does ask for.
+    vocab = _skill_vocab(blob)
     out = []
     for term in (terms or []):
         low = (term or "").lower()
+        if low not in vocab:
+            continue
         if cdf.get(low, 0) < CORPUS_DF_MIN:
             continue
         share = (fam.get("df") or {}).get(low, 0) / n
