@@ -28,11 +28,14 @@ def _synthetic():
         "_meta": {"built": "2026-01-01", "postings": 1000, "role_keys": list(core.ROLE_KEYS)},
         "corpus": {"n": 1000, "df": {"tableau": 40, "sql": 200, "jira": 100, "python": 300,
                                      "confluence": 100, "maine": 90, "clearance": 90,
-                                     "stairs": 100, "rareterm": 5}},
+                                     "stairs": 100, "onboarding": 100, "ms project": 100,
+                                     "microsoft project": 100, "rareterm": 5}},
         # jira 5% is below the family floor; confluence is exactly ON it, which the floor keeps.
         "fam": {"ops": {"n": 400, "df": {"tableau": 200, "sql": 120, "jira": 20, "python": 30,
                                          "confluence": 40, "maine": 80, "clearance": 80,
-                                         "stairs": 30, "rareterm": 4, "operations": 380}}},
+                                         "stairs": 30, "onboarding": 30, "ms project": 30,
+                                         "microsoft project": 30,
+                                         "rareterm": 4, "operations": 380}}},
         "co": {"acme": {"n": 50, "name": "Acme", "fam": {"ops": 50},
                         "tools": {"tableau": 40, "jira": 3, "sql": 15}}},
     }
@@ -99,6 +102,23 @@ def test_distinctive_refuses_a_word_that_could_not_be_a_skill():
     got = dict(norms.distinctive("ops", ["stairs", "python"], blob=_synthetic()))
     assert "stairs" not in got, got
     assert "python" in got, got
+
+
+def test_distinctive_names_tools_not_the_vocabulary_postings_are_written_in():
+    """core.ATS_TOOLS and not the whole curated set. Measured over 1,200 postings, the whole set
+    offered "onboarding, business requirements, deliverables, risk management" -- rare-ish for
+    the family, true, and nothing anyone needed told. The domain half is the vocabulary every
+    posting is WRITTEN in, so it drowns the answer, exactly as it did for company_tools."""
+    got = dict(norms.distinctive("ops", ["onboarding", "python"], blob=_synthetic()))
+    assert "onboarding" not in got, "a domain term is not a tool: %r" % got
+    assert "python" in got, got
+
+
+def test_distinctive_collapses_two_names_for_one_tool():
+    """Stems alone collapse kpi/kpis but not ms project/microsoft project, and a Clinical
+    Project Manager posting was offering both at 16% as if they were two findings."""
+    got = norms.distinctive("ops", ["ms project", "microsoft project"], blob=_synthetic())
+    assert len(got) == 1, got
 
 
 def test_coverage_counts_and_names_what_is_missing():
