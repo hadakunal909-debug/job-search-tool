@@ -20,6 +20,8 @@ jdmeta.json
 # state, regenerated on demand — must never be deployed or committed.
 jobs_snapshot.json.gz
 jobs_snapshot.json.gz.*.tmp
+# The fingerprint sidecar next to it -- same corpus, 120 bytes of it.
+jobs_snapshot.json.gz.fp.json
 # Per-user match scores, same idea as the snapshot above: a rebuildable cache, not state.
 score_cache/
 row_cache/

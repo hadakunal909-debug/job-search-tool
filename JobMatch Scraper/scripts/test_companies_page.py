@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -48,6 +49,17 @@ JOBS = [
 ]
 
 web.get_jobs = lambda: [dict(j) for j in JOBS]
+# STUBBING get_jobs IS NOT ENOUGH ON ITS OWN. web._corpus_fp() answers the corpus
+# fingerprint from a sidecar or the database probe WITHOUT loading the corpus, and
+# _base_rows then reads row_cache/ under that key -- so with a real fingerprint in
+# reach these synthetic jobs are silently replaced by whatever the developer last
+# built. Filling _jobs_cache (rows, a fake fp, and a FRESH `at`) makes the memory
+# branch win, which is the same thing .claude/devpreview.py does and for the same
+# reason. scripts/run_tests.py also points ROWS_DIR at an empty directory.
+web._jobs_cache.update(rows=[dict(j) for j in JOBS], fp=(len(JOBS), "companies"),
+                       at=time.time())
+web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None, meta=None)
 web._session_dead = lambda u: ""
 web._needs_onboarding = lambda u: False
 web.current_profile = lambda: ""

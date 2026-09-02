@@ -142,13 +142,26 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   AFTER that overlay** — `_dupe_rank` tie-breaks on the score, so folding duplicates while every
   base score is 0 keeps a different copy. Moving it into `_base_rows` for speed passes every
   other test; `scripts/test_speed_caches.py` is the one that catches it.
-- **Don't persist the built rows to disk.** Measured: 1,360 ms to build against 282 ms to read
-  back from a 1.4 MB gzip, so it looks free. It isn't — a built row embeds `logo_url`,
-  `sponsor_counts` and `visa_index` output, and **none of those three is covered by
-  `jobs_fingerprint()`**, so new logos without a scrape would leave a file serving stale badges
-  for ever where an in-memory cache dies with the worker. Reasoning in `docs/OPERATIONS.md`.
-  If more cold-start speed is needed, make `_build_row` cheaper (62 µs/row) — that helps the
-  warm path too and adds no cache.
+- **The built rows ARE persisted now, and the key is the whole design.** This bullet used to
+  say don't, on the grounds that a built row embeds `logo_url`, `sponsor_counts` and
+  `visa_index` output and `jobs_fingerprint()` covers none of them. That objection was right
+  and the conclusion was wrong: the fix is to put those inputs IN the key, not to throw the
+  work away. `row_cache/*.rows.gz` is keyed on `(jobs_fingerprint(), _derived_signature())`.
+  What made the old reasoning fail in practice: "`/warm` builds the shared half off the user's
+  path" assumed one warm reaches every worker, and `/warm` is one HTTP request — Passenger runs
+  several workers with no affinity and recycles them freely, so cold workers kept appearing and
+  each one's first request paid the full build.
+  Three rules that are each a bug someone already shipped:
+  **(1) `_derived_signature()` hashes file CONTENT, memoised on the stat.** On mtime, a deploy
+  — a zip extract, so every file rewritten and not a byte changed — invalidated all 40k rows
+  and charged the first visitor ~7 s.
+  **(2) Nothing that can fail silently may be in the key.** It once included two KV maps read
+  over the network whose readers swallow a failure into `{}`; workers computed different keys,
+  each rebuilt 7 s and overwrote the other's file. Production showed 63 ms and 8,401 ms in the
+  same second.
+  **(3) A request never writes the file; `/warm` (`persist=True`) and a from-scratch build do.**
+  The gzip is most of the cost and charging it to whoever loads the feed next is the regression
+  this replaced. `scripts/test_speed_caches.py` gates all three.
 - **The fonts are ours too, and the CSP is what enforces it.** Six woff2 in `static/fonts/`,
   `@font-face` at the top of `style.css`. `font-src 'self'` with no remote origin left in
   `style-src` either — the same bargain as `img-src` for the logos. What this replaced was a

@@ -131,6 +131,22 @@ INDEX = (
         "extension's JD patch moves neither half of that fingerprint. {web.py::warm} builds the "
         "shared half off the user's path; {web.py::_cache_max} charges it one entry.",
         "python scripts/test_speed_caches.py"),
+    Row("Y", "A COLD worker is slow -- so the site is slow right after a restart or a deploy",
+        "{web.py::_corpus_fp} -- the corpus KEY without the corpus, which is what the whole "
+        "cold path now turns on",
+        "everything a cold render needs is already on disk in row_cache/ and score_cache/, and "
+        "both are keyed on the fingerprint -- so the worker needed the KEY, not the 46 MB the "
+        "key is stored inside. {web.py::_snapshot_fp} reads it from a 120-byte sidecar stamped "
+        "with the snapshot's own (mtime_ns, size); if that cannot be trusted, db's fingerprint "
+        "probe answers; only then does {web.py::get_jobs} run. Three things must hold. "
+        "{web.py::_snapshot_touch} and {web.py::_snapshot_write} must RESTAMP the sidecar, or "
+        "os.utime silently kills the fast path it feeds. {web.py::_derived_signature} must hash "
+        "file CONTENT, not mtime, or a deploy -- which rewrites every file and changes no byte "
+        "-- invalidates all 40k rows and charges the first visitor ~7 s. And "
+        "{web.py::_apply_dedupe_plan} must stay equal to {web.py::_dedupe_rows} over the whole "
+        "corpus INCLUDING order, because ranked_rows sorts on score right after and that sort "
+        "is stable. Measured 2026-09-01 at 40,294 rows: 2,143 ms -> ~500 ms.",
+        "python scripts/test_speed_caches.py"),
     Row("R", "The first feed load after a scrape takes many seconds",
         "{web.py::_warm_user_scores} -- every account's score file, written off the request path",
         "the shared half was never the dominant term here. Score files are keyed on (user, "
@@ -1008,6 +1024,8 @@ CACHE = (
     ("jdmeta.json", "precomputed per-job term maps",
      "built on the Actions runner, whose filesystem is discarded"),
     ("jobs_snapshot.json.gz", "cross-worker feed cache", ""),
+    ("jobs_snapshot.json.gz.fp.json", "its fingerprint, without the 46 MB around it",
+     "stamped with the snapshot's stat; a mismatch is refused, never repaired"),
     ("last_new_jobs.json", "one run's new rows", "the digest's only input"),
     ("jobs.csv", "the no-credentials fallback store", ""),
 )

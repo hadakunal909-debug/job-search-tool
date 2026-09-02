@@ -28,7 +28,9 @@ Falls back to synthetic cases when jobs_snapshot.json.gz is absent (CI has no da
 snapshot — see docs/INDEX.md on tests that read the live corpus).
 """
 import os
+import io
 import sys
+import time
 import gzip
 import json
 import shutil
@@ -246,7 +248,7 @@ def score_files():
         computed = dict(web.user_scores("a@t", RESUME))
         want("scoring produced a score per row", len(computed) == len(rows),
              "%d of %d" % (len(computed), len(rows)))
-        files = [n for n in os.listdir(tmp) if n.endswith(".json.gz")]
+        files = [n for n in os.listdir(tmp) if web._rows_stale(n)]
         want("...and wrote exactly one file", len(files) == 1, repr(files))
 
         web._score_cache.clear()                     # force the read path
@@ -275,13 +277,13 @@ def score_files():
         # The directory must not grow without bound.
         for i in range(web._SCORES_MAX_FILES + 20):
             web._scores_write("pad%d@t" % i, rmd5, FP, {"u": 1})
-        n = len([x for x in os.listdir(tmp) if x.endswith(".json.gz")])
+        n = len([x for x in os.listdir(tmp) if web._rows_stale(x)])
         want("the directory stays bounded", n <= web._SCORES_MAX_FILES,
              "%d files, max %d" % (n, web._SCORES_MAX_FILES))
 
         want("_scores_clear removes them all",
              (web._scores_clear() or True)
-             and not [x for x in os.listdir(tmp) if x.endswith(".json.gz")])
+             and not [x for x in os.listdir(tmp) if web._rows_stale(x)])
     finally:
         web.get_jobs, web._SCORES_DIR = real_get, real_dir
         web._jobs_cache["rows"], web._jobs_cache["fp"] = real_cache_rows, real_cache_fp
@@ -707,14 +709,14 @@ def row_files():
         # gzip is 2,153 ms of the 2,291 ms that a fingerprint move used to cost, and charging
         # that to whoever loads the feed next is the whole reason this argument exists.
         fresh = web._base_rows(persist=True)
-        files = [f for f in os.listdir(tmp) if f.endswith(".json.gz")]
+        files = [f for f in os.listdir(tmp) if web._rows_stale(f)]
         want("a cold build with persist=True writes one file", len(files) == 1,
              "%d file(s)" % len(files))
 
         web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, persisted=None)
         web._base_rows()                              # a REQUEST must not write a second file
         want("a request does NOT write",
-             len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]) == 1)
+             len([f for f in os.listdir(tmp) if web._rows_stale(f)]) == 1)
 
         web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, persisted=None)
         loaded = web._base_rows()                     # must come from the file
@@ -723,11 +725,15 @@ def row_files():
         diff = sum(1 for a, b in zip(fresh, loaded) if a != b)
         want("no row differs in ANY field", diff == 0, "%d differing" % diff)
 
-        # JSON has no tuples. If this regresses, _filter_rows and the client both still work,
-        # which is exactly why it needs an assertion rather than a code review.
-        tup = [k for k in web._ROWS_TUPLE_KEYS
-               if loaded and not isinstance(loaded[0].get(k), tuple)]
-        want("tuple fields survive the round trip", not tup, ",".join(tup) or "visa is a tuple")
+        # JSON had no tuples and `visa` came back a list, which needed a fix-up pass over every
+        # row; pickle round-trips it natively and the pass is gone. Assert the PROPERTY rather
+        # than the old fix-up list, because it is the property _filter_rows and the client
+        # depend on and it must hold whatever the format is.
+        tup = sorted({k for r in loaded for k, v in r.items()
+                      if isinstance(v, tuple)} ^
+                     {k for r in fresh for k, v in r.items() if isinstance(v, tuple)})
+        want("every tuple field survives the round trip as a tuple", not tup,
+             ",".join(tup) or "%d row(s) checked" % len(loaded))
 
         sig = web._derived_signature()
         want("a moved corpus fingerprint misses",
@@ -750,20 +756,43 @@ def row_files():
         web._jd_blocked_hosts = set()
         want("the signature is stable for identical inputs", web._derived_signature() == sig)
 
+        # CONTENT, NOT MTIME, and this is the pair that proves it. A deploy is a zip extract:
+        # every shipped file is rewritten, so every mtime moves and no byte changes. Keyed on
+        # mtime the stored rows died on every upload -- a 6.9 s rebuild for the first visitor
+        # after every deploy, which is exactly when a cold worker is guaranteed. The second
+        # assertion is the one that keeps the first honest: a signature that never moves is not
+        # a cache key, it is a constant, so a real content change must still be caught.
+        probe = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "sponsor_counts.json")
+        if os.path.exists(probe):
+            body = io.open(probe, "rb").read()
+            try:
+                io.open(probe, "wb").write(body)              # same bytes, new mtime
+                want("rewriting a data file byte-for-byte does NOT move it",
+                     web._derived_signature() == sig)
+                io.open(probe, "wb").write(body + b" ")       # one byte more
+                want("...but a single changed byte DOES",
+                     web._derived_signature() != sig)
+            finally:
+                io.open(probe, "wb").write(body)
+            want("and it comes back", web._derived_signature() == sig)
+        else:
+            print("  --  content-vs-mtime            SKIPPED (no sponsor_counts.json)")
+
         # Bounded, and _invalidate_jobs must take the file with it.
         for i in range(6):
-            web._rows_write((len(rows) + 10 + i, "rowtest"), sig, fresh[:5])
-        n = len([f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+            web._rows_write((len(rows) + 10 + i, "rowtest"), sig, fresh[:5], {"plan": [0]})
+        n = len([f for f in os.listdir(tmp) if web._rows_stale(f)])
         want("the directory stays bounded", n <= web._ROWS_MAX_FILES,
              "%d files, cap %d" % (n, web._ROWS_MAX_FILES))
         web._rows_clear()
         want("_rows_clear empties it",
-             not [f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+             not [f for f in os.listdir(tmp) if web._rows_stale(f)])
 
         # ---- the incremental path, which is what makes a moving corpus survivable ----
         web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, persisted=None)
         web._base_rows(persist=True)
-        n_after_warm = len([f for f in os.listdir(tmp) if f.endswith(".json.gz")])
+        n_after_warm = len([f for f in os.listdir(tmp) if web._rows_stale(f)])
         base_n = len([r for r in rows if r.get("url")])
         # a scrape lands: some rows added, and some EXISTING rows updated
         added = [dict(r, url="https://added.example/%d" % i) for i, r in enumerate(rows[:5])]
@@ -780,22 +809,176 @@ def row_files():
         want("an UPDATED row is rebuilt, not reused",
              all(r.get("closed") for r in out[:2]))
         want("a request still wrote nothing",
-             len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]) == n_after_warm,
+             len([f for f in os.listdir(tmp) if web._rows_stale(f)]) == n_after_warm,
              "%d files, unchanged from %d" %
-             (len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]), n_after_warm))
+             (len([f for f in os.listdir(tmp) if web._rows_stale(f)]), n_after_warm))
+        # ---- the corpus-derived metadata that travels in the same file ----
+        # Both halves used to be recomputed per user: _dupe_key over the whole corpus (225 ms of
+        # the 280 ms dedupe, to arbitrate 0.41% of rows) and role_counts' own full pass. They
+        # are facts about the postings, so they are built once and stored -- but the DEDUPE
+        # CHOICE still has to happen per user, because _dupe_rank tie-breaks on the score.
+        meta = web._base_rows_cache.get("meta") or {}
+        # A COLD WORKER SIZES ITS LRU FROM THE BUILT ROWS, because it never loads the corpus.
+        # Left to the 20k fallback it halved the per-entry estimate against a 40,294-row corpus
+        # and doubled the cap -- a shared-host worker sized at ~340 MB where the budget said 170.
+        n_rows = len(web._base_rows_cache["rows"] or ())
+        if n_rows > 20000:
+            saved_jc, saved_budget = dict(web._jobs_cache), web._CACHE_BUDGET_MB
+            try:
+                # LIFT THE BUDGET FIRST. At the default both answers land on the floor of 1 and
+                # the comparison passes no matter what the code does -- a check that cannot fail
+                # is worse than none. Sized so the correct answer is comfortably above it.
+                web._CACHE_BUDGET_MB = n_rows * web._ROW_CACHE_BYTES_PER_ROW / 1048576.0 * 6
+                web._jobs_cache.update(rows=None)
+                cold = web._cache_max()
+                web._jobs_cache.update(rows=saved_jc.get("rows"))
+                loaded = web._cache_max()
+                want("_cache_max is the same with the corpus unloaded", cold == loaded,
+                     "%d vs %d, over %d built rows" % (cold, loaded, n_rows))
+                want("...and that comparison is above the floor",
+                     cold > web._SCORE_CACHE_MIN, "cap %d, floor %d"
+                     % (cold, web._SCORE_CACHE_MIN))
+                # ...and the regression it guards: the 20k fallback against a 40k corpus.
+                web._jobs_cache.update(rows=None)
+                base = web._base_rows_cache["rows"]
+                web._base_rows_cache["rows"] = None
+                want("a worker that knows NOTHING still guesses high, not low",
+                     web._cache_max() > loaded,
+                     "%d vs %d" % (web._cache_max(), loaded))
+                web._base_rows_cache["rows"] = base
+            finally:
+                web._CACHE_BUDGET_MB = saved_budget
+                web._jobs_cache.clear(); web._jobs_cache.update(saved_jc)
+        else:
+            print("  --  cold _cache_max             SKIPPED (corpus too small to differ)")
+
+        want("the file carries a dedupe plan", isinstance(meta.get("plan"), list),
+             "%d entries" % len(meta.get("plan") or []))
+        want("the file carries role counts", bool(meta.get("roles")))
+        base = web._base_rows()
+        sc = {r["url"]: (i * 7) % 101 for i, r in enumerate(base)}
+
+        def score_of(r):
+            return 0 if r["score_pending"] else sc.get(r["url"], 0)
+
+        # THE EQUIVALENCE, over the whole corpus and after the sort ranked_rows applies. Python's
+        # sort is stable, so a plan that produced the same SET in a different order would rank
+        # ties differently and nothing else here would notice.
+        by_plan = web._apply_dedupe_plan(base, meta["plan"], score_of)
+        by_ref = web._dedupe_rows([dict(r, score=score_of(r)) for r in base])
+        want("the plan reproduces _dedupe_rows exactly", by_plan == by_ref,
+             "%d vs %d rows" % (len(by_plan), len(by_ref)))
+        by_plan.sort(key=lambda r: r["score"], reverse=True)
+        by_ref.sort(key=lambda r: r["score"], reverse=True)
+        want("...and still after the score sort", by_plan == by_ref)
+        want("role counts match a fresh pass over the corpus",
+             meta["roles"] == web._role_counts_for(web._jobs_cache["rows"]))
+
         # ...and /warm persists the new corpus rather than short-circuiting on the memory hit,
         # which it did until 2026-09-01: a stale early return meant the file froze for ever.
         web._base_rows(persist=True)
         want("/warm persists after a request built it",
-             len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]) == n_after_warm + 1,
+             len([f for f in os.listdir(tmp) if web._rows_stale(f)]) == n_after_warm + 1,
              "%d files, was %d" %
-             (len([f for f in os.listdir(tmp) if f.endswith(".json.gz")]), n_after_warm))
+             (len([f for f in os.listdir(tmp) if web._rows_stale(f)]), n_after_warm))
     finally:
         web._ROWS_DIR = saved[0]
         web._jobs_cache.clear(); web._jobs_cache.update(saved[1])
         web._base_rows_cache.update(saved[2])
         web._jd_blocked_hosts = None
         web._repost_clusters = None
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
+def corpus_fp():
+    """The fingerprint sidecar, and the three ways it must refuse to answer.
+
+    _corpus_fp exists so a cold worker can look up its stored rows and scores WITHOUT parsing
+    the corpus those keys describe -- 616 ms at 40,294 rows, on a request that then throws the
+    corpus away. That makes the sidecar a cache key derived from a file, and a cache key that
+    can be wrong is worse than no cache at all: believing a stale fingerprint serves another
+    corpus's cards for the life of the worker.
+
+    So the sidecar is stamped with the snapshot's own (st_mtime_ns, st_size) and anything that
+    disagrees is refused rather than repaired. The tests below drive each way it can disagree
+    and assert None comes back, then assert the fallbacks still produce the right answer.
+    """
+    print("=" * 74)
+    print("web._corpus_fp / the fingerprint sidecar")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-48s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    tmp = tempfile.mkdtemp(prefix="snapfp-")
+    saved = (web._JOBS_SNAPSHOT, web._JOBS_SNAPSHOT_FP, dict(web._jobs_cache),
+             db.jobs_fingerprint)
+    web._JOBS_SNAPSHOT = os.path.join(tmp, "jobs_snapshot.json.gz")
+    web._JOBS_SNAPSHOT_FP = web._JOBS_SNAPSHOT + ".fp.json"
+    try:
+        rows = synthetic()
+        FP = (len(rows), "2026-09-01")
+        web._jobs_cache.update(rows=None, fp=None, at=0)
+        db.jobs_fingerprint = lambda: (None, "")      # offline: the probe cannot answer
+
+        want("no snapshot at all -> no answer", web._snapshot_fp(10 ** 9) is None)
+        web._snapshot_write(rows, FP)
+        want("_snapshot_write leaves a sidecar", os.path.exists(web._JOBS_SNAPSHOT_FP))
+        want("and it reads back as the fingerprint", web._snapshot_fp(10 ** 9) == FP)
+        want("outside the age window it declines", web._snapshot_fp(-1) is None)
+
+        # 1. the snapshot was replaced (a deploy, a scrape) and the sidecar was not
+        io.open(web._JOBS_SNAPSHOT, "ab").write(b"x")
+        want("a REWRITTEN snapshot invalidates the stamp", web._snapshot_fp(10 ** 9) is None)
+        web._snapshot_write(rows, FP)
+
+        # 2. the mtime moved on its own -- _snapshot_touch's os.utime does exactly this, and
+        #    until it restamped, every revalidation killed the fast path it exists to feed.
+        os.utime(web._JOBS_SNAPSHOT, (time.time() - 5, time.time() - 5))
+        want("a RE-TIMED snapshot invalidates the stamp", web._snapshot_fp(10 ** 9) is None)
+        web._snapshot_touch(rows, FP)
+        want("_snapshot_touch restamps it", web._snapshot_fp(10 ** 9) == FP)
+
+        # 3. a corrupt or hand-written sidecar
+        io.open(web._JOBS_SNAPSHOT_FP, "w", encoding="utf-8").write("{not json")
+        want("a corrupt sidecar is refused, not raised", web._snapshot_fp(10 ** 9) is None)
+
+        # ...and _snapshot_read heals it, which is what covers a deploy: the zip ships a
+        # snapshot and no sidecar, so the first worker to pay the parse leaves one behind.
+        got, fp2 = web._snapshot_read(10 ** 9)
+        want("_snapshot_read still returns the corpus", bool(got) and fp2 == FP)
+        want("...and heals the sidecar for the next worker", web._snapshot_fp(10 ** 9) == FP)
+
+        # "don't know" is (None, "") -- TRUTHY, and keying on it would make two different
+        # unknown corpora compare equal. The same trap _base_rows documents.
+        web._snapshot_write(rows, (None, ""))
+        want("an unavailable fingerprint is never stored as a key",
+             web._snapshot_fp(10 ** 9) is None)
+        web._snapshot_write(rows, FP)
+
+        # ---- _corpus_fp itself: memory, then sidecar, then the probe, then get_jobs ----
+        web._jobs_cache.update(rows=rows, fp=("mem", "hit"), at=time.time())
+        want("memory wins when it is fresh", web._corpus_fp() == ("mem", "hit"))
+        web._jobs_cache.update(rows=None, fp=None, at=0)
+        want("then the sidecar, with no corpus loaded", web._corpus_fp() == FP)
+        want("...and it did NOT load the corpus", web._jobs_cache["rows"] is None)
+
+        os.utime(web._JOBS_SNAPSHOT, (time.time() - 5, time.time() - 5))   # stamp now stale
+        db.jobs_fingerprint = lambda: (999, "2026-09-02")
+        want("then the database probe", web._corpus_fp() == (999, "2026-09-02"))
+        want("...and that did not load the corpus either", web._jobs_cache["rows"] is None)
+
+        db.jobs_fingerprint = lambda: (None, "")
+        want("a probe that cannot answer falls through to get_jobs",
+             web._corpus_fp() == FP and web._jobs_cache["rows"] is not None)
+    finally:
+        web._JOBS_SNAPSHOT, web._JOBS_SNAPSHOT_FP = saved[0], saved[1]
+        web._jobs_cache.clear(); web._jobs_cache.update(saved[2])
+        db.jobs_fingerprint = saved[3]
         shutil.rmtree(tmp, ignore_errors=True)
     return bad
 
@@ -831,6 +1014,7 @@ def main():
     fails += score_pct_equivalence()
     fails += warm_user_scores()
     fails += row_files()
+    fails += corpus_fp()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 
