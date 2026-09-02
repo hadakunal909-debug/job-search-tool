@@ -79,13 +79,21 @@ class Calls(object):
 _real = (score_jobs.detail_jd, score_jobs.phenom_jd_by_id)
 
 
-def run(scraped, seen=(), budget=None, per_kept=None, reset=True, cutoff="", long_cutoff=""):
+def run(scraped, seen=(), budget=None, per_kept=None, reset=True, cutoff="", long_cutoff="",
+        keep_budget=None):
     """One fill_missing_jds pass with the network recorded. Returns (calls, tried, got)."""
     calls = Calls()
     calls.install()
+    # `budget` pegs BOTH purses. The keep queue is uncapped in production (JD_KEEP_BUDGET=0),
+    # so a test that wants to observe a ceiling has to set one; the cases further down assert
+    # the uncapped default and the independence of the two explicitly.
     old_b, old_k = scraper.JD_LOOKUP_BUDGET, scraper.JD_LOOKUP_PER_KEPT_BOARD
+    old_kb = scraper.JD_KEEP_BUDGET
     if budget is not None:
         scraper.JD_LOOKUP_BUDGET = budget
+        scraper.JD_KEEP_BUDGET = budget
+    if keep_budget is not None:
+        scraper.JD_KEEP_BUDGET = keep_budget
     if per_kept is not None:
         scraper.JD_LOOKUP_PER_KEPT_BOARD = per_kept
     try:
@@ -95,6 +103,7 @@ def run(scraped, seen=(), budget=None, per_kept=None, reset=True, cutoff="", lon
                                              long_cutoff or cutoff)
     finally:
         scraper.JD_LOOKUP_BUDGET, scraper.JD_LOOKUP_PER_KEPT_BOARD = old_b, old_k
+        scraper.JD_KEEP_BUDGET = old_kb
         score_jobs.detail_jd, score_jobs.phenom_jd_by_id = _real
     return calls, tried, got
 
@@ -122,14 +131,17 @@ print("\norder: kept rows come first")
 # The rejected rows are deliberately FIRST in the slice and outnumber the budget, so a pass that
 # simply walks `scraped` in order spends everything before it reaches the kept row.
 mixed = [posting(i, REJECTED_TITLE) for i in range(5)] + [posting(99, KEPT_TITLE)]
+# budget=2 pegs BOTH purses at 2, so the expected spend is 1 kept (only one exists) + 2 rescued.
+# It is deliberately NOT 2 total: the queues stopped sharing a ceiling on 2026-09-02, and a test
+# that still asserted 3 fetches means "2" would be pinning the bug rather than the behaviour.
 calls, tried, got = run(mixed, budget=2)
-check("the budget was spent on 2 fetches", tried == 2, "tried=%d" % tried)
+check("each purse was spent separately", tried == 3, "tried=%d; expected 1 kept + 2 rescued" % tried)
 check("the kept row was fetched", "https://x.test/job/99" in calls.detail,
       "fetched %r" % (calls.detail,))
 check("it was fetched FIRST", calls.detail[:1] == ["https://x.test/job/99"],
       "fetched %r" % (calls.detail,))
 check("the description landed on the row", (mixed[-1].get("jd") or "") == JD)
-check("usable count matches", got == 2, "got=%d" % got)
+check("usable count matches", got == 3, "got=%d" % got)
 
 # A kept row already carrying a description must not be re-fetched.
 have = [posting(1, KEPT_TITLE, jd=JD), posting(2, KEPT_TITLE)]
@@ -167,7 +179,7 @@ check("resetting re-arms the budget", tried_d == 3, "tried=%d" % tried_d)
 
 # An exhausted CLOCK stops the pass without touching the network, the same way the count does.
 scraper.reset_jd_lookup_budget()
-scraper._JD_RUN["secs_left"] = 0.0
+scraper._JD_RUN["keep_secs"] = scraper._JD_RUN["resc_secs"] = 0.0
 calls_e, tried_e, _ = run(slice_of(40), budget=10, reset=False)
 check("an exhausted run clock fetches nothing",
       tried_e == 0 and not calls_e.detail, "tried=%d" % tried_e)
@@ -210,14 +222,16 @@ _saved_time = scraper.time
 scraper.time = _clock
 try:
     old_min = scraper.JD_LOOKUP_BUDGET_MIN
+    old_kmin = scraper.JD_KEEP_BUDGET_MIN
     scraper.JD_LOOKUP_BUDGET_MIN = 3                  # 180 seconds for the whole run
+    scraper.JD_KEEP_BUDGET_MIN = 3                    # ...and the same for the keep purse
     scraper.reset_jd_lookup_budget()
     _clock.advance(10 * 60)                           # the sweep spends ten minutes on BOARDS
     calls_f, tried_f, _ = run(slice_of(50), budget=10, reset=False)
     check("a slice reached ten minutes into the run still fetches",
           tried_f == 3, "tried=%d -- a wall-clock deadline would have returned 0" % tried_f)
     check("the purse was charged nothing, because the fetches took no fake time",
-          scraper._JD_RUN["secs_left"] == 180.0, "secs_left=%r" % scraper._JD_RUN["secs_left"])
+          scraper._JD_RUN["keep_secs"] == 180.0, "keep_secs=%r" % scraper._JD_RUN["keep_secs"])
 
     # ...and it IS spent by time inside the phase. The stub advances the clock per fetch.
     scraper.reset_jd_lookup_budget()
@@ -233,13 +247,14 @@ try:
     finally:
         score_jobs.detail_jd = _real_detail
     check("time spent fetching draws the purse down",
-          scraper._JD_RUN["secs_left"] == 0.0,
-          "secs_left=%r after 4 fetches of 100s against a 180s purse"
-          % scraper._JD_RUN["secs_left"])
+          scraper._JD_RUN["keep_secs"] == 0.0,
+          "keep_secs=%r after 4 fetches of 100s against a 180s purse"
+          % scraper._JD_RUN["keep_secs"])
     calls_h, tried_h, _ = run(slice_of(70), budget=10, reset=False)
     check("and once it is empty the next slice fetches nothing",
           tried_h == 0 and not calls_h.detail, "tried=%d" % tried_h)
     scraper.JD_LOOKUP_BUDGET_MIN = old_min
+    scraper.JD_KEEP_BUDGET_MIN = old_kmin
 finally:
     scraper.time = _saved_time
     scraper.reset_jd_lookup_budget()
@@ -309,6 +324,59 @@ for r in flood:
     r["company"] = "OneBigTenant"
 calls, tried, _ = run(flood, budget=100, per_kept=5)
 check("one employer cannot take the whole keep budget", tried == 5, "tried=%d" % tried)
+
+# ---------------------------------------------------------------------------------------------
+print("\ntwo purses: a posting we KEEP is never refused for want of budget")
+#
+# The keep and rescue queues shared one ceiling until 2026-09-02. That was already better than
+# the original (rescue-only) behaviour, but it still meant a busy sweep could store postings with
+# no description once the shared counter ran out -- and on a fast-turnover board the description
+# is gone hours later. Measured on Actalent: of 755 rows the feed called "JD pending", only 31
+# were still on the board when we went back for them. So the keep queue is now UNCAPPED by
+# default and the rescue queue keeps its own small budget.
+
+# 1. The production default: no count ceiling on keeps at all.
+scraper.reset_jd_lookup_budget()
+big = [posting(400 + i, KEPT_TITLE) for i in range(25)]
+calls_p, tried_p, _ = run(big, reset=False)          # no budget= -> real defaults
+check("with JD_KEEP_BUDGET unset every kept row is fetched",
+      tried_p == 25, "tried=%d of 25 -- the default must not cap keeps" % tried_p)
+
+# 2. The rescue queue is still bounded, in the same run, at its own much smaller number.
+scraper.reset_jd_lookup_budget()
+_ob = scraper.JD_LOOKUP_BUDGET
+scraper.JD_LOOKUP_BUDGET = 4
+try:
+    mix = [posting(500 + i, REJECTED_TITLE) for i in range(20)] + \
+          [posting(600 + i, KEPT_TITLE) for i in range(20)]
+    calls_q, tried_q, _ = run(mix, reset=False)
+finally:
+    scraper.JD_LOOKUP_BUDGET = _ob
+check("the rescue queue still stops at its own ceiling while keeps do not",
+      tried_q == 24, "tried=%d; expected 20 kept + 4 rescued" % tried_q)
+
+# 3. Spending the rescue purse dry must not touch the keep purse.
+scraper.reset_jd_lookup_budget()
+scraper._JD_RUN["resc_secs"] = 0.0                   # rescue clock gone, keep clock untouched
+calls_r, tried_r, _ = run([posting(700, KEPT_TITLE), posting(701, REJECTED_TITLE)], reset=False)
+check("an exhausted RESCUE clock does not stop a kept row",
+      tried_r == 1 and calls_r.detail == ["https://x.test/job/700"],
+      "tried=%d fetched=%r" % (tried_r, calls_r.detail))
+
+# 4. ...and the mirror: no rescue budget at all still buys the kept rows.
+scraper.reset_jd_lookup_budget()
+_ob = scraper.JD_LOOKUP_BUDGET
+scraper.JD_LOOKUP_BUDGET = 0                         # "buy nothing speculative"
+try:
+    calls_s, tried_s, _ = run([posting(800, KEPT_TITLE), posting(801, REJECTED_TITLE)],
+                              reset=False)
+finally:
+    scraper.JD_LOOKUP_BUDGET = _ob
+check("JD_LOOKUP_BUDGET=0 means no RESCUE fetches, not no fetches",
+      tried_s == 1 and calls_s.detail == ["https://x.test/job/800"],
+      "tried=%d fetched=%r -- 0 used to disable the whole phase" % (tried_s, calls_s.detail))
+
+scraper.reset_jd_lookup_budget()
 
 if fails:
     print("\nFAIL (%d)" % len(fails))

@@ -110,10 +110,23 @@ export SCRAPE_BUDGET_MIN=0
 # concurrency, not a memory one, and lowering it would trade a documented judgement for an
 # undocumented guess. Slice size is the lever that bounds the peak.
 export SCRAPE_SLICE=100
-# Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
-# board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
+# Bounds the SPECULATIVE half of the description lookup -- the fetches that exist only to
+# second-guess a title the filter rejected. SCRAPE_BUDGET_MIN above stops the board sweep; this
+# stops that. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
 # than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
 export JD_LOOKUP_BUDGET_MIN=3
+# AND THE OTHER HALF IS DELIBERATELY NOT CAPPED. JD_KEEP_BUDGET (count) is left at its default
+# of 0 = unlimited: a posting that has passed the title filter is going into the feed, and it
+# must not go in without a description because a counter ran out. Without one the card reads
+# "JD pending" with no match number, and on a fast-turnover board the description is gone before
+# any later pass can fetch it -- measured on Actalent, only 31 of 755 such rows were still on
+# their board when we went back for them.
+#
+# The clock below is a runaway guard, not a budget. Measured 2026-09-02: a complete 21-slice
+# sweep of 2,032 boards took 67 min and kept 917 rows, about 700 of which needed a fetch, at
+# ~34 fetches/min on 6 workers -- so roughly 20 minutes of work against a 3-hour gap to the next
+# slot. 45 leaves generous room and still refuses to run forever.
+export JD_KEEP_BUDGET_MIN=45
 export MAX_AGE_DAYS=30
 export PRUNE_DAYS=30
 export DISCOVER_LIMIT=20          # board auto-discovery, small bite per run

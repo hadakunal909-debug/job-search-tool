@@ -24,9 +24,16 @@
    Unconditional. It is one muted line, and gating it on "does any card on this page carry a
    star" would mean counting the starred rows server-side on a page that is otherwise rendered
    entirely from a JSON bootstrap. #}
-<p class="sponkey"><span class="topspon">&#9733;</span> marks a top H-1B sponsor by federal
-  filing volume through {{ sponsor_data_through() }}. It describes the employer&rsquo;s history,
-  not the individual posting.</p>
+{# "= top H-1B sponsor", not "marks a top H-1B sponsor". A glyph as the subject of a verb is
+   grammatically defensible and reads as a fragment; "=" needs no verb at all. 133 chars -> 29.
+
+   THE EMPLOYER-VS-POSTING CAVEAT IS GONE FROM HERE, at the owner's direction after seeing it on
+   the live feed. It is not lost: templates/job.html states it in full on every job page ("The
+   history above is about the company, not this job.") next to absence_note. If it ever has to
+   come back to the feed, that is the wording to reuse -- and the reason it mattered is in
+   docs: absence of a filing record must never read as "will not sponsor". #}
+<p class="sponkey"><span class="topspon">&#9733;</span> = top H-1B sponsor
+  ({{ sponsor_data_through() }})</p>
 <div id="feed" class="feedgrid"
      data-paged="{{ '1' if paged else '' }}"
      data-visa="{{ (visa_ctx or {})|tojson|forceescape }}"
