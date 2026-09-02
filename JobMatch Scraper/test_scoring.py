@@ -258,6 +258,21 @@ def test_an_acronym_that_is_also_an_english_word_needs_its_own_case():
         assert got is want, "%r: expected %s for %r" % (kw, want, text)
 
 
+def test_a_place_is_not_a_skill():
+    """Pay-transparency notices enumerate states and cities, and they sit in the BODY rather
+    than the EEO paragraph, so the "in the notice and nowhere else" rule never caught them. A
+    real Accenture Federal posting offered maine, cleveland, vermont, hawaii and minnesota as
+    keywords worth adding. Measured: geography reached core_terms on 13.2% of postings."""
+    jd = (_RICH_JD + " The pay range applies in Colorado, Hawaii, Maine, Minnesota, Vermont, "
+          "New York, Los Angeles, San Francisco and the District of Columbia. " * 3)
+    terms = core.analyze_jd(jd, None)["terms"]
+    for place in ("maine", "hawaii", "vermont", "minnesota", "columbia", "district",
+                  "san francisco", "los angeles", "york"):
+        assert place not in terms, "%r is not a skill" % place
+    # the posting's real skills are untouched
+    assert "project management" in terms and "power bi" in terms
+
+
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
