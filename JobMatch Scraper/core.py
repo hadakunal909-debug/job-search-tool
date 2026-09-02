@@ -908,6 +908,13 @@ def display_terms(terms, company, cap, body="", boiler=""):
                 continue
             if all(w in stop or len(w) < 3 for w in low.split()):
                 continue
+        # A TERM WITH A PLACE IN IT IS A PLACE, however many other words it carries: "san
+        # francisco", "angeles county", "york state". The all-stopwords rule above cannot say
+        # that, because "san" is not a stopword on its own and so the whole bigram survived it.
+        # analyze_jd already refuses these at extraction, so this only matters for a row whose
+        # analysis predates that -- which is exactly when a display filter has to hold.
+        if any(w in PLACE_TERMS for w in low.split()):
+            continue
         # In the notice but not in the rest of the posting: a legal phrase, not a skill.
         if boiler and low in boiler and low not in body:
             continue
