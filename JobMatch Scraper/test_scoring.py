@@ -271,6 +271,9 @@ def test_a_place_is_not_a_skill():
         assert place not in terms, "%r is not a skill" % place
     # the posting's real skills are untouched
     assert "project management" in terms and "power bi" in terms
+    # and the display filter holds independently, for rows analysed before the skip existed
+    assert core.display_terms(["maine", "san francisco", "angeles county", "power bi"],
+                              "Acme", 10) == ["power bi"]
 
 
 
