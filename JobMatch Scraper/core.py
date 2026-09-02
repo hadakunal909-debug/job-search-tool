@@ -477,6 +477,33 @@ def html_to_text(raw):
     return _soup_text(BeautifulSoup(html.unescape(raw), "lxml"))
 
 
+# A PLACE IS NOT A SKILL. Pay-transparency notices enumerate the states and cities a range
+# applies in ("...in Colorado, Hawaii, Maine, Minnesota, Vermont and the District of Columbia"),
+# and those sit in the BODY of the description rather than in the EEO paragraph -- so the
+# "in the notice and nowhere else" rule in display_terms never touched them. Rendering a real
+# Accenture Federal posting offered "maine", "cleveland", "vermont", "hawaii", "minnesota",
+# "district" and "columbia" as keywords worth adding to a résumé.
+#
+# Measured over 2,500 stored descriptions: geography reaches core_terms on 13.2% of postings,
+# carrying a median 3% of the scored weight and up to 42%. So it is not merely ugly on the
+# panel, it moves the number -- which is why this is an extraction skip rather than another
+# entry in the display filter.
+#
+# TOKENS, not full names, because extract_keywords skips a bigram when EITHER word is skipped:
+# that is what stops "san francisco", "los angeles" and "angeles county" as well as the bare
+# state. Deliberately excludes ambiguous ones -- no "phoenix" (the company), no "jordan",
+# no "mobile" -- and keeps the list to geography that is never a qualification.
+PLACE_TERMS = set("""
+alabama alaska arizona arkansas california colorado connecticut delaware florida georgia
+hawaii idaho illinois indiana iowa kansas kentucky louisiana maine maryland massachusetts
+michigan minnesota mississippi missouri montana nebraska nevada hampshire jersey carolina
+dakota ohio oklahoma oregon pennsylvania rhode tennessee texas utah vermont virginia
+washington wisconsin wyoming york columbia district county counties
+angeles francisco diego jose antonio cleveland chicago boston denver austin seattle portland
+atlanta dallas houston philadelphia detroit charlotte nashville baltimore milwaukee sacramento
+""".split())
+
+
 # ACRONYMS WHOSE LOWERCASE FORM IS AN ORDINARY ENGLISH WORD, matched against the ORIGINAL case.
 #
 # A word boundary is necessary and not sufficient. `safe` is in ATS_KEYWORDS as SAFe, the Scaled
@@ -521,7 +548,10 @@ def analyze_jd(jd_text, idf=None):
     req_words = _wordset(req_low) if req_low else (frozenset(), frozenset())
 
     # The JD's important keywords: its salient terms + any hard ATS keywords it names.
-    salient = extract_keywords(jd_text, top_n=30, idf=idf)
+    # extra_skip rather than JD_BOILERPLATE: _candidate_terms shares that set and builds
+    # idf.json from it, so adding geography there would re-weight the whole vocabulary as
+    # a side effect of a display problem. This keeps idf comparable across the change.
+    salient = extract_keywords(jd_text, top_n=30, idf=idf, extra_skip=PLACE_TERMS)
     # "thin" is judged on the JD's own substance (length + salient-term count), NOT on the ATS
     # keywords a broad résumé would trivially match — so a truncated blurb stays flagged.
     thin = len(jd_low.strip()) < _MIN_JD_CHARS or len(salient) < _MIN_JD_TERMS
@@ -857,7 +887,8 @@ def display_terms(terms, company, cap, body="", boiler=""):
         it is what stops the page advising somebody to put "regarding criminal" on a résumé.
         Pass `body` and `boiler` from jdrender.text_halves; omitting them skips only this rule.
     """
-    stop = set(SKILL_STOP) | set(KEYWORD_STOP) | set(PERK_TERMS) | set(ELIGIBILITY_TERMS)
+    stop = (set(SKILL_STOP) | set(KEYWORD_STOP) | set(PERK_TERMS)
+            | set(ELIGIBILITY_TERMS) | set(PLACE_TERMS))
     stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
     # The company as the CORPUS spells it, not only as this row does. A row mislabelled "Amat"
     # subtracted nothing from a description opening "Applied Materials is a global leader".
