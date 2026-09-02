@@ -249,6 +249,13 @@ if [ -f "$APP/resume.txt" ]; then
     export SCORE_MAX_FETCH=1
     export SCORE_BUDGET_MIN=0.5
     export SCORE_ANALYZE_BUDGET_MIN=12
+    # 500 -> 100 rows per banked upsert. The analysis loop persists every SCORE_ANALYZE_CHUNK
+    # rows, and on this box the process is routinely SIGKILLed mid-loop by the ACCOUNT-wide LVE
+    # budget -- the website's Passenger workers plus two sibling apps were measured at 1,355 MB
+    # of it. At 500 a pass killed at row 400 banks nothing; measured 2026-09-02, exactly that
+    # happened while 614 freshly-fetched descriptions sat waiting to be analysed. 100 costs four
+    # extra upserts per 500 rows and turns "all or nothing" back into "forward progress".
+    export SCORE_ANALYZE_CHUNK=100
     echo "----- $(date -u +%FT%TZ) analyse start (fetch pass rc=$src) -----" >> "$LOG"
     "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
     echo "----- $(date -u +%FT%TZ) analyse end rc=$? -----" >> "$LOG"

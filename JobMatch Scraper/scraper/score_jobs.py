@@ -1179,11 +1179,22 @@ THIN_BACKOFF_CAP = 6                                                 # 2**6 = 64
 CURSOR_KEY = "score_cursor"
 """Where a budget-truncated full pass stopped, so the next one resumes instead of restarting."""
 
-ANALYZE_CHUNK = 500
+ANALYZE_CHUNK = int(os.environ.get("SCORE_ANALYZE_CHUNK") or 500)
 """Rows analyzed per banked upsert. The analysis is ~200 ms/row, so this is ~100 s of work at
 risk if the process is killed between flushes — against one extra upsert per 500 rows, which is
-~46 writes over a 23k-row corpus. Tuned for "lose a little", not for "write as rarely as
-possible": the whole point of this phase is that its work survives being cut off."""
+~46 writes over a 23k-work corpus. Tuned for "lose a little", not for "write as rarely as
+possible": the whole point of this phase is that its work survives being cut off.
+
+TUNABLE SINCE 2026-09-02, because 500 is only "a little" when the process usually finishes.
+On the cPanel box it often does not: the CloudLinux LVE budget is metered per ACCOUNT, and the
+website's own Passenger workers plus two unrelated sibling apps were measured holding 1,355 MB
+of it, so a score pass gets SIGKILLed with no traceback partway through the loop. Measured that
+day: a pass reached "Scoring 925 of 40675" and was killed before row 500, which banked NOTHING
+even though the run had done minutes of real work and the 614 descriptions it was analysing were
+already stored. bin/cron_scrape.sh sets 100 for that reason.
+
+Lower is not free -- it is one upsert per N rows -- but an upsert is cheap and losing the whole
+loop is not, and on a box where the kill is routine the trade moves."""
 
 
 def _is_thin_jd(jd):
