@@ -195,10 +195,9 @@
         {{ (exp * 100)|round|int }}% expected){% if not loop.last %}, {% endif %}{% endfor %}.</p>
       {% endif %}
       {% if jd_unusual %}
-      <p class="coprose">Unusual for this role, so worth reading closely:
+      <p class="coprose">Asked for here, but not by most {{ role_label }} postings:
         {% for t, share in jd_unusual[:4] %}<b>{{ t }}</b>
-        ({{ (share * 100)|round|int }}% of {{ role_label }} postings){% if not loop.last %},
-        {% endif %}{% endfor %}.</p>
+        ({{ (share * 100)|round|int }}%){% if not loop.last %}, {% endif %}{% endfor %}.</p>
       {% endif %}
       {% if norms_built %}
       <p class="coprose small">Measured over {{ norms_postings }} descriptions, {{ norms_built }}.</p>

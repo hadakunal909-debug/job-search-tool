@@ -30,7 +30,6 @@ _PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "norms.json")
 # Memoised the way core.load_idf is: read once per process, and let a long-lived worker pick up
 # a rebuilt file through _reset_cache() (web.py's /reload calls it).
 _cache = {"blob": None, "loaded": False}
-_skills_cache = {"key": None, "vocab": None}
 
 # A family smaller than this gets no norm at all -- at 150 rows a "10% of postings" claim rests
 # on fifteen documents. Kept here rather than in the builder because a READER has to know which
@@ -54,7 +53,6 @@ DISTINCT_MAX = 0.35
 def _reset_cache():
     _cache["blob"] = None
     _cache["loaded"] = False
-    _skills_cache["key"] = None
 
 
 def load_norms(path=_PATH):
@@ -98,26 +96,6 @@ def _dedupe_by_stem(scored):
         if k not in best or row[0] > best[k][0]:
             best[k] = row
     return sorted(best.values(), reverse=True)
-
-
-def _skill_vocab(blob):
-    """The vocabulary that can be called a SKILL: the curated tools and domain terms, plus
-    anything a family norm has validated as role-relevant.
-
-    Derived at READ time rather than stored, so a term newly added to core.KEYWORD_STOP drops
-    out of it without rebuilding the artifact -- role_norm below filters through
-    core.display_terms, so the two stay in step by construction.
-
-    Memoised per blob identity: it is 21 role_norm passes and `distinctive` is called per page.
-    """
-    key = id(blob)
-    if _skills_cache.get("key") != key:
-        vocab = set(core.ATS_KEYWORDS)
-        for fam_key in (blob.get("fam") or {}):
-            vocab |= {t for t, _pf, _pc in role_norm(fam_key, 60, blob=blob)}
-        _skills_cache["key"] = key
-        _skills_cache["vocab"] = vocab
-    return _skills_cache["vocab"]
 
 
 def role_norm(key, cap=12, blob=None):
@@ -208,10 +186,14 @@ def company_tools(ckey, cap=8, min_share=0.15, min_gap=0.05, blob=None):
 
 
 def distinctive(key, terms, cap=6, blob=None):
-    """[(term, share_in_family)] — what THIS posting asks for that the role usually does not.
+    """[(term, share_in_family)] — what THIS posting asks for that most of the role does not.
 
     A band, not a ranking of rarity: below DISTINCT_MIN the term is unknowable for the family
     and above DISTINCT_MAX it IS the norm. Ranked ascending, so the least usual comes first.
+
+    Presented as "asked for here, but not by most X postings" rather than as anything stronger.
+    A mid-prevalence term is "unusual" by construction of the band, so a label promising the
+    reader something worth their attention would be overclaiming on the arithmetic.
     """
     blob = load_norms() if blob is None else blob
     fam = (blob.get("fam") or {}).get(key)
@@ -220,12 +202,18 @@ def distinctive(key, terms, cap=6, blob=None):
     n = float(fam["n"])
     corpus = blob.get("corpus") or {}
     cdf = corpus.get("df") or {}
-    # ONLY THINGS THAT COULD BE A SKILL. Without this the line read "unusual for this role:
-    # salaried, stairs, https, jobs, problems, together" -- every one of them genuinely rare for
-    # the family and none of them a thing to know. A ratio floor was tried first and measured
-    # WORSE than useless: at 1.5 it let "employees" into the ops norm and at 2.0 it dropped
-    # "reporting" and "stakeholder", which the role really does ask for.
-    vocab = _skill_vocab(blob)
+    # THE CURATED VOCABULARY ONLY. Three constructions were measured over 900 postings:
+    #   * unrestricted -> "salaried, stairs, https, jobs, problems, together"
+    #   * curated PLUS whatever a family norm validated (232 terms) -> "through, listed,
+    #     customers, process", because a norm's own tail leaks straight back in
+    #   * curated alone (core.ATS_KEYWORDS, 110 terms) -> "agile, metrics, cross-functional,
+    #     c++, deliverables, forecasting, milestones, data analysis", and empty on only 7%
+    # A RATIO FLOOR was tried before any of them and was worse than useless: at 1.5x it let
+    # "employees" into the ops norm and at 2.0x it dropped "reporting" and "stakeholder".
+    #
+    # Sparse and right beats plentiful and noisy here, because the line makes a claim about
+    # what is worth a reader's attention.
+    vocab = core.ATS_KEYWORDS
     out = []
     for term in (terms or []):
         low = (term or "").lower()
