@@ -47,23 +47,12 @@ import jdrender
 
 CACHE = "jd_cache.json.gz"
 
-# The generic-skill and never-a-skill stoplists, spelled out rather than imported from web.py:
-# this script must not import web (analytics.py reads EV_OFF once at import, and one unguarded
-# run previously wrote 98.8% of all recorded feed_view events). Keep in step with
-# web.py::_SKILL_STOP and web.py::_KEYWORD_STOP -- or import them once they move into core.
-_SKILL_STOP = frozenset("""
-communication teamwork leadership collaboration interpersonal verbal written organizational
-problem solving detail oriented time management customer service work experience team player
-fast paced self starter multi task english degree bachelor master responsibilities requirements
-qualifications preferred required ability able strong excellent knowledge understanding
-""".split())
-_KEYWORD_STOP = frozenset("""
-posted posting position role job company employer candidate applicant applicants
-state states city york county country federal laws law legal notice notices least
-website site email phone contact address information available provide provided
-please based employment technology technologies tools services service solutions
-business teams environment opportunity support various including needs help
-""".split())
+# THE APP'S OWN FILTER, imported rather than copied. This script used to keep its own transcript
+# of web.py's two stoplists because it must not import web (analytics.py reads EV_OFF once at
+# import, and one unguarded run wrote 98.8% of all recorded feed_view events). They have since
+# moved into core.display_terms, so the copy became a SECOND definition that drifted: it still
+# hid c# and c++ on the old three-character rule, which core now exempts for a known hard skill,
+# and so it overstated the junk it was measuring. One definition.
 
 # Inflections a real ATS keyword match may carry. Deliberately NOT "ly": allowing it would
 # recover "cross-functionally" (711 postings) and resurrect "safely" -> SAFe (1,044).
@@ -91,7 +80,8 @@ SHORT_TECH = (
 
 
 def _stop_set():
-    return set(_SKILL_STOP) | set(_KEYWORD_STOP) | set(core.PERK_TERMS)
+    """Kept as a function so the call sites below read the same; core owns the lists now."""
+    return set(core.SKILL_STOP) | set(core.KEYWORD_STOP) | set(core.PERK_TERMS)
 
 
 def _boundary_rx(kw):
@@ -146,10 +136,11 @@ def judge(jd, idf, stop):
         lo = (t or "").lower()
         if lo in ph:
             why[t] = "phantom"
-        elif lo in stop or all(w in stop or len(w) < 3 for w in lo.split()):
-            why[t] = "generic"
-        elif legal and lo in legal and lo not in body:
-            why[t] = "legal"
+        elif not core.display_terms([t], "", 1, body=body, boiler=legal):
+            # ASK THE APP, do not re-derive it. core.display_terms is what /job, /tailor and
+            # /brain/tailor all run, so "junk" here means exactly "a term the app would refuse
+            # to show a reader" -- which is the only definition that cannot drift.
+            why[t] = "refused"
     tot = sum(a["weight"].get(t, 0.0) for t in ct) or 1.0
     junk = sum(a["weight"].get(t, 0.0) for t in why) / tot
     return a, ct, sorted(ph), why, junk, raised, sorted(live)
