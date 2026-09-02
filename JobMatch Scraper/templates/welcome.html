@@ -26,9 +26,9 @@
 
   {% if step == 1 %}
     <h1 class="qtitle">Add Your Résumé.</h1>
-    <p class="qsub">Every match score is calculated against it. Without it, every job scores the same.</p>
+    <p class="qsub">Every match score is against it. Without one, every job scores the same.</p>
     {% if has_resume %}
-      <div class="callout">You already have a résumé saved. Adding a new one replaces it.</div>
+      <div class="callout">You already have a résumé. Adding one replaces it.</div>
     {% endif %}
     {# Three doors, weighted. Upload is the large primary target, paste is a disclosure rather
        than a second giant textarea competing with it, and skipping is a plain button in the
@@ -50,13 +50,13 @@
         <textarea name="resume" rows="12" aria-label="Paste your résumé"
                   placeholder="Paste the whole thing. Plain text is fine."></textarea>
       </details>
-      <p class="dim">We read the words out and don't keep the file. A scanned or photographed
-        PDF has no text in it, so paste the text instead. You can change any of this later.</p>
+      <p class="dim">We read the words out and don't keep the file. A scanned or photographed PDF
+              has no text — paste the text instead. All of this can change later.</p>
     </div>
 
   {% elif step == 2 %}
     <h1 class="qtitle">What Kind of Work?</h1>
-    <p class="qsub">Pick everything that fits. This decides what the feed shows first. Nothing gets hidden.</p>
+    <p class="qsub">Pick everything that fits. This orders the feed; nothing is hidden.</p>
     {# The same picker the feed uses, so a choice made here is editable later from exactly one
        place. form_post makes the checkboxes submit themselves: relying on JS to fill a hidden
        input is what made the first version of this screen save nothing. #}
@@ -67,11 +67,11 @@
 
   {% elif step == 3 %}
     <h1 class="qtitle">Do You Need Visa Sponsorship?</h1>
-    <p class="qsub">This decides which sponsorship signals the feed puts in front of you.</p>
+    <p class="qsub">This decides which sponsorship signals the feed shows first.</p>
     <div class="choices">
       {% for val, label, hint in [
            ('now',    'Yes, now',            'You need an employer to sponsor you before you can start.'),
-           ('future', 'Not now, but I will', 'You can work today, on OPT or similar, and will need sponsorship later.'),
+           ('future', 'Not now, but I will', 'You can work now, on OPT or similar, and will need sponsorship later.'),
            ('no',     'No',                  'You are a citizen or a permanent resident.')] %}
       <label class="choice{{ ' on' if sponsorship == val else '' }}">
         <input type="radio" name="sponsorship" value="{{ val }}"{{ ' checked' if sponsorship == val else '' }}>
