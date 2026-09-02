@@ -69,6 +69,9 @@ MODULES = (
     ("resume_keywords.py",      "Which curated skills a track is expected to show."),
     ("resume_bullets.py",       "Per-bullet review: verb, scope, result."),
     ("jdrender.py",             "Job description -> HTML. Kept out of web.py and core.py."),
+    ("norms.py",                "What the corpus knows about a ROLE and an EMPLOYER. Kept out "
+                                "of core.py for the reason jdrender is: the scraper and the "
+                                "digest import core and need neither."),
     ("pgrest.py",               "Transport 1: PostgREST verbs reimplemented over psycopg."),
     ("dbproxy.py",              "Transport 2: HMAC-signed HTTPS, how off-host code reaches the DB."),
     ("analytics.py",            "Event capture. Reads EV_OFF once, at import."),
@@ -150,6 +153,31 @@ INDEX = (
         "can choose to add. Short names that ARE real skills (c#, go, bi, qa, ux) survive the "
         "three-character floor because ATS_KEYWORDS exempts them.",
         "python test_scoring.py"),
+    Row("Y", "A role norm or an employer's tool list looks wrong, stale or empty",
+        "{norms.py::load_norms} -- reads norms.json, built by scripts/build_norms.py",
+        "the statistic is a PREVALENCE DIFFERENCE, share_in_family minus share_in_corpus, and "
+        "not a lift ratio: lift saturates, so its top terms for `ops` were \"salaried\", "
+        "\"stairs\", \"mile\" and \"shifts\". Three corrections the measurement forced and "
+        "none of which is optional -- an EMPLOYER CAP, because one employer held 328 of the "
+        "1,822 `systems` postings and without it their template became \"what the role asks "
+        "for\"; the company layer restricted to {core.py::ATS_TOOLS}, because over every term "
+        "the honest answer is a boilerplate paragraph (Northrop \"employees 94%\", Amazon "
+        "\"onboarding 97%\"); and the company baseline being that employer's OWN role mix, "
+        "not the corpus, or it just re-describes who they hire. Three of twenty-four families "
+        "are under {norms.py::MIN_FAMILY} and correctly get no norm at all. _meta.role_keys is "
+        "asserted equal to core.ROLE_KEYS, so editing ROLE_FAMILIES FAILS THE TEST rather than "
+        "silently re-weighting every share a reader is shown.",
+        "python scripts/test_norms.py"),
+    Row("B", "\"What are my chances\" -- why the app refuses to give a probability",
+        "{norms.py::coverage} -- a count of the role's usual ask that the résumé holds",
+        "there is nothing to calibrate a probability against: the applications table holds 233 "
+        "rows, every one still `applied`, with no interview, offer or rejection recorded and "
+        "match_score NULL on all of them, and ev_usage's apply-rate-by-score curve runs "
+        "41.8% -> 30.2% -> 27.5% -> 6.9% -> 0%, i.e. INVERTED. Until that curve rights itself "
+        "and outcomes are actually recorded, \"you hold 7 of the 12 things this role usually "
+        "asks for, and here are the five you do not\" is the strongest claim the data supports "
+        "-- and it is more actionable than a number.",
+        "python scripts/test_norms.py"),
     Row("B", "Search misses an obvious hit, or ranks badly",
         "{web.py::searchHit} and {web.py::searchRank} -- typo-tolerant matching",
         "mirrored in app.js function-for-function. {web.py::_search_tol} sets how much typo "

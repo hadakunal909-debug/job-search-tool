@@ -375,7 +375,17 @@ _RARE_W_CAP = 7.5
 # score pass dying with rc=137 is the symptom that was showing. Analysis is now 3.8 ms/row.
 _UNSEEN_W = 4.91
 
-ATS_KEYWORDS = {
+# TOOLS, METHODS AND CERTS -- the things a posting NAMES rather than describes. Split out from
+# the domain half below because "which tools does this employer lean on" is a question the app now
+# answers (norms.company_tools), and it cannot be answered by a set that also contains
+# "stakeholder", "reporting" and "operations": those are what every employer's boilerplate is
+# made of, so they drown the answer. Measured -- restricted to this half, the answer for Northrop
+# Grumman is "sap 31% against 4% expected for their role mix, jira 23% against 9%", and for
+# Capital One "nosql 43% against 5%". Unrestricted it was "employees 94%" and "capabilities 69%".
+#
+# ATS_KEYWORDS stays the union, so every existing reader is unaffected; scripts/test_norms.py
+# asserts the two halves are disjoint and that the union is unchanged.
+ATS_TOOLS = {
     # tools
     "jira", "confluence", "asana", "trello", "smartsheet", "monday.com", "wrike", "clickup",
     "ms project", "microsoft project", "primavera", "sharepoint", "excel", "google sheets",
@@ -399,6 +409,10 @@ ATS_KEYWORDS = {
     "gantt", "sprint", "backlog", "retrospective", "scrum master", "product owner",
     # certifications
     "pmp", "capm", "csm", "psm", "cspo", "cbap", "green belt", "black belt",
+}
+
+# The domain half: real skills, but the vocabulary employer boilerplate also uses.
+ATS_DOMAIN = {
     # PM / analyst / ops domain
     "project management", "program management", "project manager", "program manager",
     "project coordinator", "stakeholder management", "stakeholder", "risk management",
@@ -407,8 +421,9 @@ ATS_KEYWORDS = {
     "process improvement", "process mapping", "gap analysis", "data analysis", "reporting",
     "dashboards", "forecasting", "vendor management", "procurement", "milestones",
     "deliverables", "cross-functional", "roadmap", "status reporting", "project plan",
-    "business analysis", "operations", "implementation", "onboarding", "sla", "metrics",
-}
+    "business analysis", "operations", "implementation", "onboarding", "sla", "metrics",}
+
+ATS_KEYWORDS = ATS_TOOLS | ATS_DOMAIN
 
 
 # A JD this short (chars) or this term-poor after boilerplate stripping is too thin to score
@@ -633,7 +648,14 @@ _SUFFIXES = ("ations", "ation", "ments", "ment", "ings", "ing", "ies", "ers", "e
              "ors", "or", "ed", "es", "s")
 # Words that must never be stemmed: short, or the stem collides with something unrelated.
 _NO_STEM = {"sas", "aws", "ios", "cms", "ops", "sales", "less", "gas", "bus", "analysis",
-            "business", "process", "access", "class", "series", "status", "campus"}
+            "business", "process", "access", "class", "series", "status", "campus",
+            # Looker, the BI tool. Its stem is "look", so it matched "we are LOOKING for" --
+            # which is in almost every posting, and it showed up on 99.9% of one employer's
+            # openings as a tool they supposedly use. A sweep of every single-word ATS keyword
+            # against the corpus vocabulary found this to be the ONLY wrong collision: the other
+            # eleven (stakeholders, budgets, implementing, forecasts, roadmaps, kpis...) are
+            # exactly what the stemmer is for.
+            "looker"}
 
 
 # maxsize is the headline number in this file. _stem was measured at 3.5 MILLION calls and

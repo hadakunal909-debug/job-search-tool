@@ -123,7 +123,7 @@ def _shown(terms, company_name, cap):
 
 
 def run_tailor(username, jd_text="", job_url="", company_name="", company_url="",
-               force_research=False, record=True):
+               force_research=False):
     notes = []
     kb = db.get_brain_kb(username)
     model = kb["model"]
@@ -170,9 +170,10 @@ def run_tailor(username, jd_text="", job_url="", company_name="", company_url=""
             + " ".join(rs["story"].get("text", "") + " " + rs["story"].get("title", "")
                        for rs in ranked_stories[:3])
         after = core.score_against(combined.lower(), analysis["analyzed"])[0] if combined.strip() else before
-        if record:
-            match.record_tailor(analysis["terms"], model)
-            db.save_brain_kb(username, kb)
+        # NO save_brain_kb HERE. It used to persist what record_tailor had folded into the
+        # model; with that gone this function only READS the knowledge base, so the write put an
+        # unchanged blob back on every tailor. apply_feedback is where a tailor's outcome is
+        # recorded, and it saves for itself.
         result = {
             "best_resume": best,
             "ranked_resumes": ranked_resumes,

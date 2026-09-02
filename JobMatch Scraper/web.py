@@ -62,6 +62,7 @@ import db
 import dbproxy
 import auth
 import jdrender
+import norms
 import resume_score
 import resume_keywords
 import resume_bullets
@@ -3605,6 +3606,28 @@ def job_page():
     have = _useful_terms(have, company, jd, _SKILL_SHOWN)
     missing = _useful_terms(missing, company, jd, _SKILL_SHOWN)
 
+    # WHAT THE CORPUS KNOWS THAT THIS POSTING CANNOT SAY. Three questions no single description
+    # answers: what this KIND of job usually asks for, which tools this EMPLOYER leans on beyond
+    # its own role mix, and what is unusual about THIS one. See norms.py.
+    #
+    # All of it is absent until scripts/build_norms.py has run: load_norms() returns {} and every
+    # call below is empty, which is the contract core.load_sponsor_counts already has -- a missing
+    # data file costs the feature, never the page.
+    #
+    # THE FAMILY IS THE FIRST ONE THAT HAS A NORM, not simply roles[0]: a title can belong to
+    # several families and three of the twenty-four are below norms.MIN_FAMILY, so picking blindly
+    # would show nothing for a posting we can in fact describe. roles_for_title returns them in
+    # ROLE_KEYS order, so this is deterministic.
+    _norms = norms.load_norms()
+    fam = next((k for k in (row.get("roles") or []) if k in (_norms.get("fam") or {})), None)
+    role_usual = norms.role_norm(fam, blob=_norms) if fam else []
+    role_n = ((_norms.get("fam") or {}).get(fam) or {}).get("n") if fam else 0
+    # Coverage is the honest answer to "what are my chances" -- a count of the role's usual ask
+    # that the résumé already holds, not a probability. See the note on norms.coverage.
+    role_cover = norms.coverage(fam, resume.lower(), blob=_norms) if (fam and resume) else None
+    co_tools, co_unusual = norms.company_tools(db.block_key(company or ""), blob=_norms)
+    jd_unusual = norms.distinctive(fam, analyzed.get("terms") or [], blob=_norms) if fam else []
+
     vtags = row.get("visa") or ()
     # EMPLOYER-level routes, so the page can say "they have filed for Green Card, but this posting
     # rules it out" — information visa_tags_for_posting destroys at card level with no way to
@@ -3677,6 +3700,10 @@ def job_page():
         jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
         sec_labels=jdrender.SEC_LABELS,
         have=have, missing=missing, has_resume=bool(resume), live_score=live_score,
+        role_label=core.ROLE_LABELS.get(fam) if fam else None, role_usual=role_usual,
+        role_n=role_n, role_cover=role_cover, co_tools=co_tools, co_unusual=co_unusual,
+        jd_unusual=jd_unusual, norms_built=norms.built(_norms).get("built") or "",
+        norms_postings=norms.built(_norms).get("postings") or 0,
         about=brief, researching=research_pending, research_pending=research_pending,
         chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE))
     # NO Cache-Control here, and it is a deliberate refusal. `private, max-age=30` makes the
@@ -4155,6 +4182,7 @@ def reload_jobs():
     if (os.environ.get("JDMETA") or "").strip() in ("1", "true", "yes"):
         _jdmeta.update(core.load_jdmeta())   # re-pull the cron's latest precompute from disk
     core._reset_idf_cache()
+    norms._reset_cache()      # pick up a rebuilt norms.json
     flash("Jobs reloaded.")
     return redirect(url_for("feed"))
 

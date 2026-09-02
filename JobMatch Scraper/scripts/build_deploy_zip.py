@@ -77,6 +77,10 @@ FILES = [
     # per-bullet review (the Bullets tab). Imported by web.py, so the guard below would catch
     # a missing entry -- listed here anyway so the two deploy routes stay identical.
     "resume_bullets.py",
+    # The role/employer norms READER. web.py imports it unconditionally, so a bundle
+    # without it is a site that ImportErrors on the first request -- required, not
+    # optional. The 640 KB table it reads is the optional half, below.
+    "norms.py",
     "requirements-cpanel.txt", "idf.json", "sponsors.txt",
     # careers_us.md is NOT here any more. /careers is a 301 to /companies and nothing
     # reads the file at runtime; it is now a build input to scripts/build_companies.py,
@@ -111,7 +115,12 @@ OPTIONAL_FILES = ["sponsor_counts.json", "sponsor_years.json", "everify.txt", "v
                   # Built by scripts/build_resume_vocab.py. Absent -> the spelling check and
                   # the per-track keyword expectations go dormant (excluded from the score,
                   # not awarded full marks), which is the same contract as everything above.
-                  "resume_vocab.json", "resume_keywords.json"]
+                  "resume_vocab.json", "resume_keywords.json",
+                  # Built by scripts/build_norms.py: what each role usually asks for and
+                  # which tools each employer leans on. Absent -> norms.load_norms()
+                  # returns {} and the /job panel is simply not rendered, which is the
+                  # same contract as everything above.
+                  "norms.json"]
 DIRS = ["scraper", "resume_brain", "templates", "static"]
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}

@@ -1274,6 +1274,13 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .tag{font-size:var(--text-xs);padding:4px 10px;border-radius:var(--radius-full);font-weight:500}
 .tag.miss{background:transparent;color:var(--text-primary);box-shadow:inset 0 0 0 1px var(--border-strong)}
 .tag.have{background:var(--status-success-bg);color:var(--status-success-text)}
+/* The corpus norms on /job. Neither green nor red on purpose: "62% of Operations Manager
+   postings say this" is a fact about the CORPUS, not a verdict on the reader, and giving it
+   either of the keyword colours would read as one. .tag.miss is overridden to red inside
+   .jobmain further down, so the norms need a class of their own. */
+.tag.norm{background:transparent;color:var(--text-secondary);
+  box-shadow:inset 0 0 0 1px var(--border-subtle)}
+.tag.norm b{font-weight:600;color:var(--text-primary)}
 .sechdr{font-size:var(--text-2xs);font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 7px}
 /* Job description. app.js jdHTML() emits real blocks (headings / <ul> / <p>) instead of one
    pre-wrapped blob, so it reads like a document rather than a paste.

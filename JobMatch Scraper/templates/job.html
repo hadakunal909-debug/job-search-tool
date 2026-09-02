@@ -169,6 +169,42 @@
       {% endif %}
       {% endif %}
 
+      {% if role_usual or co_tools %}
+      <h2 class="sechdr">What This Kind of Job Usually Asks For</h2>
+      {% if role_usual %}
+      <p class="coprose small">Across the {{ role_n }} {{ role_label }} postings in our corpus.
+        The percentage is how many of them say it.</p>
+      <div class="kw">{% for t, share, _pc in role_usual %}<span class="tag norm">{{ t }}
+          <b>{{ (share * 100)|round|int }}%</b></span>{% endfor %}</div>
+      {% endif %}
+      {% if role_cover and role_cover[1] %}
+      <p class="coprose">Your r&eacute;sum&eacute; shows <b>{{ role_cover[0] }} of
+          {{ role_cover[1] }}</b> of them.{% if role_cover[2] %} The ones it does not:
+        {% for t, _s in role_cover[2][:5] %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %}.
+        {% endif %}</p>
+      {% endif %}
+      {% if co_tools %}
+      <p class="coprose small">Tools {{ row.company }} names across their openings</p>
+      <div class="kw">{% for t, share in co_tools %}<span class="tag norm">{{ t }}
+          <b>{{ (share * 100)|round|int }}%</b></span>{% endfor %}</div>
+      {% endif %}
+      {% if co_unusual %}
+      <p class="coprose">More than the roles they hire for would predict:
+        {% for t, share, exp in co_unusual[:4] %}<b>{{ t }}</b>
+        ({{ (share * 100)|round|int }}% of their postings against
+        {{ (exp * 100)|round|int }}% expected){% if not loop.last %}, {% endif %}{% endfor %}.</p>
+      {% endif %}
+      {% if jd_unusual %}
+      <p class="coprose">Unusual for this role, so worth reading closely:
+        {% for t, share in jd_unusual[:4] %}<b>{{ t }}</b>
+        ({{ (share * 100)|round|int }}% of {{ role_label }} postings){% if not loop.last %},
+        {% endif %}{% endfor %}.</p>
+      {% endif %}
+      {% if norms_built %}
+      <p class="coprose small">Measured over {{ norms_postings }} descriptions, {{ norms_built }}.</p>
+      {% endif %}
+      {% endif %}
+
       <h2 class="sechdr">Tailor Your Résumé</h2>
       <p class="coprose">Resume Brain reads this description, ranks your stored r&eacute;sum&eacute;s
               and stories against it, and drafts the rewrite. It researches the employer too, which fills
