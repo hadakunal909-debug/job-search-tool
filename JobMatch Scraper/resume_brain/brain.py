@@ -111,6 +111,17 @@ def _culture_fit(company, resumes, stories):
     return {"shared": shared, "gaps": gaps}
 
 
+def _shown(terms, company_name, cap):
+    """The terms worth putting in front of a reader -- and worth LEARNING from.
+
+    core.display_terms rather than web._useful_terms because web imports THIS module, not the
+    reverse; that asymmetry is the whole reason this surface used to render raw analyze_jd
+    output. The legal-notice subtraction is left out because run_tailor also runs on pasted
+    text, where there is no stored description to split; every other rule applies either way.
+    """
+    return core.display_terms(terms or [], company_name or "", cap)
+
+
 def run_tailor(username, jd_text="", job_url="", company_name="", company_url="",
                force_research=False, record=True):
     notes = []
@@ -169,12 +180,15 @@ def run_tailor(username, jd_text="", job_url="", company_name="", company_url=""
             "applied_lessons": applied,
             "before": before,
             "after": after,
-            "missing": (best["missing"][:18] if best else []),
-            "mirror_terms": analysis["terms"][:14],
+            # FILTERED, like /job. These lists are rendered as chips AND posted straight back
+            # into apply_feedback by brain_tailor.html, so unfiltered noise did not merely look
+            # wrong -- it became a permanent trigger key in users.brain_kb.
+            "missing": _shown(best["missing"], company_name, 18) if best else [],
+            "mirror_terms": _shown(analysis["terms"], company_name, 14),
             "symphony": analysis["symphony"],
             "looking_for": analysis["looking_for"],
             "culture_fit": _culture_fit(company, resumes, stories),
-            "jd_terms": analysis["terms"][:18],
+            "jd_terms": _shown(analysis["terms"], company_name, 18),
         }
     elif jd == "":
         notes.append("Add the job description, either by pasting it or picking a job from the feed, then tailor.")
@@ -197,7 +211,9 @@ def apply_feedback(username, jd_terms, story_ids, feedback_text, company_name=""
         kb["lessons"].insert(0, {
             "id": uuid.uuid4().hex, "created_at": _now(),
             "text": (feedback_text or "").strip() or "Feature the selected stories for jobs like this.",
-            "triggers": list(jd_terms or [])[:12],
+            # FILTERED BEFORE THE CAP, not after. A trigger key is permanent, and capping
+            # first spent the whole budget of twelve on whatever noise ranked highest.
+            "triggers": _shown(jd_terms, company_name, 12),
             "boost_story_ids": list(story_ids or []),
             "boost_terms": [], "weight": 1.0,
             "source": "feedback" + (" · " + company_name if company_name else "")})

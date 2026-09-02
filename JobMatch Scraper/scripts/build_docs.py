@@ -109,6 +109,47 @@ INDEX = (
         "{static/app.js::cardHTML}. ~16 function-for-function twins exist between these two "
         "files; this pair and the filter above are the ones that bite.",
         "python scripts/test_card_meta.py"),
+    Row("R", "A job's keywords name the wrong things, or the match % looks wrong",
+        "{core.py::analyze_jd} -- the résumé-independent half: which terms a posting names, "
+        "and what each is worth",
+        "ATS keywords are matched by {core.py::_term_in}, NOT by `kw in jd_low`. That substring "
+        "test invented a hard skill in 89% of stored postings -- `visio` from \"division\" "
+        "(59.5% of the corpus), `excel` from \"excellence\" (37.1%), `sla` from \"translate\", "
+        "`git` from \"digital\", `safe` from \"safety\", `lean` from \"cleaning\" -- and each "
+        "took x2.5 for being a hard skill and x1.6 again for the requirements section, so the "
+        "phantoms outweighed the real terms INSIDE core_terms and moved the percentage itself. "
+        "Do not \"simplify\" it to a word boundary on both sides: that also throws away "
+        "`stakeholders` (7,165 postings), `budgets`/`budgeting`, `kpis` and `roadmaps`, which "
+        "the substring rule was legitimately earning. phrase_exact=True is the other half -- on "
+        "the JD side a phrase must be NAMED, because the scattered-stem rule that is right for "
+        "a résumé fired `business requirements` on 63.8% of postings. An unseen term takes "
+        "{core.py::_UNSEEN_W}, never max(idf): 54.4% of idf.json's entries sit at the maximum, "
+        "so the median of its value list IS the maximum and the correction the old comment "
+        "described never took effect. Measure with scripts/measure_jd_reading.py, which keeps "
+        "its own copy of the old rule so the number stays meaningful.",
+        "python test_scoring.py"),
+    Row("R", "A description reads as one run-on wall, or carries page furniture",
+        "{core.py::_soup_text} -- the one place HTML becomes a stored description",
+        "block tags become NEWLINES and <li> becomes a bullet, because {jdrender.py::jd_nodes} "
+        "is a newline-driven parser and was only guessing since this function had deleted the "
+        "signal it needs. A newline in the jd column needs no migration -- 9.4% of stored rows "
+        "already carry one (the jobspy path stores markdown). Source-formatting whitespace is "
+        "collapsed FIRST, so only real block boundaries survive. {core.py::fetch_jd} is the "
+        "only step in score_jobs.detail_jd's chain that can SUCCEED AT READING THE WRONG THING, "
+        "so it prefers a content region via {core.py::_main_region} before falling back to the "
+        "whole document. html.unescape stays BEFORE the parse: Greenhouse's content field is "
+        "HTML-escaped HTML.",
+        "python scripts/test_html_to_text.py"),
+    Row("Y", "A keyword panel offers something absurd as a skill to add",
+        "{core.py::display_terms} -- one filter, three surfaces",
+        "it lives in core because web imports resume_brain and not the reverse, which is why "
+        "/job used to filter and /tailor and /brain/tailor did not -- and the unfiltered list "
+        "was what brain_tailor.html posted back into apply_feedback, so noise became permanent "
+        "trigger keys in users.brain_kb. {core.py::ELIGIBILITY_TERMS} is separate from "
+        "PERK_TERMS on purpose: a clearance is a condition you meet or do not, not a skill you "
+        "can choose to add. Short names that ARE real skills (c#, go, bi, qa, ux) survive the "
+        "three-character floor because ATS_KEYWORDS exempts them.",
+        "python test_scoring.py"),
     Row("B", "Search misses an obvious hit, or ranks badly",
         "{web.py::searchHit} and {web.py::searchRank} -- typo-tolerant matching",
         "mirrored in app.js function-for-function. {web.py::_search_tol} sets how much typo "

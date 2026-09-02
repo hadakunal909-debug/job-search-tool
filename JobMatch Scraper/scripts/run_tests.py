@@ -119,6 +119,10 @@ SUITES = (
     # A cap of 1 would satisfy a trip-only test and break the feed for everyone.
     Suite("test_feed_ratelimit",    "scripts/test_feed_ratelimit.py",    "scripts", "offline"),
     Suite("test_fonts",             "scripts/test_fonts.py",             "scripts", "offline"),
+    # core.html_to_text is the front door: every ATS blob and every page scrape becomes a
+    # stored description through it, and it had NO test -- nothing pinned the separator, the
+    # unescape-before-parse ordering, or that <script> text was not being removed.
+    Suite("test_html_to_text",      "scripts/test_html_to_text.py",      "scripts", "offline"),
     # IBM is the only board whose posting PAGE cannot be read at all (202 + empty body), so
     # the api shape is the only thing standing between it and 216 blank descriptions.
     Suite("test_ibm_jd",            "scripts/test_ibm_jd.py",            "scripts", "offline"),

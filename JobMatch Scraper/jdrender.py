@@ -643,7 +643,22 @@ def text_halves(text):
     """
     body, legal = [], []
     for kind, val in jd_nodes(text):
-        for run in (val if kind == "ul" else [val]):
+        # A "ul" node's val is a list of items and a "kv" node's is (label, [values]) -- see
+        # _node_text. `val if kind == "ul" else [val]` covered the first and not the second, so a
+        # kv node handed _LEGAL_BODY.search a TUPLE and raised TypeError on 0.3% of stored
+        # descriptions -- the ones carrying a metadata header ("Clearance Level: None",
+        # "Category: Software Engineering"). web._useful_terms calls this inside a bare except, so
+        # the failure was swallowed and it carried on with an EMPTY legal half, silently
+        # switching off the one rule that keeps "regarding criminal" out of the keywords it
+        # advises adding to a resume. Both halves are tested per RUN, so the kv label and each of
+        # its values are judged separately rather than as one joined string.
+        if kind == "kv":
+            runs = [val[0]] + list(val[1])
+        elif kind == "ul":
+            runs = list(val)
+        else:
+            runs = [val]
+        for run in runs:
             hit = _LEGAL_BODY.search(run) or (kind == "h" and _LEGAL_HEAD.search(run))
             (legal if hit else body).append(run)
     return " \n ".join(body).lower(), " \n ".join(legal).lower()

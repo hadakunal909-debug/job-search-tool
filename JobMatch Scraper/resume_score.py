@@ -368,7 +368,19 @@ def _word_hits(text, words):
 
 
 def _clip(texts):
-    return [t[:160] for t in texts[:MAX_OFFENDERS]]
+    # Clipped ON A WORD BOUNDARY. t[:160] cut whatever sat at 160 characters in half, which is
+    # the same class of defect as the skills-line window (see _skill_entries) and just as
+    # visible: an offender snippet is quoted back to the reader.
+    out = []
+    for t in texts[:MAX_OFFENDERS]:
+        t = t or ""
+        if len(t) <= 160:
+            out.append(t)
+            continue
+        cut = t[:160]
+        sp = cut.rfind(" ")
+        out.append((cut[:sp] if sp > 120 else cut).rstrip() + "\u2026")
+    return out
 
 
 def _spans(items):
@@ -899,6 +911,46 @@ def _check_repeated_phrases(items, _level):
             spans)
 
 
+# A SKILLS LINE IS A LIST. Read it by its separators instead of sliding a fixed window over it.
+#
+# The window this replaced was r"[A-Za-z][A-Za-z0-9+#.'/ -]{1,28}" -- 29 characters with no
+# trailing word boundary -- so any entry longer than that was CUT MID-WORD and both halves were
+# emitted. Measured on a real skills block:
+#     "Business Intelligence Dashboards"     -> "Business Intelligence Dashboa" + "rds"
+#     "Continuous Improvement Methodologies" -> "Continuous Improvement Method" + "ologies"
+#     "Cross-functional Collaboration"       -> "Cross-functional Collaboratio"   (the n is GONE)
+# Those strings reached the reader twice over: as offender chips on the review panel, and as
+# <mark> spans drawn across the resume document, ending mid-word.
+#
+# Two more defects in the same three lines:
+#   * the CATEGORY LABEL counted as a skill. "Tools: Excel, Jira" offered "Tools", and
+#     "Methods: ..." offered "Methods", as skills the resume never demonstrated.
+#   * the SPANS DRIFTED. The old code added len(tok) to m.start() after .strip() had removed
+#     leading characters, so every highlight sat left of the word by however much it stripped.
+_SKILL_LABEL = re.compile(r"\s*[A-Za-z][A-Za-z &/]{1,24}:\s*")
+_SKILL_SPLIT = re.compile(r"[,;|\u2022\u00b7\t]+|\s{2,}|\s+[-\u2013\u2014]\s+")
+# Longer than this is a sentence, not the name of a skill. REJECTED, never cut -- cutting is
+# what produced the half-words, and a fragment is worse than a miss.
+_SKILL_ENTRY_MAX = 60
+
+
+def _skill_entries(text):
+    """(entry, offset into `text`) for each separated entry on a skills line."""
+    text = text or ""
+    start = 0
+    lab = _SKILL_LABEL.match(text)
+    if lab and lab.end() < len(text):
+        start = lab.end()
+    out, pos = [], start
+    for sep in list(_SKILL_SPLIT.finditer(text, start)) + [None]:
+        chunk = text[pos:sep.start() if sep else len(text)]
+        tok = chunk.strip(" \t-/.:\u2013\u2014")
+        if tok:
+            out.append((tok, pos + chunk.index(tok)))
+        pos = sep.end() if sep else len(text)
+    return out
+
+
 def _check_skills_demonstrated(sections, items, _level):
     """A skill in your Skills list should be visible in an accomplishment.
 
@@ -913,14 +965,16 @@ def _check_skills_demonstrated(sections, items, _level):
     listed, spans = [], []
     for s in skill_secs:
         for it in s["items"]:
-            for m in re.finditer(r"[A-Za-z][A-Za-z0-9+#.'/ -]{1,28}", it["text"]):
-                tok = m.group(0).strip(" -/.")
-                if len(tok) < 3 or tok.lower() in _TRIGRAM_STOP:
+            for tok, off in _skill_entries(it["text"]):
+                # 2, not 3: BI, QA, UX and Go are real skills and the old floor dropped them.
+                if len(tok) < 2 or tok.lower() in _TRIGRAM_STOP:
+                    continue
+                if len(tok) > _SKILL_ENTRY_MAX:
                     continue
                 if tok.lower() in body:
                     continue
                 listed.append(tok)
-                spans.append((it["start"] + m.start(), it["start"] + m.start() + len(tok)))
+                spans.append((it["start"] + off, it["start"] + off + len(tok)))
     if not listed:
         return 10.0, "Every listed skill also appears in your experience.", [], []
     return (_score_ratio(len(listed), 0, 10),

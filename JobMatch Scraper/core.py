@@ -140,7 +140,7 @@ def _tokens(text):
 _SEGMENT_RE = re.compile(r"[.,;:/()\[\]{}\n\t\u2022|]+")
 
 
-def extract_keywords(text, top_n=28, max_bigrams=8, extra_skip=None):
+def extract_keywords(text, top_n=28, max_bigrams=8, extra_skip=None, idf=None):
     """Pull the most signal-bearing terms from a job description: meaningful
     single words plus two-word phrases. Phrases are formed only WITHIN a clause
     (text is split on punctuation first) so we never glue together words from
@@ -157,11 +157,23 @@ def extract_keywords(text, top_n=28, max_bigrams=8, extra_skip=None):
                 continue
             bi_counter[f"{a} {b}"] += 1
 
-    bigrams = [k for k, _ in sorted(bi_counter.items(),
-                                    key=lambda kv: (kv[1], len(kv[0])), reverse=True)][:max_bigrams]
+    # TIE-BREAK ON INFORMATION, NOT ON STRING LENGTH. `len(kv[0])` ranked every count-1 bigram
+    # by how many characters it had, which handed the eight available slots to the EEO
+    # paragraph: "consideration regarding", "criminal background" and "background inquiries"
+    # outranked "security clearance" and "program management" on nothing but character count.
+    #
+    # Do NOT simply invert it. Measured over 800 postings, preferring SHORT changes the slots on
+    # 100% of them and admits "paid time", "fair chance", "local law", "lie detector" and "los
+    # angeles" while dropping "artificial intelligence", "software engineering" and "continuous
+    # improvement". Length correlates with informativeness in both directions at once, so it is
+    # not the statistic. idf is, and analyze_jd already has it in hand; an unseen phrase takes
+    # _UNSEEN_W here for the same reason it does in analyze_jd's weighting.
+    def _rank(kv):
+        return (kv[1], min(idf.get(kv[0], _UNSEEN_W), _RARE_W_CAP) if idf else 0.0, kv[0])
+
+    bigrams = [k for k, _ in sorted(bi_counter.items(), key=_rank, reverse=True)][:max_bigrams]
     bigram_words = {w for bg in bigrams for w in bg.split()}
-    unigrams = [k for k, _ in sorted(uni_counter.items(),
-                                     key=lambda kv: (kv[1], kv[0]), reverse=True)]
+    unigrams = [k for k, _ in sorted(uni_counter.items(), key=_rank, reverse=True)]
 
     keywords = list(bigrams)
     for u in unigrams:
@@ -344,12 +356,43 @@ def _requirements_text(jd_text):
 # here unless it is a known hard skill -- see the note in analyze_jd.
 _RARE_W_CAP = 7.5
 
+# THE WEIGHT A TERM WE HAVE NEVER SEEN TAKES, in the same idiom as the cap above: the idf a term
+# in ~2% of postings earns. What this replaced was `sorted(idf.values())[len // 2]`, described in
+# analyze_jd as "the MEDIAN weight, because not having seen a term is evidence it is noise". The
+# intent was right and the statistic could not deliver it: 54.4% of idf.json's 849,382 entries
+# sit at exactly max(idf) -- every term seen in one posting -- so the median of the DISTINCT
+# VALUE LIST lands inside that block and equals the maximum. Measured: median 10.8216, max
+# 10.8216. An unseen term was taking the highest weight in the table, which is the precise
+# failure the note claimed to have fixed.
+#
+# A LITERAL, not a percentile, because no percentile of this distribution can be robust to that
+# mass point -- even the 10th is 9.03. It is also scale-free: idf is log((n+1)/(c+1)) + 1, so
+# "a term in 2% of postings" is log(50) + 1 regardless of how large the corpus grows.
+#
+# It also deletes an 849,382-element sort from the per-posting path. That sort was inside
+# analyze_jd: measured 140.6 ms of a 140.6 ms/row analysis and ~7 MB of allocation churn per
+# row, i.e. ~90 minutes of pure sorting over one full pass against a 45-minute CI timeout. The
+# score pass dying with rc=137 is the symptom that was showing. Analysis is now 3.8 ms/row.
+_UNSEEN_W = 4.91
+
 ATS_KEYWORDS = {
     # tools
     "jira", "confluence", "asana", "trello", "smartsheet", "monday.com", "wrike", "clickup",
     "ms project", "microsoft project", "primavera", "sharepoint", "excel", "google sheets",
     "powerpoint", "visio", "lucidchart", "miro", "notion", "sql", "tableau", "power bi",
     "looker", "salesforce", "sap", "oracle", "netsuite", "workday", "servicenow", "python", "git",
+    # NAMED BECAUSE THE BOUNDARY TEST BELOW WOULD OTHERWISE LOSE THEM. The substring rule earned
+    # these by accident -- `git` matched "github"/"gitlab" (1,146 postings) and `sql` matched
+    # "postgresql"/"mysql"/"nosql" (1,146) -- and _term_in will not, because _stem("github") is
+    # not _stem("git"). They are real, distinct skills; naming them is explicit and testable.
+    "github", "gitlab", "postgresql", "mysql", "nosql",
+    # PUNCTUATED NAMES THE TOKENIZER CANNOT PRODUCE AT ALL. extract_keywords strips "-.+#/" and
+    # then drops anything under three characters, so "c++" becomes "c" and vanishes; measured,
+    # ci/cd appears in 12.0% of stored descriptions, c++ in 10.1% and c# in 5.5% and NONE of
+    # them could ever become a keyword. _term_in matches a punctuated term as a phrase, so
+    # naming them here fixes it with no tokenizer change and no idf rebuild.
+    # "go" is deliberately absent: as a bare token it is ordinary English, not the language.
+    "c++", "c#", "ci/cd", ".net",
     # methods / frameworks
     "agile", "scrum", "kanban", "safe", "lean", "six sigma", "lean six sigma", "waterfall",
     "sdlc", "devops", "kaizen", "pmbok", "prince2", "itil", "okr", "okrs", "kpi", "kpis",
@@ -376,17 +419,88 @@ _MIN_JD_CHARS = 400
 _MIN_JD_TERMS = 6
 
 
+# Tags that END A LINE. Everything else is inline and stays joined by a space.
+_BLOCK_TAGS = ("p", "div", "br", "li", "ul", "ol", "tr", "table", "section", "article",
+               "h1", "h2", "h3", "h4", "h5", "h6", "dt", "dd", "blockquote")
+# A sentinel rather than "\n", because get_text(strip=True) strips each text node and would
+# throw a whitespace-only marker away. \x01 cannot occur in a description; jdrender.JD_CUT
+# uses the same character for the same reason.
+_CUT = "\x01"
+
+
+def _soup_text(soup):
+    r"""Structured plain text from a parsed tree: block boundaries become newlines.
+
+    WHY STRUCTURE IS KEPT. This used to be `re.sub(r"\s{2,}", " ", soup.get_text(" ",
+    strip=True))`, which turned every <li>, <p>, <br> and <h2> boundary into a single space and
+    returned the whole description as one unbroken line. Everything downstream then had to guess
+    the structure back: jdrender's JD_SECTION / JD_ITEM_RE / jd_flat_list and
+    resume_brain.analyze._sentences exist for no other reason, core._requirements_text locates
+    the requirements by str.find on that one line, and extract_keywords formed bigrams straight
+    across list-item boundaries ("...recommendations Lead thoughtful..." yielded
+    "recommendations lead").
+
+    NOTHING NEEDED A MIGRATION FOR THIS. A newline in the jd column is an ALREADY SHIPPING
+    shape -- measured, 9.4% of the 36,853 stored descriptions carry one and 10.2% carry a
+    bullet, because the jobspy path stores markdown and several ATS fields are plain text. That
+    is also why jdrender's MD_RULE / MD_ATX / MD_BOLD_LINE are ^$-anchored. jd_nodes is already
+    a newline-driven parser; it was never guessing because structure is unknowable, only because
+    this function had deleted the one signal it needs.
+
+    Source-formatting whitespace is NOT structure: HTML is indented, so every run of whitespace
+    is collapsed FIRST and only the sentinels become newlines.
+    """
+    for tag in soup(["script", "style"]):
+        # Not decomposed before: an inline <style> or <script> inside an ATS description field
+        # contributed its CSS or JS text to the stored description. Measured at 0.0% of the
+        # corpus today, so this is defence rather than a fix -- but it is one line.
+        tag.decompose()
+    for tag in soup.find_all(_BLOCK_TAGS):
+        tag.insert_before(_CUT + "\u2022 " if tag.name == "li" else _CUT)
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+    return re.sub(r"(?: *%s *)+" % re.escape(_CUT), "\n", text).strip()
+
+
 def html_to_text(raw):
-    """HTML (or already-plain) text -> clean text.
+    """HTML (or already-plain) text -> clean text, with block boundaries kept as newlines.
 
     Lived in scraper/score_jobs.py as _text until the SWEEP needed it too: several ATS list
     feeds hand back the description alongside the listing, and scraper cannot import score_jobs
     because score_jobs imports scraper. One definition here; both callers delegate to it.
+
+    html.unescape BEFORE the parse is load-bearing and nothing used to pin it: Greenhouse's
+    `content` field is HTML-escaped HTML, so a bare parse would leave &lt;p&gt; in the text
+    (scraper/__init__.py:2766 says so). scripts/test_html_to_text.py now holds that ordering.
     """
     if not raw:
         return ""
-    soup = BeautifulSoup(html.unescape(raw), "lxml")
-    return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
+    return _soup_text(BeautifulSoup(html.unescape(raw), "lxml"))
+
+
+# ACRONYMS WHOSE LOWERCASE FORM IS AN ORDINARY ENGLISH WORD, matched against the ORIGINAL case.
+#
+# A word boundary is necessary and not sufficient. `safe` is in ATS_KEYWORDS as SAFe, the Scaled
+# Agile Framework, and once the boundary fix stopped it matching "safety" it still matched the
+# adjective: measured over 6,000 stored descriptions, the word "safe" appears in 13.8% of them
+# and only 15.5% of THOSE are the framework -- so 11.7% of the whole corpus was being credited
+# with a hard skill it never named, at x2.5 and x1.6 again. "SAFe"/"SAFE" spelled exactly is
+# 2.0%, and that is the real signal. Same shape for Lean: bare "lean" 5.3%, capitalised 3.5%,
+# and the unambiguous forms (lean six sigma, kaizen, value stream) are separate keywords already.
+#
+# Case is the discriminator a lowercased pipeline threw away, so these two are asked of the
+# original text. Keep this set SMALL -- it is for genuine collisions, not for tidiness.
+_ATS_CASED = {
+    "safe": re.compile(r"(?<![A-Za-z0-9])(?:SAFe|SAFE)(?![A-Za-z0-9])"),
+    "lean": re.compile(r"(?<![A-Za-z0-9])Lean(?![A-Za-z0-9])"),
+}
+
+
+def _names_term(t, text, text_low, words):
+    """Does this text NAME this term? Case-sensitive for the acronyms above, else _term_in."""
+    cased = _ATS_CASED.get(t)
+    if cased is not None:
+        return bool(cased.search(text or ""))
+    return _term_in(t, text_low, words, phrase_exact=True)
 
 
 def analyze_jd(jd_text, idf=None):
@@ -398,15 +512,37 @@ def analyze_jd(jd_text, idf=None):
     Returns {"terms": [term, ...], "weight": {term: w}, "total": float, "thin": bool}.
     """
     jd_low = (jd_text or "").lower()
-    req_low = _requirements_text(jd_text).lower()
+    # ORIGINAL CASE KEPT for both, because _names_term needs it -- see _ATS_CASED.
+    req_text = _requirements_text(jd_text)
+    req_low = req_text.lower()
+    # Built once per posting, and judged by the SAME rule the résumé side is judged by. See
+    # _term_in for why this is not _resume_wordset (its memo holds 8 entries, for one résumé).
+    jd_words = _wordset(jd_low)
+    req_words = _wordset(req_low) if req_low else (frozenset(), frozenset())
 
     # The JD's important keywords: its salient terms + any hard ATS keywords it names.
-    salient = extract_keywords(jd_text, top_n=30)
+    salient = extract_keywords(jd_text, top_n=30, idf=idf)
     # "thin" is judged on the JD's own substance (length + salient-term count), NOT on the ATS
     # keywords a broad résumé would trivially match — so a truncated blurb stays flagged.
     thin = len(jd_low.strip()) < _MIN_JD_CHARS or len(salient) < _MIN_JD_TERMS
     jd_terms = set(salient)
-    jd_terms |= {kw for kw in ATS_KEYWORDS if kw in jd_low}
+    # AS WORDS, NOT AS SUBSTRINGS. `{kw for kw in ATS_KEYWORDS if kw in jd_low}` -- what this
+    # replaced -- invented a hard skill in 89% of postings: `visio` out of "division" and
+    # "supervision" (59.5% of the corpus), `excel` out of "excellence" (37.1%), `sla` out of
+    # "translate" (24.7%), `git` out of "digital" (24.0%), `safe` out of "safety" (20.6%),
+    # `lean` out of "cleaning" (9.0%). Each phantom then took x2.5 for being a hard skill and
+    # x1.6 again below, so it outweighed the terms the job actually named and landed inside
+    # core_terms -- it moved the MATCH PERCENTAGE, not just the chip list. A median 17% of the
+    # scored weight was noise. scripts/measure_jd_reading.py keeps its own copy of the old rule
+    # so that number stays measurable now this one is correct.
+    #
+    # _term_in rather than a word-boundary regex, because a boundary alone is too strict in the
+    # other direction: the substring rule was legitimately earning `stakeholders` (7,165
+    # postings), `budgets`/`budgeting` (2,238), `roadmaps` (1,126), `kpis` (968) and
+    # `implementations` (720), and \b on both sides throws all of those away. Stems keep them
+    # and still refuse the phantoms -- _stem("division") is not _stem("visio").
+    jd_terms |= {kw for kw in ATS_KEYWORDS
+                 if _names_term(kw, jd_text, jd_low, jd_words)}
     if not jd_terms:
         return {"terms": [], "weight": {}, "total": 0.0, "thin": True}
 
@@ -421,20 +557,34 @@ def analyze_jd(jd_text, idf=None):
     # term is evidence it is noise rather than evidence it is critical. And idf is capped for
     # anything that is not a known hard skill, so a genuine specialism in ATS_KEYWORDS keeps its
     # edge while boilerplate cannot buy one by being unusual.
-    known = sorted(idf.values()) if idf else []
-    default_w = known[len(known) // 2] if known else 1.0
 
     def wt(t):
-        w = idf.get(t, default_w) if idf else 1.0
+        w = idf.get(t, _UNSEEN_W) if idf else 1.0
         if t in ATS_KEYWORDS:        # hard skill / tool / cert, what an ATS weights most
             w *= 2.5
         else:
             w = min(w, _RARE_W_CAP)
-        if t in req_low:             # stated in the requirements/qualifications section
+        # THE SAME SUBSTRING BUG, applied to EVERY term rather than only to ATS keywords, and
+        # compounding on top of the x2.5 above: `t in req_low` gave "sla" the requirements boost
+        # for a section that said "translate". Judged as a word now, by the same rule.
+        if req_low and _names_term(t, req_text, req_low, req_words):
             w *= 1.6
         return w
 
-    terms = list(jd_terms)           # freeze the set's iteration order ONCE (see score_against)
+    # SORTED, NOT list(). jd_terms is a set of STRINGS, so its iteration order is randomised
+    # per process by PYTHONHASHSEED -- three runs over one description gave three different
+    # pack_analyzed strings. That silently defeated the reason this column is TEXT and not jsonb
+    # (see db.JOBS_DERIVED_SQL): score_jobs diffs the stored string against the one it just built
+    # to decide whether to write, so a reordered rebuild never matched and the FULL pass
+    # re-upserted the WHOLE corpus every day -- ~11 MB of jd_terms, on a host whose metered
+    # egress has been overrun once. _persist_derived's "one small upsert instead of re-writing
+    # the whole corpus" has never held for this column.
+    #
+    # Order only ever reached tie-breaks: core_terms and score_against both sort on -weight and
+    # Python's sort is stable, so equal-weight terms kept insertion order. Sorting replaces one
+    # arbitrary order with a repeatable one -- it removes nondeterminism rather than adding
+    # change, and it is what makes a before/after measurement of this pipeline possible at all.
+    terms = sorted(jd_terms)
     weight = {t: wt(t) for t in terms}
     total = sum(weight[t] for t in terms)
     return {"terms": terms, "weight": weight, "total": total, "thin": thin}
@@ -547,6 +697,16 @@ def _alias_forms(term):
     return (term, canon) + tuple(_ALIAS_REVERSE.get(canon, ()))
 
 
+def _wordset(text_low):
+    """(whole word-tokens, their stems) for any lowercased text.
+
+    Unmemoised, so analyze_jd can build one per posting. _resume_wordset below is the memoised
+    view of this for the résumé, which is fixed for a whole scoring pass.
+    """
+    toks = frozenset(WORD_RE.findall(text_low))
+    return toks, frozenset(_stem(w) for w in toks)
+
+
 @lru_cache(maxsize=8)
 def _resume_wordset(resume_low):
     """(whole word-tokens, their stems) for a lowercased résumé, memoized so user_scores can
@@ -555,8 +715,7 @@ def _resume_wordset(resume_low):
     Returns a pair so the exact-match path stays exact — a stem is a fallback, not a
     replacement, and checking the literal token first keeps the common case free.
     """
-    toks = frozenset(WORD_RE.findall(resume_low))
-    return toks, frozenset(_stem(w) for w in toks)
+    return _wordset(resume_low)
 
 
 # THE RESUME IS FIXED FOR A WHOLE SCORING PASS, so this answers the same question over and over.
@@ -584,13 +743,42 @@ def _term_present(t, resume_low, words):
     already settled.
 
     `words` is the (tokens, stems) pair from _resume_wordset.
+
+    The judgement itself lives in _term_in so the JOB DESCRIPTION side can reuse it -- see
+    analyze_jd. This wrapper is only the memo, and the memo is keyed on the second argument:
+    fixed for a whole pass here, and 36,853 distinct descriptions there.
+    """
+    return _term_in(t, resume_low, words)
+
+
+def _term_in(t, text_low, words, phrase_exact=False):
+    """_term_present without the memo: is this term present in this text, ATS-style?
+
+    Split out for analyze_jd, which asks the same question of the DESCRIPTION rather than of a
+    résumé. Calling _term_present there would key its 65,536-entry cache on whole descriptions
+    and pin them in memory; _resume_wordset is maxsize=8 for the same reason. Having one
+    definition also means the two sides of the match cannot drift: a term the JD is judged to
+    "name" is judged present by exactly the rule that later decides whether you hold it.
     """
     toks, stems = words if isinstance(words, tuple) else (words, frozenset())
     if " " in t or any(ch in t for ch in "+#./-"):
-        if t in resume_low:
+        if t in text_low:
             return True
-        if any(f != t and f in resume_low for f in _alias_forms(t)):
+        if any(f != t and f in text_low for f in _alias_forms(t)):
             return True
+        if phrase_exact:
+            # ASKING A DIFFERENT QUESTION. Below, "every word of the phrase is present as a
+            # stem" is the right rule for a RESUME -- "project management" should be answered by
+            # "managed multiple projects", because the person did the thing. It is the wrong
+            # rule for deciding whether a POSTING NAMES a skill, and measurably so: almost every
+            # description contains "business" somewhere and "requirements" somewhere, so
+            # `business requirements` fired on 63.8% of them -- and being absent from idf it
+            # then took _UNSEEN_W x2.5 x1.6, making it one of the heaviest terms in the posting.
+            # Same for "requirements gathering", "status reporting" and "project plan".
+            #
+            # A posting names a phrase when it SAYS the phrase (or an alias of it). Both branches
+            # above already tested exactly that, so there is nothing further to try.
+            return False
         canon = _canon_phrase(t)
         # A phrase matches when EVERY word of it is present as a stem -- "project management"
         # against "managed multiple projects". All of it, not any of it: "risk management" must
@@ -600,9 +788,102 @@ def _term_present(t, resume_low, words):
     if t in toks:
         return True
     for f in _alias_forms(t):
-        if f in toks or _stem(f) in stems or (" " in f and f in resume_low):
+        if f in toks or _stem(f) in stems or (" " in f and f in text_low):
             return True
     return False
+
+
+# ---- which terms are worth SHOWING a reader ---------------------------------------------------
+#
+# THESE LIVED IN web.py, and that is why only one of three surfaces filtered. resume_brain cannot
+# import web -- web imports resume_brain (web.py:114) and not the other way round -- so
+# /brain/tailor had no way to reach the filter and rendered raw analyze_jd output. Worse, that
+# raw list is what brain_tailor.html posts back into apply_feedback, so unfiltered noise became
+# permanent trigger keys in users.brain_kb. One definition here, three callers.
+#
+# text_halves is NOT called from here: jdrender's header states why core must not import it
+# (the scraper, the digest and score_jobs all import core and none of them renders anything), so
+# the two halves are passed IN by whoever already has them.
+
+# Words that are never a skill but score well because a description repeats them. Grown from a
+# real Capital One posting, which offered "regarding criminal", "background inquiries",
+# "applicable federal", "york", "posted", "state" and "laws" as keywords to add to a résumé.
+KEYWORD_STOP = frozenset("""
+posted posting position role job company employer candidate applicant applicants
+state states city york county country federal laws law legal notice notices least
+website site email phone contact address information available provide provided
+please based employment technology technologies tools services service solutions
+business teams environment opportunity support various including needs help
+""".split())
+
+# Generic soft skills. Every posting says them, so naming them tells a reader nothing.
+SKILL_STOP = frozenset("""
+communication teamwork leadership collaboration interpersonal verbal written organizational
+problem solving detail oriented time management customer service work experience team player
+fast paced self starter multi task english degree bachelor master responsibilities requirements
+qualifications preferred required ability able strong excellent knowledge understanding
+""".split())
+
+# ELIGIBILITY GATES, NOT SKILLS -- and the owner's own example of this panel naming the wrong
+# thing. A clearance is not something you can add to a résumé by deciding to; it is a condition
+# you either meet or you do not, so listing it under a heading that reads "worth adding" is
+# advice nobody can act on. Deliberately NOT folded into PERK_TERMS, which is documented above
+# as perks/benefits/compensation and is a different category; jdrender.FIELD_LABELS already
+# treats "clearance" and "citizenship" as metadata FIELDS rather than as skills.
+#
+# These are still EXTRACTED -- analyze_jd keeps them, because a posting that requires a
+# clearance is a posting we want to have understood. This set only governs what is offered to a
+# reader as a skill.
+ELIGIBILITY_TERMS = frozenset("""
+clearance clearances polygraph citizenship naturalized
+""".split()) | frozenset((
+    "security clearance", "top secret", "ts sci", "public trust", "drug screen",
+    "background check", "us citizen", "work authorization",
+))
+
+
+def display_terms(terms, company, cap, body="", boiler=""):
+    """Keywords worth showing a reader, weight order preserved.
+
+    Five things get dropped, in cheapness order:
+      * the generic soft skills, the never-a-skill list, perks, and eligibility gates
+      * the employer's own name. It is genuinely one of the highest-weighted terms in any
+        description and says nothing: "Capital One" was marked six times in one posting.
+      * anything under three characters that is not a known hard skill
+      * a multi-word term made only of stopwords
+      * TERMS THAT ONLY EVER APPEAR IN LEGAL BOILERPLATE. analyze_jd reads the whole
+        description, EEO notice included, so the raw list contains phrases from it. Subtracting
+        the boilerplate is a property of THIS posting rather than a blacklist to maintain, and
+        it is what stops the page advising somebody to put "regarding criminal" on a résumé.
+        Pass `body` and `boiler` from jdrender.text_halves; omitting them skips only this rule.
+    """
+    stop = set(SKILL_STOP) | set(KEYWORD_STOP) | set(PERK_TERMS) | set(ELIGIBILITY_TERMS)
+    stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
+    # The company as the CORPUS spells it, not only as this row does. A row mislabelled "Amat"
+    # subtracted nothing from a description opening "Applied Materials is a global leader".
+    try:
+        stop.update(w for w in norm_company(company or "").split() if len(w) > 2)
+    except Exception:
+        pass
+    out = []
+    for t in terms:
+        low = (t or "").strip().lower()
+        if not low or low in stop:
+            continue
+        # SHORT NAMES THAT ARE REAL SKILLS SURVIVE. A flat three-character floor hid c#, go, bi,
+        # qa and ux -- every one of them in ATS_KEYWORDS, every one a thing an ATS scans for.
+        if low not in ATS_KEYWORDS:
+            if len(low) < 3:
+                continue
+            if all(w in stop or len(w) < 3 for w in low.split()):
+                continue
+        # In the notice but not in the rest of the posting: a legal phrase, not a skill.
+        if boiler and low in boiler and low not in body:
+            continue
+        out.append(t)
+        if len(out) >= cap:
+            break
+    return out
 
 
 # HOW MUCH OF A POSTING COUNTS AGAINST YOU. Raising this makes the score STRICTER, because a
@@ -2435,7 +2716,12 @@ def posting_key(title, company, location, require_location=False):
 # the stored match_scores — so the bump would be the disruptive option, not the safe one. Left
 # alone: the user sees a slightly shorter feed and can move the slider, which is visible and
 # reversible. Revisit if the profile ever narrows further.
-MIN_SCALE = 3
+# 4: the 2026-09-02 JD-reading repair. Removing the phantom ATS terms and the top-of-table
+# weight for an unseen one raised the share of the corpus scoring 50 or more from 18.2% to
+# 29.2%, so a stored floor of 50 admits ~60% more rows than it did when it was chosen. That is
+# a change of KIND, not of degree -- the filter silently stops filtering -- which is exactly
+# what normalize_prefs' scale migration below exists for.
+MIN_SCALE = 4
 
 DEFAULT_PREFS = {
     # "I have at least half the skills this job emphasises." On the v3 scale that admits about
@@ -2963,15 +3249,54 @@ def experience_level(text):
 # ------------------------------------------------------------
 # Fetch a job description page (best-effort; paste fallback in the UI)
 # ------------------------------------------------------------
+# WHERE A JOB PAGE KEEPS THE POSTING, most specific first. Tried in order; the first region
+# with enough text wins, and if none does we fall back to the whole document exactly as before.
+_MAIN_SELECTORS = ("[itemprop=description]", "[data-automation-id=jobPostingDescription]",
+                   "[class*=job-description]", "[id*=job-description]",
+                   "[class*=jobDescription]", "main", "article", "[role=main]")
+# Below this a "region" is a heading or a spinner, not a description. Same number as
+# score_jobs.MIN_PAGE_JD_CHARS, which gates the whole branch one level up.
+_MAIN_MIN_CHARS = 250
+
+
+def _main_region(soup):
+    """The element holding the posting, or None to mean "use the whole document"."""
+    for sel in _MAIN_SELECTORS:
+        try:
+            el = soup.select_one(sel)
+        except Exception:              # a selector lxml's CSS layer will not accept
+            continue
+        if el is not None and len(el.get_text(" ", strip=True)) >= _MAIN_MIN_CHARS:
+            return el
+    return None
+
+
 def fetch_jd(url, limit=8000):
+    """Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API.
+
+    THE ONLY STEP IN THAT CHAIN THAT CAN SUCCEED AT READING THE WRONG THING -- see the note at
+    score_jobs.py:988. It used to take get_text over the ENTIRE document with no notion of a
+    content region, so cookie bars, breadcrumbs, "Related jobs", "Share this job" and
+    "Click the link below" (whose link get_text drops, leaving the sentence pointing at nothing)
+    all became the description. Measured across the stored corpus: skip-to-content 3.4%,
+    share-this-job 1.7%, related-jobs 1.1%, click-the-link-below 0.6%.
+    """
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "lxml")
-        for tag in soup(["script", "style", "nav", "header", "footer", "form"]):
+        # aside/noscript/svg and aria-hidden were not in the list; a "Related jobs" rail is
+        # almost always an <aside>, and an aria-hidden node is furniture by its own admission.
+        for tag in soup(["nav", "header", "footer", "form", "aside", "noscript", "svg"]):
             tag.decompose()
-        text = soup.get_text(separator=" ", strip=True)
-        return re.sub(r"\s{2,}", " ", text)[:limit]
+        for tag in soup.select('[aria-hidden="true"]'):
+            tag.decompose()
+        region = _main_region(soup)
+        # _soup_text handles script/style and the block boundaries, so a page scrape now carries
+        # the same structure an ATS HTML field does. NOT html_to_text: the response body is real
+        # HTML, whose entities the parser decodes itself, and unescaping it again would decode
+        # an intended "&amp;lt;" twice.
+        return _soup_text(region if region is not None else soup)[:limit]
     except Exception:
         return ""
 
