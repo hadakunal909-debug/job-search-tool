@@ -295,6 +295,13 @@ def _canonical_keys(jd_map):
 # silently answers nothing, which is indistinguishable from a board that has no backlog.
 BULK_JD_ATS = ("greenhouse", "lever", "ashby", "amazon", "jibe", "pinpoint", "jobdiva",
                "phenom", "ibm")
+# HOW MANY BOARD MAPS MAY BE IN MEMORY AT ONCE. Not a worker count -- workers stay at 8, which
+# is a THROTTLING decision about outbound concurrency on shared hosting and is deliberately not
+# traded for a memory one. This bounds how many COMPLETED maps can pile up waiting to be
+# consumed, which is a different quantity and the one that overflows: jd_map_for returns a whole
+# board with every description, so 151 of them buffered is gigabytes while 16 is bounded.
+# 16 = twice the worker count, so a slow board never starves the pool.
+_BULK_WINDOW = int(os.environ.get("SCORE_BULK_WINDOW") or 16)
 
 
 def jd_map_for(board_url, ats, needed=None):
@@ -1784,16 +1791,52 @@ def main():
                 except Exception as e:
                     return company, {}, str(e)
 
+            # BOUNDED IN FLIGHT, AND THIS IS THE PHASE THE CRON DIES IN.
+            #
+            # jd_map_for returns EVERY posting on a board with its description -- that is what
+            # makes it one request instead of hundreds -- and a big board is tens of megabytes.
+            # `ex.map(_one, bulk)` submits all 151 boards at once and holds each result until
+            # the consumer reaches it IN ORDER, so one slow board pins every map that finished
+            # behind it. Measured on the live box: 4 of the 6 score-step runs in the log exited
+            # rc=137, always here, always inside "Bulk-fetching JDs from N board(s)".
+            #
+            # The account is the constraint and it cannot be tuned away: 1,189 MB of the ~1.2 GB
+            # budget is already held by the web app's Passenger workers (842 MB) and two sibling
+            # apps this account must not touch (586 MB). SCORE_MAX_FETCH was the documented
+            # lever and it is the wrong one -- it bounds ROWS, and what overflows here is BOARD
+            # MAPS, which the cap does not govern at all.
+            #
+            # as_completed, a submission window, and `del m` so a board's map is released the
+            # moment its handful of wanted rows have been copied out. Flushed every CHUNK too,
+            # for the reason the detail phase below already gives: a run killed mid-phase should
+            # keep what it has fetched. The window is the memory bound; the flush is the
+            # progress bound.
+            CHUNK, buf, pending, queue = 150, {}, {}, list(bulk)
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                for company, m, err in ex.map(_one, bulk):
-                    if err:
-                        print("  FAIL %-16s %s" % (company, err))
-                        continue
-                    hits = {u: jd for u, jd in m.items()
-                            if u in missing and _accept_jd(u, jd, thin_len, row_jd.get(u))}
-                    fetched.update(hits)
-                    print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), len(m)))
-            _persist_jds(fetched)           # save bulk hits before the slower detail phase
+                while queue or pending:
+                    while queue and len(pending) < _BULK_WINDOW:
+                        entry = queue.pop()
+                        pending[ex.submit(_one, entry)] = entry
+                    done, _ = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for fut in done:
+                        pending.pop(fut, None)
+                        company, m, err = fut.result()
+                        if err:
+                            print("  FAIL %-16s %s" % (company, err))
+                            continue
+                        hits = {u: jd for u, jd in m.items()
+                                if u in missing and _accept_jd(u, jd, thin_len, row_jd.get(u))}
+                        n_board = len(m)
+                        del m                   # the board's whole map, gone before the next
+                        fetched.update(hits)
+                        buf.update(hits)
+                        print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), n_board))
+                        if len(buf) >= CHUNK:
+                            _persist_jds(buf)
+                            buf = {}
+            if buf:
+                _persist_jds(buf)
             missing -= set(fetched)
 
         # 3) The rest need a per-job detail fetch (SmartRecruiters/Workday/page scrape) —
