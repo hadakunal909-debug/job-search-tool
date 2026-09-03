@@ -637,6 +637,33 @@ _SENTENCE_LOOK = 200
 _CHROME_LEAD_WINDOW = 400
 
 
+# MARKDOWN ESCAPES, AND THE READER HAS BEEN SEEING PAST THEM ALL ALONG. jdrender.strip_md
+# removes these before anything is drawn, so a description that reads
+#
+#     5+ years of Project or Program Management experience in enterprise IT environments.
+#
+# on the job page is stored as "5\+ years ..." -- and _EXP_YEARS_RE needs the plus or the space
+# immediately after the digit, so it matched NOTHING and the posting reported no requirement at
+# all. That is the shape of the Applied Materials report: the SAME posting is stored twice, from
+# its Workday host as plain text (reads 5) and from the employer's own host as markdown (read
+# None), which is what made it look like the parser could not read a plain English sentence.
+#
+# Measured over the 42,419 stored descriptions: 2,327 (5.5%) carry a backslash escape and
+# 820 (1.9% of the whole corpus) GAIN a year floor once it is removed. None loses one.
+#
+# RESTRICTED TO PUNCTUATION, the same restriction jdrender documents: a backslash before a
+# letter or digit is not an escape, it is a Windows path or a regex (\S, \D, \b appear in 24 of
+# the cached descriptions) and must survive untouched.
+#
+# TWO DEFINITIONS OF ONE RULE, and that is not an accident. jdrender imports the standard
+# library and nothing else on purpose -- the scraper and the digest import core and render
+# nothing, so presentation must not be in their import cost -- which leaves core unable to
+# borrow jdrender.MD_ESCAPE. test_clean_jd.py asserts the two patterns agree, which is the
+# guard that keeps them from drifting the way scripts/measure_jd_reading.py's private copy of
+# the ATS matcher once did.
+_MD_ESCAPE = re.compile(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\]^_`{|}~\\])")
+
+
 def _furniture_spans(text):
     """Sorted [(start, end)] of every piece of site furniture in `text`.
 
@@ -705,6 +732,10 @@ def clean_jd(text):
     t = (text or "").strip()
     if not t:
         return "", "not-a-posting"
+    # FIRST, so that every rule below and every consumer downstream reads the same characters
+    # the reader sees. Cheap: `in` on a 6 KB string, and only 5.5% of the corpus pays the sub.
+    if "\\" in t:
+        t = _MD_ESCAPE.sub(r"\1", t)
     spans = _furniture_spans(t)
     body, cut = _strip_chrome(t, spans) if spans else (t, 0)
     if _DEAD_SHELL_RX.search(body[:_DEAD_SHELL_HEAD]):

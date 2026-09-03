@@ -166,6 +166,34 @@ check("three of them in a row is", len(core._LISTING_RX.findall(
 check("one of them is below the threshold",
       len(core._LISTING_RX.findall(one_office)) < core._LISTING_MIN)
 
+print("\nMARKDOWN ESCAPES, WHICH THE RENDERER HAS ALWAYS STRIPPED AND THE PARSER NEVER DID")
+# The Applied Materials report: the SAME posting stored twice, from its Workday host as plain
+# text and from the employer's own host as markdown. One read "5+ years" and answered 5; the
+# other held "5\+ years", and _EXP_YEARS_RE needs the plus or the space right after the digit,
+# so it matched nothing and the posting claimed to state no requirement at all. Measured:
+# 2,327 of 42,419 descriptions (5.5%) carry an escape and 820 gain a year floor without it.
+_ESCAPED = ("* 5\\+ years of Project or Program Management experience in enterprise IT "
+            "environments.\n* 2\\+ years managing endpoint initiatives.\n") + BODY
+check("an escaped plus no longer hides the requirement",
+      core.experience_years(core.clean_jd(_ESCAPED)[0]) == 5,
+      core.experience_years(core.clean_jd(_ESCAPED)[0]))
+check("the raw text really was unreadable before it",
+      core.experience_years(_ESCAPED.split("\n")[0]) is None,
+      "if this ever passes, the escape is being handled somewhere else and this case is moot")
+check("cross\\-functional loses its backslash", "\\" not in core.clean_jd(
+    "We need cross\\-functional delivery. " + BODY)[0])
+# PUNCTUATION ONLY. A backslash before a letter is a Windows path or a regex, and \S / \D / \b
+# appear in 24 of the cached descriptions.
+_KEEP = "Path C:\\Users\\kunal and the regex \\S and \\D survive. " + BODY
+check("a backslash before a LETTER survives untouched",
+      "C:\\Users\\kunal" in core.clean_jd(_KEEP)[0] and "\\S" in core.clean_jd(_KEEP)[0])
+# ONE RULE, TWO DEFINITIONS, because jdrender imports the standard library and nothing else on
+# purpose and core therefore cannot borrow it. This is the guard that stops them drifting.
+import jdrender                                                          # noqa: E402
+check("core._MD_ESCAPE and jdrender.MD_ESCAPE are the same pattern",
+      core._MD_ESCAPE.pattern == jdrender.MD_ESCAPE.pattern,
+      "%r vs %r" % (core._MD_ESCAPE.pattern, jdrender.MD_ESCAPE.pattern))
+
 print("\nIDEMPOTENT: cleaning a cleaned description changes nothing")
 for name, src in (("google", GOOGLE), ("amazon", AMAZON), ("clean", BODY)):
     once = core.clean_jd(src)[0]

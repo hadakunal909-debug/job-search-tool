@@ -316,20 +316,21 @@ check("web.py derives the flag instead of reading a column",
 # run, and for those "years not stated" is not a stale answer, it is a FALSE CLAIM: it asserts
 # something about the employer's posting when the only fact we hold is about our own pipeline.
 # The two flags that separate the cases already exist and already drive the score ring.
-check("the card distinguishes 'not read yet' from 'not stated'",
-      "years not read yet" in CODE and "years not stated" in CODE,
-      "one is a fact about our pipeline, the other a claim about the posting")
-check("...and 'unknown' for an employer that publishes nothing readable",
-      "years unknown" in CODE)
-check("it reads the SAME two flags the score ring reads",
-      "j.jd_unavailable" in CODE and "j.score_pending" in CODE,
-      "inventing a third source for the same fact is how two chips start disagreeing")
-# Order matters: jd_unavailable is permanent and score_pending is transient, so the permanent
-# one has to be tested first or a walled employer reads as "not read YET" forever.
-_perm = CODE.find("j.jd_unavailable")
-_pend = CODE.find("j.score_pending")
-check("the permanent case is tested before the transient one", -1 < _perm < _pend,
-      "a walled employer would otherwise promise a reading that never arrives")
+# A FIGURE OR NOTHING. The card briefly carried the three no-answer states in words -- "years
+# not stated", "not read yet", "unknown" -- and on a feed where most rows are one of them that
+# is a column of cards explaining what the app does not know. The owner asked for silence
+# instead, so the distinction has to live on /job, where it is one posting and there is room.
+for _gone in ("years not stated", "years not read yet", "years unknown"):
+    check("the card does not print %r" % _gone, _gone not in CODE,
+          "a missing figure already reads as 'no figure'")
+check("...and /job still names which of the three it is",
+      "unread_why" in JOBHTML and "have not fetched" in JOBHTML
+      and "rather than a posting" in JOBHTML,
+      "'the employer did not say' and 'we have not read it' are opposite facts, and only one "
+      "of them changes on its own")
+check("the inferred case survives, because it is an ANSWER",
+      "senior role" in CODE,
+      "silence there means a job vanishing from '0 to 2 Years' with nothing to say why")
 # INK, NOT A CHIP. CLAUDE.md: one blue and one chip, walked back twice already.
 check("the experience is ink on the identity line, not a second chip",
       "cexp" in CODE and "cexp" in open(

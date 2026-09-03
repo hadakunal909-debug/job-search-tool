@@ -536,32 +536,31 @@
     // run will ever change it) and score_pending (we have not read this one YET). Saying "not
     // read yet" costs nothing and is true; saying "not stated" was a guess about somebody
     // else's job posting.
+    // NOTHING AT ALL WHEN THERE IS NO NUMBER, at the owner's direction after seeing it live.
+    // The three no-answer states each said something true -- "years not stated", "not read
+    // yet", "unknown" -- and on a feed where most rows are one of them that is a column of
+    // cards explaining what the app does not know instead of showing jobs. A missing figure
+    // already reads as "no figure"; /job says which of the three it is, in words, for the one
+    // posting the reader has decided to open.
     var expTxt = '', expTitle = '';
     if (j.exp_src === 'stated') {
       expTxt = j.exp_eff + '+ yrs';
       expTitle = 'This posting asks for ' + j.exp_eff + '+ years of experience.';
     } else if (j.exp_src === 'inferred') {
+      // KEPT, because it is an ANSWER rather than an absence -- and it is the answer the
+      // experience filter is acting on when it hides this row. Silence here would mean a job
+      // vanishing from "0 to 2 Years" with nothing on the card to say why.
       expTxt = 'senior role';
       expTitle = 'This posting states no year count. Its TITLE names a senior role, and ' +
         '96% of postings titled this way ask for three years or more.';
-    } else if (j.jd_unavailable) {
-      expTxt = 'years unknown';
-      expTitle = 'This employer does not publish a description we can read, so how much ' +
-        'experience it wants cannot be known from here. Open the posting to check.';
-    } else if (j.score_pending) {
-      expTxt = 'years not read yet';
-      expTitle = 'We have not finished reading this posting. It may well state its years — ' +
-        'open it and the page reads the description directly.';
-    } else {
-      expTxt = 'years not stated';
-      expTitle = 'We read this description and it names no year count, and the title does ' +
-        'not either — so an experience filter cannot judge it and always shows it.';
     }
     // cexp-*, not exp-*: .exp-lo/.exp-mid/.exp-hi are the /job page's CHIP and carry a
     // background and a route colour. Reusing those names here would put a chip back on the card
     // by stylesheet accident, which is the thing this must not do.
-    var expIn = SEP + '<span class="cexp cexp-' + (j.exp_src || 'none') + '" title="' +
-      H(expTitle) + '">' + esc(expTxt) + '</span>';
+    var expIn = expTxt
+      ? SEP + '<span class="cexp cexp-' + j.exp_src + '" title="' + H(expTitle) + '">'
+          + esc(expTxt) + '</span>'
+      : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "");
     // THE ROUTE WASH. One attribute; the whole card is tinted in CSS.

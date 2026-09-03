@@ -3582,8 +3582,18 @@ def _posting_asks(row, jd):
                         continue
                     seen.add(term)
                     (must if bucket == "req" else nice).append(term)
+    # WHY THERE IS NO ANSWER, which the CARD no longer spends a line on. The card carries a
+    # figure or nothing at all (the owner's call: on a feed where most rows have no figure, a
+    # column of cards explaining what the app does not know is not a feed). That makes THIS the
+    # place the distinction has to survive, for the one posting a reader has chosen to open.
+    if clean.strip() and verdict != "not-a-posting":
+        unread = ""                    # we read it; whatever it says or does not say is its own
+    elif verdict == "not-a-posting":
+        unread = "unreadable"          # a careers-site page, a dead link, a cookie notice
+    else:
+        unread = "unfetched"           # nothing stored for this row yet
     return {
-        "verdict": verdict,
+        "verdict": verdict, "unread": unread,
         "exp_req": exp_req, "exp_pref": exp_pref, "exp_inferred": inferred,
         "edu_req": edu_req, "edu_pref": edu_pref,
         "must": must[:8], "nice": nice[:8],

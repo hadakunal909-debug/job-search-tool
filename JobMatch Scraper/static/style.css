@@ -1113,7 +1113,10 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    on the card to say it. The number itself gets the data font for the same reason .exp does —
    tabular figures so a column of cards lines up. */
 .cexp{font-family:var(--font-data);font-variant-numeric:tabular-nums;letter-spacing:0}
-.cexp-inferred,.cexp-none{font-family:inherit;font-variant-numeric:normal;font-style:italic}
+/* The inferred case is the only non-numeric one that still renders, and italic is what marks it
+   as read off the title rather than off the posting. The three no-answer states print nothing
+   at all now, so they have no rule here. */
+.cexp-inferred{font-family:inherit;font-variant-numeric:normal;font-style:italic}
 /* THE BRAND MARK, ON THE LINE IT IDENTIFIES. Fixed HEIGHT and a hard WIDTH CAP, which is the
    difference from .colock below: that rule caps width at 180px only, so everything between
    about 3:1 and 6:1 -- 46% of the 1,148 harvested assets -- rendered at full height AND near
