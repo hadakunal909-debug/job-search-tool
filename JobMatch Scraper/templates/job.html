@@ -138,9 +138,59 @@
         </div>
       </div>
 
-      {# ---- 2. THE DESCRIPTION. This is what the click was for, so it comes first. ---- #}
+      {# ---- 2. WHAT THIS POSTING ASKS FOR. The same four rows, in the same order, on every
+         job page, whatever shape the employer wrote in.
+
+         THE PROSE BELOW IS STILL THE EMPLOYER'S, unreordered and unreworded -- see the note at
+         the top of jdrender's Pass 2. What is standardised here is the ANSWER, so a reader
+         learns where to look once instead of hunting the qualifications section of every
+         posting. This is the whole point: the owner's report was that finding "10+ years" on a
+         job the experience filter had just shown him meant scrolling into the middle of a wall.
+
+         EVERY ROW ALWAYS RENDERS. A block whose rows come and go is one you have to read to
+         know what is in it, and "not stated in this posting" is a real answer -- it is exactly
+         what the experience filter is acting on when it shows a job it cannot judge. #}
+      <h2 class="sechdr">What This Posting Asks For</h2>
+      <dl class="asks">
+        <dt>Experience</dt>
+        <dd>
+          {%- if asks.exp_req is not none %}<b>{{ asks.exp_req }}+ years</b> required
+            {%- if asks.exp_pref %} · {{ asks.exp_pref }}+ preferred{% endif %}
+          {%- elif asks.exp_pref %}<b>{{ asks.exp_pref }}+ years</b> preferred, none required
+          {%- elif asks.exp_inferred %}<b class="asks-guess">Senior role</b>
+            <span class="asks-note">read from the title, not from the description &mdash;
+              96% of postings titled this way ask for three years or more</span>
+          {%- else %}<span class="asks-none">Not stated in this posting</span>
+          {%- endif %}
+        </dd>
+        <dt>Education</dt>
+        <dd>
+          {%- if asks.edu_req %}<b>{{ asks.edu_req }}</b> required
+            {%- if asks.edu_pref %} · {{ asks.edu_pref }} preferred{% endif %}
+          {%- elif asks.edu_pref %}<b>{{ asks.edu_pref }}</b> preferred, none required
+          {%- else %}<span class="asks-none">Not stated in this posting</span>
+          {%- endif %}
+        </dd>
+        <dt>Must have</dt>
+        <dd>{% if asks.must %}{% for k in asks.must %}<span class="tag">{{ k }}</span>{% endfor %}
+          {%- else %}<span class="asks-none">This posting has no separate required-skills
+            section</span>{% endif %}</dd>
+        <dt>Nice to have</dt>
+        <dd>{% if asks.nice %}{% for k in asks.nice %}<span class="tag">{{ k }}</span>{% endfor %}
+          {%- else %}<span class="asks-none">Nothing listed as preferred</span>{% endif %}</dd>
+      </dl>
+
+      {# ---- 3. THE DESCRIPTION, in the employer's own words and order. ---- #}
       <h2 class="sechdr">Job Description</h2>
-      {% if not has_jd %}
+      {% if asks.verdict == 'not-a-posting' and had_text %}
+      {# WHAT WE HOLD IS A PAGE, NOT A JOB -- a careers-site shell, a cookie notice wrapped
+         around a dead link, or a results list. 828 of the 41,434 cached descriptions are one of
+         these and every one is over the 400-character "thin" threshold, so until core.clean_jd
+         gained a verdict they rendered as a wall of navigation claiming to be the job. #}
+      <p class="coprose">We could not read a description for this posting &mdash; what the
+        employer's site returned was the page around the job rather than the job itself. Open
+        Apply to read it there.</p>
+      {% elif not has_jd %}
       <p class="coprose">No description stored yet. Open Apply to read it on
         the employer's own site.</p>
       {% else %}

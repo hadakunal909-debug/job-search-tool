@@ -173,14 +173,17 @@
           <option value="{{ v }}"{{ ' selected' if prefs.exp == v or (v == '5' and prefs.exp == 'senior') else '' }}>{{ lab }}</option>
           {% endfor %}
         </select>
-        {# Says WHY the count barely moves, which is finding F14: core.experience_years extracts
-           no number for a large share of postings, and the keep-on-unknown rule below means
-           roughly 7 in 10 results under "0 to 2 Years" are "we could not tell" rather than
-           "qualifies". The card badge names the unknowns individually; this names the policy. #}
-        <p class="field-help">Postings with no stated years are always shown — they are marked
+        {# NAMES THE POLICY; the card names the individual rows. Both halves of this used to be
+           wrong. It said unknowns are "marked years not stated on the card" when fe62114 had
+           deleted that badge, and the checkbox said "state their years" while actually removing
+           every posting we had not finished reading. Now the card carries all three answers as
+           ink on its identity line, and the two sentences below describe what the filter really
+           does with each. #}
+        <p class="field-help">Read from the description, or from the title when the description
+          gives no number. A posting with neither is always shown and says
           <em>years not stated</em> on the card.</p>
-        <label class="ck" title="Drops postings whose description states no year count at all. Roughly 7 in 10 results under a years filter are these, because the extractor could not find a number — not because the role is entry level.">
-          <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Only postings that state their years</label>
+        <label class="ck" title="Hides only the postings where neither the description nor the title says anything about experience — the ones an experience filter cannot judge either way. Postings whose seniority was read from the title are kept.">
+          <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Hide postings we couldn't read</label>
       </div>
 
       <div class="field">

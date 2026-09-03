@@ -131,6 +131,36 @@ INDEX = (
         "described never took effect. Measure with scripts/measure_jd_reading.py, which keeps "
         "its own copy of the old rule so the number stays meaningful.",
         "python test_scoring.py"),
+    Row("R", "A job page opens with a navigation bar instead of the job",
+        "{core.py::clean_jd} -- the one door every reader of a stored description goes through",
+        "fetch_jd's last resort stores the WHOLE PAGE when no selector finds a description, and "
+        "the gate on it was one-sided: MIN_PAGE_JD_CHARS is a FLOOR, so a shell that was too "
+        "LONG was invisible. 1,052 of careers.google.com's 1,099 cached rows were its "
+        "navigation stored as a job description, 790 truncated at fetch_jd's own 8,000 limit -- "
+        "over 400 chars means never \"thin\", never thin means never retried, and "
+        "{scraper/score_jobs.py::_accept_jd}'s 3x gain rule then made it permanent. Cleaning "
+        "happens ON READ, so all 41,434 rows are fixed by a deploy with no migration; the "
+        "stored column stays the archive. THE CUT IS DECIDED BY THE FURNITURE AND ONLY TIDIED "
+        "BY A HEADING: jumping to the next heading was the first rule and it discarded posting "
+        "text on 37% of the rows it touched, because Amazon's nav is one marker at character 98 "
+        "and its next heading is 1,238 characters later. A verdict of not-a-posting reads as "
+        "THIN everywhere downstream, which is the answer the pipeline already carries.",
+        "python test_clean_jd.py"),
+    Row("R", "An experience filter shows jobs that plainly do not match it",
+        "{core.py::experience_years} -- the years a posting asks for, read from its description",
+        "None means \"states no requirement\", which the filter reads as KEEP -- so measured on "
+        "the live corpus \"0 to 2 Years\" showed 18,331 of 40,294 rows and 14,672 of them (80%) "
+        "were in only because nothing could be read, including 4,405 titled Senior, Staff, "
+        "Principal, Director or VP. {core.py::title_experience_tier} fills that gap and nothing "
+        "else: a STATED floor always wins, because it is the employer's own number. Its "
+        "vocabulary is calibrated at 95.7% over the 12,576 postings that carry both signals, "
+        "and \"manager\" (87.1%), the roman numerals (71-81%) and bare \"associate\" (64.1%) "
+        "are deliberately excluded. The row carries three fields -- exp_years (stated), exp_eff "
+        "(what the filters compare) and exp_src -- and ALL THREE FILTERS compare exp_eff: "
+        "{web.py::_filter_rows}, {static/app.js::matches} and {core.py::prefs_match}. "
+        "exp_max_years is a STORED COLUMN, so a parser change reaches the feed only after a "
+        "re-derive; the digest computes it live and will disagree until then.",
+        "python test_experience_years.py"),
     Row("R", "A description reads as one run-on wall, or carries page furniture",
         "{core.py::_soup_text} -- the one place HTML becomes a stored description",
         "block tags become NEWLINES and <li> becomes a bullet, because {jdrender.py::jd_nodes} "

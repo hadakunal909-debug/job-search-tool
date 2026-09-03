@@ -405,16 +405,40 @@ def jd_nodes(text):
 # and "Preferred Qualifications" both classify as requirements but mean must-have versus
 # nice-to-have, and overwriting either with "Requirements" is information loss. The bucket goes
 # on a data-sec attribute and drives the styling and the jump strip instead.
+# SIX BUCKETS, AND TWO OF THEM ARE SPLITS OF THE ORIGINAL THREE.
+#
+# ORDER IS THE ALGORITHM: classify_heading returns the FIRST match, so a bucket that is a
+# special case of another has to be listed above it. "Preferred Qualifications" contains both
+# "preferred" and "qualificat"; pref is above req, so it lands in pref. "Basic Qualifications"
+# has no preferred word and falls through to req.
+#
+# WHY SPLIT req. The old comment on this block said it out loud and then did not act on it:
+# "'Basic Qualifications' and 'Preferred Qualifications' both classify as requirements but mean
+# must-have versus nice-to-have". One bucket meant the jump strip said REQUIREMENTS once and a
+# reader could not tell which of the two a ten-year number came from -- which is the difference
+# between a job they cannot apply for and one they can. The parser has separated hard from soft
+# floors since 704a290; this is the display finally carrying the same distinction.
+#
+# WHY SPLIT summary. "About the job", "Overview" and "Job Summary" were inside resp, so the
+# strip labelled a role summary RESPONSIBILITIES. Measured over 3,000 cached descriptions, 26.4%
+# carry a summary-style heading, so this is not a rare shape.
 _SEC = [
+    ("summary", re.compile(
+        r"about (?:the|this|our) (?:role|job|position|opportunity|team)|about us|"
+        r"job (?:summary|description|details|overview)|position (?:purpose|summary|overview)|"
+        r"role (?:summary|overview)|overview|(?:the|your) (?:role|opportunity|impact)|"
+        r"who we are|the position", re.I)),
     ("resp", re.compile(
         r"responsibilit|what you.?ll do|what you will do|essential (?:functions?|duties)|"
-        r"duties|day in the life|(?:the|your) role|key responsibilities|"
-        r"primary responsibilities|position (?:purpose|summary)|role summary|"
-        r"job (?:summary|description|details)|overview|about (?:the role|the job|this role)", re.I)),
+        r"duties|day in the life|key responsibilities|primary responsibilities|"
+        r"what you.?ll be doing|in this role you", re.I)),
+    ("pref", re.compile(
+        r"preferred|preferable|nice to have|nice-to-have|desired|desirable|"
+        r"additional qualificat|bonus|a plus|good to have|pluses", re.I)),
     ("req", re.compile(
         r"requirement|qualificat|what you.?ll (?:need|bring)|what you bring|"
         r"what we.?re looking for|who you are|required skills|skills|experience|education|"
-        r"minimum|basic|preferred|additional qualifications|nice to have|must have", re.I)),
+        r"minimum|basic|must have|must-have", re.I)),
     ("ben", re.compile(
         r"benefit|perk|compensation|(?:pay|salary|compensation) range|what we offer|"
         r"why join|total rewards", re.I)),
@@ -427,7 +451,15 @@ _LEGAL_BODY = re.compile(
     r"equal opportunity employer|with(?:out)? regard to race|regardless of race|"
     r"protected veteran|reasonable accommodation|drug.?free workplace|"
     r"criminal (?:history|background)|pay transparency|applicants? with disabilit", re.I)
-SEC_LABELS = {"resp": "Responsibilities", "req": "Requirements", "ben": "Benefits"}
+SEC_LABELS = {"summary": "About the Role", "resp": "Responsibilities",
+              "req": "Required", "pref": "Preferred", "ben": "Benefits"}
+# THE ONE PLACE THE PORTAL IMPOSES ITS OWN ORDER. The PROSE is never reordered -- jdrender's
+# rule at the top of this section still holds, and putting Requirements above a role summary
+# would misrepresent what the employer wrote. The JUMP STRIP is different: it is the portal's
+# own furniture, and a strip whose links appear in a different order on every job is a strip
+# nobody learns. Google's scraped page puts benefits above qualifications, so in document order
+# its strip opened with BENEFITS.
+SEC_ORDER = ("summary", "resp", "req", "pref", "ben")
 
 
 def classify_heading(t):
@@ -706,19 +738,17 @@ def render_jd(text, have=(), missing=(), sections=True):
 
 
 def jump_sections(text_or_nodes):
-    """[(key, label)] for the sections actually present, in document order, for the anchor strip.
+    """[(key, label)] for the sections actually present, in SEC_ORDER, for the anchor strip.
 
     Returns only buckets that exist, so a description with no headings gets no strip rather than
-    three dead links.
+    five dead links. Ordered by SEC_ORDER rather than by the document — see the note there.
     """
     nodes = (jd_nodes(text_or_nodes) if isinstance(text_or_nodes, str) else text_or_nodes) or []
     nodes, _legal = split_boilerplate(nodes)
-    seen, out = set(), []
+    seen = set()
     for kind, val in nodes:
-        if kind != "h":
-            continue
-        sec = classify_heading(val)
-        if sec in SEC_LABELS and sec not in seen:
-            seen.add(sec)
-            out.append((sec, SEC_LABELS[sec]))
-    return out
+        if kind == "h":
+            sec = classify_heading(val)
+            if sec in SEC_LABELS:
+                seen.add(sec)
+    return [(s, SEC_LABELS[s]) for s in SEC_ORDER if s in seen]

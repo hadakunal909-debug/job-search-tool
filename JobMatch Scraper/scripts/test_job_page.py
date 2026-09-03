@@ -227,7 +227,12 @@ body_text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", body))  # noqa: E501  (re
 check("the employer's own heading wording survives",
       "Basic Qualifications" in body_text and "What We Offer" in body_text,
       "not rewritten to a canonical label")
-check("sections are bucketed", 'data-sec="req"' in body and 'data-sec="resp"' in body)
+# summary, not resp. "About the Role" is a role SUMMARY, and it used to classify as
+# Responsibilities because the summary vocabulary lived inside the resp pattern — so the jump
+# strip labelled an overview RESPONSIBILITIES. The six-bucket split is what fixed it.
+check("sections are bucketed", 'data-sec="req"' in body and 'data-sec="summary"' in body)
+check("a summary is not filed as a responsibility", 'data-sec="resp"' not in body,
+      "this fixture has an overview and a qualifications list, and no duties section")
 check("the jump strip is rendered", 'class="jdjump"' in body and "#jdsec-req" in body)
 check("keywords are highlighted inline", 'class="kw-' in body)
 check("the JD is not inside its own scroll box",
