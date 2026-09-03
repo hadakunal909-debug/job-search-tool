@@ -397,27 +397,37 @@
     return '<a href="/company?c=' + H(encodeURIComponent(name)) + '">' + esc(name) + '</a>';
   }
 
-  // THE BRAND MARK BELONGS NEXT TO THE NAME, NOT ABOVE THE TITLE. It used to be alone in
-  // .cardtop at 36px tall and up to 180px wide -- on a 294px card that is 61% of the row for a
-  // wordmark like Walmart, 51% for AMD, 49% for Centene -- while the company's actual NAME sat
-  // two lines below it. So the logo was doing the naming, at banner scale, in the card's most
-  // valuable slot. Now it is a 20px chip immediately before the name it belongs to, and the
-  // name is what identifies the employer.
+  // THE BRAND MARK LEADS THE TOP ROW, AT CHIP SCALE. Owner's direction 2026-09-02 after seeing
+  // the live feed: the mark should be top-left and small. Read the history before changing it
+  // again, because the top-left slot is where it FAILED once -- alone in .cardtop at 36px tall
+  // and up to 180px wide, which on a 294px card is 61% of the row for a wordmark like Walmart,
+  // 51% for AMD, 49% for Centene, while the company's actual NAME sat two lines below. The logo
+  // was doing the naming, at banner scale. It then spent a fortnight as a 20px chip on the
+  // identity line.
+  //
+  // What makes the corner survivable this time is the CAP, not the position: 24px tall and
+  // 104px wide is 35% of the row at its widest, a bit over half the banner's footprint, and it
+  // shares a row that already exists rather than opening one. The name still identifies the
+  // employer -- the mark is decoration next to it, which is why it is capped and why 15% of
+  // feed rows having no logo at all costs nothing (measured 2026-09-02 over 42,180 rows).
+  //
+  // It fits in .cardtop's existing height, so a card WITHOUT a logo is not short a row: the
+  // score cell already sets that row's height and holds the right edge via margin-left:auto.
+  // That is what makes "image or nothing" still work here.
   //
   // width/height are ATTRIBUTES, not an inline style, and they are the first consumer of
   // logo_ar: they reserve the box before the image loads, so the identity line does not reflow
   // on a slow connection. web.py::_build_row has shipped logo_ar since the harvest landed and
   // nothing read it.
   //
-  // IMAGE OR NOTHING -- deliberately no monogram twin here. The mark is variable-width, so the
-  // name's x position is ragged whether or not a missing logo reserves a slot, which means a
-  // fixed slot buys no alignment and costs a grey chip on every card we have no asset for. The
-  // monogram stays where it has a fixed-width box and no adjacent name at the same size:
-  // /companies tiles and the page headers.
+  // IMAGE OR NOTHING -- deliberately no monogram twin here. A fixed slot would buy alignment
+  // this row does not need (nothing sits under the mark that has to line up with it) and would
+  // cost a grey chip on 15% of cards. The monogram stays where it has a fixed-width box and no
+  // adjacent name at the same size: /companies tiles and the page headers.
   function companyMark(j) {
     if (!j.logo) return '';
     return '<img class="cmark" src="' + H(j.logo) + '" alt="" loading="lazy" decoding="async"' +
-      ' height="20" width="' + Math.round(Math.min(20 * (j.logo_ar || 1), 80)) + '"' +
+      ' height="24" width="' + Math.round(Math.min(24 * (j.logo_ar || 1), 104)) + '"' +
       (j.logo_mono ? ' data-mono="1"' : '') + '>';
   }
 
@@ -534,10 +544,12 @@
       // decoration rather than as data, and the paint containment that makes a long grid cheap
       // to scroll would have clipped it.
       //
-      // The logo is NOT in this row any more -- see companyMark above. With the lockup gone the
-      // flag takes the free left corner it used to be pushed out of, so .newflag drops its
-      // margin-left:auto and space-between still holds the score to the right.
+      // The mark leads this row again as of 2026-09-02 -- see companyMark above for the cap
+      // that makes the corner survivable. The New flag follows it rather than owning the
+      // corner; the score still holds the right edge by margin-left:auto, which does not
+      // depend on how many children precede it.
       '<div class="cardtop">' +
+        companyMark(j) +
         newFlag +
         scoreCell(j) +
       '</div>' +
@@ -559,7 +571,7 @@
       // identity line can never take more than one line and the chips can never be pushed
       // down by a verbose employer.
       '<div class="cmeta">' +
-        '<div class="cident">' + companyMark(j) + companyLink(j.company) + SEP +
+        '<div class="cident">' + companyLink(j.company) + SEP +
           '<span class="cloc" title="' + H(j.location || '') + '">' +
           esc(j.location || 'Location not stated') + '</span>' + posted +
         '</div>' +

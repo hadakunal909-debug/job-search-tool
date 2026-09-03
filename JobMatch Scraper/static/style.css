@@ -1043,11 +1043,11 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .skel-bar,.skel-chip{background:linear-gradient(90deg,var(--line) 25%,var(--line-strong) 37%,var(--line) 63%);background-size:400% 100%;animation:skelsh 1.6s ease-in-out infinite}
 @keyframes skelsh{0%{background-position:100% 0}100%{background-position:-100% 0}}
 @media (prefers-reduced-motion:reduce){.skel-bar,.skel-chip{animation:none}}
-/* TWO children, and the second one is OPTIONAL -- which is the whole reason margin-left:auto
-   is back below. The logo used to lead this row at 36px tall and up to 180px wide (61% of a
-   294px card for a wordmark) and it has moved to .cmark on the identity line, so the New flag
-   took the corner the lockup left behind and space-between was judged enough to hold the score
-   right.
+/* UP TO THREE children and only the score is always present -- which is the whole reason
+   margin-left:auto is back below. The logo leads this row again as of 2026-09-02, at 24px
+   rather than the 36px-tall/180px-wide lockup that failed here (61% of a 294px card for a
+   wordmark); the New flag follows it, and space-between alone was never enough to hold the
+   score right.
 
    IT IS NOT, AND THE COMMENT THAT USED TO SIT HERE SAID THE OPPOSITE: "with no flag the score
    is alone and right-aligned". A single flex child under justify-content:space-between is laid
@@ -1110,11 +1110,12 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    reads it as part of the text run rather than as a banner over it.
    Recognition, not legibility, is the job here: the company's name is the very next thing on
    the line, so the mark only has to be identifiable, and that is what buys the small size.
-   align-self:center is load-bearing -- .cident is align-items:baseline and an image's baseline
-   is its bottom edge, so without it the mark rides a third of its height too high. */
-.cmark{align-self:center;display:block;height:20px;width:auto;max-width:80px;
-  object-fit:contain;object-position:left center;margin-right:var(--space-100);
-  border-radius:2px}
+   No margin-right: .cardtop supplies the gap, and keeping one here put the New flag a step
+   further out than the row's own rhythm. align-self:center is kept rather than trimmed as
+   dead weight -- it was load-bearing on the baseline-aligned .cident this moved off, and it
+   is what stops the mark riding high if it is ever put back next to text. */
+.cmark{align-self:center;display:block;height:24px;width:auto;max-width:104px;
+  object-fit:contain;object-position:left center;border-radius:2px}
 /* Same two-state dark-mode rule as .colock img, at the smaller scale and for the same reason:
    most brand logos are drawn in dark ink for white paper, a single-ink mark can be inverted
    because it has no brand colour to protect, and a full-colour one cannot. content-box so the
