@@ -12,7 +12,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`core.py`](#corepy) — 4413 lines, 276 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2929 lines, 180 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 9318 lines, 378 symbols — The sweep and the intake filter, plus every ATS adapter.
-- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2174 lines, 78 symbols — Fetches descriptions and scores them against the resume.
+- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2182 lines, 78 symbols — Fetches descriptions and scores them against the resume.
 - [`resume_score.py`](#resume_scorepy) — 1616 lines, 131 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
 - [`resume_bullets.py`](#resume_bulletspy) — 248 lines, 18 symbols — Per-bullet review: verb, scope, result.
@@ -227,11 +227,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Fetches descriptions and scores them against the resume.*
 
-2174 lines · 78 top-level symbols · 1 sections
+2182 lines · 78 top-level symbols · 1 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
-| [1166–2174](../scraper/score_jobs.py#L1166) | Thin descriptions: a bounded, self-scheduling retry | 22 |
+| [1166–2182](../scraper/score_jobs.py#L1166) | Thin descriptions: a bounded, self-scheduling retry | 22 |
 
 ## `resume_score.py`
 
@@ -1980,15 +1980,15 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_load_thin_ledger` | def | [1283](../scraper/score_jobs.py#L1283) | {"rev": &lt;fingerprint&gt;, "hosts": {host: {f, next, last, n, ok}}}. |
 | `_save_thin_ledger` | def | [1296](../scraper/score_jobs.py#L1296) |  |
 | `_score_rev` | def | [1300](../scraper/score_jobs.py#L1300) | A fingerprint of what the match score MEANS: the three functions that define it, plus the |
-| `_load_cursor` | def | [1336](../scraper/score_jobs.py#L1336) | The (first_seen, found_date, url) key the last truncated pass stopped after, or None. |
-| `_save_cursor` | def | [1351](../scraper/score_jobs.py#L1351) | Store where to resume, or clear it when the pass completed (key=None). |
-| `_thin_host` | def | [1356](../scraper/score_jobs.py#L1356) |  |
-| `_host_window` | def | [1361](../scraper/score_jobs.py#L1361) | The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow. |
-| `_thin_retry_plan` | def | [1394](../scraper/score_jobs.py#L1394) | (urls to probe, hosts probed) for this run. |
-| `_record_thin_outcomes` | def | [1440](../scraper/score_jobs.py#L1440) | Update the ledger from what the run actually managed. Mutates and returns it. |
-| `_jd_corpus` | def | [1469](../scraper/score_jobs.py#L1469) | (row_jd, missing, db_missing) for a pass that needs EVERY stored description. |
-| `_new_only_targets` | def | [1511](../scraper/score_jobs.py#L1511) | URLs worth (re)scoring when we're not doing the whole corpus. |
-| `main` | def | [1541](../scraper/score_jobs.py#L1541) |  |
+| `_load_cursor` | def | [1344](../scraper/score_jobs.py#L1344) | The (first_seen, found_date, url) key the last truncated pass stopped after, or None. |
+| `_save_cursor` | def | [1359](../scraper/score_jobs.py#L1359) | Store where to resume, or clear it when the pass completed (key=None). |
+| `_thin_host` | def | [1364](../scraper/score_jobs.py#L1364) |  |
+| `_host_window` | def | [1369](../scraper/score_jobs.py#L1369) | The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow. |
+| `_thin_retry_plan` | def | [1402](../scraper/score_jobs.py#L1402) | (urls to probe, hosts probed) for this run. |
+| `_record_thin_outcomes` | def | [1448](../scraper/score_jobs.py#L1448) | Update the ledger from what the run actually managed. Mutates and returns it. |
+| `_jd_corpus` | def | [1477](../scraper/score_jobs.py#L1477) | (row_jd, missing, db_missing) for a pass that needs EVERY stored description. |
+| `_new_only_targets` | def | [1519](../scraper/score_jobs.py#L1519) | URLs worth (re)scoring when we're not doing the whole corpus. |
+| `main` | def | [1549](../scraper/score_jobs.py#L1549) |  |
 
 ## `resume_score.py` — symbols
 

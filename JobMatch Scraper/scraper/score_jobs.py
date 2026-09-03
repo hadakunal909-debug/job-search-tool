@@ -1317,7 +1317,15 @@ def _score_rev(resume):
         import hashlib
         import inspect
         src = b""
-        for fn in (core.analyze_jd, core.score_against, core.job_meta):
+        # HOW A DESCRIPTION IS READ IS PART OF WHAT THE SCORE MEANS, and these two were not in
+        # the list. clean_jd decides which characters analyze_jd ever sees and experience_years
+        # produces exp_max_years outright, but getsource(analyze_jd) returns only its OWN body,
+        # so both are invisible here. Both were edited on 2026-09-03 -- markdown escapes, then
+        # the "1-year experience" form -- and neither moved the fingerprint, so the cursor would
+        # have skipped rows whose answer had just changed. Named individually rather than
+        # hashing core.py whole, for the reason the docstring above gives.
+        for fn in (core.analyze_jd, core.score_against, core.job_meta,
+                   core.clean_jd, core.experience_years):
             try:
                 src += inspect.getsource(fn).encode("utf-8", "replace")
             except Exception:
