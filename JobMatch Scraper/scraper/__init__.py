@@ -7811,6 +7811,38 @@ def title_says_non_us(title):
     return bool(place) and bool(_NON_US_RE.search(_fold(place)))
 
 
+# Foreign place names the US also uses. The veto in is_us_location runs before the state
+# check, so without this "Lima, OH" reads as Lima, Peru and "London, OH" as London, UK.
+#
+# POSITION CANNOT DECIDE THIS, which is the whole reason the list exists. Measured over 8,958
+# real location strings (the live corpus plus one adoption batch fetched raw), the veto and a
+# valid US state code collide on exactly ten, and five are genuinely foreign: "Ahmedabad,
+# Gujarat, IN", "Indore, IN", "Anywhere in Tamilnadu, Tamil Nadu, IN", "Bhubaneswar, OR" and
+# "Germany - Remote, DE" -- where the trailing code is India's, Odisha's and Germany's and
+# merely COLLIDES with Indiana, Oregon and Delaware. In all ten the code follows the foreign
+# token, so "a US state code after the name" flips every one of the five. Only knowing which
+# names have a US namesake separates them, and that is a curated list, deliberately short:
+# every entry is a US place of some size, and each still needs a valid state code beside it.
+_US_NAMESAKE_CITIES = frozenset((
+    "amsterdam", "berlin", "cairo", "delhi", "dublin", "greece", "lima", "lisbon", "london",
+    "madrid", "melbourne", "mexico", "panama", "paris", "toronto", "vancouver", "warsaw"))
+
+
+def _us_namesake_only(low, loc):
+    """True when EVERY foreign name in the string has a US namesake and a US state code says
+    which one this is. Both halves are load-bearing:
+
+    every -- "Vancouver, BC, Canada" matches vancouver (exempt) AND canada (not), so the veto
+    stands; "Mexico City, MX" matches "mexico city" as well as "mexico" and stays foreign.
+    a state code -- "Dublin, Ireland" has no US state, so nothing here rescues it.
+    """
+    hits = _NON_US_RE.findall(low)
+    if not hits or any(h not in _US_NAMESAKE_CITIES for h in hits):
+        return False
+    m = _STATE_ABBR_RE.search(loc)
+    return bool(m and m.group(1).upper() in US_STATE_ABBR)
+
+
 def is_us_location(loc):
     """Heuristic: True if the location looks US-based. Unknown/blank -> kept."""
     if not loc:
@@ -7818,9 +7850,11 @@ def is_us_location(loc):
     low = _fold(loc)                                # accent-folded: see _fold's docstring
     if re.search(r"\b\d+\s+locations?\b|multiple locations?", low):
         return True                                 # bare 'N Locations' count -> unknown, keep
-    if _NON_US_RE.search(low):                      # explicit non-US signal -> drop
-        return False
     if "united states" in low or "usa" in low or "u.s." in low:
+        return True                                 # named the country -> outranks the veto
+    if _NON_US_RE.search(low) and not _us_namesake_only(low, loc):
+        return False                                # explicit non-US signal -> drop
+    if re.search(r"\bus\b", low):                   # bare "US": "Quincy MA US", "City, US, 90221"
         return True
     m = _STATE_ABBR_RE.search(loc)                  # e.g. "Boston, MA"
     if m and m.group(1).upper() in US_STATE_ABBR:
