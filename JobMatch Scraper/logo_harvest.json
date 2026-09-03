@@ -42,13 +42,13 @@
    "why": "no-entity"
   },
   "10x-genomics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "10xgenomics.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "10X Genomics",
    "name": "10x Genomics",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "10xgenomics.com",
    "qid": "Q56585268",
@@ -475,20 +475,20 @@
    "why": "not-an-org"
   },
   "abc-supply-co-inc": {
-   "checked": "2026-08-23",
-   "domain": "abcsupplyco.com",
-   "identity": "label-match",
+   "checked": "2026-09-02",
+   "domain": "abcsupply.com",
+   "identity": "domain-agree",
    "label": "ABC Supply",
    "name": "ABC Supply Co., Inc.",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "abcsupply.com",
    "qid": "Q4650247",
-   "site_tried": 6,
+   "site_tried": 3,
    "slug": "abc-supply-co-inc",
-   "verdict": "rejected",
-   "why": "undecodable"
+   "verdict": "no-candidate",
+   "why": "no-logo-claim"
   },
   "abebe-westside-llc": {
    "checked": "2026-08-23",
@@ -657,21 +657,27 @@
    "why": ""
   },
   "accenture-federal-services": {
-   "checked": "2026-08-23",
+   "ar": 3.788,
+   "artist": "Accenture",
+   "asset": "accenture-federal-services.svg",
+   "bytes": 2354,
+   "checked": "2026-09-02",
+   "colours": 34,
    "domain": "",
-   "identity": "label-match",
-   "label": "Accenture Federal Services",
+   "edges": 0.1478,
+   "file": "Accenture.svg",
+   "h": 66,
+   "ink": 0.3058,
+   "license": "Public domain",
+   "mono": false,
    "name": "Accenture Federal Services",
-   "p279_path": [
-    "Q658255",
-    "Q783794"
-   ],
-   "p856": "",
-   "qid": "Q135711447",
-   "site_tried": 0,
+   "sha256": "4233ed3f0c72fa65",
    "slug": "accenture-federal-services",
-   "verdict": "no-candidate",
-   "why": "no-logo-claim"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/c/cd/Accenture.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "accion-labs": {
    "checked": "2026-08-23",
@@ -984,7 +990,7 @@
    "why": ""
   },
   "acuitymd": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "AcuityMD",
    "site_tried": 0,
@@ -1071,13 +1077,13 @@
    "why": ""
   },
   "additec": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "additech.com",
-   "identity": "org-only",
+   "identity": "domain-agree",
    "label": "Additech",
    "name": "ADDITEC",
    "p279_path": [
-    "Q783794"
+    "p856"
    ],
    "p856": "additech.com",
    "qid": "Q126924146",
@@ -1154,7 +1160,7 @@
    "why": ""
   },
   "adp": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "adp.com",
    "name": "ADP",
    "site_tried": 0,
@@ -1210,7 +1216,7 @@
    "why": ""
   },
   "advanced-micro-devices": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "advancedmicrodevices.com",
    "identity": "org-only",
    "label": "AMD",
@@ -1271,7 +1277,7 @@
    "why": ""
   },
   "advanced-technology-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Advanced Technology Services",
    "site_tried": 0,
@@ -1486,7 +1492,7 @@
    "why": "no-entity"
   },
   "aem-corporation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "AEM Corporation",
    "site_tried": 0,
@@ -1504,7 +1510,7 @@
    "why": "no-entity"
   },
   "aerovect": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "aerovect.com",
    "name": "AeroVect",
    "site_tried": 5,
@@ -1522,7 +1528,7 @@
    "why": "no-entity"
   },
   "affiliated-engineers-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Affiliated Engineers, Inc",
    "site_tried": 0,
@@ -1580,7 +1586,7 @@
    "why": ""
   },
   "aflac": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "aflac.com",
    "identity": "domain-agree",
    "label": "Aflac",
@@ -1773,20 +1779,34 @@
    "why": "no-entity"
   },
   "aig": {
-   "checked": "2026-08-23",
+   "ar": 1.838,
+   "artist": "American International GroupSVG version by JBarta",
+   "asset": "aig.svg",
+   "bytes": 2294,
+   "checked": "2026-09-02",
+   "colours": 21,
    "domain": "aig.com",
-   "identity": "org-only",
+   "edges": 0.0964,
+   "file": "AIG logo.svg",
+   "h": 136,
+   "identity": "domain-agree",
+   "ink": 0.3886,
    "label": "American International Group",
+   "license": "Public domain",
+   "mono": false,
    "name": "AIG",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "aig.com",
    "qid": "Q212235",
-   "site_tried": 4,
+   "sha256": "cdfb1f51ef960afa",
    "slug": "aig",
-   "verdict": "rejected",
-   "why": "undersized"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/b/b3/AIG_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "air": {
    "checked": "2026-09-02",
@@ -2050,7 +2070,7 @@
    "why": "no-logo-claim"
   },
   "akoya": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Akoya",
    "site_tried": 0,
@@ -2136,7 +2156,7 @@
    "why": "no-entity"
   },
   "alarm-com": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "alarmcom.com",
    "identity": "label-match",
    "label": "Alarm.com, Inc.",
@@ -2326,7 +2346,7 @@
    "why": ""
   },
   "alignment-healthcare": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "alignmenthealthcare.com",
    "name": "Alignment Healthcare",
    "site_tried": 4,
@@ -2471,7 +2491,7 @@
    "why": "no-entity"
   },
   "alliance-fire-protection": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Alliance Fire Protection",
    "site_tried": 0,
@@ -2824,21 +2844,20 @@
   "altos-labs": {
    "ar": 4.31,
    "artist": "Altos Labs",
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "colours": 203,
    "domain": "altoslabs.com",
    "edges": 0.176,
    "file": "Altos Labs logo.svg",
    "h": 58,
-   "identity": "label-match",
+   "identity": "domain-agree",
    "ink": 0.4329,
    "label": "Altos Labs",
    "license": "Public domain",
    "mono": false,
    "name": "Altos Labs",
    "p279_path": [
-    "Q6881511",
-    "Q43229"
+    "p856"
    ],
    "p856": "altoslabs.com",
    "qid": "Q110701976",
@@ -2869,7 +2888,7 @@
    "why": ""
   },
   "amat": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "amat.com",
    "name": "Amat",
    "site_tried": 0,
@@ -3060,7 +3079,7 @@
    "why": "no-entity"
   },
   "ameresco": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ameresco.com",
    "identity": "domain-agree",
    "label": "Ameresco",
@@ -3115,13 +3134,13 @@
    "why": ""
   },
   "american-business-solutions-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "American business solutions inc",
    "site_tried": 0,
    "slug": "american-business-solutions-inc",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "american-electric-power": {
    "ar": 1.938,
@@ -3260,7 +3279,7 @@
    "why": ""
   },
   "american-integrity-insurance-company": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "americanintegrityinsurancecompany.com",
    "name": "American Integrity Insurance Company",
    "site_tried": 0,
@@ -3421,7 +3440,7 @@
    "why": ""
   },
   "amigo-construction-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Amigo Construction, LLC",
    "site_tried": 0,
@@ -3473,7 +3492,7 @@
    "why": ""
   },
   "amperity": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Amperity",
@@ -3711,7 +3730,7 @@
    "why": ""
   },
   "analogdevices": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Analogdevices",
    "site_tried": 0,
@@ -3838,7 +3857,7 @@
    "why": ""
   },
   "andromeda-systems-incorporated": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Andromeda Systems Incorporated",
    "site_tried": 0,
@@ -4094,7 +4113,7 @@
    "why": "no-entity"
   },
   "apollo-technology-solutions-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Apollo Technology Solutions LLC",
    "site_tried": 0,
@@ -4234,7 +4253,7 @@
    "why": ""
   },
   "applied-medical": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "appliedmedical.com",
    "identity": "domain-agree",
    "label": "Applied Medical Resources (United States)",
@@ -4531,7 +4550,7 @@
    "why": ""
   },
   "arcesium": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "arcesium.com",
    "identity": "domain-agree",
    "label": "Arcesium",
@@ -4543,8 +4562,8 @@
    "qid": "Q64549714",
    "site_tried": 4,
    "slug": "arcesium",
-   "verdict": "rejected",
-   "why": "undecodable"
+   "verdict": "no-candidate",
+   "why": "no-logo-claim"
   },
   "arcfield": {
    "checked": "2026-09-02",
@@ -4699,7 +4718,7 @@
    "why": ""
   },
   "argo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "ARGO",
    "site_tried": 0,
@@ -4708,7 +4727,7 @@
    "why": "not-an-org"
   },
   "arhaus": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "arhaus.com",
    "identity": "domain-agree",
    "label": "Arhaus",
@@ -4724,7 +4743,7 @@
    "why": "undersized"
   },
   "aries-computer-systems-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Aries Computer Systems, Inc.",
    "site_tried": 0,
@@ -4972,7 +4991,7 @@
    "why": ""
   },
   "arrivia": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "arrivia.com",
    "name": "arrivia",
    "site_tried": 6,
@@ -5016,7 +5035,7 @@
    "why": "no-entity"
   },
   "arthrex": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "arthrex.com",
    "identity": "domain-agree",
    "label": "Arthrex",
@@ -5068,7 +5087,7 @@
    "why": "no-entity"
   },
   "artisan": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Artisan",
    "site_tried": 0,
@@ -5243,13 +5262,27 @@
    "why": "no-entity"
   },
   "assaabloy": {
-   "checked": "2026-08-23",
+   "ar": 7.086,
+   "artist": "Vector version: Stoffe at brandsoftheworld.com\n\nOriginal: Assa Abloy",
+   "asset": "assaabloy.svg",
+   "bytes": 3563,
+   "checked": "2026-09-02",
+   "colours": 15,
    "domain": "",
+   "edges": 0.257,
+   "file": "Assa Abloy.svg",
+   "h": 35,
+   "ink": 0.5453,
+   "license": "Public domain",
+   "mono": true,
    "name": "Assaabloy",
-   "site_tried": 0,
+   "sha256": "3fd21a87f901797b",
    "slug": "assaabloy",
-   "verdict": "no-candidate",
-   "why": "no-entity"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/5/5f/Assa_Abloy.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 248,
+   "why": ""
   },
   "assistrx": {
    "ar": 0.654,
@@ -5454,7 +5487,7 @@
    "why": ""
   },
   "astronomer": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "astronomer.com",
    "name": "Astronomer",
    "site_tried": 0,
@@ -5532,7 +5565,7 @@
    "why": "no-entity"
   },
   "atcc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "ATCC",
    "site_tried": 0,
@@ -5541,7 +5574,7 @@
    "why": "not-an-org"
   },
   "athenahealth": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "athenahealth.com",
    "identity": "domain-agree",
    "label": "athenahealth",
@@ -5686,7 +5719,7 @@
    "why": ""
   },
   "atomic-machines": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "atomicmachines.com",
    "name": "Atomic Machines",
    "site_tried": 4,
@@ -5879,7 +5912,7 @@
    "why": ""
   },
   "austin-industrial": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Austin Industrial",
    "site_tried": 0,
@@ -5897,7 +5930,7 @@
    "why": "no-entity"
   },
   "autism-learning-partners": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "autismlearningpartners.com",
    "identity": "domain-agree",
    "label": "Autism Learning Partners",
@@ -5989,7 +6022,7 @@
    "why": "no-logo-claim"
   },
   "autonomous-technologies-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Autonomous Technologies Group",
    "site_tried": 0,
@@ -6323,7 +6356,7 @@
    "why": "no-entity"
   },
   "axle": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Axle",
    "site_tried": 0,
@@ -6387,7 +6420,7 @@
    "why": "no-entity"
   },
   "azurity-pharmaceuticals": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "azuritypharmaceuticals.com",
    "identity": "label-match",
    "label": "AZURITY PHARMACEUTICALS, INC.",
@@ -6451,13 +6484,27 @@
    "why": ""
   },
   "bae-systems-inc": {
+   "ar": 6.41,
+   "artist": "™/®BAE Systems plc",
+   "asset": "bae-systems-inc.svg",
+   "bytes": 3305,
    "checked": "2026-09-02",
+   "colours": 24,
    "domain": "baesystems.com",
+   "edges": 0.1921,
+   "file": "BAE Systems logo.svg",
+   "h": 39,
+   "ink": 0.2722,
+   "license": "Public domain",
+   "mono": false,
    "name": "BAE Systems, Inc.",
-   "site_tried": 0,
+   "sha256": "be0c49e331b4a38d",
    "slug": "bae-systems-inc",
-   "verdict": "no-candidate",
-   "why": "no-site-icon"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/7/73/BAE_Systems_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "bae-systems-usa": {
    "checked": "2026-08-23",
@@ -6565,7 +6612,7 @@
    "why": "no-entity"
   },
   "bamboo-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "bamboohealth.com",
    "name": "Bamboo Health",
    "site_tried": 4,
@@ -7168,13 +7215,13 @@
    "why": "no-entity"
   },
   "beam-therapeutics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "beamtx.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Beam Therapeutics",
    "name": "Beam Therapeutics",
    "p279_path": [
-    "Q783794"
+    "p856"
    ],
    "p856": "beamtx.com",
    "qid": "Q107457363",
@@ -7226,13 +7273,13 @@
    "why": "undersized"
   },
   "belden": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "belden.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Belden Incorporated",
    "name": "Belden",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "belden.com",
    "qid": "Q815327",
@@ -7626,7 +7673,7 @@
    "why": "no-entity"
   },
   "billiontoone": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "BillionToOne",
    "site_tried": 0,
@@ -9035,7 +9082,7 @@
    "why": ""
   },
   "brainlabs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "brainlabs.com",
    "name": "Brainlabs",
    "site_tried": 4,
@@ -9144,14 +9191,13 @@
    "why": ""
   },
   "braun-intertec": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "braunintertec.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Braun Intertec",
    "name": "Braun Intertec",
    "p279_path": [
-    "Q921773",
-    "Q4830453"
+    "p856"
    ],
    "p856": "braunintertec.com",
    "qid": "Q123511662",
@@ -9179,7 +9225,7 @@
    "why": "no-entity"
   },
   "braze": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "braze.com",
    "name": "Braze",
    "site_tried": 4,
@@ -9411,7 +9457,7 @@
    "why": ""
   },
   "broadcom": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "broadcom.com",
    "identity": "domain-agree",
    "label": "Broadcom",
@@ -9707,13 +9753,13 @@
    "why": ""
   },
   "build-a-bear-workshop": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "buildabear.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Build-A-Bear Workshop",
    "name": "Build-A-Bear Workshop",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "buildabear.com",
    "qid": "Q1002992",
@@ -9758,13 +9804,13 @@
    "why": ""
   },
   "bullhorn": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "bullhorn.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Bullhorn, Inc.",
    "name": "Bullhorn",
    "p279_path": [
-    "Q783794"
+    "p856"
    ],
    "p856": "bullhorn.com",
    "qid": "Q22073784",
@@ -9804,7 +9850,7 @@
    "why": ""
   },
   "bunge": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "bunge.com",
    "name": "Bunge",
    "site_tried": 4,
@@ -10655,7 +10701,7 @@
    "why": ""
   },
   "cape-electrical-supply-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Cape Electrical Supply LLC.",
    "site_tried": 0,
@@ -10907,7 +10953,7 @@
    "why": ""
   },
   "carey-construction": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "careyconstruction.com",
    "name": "Carey Construction",
    "site_tried": 6,
@@ -10916,7 +10962,7 @@
    "why": "photograph"
   },
   "cargurus": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "cargurus.com",
    "identity": "domain-agree",
    "label": "CarGurus",
@@ -10962,7 +11008,7 @@
    "why": ""
   },
   "carian": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "CARIAN",
    "site_tried": 0,
@@ -11016,7 +11062,7 @@
    "why": ""
   },
   "carl-fischer-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "carlfischer.com",
    "name": "Carl Fischer LLC",
    "site_tried": 5,
@@ -11227,13 +11273,13 @@
    "why": ""
   },
   "casella-waste-systems-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "casellawastesystemsinc.com",
    "name": "Casella Waste Systems, Inc.",
-   "site_tried": 4,
+   "site_tried": 0,
    "slug": "casella-waste-systems-inc",
-   "verdict": "rejected",
-   "why": "undersized"
+   "verdict": "no-candidate",
+   "why": "no-site-icon"
   },
   "cast-software-inc": {
    "checked": "2026-08-23",
@@ -11365,7 +11411,7 @@
    "why": "No connection adapters were found for 'data:;base64,iVBORw0KGgo='"
   },
   "cbinc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "CBInc.",
    "site_tried": 0,
@@ -11823,7 +11869,7 @@
    "why": "no-entity"
   },
   "centerfield": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "centerfield.com",
    "identity": "domain-agree",
    "label": "Centerfield",
@@ -11877,7 +11923,7 @@
    "why": ""
   },
   "centracare": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "centracare.com",
    "identity": "domain-agree",
    "label": "CentraCare Health System",
@@ -12084,7 +12130,7 @@
    "why": ""
   },
   "chamberlain-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "chamberlaingroup.com",
    "identity": "domain-agree",
    "label": "Chamberlain Group",
@@ -12094,10 +12140,10 @@
    ],
    "p856": "chamberlaingroup.com",
    "qid": "Q5069582",
-   "site_tried": 4,
+   "site_tried": 3,
    "slug": "chamberlain-group",
    "verdict": "rejected",
-   "why": "undersized"
+   "why": "undecodable"
   },
   "chaos-industries": {
    "checked": "2026-09-02",
@@ -12109,7 +12155,7 @@
    "why": "no-entity"
   },
   "characterquilt": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "CharacterQuilt",
    "site_tried": 0,
@@ -12241,7 +12287,7 @@
    "why": ""
   },
   "chefman": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "chefman.com",
    "name": "Chefman",
    "site_tried": 4,
@@ -12250,7 +12296,7 @@
    "why": "undersized"
   },
   "chenega-corporation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "chenega.com",
    "name": "Chenega Corporation",
    "site_tried": 5,
@@ -12385,7 +12431,7 @@
    "why": "no-logo-claim"
   },
   "children-s-national-hospital": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "childrensnational.org",
    "identity": "label-match",
    "label": "Children's National Hospital",
@@ -12636,7 +12682,7 @@
    "why": "no-site-icon"
   },
   "cigna": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "cigna.com",
    "identity": "domain-agree",
    "label": "The Cigna Group",
@@ -13073,7 +13119,7 @@
    "why": ""
   },
   "claim-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Claim Health",
    "site_tried": 0,
@@ -13114,7 +13160,7 @@
    "why": ""
   },
   "clarioclinical": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "clarioclinical.com",
    "name": "Clarioclinical",
    "site_tried": 0,
@@ -13123,7 +13169,7 @@
    "why": "no-site-icon"
   },
   "clarios": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "clarios.com",
    "identity": "domain-agree",
    "label": "Clarios Germany GmbH & Co. KG",
@@ -13321,13 +13367,23 @@
    "why": ""
   },
   "clera": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "ar": 1.0,
+   "artist": "",
+   "asset": "clera.webp",
+   "bytes": 16032,
+   "checked": "2026-09-02",
+   "domain": "ville-clerac.fr",
+   "h": 486,
+   "license": "site",
+   "mono": false,
    "name": "Clera",
-   "site_tried": 0,
+   "sha256": "c813e8aafc065e0b",
    "slug": "clera",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://www.ville-clerac.fr/wp-content/uploads/2017/10/cropped-logo-03.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 486,
+   "why": ""
   },
   "cleveland-clinic": {
    "ar": 6.41,
@@ -13450,7 +13506,7 @@
    "why": ""
   },
   "clinical-reference-laboratory": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Clinical Reference Laboratory",
    "site_tried": 0,
@@ -13721,13 +13777,13 @@
    "why": "not-an-org"
   },
   "cockroach-labs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "cockroachlabs.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Cockroach Labs",
    "name": "Cockroach Labs",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "cockroachlabs.com",
    "qid": "Q20857873",
@@ -13737,7 +13793,7 @@
    "why": "no-logo-claim"
   },
   "code-and-theory": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Code and Theory",
    "site_tried": 0,
@@ -13972,13 +14028,13 @@
    "why": ""
   },
   "cohnreznick": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "cohnreznick.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "CohnReznick",
    "name": "CohnReznick",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "cohnreznick.com",
    "qid": "Q17510353",
@@ -14139,13 +14195,13 @@
    "why": ""
   },
   "college-track": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "collegetrack.org",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "College Track",
    "name": "College Track",
    "p279_path": [
-    "Q2385804"
+    "p856"
    ],
    "p856": "collegetrack.org",
    "qid": "Q30286785",
@@ -14155,7 +14211,7 @@
    "why": "undersized"
   },
   "colliers-engineering-design": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Colliers Engineering & Design",
    "site_tried": 0,
@@ -14280,20 +14336,20 @@
   "comcast": {
    "ar": 2.5,
    "artist": "Comcast Corporation",
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "colours": 294,
    "domain": "corporate.comcast.com",
    "edges": 0.1307,
    "file": "Comcast.svg",
    "h": 100,
-   "identity": "label-match",
+   "identity": "domain-agree",
    "ink": 0.2398,
    "label": "Comcast",
    "license": "Public domain",
    "mono": false,
    "name": "Comcast",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "corporate.comcast.com",
    "qid": "Q1113804",
@@ -14556,7 +14612,7 @@
    "why": "photograph"
   },
   "concord-usa": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Concord USA",
    "site_tried": 0,
@@ -14565,7 +14621,7 @@
    "why": "no-entity"
   },
   "concur-construction": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Concur Construction",
    "site_tried": 0,
@@ -14739,7 +14795,7 @@
    "why": ""
   },
   "consigli-construction": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "consigliconstruction.com",
    "name": "Consigli Construction",
    "site_tried": 0,
@@ -14778,7 +14834,7 @@
    "why": ""
   },
   "constellation-energy": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "constellationenergy.com",
    "identity": "label-match",
    "label": "Constellation Energy",
@@ -14824,7 +14880,7 @@
    "why": ""
   },
   "constructconnect": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "ConstructConnect",
    "site_tried": 0,
@@ -14898,7 +14954,7 @@
    "why": ""
   },
   "contemporary-amperex-technology-kentucky-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Contemporary Amperex Technology Kentucky LLC",
    "site_tried": 0,
@@ -15124,7 +15180,7 @@
    "why": "no-entity"
   },
   "copeland": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "copeland.com",
    "identity": "label-match",
    "label": "Copeland",
@@ -15194,7 +15250,7 @@
    "why": ""
   },
   "core-spaces": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "corespaces.com",
    "name": "Core Spaces",
    "site_tried": 0,
@@ -15393,7 +15449,7 @@
    "why": ""
   },
   "cotiviti": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "cotiviti.com",
    "name": "Cotiviti",
    "site_tried": 4,
@@ -15456,7 +15512,7 @@
    "why": ""
   },
   "courier-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Courier Health",
    "site_tried": 0,
@@ -15663,7 +15719,7 @@
    "why": "no-entity"
   },
   "credence": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "credence.com",
    "name": "Credence",
    "site_tried": 0,
@@ -15827,7 +15883,7 @@
    "why": ""
   },
   "cresta": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Cresta",
@@ -15921,7 +15977,7 @@
    "why": ""
   },
   "criteo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "criteo.com",
    "identity": "domain-agree",
    "label": "Criteo",
@@ -16006,7 +16062,7 @@
    "why": ""
   },
   "crowe": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "crowe.com",
    "identity": "domain-agree",
    "label": "Crowe Global",
@@ -16053,7 +16109,7 @@
    "why": ""
   },
   "crown-field-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Crown Field Services",
    "site_tried": 0,
@@ -16134,7 +16190,7 @@
    "why": ""
   },
   "crusoe": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "CRUSOE",
    "site_tried": 0,
@@ -16312,7 +16368,7 @@
    "why": "no-entity"
   },
   "cupertino-electric": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Cupertino Electric",
@@ -16352,7 +16408,7 @@
    "why": ""
   },
   "cursor": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Cursor",
    "site_tried": 0,
@@ -16470,7 +16526,7 @@
    "why": ""
   },
   "customcomputerspecialists": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Customcomputerspecialists",
    "site_tried": 0,
@@ -16627,7 +16683,7 @@
    "why": ""
   },
   "cypress-creek-renewables": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Cypress Creek Renewables",
    "site_tried": 0,
@@ -16972,7 +17028,7 @@
    "why": "not-an-org"
   },
   "david-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "David AI",
    "site_tried": 0,
@@ -17038,7 +17094,7 @@
    "why": ""
   },
   "day-zimmermann": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "dayzim.com",
    "identity": "domain-agree",
    "label": "Day & Zimmermann",
@@ -17063,7 +17119,7 @@
    "why": "no-entity"
   },
   "dealer-tire": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "dealertire.com",
    "name": "Dealer Tire",
    "site_tried": 5,
@@ -17110,7 +17166,7 @@
    "why": ""
   },
   "decagon": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "decagon.com",
    "identity": "label-match",
    "label": "Decagon",
@@ -17135,7 +17191,7 @@
    "why": "no-entity"
   },
   "dedalus-labs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Dedalus Labs",
    "site_tried": 0,
@@ -17153,7 +17209,7 @@
    "why": "not-an-org"
   },
   "deepaware-ai-robotics-center-of-silicon-valley": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "DeepAware AI (Robotics Center of Silicon Valley)",
    "site_tried": 0,
@@ -17226,7 +17282,7 @@
    "why": "no-entity"
   },
   "delaware-health-information-network": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Delaware Health Information Network",
    "site_tried": 0,
@@ -17344,7 +17400,7 @@
    "why": ""
   },
   "deloitte-dynamic-talent-solutions": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Deloitte Dynamic Talent Solutions",
    "site_tried": 0,
@@ -17353,7 +17409,7 @@
    "why": "no-entity"
   },
   "deloitte-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Deloitte Services",
    "site_tried": 0,
@@ -17759,7 +17815,7 @@
    "why": ""
   },
   "diablo-roofing-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Diablo Roofing INC",
    "site_tried": 0,
@@ -17947,7 +18003,7 @@
    "why": "undersized"
   },
   "dili": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "dili",
    "site_tried": 0,
@@ -18072,13 +18128,27 @@
    "why": ""
   },
   "disney": {
-   "checked": "2026-08-23",
+   "ar": 6.579,
+   "artist": "First file vector graphics logo by TutterMouse",
+   "asset": "disney.svg",
+   "bytes": 23618,
+   "checked": "2026-09-02",
+   "colours": 33,
    "domain": "disney.com",
+   "edges": 0.2792,
+   "file": "The Walt Disney Company Logo.svg",
+   "h": 38,
+   "ink": 0.2429,
+   "license": "Public domain",
+   "mono": true,
    "name": "Disney",
-   "site_tried": 0,
+   "sha256": "cb13365dc8eca238",
    "slug": "disney",
-   "verdict": "no-candidate",
-   "why": "no-site-icon"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/4/44/The_Walt_Disney_Company_Logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "disney-experiences": {
    "ar": 1.786,
@@ -18356,13 +18426,13 @@
    "why": "not-an-org"
   },
   "dorman-products": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "dormanproducts.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Dorman products",
    "name": "Dorman Products",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "dormanproducts.com",
    "qid": "Q113560927",
@@ -18389,7 +18459,7 @@
    "why": ""
   },
   "doxel": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Doxel, Inc.",
@@ -18659,7 +18729,7 @@
    "why": ""
   },
   "dtcc-usa": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "dtcc.com",
    "name": "DTCC USA",
    "site_tried": 4,
@@ -18814,7 +18884,7 @@
    "why": "no-entity"
   },
   "dyne-therapeutics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Dyne Therapeutics, Inc.",
@@ -18865,7 +18935,7 @@
    "why": ""
   },
   "e2-consulting-engineers-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "E2 Consulting Engineers, Inc.",
    "site_tried": 0,
@@ -18976,13 +19046,27 @@
    "why": ""
   },
   "eaton": {
+   "ar": 3.112,
+   "artist": "Unknown authorUnknown author",
+   "asset": "eaton.svg",
+   "bytes": 13185,
    "checked": "2026-09-02",
+   "colours": 57,
    "domain": "",
+   "edges": 0.1707,
+   "file": "Eaton Corporation Logo.svg",
+   "h": 80,
+   "ink": 0.3452,
+   "license": "Public domain",
+   "mono": false,
    "name": "Eaton",
-   "site_tried": 0,
+   "sha256": "f345fbb3062e665c",
    "slug": "eaton",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/d/d8/Eaton_Corporation_Logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 249,
+   "why": ""
   },
   "ebay": {
    "ar": 2.475,
@@ -19045,7 +19129,7 @@
    "why": ""
   },
   "ebusiness-solutions-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ebusinesssolutions.com",
    "name": "eBusiness Solutions Inc.",
    "site_tried": 3,
@@ -19108,7 +19192,7 @@
    "why": ""
   },
   "eclinicalsolutions": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "eclinicalsolutions.com",
    "name": "Eclinicalsolutions",
    "site_tried": 3,
@@ -19156,7 +19240,7 @@
    "why": "no-entity"
   },
   "ecs-limited": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ecslimited.com",
    "name": "ECS Limited",
    "site_tried": 4,
@@ -19257,7 +19341,7 @@
    "why": "not-an-org"
   },
   "edyo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Edyo",
    "site_tried": 0,
@@ -19310,7 +19394,7 @@
    "why": "no-entity"
   },
   "eikon-therapeutics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Eikon Therapeutics",
    "site_tried": 0,
@@ -19442,13 +19526,13 @@
    "why": ""
   },
   "eli-lilly": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "lilly.it",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Eli Lilly",
    "name": "Eli Lilly",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "lilly.it",
    "qid": "Q43896148",
@@ -19506,7 +19590,7 @@
    "why": "not-an-org"
   },
   "elizabeth-public-schools": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Elizabeth Public Schools",
@@ -19663,13 +19747,13 @@
    "why": "no-entity"
   },
   "emory-healthcare": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "emoryhealthcare.org",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Emory Healthcare",
    "name": "Emory Healthcare",
    "p279_path": [
-    "Q4287745"
+    "p856"
    ],
    "p856": "emoryhealthcare.org",
    "qid": "Q5373693",
@@ -19704,7 +19788,7 @@
    "why": ""
   },
   "empire-paving-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Empire Paving, LLC.",
    "site_tried": 0,
@@ -19722,7 +19806,7 @@
    "why": "no-entity"
   },
   "empower-ai-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "empowerai.com",
    "name": "Empower AI Inc.",
    "site_tried": 0,
@@ -19964,13 +20048,13 @@
    "why": "not-an-org"
   },
   "engineered-systems-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Engineered Systems, Inc.",
    "site_tried": 0,
    "slug": "engineered-systems-inc",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "engineering-technology-associates": {
    "checked": "2026-08-23",
@@ -20183,13 +20267,13 @@
    "why": ""
   },
   "environmental-resources-management": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "erm.com",
-   "identity": "org-only",
+   "identity": "domain-agree",
    "label": "ERM",
    "name": "Environmental Resources Management",
    "p279_path": [
-    "Q783794"
+    "p856"
    ],
    "p856": "erm.com",
    "qid": "Q99203322",
@@ -20701,7 +20785,7 @@
    "why": "not-an-org"
   },
   "eteam": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "eTeam",
    "site_tried": 0,
@@ -20974,7 +21058,7 @@
    "why": ""
   },
   "excelitas-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "excelitas.com",
    "identity": "domain-agree",
    "label": "Excelitas Technologies (Singapore)",
@@ -21415,24 +21499,20 @@
    "why": ""
   },
   "fairfax-county-government": {
-   "checked": "2026-08-23",
-   "domain": "governmentjobs.com",
-   "identity": "label-match",
+   "checked": "2026-09-02",
+   "domain": "fairfaxcounty.gov",
+   "identity": "domain-agree",
    "label": "Fairfax County Government",
    "name": "Fairfax County Government",
    "p279_path": [
-    "Q102121698",
-    "Q106513499",
-    "Q6501447",
-    "Q7188",
-    "Q43229"
+    "p856"
    ],
    "p856": "fairfaxcounty.gov",
    "qid": "Q140066609",
-   "site_tried": 10,
+   "site_tried": 6,
    "slug": "fairfax-county-government",
    "verdict": "rejected",
-   "why": "undersized"
+   "why": "photograph"
   },
   "fairlife-llc": {
    "checked": "2026-09-02",
@@ -21635,7 +21715,7 @@
    "why": "no-entity"
   },
   "farmers-insurance-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "farmersinsurance.com",
    "identity": "label-match",
    "label": "Farmers Insurance Group",
@@ -21759,13 +21839,13 @@
    "why": "no-entity"
   },
   "federal-reserve-bank-of-minneapolis": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "minneapolisfed.org",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Federal Reserve Bank of Minneapolis",
    "name": "Federal Reserve Bank of Minneapolis",
    "p279_path": [
-    "Q43229"
+    "p856"
    ],
    "p856": "minneapolisfed.org",
    "qid": "Q2503528",
@@ -21784,7 +21864,7 @@
    "why": "no-entity"
   },
   "fedex-freight": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "fedexfreight.com",
    "identity": "domain-agree",
    "label": "FedEx Freight",
@@ -22153,13 +22233,13 @@
    "why": ""
   },
   "first-american": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "firstam.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "First American Corporation",
    "name": "First American",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "firstam.com",
    "qid": "Q5452290",
@@ -22169,7 +22249,7 @@
    "why": "undersized"
   },
   "first-citizens-bank": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "firstcitizensbank.com",
    "identity": "label-match",
    "label": "First Citizens Bank",
@@ -22203,7 +22283,7 @@
    "why": "no-entity"
   },
   "first-solar": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "firstsolar.com",
    "identity": "domain-agree",
    "label": "First Solar",
@@ -22237,7 +22317,7 @@
    "why": "no-entity"
   },
   "firstenergy-corp": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "firstenergycorp.com",
    "name": "FirstEnergy Corp.",
    "site_tried": 3,
@@ -22551,7 +22631,7 @@
    "why": "no-logo-claim"
   },
   "flash": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "flash.com",
    "name": "Flash",
    "site_tried": 0,
@@ -22983,7 +23063,7 @@
    "why": "undersized"
   },
   "followus-ny": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "FollowUS NY",
    "site_tried": 0,
@@ -23070,14 +23150,13 @@
    "why": ""
   },
   "forge-biologics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "forgebiologics.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Forge Biologics",
    "name": "Forge Biologics",
    "p279_path": [
-    "Q6881511",
-    "Q43229"
+    "p856"
    ],
    "p856": "forgebiologics.com",
    "qid": "Q130228894",
@@ -23202,13 +23281,11 @@
    "why": ""
   },
   "fort": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "checked": "2026-09-02",
    "name": "Fort",
-   "site_tried": 0,
    "slug": "fort",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "verdict": "deferred",
+   "why": "No connection adapters were found for 'data:;base64,iVBORw0KGgo='"
   },
   "fortanix-inc": {
    "checked": "2026-08-23",
@@ -23469,7 +23546,7 @@
    "why": ""
   },
   "franklin-electric": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "franklinelectric.com",
    "identity": "label-match",
    "label": "Franklin Electric",
@@ -23545,7 +23622,7 @@
    "why": ""
   },
   "freebuff": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Freebuff",
    "site_tried": 0,
@@ -23573,7 +23650,7 @@
    "why": ""
   },
   "freedom-mortgage": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "freedommortgage.com",
    "name": "Freedom Mortgage",
    "site_tried": 5,
@@ -24048,13 +24125,13 @@
    "why": ""
   },
   "gardaworld-security-services-us": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "GardaWorld Security Services US",
    "site_tried": 0,
    "slug": "gardaworld-security-services-us",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "gargi-technologies-inc": {
    "checked": "2026-08-23",
@@ -24153,13 +24230,13 @@
    "why": "not-an-org"
   },
   "gates-corporation": {
-   "checked": "2026-08-23",
-   "domain": "gatescorporation.com",
-   "identity": "label-match",
+   "checked": "2026-09-02",
+   "domain": "gates.com",
+   "identity": "domain-agree",
    "label": "Gates Corporation",
    "name": "Gates Corporation",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "gates.com",
    "qid": "Q5527100",
@@ -24169,7 +24246,7 @@
    "why": "no-site-icon"
   },
   "gather-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "gatherai.com",
    "name": "Gather AI",
    "site_tried": 3,
@@ -24487,7 +24564,7 @@
    "why": "undersized"
   },
   "general-dynamics-information-technology": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "General Dynamics Information Technology",
@@ -24500,8 +24577,8 @@
    "qid": "Q130724592",
    "site_tried": 0,
    "slug": "general-dynamics-information-technology",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-logo-claim"
   },
   "general-hospital": {
    "checked": "2026-08-23",
@@ -24597,7 +24674,7 @@
    "why": ""
   },
   "generate-biomedicines": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "generatebiomedicines.com",
    "name": "Generate Biomedicines",
    "site_tried": 3,
@@ -24821,7 +24898,7 @@
    "why": ""
   },
   "genuine-parts-giant": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Genuine Parts Giant",
    "site_tried": 0,
@@ -25036,7 +25113,7 @@
    "why": ""
   },
   "ghosteye": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "GhostEye",
    "site_tried": 0,
@@ -25180,7 +25257,7 @@
    "why": ""
   },
   "gilead-sciences-canada": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Gilead Sciences Canada",
    "site_tried": 0,
@@ -25430,7 +25507,7 @@
    "why": ""
   },
   "gloglo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "GloGlo",
    "site_tried": 0,
@@ -25539,16 +25616,13 @@
    "why": "not-an-org"
   },
   "golden-state": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "goldenstateband.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Golden State",
    "name": "Golden State",
    "p279_path": [
-    "Q215380",
-    "Q2088357",
-    "Q32178211",
-    "Q43229"
+    "p856"
    ],
    "p856": "goldenstateband.com",
    "qid": "Q5579821",
@@ -25588,7 +25662,7 @@
    "why": ""
   },
   "good-life-corporation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Good Life Corporation",
    "site_tried": 0,
@@ -25717,7 +25791,7 @@
    "why": ""
   },
   "gopuff": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "gopuff.com",
    "identity": "domain-agree",
    "label": "GoPuff",
@@ -25787,7 +25861,7 @@
    "why": ""
   },
   "govcio": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "govcio.com",
    "name": "GovCIO",
    "site_tried": 5,
@@ -25805,7 +25879,7 @@
    "why": "no-entity"
   },
   "governmentjobs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "governmentjobs.com",
    "name": "Governmentjobs",
    "site_tried": 4,
@@ -26028,7 +26102,7 @@
    "why": "no-entity"
   },
   "greenville-county-schools": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Greenville County Schools",
    "site_tried": 0,
@@ -26064,7 +26138,7 @@
    "why": "no-entity"
   },
   "gridware": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "gridware.com",
    "name": "Gridware",
    "site_tried": 6,
@@ -26246,7 +26320,7 @@
    "why": "no-logo-claim"
   },
   "gruve": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "gruve.com",
    "name": "Gruve",
    "site_tried": 3,
@@ -26290,7 +26364,7 @@
    "why": ""
   },
   "gsk-solutions": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "gsksolutions.com",
    "name": "GSK Solutions",
    "site_tried": 3,
@@ -26333,7 +26407,7 @@
    "why": "undersized"
   },
   "guidehouse": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "guidehouse.com",
    "identity": "domain-agree",
    "label": "Guidehouse",
@@ -26635,7 +26709,7 @@
    "why": ""
   },
   "hamilton-company": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Hamilton Company",
    "site_tried": 0,
@@ -26670,7 +26744,7 @@
    "why": ""
   },
   "hana-center": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Hana Center",
    "site_tried": 0,
@@ -26697,7 +26771,7 @@
    "why": "not-an-org"
   },
   "hanger": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "hanger.com",
    "name": "Hanger",
    "site_tried": 6,
@@ -26733,7 +26807,7 @@
    "why": "not-an-org"
   },
   "hargrove-engineers-constructors": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Hargrove Engineers + Constructors",
    "site_tried": 0,
@@ -26898,13 +26972,13 @@
    "why": ""
   },
   "harvey": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "checked": "2026-09-02",
+   "domain": "cityofharvey.org",
    "name": "HARVEY",
-   "site_tried": 0,
+   "site_tried": 5,
    "slug": "harvey",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "verdict": "rejected",
+   "why": "photograph"
   },
   "hasbro-inc": {
    "ar": 0.912,
@@ -27171,7 +27245,7 @@
    "why": "no-entity"
   },
   "headway": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Headway",
@@ -27220,7 +27294,7 @@
    "why": ""
   },
   "healthequity-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "HealthEquity Inc.",
    "site_tried": 0,
@@ -27370,7 +27444,7 @@
    "why": ""
   },
   "heidihealth-com-au": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Heidihealth.Com.Au",
    "site_tried": 0,
@@ -27406,7 +27480,7 @@
    "why": "not-an-org"
   },
   "hellofresh": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "hellofresh.com",
    "identity": "domain-agree",
    "label": "HelloFresh",
@@ -27449,16 +27523,16 @@
   "henry-ford-health": {
    "ar": 16.667,
    "artist": "Henry Ford Health",
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "henryford.com",
    "file": "Henry Ford Health logo (2022, horizontal).svg",
    "h": 15,
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Henry Ford Health",
    "license": "Public domain",
    "name": "Henry Ford Health",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "henryford.com",
    "qid": "Q5721418",
@@ -27684,7 +27758,7 @@
    "why": "no-entity"
   },
   "highmark-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "highmark.com",
    "identity": "label-match",
    "label": "Highmark Health",
@@ -27734,13 +27808,13 @@
    "why": "no-logo-claim"
   },
   "hilmar-cheese-company": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "hilmarcheese.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Hilmar Cheese Company",
    "name": "Hilmar Cheese Company",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "hilmarcheese.com",
    "qid": "Q5764265",
@@ -27872,7 +27946,7 @@
    "why": ""
   },
   "hive": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Hive",
    "site_tried": 0,
@@ -27930,7 +28004,7 @@
    "why": "no-entity"
   },
   "hoefer-welker": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Hoefer Welker",
    "site_tried": 0,
@@ -28030,7 +28104,7 @@
    "why": "no-entity"
   },
   "homedepot": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Homedepot",
    "site_tried": 0,
@@ -28087,7 +28161,7 @@
    "why": ""
   },
   "honigman-llp": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Honigman LLP",
    "site_tried": 0,
@@ -28096,7 +28170,7 @@
    "why": "no-entity"
   },
   "honorhealth": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "honorhealth.com",
    "identity": "domain-agree",
    "label": "HonorHealth",
@@ -28121,7 +28195,7 @@
    "why": "not-an-org"
   },
   "hopper": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "hopper.com",
    "name": "Hopper",
    "site_tried": 3,
@@ -28139,7 +28213,7 @@
    "why": "not-an-org"
   },
   "horizon-media-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Horizon Media, Inc.",
    "site_tried": 0,
@@ -28430,7 +28504,7 @@
    "why": "undersized"
   },
   "hub-international": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "hubinternational.com",
    "identity": "domain-agree",
    "label": "Hub International",
@@ -29047,7 +29121,7 @@
    "why": "no-entity"
   },
   "ignite-fueling-innovation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Ignite Fueling Innovation",
    "site_tried": 0,
@@ -29056,7 +29130,7 @@
    "why": "no-entity"
   },
   "igt": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "igt.com",
    "name": "IGT",
    "site_tried": 5,
@@ -29219,13 +29293,13 @@
    "why": "not-an-org"
   },
   "imi-plc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "imiplc.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "IMI plc",
    "name": "IMI Plc",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "imiplc.com",
    "qid": "Q3146728",
@@ -29235,7 +29309,7 @@
    "why": "no-site-icon"
   },
   "impact": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Impact",
@@ -29305,7 +29379,7 @@
    "why": ""
   },
   "improve-your-tomorrow": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "improveyourtomorrow.com",
    "name": "Improve Your Tomorrow",
    "site_tried": 3,
@@ -29701,7 +29775,7 @@
    "why": ""
   },
   "infosys-pontoon": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Infosys Pontoon",
    "site_tried": 0,
@@ -29959,13 +30033,13 @@
    "why": "no-entity"
   },
   "insight-enterprises": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "insight.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Insight Enterprises",
    "name": "Insight Enterprises",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "insight.com",
    "qid": "Q6038080",
@@ -29975,7 +30049,7 @@
    "why": "undersized"
   },
   "insight-global": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "insightglobal.com",
    "identity": "org-only",
    "label": "Global Insight",
@@ -30352,7 +30426,7 @@
    "why": ""
   },
   "inter-co-division-10-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Inter-co division 10 inc",
    "site_tried": 0,
@@ -30500,13 +30574,13 @@
    "why": ""
   },
   "international-student-exchange-programs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "isep.org",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "International Student Exchange Programs",
    "name": "International Student Exchange Programs",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "isep.org",
    "qid": "Q369364",
@@ -30620,13 +30694,27 @@
    "why": ""
   },
   "intuitive": {
+   "ar": 2.5,
+   "artist": "Intuitive Surgical",
+   "asset": "intuitive.svg",
+   "bytes": 11044,
    "checked": "2026-09-02",
+   "colours": 35,
    "domain": "",
+   "edges": 0.1109,
+   "file": "Intuitive Surgical logo.svg",
+   "h": 100,
+   "ink": 0.0976,
+   "license": "Public domain",
+   "mono": true,
    "name": "Intuitive",
-   "site_tried": 0,
+   "sha256": "c05945eaed726ce4",
    "slug": "intuitive",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/0/01/Intuitive_Surgical_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "intuitive-surgical-inc": {
    "ar": 2.5,
@@ -30773,7 +30861,7 @@
    "why": ""
   },
   "ipg-photonics-corporation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ipgphotonics.com",
    "name": "IPG Photonics Corporation",
    "site_tried": 4,
@@ -30791,16 +30879,16 @@
    "why": "no-entity"
   },
   "ipolarity-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "IPolarity LLC",
    "site_tried": 0,
    "slug": "ipolarity-llc",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "ips-integrated-project-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "IPS-Integrated Project Services",
    "site_tried": 0,
@@ -30977,7 +31065,7 @@
    "why": ""
   },
   "iterable": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "iterable.com",
    "name": "Iterable",
    "site_tried": 6,
@@ -31079,7 +31167,7 @@
    "why": "no-entity"
   },
   "ixl-learning": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ixllearning.com",
    "identity": "label-match",
    "label": "IXL Learning",
@@ -31182,7 +31270,7 @@
    "why": ""
   },
   "jack-link-s-protein-snacks": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Jack Link's Protein Snacks",
    "site_tried": 0,
@@ -31207,7 +31295,7 @@
    "why": "no-logo-claim"
   },
   "jacobs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "jacobs.com",
    "name": "Jacobs",
    "site_tried": 4,
@@ -31580,7 +31668,7 @@
    "why": ""
   },
   "johnny-on-the-spot-environmental": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Johnny on the Spot Environmental",
    "site_tried": 0,
@@ -31589,7 +31677,7 @@
    "why": "no-entity"
   },
   "johns-hopkins-health-system": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "hopkinsmedicine.org",
    "identity": "domain-agree",
    "label": "Johns Hopkins Medicine",
@@ -31820,7 +31908,7 @@
    "why": ""
   },
   "jones-mobile-home-service-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Jones Mobile Home Service INC",
    "site_tried": 0,
@@ -31972,7 +32060,7 @@
    "why": ""
   },
   "juniper-square": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "junipersquare.com",
    "name": "Juniper Square",
    "site_tried": 4,
@@ -32423,7 +32511,7 @@
    "why": "no-entity"
   },
   "kegazel-llc-coaching-consulting-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Kegazel LLC, Coaching & Consulting Group",
    "site_tried": 0,
@@ -32680,7 +32768,7 @@
    "why": ""
   },
   "keysight-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "keysight.com",
    "identity": "domain-agree",
    "label": "Keysight Technologies",
@@ -32903,7 +32991,7 @@
    "why": "no-entity"
   },
   "kiniksa-pharmaceuticals": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Kiniksa Pharmaceuticals",
    "site_tried": 0,
@@ -32954,13 +33042,27 @@
    "why": "no-logo-claim"
   },
   "kla": {
-   "checked": "2026-08-23",
+   "ar": 4.464,
+   "artist": "KLA Corporation",
+   "asset": "kla.svg",
+   "bytes": 1162,
+   "checked": "2026-09-02",
+   "colours": 46,
    "domain": "kla.com",
+   "edges": 0.1401,
+   "file": "KLA Corp. logo.svg",
+   "h": 56,
+   "ink": 0.3478,
+   "license": "Public domain",
+   "mono": false,
    "name": "KLA",
-   "site_tried": 5,
+   "sha256": "8c35642ea6c52abe",
    "slug": "kla",
-   "verdict": "rejected",
-   "why": "undersized"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/0/08/KLA_Corp._logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "klaviyo": {
    "ar": 1.0,
@@ -33193,7 +33295,7 @@
    "why": "no-logo-claim"
   },
   "kodiak-solutions": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Kodiak Solutions",
    "site_tried": 0,
@@ -33320,7 +33422,7 @@
    "why": ""
   },
   "kpff-consulting-engineers": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "KPFF Consulting Engineers",
    "site_tried": 0,
@@ -33398,14 +33500,13 @@
    "why": ""
   },
   "kroll": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "krollermuller.nl",
-   "identity": "org-only",
+   "identity": "domain-agree",
    "label": "Kröller-Müller Museum",
    "name": "Kroll",
    "p279_path": [
-    "Q1759852",
-    "Q43229"
+    "p856"
    ],
    "p856": "krollermuller.nl",
    "qid": "Q1051928",
@@ -33724,7 +33825,7 @@
    "why": "no-logo-claim"
   },
   "laforce-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "laforceinc.com",
    "name": "LaForce Inc",
    "site_tried": 4,
@@ -33802,7 +33903,7 @@
    "why": ""
   },
   "lambda": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lambda",
    "site_tried": 0,
@@ -33811,7 +33912,7 @@
    "why": "not-an-org"
   },
   "lambda-robotics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lambda Robotics",
    "site_tried": 0,
@@ -33820,7 +33921,7 @@
    "why": "no-entity"
   },
   "lance": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lance",
    "site_tried": 0,
@@ -34118,7 +34219,7 @@
    "why": ""
   },
   "lemartec": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lemartec",
    "site_tried": 0,
@@ -34164,7 +34265,7 @@
    "why": "no-entity"
   },
   "lendingtree": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "lendingtree.com",
    "identity": "domain-agree",
    "label": "LendingTree",
@@ -34180,7 +34281,7 @@
    "why": "undersized"
   },
   "lenmar-consulting": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lenmar Consulting",
    "site_tried": 0,
@@ -34329,7 +34430,7 @@
    "why": "no-entity"
   },
   "leviton-manufacturing": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Leviton Manufacturing",
    "site_tried": 0,
@@ -34338,7 +34439,7 @@
    "why": "not-an-org"
   },
   "lexicon-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lexicon, Inc.",
    "site_tried": 0,
@@ -34449,7 +34550,7 @@
    "why": ""
   },
   "lifestance-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "lifestancehealth.com",
    "identity": "label-match",
    "label": "LifeStance Health",
@@ -34537,7 +34638,7 @@
    "why": ""
   },
   "lila-sciences": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lila Sciences",
    "site_tried": 0,
@@ -34796,7 +34897,7 @@
    "why": "not-an-org"
   },
   "lisa-leroy": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lisa & Leroy",
    "site_tried": 0,
@@ -34823,7 +34924,7 @@
    "why": "undersized"
   },
   "lithko-contracting": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "lithko.com",
    "name": "Lithko Contracting",
    "site_tried": 4,
@@ -34832,7 +34933,7 @@
    "why": "undersized"
   },
   "littelfuse": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "littelfuse.com",
    "identity": "domain-agree",
    "label": "Littelfuse",
@@ -34988,15 +35089,13 @@
    "why": "no-site-icon"
   },
   "lmi": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "lmi.cnrs.fr",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "LMI",
    "name": "LMI",
    "p279_path": [
-    "Q31855",
-    "Q136410232",
-    "Q43229"
+    "p856"
    ],
    "p856": "lmi.cnrs.fr",
    "qid": "Q3214490",
@@ -35006,20 +35105,28 @@
    "why": "no-site-icon"
   },
   "lockheed-martin": {
-   "checked": "2026-08-23",
+   "ar": 6.62,
+   "artist": "",
+   "asset": "lockheed-martin.svg",
+   "bytes": 3671,
+   "checked": "2026-09-02",
    "domain": "lockheedmartin.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Lockheed Martin",
+   "license": "site",
+   "mono": 0,
    "name": "Lockheed Martin",
    "p279_path": [
-    "Q891723"
+    "p856"
    ],
    "p856": "lockheedmartin.com",
    "qid": "Q7240",
-   "site_tried": 0,
+   "sha256": "f8868b558a8c30b4",
    "slug": "lockheed-martin",
-   "verdict": "no-candidate",
-   "why": "no-site-icon"
+   "src": "https://www.lockheedmartin.com/content/dam/lockheed-martin/general/lm-logo.svg",
+   "tier": "site",
+   "verdict": "accepted",
+   "why": ""
   },
   "locus-robotics": {
    "checked": "2026-08-23",
@@ -35272,7 +35379,7 @@
    "why": "no-entity"
   },
   "lp-analyst": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "LP Analyst",
    "site_tried": 0,
@@ -35438,7 +35545,7 @@
    "why": ""
   },
   "lucid-software": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "LUCID SOFTWARE, INC.",
@@ -35484,7 +35591,7 @@
    "why": ""
   },
   "luma-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Luma AI",
    "site_tried": 0,
@@ -35587,7 +35694,7 @@
    "why": "undersized"
   },
   "lunar-energy": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Lunar Energy",
@@ -35603,7 +35710,7 @@
    "why": "no-logo-claim"
   },
   "luster-national": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Luster National",
    "site_tried": 0,
@@ -35721,7 +35828,7 @@
    "why": ""
   },
   "lynker": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Lynker",
    "site_tried": 0,
@@ -35926,7 +36033,7 @@
    "why": ""
   },
   "madison-energy-infrastructure": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Madison Energy Infrastructure",
    "site_tried": 0,
@@ -35935,7 +36042,7 @@
    "why": "no-entity"
   },
   "maesa": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "maesa.com",
    "name": "Maesa",
    "site_tried": 4,
@@ -36444,7 +36551,7 @@
    "why": "photograph"
   },
   "marous-brothers-construction": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "MAROUS BROTHERS CONSTRUCTION",
    "site_tried": 0,
@@ -36665,7 +36772,7 @@
    "why": "no-logo-claim"
   },
   "mashgin": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "mashgin.com",
    "name": "Mashgin",
    "site_tried": 5,
@@ -36690,7 +36797,7 @@
    "why": "no-site-icon"
   },
   "mass-general-brigham": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "massgeneralbrigham.com",
    "identity": "label-match",
    "label": "Mass General Brigham",
@@ -36782,7 +36889,7 @@
    "why": "no-site-icon"
   },
   "mastec-civil": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "masteccivil.com",
    "name": "Mastec Civil",
    "site_tried": 4,
@@ -36974,7 +37081,7 @@
    "why": ""
   },
   "maximus": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "maximus.com",
    "name": "Maximus",
    "site_tried": 4,
@@ -37198,7 +37305,7 @@
    "why": ""
   },
   "mclemore-building-maintenance": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "McLemore Building Maintenance",
    "site_tried": 0,
@@ -37244,7 +37351,7 @@
    "why": ""
   },
   "medallia": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "medallia.com",
    "identity": "domain-agree",
    "label": "Medallia",
@@ -37278,7 +37385,7 @@
    "why": "not-an-org"
   },
   "medica-services-company-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Medica Services Company LLC",
    "site_tried": 0,
@@ -37287,7 +37394,7 @@
    "why": "no-entity"
   },
   "medical-college-of-wisconsin": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "medicalcollegeofwisconsin.com",
    "identity": "label-match",
    "label": "Medical College of Wisconsin",
@@ -37343,13 +37450,13 @@
    "why": ""
   },
   "medline-industries": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "medline.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Medline Industries",
    "name": "Medline Industries",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "medline.com",
    "qid": "Q6807236",
@@ -37415,7 +37522,7 @@
    "why": ""
   },
   "meijer": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "meijer.com",
    "name": "Meijer",
    "site_tried": 0,
@@ -37467,7 +37574,7 @@
    "why": "no-logo-claim"
   },
   "memorial-medical-center": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "memorialmedicalcenter.com",
    "identity": "label-match",
    "label": "Memorial Medical Center",
@@ -37483,7 +37590,7 @@
    "why": "undecodable"
   },
   "memorial-sloan-kettering": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "memorialsloankettering.com",
    "name": "Memorial Sloan Kettering",
    "site_tried": 0,
@@ -37683,7 +37790,7 @@
    "why": "photograph"
   },
   "meridianlink": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "MeridianLink",
    "site_tried": 0,
@@ -37857,13 +37964,11 @@
    "why": "not-an-org"
   },
   "meter": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "checked": "2026-09-02",
    "name": "Meter",
-   "site_tried": 0,
    "slug": "meter",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "verdict": "deferred",
+   "why": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
   },
   "metlife": {
    "ar": 4.545,
@@ -38002,7 +38107,7 @@
    "why": "undersized"
   },
   "metrostar-systems": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "metrostarsystems.com",
    "name": "Metrostar Systems",
    "site_tried": 4,
@@ -38271,7 +38376,7 @@
    "why": ""
   },
   "mike-home-improvements": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "mikehomeimprovements.com",
    "name": "Mike Home improvements",
    "site_tried": 0,
@@ -38411,7 +38516,7 @@
    "why": "no-site-icon"
   },
   "minicor": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Minicor",
    "site_tried": 0,
@@ -38429,7 +38534,7 @@
    "why": "not-an-org"
   },
   "minneapolis-public-schools": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Minneapolis Public Schools",
@@ -38609,7 +38714,7 @@
    "why": "not-an-org"
   },
   "mitsubishi-power-americas-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Mitsubishi Power Americas, Inc.",
    "site_tried": 0,
@@ -38651,7 +38756,7 @@
    "why": "no-entity"
   },
   "mobilityware": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "mobilityware.com",
    "identity": "domain-agree",
    "label": "MobilityWare",
@@ -38858,7 +38963,7 @@
    "why": ""
   },
   "monogram-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Monogram Health",
    "site_tried": 0,
@@ -38867,7 +38972,7 @@
    "why": "no-entity"
   },
   "monster-energy": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "monsterenergy.com",
    "identity": "domain-agree",
    "label": "Monster Energy",
@@ -39123,7 +39228,7 @@
    "why": ""
   },
   "mosaic": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Mosaic",
    "site_tried": 0,
@@ -39132,7 +39237,7 @@
    "why": "not-an-org"
   },
   "motion": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "motion.com",
    "name": "Motion",
    "site_tried": 0,
@@ -39160,7 +39265,7 @@
    "why": ""
   },
   "motional": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "motional.com",
    "identity": "label-match",
    "label": "Motional",
@@ -39245,7 +39350,7 @@
    "why": ""
   },
   "mount-sinai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Mount Sinai",
    "site_tried": 0,
@@ -39420,7 +39525,7 @@
    "why": ""
   },
   "muellerwaterproducts": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "muellerwaterproducts.com",
    "name": "Muellerwaterproducts",
    "site_tried": 4,
@@ -39532,7 +39637,7 @@
    "why": "no-entity"
   },
   "na-ve": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Naïve",
    "site_tried": 0,
@@ -39609,7 +39714,7 @@
    "why": ""
   },
   "natick-public-schools": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Natick Public Schools",
    "site_tried": 0,
@@ -39657,7 +39762,7 @@
    "why": "no-entity"
   },
   "national-louis-university": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "National Louis University",
@@ -39720,8 +39825,8 @@
    "why": "not-an-org"
   },
   "nationwide-children-s-hospital": {
-   "checked": "2026-08-23",
-   "domain": "nationwidechildrenshospital.com",
+   "checked": "2026-09-02",
+   "domain": "nationwidechildrens.org",
    "identity": "label-match",
    "label": "Nationwide Children's Hospital",
    "name": "Nationwide Children's Hospital",
@@ -39730,13 +39835,13 @@
    ],
    "p856": "nationwidechildrens.org",
    "qid": "Q6979874",
-   "site_tried": 12,
+   "site_tried": 6,
    "slug": "nationwide-children-s-hospital",
    "verdict": "rejected",
    "why": "photograph"
   },
   "nationwide-mutual-insurance-company": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "nationwide.com",
    "identity": "domain-agree",
    "label": "Nationwide Mutual Insurance Company",
@@ -39885,7 +39990,7 @@
    "why": "no-logo-claim"
   },
   "neptune-technology-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "neptunetechnologygroup.com",
    "identity": "label-match",
    "label": "Neptune Technology Group Inc.",
@@ -39895,10 +40000,10 @@
    ],
    "p856": "",
    "qid": "Q139921789",
-   "site_tried": 3,
+   "site_tried": 0,
    "slug": "neptune-technology-group",
-   "verdict": "rejected",
-   "why": "undecodable"
+   "verdict": "no-candidate",
+   "why": "no-site-icon"
   },
   "netapp": {
    "ar": 0.868,
@@ -40183,13 +40288,13 @@
    "why": ""
   },
   "new-era-technology": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "New Era Technology",
    "site_tried": 0,
    "slug": "new-era-technology",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "new-jersey-innovation-institute-inc": {
    "checked": "2026-09-02",
@@ -40540,7 +40645,7 @@
    "why": ""
   },
   "nexstar": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Nexstar",
    "site_tried": 0,
@@ -40853,7 +40958,7 @@
    "why": "undersized"
   },
   "nisource-us": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "nisource.com",
    "name": "NiSource US",
    "site_tried": 3,
@@ -41055,15 +41160,13 @@
    "why": ""
   },
   "north-central-texas-council-of-governments": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "nctcog.org",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "North Central Texas Council of Governments",
    "name": "North Central Texas Council of Governments",
    "p279_path": [
-    "Q5176530",
-    "Q15911314",
-    "Q163740"
+    "p856"
    ],
    "p856": "nctcog.org",
    "qid": "Q7054766",
@@ -41480,7 +41583,7 @@
    "why": ""
   },
   "novaflow": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Novaflow",
    "site_tried": 0,
@@ -41528,7 +41631,7 @@
    "why": "not-an-org"
   },
   "novo-nordisk-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "novonordisk.com",
    "name": "Novo Nordisk, Inc.",
    "site_tried": 4,
@@ -41537,7 +41640,7 @@
    "why": "undersized"
   },
   "nox-metals": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Nox Metals",
    "site_tried": 0,
@@ -41858,7 +41961,7 @@
    "why": ""
   },
   "nuvitek": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Nuvitek",
    "site_tried": 0,
@@ -42130,13 +42233,13 @@
    "why": ""
   },
   "object-technology-solutions-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Object Technology Solutions Inc",
    "site_tried": 0,
    "slug": "object-technology-solutions-inc",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "obsidian-security": {
    "ar": 1.0,
@@ -42186,7 +42289,7 @@
    "why": "no-entity"
   },
   "ochsner-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Ochsner Health",
    "site_tried": 0,
@@ -42320,7 +42423,7 @@
    "why": "not-an-org"
   },
   "ofi": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ofi.com",
    "identity": "org-only",
    "label": "OF Ierapetra",
@@ -42604,7 +42707,7 @@
    "why": ""
   },
   "omega-technical-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Omega Technical Services",
    "site_tried": 0,
@@ -42613,7 +42716,7 @@
    "why": "no-entity"
   },
   "onbe": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "onbe",
    "site_tried": 0,
@@ -42827,7 +42930,7 @@
    "why": ""
   },
   "ooak-data": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Ooak Data",
    "site_tried": 0,
@@ -43345,7 +43448,7 @@
    "why": ""
   },
   "orion-innovation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "orioninnovation.com",
    "name": "Orion Innovation",
    "site_tried": 6,
@@ -43441,7 +43544,7 @@
    "why": ""
   },
   "oscilar": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Oscilar",
    "site_tried": 0,
@@ -43478,7 +43581,7 @@
    "why": "not-an-org"
   },
   "ou-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ouhealth.com",
    "identity": "domain-agree",
    "label": "OU Health",
@@ -43503,7 +43606,7 @@
    "why": "not-an-org"
   },
   "outreach": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "outreach.com",
    "name": "Outreach",
    "site_tried": 0,
@@ -43521,7 +43624,7 @@
    "why": "not-an-org"
   },
   "overjet": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "OVERJET",
    "site_tried": 0,
@@ -43530,7 +43633,7 @@
    "why": "not-an-org"
   },
   "owl-labs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "owllabs.com",
    "identity": "domain-agree",
    "label": "Owl Labs",
@@ -43594,14 +43697,13 @@
    "why": ""
   },
   "pace-analytical": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "pacelabs.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Pace Analytical",
    "name": "Pace Analytical",
    "p279_path": [
-    "Q6881511",
-    "Q43229"
+    "p856"
    ],
    "p856": "pacelabs.com",
    "qid": "Q120493605",
@@ -44011,7 +44113,7 @@
    "why": ""
   },
   "parafin": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "parafin.com",
    "name": "Parafin",
    "site_tried": 4,
@@ -44332,7 +44434,7 @@
    "why": ""
   },
   "pattern-energy-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Pattern Energy Group",
    "site_tried": 0,
@@ -44743,7 +44845,7 @@
    "why": ""
   },
   "pendo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Pendo",
    "site_tried": 0,
@@ -44752,7 +44854,7 @@
    "why": "not-an-org"
   },
   "penn-state-university": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "pennstateuniversity.com",
    "identity": "org-only",
    "label": "Eberly Family Special Collections Library",
@@ -44865,7 +44967,7 @@
    "why": "not-an-org"
   },
   "perimatics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "perimatics.com",
    "name": "PERIMATICS",
    "site_tried": 6,
@@ -44891,7 +44993,7 @@
    "why": ""
   },
   "permobil": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "permobil.com",
    "identity": "domain-agree",
    "label": "Permobil",
@@ -44982,7 +45084,7 @@
    "why": "no-entity"
   },
   "personalis": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Personalis",
    "site_tried": 0,
@@ -45070,7 +45172,7 @@
    "why": ""
   },
   "phantom-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Phantom AI",
    "site_tried": 0,
@@ -45265,7 +45367,7 @@
    "why": ""
   },
   "pivot-bio": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Pivot Bio",
    "site_tried": 0,
@@ -45644,7 +45746,7 @@
    "why": ""
   },
   "pocket": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Pocket",
    "site_tried": 0,
@@ -45906,7 +46008,7 @@
    "why": "no-entity"
   },
   "precision-medicine-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Precision Medicine Group",
    "site_tried": 0,
@@ -46062,7 +46164,7 @@
    "why": "no-entity"
   },
   "pringle-technologies-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Pringle Technologies Inc",
    "site_tried": 0,
@@ -46345,7 +46447,7 @@
    "why": "no-entity"
   },
   "prospance-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "prospanceinc.com",
    "name": "Prospance Inc",
    "site_tried": 4,
@@ -46372,7 +46474,7 @@
    "why": "not-an-org"
   },
   "protective": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "protective.com",
    "name": "Protective",
    "site_tried": 4,
@@ -46433,13 +46535,13 @@
    "why": ""
   },
   "providence": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "checked": "2026-09-02",
+   "domain": "providenceri.gov",
    "name": "Providence",
    "site_tried": 0,
    "slug": "providence",
    "verdict": "no-candidate",
-   "why": "not-an-org"
+   "why": "no-site-icon"
   },
   "providence-medical-foundation": {
    "checked": "2026-08-23",
@@ -46451,7 +46553,7 @@
    "why": "no-entity"
   },
   "provishr": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "provishr.com",
    "name": "ProvisHR",
    "site_tried": 4,
@@ -46490,7 +46592,7 @@
    "why": ""
   },
   "pruitthealth": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "pruitthealth.com",
    "identity": "domain-agree",
    "label": "PruittHealth",
@@ -46524,13 +46626,13 @@
    "why": "no-entity"
   },
   "psiquantum": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "psiquantum.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "PsiQuantum",
    "name": "PsiQuantum",
    "p279_path": [
-    "Q783794"
+    "p856"
    ],
    "p856": "psiquantum.com",
    "qid": "Q124031889",
@@ -46833,7 +46935,7 @@
    "why": ""
   },
   "qbe": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Qbe",
    "site_tried": 0,
@@ -47005,7 +47107,7 @@
    "why": "not-an-org"
   },
   "quanta-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "quantaservices.com",
    "identity": "domain-agree",
    "label": "Quanta Services",
@@ -47146,7 +47248,7 @@
    "why": "no-logo-claim"
   },
   "quest-diagnostics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "questdiagnostics.com",
    "identity": "domain-agree",
    "label": "Quest Diagnostics",
@@ -47333,7 +47435,7 @@
    "why": "no-entity"
   },
   "qxo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "QXO",
    "site_tried": 0,
@@ -47585,7 +47687,7 @@
    "why": "not-an-org"
   },
   "rapid-eagle-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "rapideagle.com",
    "name": "Rapid Eagle Inc",
    "site_tried": 3,
@@ -47736,7 +47838,7 @@
    "why": ""
   },
   "rbc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "rbc.com",
    "identity": "domain-agree",
    "label": "Royal Bank of Canada",
@@ -47985,7 +48087,7 @@
    "why": ""
   },
   "redapt-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "redapt.com",
    "name": "Redapt inc",
    "site_tried": 4,
@@ -48095,7 +48197,7 @@
    "why": "not-an-org"
   },
   "reflection-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "reflectionai.com",
    "identity": "label-match",
    "label": "Reflection AI",
@@ -48111,17 +48213,17 @@
    "why": "undecodable"
   },
   "regal-rexnord-corporation": {
-   "checked": "2026-08-23",
-   "domain": "regalrexnordcorporation.com",
-   "identity": "label-match",
+   "checked": "2026-09-02",
+   "domain": "regalrexnord.com",
+   "identity": "domain-agree",
    "label": "Regal Rexnord",
    "name": "Regal Rexnord Corporation",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "regalrexnord.com",
    "qid": "Q7307899",
-   "site_tried": 7,
+   "site_tried": 4,
    "slug": "regal-rexnord-corporation",
    "verdict": "rejected",
    "why": "undersized"
@@ -48175,7 +48277,7 @@
    "why": "no-entity"
   },
   "relace": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Relace",
    "site_tried": 0,
@@ -48213,7 +48315,7 @@
    "why": ""
   },
   "reliable-paving-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "reliablepaving.com",
    "name": "RELIABLE PAVING, INC.",
    "site_tried": 5,
@@ -48256,16 +48358,16 @@
    "why": "no-logo-claim"
   },
   "relling": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "checked": "2026-09-02",
+   "domain": "rellingen.de",
    "name": "Relling",
-   "site_tried": 0,
+   "site_tried": 3,
    "slug": "relling",
    "verdict": "no-candidate",
    "why": "not-an-org"
   },
   "reltio": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Reltio",
    "site_tried": 0,
@@ -48379,7 +48481,7 @@
    "why": "no-entity"
   },
   "rennervation-foundation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "RennerVation Foundation",
    "site_tried": 0,
@@ -48684,7 +48786,7 @@
    "why": ""
   },
   "resortpass": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "resortpass.com",
    "identity": "label-match",
    "label": "ResortPass",
@@ -48737,7 +48839,7 @@
    "why": ""
   },
   "retell-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Retell AI",
    "site_tried": 0,
@@ -48773,7 +48875,7 @@
    "why": "no-entity"
   },
   "revolution-medicines": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "revolutionmedicines.com",
    "name": "Revolution Medicines",
    "site_tried": 0,
@@ -48830,7 +48932,7 @@
    "why": ""
   },
   "rhizome-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Rhizome AI",
    "site_tried": 0,
@@ -48952,7 +49054,7 @@
    "why": "no-entity"
   },
   "ridgeline": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ridgeline.com",
    "name": "Ridgeline",
    "site_tried": 4,
@@ -49407,13 +49509,27 @@
    "why": "no-site-icon"
   },
   "rocket": {
-   "checked": "2026-08-23",
+   "ar": 4.082,
+   "artist": "Rocket Companies",
+   "asset": "rocket.svg",
+   "bytes": 13368,
+   "checked": "2026-09-02",
+   "colours": 23,
    "domain": "rocket.com",
+   "edges": 0.2107,
+   "file": "\"Rocket Companies\" logo.svg",
+   "h": 61,
+   "ink": 0.379,
+   "license": "Public domain",
+   "mono": false,
    "name": "Rocket",
-   "site_tried": 3,
+   "sha256": "7600e296a51a24fa",
    "slug": "rocket",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/9/9c/%22Rocket_Companies%22_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 249,
+   "why": ""
   },
   "rocket-ems": {
    "checked": "2026-08-23",
@@ -50102,13 +50218,13 @@
    "why": "no-entity"
   },
   "sabre": {
-   "checked": "2026-08-23",
-   "domain": "",
+   "checked": "2026-09-02",
+   "domain": "mairie-sabres.fr",
    "name": "Sabre",
-   "site_tried": 0,
+   "site_tried": 4,
    "slug": "sabre",
-   "verdict": "no-candidate",
-   "why": "not-an-org"
+   "verdict": "rejected",
+   "why": "undersized"
   },
   "sabre-systems": {
    "checked": "2026-09-02",
@@ -50482,7 +50598,7 @@
    "why": "undersized"
   },
   "samba-tv": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Samba TV",
    "site_tried": 0,
@@ -50973,7 +51089,7 @@
    "why": "undersized"
   },
   "schreiber-foods": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "schreiberfoods.com",
    "identity": "domain-agree",
    "label": "Schreiber Foods",
@@ -51168,7 +51284,7 @@
    "why": "no-site-icon"
   },
   "seattlechildrens": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Seattlechildrens",
    "site_tried": 0,
@@ -51361,7 +51477,7 @@
    "why": ""
   },
   "semcorp-manufacturing-usa-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Semcorp Manufacturing USA LLC",
    "site_tried": 0,
@@ -51571,7 +51687,7 @@
    "why": ""
   },
   "sereact": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "sereact.com",
    "name": "Sereact",
    "site_tried": 0,
@@ -51818,7 +51934,7 @@
    "why": "no-entity"
   },
   "sfds-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "SFDS LLC",
    "site_tried": 0,
@@ -51918,7 +52034,7 @@
    "why": "no-entity"
   },
   "shawnee-state-university": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "shawnee.edu",
    "identity": "domain-agree",
    "label": "Shawnee State University",
@@ -51973,7 +52089,7 @@
    "why": "no-entity"
   },
   "shield-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "shieldai.com",
    "identity": "label-match",
    "label": "Shield AI",
@@ -52302,7 +52418,7 @@
    "why": "undersized"
   },
   "simple-science-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Simple Science Inc.",
    "site_tried": 0,
@@ -52391,7 +52507,7 @@
    "why": ""
   },
   "singlewire-software": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Singlewire Software",
@@ -52482,7 +52598,7 @@
    "why": "not-an-org"
   },
   "sixtyfour": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Sixtyfour",
    "site_tried": 0,
@@ -52491,7 +52607,7 @@
    "why": "not-an-org"
   },
   "sk-hynix-america": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "SK Hynix America",
    "site_tried": 0,
@@ -52697,7 +52813,7 @@
    "why": "no-entity"
   },
   "smarsh": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "smarsh.com",
    "identity": "domain-agree",
    "label": "Smarsh",
@@ -52713,7 +52829,7 @@
    "why": "no-site-icon"
   },
   "smart-apply-test-company": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "smartapplytest.com",
    "name": "Smart Apply Test Company",
    "site_tried": 0,
@@ -52789,7 +52905,7 @@
    "why": ""
   },
   "smbc-us": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "SMBC US",
    "site_tried": 0,
@@ -52862,7 +52978,7 @@
    "why": "no-logo-claim"
   },
   "snorkel-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "snorkelai.com",
    "name": "Snorkel AI",
    "site_tried": 3,
@@ -53138,7 +53254,7 @@
    "why": "no-entity"
   },
   "solidigm-us": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Solidigm US",
    "site_tried": 0,
@@ -53310,7 +53426,7 @@
    "why": "no-entity"
   },
   "soren": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Soren",
    "site_tried": 0,
@@ -53577,7 +53693,7 @@
    "why": ""
   },
   "space-cowboy": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "spacecowboy.com",
    "name": "Space Cowboy",
    "site_tried": 5,
@@ -53746,7 +53862,7 @@
    "why": "no-entity"
   },
   "spire": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "spire.com",
    "name": "Spire",
    "site_tried": 4,
@@ -53985,7 +54101,7 @@
    "why": ""
   },
   "ssctech": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "ssctech.com",
    "name": "Ssctech",
    "site_tried": 5,
@@ -54055,7 +54171,7 @@
    "why": "no-entity"
   },
   "st-patrick-s-school-yorktown": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "St. Patrick's School Yorktown",
    "site_tried": 0,
@@ -54064,7 +54180,7 @@
    "why": "no-entity"
   },
   "st-vincent-de-paul-society-of-lane-county": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "St. Vincent de Paul Society of Lane County",
    "site_tried": 0,
@@ -54110,13 +54226,13 @@
    "why": "no-site-icon"
   },
   "stand-together": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "standtogether.org",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Stand Together",
    "name": "Stand Together",
    "p279_path": [
-    "Q163740"
+    "p856"
    ],
    "p856": "standtogether.org",
    "qid": "Q86754305",
@@ -54154,23 +54270,14 @@
    "why": ""
   },
   "stanford-health-care": {
-   "checked": "2026-08-23",
-   "domain": "stanfordhealthcare.com",
-   "identity": "label-match",
-   "label": "Stanford Health Care",
+   "checked": "2026-09-02",
    "name": "Stanford Health Care",
-   "p279_path": [
-    "Q4287745"
-   ],
-   "p856": "stanfordhealthcare.org",
-   "qid": "Q130530819",
-   "site_tried": 8,
    "slug": "stanford-health-care",
-   "verdict": "rejected",
-   "why": "undersized"
+   "verdict": "deferred",
+   "why": "HTTPSConnectionPool(host='stanfordhealthcare.org', port=443): Read timed out. (read timeout=5)"
   },
   "stanford-medicine-children-s-health": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Stanford Medicine Children's Health",
    "site_tried": 0,
@@ -54210,13 +54317,13 @@
    "why": ""
   },
   "stantec": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "stantec.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Stantec",
    "name": "Stantec",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "stantec.com",
    "qid": "Q2331913",
@@ -54286,7 +54393,7 @@
    "why": ""
   },
   "starburst": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "starburst.com",
    "name": "Starburst",
    "site_tried": 4,
@@ -54295,7 +54402,7 @@
    "why": "undersized"
   },
   "stark-tech": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "starktech.com",
    "identity": "org-only",
    "label": "Stark State College",
@@ -54313,7 +54420,7 @@
    "why": "photograph"
   },
   "starkey": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "starkey.com",
    "name": "Starkey",
    "site_tried": 4,
@@ -54718,13 +54825,13 @@
    "why": ""
   },
   "stereotaxis": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "stereotaxis.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Stereotaxis",
    "name": "Stereotaxis",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "stereotaxis.com",
    "qid": "Q48987668",
@@ -55192,7 +55299,7 @@
    "why": ""
   },
   "sumitomo-pharma-america": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Sumitomo Pharma America",
    "site_tried": 0,
@@ -55201,7 +55308,7 @@
    "why": "no-entity"
   },
   "summit-therapeutics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "summittherapeutics.com",
    "identity": "label-match",
    "label": "Summit Therapeutics",
@@ -55289,7 +55396,7 @@
    "why": "no-site-icon"
   },
   "sundt": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "sundt.com",
    "name": "Sundt",
    "site_tried": 3,
@@ -55379,13 +55486,13 @@
    "why": ""
   },
   "sunrun": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "sunrun.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Sunrun",
    "name": "Sunrun",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "sunrun.com",
    "qid": "Q7638158",
@@ -55700,7 +55807,7 @@
    "why": ""
   },
   "swyfft": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Swyfft",
    "site_tried": 0,
@@ -55725,9 +55832,16 @@
    "why": "undersized"
   },
   "symplicity": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "symplicity.com",
+   "identity": "domain-agree",
+   "label": "Symplicity",
    "name": "Symplicity",
+   "p279_path": [
+    "p856"
+   ],
+   "p856": "symplicity.com",
+   "qid": "Q141185649",
    "site_tried": 4,
    "slug": "symplicity",
    "verdict": "rejected",
@@ -55764,13 +55878,13 @@
    "why": ""
   },
   "syncreon": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "syncreon.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Syncreon",
    "name": "Syncreon",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "syncreon.com",
    "qid": "Q63537348",
@@ -55805,7 +55919,7 @@
    "why": "photograph"
   },
   "syndigo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Syndigo",
    "site_tried": 0,
@@ -55916,13 +56030,13 @@
    "why": ""
   },
   "systems-technology-research": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Systems Technology & Research",
    "site_tried": 0,
    "slug": "systems-technology-research",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "t-mobile": {
    "ar": 4.808,
@@ -56141,13 +56255,13 @@
    "why": ""
   },
   "tandem-diabetes-care-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "tandemdiabetes.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Tandem Diabetes Care, Inc.",
    "name": "Tandem Diabetes Care, Inc.",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "tandemdiabetes.com",
    "qid": "Q22121872",
@@ -56611,7 +56725,7 @@
    "why": ""
   },
   "teamout": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "TeamOut",
    "site_tried": 0,
@@ -56738,13 +56852,13 @@
    "why": "no-entity"
   },
   "technology-service-professionals-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Technology Service Professionals, Inc",
    "site_tried": 0,
    "slug": "technology-service-professionals-inc",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "technotopia-solutions-llc": {
    "checked": "2026-08-23",
@@ -56774,7 +56888,7 @@
    "why": "no-entity"
   },
   "techsur-solutions": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Techsur Solutions",
    "site_tried": 0,
@@ -56865,7 +56979,7 @@
    "why": ""
   },
   "telcom-construction-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "telcomconstruction.com",
    "name": "TelCom Construction, LLC",
    "site_tried": 0,
@@ -57337,7 +57451,7 @@
    "why": "photograph"
   },
   "terranox-ai": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Terranox AI",
    "site_tried": 0,
@@ -57462,20 +57576,20 @@
   "texas-health-and-human-services-commission": {
    "ar": 3.636,
    "artist": "Unknown authorUnknown author",
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "colours": 284,
    "domain": "hhs.texas.gov",
    "edges": 0.1579,
    "file": "Logo of the Texas Health and Human Services Commission.png",
    "h": 55,
-   "identity": "label-match",
+   "identity": "domain-agree",
    "ink": 0.1735,
    "label": "Texas Health and Human Services Commission",
    "license": "Public domain",
    "mono": false,
    "name": "Texas Health and Human Services Commission",
    "p279_path": [
-    "Q327333"
+    "p856"
    ],
    "p856": "hhs.texas.gov",
    "qid": "Q7707726",
@@ -57541,7 +57655,7 @@
    "why": ""
   },
   "texas-oncology": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "texasoncology.com",
    "identity": "domain-agree",
    "label": "Texas Oncology",
@@ -57636,13 +57750,13 @@
    "why": ""
   },
   "texas-water-development-board": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "twdb.texas.gov",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Texas Water Development Board",
    "name": "Texas Water Development Board",
    "p279_path": [
-    "Q327333"
+    "p856"
    ],
    "p856": "twdb.texas.gov",
    "qid": "Q30264265",
@@ -57848,7 +57962,7 @@
    "why": ""
   },
   "the-city-of-lake-city": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "The City of lake city",
    "site_tried": 0,
@@ -57857,7 +57971,7 @@
    "why": "no-entity"
   },
   "the-crime-victims-center-parents-for-megan-s-law": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "The Crime Victims Center/Parents for Megan's Law",
    "site_tried": 0,
@@ -58175,7 +58289,7 @@
    "why": ""
   },
   "the-old-dominion-group": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "The Old Dominion Group",
    "site_tried": 0,
@@ -58681,9 +58795,9 @@
    "why": "photograph"
   },
   "the-university-of-virginia": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
-   "name": "The University of Virginia",
+   "name": "THE UNIVERSITY OF VIRGINIA",
    "site_tried": 0,
    "slug": "the-university-of-virginia",
    "verdict": "no-candidate",
@@ -58750,7 +58864,7 @@
    "why": ""
   },
   "themesoft": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "themesoft.com",
    "name": "THEMESOFT",
    "site_tried": 4,
@@ -58982,15 +59096,13 @@
    "why": ""
   },
   "thrivent": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "thrivent.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Thrivent",
    "name": "Thrivent",
    "p279_path": [
-    "Q2143354",
-    "Q1416636",
-    "Q4830453"
+    "p856"
    ],
    "p856": "thrivent.com",
    "qid": "Q140870592",
@@ -59219,7 +59331,7 @@
    "why": ""
   },
   "tmc-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "TMC Technologies",
    "site_tried": 0,
@@ -59228,7 +59340,7 @@
    "why": "no-entity"
   },
   "tmeic": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "tmeic.com",
    "identity": "domain-agree",
    "label": "TMEIC",
@@ -59270,7 +59382,7 @@
    "why": ""
   },
   "tobor-robot-corporation": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Tobor Robot Corporation",
    "site_tried": 0,
@@ -59405,7 +59517,7 @@
    "why": ""
   },
   "torch-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "torchtechnologies.com",
    "identity": "domain-agree",
    "label": "Torch Technologies",
@@ -59592,7 +59704,7 @@
    "why": ""
   },
   "traba": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Traba",
    "site_tried": 0,
@@ -59942,7 +60054,7 @@
    "why": "no-site-icon"
   },
   "trillium-flow-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "trilliumflow.com",
    "name": "Trillium Flow Technologies",
    "site_tried": 4,
@@ -60012,7 +60124,7 @@
    "why": "no-entity"
   },
   "trove-brands": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Trove Brands",
    "site_tried": 0,
@@ -60247,7 +60359,7 @@
    "why": ""
   },
   "ttec-digital": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "TTEC Digital",
    "site_tried": 0,
@@ -60510,7 +60622,7 @@
    "why": ""
   },
   "twin-peaks-inc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Twin Peaks Inc",
    "site_tried": 0,
@@ -60714,13 +60826,23 @@
    "why": ""
   },
   "uber-freight": {
-   "checked": "2026-08-23",
+   "ar": 1.0,
+   "artist": "",
+   "asset": "uber-freight.webp",
+   "bytes": 2116,
+   "checked": "2026-09-02",
    "domain": "uberfreight.com",
+   "h": 512,
+   "license": "site",
+   "mono": true,
    "name": "Uber Freight",
-   "site_tried": 4,
+   "sha256": "7c8e001b7d6a4731",
    "slug": "uber-freight",
-   "verdict": "rejected",
-   "why": "undersized"
+   "src": "https://images.ctfassets.net/ysln10zw0yzg/4FgD53b8MsvW2n7IOOszFg/073903fde7664b384e54febd3196bf63/uf_black_small_logo.png",
+   "tier": "site",
+   "verdict": "accepted",
+   "w": 512,
+   "why": ""
   },
   "ubiquiti": {
    "ar": 0.992,
@@ -60843,22 +60965,34 @@
    "why": "not-an-org"
   },
   "ucla": {
-   "checked": "2026-08-23",
+   "ar": 3.112,
+   "artist": "UCLA",
+   "asset": "ucla.svg",
+   "bytes": 1202,
+   "checked": "2026-09-02",
+   "colours": 26,
    "domain": "ucla.edu",
-   "identity": "org-only",
+   "edges": 0.1166,
+   "file": "University of California, Los Angeles logo.svg",
+   "h": 80,
+   "identity": "domain-agree",
+   "ink": 0.4294,
    "label": "University of California, Los Angeles",
+   "license": "Public domain",
+   "mono": false,
    "name": "UCLA",
    "p279_path": [
-    "Q62078547",
-    "Q875538",
-    "Q3918"
+    "p856"
    ],
    "p856": "ucla.edu",
    "qid": "Q174710",
-   "site_tried": 5,
+   "sha256": "720243fb3d3e07c3",
    "slug": "ucla",
-   "verdict": "rejected",
-   "why": "undersized"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/6/6c/University_of_California%2C_Los_Angeles_logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 249,
+   "why": ""
   },
   "ucsf-medical-center": {
    "ar": 8.621,
@@ -61061,7 +61195,7 @@
    "why": ""
   },
   "ultra": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Ultra",
    "site_tried": 0,
@@ -61400,7 +61534,7 @@
    "why": "no-logo-claim"
   },
   "universal-engineering-sciences": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Universal Engineering Sciences",
    "site_tried": 0,
@@ -62123,7 +62257,7 @@
    "why": ""
   },
   "university-of-mississippi-medical-center": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "University of Mississippi Medical Center",
@@ -62265,7 +62399,7 @@
    "why": ""
   },
   "university-of-north-carolina-at-greensboro": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "University of North Carolina at Greensboro",
@@ -62277,8 +62411,8 @@
    "qid": "Q1321380",
    "site_tried": 0,
    "slug": "university-of-north-carolina-at-greensboro",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-logo-claim"
   },
   "university-of-north-dakota": {
    "checked": "2026-09-02",
@@ -62977,7 +63111,7 @@
    "why": "not-an-org"
   },
   "updateme": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "updateme.com",
    "name": "UpdateMe",
    "site_tried": 4,
@@ -63135,24 +63269,37 @@
    "why": "no-entity"
   },
   "us-bank": {
-   "checked": "2026-08-23",
+   "ar": 3.571,
+   "artist": "U.S. Bank NA",
+   "asset": "us-bank.svg",
+   "bytes": 2692,
+   "checked": "2026-09-02",
+   "colours": 60,
    "domain": "usbank.com",
-   "identity": "org-only",
+   "edges": 0.1482,
+   "file": "US Bank logo 2023 color.svg",
+   "h": 70,
+   "identity": "domain-agree",
+   "ink": 0.4562,
    "label": "U.S. Bank NA",
+   "license": "Public domain",
+   "mono": false,
    "name": "US BANK",
    "p279_path": [
-    "Q76218249",
-    "Q43229"
+    "p856"
    ],
    "p856": "usbank.com",
    "qid": "Q138534823",
-   "site_tried": 3,
+   "sha256": "226082e715041a16",
    "slug": "us-bank",
-   "verdict": "rejected",
-   "why": "undersized"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/f/ff/US_Bank_logo_2023_color.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "us-bank-tos": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "US Bank - TOS",
    "site_tried": 0,
@@ -63161,22 +63308,22 @@
    "why": "no-entity"
   },
   "us-defense-finance-and-accounting-service": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "US Defense Finance and Accounting Service",
    "site_tried": 0,
    "slug": "us-defense-finance-and-accounting-service",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "no-entity"
   },
   "us-department-of-veterans-affairs": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "US Department of Veterans Affairs",
    "site_tried": 0,
    "slug": "us-department-of-veterans-affairs",
-   "verdict": "rejected",
-   "why": "domain-unverified"
+   "verdict": "no-candidate",
+   "why": "not-an-org"
   },
   "us-foods": {
    "ar": 1.043,
@@ -63247,7 +63394,7 @@
    "why": "no-entity"
   },
   "usic": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "USIC",
    "site_tried": 0,
@@ -63265,7 +63412,7 @@
    "why": "no-entity"
   },
   "ut-health-science-center-at-san-antonio": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "UT Health Science Center at San Antonio",
    "site_tried": 0,
@@ -63306,7 +63453,7 @@
    "why": "no-logo-claim"
   },
   "utility-partners-of-america": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Utility Partners of America",
    "site_tried": 0,
@@ -63635,7 +63782,7 @@
    "why": "not-an-org"
   },
   "vaynermedia": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "vaynermedia.com",
    "identity": "domain-agree",
    "label": "VaynerMedia",
@@ -63713,7 +63860,7 @@
    "why": "no-logo-claim"
   },
   "velosio": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Velosio",
    "site_tried": 0,
@@ -63784,7 +63931,7 @@
    "why": "no-entity"
   },
   "verathon": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Verathon",
    "site_tried": 0,
@@ -63969,7 +64116,7 @@
    "why": "no-entity"
   },
   "verizon-global-tenant": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Verizon Global Tenant",
    "site_tried": 0,
@@ -64267,7 +64414,7 @@
    "why": ""
   },
   "viant-technology": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Viant Technology",
@@ -64283,31 +64430,27 @@
    "why": "no-logo-claim"
   },
   "viasat": {
-   "ar": 3.086,
-   "artist": "Viasat",
-   "checked": "2026-08-23",
-   "colours": 198,
+   "ar": 3.543,
+   "artist": "Unknown authorUnknown author",
+   "asset": "viasat.svg",
+   "bytes": 11023,
+   "checked": "2026-09-02",
+   "colours": 31,
    "domain": "viasat.com",
-   "edges": 0.1156,
-   "file": "Viasat.svg",
-   "h": 81,
-   "identity": "domain-agree",
-   "ink": 0.2863,
-   "label": "Viasat",
+   "edges": 0.1449,
+   "file": "ViaSat-Logo.svg",
+   "h": 70,
+   "ink": 0.512,
    "license": "Public domain",
    "mono": false,
    "name": "Viasat",
-   "p279_path": [
-    "p856"
-   ],
-   "p856": "viasat.com",
-   "qid": "Q7924358",
-   "site_tried": 4,
+   "sha256": "1832638b1a0c66b5",
    "slug": "viasat",
+   "src": "https://upload.wikimedia.org/wikipedia/commons/9/9c/ViaSat-Logo.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
    "tier": "wikidata",
-   "verdict": "rejected",
-   "w": 250,
-   "why": "photograph"
+   "verdict": "accepted",
+   "w": 248,
+   "why": ""
   },
   "vibesoft-inc": {
    "checked": "2026-08-23",
@@ -64406,7 +64549,7 @@
    "why": "not-an-org"
   },
   "vinfinities-corp": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "vinfinities.com",
    "name": "Vinfinities Corp",
    "site_tried": 6,
@@ -64617,20 +64760,27 @@
    "why": "no-entity"
   },
   "visa": {
-   "checked": "2026-08-23",
+   "ar": 3.049,
+   "artist": "Visa Inc., Nikon1803, Gameposo, and Tokyoship",
+   "asset": "visa.svg",
+   "bytes": 852,
+   "checked": "2026-09-02",
+   "colours": 27,
    "domain": "visa.com",
-   "identity": "domain-agree",
-   "label": "Visa Inc.",
+   "edges": 0.1129,
+   "file": "Visa Inc. logo (2021–present).svg",
+   "h": 82,
+   "ink": 0.5146,
+   "license": "Public domain",
+   "mono": false,
    "name": "Visa",
-   "p279_path": [
-    "p856"
-   ],
-   "p856": "corporate.visa.com",
-   "qid": "Q328840",
-   "site_tried": 4,
+   "sha256": "a9800215097d4cfa",
    "slug": "visa",
-   "verdict": "rejected",
-   "why": "undersized"
+   "src": "https://upload.wikimedia.org/wikipedia/commons/5/5c/Visa_Inc._logo_%282021%E2%80%93present%29.svg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "tier": "wikidata",
+   "verdict": "accepted",
+   "w": 250,
+   "why": ""
   },
   "visionet-systems": {
    "checked": "2026-08-23",
@@ -64839,7 +64989,7 @@
    "why": ""
   },
   "vixxo": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "vixxo.com",
    "name": "Vixxo",
    "site_tried": 3,
@@ -64903,7 +65053,7 @@
    "why": ""
   },
   "vml": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "vml.com",
    "identity": "label-match",
    "label": "VML",
@@ -64967,7 +65117,7 @@
    "why": "not-an-org"
   },
   "votaw-precision-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "VOTAW PRECISION TECHNOLOGIES",
    "site_tried": 0,
@@ -65344,7 +65494,7 @@
    "why": ""
   },
   "washington-county-mental-health-services": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Washington County Mental Health Services",
    "site_tried": 0,
@@ -65469,13 +65619,13 @@
    "why": "undersized"
   },
   "waters": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "waters.com",
-   "identity": "label-match",
+   "identity": "domain-agree",
    "label": "Waters Corporation",
    "name": "Waters",
    "p279_path": [
-    "Q4830453"
+    "p856"
    ],
    "p856": "waters.com",
    "qid": "Q1322011",
@@ -65485,7 +65635,7 @@
    "why": "no-site-icon"
   },
   "waupaca-foundry": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Waupaca Foundry",
    "site_tried": 0,
@@ -65937,8 +66087,8 @@
    "why": ""
   },
   "werfen": {
-   "checked": "2026-08-23",
-   "domain": "werfen.com",
+   "checked": "2026-09-02",
+   "domain": "gemeindewerfen.at",
    "identity": "label-match",
    "label": "Werfen",
    "name": "Werfen",
@@ -65947,7 +66097,7 @@
    ],
    "p856": "werfen.com",
    "qid": "Q104480791",
-   "site_tried": 4,
+   "site_tried": 7,
    "slug": "werfen",
    "verdict": "rejected",
    "why": "undersized"
@@ -66215,7 +66365,7 @@
    "why": ""
   },
   "westinghouse-electric-company-llc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "westinghouseelectriccompany.com",
    "name": "Westinghouse Electric Company, LLC",
    "site_tried": 5,
@@ -66334,7 +66484,7 @@
    "why": "no-entity"
   },
   "whoop": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "whoop.com",
    "identity": "domain-agree",
    "label": "WHOOP",
@@ -66604,7 +66754,7 @@
    "why": ""
   },
   "wing": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "wing.com",
    "identity": "domain-agree",
    "label": "Wing",
@@ -66620,7 +66770,7 @@
    "why": "undersized"
   },
   "winsupply": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Winsupply",
    "site_tried": 0,
@@ -66629,7 +66779,7 @@
    "why": "no-entity"
   },
   "winwire": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "WinWire",
    "site_tried": 0,
@@ -66979,7 +67129,7 @@
    "why": "undecodable"
   },
   "workstream-technologies": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Workstream Technologies",
    "site_tried": 0,
@@ -67284,7 +67434,7 @@
    "why": ""
   },
   "xaira-therapeutics": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Xaira Therapeutics",
    "site_tried": 0,
@@ -67332,7 +67482,7 @@
    "why": "no-entity"
   },
   "xnrgy-climate-systems": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "XNRGY Climate Systems",
    "site_tried": 0,
@@ -67480,7 +67630,7 @@
    "why": ""
   },
   "y-combinator-s-work-at-a-startup": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "name": "Y Combinator's Work at a Startup",
    "site_tried": 0,
@@ -67800,7 +67950,7 @@
    "why": "no-entity"
   },
   "zekelman-industries": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "",
    "identity": "label-match",
    "label": "Zekelman Industries",
@@ -68029,7 +68179,7 @@
   "zions-bancorporation": {
    "ar": 15.5,
    "artist": "Unknown authorUnknown author",
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "zionsbancorporation.com",
    "file": "Zions Bancorporation logo.svg",
    "h": 16,
@@ -68085,7 +68235,7 @@
    "why": "no-entity"
   },
   "zocdoc": {
-   "checked": "2026-08-23",
+   "checked": "2026-09-02",
    "domain": "zocdoc.com",
    "identity": "domain-agree",
    "label": "Zocdoc",

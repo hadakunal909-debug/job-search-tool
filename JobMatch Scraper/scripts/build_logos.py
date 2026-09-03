@@ -223,6 +223,32 @@ LOGO_OVERRIDE = {
     "linkedin": "LinkedIn Logo.svg",
     "city-of-new-york": "NYC Logo Wolff Olins.svg",
     "rochester-institute-of-technology": "RIT 2018 logo short orange.svg",
+    # + 2026-09-02. The ten biggest logo-less employers BY FEED VOLUME, each pinned to the
+    # Commons file on its Wikidata entity. They are here because the NAME our corpus uses does
+    # not reach the entity: "Disney" is not "The Walt Disney Company", "Eaton" matched a person
+    # (not-an-org), "BAE Systems, Inc." and "KLA" reached no entity at all, and each then fell
+    # through to a site icon that was absent or under the 128px floor. Between them they cover
+    # ~1,500 feed rows. Every entry was resolved by asking Wikidata for the entity's P154, and
+    # the entity was confirmed from the employer's own BOARD URL where the name is ambiguous --
+    # "Rocket" is quickenloans.wd5.myworkdayjobs.com/rocket, i.e. Rocket Companies, not Rocket
+    # Lab or Rocket Software.
+    #
+    # DELIBERATELY NOT HERE: Guidehouse, Mount Sinai and RBC, whose P154 is a .jpg. current_logo
+    # rejects a JPEG on the grounds that a Commons brand logo is SVG or PNG and a JPEG is a
+    # photograph; routing one in through an override would just defeat that guard from the side.
+    # Also absent: Cigna, Providence, Akima, Crusoe, Northern Trust, Herc Rentals and MasTec --
+    # their entities carry no P154 at all, so there is nothing to pin.
+    "bae-systems-inc": "BAE Systems logo.svg",
+    "disney": "The Walt Disney Company Logo.svg",
+    "eaton": "Eaton Corporation Logo.svg",
+    "kla": "KLA Corp. logo.svg",
+    # The CURRENT mark: Q328840 carries five, four of them closed with a P582 end date.
+    "visa": "Visa Inc. logo (2021–present).svg",
+    "accenture-federal-services": "Accenture.svg",
+    "intuitive": "Intuitive Surgical logo.svg",
+    "assaabloy": "Assa Abloy.svg",
+    "viasat": "ViaSat-Logo.svg",
+    'rocket': '"Rocket Companies" logo.svg',
 }
 
 
@@ -1640,7 +1666,7 @@ def run_harvest(args):
         rate = accepted / float(attempted)
         print("  accept rate   %5.1f%% of %d judged candidates" % (100 * rate, attempted))
         if rate < 0.20:
-            print("\nFAIL accept rate below 20%. That is a source changing shape, not a "
+            print("\nFAIL accept rate below 20%%. That is a source changing shape, not a "
                   "corpus of companies without logos. Nothing was deleted; existing assets "
                   "still serve. Check the first 'debug' entry in %s." % LEDGER)
             return 1
