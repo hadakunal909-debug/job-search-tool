@@ -172,6 +172,8 @@ def main():
     ap.add_argument("--check", action="store_true", help="exit 1 if a threshold is breached")
     ap.add_argument("--max-phantom", type=float, default=1.0, help="%% of postings, for --check")
     ap.add_argument("--max-junk", type=float, default=8.0, help="median %%, for --check")
+    ap.add_argument("--max-nav", type=int, default=5,
+                    help="descriptions still opening with site furniture, for --check")
     a = ap.parse_args()
 
     app = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -210,6 +212,11 @@ def main():
     struct = {"newline": 0, "bullet": 0}
     ph_jobs = live_jobs = raised = capped = 0
     ph_terms, live_terms, junk_terms, junks = {}, {}, {}, []
+    # WHAT THE READER ACTUALLY SEES, before and after core.clean_jd. The counters above measure
+    # what is STORED and that number cannot move without a re-fetch; this measures what /job
+    # renders, which is the thing the owner reported and the thing read-time cleaning fixes.
+    verdicts = {"ok": 0, "chrome-stripped": 0, "not-a-posting": 0}
+    opens_nav_before = opens_nav_after = 0
 
     for u in sample:
         jd = jds[u]
@@ -217,6 +224,13 @@ def main():
         for k, rx in crx:
             if rx.search(low):
                 chrome[k] += 1
+        body, verdict = core.clean_jd(jd)
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+        if any(rx.search(low[:400]) for _k, rx in crx):
+            opens_nav_before += 1
+            if verdict != "not-a-posting" and any(
+                    rx.search(body[:400].lower()) for _k, rx in crx):
+                opens_nav_after += 1
         if "\n" in jd:
             struct["newline"] += 1
         if "•" in jd:
@@ -288,6 +302,12 @@ def main():
     print("\nF) jdrender.text_halves() RAISES -> the legal filter is silently off")
     print("     %.1f%% of postings  (%d)" % (pct(raised), raised))
 
+    print("\nG) WHAT THE READER SEES, after core.clean_jd")
+    for k in ("ok", "chrome-stripped", "not-a-posting"):
+        print("     %-18s %5.1f%%  (%d)" % (k, pct(verdicts[k]), verdicts[k]))
+    print("     descriptions OPENING with site furniture: %d -> %d"
+          % (opens_nav_before, opens_nav_after))
+
     if a.check:
         bad = []
         if pct(live_jobs) > a.max_phantom:
@@ -297,6 +317,13 @@ def main():
             bad.append("median junk share %.0f%% (max %.0f)" % (med, a.max_junk))
         if raised:
             bad.append("text_halves raised on %d postings" % raised)
+        # THE ONE THAT GUARDS THE READER'S EXPERIENCE. Everything above measures the scored
+        # terms; this measures whether a description still opens with a navigation bar, which
+        # is what was actually reported. Measured over the whole corpus after read-time
+        # cleaning: 1 of 2,461. A handful is tolerable; a regression here is not.
+        if opens_nav_after > a.max_nav:
+            bad.append("%d descriptions still open with site furniture (max %d)"
+                       % (opens_nav_after, a.max_nav))
         if bad:
             print("\nFAILED: " + "; ".join(bad))
             return 1

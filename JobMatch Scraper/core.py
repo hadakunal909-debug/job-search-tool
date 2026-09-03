@@ -493,6 +493,227 @@ def html_to_text(raw):
     return _soup_text(BeautifulSoup(html.unescape(raw), "lxml"))
 
 
+# ---------------------------------------------------------------------------------------------
+# READING A STORED DESCRIPTION: the one door
+# ---------------------------------------------------------------------------------------------
+# WHAT THIS IS FOR. fetch_jd's last resort stores the WHOLE PAGE when no _MAIN_SELECTORS region
+# yields 250 characters, and a careers SPA with obfuscated class names and no semantic tags
+# defeats every selector in that list -- so the site's own navigation gets stored as a job
+# description. Measured over the 41,434 cached descriptions: 2,638 (6.4%) carry site furniture,
+# and careers.google.com is 1,052 of its 1,099 rows. 790 of those are exactly 8,000 characters,
+# which is fetch_jd's own `limit` truncating mid-navigation.
+#
+# NOTHING DOWNSTREAM COULD SEE IT, and that is the actual defect. The quality gate was
+# ONE-SIDED: score_jobs.MIN_PAGE_JD_CHARS is a FLOOR, and this failure is a shell that is too
+# LONG. _is_thin_jd is `0 < len < 400`, so an 8,000-char nav capture is never thin and the retry
+# ledger never probes it; _accept_jd wants `len >= 3 * old`, so a correct 3,400-char description
+# could never replace it. The verdict this returns is the ceiling that was missing.
+#
+# CLEANED ON READ, NOT ON WRITE. The stored column stays the archive, so this reaches all 41,434
+# rows the moment it deploys -- no migration, no re-fetch -- and a better rule tomorrow reaches
+# them again for free.
+
+# WHAT COUNTS AS FURNITURE. Three kinds, none of them host-specific: icon ligature names, the
+# labels on a careers site's own chrome, and the shape of a results list.
+_CHROME_PARTS = (
+    # MATERIAL ICONS LIGATURE NAMES. A careers SPA renders its icons as
+    # <i class="material-icons">work_outline</i>, so the icon's NAME is real text and lands in
+    # get_text() output. Nobody writes these words in prose, which makes them the cleanest
+    # possible signal that we captured a page instead of a posting.
+    r"work_outline|expand_more|expand_less|arrow_back|arrow_forward|corporate_fare|"
+    r"info_outline|navigate_next|navigate_before|person_outline|noogler_hat|handyman|"
+    r"bar_chart|keyboard_arrow_down|open_in_new|more_vert",
+    # A RESULTS PAGE captured around the job, because the stored URL rendered a search.
+    r"jobs? matched|jobs? search results|go to next page|back to (?:jobs? )?search|"
+    r"return to search results",
+    # THE SITE'S OWN MENU AND BUTTONS -- what sits between "Skip to main content" and the posting
+    # on a careers site whose nav carries no icons: a run of menu labels with no sentence in it.
+    # Without them the Amazon rows kept 300 characters of "Home Teams Locations Job categories My
+    # profile ..." at the top of every description.
+    r"skip to (?:main )?content|share this job|save this job|print this job|"
+    r"email a friend|view all jobs|job categories|job alerts|"
+    r"my (?:applications|profile|career)|sign out|"
+    r"cookies? (?:polic(?:y|ies)|settings?|preferences?)|accept all cookies|we use cookies|"
+    r"enable javascript|javascript is (?:disabled|required)",
+)
+_CHROME_RX = re.compile("|".join(_CHROME_PARTS), re.I)
+
+# THE PREFILTER IS NOT AN OPTIMISATION DETAIL, it is what makes this affordable in the scorer.
+# _CHROME_RX has to be scanned across the whole description and costs 2.9 ms/row -- 119 s over
+# the corpus, on top of analyze_jd's own 3.8 ms/row. str.__contains__ is a tuned C substring
+# search and a regex alternation is not, so a plain literal loop runs first and clears most rows.
+# It reads only the HEAD, because furniture is a prefix and that is the only place a cut can
+# start; the full scan that follows a hit still covers the whole text.
+#
+# EVERY LITERAL MUST BE REACHABLE FROM ONE OF THE _CHROME_PARTS ALTERNATIVES, and every
+# alternative must have a literal: a pattern with no literal is silently disabled, a literal with
+# no pattern silently costs a full scan. test_clean_jd.py checks both directions.
+#
+# THEY ARE ALL RARE ON PURPOSE. An earlier list used "rows", "showing", "matched", "profile" and
+# "cookie", which are ordinary English: 30% of the corpus passed the prefilter and paid for the
+# full scan anyway. Every literal here is a phrase a careers site writes and a job description
+# does not.
+_CHROME_LITERALS = (
+    "_outline", "expand_", "arrow_", "corporate_fare", "navigate_", "noogler_hat", "handyman",
+    "bar_chart", "keyboard_arrow", "open_in_new", "more_vert",
+    "jobs matched", "job matched", "search results", "go to next page", "back to search",
+    "back to job", "return to search",
+    "skip to main", "skip to content", "share this job", "save this job", "print this job",
+    "email a friend", "view all jobs", "job categor", "job alert",
+    "my profile", "my application", "my career",
+    # Both numbers of "cookie", because the pattern allows both and a literal that covers only
+    # the singular silently disables the plural half of it -- which is what test_clean_jd.py's
+    # correspondence check found the first time it ran.
+    "sign out", "all cookies", "use cookies", "cookie polic", "cookies polic",
+    "cookie setting", "cookies setting", "cookie preference", "cookies preference",
+    "enable javascript", "javascript is",
+)
+
+# A PAGE THAT SAYS THERE IS NO POSTING. Read separately from furniture because it is a different
+# answer: furniture means "the description is in here somewhere", this means "there is nothing to
+# find". 1,090 rows in the cache say one of these and every one of them is over _MIN_JD_CHARS, so
+# the thin machinery never saw them -- Actalent 713 (already known unrecoverable) and BrassRing
+# 364, whose "shell" is 6,209 characters of cookie policy wrapped around a dead link.
+_DEAD_SHELL_RX = re.compile(
+    r"we(?:'|’)?re sorry, this link|sorry to interrupt|your session has expired|"
+    r"no longer (?:active|available|accepting)|"
+    r"this (?:job|position|posting) (?:is|has been) (?:closed|filled|expired)|"
+    r"page not found|404 error", re.I)
+_DEAD_SHELL_HEAD = 1500
+
+# THE SHAPE OF A RESULTS LIST, which carries no furniture words of its own. Google's captured
+# listing runs 1,400 characters PAST its last icon name -- rows of "Title City, ST, USA ; +2
+# more" -- so a cut that stopped at the last icon left the listing in and a cut that jumped to
+# the next heading took real prose out. COUNTED rather than matched: a genuine posting can name
+# one office this way, and measured over 4,000 clean descriptions 0.8% contain the pattern once
+# and NONE contain it three times. Below the threshold it is a sentence; at or above it is a list.
+# Gated on ", USA" because that is what the corpus is; a non-US listing would not be caught, and
+# there is no non-US corpus to measure one against.
+_LISTING_RX = re.compile(r"\+\d+ more\b|\b[A-Z][a-z]+, [A-Z]{2}, USA\b")
+_LISTING_MIN = 3
+
+# WHERE THE POSTING ITSELF BEGINS. Deliberately NARROWER than jdrender.JD_HEAD, which answers a
+# different question ("is this line a heading, anywhere in the body"). This one is only ever used
+# to TIDY a cut the furniture run already decided, never to choose one -- see _strip_chrome.
+_POSTING_START = re.compile(
+    "(?:\\A|(?<=[\\s•.;:!?]))("
+    "about (?:the|this|our) (?:job|role|position|opportunity|team)|"
+    "job (?:summary|description|details|overview)|description|"
+    "position (?:summary|overview|description|purpose)|role (?:summary|overview)|"
+    "the (?:role|opportunity|position)|your (?:role|impact)|"
+    "(?:minimum|basic|preferred|required|key|core|general) qualifications|qualifications|"
+    "(?:key |primary |essential |core )?(?:job )?responsibilities|duties and responsibilities|"
+    "essential (?:functions|duties)|day in the life|"
+    "what you(?:'|’)?ll (?:do|need|bring)|what you will do|what you bring|"
+    "what we(?:'|’)?re looking for|who you are|"
+    "requirements|overview"
+    ")\\b", re.I)
+
+# How far into the text furniture can still be a PREFIX. Proportional as well as absolute,
+# because a captured results list grows with the page it came from.
+_CHROME_HEAD_CHARS = 3000
+# How far apart two furniture matches can be and still belong to the SAME run. This is the one
+# number that had to be measured rather than chosen, because both directions cost something real.
+# Over the 2,496 rows a cut touches: at 200 only 0.7% lose posting text but 39.7% still OPEN on
+# furniture; at 1,200 nothing opens on furniture but 13.8% lose posting text. 500 is the knee.
+# What the losers lose is almost entirely Google's benefits block, which sits ABOVE the
+# qualifications on its scraped page -- so the trade is a benefits list for a readable posting.
+_CHROME_RUN_GAP = 500
+# How far past the end of the run to look for a heading to start on. SMALL ON PURPOSE. Reaching
+# further was the first version of this rule and it was wrong in the expensive direction:
+# Amazon's nav is one marker at character 98 and its next heading is "Key job responsibilities"
+# at 1,336, so jumping to the heading discarded the entire role summary -- measured, that threw
+# away posting text on 37% of the rows it touched.
+_SNAP_CHARS = 400
+# When no heading is in reach, how far to look for the end of the sentence the cut landed inside.
+_SENTENCE_END = re.compile("[.!?\\u2022\\n] +")
+_SENTENCE_LOOK = 200
+# FURNITURE LEFT WHERE THE POSTING SHOULD START. Judged on the OPENING of the body, not on the
+# whole of it, and that distinction is the whole rule: a recovered description routinely ends
+# with "share this job" and a Google page ends with three more icon names, so counting residue
+# document-wide called 1,015 successfully-recovered rows unreadable -- the /job page then
+# refused to render a description whose qualifications the block above it had just listed.
+# The question this answers is only ever "does what is left OPEN as a job".
+_CHROME_LEAD_WINDOW = 400
+
+
+def _furniture_spans(text):
+    """Sorted [(start, end)] of every piece of site furniture in `text`.
+
+    Computed ONCE and reused for both the cut and the residue check -- rescanning the body was
+    a second full pass over the description for an answer already in hand.
+    """
+    spans = []
+    head = text[:max(_CHROME_HEAD_CHARS, len(text) // 2)].lower()
+    for lit in _CHROME_LITERALS:
+        if lit in head:
+            spans = [(m.start(), m.end()) for m in _CHROME_RX.finditer(text.lower())]
+            break
+    if ", USA" in text:
+        listing = [(m.start(), m.end()) for m in _LISTING_RX.finditer(text)]
+        if len(listing) >= _LISTING_MIN:
+            spans += listing
+    spans.sort()
+    return spans
+
+
+def _strip_chrome(text, spans):
+    """(body, cut) -- site navigation removed from the front, or the text unchanged and cut 0.
+
+    THE FURNITURE DECIDES THE CUT AND A HEADING ONLY TIDIES IT. The posting begins where the
+    page's own chrome stops, so the cut point is the end of the first contiguous RUN of
+    furniture -- matches no more than _CHROME_RUN_GAP apart, which keeps a menu and the results
+    list under it together while leaving a footer at the far end of the document alone. Then,
+    and only if a section heading starts within _SNAP_CHARS of that point, the cut moves forward
+    to the heading so the description opens on a title rather than mid-clause.
+    """
+    head = max(_CHROME_HEAD_CHARS, len(text) // 2)
+    lead = [s for s in spans if s[0] < head]
+    if not lead:
+        return text, 0
+    cut = lead[0][1]
+    for start, end in lead[1:]:
+        if start - cut > _CHROME_RUN_GAP:
+            break
+        cut = max(cut, end)
+    snap = _POSTING_START.search(text, cut, cut + _SNAP_CHARS)
+    if snap is not None:
+        cut = snap.start()
+    else:
+        # NO HEADING TIDIED THIS CUT, so make sure it at least lands on a boundary. A menu label
+        # can occur inside a real sentence -- "you'll be invited to create a profile, which will
+        # let you see your application status" -- and cutting at the label opened 73 descriptions
+        # mid-clause. Advancing to the end of the sentence is bounded and never loses a section.
+        edge = _SENTENCE_END.search(text, cut, cut + _SENTENCE_LOOK)
+        if edge is not None:
+            cut = edge.end()
+    if cut <= 0 or len(text) - cut < _MIN_JD_CHARS:   # nothing recognisable survived; keep it all
+        return text, 0
+    return text[cut:].strip(), cut
+
+
+def clean_jd(text):
+    """(cleaned, verdict) -- a stored description, read the one way everything reads it.
+
+    verdict is "ok"; "chrome-stripped" when site navigation was removed and a posting was left
+    behind; or "not-a-posting" when what we are holding is a page rather than a job.
+
+    LENGTH IS NOT JUDGED HERE. "Too short to score" is _MIN_JD_CHARS and it already has its own
+    machinery -- score_jobs._is_thin_jd, the per-host retry ledger, refetch_thin_jds. Conflating
+    the two would send a genuinely short description down the junk path and lose its repair route.
+    """
+    t = (text or "").strip()
+    if not t:
+        return "", "not-a-posting"
+    spans = _furniture_spans(t)
+    body, cut = _strip_chrome(t, spans) if spans else (t, 0)
+    if _DEAD_SHELL_RX.search(body[:_DEAD_SHELL_HEAD]):
+        return body, "not-a-posting"
+    if any(cut <= s[0] < cut + _CHROME_LEAD_WINDOW for s in spans):
+        return body, "not-a-posting"   # the cut did not clear the furniture; still a page
+    return body, ("chrome-stripped" if cut else "ok")
+
+
 # A PLACE IS NOT A SKILL. Pay-transparency notices enumerate the states and cities a range
 # applies in ("...in Colorado, Hawaii, Maine, Minnesota, Vermont and the District of Columbia"),
 # and those sit in the BODY of the description rather than in the EEO paragraph -- so the
@@ -552,9 +773,16 @@ def analyze_jd(jd_text, idf=None):
     requirements section — NOT the résumé — so it can be computed once per job and reused
     for every résumé and every page render.
 
-    Returns {"terms": [term, ...], "weight": {term: w}, "total": float, "thin": bool}.
+    Returns {"terms": [...], "weight": {term: w}, "total": float, "thin": bool, "verdict": str}.
+
+    READ THROUGH clean_jd, which is why the verdict comes back with the terms. A description
+    that is really a careers-site page scores as THIN rather than as a job -- "we could not read
+    this" is the answer the whole pipeline already knows how to carry (score withheld, "JD
+    pending" on the card, _row_pending in the feed), and the alternative was a new column
+    carrying the same fact to the same places.
     """
-    jd_low = (jd_text or "").lower()
+    jd_text, verdict = clean_jd(jd_text)
+    jd_low = jd_text.lower()
     # ORIGINAL CASE KEPT for both, because _names_term needs it -- see _ATS_CASED.
     req_text = _requirements_text(jd_text)
     req_low = req_text.lower()
@@ -570,7 +798,8 @@ def analyze_jd(jd_text, idf=None):
     salient = extract_keywords(jd_text, top_n=30, idf=idf, extra_skip=PLACE_TERMS)
     # "thin" is judged on the JD's own substance (length + salient-term count), NOT on the ATS
     # keywords a broad résumé would trivially match — so a truncated blurb stays flagged.
-    thin = len(jd_low.strip()) < _MIN_JD_CHARS or len(salient) < _MIN_JD_TERMS
+    thin = (len(jd_low.strip()) < _MIN_JD_CHARS or len(salient) < _MIN_JD_TERMS
+            or verdict == "not-a-posting")
     jd_terms = set(salient)
     # AS WORDS, NOT AS SUBSTRINGS. `{kw for kw in ATS_KEYWORDS if kw in jd_low}` -- what this
     # replaced -- invented a hard skill in 89% of postings: `visio` out of "division" and
@@ -590,7 +819,7 @@ def analyze_jd(jd_text, idf=None):
     jd_terms |= {kw for kw in ATS_KEYWORDS
                  if _names_term(kw, jd_text, jd_low, jd_words)}
     if not jd_terms:
-        return {"terms": [], "weight": {}, "total": 0.0, "thin": True}
+        return {"terms": [], "weight": {}, "total": 0.0, "thin": True, "verdict": verdict}
 
     # RARITY IS NOT IMPORTANCE, and treating it as such is why "caterpillar inc" outranked
     # "pmp" in the terms a job was scored on. idf gives a term seen in ONE posting ~10.2 and one
@@ -633,7 +862,8 @@ def analyze_jd(jd_text, idf=None):
     terms = sorted(jd_terms)
     weight = {t: wt(t) for t in terms}
     total = sum(weight[t] for t in terms)
-    return {"terms": terms, "weight": weight, "total": total, "thin": thin}
+    return {"terms": terms, "weight": weight, "total": total, "thin": thin,
+            "verdict": verdict}
 
 
 # ---- matching the way a screening system does, not the way strcmp does -------------------
@@ -1123,10 +1353,17 @@ def job_meta(jd_text, idf=None):
     values and any live-computed ones always agree."""
     # exp_years is the HIGHEST requirement stated (experience_years, not the old lenient
     # experience_min_years) — the key name is unchanged so every consumer keeps working.
-    return {"analyzed": analyze_jd(jd_text, idf),
-            "exp_years": experience_years(jd_text),
-            "exp_level": experience_level(jd_text),
-            "sponsor_jd": list(sponsorship_from_jd(jd_text))}
+    #
+    # CLEANED ONCE, HERE, and passed to all four readers. analyze_jd cleans again internally
+    # because it is also called directly, and clean_jd is idempotent -- a body with no furniture
+    # left in it comes back unchanged -- but the year parser and the sponsorship reader have no
+    # cleaning of their own, and a captured results list is exactly the kind of text that says
+    # "3 years" about somebody else's job.
+    clean, _verdict = clean_jd(jd_text)
+    return {"analyzed": analyze_jd(clean, idf),
+            "exp_years": experience_years(clean),
+            "exp_level": experience_level(clean),
+            "sponsor_jd": list(sponsorship_from_jd(clean))}
 
 
 def load_jdmeta(path=JDMETA_PATH):
@@ -2971,9 +3208,11 @@ def prefs_match(row, prefs):
         return False
     exp = p.get("exp") or "any"
     if exp != "any":
-        # The HIGHEST year count the JD states (core.experience_years). A JD that states none
-        # is always kept — same rule as web._filter_rows and app.js matches().
-        ev = row.get("exp_years")
+        # exp_eff: the highest year count the DESCRIPTION states, or the floor the TITLE implies
+        # when it states none. A posting with neither is always kept — same rule as
+        # web._filter_rows and app.js matches(). Falls back to exp_years for a row built before
+        # exp_eff existed, so an old cached digest row still filters rather than passing.
+        ev = row.get("exp_eff", row.get("exp_years"))
         if ev not in ("", None):
             try:
                 yrs = int(ev)
@@ -3023,6 +3262,14 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
     """
     company = job.get("company") or ""
     jd = job.get("jd") or ""
+    # READ ONCE. The years parser is the most expensive thing on this path and three of the
+    # fields below want its answer; it also has to see the CLEANED text, because a captured
+    # results list states years about somebody else's job.
+    _exp_years = experience_years(clean_jd(jd)[0]) if jd else None
+    _exp_eff, _exp_src = _exp_years, ("stated" if _exp_years is not None else "")
+    if _exp_eff is None:
+        _exp_eff = title_experience_tier(job.get("title") or "")
+        _exp_src = "inferred" if _exp_eff is not None else ""
     loc = parse_location(job.get("location") or "", jd)
     sal = parse_salary(jd)
     if job.get("salary_min"):
@@ -3059,7 +3306,10 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
             everify_index and is_everify(company, everify_index)),
         # The HIGHEST year count stated, matching what the feed filters on — the digest and
         # the feed must not disagree about which jobs are "entry level".
-        "exp_years": experience_years(jd) if jd else "",
+        "exp_years": _exp_years if _exp_years is not None else "",
+        # exp_eff / exp_src are web._build_row's twins, and prefs_match compares exp_eff — so
+        # leaving them out would silently make the email a laxer filter than the feed.
+        "exp_eff": _exp_eff if _exp_eff is not None else "", "exp_src": _exp_src,
         "intern": bool(re.search(r"\b(intern|internship|co-?op)\b", job.get("title") or "", re.I)),
         "closed": active is False or str(active).strip().lower() == "false",
     }
@@ -3252,9 +3502,40 @@ _EXP_WORD_YEARS_RE = re.compile(
     r"(?:\s*(?:-|–|—|to|or)\s*(?:" + "|".join(_WORD_NUM) + r"|\d{1,2})\b)?"   # "two to three"
     r"\s*(?:\+|plus)?\s*(?:years?|yrs?)\b", re.I)
 
+# A RANGE, in any mix of the two notations, read as its FLOOR. This runs BEFORE the other two
+# and claims the whole span, which is what stops them disagreeing about it. Without it each
+# pattern could only read the combinations written in its own notation: the digit one needs
+# digits on both sides, the word one needs a word on the left, and "1 to three years" satisfies
+# neither -- so the word pattern matched "three years" alone and answered the CEILING of a
+# range whose floor is one. Four combinations, one pattern, one answer.
+_EXP_RANGE_RE = re.compile(
+    r"\b(\d{1,2}|" + "|".join(_WORD_NUM) + r")\b"
+    r"\s*(?:-|–|—|to)\s*"
+    r"(?:\d{1,2}|" + "|".join(_WORD_NUM) + r")\b"
+    r"\s*(?:\+|plus)?\s*(?:years?|yrs?)\b", re.I)
+
 # Experience stated in MONTHS. Floor-divided, so "6 months" is 0 years and "18 months" is 1 --
 # the honest reading for a filter whose only job is to separate entry-level from not.
 _EXP_MONTHS_RE = re.compile(r"\b(\d{1,3})\s*months?\b", re.I)
+# A DURATION IS NOT A REQUIREMENT. "a 12 month contract role in software development" reads as a
+# one-year floor on the generic context words, and "you will complete a 6 month rotation through
+# our engineering organisation" reads as zero. Zero is harmless for the comparison but NOT for
+# the three-state answer this feeds -- it turns "states nothing" into a confident number, and the
+# posting then survives "only postings that state their years" claiming to be entry level.
+_EXP_DURATION_RE = re.compile(
+    r"contract|temporar|assignment|rotation|internship|secondment|fixed[- ]term|"
+    r"notice period|probation|duration|programme|term of", re.I)
+
+# YEARS OF SCHOOLING, NOT YEARS OF WORK. Workday's degree picker writes its levels as
+# "Bachelors Degree (± 16 years)" and "Masters Degree (± 18 years)" -- sixteen and eighteen years
+# of EDUCATION -- and employers paste that straight into the qualifications section. An Abbott
+# Project Coordinator whose real requirement is the "Minimum 2 years" two lines below it read as
+# a SIXTEEN-year job and vanished from an entry-level feed. Only 18 descriptions in the corpus
+# use the notation, but it is the expensive direction on exactly the roles this app is for.
+# Anchored to the END of the before-window, so it only fires when the degree and the bracket sit
+# immediately against the number.
+_EXP_EDU_YEARS_RE = re.compile(
+    r"(?:degree|diploma|equivalent|education)\s*\(\s*[±+–-]?\s*$", re.I)
 
 # Words that mark a year-count as an EXPERIENCE requirement (vs. "5 years ago",
 # "5-year plan", a tenure/age figure, etc.). Checked just around the match.
@@ -3266,8 +3547,29 @@ _EXP_MONTHS_RE = re.compile(r"\b(\d{1,3})\s*months?\b", re.I)
 _EXP_CTX_RE = re.compile(
     r"experien|\bexp\b|industry|professional|relevant|track record|"
     r"working|in a .{0,25}\brole|of work|background|hands-on|"
-    r"qualificat|requirement|must have|you have|proven|demonstrated|"
-    r"engineering|development|management|leadership", re.I)
+    r"qualificat|requirement|must have|you have|proven|demonstrated", re.I)
+
+# THE FOUR THAT ARE ALSO ORDINARY ENGLISH, kept apart from the list above because they need a
+# guard the others do not. A bulleted requirement genuinely reads "7+ years in product
+# management" with no other context word in reach, so they have to be admitted -- but they are
+# also the vocabulary of a company describing itself, and "Acme has been delivering engineering
+# services for 15 years" then states a fifteen-year floor. Measured over 8,000 descriptions, the
+# DECIDING floor rests on one of these four alone in 1.6% of postings, and five of six sampled by
+# hand were genuine requirements; the sixth was a vision statement. Small, but a false HIGH floor
+# hides a job the reader qualifies for and they never learn it existed, so it gets the guard.
+_EXP_CTX_GENERIC_RE = re.compile(r"engineering|development|management|leadership", re.I)
+# A COMPANY TALKING ABOUT ITSELF. Only ever consulted when a generic word is the only context.
+# STEMS, NOT WHOLE WORDS -- the same convention as _EXP_CTX_RE above. A trailing \b was the first
+# version and it silently matched nothing useful: \bcelebrat\b cannot match "celebrates".
+_EXP_TENURE_RE = re.compile(
+    r"\b(?:has|have|had|been|since|founded|establish|celebrat|serv|deliver|"
+    r"provid|histor|anniversar|grow|operat|proud|legacy|over the (?:past|last))", re.I)
+# The tenure check reads FURTHER BACK than the context check does. "Acme has been delivering
+# engineering services for 15 years" puts its generic context word ("engineering") 20 characters
+# before the number and the phrase that gives it away ("has been delivering") at 50 -- outside
+# _EXP_BEFORE, which is deliberately tight because a context word far from a number is weak
+# evidence. Evidence AGAINST does not have the same problem, so it gets a wider window.
+_EXP_TENURE_BEFORE = 140
 _EXP_MIN_RE = re.compile(r"minimum|at\s+least|min\.?\b|no\s+less\s+than", re.I)
 
 # A floor the employer is NOT insisting on. "10+ years preferred" next to "5 years required" is
@@ -3276,6 +3578,12 @@ _EXP_MIN_RE = re.compile(r"minimum|at\s+least|min\.?\b|no\s+less\s+than", re.I)
 # error -- a job seeker never learns about the posting they were wrongly filtered out of.
 _EXP_SOFT_RE = re.compile(
     r"preferred|preferable|nice[\s-]to[\s-]have|a plus|bonus|ideally|desirable|advantage", re.I)
+# ...AND THE WORD THAT OUTRANKS IT WHEN BOTH ARE IN REACH. A clause boundary is [;.\n•|] and a
+# COMMA is not one, so "10+ years of experience required, 12 years preferred" put both words in
+# the same clause and marked the ten-year floor soft as well -- the two floors then both landed
+# in `soft` and the posting read as a twelve-year job with no requirement at all. Whichever word
+# comes FIRST after the number is the one describing it, which is how the sentence reads aloud.
+_EXP_HARD_RE = re.compile(r"required|require\b|must have|mandatory|minimum|at least", re.I)
 
 # How far either side of a match to read for those words. `after` was 45 and that was short by
 # about a clause: "5+ years software engineering and/or production experience" puts its only
@@ -3316,6 +3624,34 @@ def _clause_before(s):
     return _CLAUSE_SPLIT_RE.split(s)[-1]
 
 
+def _reads_as_preferred(clause_before, clause_after):
+    """Is this year count one the employer merely PREFERS, rather than insists on?
+
+    "preferred" is read on BOTH sides -- employers write it either way round, as "preferred: 5
+    years" and as "5 years ... preferred". Read across a clause boundary it inverts the answer
+    it exists to give, so both windows are clause-scoped before they get here.
+
+    THE NEAREST WORD WINS, measured in characters from the count itself, because a COMMA is not
+    a clause boundary and both words routinely share one clause. "10+ years of experience
+    required, 12 years preferred" reads soft for the ten if you only look for "preferred", and
+    "Minimum 5 years of experience, 10 years preferred" reads soft for the five if you only look
+    forward. Distance settles both the way the sentence does: "Minimum" is one character before
+    the five, "preferred" is twenty-nine after it.
+    """
+    best, preferred = None, False
+    for m, soft in ((_EXP_SOFT_RE.search(clause_after), True),
+                    (_EXP_HARD_RE.search(clause_after), False)):
+        if m is not None and (best is None or m.start() < best):
+            best, preferred = m.start(), soft
+    for rx, soft in ((_EXP_SOFT_RE, True), (_EXP_HARD_RE, False)):
+        hits = rx.findall(clause_before)
+        if hits:                       # distance BACKWARDS from the count
+            d = len(clause_before) - clause_before.lower().rfind(hits[-1].lower()) - len(hits[-1])
+            if best is None or d < best:
+                best, preferred = d, soft
+    return preferred
+
+
 def _experience_floors_split(text):
     """(hard, soft) — the floors the employer insists on, and the ones it merely prefers.
 
@@ -3326,16 +3662,42 @@ def _experience_floors_split(text):
     text = text or ""
     hard, soft = [], []
     seen = set()                      # a span can match both the digit and the word pattern
-    for rx, kind in ((_EXP_YEARS_RE, "d"), (_EXP_WORD_YEARS_RE, "w"), (_EXP_MONTHS_RE, "m")):
+    # RANGES FIRST, then words, then digits. Order is load-bearing: whichever pattern matches a
+    # span first claims it, and a range is the case where the three of them would otherwise
+    # disagree about where it starts and therefore about which end of it is the floor.
+    for rx, kind in ((_EXP_RANGE_RE, "r"), (_EXP_WORD_YEARS_RE, "w"),
+                     (_EXP_YEARS_RE, "d"), (_EXP_MONTHS_RE, "m")):
         for m in rx.finditer(text):
-            if any(s <= m.start() < e for s, e in seen):
+            # A TRUE OVERLAP TEST. `s <= m.start() < e` only asks whether the new match STARTS
+            # inside a claimed span, and on a MIXED range the two notations claim different
+            # halves of it: on "two to 3 years" the digit pass runs first and claims "3 years",
+            # then the word pass matches the whole range starting BEFORE that span, so both
+            # landed in the list and max() answered 3 for a job whose floor is two. Rare, and
+            # again the expensive direction -- it reads a range as its ceiling.
+            if any(m.start() < e and s < m.end() for s, e in seen):
                 continue
             before = text[max(0, m.start() - _EXP_BEFORE):m.start()]
             after = text[m.end():m.end() + _EXP_AFTER]
-            if not (_EXP_CTX_RE.search(after) or _EXP_CTX_RE.search(before)
-                    or _EXP_MIN_RE.search(before)):
-                continue
-            if kind == "d":
+            # CLAUSE-SCOPED, like the soft check below and for the same reason. A raw window
+            # reads straight across a full stop, and the four generic context words this parser
+            # needs in order to read a bulleted requirements list ("engineering", "development",
+            # "management", "leadership") are ordinary enough in company prose that "Acme has
+            # been delivering engineering services for 15 years." became a fifteen-year floor.
+            clause_before, clause_after = _clause_before(before), _clause_after(after)
+            ctx = (_EXP_CTX_RE.search(clause_after) or _EXP_CTX_RE.search(clause_before)
+                   or _EXP_MIN_RE.search(clause_before))
+            if not ctx and (_EXP_CTX_GENERIC_RE.search(clause_after)
+                            or _EXP_CTX_GENERIC_RE.search(clause_before)):
+                ctx = not _EXP_TENURE_RE.search(
+                    _clause_before(text[max(0, m.start() - _EXP_TENURE_BEFORE):m.start()]))
+            if kind == "m" and _EXP_DURATION_RE.search(clause_before + " " + clause_after):
+                continue                # a contract length, a rotation, a notice period
+            if _EXP_EDU_YEARS_RE.search(before):
+                continue                # "Bachelors Degree (± 16 years)" -- schooling, not work
+            if kind == "r":                       # either notation; group(1) is the floor
+                g = m.group(1).lower()
+                n = _WORD_NUM[g] if g in _WORD_NUM else int(g)
+            elif kind == "d":
                 n = int(m.group(1))
             elif kind == "w":
                 n = _WORD_NUM[m.group(1).lower()]
@@ -3352,9 +3714,8 @@ def _experience_floors_split(text):
             # "5 years of experience required; 10+ years preferred" marked the five-year floor
             # soft as well, both floors became soft, and the maximum came back as ten -- the
             # exact ten-year reading this rule was added to prevent.
-            bucket = soft if (_EXP_SOFT_RE.search(_clause_after(after))
-                              or _EXP_SOFT_RE.search(_clause_before(before))) else hard
-            bucket.append((m.start(), m.end(), n))
+            bucket = soft if _reads_as_preferred(clause_before, clause_after) else hard
+            bucket.append((m.start(), m.end(), n, bool(ctx)))
 
     hard = _collapse_ladders(text, hard)
     soft = _collapse_ladders(text, soft)
@@ -3368,7 +3729,7 @@ _LADDER_GAP = 120
 
 
 def _collapse_ladders(text, hits):
-    """[(start, end, years)] -> [years], each run of ladder rungs reduced to its lowest.
+    """[(start, end, years, had_context)] -> [years], each run of rungs reduced to its lowest.
 
     ADJACENCY, not lines. The obvious grouping is per line, and it is wrong here: 89.9% of the
     41,434 cached descriptions arrive as ONE blob with no newline in it, so a per-line rule
@@ -3379,23 +3740,50 @@ def _collapse_ladders(text, hits):
 
     So two hits join a ladder only when they are NEIGHBOURS and the text between them is the
     alternation itself: an "or", a degree word, and less than _LADDER_GAP characters.
+
+    A RUNG DOES NOT HAVE TO REPEAT "OF EXPERIENCE", which is why hits arrive carrying whether
+    they had a context word of their own rather than having been filtered on it already.
+    Employers drop the phrase on the trailing rung all the time -- "Bachelor's degree and 10
+    years of relevant experience, or a Master's degree and 5 years" -- and filtering first threw
+    the 5 away, leaving the 10 alone in its group to answer TEN. That is the same ten-versus-five
+    error this function exists to prevent, surviving in the commonest phrasing of it; the corpus
+    has "...Master's with 6 years, or 12 years in lieu of degree" reading as twelve.
+
+    So a context-less mention may JOIN a ladder but may never start one, and a group that never
+    had a context word in it is not a requirement at all and is dropped.
     """
     if not hits:
         return []
     hits = sorted(hits)
-    out, group = [], [hits[0]]
-    for prev, cur in zip(hits, hits[1:]):
-        between = text[prev[1]:cur[0]]
-        # ...and within ONE sentence. Without this, "9 years of leadership experience.
-        # Separately, our CEO has a degree or two and 2 years here" reads as a ladder and
-        # answers 2. A real alternation is punctuated with commas and slashes, never a stop.
-        if (len(between) <= _LADDER_GAP and not _CLAUSE_SPLIT_RE.search(between)
-                and _ALTERNATIVE_RE.search(between) and _DEGREE_RE.search(between)):
-            group.append(cur)
-        else:
-            out.append(min(n for _s, _e, n in group))
-            group = [cur]
-    out.append(min(n for _s, _e, n in group))
+    out, group = [], []
+
+    def flush():
+        if any(ctx for _s, _e, _n, ctx in group):
+            out.append(min(n for _s, _e, n, _c in group))
+
+    for cur in hits:
+        if group:
+            between = text[group[-1][1]:cur[0]]
+            # THE DEGREE MAY BE NAMED JUST AFTER THE SECOND RUNG, and the alternation may not.
+            # "Master's with 6 years, or 12 years in lieu of degree" puts only ", or " between
+            # the two counts and the word that proves it is a degree ladder immediately after
+            # the second -- so a strictly-between test read it as a twelve-year job. The "or"
+            # still has to sit BETWEEN, because that is what makes the two counts alternatives
+            # rather than a list; only the degree evidence gets the wider window.
+            # MEASURED BEFORE ADOPTING, because this rule is the risky one: 40 of 9,000 sampled
+            # descriptions change answer (0.44%), against the 9,958 that a per-line grouping
+            # moved when it was tried.
+            near = text[group[-1][1]:cur[1] + _LADDER_GAP]
+            # ...and within ONE sentence. Without this, "9 years of leadership experience.
+            # Separately, our CEO has a degree or two and 2 years here" reads as a ladder and
+            # answers 2. A real alternation is punctuated with commas and slashes, never a stop.
+            if (len(between) <= _LADDER_GAP and not _CLAUSE_SPLIT_RE.search(between)
+                    and _ALTERNATIVE_RE.search(between) and _DEGREE_RE.search(near)):
+                group.append(cur)
+                continue
+        flush()
+        group = [cur]
+    flush()
     return out
 
 
@@ -3461,6 +3849,130 @@ def experience_level(text):
     """Coarse bucket for the feed filter: 'entry' (<=2 yrs), 'mid' (3-5), 'senior' (6+),
     or '' when the JD never states years."""
     return exp_level_for(experience_years(text))
+
+
+# ------------------------------------------------------------
+# THE TITLE AS A FLOOR OF LAST RESORT
+# ------------------------------------------------------------
+# WHY THIS EXISTS. experience_years reads the DESCRIPTION, and 26% of postings state no number in
+# theirs. None means "states no requirement", which the filter reads as KEEP -- so measured on the
+# live corpus, "0 to 2 Years" showed 18,331 of 40,294 rows and 14,672 of them (80%) were in only
+# because nothing could be read. 4,405 of those had a title that said Senior, Sr, Staff,
+# Principal, Lead, Director or VP: a quarter of an entry-level feed was roles announcing in their
+# own name that they are not entry level.
+#
+# THE TITLE IS FREE AND IT IS ON EVERY ROW. Calibrated against the 12,576 postings whose title
+# carries one of these words AND whose description does state a floor: 95.7% of them state THREE
+# OR MORE years, median 6. Per word -- Director 99.2%, VP 98.6%, Principal 97.0%, Staff 96.7%,
+# Senior 95.5%, Sr 95.6%, Lead 94.1%.
+#
+# WHAT IS DELIBERATELY LEFT OUT, each with the number that excludes it:
+#   * "manager" (87.1%) -- it names a FUNCTION, not a level, and it is half of what this app's
+#     owner searches for. Including it would cut a project-manager feed in half to fix a
+#     seniority problem those rows do not have.
+#   * "ii" / "iii" (71.5% / 81.1%), "specialist" (73.8%), "analyst" (75.0%) -- too weak, and
+#     "Manager II" is ordinary in this corpus.
+#   * bare "associate" (64.1%) -- but "Associate Director" is median 8 years and 78% senior while
+#     "Associate <anything else>" is median 3 and 14%, so the compound is listed and the bare
+#     word is not.
+#
+# THE COST IS REAL AND IT IS THE EXPENSIVE DIRECTION: 4.3% of senior-titled postings genuinely
+# state two years or fewer, and where the description says so it WINS -- this is only ever
+# consulted when there is no stated floor at all. See web._build_row's exp_eff / exp_src.
+_TITLE_SENIOR_RE = re.compile(
+    r"\b(?:senior|sr|staff|principal|distinguished|fellow|architect|director|lead|"
+    r"vp|svp|evp|vice\s+president|head\s+of|chief|c[tefoi]o)\b"
+    r"|\bassociate\s+(?:director|vice\s+president|vp|partner|principal)\b", re.I)
+# A junior word VETOES a senior one, because the pair means the junior rung of a senior ladder:
+# "Junior Architect", "Associate Director Intern", "Early Career Leadership Program".
+_TITLE_JUNIOR_RE = re.compile(
+    r"\b(?:intern|interns|internship|co-?op|new\s+grad(?:uate)?|university\s+grad(?:uate)?|"
+    r"entry[-\s]level|junior|jr|apprentice|trainee|campus|early\s+career|"
+    r"rotational?\s+program(?:me)?)\b", re.I)
+# The floor a senior title implies. 6 is the bottom of exp_level_for's "senior" band and the
+# median of what these postings actually state, so it reads as "senior" wherever a number is
+# shown and excludes the row from both "0 to 2" and "3 to 5".
+_TITLE_SENIOR_YEARS = 6
+
+
+# ------------------------------------------------------------
+# THE OTHER NUMBER EVERY POSTING STATES: the degree
+# ------------------------------------------------------------
+# 68.2% of the 41,434 cached descriptions name a degree, which makes this the second most
+# answerable question about a posting after the years -- and, like the years, it was being read
+# (as _DEGREE_RE, to detect a ladder) and then thrown away rather than shown.
+#
+# RANKED, because "Bachelor's or equivalent, Master's preferred" has to come out as two
+# different answers and a set of strings cannot say which is the floor. The required degree is
+# the LOWEST named, matching the ladder rule in _collapse_ladders: an alternation of degrees is
+# a list of ways to qualify, not a stack of demands.
+_DEGREE_LEVELS = (
+    (1, "High school", r"high school|\bged\b|secondary school"),
+    (2, "Associate's", r"associate'?s?\s+degree|\ba\.?a\.?s?\b"),
+    (3, "Bachelor's", r"bachelor|\bb\.?s\.?\b|\bb\.?a\.?\b|undergraduate degree|four[- ]year degree"),
+    (4, "Master's", r"master'?s|\bm\.?s\.?\b|\bm\.?b\.?a\.?\b|\bmba\b|graduate degree"),
+    (5, "Doctorate", r"doctorate|\bph\.?\s?d\.?\b|doctoral"),
+)
+_DEGREE_RXS = tuple((rank, name, re.compile(pat, re.I)) for rank, name, pat in _DEGREE_LEVELS)
+
+
+def education_floors(text):
+    """(required, preferred) degree names, either of which may be None.
+
+    Same soft/hard split as the years: "Bachelor's degree required, Master's preferred" is a
+    bachelor's job, and reading the maximum over both would describe one that does not exist.
+    """
+    text = text or ""
+    hard, soft = [], []
+    for rank, name, rx in _DEGREE_RXS:
+        for m in rx.finditer(text):
+            before = text[max(0, m.start() - _EXP_BEFORE):m.start()]
+            after = text[m.end():m.end() + _EXP_AFTER]
+            bucket = soft if (_EXP_SOFT_RE.search(_clause_after(after))
+                              or _EXP_SOFT_RE.search(_clause_before(before))) else hard
+            bucket.append((rank, name))
+            break                      # one mention of a level is enough; position is not used
+    req = min(hard)[1] if hard else None
+    # The highest PREFERRED level, and only when it actually asks for more than the floor --
+    # "Bachelor's required, Bachelor's preferred" is one fact written twice.
+    pref = None
+    if soft:
+        top = max(soft)
+        floor = min(hard)[0] if hard else 0
+        pref = top[1] if top[0] > floor else None
+    return req, pref
+
+
+def experience_floors(text):
+    """(required, preferred) year counts, either of which may be None.
+
+    The public form of what _experience_floors_split has computed since 704a290 and no caller
+    has ever been able to see: 67.5% of descriptions state a required floor, 4.9% state both and
+    3.4% state only a preferred one. experience_years still answers with ONE number because that
+    is what a filter can compare; this is for showing the reader what the posting actually said.
+    """
+    hard, soft = _experience_floors_split(text)
+    req = max(hard) if hard else None
+    pref = max(soft) if soft else None
+    # A PREFERRED FLOOR THAT DOES NOT EXCEED THE REQUIRED ONE IS NOT A SECOND FACT. Google's
+    # posting says "5 years of experience in program management" under Minimum and "5 years
+    # ... managing cross-functional projects" under Preferred; rendering that as
+    # "5+ years required · 5+ preferred" reads like a distinction and there is none.
+    if pref is not None and req is not None and pref <= req:
+        pref = None
+    return req, pref
+
+
+def title_experience_tier(title):
+    """The years a TITLE implies, or None when it implies nothing. Never overrides a description.
+
+    Only ever consulted where experience_years returned None -- a posting that states its own
+    floor is believed even when its title disagrees, because it is the employer's own number.
+    """
+    t = title or ""
+    if _TITLE_JUNIOR_RE.search(t):
+        return None
+    return _TITLE_SENIOR_YEARS if _TITLE_SENIOR_RE.search(t) else None
 
 
 # ------------------------------------------------------------

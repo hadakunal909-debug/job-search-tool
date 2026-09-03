@@ -78,6 +78,7 @@ SUITES = (
     Suite("test_backend_intent",    "test_backend_intent.py",            "root",   "offline"),
     Suite("test_board_health",      "test_board_health.py",              "root",   "offline"),
     Suite("test_canonical_url",     "test_canonical_url.py",             "root",   "offline"),
+    Suite("test_clean_jd",          "test_clean_jd.py",                  "root",   "offline"),
     Suite("test_date_sources",      "test_date_sources.py",              "root",   "offline"),
     Suite("test_discover_screen",   "test_discover_screen.py",           "root",   "offline"),
     Suite("test_edu_domains",       "test_edu_domains.py",               "root",   "offline"),

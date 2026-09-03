@@ -1431,6 +1431,14 @@ def _build_row(j, score):
     c = j.get("company") or ""
     u = j.get("url")
     exp_y, exp_lvl, sv, sreason = _jd_fields(j)
+    # THE TITLE ONLY EVER FILLS A GAP. A stated floor is the employer's own number and wins even
+    # when the title disagrees with it; core.title_experience_tier is consulted for the 26% of
+    # postings that state nothing at all. See its comment for the calibration and the 4.3% this
+    # gets wrong.
+    exp_eff, exp_src = exp_y, ("stated" if exp_y is not None else "")
+    if exp_eff is None:
+        exp_eff = core.title_experience_tier(j.get("title") or "")
+        exp_src = "inferred" if exp_eff is not None else ""
     strength, scount = core.sponsor_strength(c, sponsor_counts())
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
     # sponsorship must not carry sponsorship badges (see core.visa_tags_for_posting).
@@ -1562,7 +1570,18 @@ def _build_row(j, score):
             # stem_opt IS the E-Verify fact; the everify.txt path stays as a fallback for
             # anyone who built that file (it has never existed in this repo).
             "everify": ("stem_opt" in vtags) or core.is_everify(c, _EVERIFY_INDEX),
+            # THREE FIELDS, BECAUSE "WE COULD NOT TELL" IS NOT "THE EMPLOYER SAID NOTHING
+            # MATTERS". exp_years is what the DESCRIPTION states and is unchanged. exp_eff is
+            # what the filters compare -- the stated floor, or the one the TITLE implies when
+            # there is no stated one. exp_src says which, so the card can label it and the
+            # reader can tell a verified entry-level posting from an unread one.
+            #
+            # THE INFERENCE IS COMPUTED HERE, SERVER-SIDE, AND THE CLIENT ONLY READS exp_eff.
+            # Deliberate: core.title_experience_tier is a calibrated vocabulary and a second
+            # copy of it in app.js would be a fourth member of the filter triplet. This way the
+            # twins still compare one number, exactly as they did before.
             "exp_years": exp_y if exp_y is not None else "", "exp_level": exp_lvl,
+            "exp_eff": exp_eff if exp_eff is not None else "", "exp_src": exp_src,
             "strength": strength, "strength_n": scount,
             "intern": bool(_INTERN_RE.search(j.get("title") or "")),
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
@@ -2503,17 +2522,20 @@ def _filter_rows(rows, statuses, p):
             continue
         if track != "any" and r.get("track") != track:
             continue
-        # "Only postings that state their years." OFF by default; see core.DEFAULT_PREFS for the
-        # measurement behind it (72% of results under a years filter state no number at all).
-        if exp_stated and (r["exp_years"] == "" or r["exp_years"] is None):
+        # "Only postings whose experience we could read." OFF by default. It now drops the rows
+        # with NO answer at all (exp_src ""), so a posting whose seniority was read off its title
+        # survives it — before, this quietly removed every "JD pending" card and its tooltip did
+        # not say so.
+        if exp_stated and not r.get("exp_src"):
             continue
         if exp != "any":
-            # exp_years is the HIGHEST year count the JD states (core.experience_years), so
-            # "8+ years required; 2 years of SQL preferred" is an 8-year job and "<=2 yrs"
-            # drops it. A JD that states no number is ALWAYS kept — many genuine entry-level
-            # posts state none, and the card badge marks them so the two populations are
-            # distinguishable. Mirrored in app.js matches() and core.prefs_match().
-            ev = r["exp_years"]
+            # exp_eff, NOT exp_years: the highest year count the DESCRIPTION states, or the floor
+            # the TITLE implies when it states none. "8+ years required; 2 years of SQL
+            # preferred" is an 8-year job and "<=2 yrs" drops it. A posting with NEITHER signal
+            # is still always kept — many genuine entry-level posts state no number — and the
+            # card says "years not stated" so the two populations are distinguishable.
+            # Mirrored in app.js matches() and core.prefs_match().
+            ev = r.get("exp_eff")
             if ev != "" and ev is not None:
                 try:
                     yrs = int(ev)
@@ -3517,6 +3539,57 @@ def _route_of(row):
     return row.get("visa_likely") or "none"
 
 
+def _posting_asks(row, jd):
+    """THE SAME FOUR ROWS ON EVERY JOB PAGE, whatever shape the employer wrote in.
+
+    This is the "standard way of writing a job description" the owner asked for, and the shape
+    it takes is deliberate: the employer's PROSE is never reordered or reworded -- jdrender's
+    rule about that still holds and is right -- but the ANSWER to the six questions a reader
+    actually has is assembled into one block that never changes position or order. You learn
+    where to look once instead of hunting the qualifications section of every posting.
+
+    A LINE THAT CANNOT BE FILLED SAYS SO IN WORDS rather than disappearing. A block whose rows
+    come and go is one you have to read to know what is in it, which defeats the whole point;
+    "not stated in this posting" is a real answer and it is the one the experience filter is
+    acting on, so hiding it is how the filter came to look broken.
+
+    Assembled here rather than in core because it needs BOTH core (the parsers) and jdrender
+    (the sections), and jdrender deliberately imports neither core nor anything else -- see its
+    module docstring. core stays free of presentation; this is presentation.
+    """
+    clean, verdict = core.clean_jd(jd)
+    exp_req, exp_pref = core.experience_floors(clean)
+    edu_req, edu_pref = core.education_floors(clean)
+    # The title tier only ever fills a gap, exactly as in _build_row -- and it is named as an
+    # inference in the copy, because a guess presented as a fact is worse than no answer.
+    inferred = core.title_experience_tier(row.get("title") or "") if exp_req is None else None
+    # MUST-HAVE VERSUS NICE-TO-HAVE, from the sections jdrender now tells apart. Display only:
+    # the match percentage is computed over the whole description exactly as before, so nothing
+    # here moves a score. It answers "which of these do I actually need", which a single flat
+    # keyword list cannot.
+    must, nice = [], []
+    if clean.strip():
+        bucket, seen = None, set()
+        for kind, val in jdrender.jd_nodes(clean):
+            if kind == "h":
+                bucket = jdrender.classify_heading(val)
+            elif bucket in ("req", "pref"):
+                text = " ".join(val) if kind == "ul" else (
+                    val[0] + " " + " ".join(val[1]) if kind == "kv" else val)
+                for term in core.extract_keywords(text, top_n=8, idf=core.load_idf(),
+                                                  extra_skip=core.PLACE_TERMS):
+                    if term in seen:
+                        continue
+                    seen.add(term)
+                    (must if bucket == "req" else nice).append(term)
+    return {
+        "verdict": verdict,
+        "exp_req": exp_req, "exp_pref": exp_pref, "exp_inferred": inferred,
+        "edu_req": edu_req, "edu_pref": edu_pref,
+        "must": must[:8], "nice": nice[:8],
+    }
+
+
 @app.route("/job")
 @login_required
 def job_page():
@@ -3605,6 +3678,11 @@ def job_page():
     # marks in a description is a highlighter accident rather than a signal.
     have = _useful_terms(have, company, jd, _SKILL_SHOWN)
     missing = _useful_terms(missing, company, jd, _SKILL_SHOWN)
+
+    asks = _posting_asks(row, jd)
+    # One clean, shared by the block above and the rendered description below, so the two can
+    # never be reading different text about the same posting.
+    jd_clean = core.clean_jd(jd)[0] if asks["verdict"] != "not-a-posting" else ""
 
     # WHAT THE CORPUS KNOWS THAT THIS POSTING CANNOT SAY. Three questions no single description
     # answers: what this KIND of job usually asks for, which tools this EMPLOYER leans on beyond
@@ -3696,9 +3774,19 @@ def job_page():
     resp = app.make_response(render_template(
         "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
         similar=similar, similar_roles=similar_roles,
-        jd_html=jdrender.render_jd(jd, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
-        jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
-        sec_labels=jdrender.SEC_LABELS,
+        # THE CLEANED TEXT, not the stored column. This is the whole read-time cleaning bargain
+        # paying out: careers.google.com's 1,052 captured navigation bars stop being rendered as
+        # job descriptions the moment this deploys, with no migration and no re-fetch. It also
+        # gives the highlighter its budget back — MAX_HITS_PER_TERM is spent in document order,
+        # so on a junk-prefixed posting all three green marks landed in the nav bar.
+        jd_html=jdrender.render_jd(jd_clean, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
+        jd_jumps=jdrender.jump_sections(jd_clean), has_jd=bool(jd_clean.strip()), asks=asks,
+        # NOTHING STORED and STORED BUT UNREADABLE are different facts and the page must not
+        # tell the reader the wrong one. clean_jd answers "not-a-posting" for an empty string
+        # too -- correctly, it is not a posting -- so the template needs this to tell the two
+        # apart. 2,316 rows have never been fetched at all; saying their employer returned a
+        # navigation bar would be inventing a story about a request nobody made.
+        had_text=bool((jd or "").strip()),
         have=have, missing=missing, has_resume=bool(resume), live_score=live_score,
         role_label=core.ROLE_LABELS.get(fam) if fam else None, role_usual=role_usual,
         role_n=role_n, role_cover=role_cover, co_tools=co_tools, co_unusual=co_unusual,
@@ -3967,6 +4055,9 @@ _RELAX = [
                                        "30": "Past 30 days", "90": "Past 90 days"}.get(v, v)),
     ("minsal",       "",    lambda v: "the pay minimum"),
     ("exp",          "any", lambda v: "the experience filter"),
+    # expstated was MISSING, so when the one control that changes the POPULATION rather than
+    # narrowing it was what emptied the feed, this panel blamed the match minimum instead.
+    ("expstated",    "0",   lambda v: "Hide postings we couldn't read"),
     ("intern",       "any", lambda v: "the internship filter"),
     ("remote",       "0",   lambda v: "Remote only"),
     ("hidenospon",   "0",   lambda v: "Hide no-sponsorship"),
@@ -9154,8 +9245,9 @@ def ext_jds():
     """Extension -> attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled
     sites (Tesla) block our servers, so score_jobs can never fetch these JDs — but the
     user's browser can, and without a stored JD the job scores 0% and hides below the
-    match slider. Token-auth; only urls already in the jobs table are accepted; text is
-    length-gated (too short = nav junk) and size-capped. Body: {token, jds: {url: text}}."""
+    match slider. Token-auth; only urls already in the jobs table are accepted; text goes
+    through core.html_to_text + core.clean_jd like every other writer, and is then gated on
+    _MIN_JD_CHARS and on the verdict. Body: {token, jds: {url: text}}."""
     import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
@@ -9174,8 +9266,16 @@ def ext_jds():
         # value is either a bare JD string, or {jd, location, found_date} from the
         # generic detail-fetch (JSON-LD detail pages carry real location + datePosted).
         jd = val if isinstance(val, str) else (val.get("jd") if isinstance(val, dict) else "")
-        if isinstance(jd, str) and len(jd.strip()) > 200:
-            clean[u] = jd.strip()[:12000]
+        # THROUGH THE SAME DOOR AS EVERY OTHER WRITER. This endpoint used to be the one path
+        # into jobs.jd that no cleaner touched: the extension's own strip() is a regex
+        # tag-removal followed by \s+ -> " ", which produces exactly the one-line wall
+        # core._soup_text was rewritten to stop, and its gate was 200 characters -- below both
+        # _MIN_JD_CHARS (400) and score_jobs.MIN_PAGE_JD_CHARS (250). A browser reading a
+        # bot-walled careers site sees the same navigation a server would.
+        if isinstance(jd, str):
+            jd, verdict = core.clean_jd(core.html_to_text(jd))
+            if verdict != "not-a-posting" and len(jd) >= core._MIN_JD_CHARS:
+                clean[u] = jd[:12000]
         if isinstance(val, dict):
             patch = {"url": u}
             loc = (val.get("location") or "").strip()[:300]

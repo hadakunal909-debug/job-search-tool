@@ -514,6 +514,34 @@
       posted = SEP + '<span class="posted added" data-d="' + H(j.first_seen) +
         '" data-added="1">Added ' + H(j.first_seen) + '</span>';
     }
+    // THE EXPERIENCE, AS INK RATHER THAN AS A CHIP. This is not the chip the block above
+    // deleted and it must not become one: no background, no colour, no border — it joins the
+    // identity line beside the location and the date, which is where facts ABOUT THE POSTING
+    // live. The chip cap is about the sponsorship question and is untouched.
+    //
+    // IT SHOWS ALL THREE ANSWERS, and the third is the reason it exists. The filter help text
+    // has been promising that unread postings "are marked years not stated on the card" ever
+    // since fe62114 removed the badge that did it, so a reader filtering to "0 to 2 Years" had
+    // no way to tell a posting that SAYS two years from one nobody could read. Measured on the
+    // live corpus, 80% of what that filter returned was the second kind.
+    var expTxt = '', expTitle = '';
+    if (j.exp_src === 'stated') {
+      expTxt = j.exp_eff + '+ yrs';
+      expTitle = 'This posting asks for ' + j.exp_eff + '+ years of experience.';
+    } else if (j.exp_src === 'inferred') {
+      expTxt = 'senior role';
+      expTitle = 'This posting states no year count. Its TITLE names a senior role, and ' +
+        '96% of postings titled this way ask for three years or more.';
+    } else {
+      expTxt = 'years not stated';
+      expTitle = 'Neither the description nor the title says how much experience this job ' +
+        'wants, so an experience filter cannot judge it and always shows it.';
+    }
+    // cexp-*, not exp-*: .exp-lo/.exp-mid/.exp-hi are the /job page's CHIP and carry a
+    // background and a route colour. Reusing those names here would put a chip back on the card
+    // by stylesheet accident, which is the thing this must not do.
+    var expIn = SEP + '<span class="cexp cexp-' + (j.exp_src || 'none') + '" title="' +
+      H(expTitle) + '">' + esc(expTxt) + '</span>';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "");
     // THE ROUTE WASH. One attribute; the whole card is tinted in CSS.
@@ -573,7 +601,7 @@
       '<div class="cmeta">' +
         '<div class="cident">' + companyLink(j.company) + SEP +
           '<span class="cloc" title="' + H(j.location || '') + '">' +
-          esc(j.location || 'Location not stated') + '</span>' + posted +
+          esc(j.location || 'Location not stated') + '</span>' + posted + expIn +
         '</div>' +
         (badges ? '<div class="cbadges">' + badges + '</div>' : '') +
       '</div>' +
@@ -868,16 +896,18 @@
     // Career track: "dev" (software/data/infra) vs "mgmt" (project/product/ops). Every row
     // carries exactly one, so the two settings partition the feed — see core.role_track.
     if (ok && trackSel && trackSel.value !== "any" && j.track !== trackSel.value) ok = false;
-    // "Only postings that state their years." Twin of _filter_rows' exp_stated clause; off by
-    // default. See core.DEFAULT_PREFS.expstated for why it exists.
-    if (ok && expStated && expStated.checked &&
-        (j.exp_years === "" || j.exp_years === null || j.exp_years === undefined)) ok = false;
-    // Experience filter. exp_years is the HIGHEST year count the JD states (core.
-    // experience_years), so "8+ years required; 2 years of SQL preferred" is an 8-year job and
-    // "<=2 yrs" drops it. A job whose JD states no year count (exp_years "") is ALWAYS kept.
+    // "Only postings whose experience we could read." Twin of _filter_rows' exp_stated clause;
+    // off by default. Drops rows with NO answer (exp_src ""), so a seniority read off the title
+    // survives it. See core.DEFAULT_PREFS.expstated.
+    if (ok && expStated && expStated.checked && !j.exp_src) ok = false;
+    // Experience filter. exp_eff is the highest year count the DESCRIPTION states, or the floor
+    // the TITLE implies when it states none — so "8+ years required; 2 years of SQL preferred"
+    // is an 8-year job and "<=2 yrs" drops it, and so is a "Senior Operations Manager" whose
+    // description names no number. A job with NEITHER signal (exp_eff "") is ALWAYS kept.
+    // The inference itself is server-side in web._build_row, so this stays one comparison.
     // Mirrors web._filter_rows — scripts/feed_parity.py diffs the two.
     if (ok && expSel && expSel.value !== "any") {
-      var ev = j.exp_years;
+      var ev = j.exp_eff;
       if (ev !== "" && ev != null) {
         var yrs = parseInt(ev, 10);
         if (!isNaN(yrs)) {

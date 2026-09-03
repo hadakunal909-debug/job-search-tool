@@ -1003,6 +1003,15 @@ def detail_jd(url):
         # row honest: it reads as "description pending" and stays retryable.
         if len(jd or "") < MIN_PAGE_JD_CHARS:
             jd = ""
+        # ...AND THE CEILING, which is what this gate never had. MIN_PAGE_JD_CHARS is a FLOOR,
+        # and the whole comment above reasons about shells that are too SHORT — 47, 46, 63, 97
+        # characters. The opposite failure was invisible: careers.google.com returned its
+        # entire application shell, 1,052 rows of it, 790 truncated at fetch_jd's own 8,000
+        # limit. Long, so never thin; never thin, so never retried; and _accept_jd's gain rule
+        # then made it permanent, because a correct 3,400-char description cannot beat 3x8,000.
+        # core.clean_jd names it for what it is, and nothing else has to change.
+        elif core.clean_jd(jd)[1] == "not-a-posting":
+            jd = ""
     return url, jd, date
 
 
@@ -1208,7 +1217,7 @@ def _is_thin_jd(jd):
     return 0 < len(t) < core._MIN_JD_CHARS
 
 
-def _accept_jd(url, jd, thin_len):
+def _accept_jd(url, jd, thin_len, stored=None):
     """Should this freshly-fetched text replace what is stored?
 
     A GAIN RULE, not a length test, and the distinction is the whole point: re-reading the same
@@ -1219,9 +1228,19 @@ def _accept_jd(url, jd, thin_len):
 
     Consequence worth stating plainly: a probe can never shorten or blank a description we
     already hold, so the retry below cannot make the corpus worse.
+
+    ...EXCEPT WHERE WHAT WE HOLD IS NOT A DESCRIPTION. The gain rule is right for shells and
+    exactly backwards for a captured careers-site page: those are LONG, so a correct 3,400-char
+    Google description would have to reach 24,000 to displace an 8,000-char navigation bar, and
+    the 1,052 rows in that state were frozen permanently. `stored` is optional and only ever
+    read to ask core.clean_jd whether the incumbent is a posting at all; when it is not, any
+    replacement that IS one wins on merit rather than on length.
     """
     if not jd:
         return False
+    if stored and core.clean_jd(stored)[1] == "not-a-posting" \
+            and core.clean_jd(jd)[1] != "not-a-posting":
+        return True
     old = thin_len.get(url, 0)
     if not old:
         return True
@@ -1763,7 +1782,7 @@ def main():
                         print("  FAIL %-16s %s" % (company, err))
                         continue
                     hits = {u: jd for u, jd in m.items()
-                            if u in missing and _accept_jd(u, jd, thin_len)}
+                            if u in missing and _accept_jd(u, jd, thin_len, row_jd.get(u))}
                     fetched.update(hits)
                     print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), len(m)))
             _persist_jds(fetched)           # save bulk hits before the slower detail phase
@@ -1795,7 +1814,7 @@ def main():
                 for u, jd, date in ex.map(_detail, [u for u in order if u in missing]):
                     # _accept_jd, not `if jd`: a failed fetch must never blank a stored JD, and
                     # re-reading the same shell must not count as a repair either.
-                    if _accept_jd(u, jd, thin_len):
+                    if _accept_jd(u, jd, thin_len, row_jd.get(u)):
                         fetched[u] = jd
                         buf[u] = jd
                         if len(buf) >= CHUNK:
