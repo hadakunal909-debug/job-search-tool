@@ -45,10 +45,20 @@
     <div class="apphead">
       <div>
         <div class="appco">{{ a.company or 'None' }}</div>
-        <div class="apptitle">{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title or 'View Posting' }}<span class="ic ic-external" aria-hidden="true"></span></a>{% else %}{{ a.title or '' }}{% endif %}</div>
+        {# TWO destinations, because they answer different questions. The title goes INWARD to
+           /job -- the description, the keywords, the match, the sponsorship read -- which is
+           the one thing an applied row could not reach before: it linked straight out to the
+           employer, so there was no way back to what you applied to. The employer's own page
+           is still one click away, on the meta line below.
+
+           No target=_blank on this one, deliberately: it is a page of ours, so Back works and
+           the tab count does not grow. /job answers 404 with an explanatory page when the
+           posting has been pruned, which is 21 of 233 rows today -- a dead END, not a dead
+           link, and the Apply link below still goes somewhere useful. #}
+        <div class="apptitle">{% if a.url %}<a href="{{ url_for('job_page', u=a.url) }}">{{ a.title or 'View Posting' }}</a>{% else %}{{ a.title or '' }}{% endif %}</div>
         {# Relative, like the feed and /job — see web.py's `ago` filter. The ISO date is on the
            hover and in the edit input below, so nothing is lost by not printing it twice. #}
-        <div class="appmeta">{% if a.applied_date %}<span title="{{ a.applied_date[:10] }}">applied {{ a.applied_date | ago }}</span>{% else %}Not recorded{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}</div>
+        <div class="appmeta">{% if a.applied_date %}<span title="{{ a.applied_date[:10] }}">applied {{ a.applied_date | ago }}</span>{% else %}Not recorded{% endif %}{% if a.resume_name %} · {{ a.resume_name }}{% endif %}{% if a.url %} · <a href="{{ a.url }}" target="_blank" rel="noopener">Apply page<span class="ic ic-external" aria-hidden="true"></span></a>{% endif %}</div>
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
     </div>
