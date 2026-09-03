@@ -9,7 +9,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 ## Contents
 
 - [`web.py`](#webpy) — 9484 lines, 396 symbols — The Flask app: every route, every request hook, the feed.
-- [`core.py`](#corepy) — 4408 lines, 276 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
+- [`core.py`](#corepy) — 4413 lines, 276 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2929 lines, 180 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 9318 lines, 378 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2174 lines, 78 symbols — Fetches descriptions and scores them against the resume.
@@ -102,7 +102,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.*
 
-4408 lines · 276 top-level symbols · 36 sections
+4413 lines · 276 top-level symbols · 36 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -134,14 +134,14 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [3020–3348](../core.py#L3020) | THE SCALE VERSION of the `min` floor below, bumped whenever the score's MEANING moves — | 11 |
 | [3349–3358](../core.py#L3349) | WORK-AUTHORIZATION TIMELINE | 0 |
 | [3359–3513](../core.py#L3359) | Post-completion OPT allows 90 days of unemployment; the 24-month STEM extension raises the | 10 |
-| [3514–3886](../core.py#L3514) | Experience requirement parsing (to keep only entry-level roles) | 29 |
-| [3887–3930](../core.py#L3887) | THE TITLE AS A FLOOR OF LAST RESORT | 3 |
-| [3931–4010](../core.py#L3931) | THE OTHER NUMBER EVERY POSTING STATES: the degree | 5 |
-| [4011–4063](../core.py#L4011) | Fetch a job description page (best-effort; paste fallback in the UI) | 4 |
-| [4064–4237](../core.py#L4064) | Read an UPLOADED resume back into plain text | 14 |
-| [4238–4259](../core.py#L4238) | Export the (edited) resume to .docx | 1 |
-| [4260–4302](../core.py#L4260) | Optional: tailor the resume to a JD with Claude | 2 |
-| [4303–4408](../core.py#L4303) | Gemini (Google AI Studio) via REST — no SDK needed, just `requests` | 6 |
+| [3514–3891](../core.py#L3514) | Experience requirement parsing (to keep only entry-level roles) | 29 |
+| [3892–3935](../core.py#L3892) | THE TITLE AS A FLOOR OF LAST RESORT | 3 |
+| [3936–4015](../core.py#L3936) | THE OTHER NUMBER EVERY POSTING STATES: the degree | 5 |
+| [4016–4068](../core.py#L4016) | Fetch a job description page (best-effort; paste fallback in the UI) | 4 |
+| [4069–4242](../core.py#L4069) | Read an UPLOADED resume back into plain text | 14 |
+| [4243–4264](../core.py#L4243) | Export the (edited) resume to .docx | 1 |
+| [4265–4307](../core.py#L4265) | Optional: tailor the resume to a JD with Claude | 2 |
+| [4308–4413](../core.py#L4308) | Gemini (Google AI Studio) via REST — no SDK needed, just `requests` | 6 |
 
 ## `db.py`
 
@@ -1274,70 +1274,70 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `next_h1b_registration` | def | [3400](../core.py#L3400) | The next early-March H-1B registration anchor on or after `today`. |
 | `visa_timeline` | def | [3408](../core.py#L3408) | Turn the visa dates on a user's profile into dated reminders. |
 | `visa_alert` | def | [3487](../core.py#L3487) | The single most pressing item, for the slim feed strip — or None to show nothing. |
-| `_EXP_YEARS_RE` | const | [3517](../core.py#L3517) |  |
-| `_WORD_NUM` | const | [3527](../core.py#L3527) |  |
-| `_EXP_WORD_YEARS_RE` | const | [3530](../core.py#L3530) |  |
-| `_EXP_RANGE_RE` | const | [3542](../core.py#L3542) |  |
-| `_EXP_MONTHS_RE` | const | [3550](../core.py#L3550) |  |
-| `_EXP_DURATION_RE` | const | [3556](../core.py#L3556) |  |
-| `_EXP_EDU_YEARS_RE` | const | [3568](../core.py#L3568) |  |
-| `_EXP_CTX_RE` | const | [3578](../core.py#L3578) |  |
-| `_EXP_CTX_GENERIC_RE` | const | [3591](../core.py#L3591) |  |
-| `_EXP_TENURE_RE` | const | [3595](../core.py#L3595) |  |
-| `_EXP_TENURE_BEFORE` | const | [3603](../core.py#L3603) |  |
-| `_EXP_MIN_RE` | const | [3604](../core.py#L3604) |  |
-| `_EXP_SOFT_RE` | const | [3610](../core.py#L3610) |  |
-| `_EXP_HARD_RE` | const | [3617](../core.py#L3617) |  |
-| `_CLAUSE_SPLIT_RE` | const | [3627](../core.py#L3627) |  |
-| `_DEGREE_RE` | const | [3643](../core.py#L3643) |  |
-| `_ALTERNATIVE_RE` | const | [3645](../core.py#L3645) |  |
-| `_clause_after` | def | [3648](../core.py#L3648) | `s` up to the first clause boundary. |
-| `_clause_before` | def | [3653](../core.py#L3653) | `s` back to the last clause boundary. |
-| `_reads_as_preferred` | def | [3658](../core.py#L3658) | Is this year count one the employer merely PREFERS, rather than insists on? |
-| `_experience_floors_split` | def | [3686](../core.py#L3686) | (hard, soft) — the floors the employer insists on, and the ones it merely prefers. |
-| `_LADDER_GAP` | const | [3759](../core.py#L3759) |  |
-| `_collapse_ladders` | def | [3762](../core.py#L3762) | \[(start, end, years, had_context)\] -&gt; \[years\], each run of rungs reduced to its lowest. |
-| `_experience_floors` | def | [3821](../core.py#L3821) | Every stated floor, hard or soft. Kept as the flat list experience_min_years reads. |
-| `experience_years` | def | [3827](../core.py#L3827) | The HIGHEST experience requirement the text states, or None when it states none. |
-| `required_years` | def | [3848](../core.py#L3848) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
-| `experience_min_years` | def | [3854](../core.py#L3854) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
-| `exp_level_for` | def | [3863](../core.py#L3863) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
-| `experience_level` | def | [3879](../core.py#L3879) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
-| `_TITLE_SENIOR_RE` | const | [3913](../core.py#L3913) |  |
-| `_TITLE_JUNIOR_RE` | const | [3919](../core.py#L3919) |  |
-| `_TITLE_SENIOR_YEARS` | const | [3926](../core.py#L3926) |  |
-| `_DEGREE_LEVELS` | const | [3940](../core.py#L3940) |  |
-| `_DEGREE_RXS` | const | [3947](../core.py#L3947) |  |
-| `education_floors` | def | [3950](../core.py#L3950) | (required, preferred) degree names, either of which may be None. |
-| `experience_floors` | def | [3977](../core.py#L3977) | (required, preferred) year counts, either of which may be None. |
-| `title_experience_tier` | def | [3997](../core.py#L3997) | The years a TITLE implies, or None when it implies nothing. Never overrides a description. |
-| `_MAIN_SELECTORS` | const | [4014](../core.py#L4014) |  |
-| `_MAIN_MIN_CHARS` | const | [4019](../core.py#L4019) |  |
-| `_main_region` | def | [4022](../core.py#L4022) | The element holding the posting, or None to mean "use the whole document". |
-| `fetch_jd` | def | [4034](../core.py#L4034) | Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API. |
-| `RESUME_UPLOAD_MAX_BYTES` | const | [4072](../core.py#L4072) |  |
-| `_RESUME_PDF_MAX_PAGES` | const | [4073](../core.py#L4073) |  |
-| `RESUME_UPLOAD_EXTS` | const | [4074](../core.py#L4074) |  |
-| `_readable_formats_phrase` | def | [4077](../core.py#L4077) | Which upload formats this host can ACTUALLY read, named in a sentence. |
-| `_docx_to_text` | def | [4110](../core.py#L4110) |  |
-| `_PDF_SPLIT_HYPHEN_RE` | const | [4122](../core.py#L4122) |  |
-| `_fix_pdf_artifacts` | def | [4125](../core.py#L4125) | Undo the spacing damage PDF text extraction does. |
-| `_pdf_to_text` | def | [4138](../core.py#L4138) |  |
-| `_TEX_ITEM_RE` | const | [4150](../core.py#L4150) |  |
-| `_TEX_CMD_ARG_RE` | const | [4151](../core.py#L4151) |  |
-| `_TEX_CMD_RE` | const | [4153](../core.py#L4153) |  |
-| `_TEX_COMMENT_RE` | const | [4154](../core.py#L4154) |  |
-| `tex_to_text` | def | [4157](../core.py#L4157) | LaTeX source -&gt; the prose inside it. |
-| `resume_text_from_upload` | def | [4188](../core.py#L4188) | (text, error) from an uploaded resume. Never raises, never touches disk. |
-| `resume_to_docx_bytes` | def | [4239](../core.py#L4239) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
-| `ai_available` | def | [4264](../core.py#L4264) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
-| `_tailor_prompt` | def | [4269](../core.py#L4269) | The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice, |
-| `GEMINI_DEFAULT_MODEL` | const | [4306](../core.py#L4306) |  |
-| `_gemini_list_models` | def | [4309](../core.py#L4309) | Model short-names that support generateContent (e.g. 'gemini-3.5-flash'). |
-| `_gemini_discover` | def | [4318](../core.py#L4318) | Best available stable Flash (then Pro) model — used only if the preferred id 404s. |
-| `tailor_with_gemini` | def | [4333](../core.py#L4333) | Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword |
-| `tailor_with_ai` | def | [4373](../core.py#L4373) | Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests` |
-| `tailor` | def | [4400](../core.py#L4400) | Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or |
+| `_EXP_YEARS_RE` | const | [3521](../core.py#L3521) |  |
+| `_WORD_NUM` | const | [3532](../core.py#L3532) |  |
+| `_EXP_WORD_YEARS_RE` | const | [3535](../core.py#L3535) |  |
+| `_EXP_RANGE_RE` | const | [3547](../core.py#L3547) |  |
+| `_EXP_MONTHS_RE` | const | [3555](../core.py#L3555) |  |
+| `_EXP_DURATION_RE` | const | [3561](../core.py#L3561) |  |
+| `_EXP_EDU_YEARS_RE` | const | [3573](../core.py#L3573) |  |
+| `_EXP_CTX_RE` | const | [3583](../core.py#L3583) |  |
+| `_EXP_CTX_GENERIC_RE` | const | [3596](../core.py#L3596) |  |
+| `_EXP_TENURE_RE` | const | [3600](../core.py#L3600) |  |
+| `_EXP_TENURE_BEFORE` | const | [3608](../core.py#L3608) |  |
+| `_EXP_MIN_RE` | const | [3609](../core.py#L3609) |  |
+| `_EXP_SOFT_RE` | const | [3615](../core.py#L3615) |  |
+| `_EXP_HARD_RE` | const | [3622](../core.py#L3622) |  |
+| `_CLAUSE_SPLIT_RE` | const | [3632](../core.py#L3632) |  |
+| `_DEGREE_RE` | const | [3648](../core.py#L3648) |  |
+| `_ALTERNATIVE_RE` | const | [3650](../core.py#L3650) |  |
+| `_clause_after` | def | [3653](../core.py#L3653) | `s` up to the first clause boundary. |
+| `_clause_before` | def | [3658](../core.py#L3658) | `s` back to the last clause boundary. |
+| `_reads_as_preferred` | def | [3663](../core.py#L3663) | Is this year count one the employer merely PREFERS, rather than insists on? |
+| `_experience_floors_split` | def | [3691](../core.py#L3691) | (hard, soft) — the floors the employer insists on, and the ones it merely prefers. |
+| `_LADDER_GAP` | const | [3764](../core.py#L3764) |  |
+| `_collapse_ladders` | def | [3767](../core.py#L3767) | \[(start, end, years, had_context)\] -&gt; \[years\], each run of rungs reduced to its lowest. |
+| `_experience_floors` | def | [3826](../core.py#L3826) | Every stated floor, hard or soft. Kept as the flat list experience_min_years reads. |
+| `experience_years` | def | [3832](../core.py#L3832) | The HIGHEST experience requirement the text states, or None when it states none. |
+| `required_years` | def | [3853](../core.py#L3853) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
+| `experience_min_years` | def | [3859](../core.py#L3859) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
+| `exp_level_for` | def | [3868](../core.py#L3868) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
+| `experience_level` | def | [3884](../core.py#L3884) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
+| `_TITLE_SENIOR_RE` | const | [3918](../core.py#L3918) |  |
+| `_TITLE_JUNIOR_RE` | const | [3924](../core.py#L3924) |  |
+| `_TITLE_SENIOR_YEARS` | const | [3931](../core.py#L3931) |  |
+| `_DEGREE_LEVELS` | const | [3945](../core.py#L3945) |  |
+| `_DEGREE_RXS` | const | [3952](../core.py#L3952) |  |
+| `education_floors` | def | [3955](../core.py#L3955) | (required, preferred) degree names, either of which may be None. |
+| `experience_floors` | def | [3982](../core.py#L3982) | (required, preferred) year counts, either of which may be None. |
+| `title_experience_tier` | def | [4002](../core.py#L4002) | The years a TITLE implies, or None when it implies nothing. Never overrides a description. |
+| `_MAIN_SELECTORS` | const | [4019](../core.py#L4019) |  |
+| `_MAIN_MIN_CHARS` | const | [4024](../core.py#L4024) |  |
+| `_main_region` | def | [4027](../core.py#L4027) | The element holding the posting, or None to mean "use the whole document". |
+| `fetch_jd` | def | [4039](../core.py#L4039) | Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API. |
+| `RESUME_UPLOAD_MAX_BYTES` | const | [4077](../core.py#L4077) |  |
+| `_RESUME_PDF_MAX_PAGES` | const | [4078](../core.py#L4078) |  |
+| `RESUME_UPLOAD_EXTS` | const | [4079](../core.py#L4079) |  |
+| `_readable_formats_phrase` | def | [4082](../core.py#L4082) | Which upload formats this host can ACTUALLY read, named in a sentence. |
+| `_docx_to_text` | def | [4115](../core.py#L4115) |  |
+| `_PDF_SPLIT_HYPHEN_RE` | const | [4127](../core.py#L4127) |  |
+| `_fix_pdf_artifacts` | def | [4130](../core.py#L4130) | Undo the spacing damage PDF text extraction does. |
+| `_pdf_to_text` | def | [4143](../core.py#L4143) |  |
+| `_TEX_ITEM_RE` | const | [4155](../core.py#L4155) |  |
+| `_TEX_CMD_ARG_RE` | const | [4156](../core.py#L4156) |  |
+| `_TEX_CMD_RE` | const | [4158](../core.py#L4158) |  |
+| `_TEX_COMMENT_RE` | const | [4159](../core.py#L4159) |  |
+| `tex_to_text` | def | [4162](../core.py#L4162) | LaTeX source -&gt; the prose inside it. |
+| `resume_text_from_upload` | def | [4193](../core.py#L4193) | (text, error) from an uploaded resume. Never raises, never touches disk. |
+| `resume_to_docx_bytes` | def | [4244](../core.py#L4244) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
+| `ai_available` | def | [4269](../core.py#L4269) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
+| `_tailor_prompt` | def | [4274](../core.py#L4274) | The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice, |
+| `GEMINI_DEFAULT_MODEL` | const | [4311](../core.py#L4311) |  |
+| `_gemini_list_models` | def | [4314](../core.py#L4314) | Model short-names that support generateContent (e.g. 'gemini-3.5-flash'). |
+| `_gemini_discover` | def | [4323](../core.py#L4323) | Best available stable Flash (then Pro) model — used only if the preferred id 404s. |
+| `tailor_with_gemini` | def | [4338](../core.py#L4338) | Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword |
+| `tailor_with_ai` | def | [4378](../core.py#L4378) | Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests` |
+| `tailor` | def | [4405](../core.py#L4405) | Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or |
 
 ## `db.py` — symbols
 
