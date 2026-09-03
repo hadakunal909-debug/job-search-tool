@@ -105,6 +105,7 @@ SUITES = (
     Suite("test_sponsor_flag",      "test_sponsor_flag.py",              "root",   "offline"),
     Suite("test_templates_parse",   "test_templates_parse.py",           "root",   "offline"),
     Suite("test_title_filter",      "test_title_filter.py",              "root",   "offline"),
+    Suite("test_us_location",       "test_us_location.py",               "root",   "offline"),
     Suite("test_verify_queue",      "test_verify_queue.py",              "root",   "offline"),
     Suite("test_workday_date",      "test_workday_date.py",              "root",   "offline"),
 
