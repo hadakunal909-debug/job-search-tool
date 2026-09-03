@@ -524,6 +524,18 @@
     // since fe62114 removed the badge that did it, so a reader filtering to "0 to 2 Years" had
     // no way to tell a posting that SAYS two years from one nobody could read. Measured on the
     // live corpus, 80% of what that filter returned was the second kind.
+    // FOUR ANSWERS, NOT THREE, AND THE FOURTH IS THE ONE THIS GOT WRONG. "years not stated" is
+    // a claim about the POSTING -- that the employer named no number. When exp_max_years is
+    // NULL because nothing has ANALYSED the row yet, that claim is false, and the job page
+    // proves it false in the same session: it reads the description live and prints "5+ years
+    // required" under a card that just said the years were not stated. Measured over the 39,459
+    // rows that hold a description, card and page disagreed on 21.5% of them.
+    //
+    // The two facts that separate the cases are already on the row and already drive the score
+    // ring above -- jd_unavailable (this employer publishes nothing a server can read, so no
+    // run will ever change it) and score_pending (we have not read this one YET). Saying "not
+    // read yet" costs nothing and is true; saying "not stated" was a guess about somebody
+    // else's job posting.
     var expTxt = '', expTitle = '';
     if (j.exp_src === 'stated') {
       expTxt = j.exp_eff + '+ yrs';
@@ -532,10 +544,18 @@
       expTxt = 'senior role';
       expTitle = 'This posting states no year count. Its TITLE names a senior role, and ' +
         '96% of postings titled this way ask for three years or more.';
+    } else if (j.jd_unavailable) {
+      expTxt = 'years unknown';
+      expTitle = 'This employer does not publish a description we can read, so how much ' +
+        'experience it wants cannot be known from here. Open the posting to check.';
+    } else if (j.score_pending) {
+      expTxt = 'years not read yet';
+      expTitle = 'We have not finished reading this posting. It may well state its years — ' +
+        'open it and the page reads the description directly.';
     } else {
       expTxt = 'years not stated';
-      expTitle = 'Neither the description nor the title says how much experience this job ' +
-        'wants, so an experience filter cannot judge it and always shows it.';
+      expTitle = 'We read this description and it names no year count, and the title does ' +
+        'not either — so an experience filter cannot judge it and always shows it.';
     }
     // cexp-*, not exp-*: .exp-lo/.exp-mid/.exp-hi are the /job page's CHIP and carry a
     // background and a route colour. Reusing those names here would put a chip back on the card

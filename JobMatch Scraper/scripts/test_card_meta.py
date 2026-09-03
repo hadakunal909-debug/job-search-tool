@@ -304,6 +304,38 @@ check("web.py derives the flag instead of reading a column",
           encoding="utf-8").read(),
       "a stamped column would need a hand-run migration and could drift from the filter")
 
+# ---------------------------------------------------------------------------------------------
+# THE EXPERIENCE INK, AND THE FOURTH STATE THAT MAKES IT HONEST
+# ---------------------------------------------------------------------------------------------
+# The card reads exp_max_years, a STORED column; /job reads the description LIVE. When the column
+# is stale the two contradict each other in the same session -- a card saying "years not stated"
+# over a page that just printed "5+ years required". Measured on the live corpus before the
+# 2026-09-03 re-derive: 21.5% of the 39,459 rows holding a description.
+#
+# A re-derive fixes the stale ones. What it CANNOT fix is a row fetched since the last scoring
+# run, and for those "years not stated" is not a stale answer, it is a FALSE CLAIM: it asserts
+# something about the employer's posting when the only fact we hold is about our own pipeline.
+# The two flags that separate the cases already exist and already drive the score ring.
+check("the card distinguishes 'not read yet' from 'not stated'",
+      "years not read yet" in CODE and "years not stated" in CODE,
+      "one is a fact about our pipeline, the other a claim about the posting")
+check("...and 'unknown' for an employer that publishes nothing readable",
+      "years unknown" in CODE)
+check("it reads the SAME two flags the score ring reads",
+      "j.jd_unavailable" in CODE and "j.score_pending" in CODE,
+      "inventing a third source for the same fact is how two chips start disagreeing")
+# Order matters: jd_unavailable is permanent and score_pending is transient, so the permanent
+# one has to be tested first or a walled employer reads as "not read YET" forever.
+_perm = CODE.find("j.jd_unavailable")
+_pend = CODE.find("j.score_pending")
+check("the permanent case is tested before the transient one", -1 < _perm < _pend,
+      "a walled employer would otherwise promise a reading that never arrives")
+# INK, NOT A CHIP. CLAUDE.md: one blue and one chip, walked back twice already.
+check("the experience is ink on the identity line, not a second chip",
+      "cexp" in CODE and "cexp" in open(
+          os.path.join(APP, "static", "style.css"), encoding="utf-8").read(),
+      "reusing .exp / .exp-hi would give it the /job chip's background by stylesheet accident")
+
 print()
 if FAILS:
     print("FAILURES (%d): %s" % (len(FAILS), "; ".join(FAILS)))
