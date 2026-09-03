@@ -322,8 +322,9 @@ UltiPro, JobDiva, Avature, Recruitee, Breezy, BambooHR, Pinpoint, Rippling, Work
 JSON-LD), probes it for real postings, and only then writes a `boards` row. New boards are picked
 up by the *next* scrape.
 
-Built-in boards live in `SOURCES` in `scraper/__init__.py` — 1,173 entries as of writing,
-composed from 19 named lists. App-added boards come from the `boards` table and are merged on top.
+Built-in boards live in `SOURCES` in `scraper/__init__.py` — 1,192 entries as of writing,
+composed from 19 named lists. App-added boards come from the `boards` table and are merged on top;
+that table holds 915 as of 2026-09-02, so the effective source count is ~2,107, not 1,192.
 
 ### When an employer has no board
 
@@ -352,6 +353,80 @@ already passed the bot-wall. See [extension/README.md](../extension/README.md).
 > Seven companies still have no board at all as a result: ASML, Deutsche Bank, LTIMindtree,
 > Marlabs, Qualcomm, Renesas, Tradeweb. Their `boards` rows still say `ats_type="adzuna"` and are
 > inert. Guessed Workday/Greenhouse tenants didn't resolve — each needs its real tenant id.
+
+### Finding boards in bulk — the discovery pipeline
+
+`/add` is one board at a time. To find employers we don't cover yet, start from a live posting
+feed, keep only the employer NAME, and scrape that employer's own board. The posting text is
+thrown away, which is what keeps the "don't reach for an aggregator" rule above intact: an
+aggregator is a discovery *channel* here, never a feed source.
+
+Four stages plus a review, none of which writes to the database except the last:
+
+```bash
+# 1+2  harvest and screen -> discovered_companies.csv
+python -u scripts/discover_companies.py --channel linkedin,indeed --phrases all --hours 168 -v
+
+# 3    probe each net-new name for a real board -> discovered_board_probe.csv
+python scripts/probe_discovered.py --csv discovered_companies.csv --min-pm 1
+
+# 3.5  read what each board actually contains -> candidate_review.csv
+python scripts/review_candidates.py --csv discovered_board_probe.csv
+
+# 4    grade identity, apply the blocklist and the vetoes. --dry-run writes nothing.
+python -m scraper.adopt_everify_boards --csv discovered_board_probe.csv --dry-run \
+  --added-by discover:li+indeed:YYYY-MM-DD --out discovered_adoption.csv
+```
+
+`--added-by` tags the batch so **rollback is one statement** —
+`DELETE FROM boards WHERE added_by = '<tag>'`. Always pass it; it was hardcoded once and one
+pipeline's dry run silently overwrote another's review artifact.
+
+**Run both channels.** LinkedIn and Indeed overlap by only ~6% of employers, so they are close
+to disjoint. Google returned 0 rows when tested and was dropped — verify it per-run rather than
+assuming. Measured funnels, for calibration:
+
+| Run | Postings | Employers | Net-new | Probed | Boards | Adopted |
+|---|---|---|---|---|---|---|
+| 2026-08-30 LinkedIn, 24 phrases | 2,368 | 1,406 | 1,092 | 943 | 153 (16.2%) | 125 |
+| 2026-08-31 + Indeed | 4,184 | 1,933 | 1,480 | 1,163 | 120 (10.3%) | 85 |
+| 2026-09-02 same shape | 4,512 | 1,977 | 1,494 | **720** | 113 (15.7%) | 75 |
+
+**Skip the names you have already probed.** A 168h window run days after another re-surfaces the
+same employers, and re-probing one cannot return a different answer unless the detect chain
+changed. Union the `board_url`-empty rows of every probe CSV written since the last detection
+fix — 3,214 names on 2026-09-02 — and drop them before stage 3. That cut the probe list by a
+third and is why the 09-02 rate reads higher than 08-31's: the denominator no longer carries
+last week's known dead ends.
+
+**Two things the automated gates cannot decide, both of which have shipped a bad board:**
+
+- **The titles, not the ratio.** `relevance_yield` auto-rejects only at ZERO survivors, so
+  Domino's passed at 1 of 1,000 sampled against 24,663 postings. And it never samples a board
+  under `YIELD_CHECK_MIN_POSTINGS = 500` at all. Run `scripts/review_candidates.py`, read
+  `top_title_share`, and read the titles themselves — concentration beats ratio. Tapestry kept
+  1.1% and every survivor was a distinct HQ role (keep); EoS Fitness kept 7.6% and 99% of those
+  were one repeated store title (reject).
+- **The tenant.** A real US employer can resolve to its FOREIGN tenant and grade `confirmed` —
+  Conagra to `Careers_CAN`, Chart Industries to a board that read 8 rows, all Czech. Both were
+  adopted and removed. `foreign_share` only vetoes when *every* posting is abroad.
+
+**The blocklist is where a rejection is recorded, once** — `db.add_blocked(name, reason,
+added_by)`, 38 entries, each carrying its measured reason, and `db.remove_blocked(name_key)`
+undoes it. Adopt consults it, so blocklist *before* adopting and a bad row cannot slip through.
+Watch the key: `block_key` keeps legal suffixes and turns `Domino's` into `domino s`, which does
+**not** match `Dominos` — that spelling gap let previously-blocked Ulta and AutoZone be
+re-adopted. Block both spellings and verify with `db.is_blocked`.
+
+**Tooling traps that have each cost an hour:**
+
+- `discover_companies.py` **banks nothing until every phrase completes**, so a kill loses the
+  whole harvest. 24 phrases x 2 channels is ~60-90 minutes. Budget for it.
+- jobspy logs `finished scraping` **once per process, not per query**, so it is useless as a
+  progress counter. Run with `python -u` and count the per-phrase lines instead.
+- A phrase whose titles can never pass `title_verdict` contributes nothing: "solutions
+  architect", "cloud architect" and "product designer" are all excluded as off-target
+  functions. Check a new phrase through `title_verdict` before adding it.
 
 ---
 
@@ -407,6 +482,7 @@ Disposable and gitignored: `jd_cache.json.gz`, `jdmeta.json`, `jobs_snapshot.jso
 |---|---|
 | `python scripts/smoke_app.py -v` | Walks every user-facing route through Flask's test client, PASS/FAIL/SKIP each |
 | `python scripts/audit_jd_coverage.py` | Census of which jobs have a usable description |
+| `python scripts/review_candidates.py --csv <probe or adopt csv>` | Fetches each board and reports kept/fetched, US survivors, distinct titles and the top title's share — the judgement adopt's yield check can't make, and the only one that looks at boards under 500 postings |
 | `python scripts/dump_schema.py` | Regenerates `schema.sql` by asking Postgres to describe itself |
 | `python scripts/dump_titles.py` | Every scraped title plus the filter's verdict, no database |
 | `python scripts/probe_db_proxy.py` | Read-only check that the HMAC proxy transport works |
