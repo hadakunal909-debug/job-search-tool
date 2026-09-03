@@ -4057,7 +4057,7 @@ _RELAX = [
     ("exp",          "any", lambda v: "the experience filter"),
     # expstated was MISSING, so when the one control that changes the POPULATION rather than
     # narrowing it was what emptied the feed, this panel blamed the match minimum instead.
-    ("expstated",    "0",   lambda v: "Hide postings we couldn't read"),
+    ("expstated",    "0",   lambda v: "Hide postings with no experience answer"),
     ("intern",       "any", lambda v: "the internship filter"),
     ("remote",       "0",   lambda v: "Remote only"),
     ("hidenospon",   "0",   lambda v: "Hide no-sponsorship"),

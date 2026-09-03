@@ -180,10 +180,10 @@
            ink on its identity line, and the two sentences below describe what the filter really
            does with each. #}
         <p class="field-help">Read from the description, or from the title when the description
-          gives no number. A posting with neither is always shown and says
-          <em>years not stated</em> on the card.</p>
-        <label class="ck" title="Hides only the postings where neither the description nor the title says anything about experience — the ones an experience filter cannot judge either way. Postings whose seniority was read from the title are kept.">
-          <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Hide postings we couldn't read</label>
+          gives no number. A posting with neither is always shown, and the card says which it
+          is — <em>years not stated</em>, <em>not read yet</em>, or <em>unknown</em>.</p>
+        <label class="ck" title="Hides every posting we have no experience answer for — whether the description names no number, we have not read it yet, or the employer publishes nothing readable. Postings whose seniority was read from the title are kept.">
+          <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Hide postings with no experience answer</label>
       </div>
 
       <div class="field">

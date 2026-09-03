@@ -16,6 +16,16 @@ user_jobs_local.json
 jds.json
 boards.json
 jdmeta.json
+# ...AND EVERY COPY OF IT. Moving jdmeta.json aside is the documented way to force a re-derive
+# (_persist_derived prefers a cached entry over recomputing, so a stale file writes the old
+# parser's answers straight back) -- and the renamed copy is not matched by the line above. One
+# `git add -A` on 2026-09-03 committed a 71 MB jdmeta.json.pre-cleanjd for exactly that reason.
+jdmeta.json.*
+# THE RESUME IS THE OWNER'S, and resume.txt is tracked deliberately (the scraper scores against
+# it) -- but a hand-made backup of it is not, and .gitignore had no rule that would catch one.
+# The same `git add -A` also committed resume.txt.local-may30-backup.
+resume.txt.*
+!resume.txt
 # Written by the running web app to share the feed rows across Passenger workers. Runtime
 # state, regenerated on demand — must never be deployed or committed.
 jobs_snapshot.json.gz
