@@ -314,8 +314,15 @@ def _reset_idf_cache():
 
 
 def save_idf(idf, path=_IDF_PATH):
+    # SORTED, and the reason is the one jd_terms already taught this project. idf is built from
+    # a dict keyed by str, so its iteration order is randomised per process by PYTHONHASHSEED:
+    # two runs over an UNCHANGED corpus wrote two byte-different 27 MB files holding the
+    # identical object. idf.json is TRACKED and is in the deploy bundle, so every scoring run
+    # left it modified in git and `git add -A` committed a 27 MB no-op diff -- one of which
+    # went in today before anyone looked at what had actually changed. Sorting makes "nothing
+    # changed" produce no diff, which is the only way a data file in git can be reviewed.
     try:
-        json.dump(idf, open(path, "w", encoding="utf-8"))
+        json.dump(idf, open(path, "w", encoding="utf-8"), sort_keys=True)
         if path == _IDF_PATH:                 # keep the in-process cache in step with the file
             _idf_cache["idf"] = idf
             _idf_cache["loaded"] = True
