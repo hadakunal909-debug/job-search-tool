@@ -165,6 +165,22 @@ def test_a_duration_is_not_experience():
     _eq("18 months of relevant experience", 1)          # a real floor still reads
 
 
+def test_a_field_LABELLED_years_is_context_enough():
+    """Structured ATS blocks state the requirement as a field, not a sentence.
+
+    Oracle's candidate page renders "Years: 3 to 5+ years" in its requisition field table, and
+    with no experience word in reach that read as no requirement at all -- on 2,495 active rows,
+    including JPMorgan Chase (582) and Oracle (513). The COLON is what makes this safe: it
+    matches a label, not the word "years" inside a sentence.
+    """
+    _eq("Years: 3 to 5+ years", 3)
+    _eq("Years: 5+ years", 5)
+    _eq("Years : 2 to 4 years", 2)
+    # ...and the sentences that must still read as nothing. "years" without a colon is prose.
+    _eq("Our leadership team celebrates 10 years of business this month.", None)
+    _eq("401k vesting after 3 years. Software development team.", None)
+
+
 def test_the_compound_adjective_form():
     """"1-year experience" — a hyphen where the parser wanted a space, and singular.
 

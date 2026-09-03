@@ -488,9 +488,32 @@ def oracle_detail_jd(url):
         items = d.get("items") or []
         if not items:
             return ""
-        return " ".join(_text(items[0].get(k) or "") for k in
+        body = " ".join(_text(items[0].get(k) or "") for k in
                         ("ExternalDescriptionStr", "ShortDescriptionStr",
                          "ExternalQualificationsStr", "ExternalResponsibilitiesStr")).strip()
+        # ...AND THE FIELD TABLE, which is where this ATS puts the two facts that decide whether
+        # a posting is worth opening. Oracle's candidate page renders a labelled block above the
+        # description -- Role, Job Type, Years, Additional Info -- and every one of those is a
+        # `requisitionFlexFields` entry, not prose. Reading only the four description fields
+        # meant a real Oracle posting showing "Years: 3 to 5+ years" on its own page reported
+        # "Not stated in this posting" here.
+        #
+        # THE SPONSORSHIP ONE IS WHY THIS IS URGENT rather than tidy. "Additional Info: Visa /
+        # work permit sponsorship is not available for this position" lives in the same block,
+        # and core.sponsorship_from_jd reads it correctly the moment it can see it -- so without
+        # this the card fell back to Oracle's EMPLOYER filing history and said "H-1B Likely" on
+        # a posting that rules sponsorship out in writing. 2,495 active rows are on this host,
+        # including JPMorgan Chase (582), Oracle (513) and American Express (170).
+        #
+        # Appended as "Prompt: Value" lines, which is what the page shows and what
+        # jdrender._field_label already renders as a definition list.
+        fields = []
+        for f in (items[0].get("requisitionFlexFields") or []):
+            label = _text(str(f.get("Prompt") or f.get("Name") or "")).strip()
+            value = _text(str(f.get("Value") or "")).strip()
+            if label and value and value.lower() not in ("null", "none"):
+                fields.append("%s: %s" % (label[:60], value[:200]))
+        return (body + ("\n" + "\n".join(fields) if fields else "")).strip()
     except Exception:
         return ""
 

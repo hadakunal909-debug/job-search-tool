@@ -9,10 +9,10 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 ## Contents
 
 - [`web.py`](#webpy) — 9484 lines, 396 symbols — The Flask app: every route, every request hook, the feed.
-- [`core.py`](#corepy) — 4420 lines, 276 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
+- [`core.py`](#corepy) — 4425 lines, 276 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 2929 lines, 180 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 9318 lines, 378 symbols — The sweep and the intake filter, plus every ATS adapter.
-- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2259 lines, 81 symbols — Fetches descriptions and scores them against the resume.
+- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2282 lines, 81 symbols — Fetches descriptions and scores them against the resume.
 - [`resume_score.py`](#resume_scorepy) — 1616 lines, 131 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 203 lines, 12 symbols — Which curated skills a track is expected to show.
 - [`resume_bullets.py`](#resume_bulletspy) — 248 lines, 18 symbols — Per-bullet review: verb, scope, result.
@@ -102,7 +102,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.*
 
-4420 lines · 276 top-level symbols · 36 sections
+4425 lines · 276 top-level symbols · 36 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -134,14 +134,14 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [3027–3355](../core.py#L3027) | THE SCALE VERSION of the `min` floor below, bumped whenever the score's MEANING moves — | 11 |
 | [3356–3365](../core.py#L3356) | WORK-AUTHORIZATION TIMELINE | 0 |
 | [3366–3520](../core.py#L3366) | Post-completion OPT allows 90 days of unemployment; the 24-month STEM extension raises the | 10 |
-| [3521–3898](../core.py#L3521) | Experience requirement parsing (to keep only entry-level roles) | 29 |
-| [3899–3942](../core.py#L3899) | THE TITLE AS A FLOOR OF LAST RESORT | 3 |
-| [3943–4022](../core.py#L3943) | THE OTHER NUMBER EVERY POSTING STATES: the degree | 5 |
-| [4023–4075](../core.py#L4023) | Fetch a job description page (best-effort; paste fallback in the UI) | 4 |
-| [4076–4249](../core.py#L4076) | Read an UPLOADED resume back into plain text | 14 |
-| [4250–4271](../core.py#L4250) | Export the (edited) resume to .docx | 1 |
-| [4272–4314](../core.py#L4272) | Optional: tailor the resume to a JD with Claude | 2 |
-| [4315–4420](../core.py#L4315) | Gemini (Google AI Studio) via REST — no SDK needed, just `requests` | 6 |
+| [3521–3903](../core.py#L3521) | Experience requirement parsing (to keep only entry-level roles) | 29 |
+| [3904–3947](../core.py#L3904) | THE TITLE AS A FLOOR OF LAST RESORT | 3 |
+| [3948–4027](../core.py#L3948) | THE OTHER NUMBER EVERY POSTING STATES: the degree | 5 |
+| [4028–4080](../core.py#L4028) | Fetch a job description page (best-effort; paste fallback in the UI) | 4 |
+| [4081–4254](../core.py#L4081) | Read an UPLOADED resume back into plain text | 14 |
+| [4255–4276](../core.py#L4255) | Export the (edited) resume to .docx | 1 |
+| [4277–4319](../core.py#L4277) | Optional: tailor the resume to a JD with Claude | 2 |
+| [4320–4425](../core.py#L4320) | Gemini (Google AI Studio) via REST — no SDK needed, just `requests` | 6 |
 
 ## `db.py`
 
@@ -227,11 +227,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Fetches descriptions and scores them against the resume.*
 
-2259 lines · 81 top-level symbols · 1 sections
+2282 lines · 81 top-level symbols · 1 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
-| [1183–2259](../scraper/score_jobs.py#L1183) | Thin descriptions: a bounded, self-scheduling retry | 22 |
+| [1206–2282](../scraper/score_jobs.py#L1206) | Thin descriptions: a bounded, self-scheduling retry | 22 |
 
 ## `resume_score.py`
 
@@ -1282,62 +1282,62 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_EXP_DURATION_RE` | const | [3568](../core.py#L3568) |  |
 | `_EXP_EDU_YEARS_RE` | const | [3580](../core.py#L3580) |  |
 | `_EXP_CTX_RE` | const | [3590](../core.py#L3590) |  |
-| `_EXP_CTX_GENERIC_RE` | const | [3603](../core.py#L3603) |  |
-| `_EXP_TENURE_RE` | const | [3607](../core.py#L3607) |  |
-| `_EXP_TENURE_BEFORE` | const | [3615](../core.py#L3615) |  |
-| `_EXP_MIN_RE` | const | [3616](../core.py#L3616) |  |
-| `_EXP_SOFT_RE` | const | [3622](../core.py#L3622) |  |
-| `_EXP_HARD_RE` | const | [3629](../core.py#L3629) |  |
-| `_CLAUSE_SPLIT_RE` | const | [3639](../core.py#L3639) |  |
-| `_DEGREE_RE` | const | [3655](../core.py#L3655) |  |
-| `_ALTERNATIVE_RE` | const | [3657](../core.py#L3657) |  |
-| `_clause_after` | def | [3660](../core.py#L3660) | `s` up to the first clause boundary. |
-| `_clause_before` | def | [3665](../core.py#L3665) | `s` back to the last clause boundary. |
-| `_reads_as_preferred` | def | [3670](../core.py#L3670) | Is this year count one the employer merely PREFERS, rather than insists on? |
-| `_experience_floors_split` | def | [3698](../core.py#L3698) | (hard, soft) — the floors the employer insists on, and the ones it merely prefers. |
-| `_LADDER_GAP` | const | [3771](../core.py#L3771) |  |
-| `_collapse_ladders` | def | [3774](../core.py#L3774) | \[(start, end, years, had_context)\] -&gt; \[years\], each run of rungs reduced to its lowest. |
-| `_experience_floors` | def | [3833](../core.py#L3833) | Every stated floor, hard or soft. Kept as the flat list experience_min_years reads. |
-| `experience_years` | def | [3839](../core.py#L3839) | The HIGHEST experience requirement the text states, or None when it states none. |
-| `required_years` | def | [3860](../core.py#L3860) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
-| `experience_min_years` | def | [3866](../core.py#L3866) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
-| `exp_level_for` | def | [3875](../core.py#L3875) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
-| `experience_level` | def | [3891](../core.py#L3891) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
-| `_TITLE_SENIOR_RE` | const | [3925](../core.py#L3925) |  |
-| `_TITLE_JUNIOR_RE` | const | [3931](../core.py#L3931) |  |
-| `_TITLE_SENIOR_YEARS` | const | [3938](../core.py#L3938) |  |
-| `_DEGREE_LEVELS` | const | [3952](../core.py#L3952) |  |
-| `_DEGREE_RXS` | const | [3959](../core.py#L3959) |  |
-| `education_floors` | def | [3962](../core.py#L3962) | (required, preferred) degree names, either of which may be None. |
-| `experience_floors` | def | [3989](../core.py#L3989) | (required, preferred) year counts, either of which may be None. |
-| `title_experience_tier` | def | [4009](../core.py#L4009) | The years a TITLE implies, or None when it implies nothing. Never overrides a description. |
-| `_MAIN_SELECTORS` | const | [4026](../core.py#L4026) |  |
-| `_MAIN_MIN_CHARS` | const | [4031](../core.py#L4031) |  |
-| `_main_region` | def | [4034](../core.py#L4034) | The element holding the posting, or None to mean "use the whole document". |
-| `fetch_jd` | def | [4046](../core.py#L4046) | Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API. |
-| `RESUME_UPLOAD_MAX_BYTES` | const | [4084](../core.py#L4084) |  |
-| `_RESUME_PDF_MAX_PAGES` | const | [4085](../core.py#L4085) |  |
-| `RESUME_UPLOAD_EXTS` | const | [4086](../core.py#L4086) |  |
-| `_readable_formats_phrase` | def | [4089](../core.py#L4089) | Which upload formats this host can ACTUALLY read, named in a sentence. |
-| `_docx_to_text` | def | [4122](../core.py#L4122) |  |
-| `_PDF_SPLIT_HYPHEN_RE` | const | [4134](../core.py#L4134) |  |
-| `_fix_pdf_artifacts` | def | [4137](../core.py#L4137) | Undo the spacing damage PDF text extraction does. |
-| `_pdf_to_text` | def | [4150](../core.py#L4150) |  |
-| `_TEX_ITEM_RE` | const | [4162](../core.py#L4162) |  |
-| `_TEX_CMD_ARG_RE` | const | [4163](../core.py#L4163) |  |
-| `_TEX_CMD_RE` | const | [4165](../core.py#L4165) |  |
-| `_TEX_COMMENT_RE` | const | [4166](../core.py#L4166) |  |
-| `tex_to_text` | def | [4169](../core.py#L4169) | LaTeX source -&gt; the prose inside it. |
-| `resume_text_from_upload` | def | [4200](../core.py#L4200) | (text, error) from an uploaded resume. Never raises, never touches disk. |
-| `resume_to_docx_bytes` | def | [4251](../core.py#L4251) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
-| `ai_available` | def | [4276](../core.py#L4276) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
-| `_tailor_prompt` | def | [4281](../core.py#L4281) | The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice, |
-| `GEMINI_DEFAULT_MODEL` | const | [4318](../core.py#L4318) |  |
-| `_gemini_list_models` | def | [4321](../core.py#L4321) | Model short-names that support generateContent (e.g. 'gemini-3.5-flash'). |
-| `_gemini_discover` | def | [4330](../core.py#L4330) | Best available stable Flash (then Pro) model — used only if the preferred id 404s. |
-| `tailor_with_gemini` | def | [4345](../core.py#L4345) | Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword |
-| `tailor_with_ai` | def | [4385](../core.py#L4385) | Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests` |
-| `tailor` | def | [4412](../core.py#L4412) | Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or |
+| `_EXP_CTX_GENERIC_RE` | const | [3608](../core.py#L3608) |  |
+| `_EXP_TENURE_RE` | const | [3612](../core.py#L3612) |  |
+| `_EXP_TENURE_BEFORE` | const | [3620](../core.py#L3620) |  |
+| `_EXP_MIN_RE` | const | [3621](../core.py#L3621) |  |
+| `_EXP_SOFT_RE` | const | [3627](../core.py#L3627) |  |
+| `_EXP_HARD_RE` | const | [3634](../core.py#L3634) |  |
+| `_CLAUSE_SPLIT_RE` | const | [3644](../core.py#L3644) |  |
+| `_DEGREE_RE` | const | [3660](../core.py#L3660) |  |
+| `_ALTERNATIVE_RE` | const | [3662](../core.py#L3662) |  |
+| `_clause_after` | def | [3665](../core.py#L3665) | `s` up to the first clause boundary. |
+| `_clause_before` | def | [3670](../core.py#L3670) | `s` back to the last clause boundary. |
+| `_reads_as_preferred` | def | [3675](../core.py#L3675) | Is this year count one the employer merely PREFERS, rather than insists on? |
+| `_experience_floors_split` | def | [3703](../core.py#L3703) | (hard, soft) — the floors the employer insists on, and the ones it merely prefers. |
+| `_LADDER_GAP` | const | [3776](../core.py#L3776) |  |
+| `_collapse_ladders` | def | [3779](../core.py#L3779) | \[(start, end, years, had_context)\] -&gt; \[years\], each run of rungs reduced to its lowest. |
+| `_experience_floors` | def | [3838](../core.py#L3838) | Every stated floor, hard or soft. Kept as the flat list experience_min_years reads. |
+| `experience_years` | def | [3844](../core.py#L3844) | The HIGHEST experience requirement the text states, or None when it states none. |
+| `required_years` | def | [3865](../core.py#L3865) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
+| `experience_min_years` | def | [3871](../core.py#L3871) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
+| `exp_level_for` | def | [3880](../core.py#L3880) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
+| `experience_level` | def | [3896](../core.py#L3896) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
+| `_TITLE_SENIOR_RE` | const | [3930](../core.py#L3930) |  |
+| `_TITLE_JUNIOR_RE` | const | [3936](../core.py#L3936) |  |
+| `_TITLE_SENIOR_YEARS` | const | [3943](../core.py#L3943) |  |
+| `_DEGREE_LEVELS` | const | [3957](../core.py#L3957) |  |
+| `_DEGREE_RXS` | const | [3964](../core.py#L3964) |  |
+| `education_floors` | def | [3967](../core.py#L3967) | (required, preferred) degree names, either of which may be None. |
+| `experience_floors` | def | [3994](../core.py#L3994) | (required, preferred) year counts, either of which may be None. |
+| `title_experience_tier` | def | [4014](../core.py#L4014) | The years a TITLE implies, or None when it implies nothing. Never overrides a description. |
+| `_MAIN_SELECTORS` | const | [4031](../core.py#L4031) |  |
+| `_MAIN_MIN_CHARS` | const | [4036](../core.py#L4036) |  |
+| `_main_region` | def | [4039](../core.py#L4039) | The element holding the posting, or None to mean "use the whole document". |
+| `fetch_jd` | def | [4051](../core.py#L4051) | Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API. |
+| `RESUME_UPLOAD_MAX_BYTES` | const | [4089](../core.py#L4089) |  |
+| `_RESUME_PDF_MAX_PAGES` | const | [4090](../core.py#L4090) |  |
+| `RESUME_UPLOAD_EXTS` | const | [4091](../core.py#L4091) |  |
+| `_readable_formats_phrase` | def | [4094](../core.py#L4094) | Which upload formats this host can ACTUALLY read, named in a sentence. |
+| `_docx_to_text` | def | [4127](../core.py#L4127) |  |
+| `_PDF_SPLIT_HYPHEN_RE` | const | [4139](../core.py#L4139) |  |
+| `_fix_pdf_artifacts` | def | [4142](../core.py#L4142) | Undo the spacing damage PDF text extraction does. |
+| `_pdf_to_text` | def | [4155](../core.py#L4155) |  |
+| `_TEX_ITEM_RE` | const | [4167](../core.py#L4167) |  |
+| `_TEX_CMD_ARG_RE` | const | [4168](../core.py#L4168) |  |
+| `_TEX_CMD_RE` | const | [4170](../core.py#L4170) |  |
+| `_TEX_COMMENT_RE` | const | [4171](../core.py#L4171) |  |
+| `tex_to_text` | def | [4174](../core.py#L4174) | LaTeX source -&gt; the prose inside it. |
+| `resume_text_from_upload` | def | [4205](../core.py#L4205) | (text, error) from an uploaded resume. Never raises, never touches disk. |
+| `resume_to_docx_bytes` | def | [4256](../core.py#L4256) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
+| `ai_available` | def | [4281](../core.py#L4281) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
+| `_tailor_prompt` | def | [4286](../core.py#L4286) | The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice, |
+| `GEMINI_DEFAULT_MODEL` | const | [4323](../core.py#L4323) |  |
+| `_gemini_list_models` | def | [4326](../core.py#L4326) | Model short-names that support generateContent (e.g. 'gemini-3.5-flash'). |
+| `_gemini_discover` | def | [4335](../core.py#L4335) | Best available stable Flash (then Pro) model — used only if the preferred id 404s. |
+| `tailor_with_gemini` | def | [4350](../core.py#L4350) | Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword |
+| `tailor_with_ai` | def | [4390](../core.py#L4390) | Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests` |
+| `tailor` | def | [4417](../core.py#L4417) | Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or |
 
 ## `db.py` — symbols
 
@@ -1936,62 +1936,62 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `wd_detail_jd` | def | [411](../scraper/score_jobs.py#L411) | Workday list has no JD; fetch the posting detail (CXS) for this one job. |
 | `_board_has_missing` | def | [445](../scraper/score_jobs.py#L445) | True if any still-missing job URL belongs to this board (cheap substring check |
 | `oracle_detail_jd` | def | [470](../scraper/score_jobs.py#L470) | Oracle Cloud Recruiting job detail. The LIST API truncates descriptions to |
-| `workable_detail_jd` | def | [498](../scraper/score_jobs.py#L498) | Workable job detail: apply.workable.com/{slug}/j/{shortcode}/ -&gt; v2 detail JSON |
-| `workatastartup_detail_jd` | def | [512](../scraper/score_jobs.py#L512) | Y Combinator's Work at a Startup — an Inertia.js app, so the page ships its whole |
-| `_PHENOM_JOB_RE` | const | [540](../scraper/score_jobs.py#L540) |  |
-| `phenom_detail_jd` | def | [543](../scraper/score_jobs.py#L543) | Phenom-native job pages ({origin}/us/en/job/{id}) — the jobDetail widget POST |
-| `paylocity_detail_jd` | def | [563](../scraper/score_jobs.py#L563) | Paylocity posting pages. The company's job LIST is client-rendered, but a posting page |
-| `_PS_JOB_RE` | const | [578](../scraper/score_jobs.py#L578) |  |
-| `peoplesoft_detail_jd` | def | [581](../scraper/score_jobs.py#L581) | PeopleSoft posting pages. The description sits in HRS_SCH_PSTDSC_DESCRLONG$N spans — |
-| `ultipro_detail_jd` | def | [603](../scraper/score_jobs.py#L603) | UKG Pro: the OpportunityDetail page is a JS shell, but the full Description |
-| `bamboo_detail_jd` | def | [617](../scraper/score_jobs.py#L617) | BambooHR: /careers/{id}/detail JSON carries the full description. |
-| `rippling_detail_jd` | def | [628](../scraper/score_jobs.py#L628) | Rippling job pages are server-rendered Next.js; the posting (incl. description) |
-| `_date_beats_stored` | def | [660](../scraper/score_jobs.py#L660) | Should a date read off the detail page replace what the scrape stored? |
-| `_parse_date_any` | def | [683](../scraper/score_jobs.py#L683) | Best-effort 'whatever the page says' -&gt; 'YYYY-MM-DD' ('' if unparseable). |
-| `page_posted_date` | def | [703](../scraper/score_jobs.py#L703) | Pull a posting date from a job page's structured data: SuccessFactors' |
-| `_GH_JID_RE` | const | [737](../scraper/score_jobs.py#L737) |  |
-| `_GH_FOR_RE` | const | [740](../scraper/score_jobs.py#L740) |  |
-| `_GH_PATH_RE` | const | [742](../scraper/score_jobs.py#L742) |  |
-| `_GH_BOARDS` | const | [743](../scraper/score_jobs.py#L743) |  |
-| `_gh_embed_html` | def | [746](../scraper/score_jobs.py#L746) | Greenhouse's tokenless embed page for one job id, or "". Works for ANY job id without |
-| `_gh_board_token` | def | [757](../scraper/score_jobs.py#L757) | The Greenhouse board token for a company-hosted job page. |
-| `amazon_rematch_jd` | def | [789](../scraper/score_jobs.py#L789) | A withdrawn amazon.jobs posting, matched to a LIVE requisition by title and location. |
-| `greenhouse_detail_jd` | def | [835](../scraper/score_jobs.py#L835) | Greenhouse behind an employer's own domain, identified by gh_jid in the query string. |
-| `microdata_jd` | def | [881](../scraper/score_jobs.py#L881) | Generic deep fallback: many career sites (incl. every SuccessFactors CSB job |
-| `_META_BROWSER_HEADERS` | const | [918](../scraper/score_jobs.py#L918) |  |
-| `_meta_json_str` | def | [927](../scraper/score_jobs.py#L927) | Pull a JSON string value ("key":"...") out of the embedded page JSON. |
-| `_meta_json_items` | def | [938](../scraper/score_jobs.py#L938) | Pull a JSON list-of-{item} ("key":\[{"item":".."},..\]) and join the items. |
-| `metacareers_detail_jd` | def | [950](../scraper/score_jobs.py#L950) | Meta job description from the detail page's embedded JSON (responsibilities + |
-| `detail_jd` | def | [967](../scraper/score_jobs.py#L967) | JD + posting date for ONE job via its ATS detail endpoint, else the posting page. |
-| `_norm_cmp` | def | [1035](../scraper/score_jobs.py#L1035) | Comparable form of a derived value. Supabase hands back real booleans/ints but the |
-| `_persist_derived` | def | [1051](../scraper/score_jobs.py#L1051) | Derive each job's state/metro/remote flag, pay range and JD signals, and write them to |
-| `_send_derived` | def | [1143](../scraper/score_jobs.py#L1143) | One diffed payload -&gt; the jobs table, or a self-serve migration hint if the columns |
-| `NEW_JOBS_FILE` | const | [1159](../scraper/score_jobs.py#L1159) |  |
-| `JD_CACHE_FILE` | const | [1162](../scraper/score_jobs.py#L1162) |  |
-| `_load_jd_cache` | def | [1165](../scraper/score_jobs.py#L1165) |  |
-| `_save_jd_cache` | def | [1173](../scraper/score_jobs.py#L1173) |  |
-| `THIN_LEDGER_KEY` | const | [1199](../scraper/score_jobs.py#L1199) |  |
-| `THIN_PROBE_MAX` | const | [1200](../scraper/score_jobs.py#L1200) |  |
-| `THIN_PROBE_PER_HOST` | const | [1201](../scraper/score_jobs.py#L1201) |  |
-| `THIN_DRAIN_MAX` | const | [1202](../scraper/score_jobs.py#L1202) |  |
-| `THIN_BACKOFF_CAP` | const | [1203](../scraper/score_jobs.py#L1203) |  |
-| `CURSOR_KEY` | const | [1205](../scraper/score_jobs.py#L1205) |  |
-| `ANALYZE_CHUNK` | const | [1208](../scraper/score_jobs.py#L1208) |  |
-| `_is_thin_jd` | def | [1226](../scraper/score_jobs.py#L1226) | A stored description that is present but unusable. |
-| `_accept_jd` | def | [1237](../scraper/score_jobs.py#L1237) | Should this freshly-fetched text replace what is stored? |
-| `_extractor_rev` | def | [1267](../scraper/score_jobs.py#L1267) | A fingerprint of the JD-extraction code, so shipping a working extractor re-opens every |
-| `_load_thin_ledger` | def | [1300](../scraper/score_jobs.py#L1300) | {"rev": &lt;fingerprint&gt;, "hosts": {host: {f, next, last, n, ok}}}. |
-| `_save_thin_ledger` | def | [1313](../scraper/score_jobs.py#L1313) |  |
-| `_score_rev` | def | [1317](../scraper/score_jobs.py#L1317) | A fingerprint of what the match score MEANS: the three functions that define it, plus the |
-| `_load_cursor` | def | [1361](../scraper/score_jobs.py#L1361) | The (first_seen, found_date, url) key the last truncated pass stopped after, or None. |
-| `_save_cursor` | def | [1376](../scraper/score_jobs.py#L1376) | Store where to resume, or clear it when the pass completed (key=None). |
-| `_thin_host` | def | [1381](../scraper/score_jobs.py#L1381) |  |
-| `_host_window` | def | [1386](../scraper/score_jobs.py#L1386) | The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow. |
-| `_thin_retry_plan` | def | [1419](../scraper/score_jobs.py#L1419) | (urls to probe, hosts probed) for this run. |
-| `_record_thin_outcomes` | def | [1465](../scraper/score_jobs.py#L1465) | Update the ledger from what the run actually managed. Mutates and returns it. |
-| `_jd_corpus` | def | [1494](../scraper/score_jobs.py#L1494) | (row_jd, missing, db_missing) for a pass that needs EVERY stored description. |
-| `_new_only_targets` | def | [1536](../scraper/score_jobs.py#L1536) | URLs worth (re)scoring when we're not doing the whole corpus. |
-| `main` | def | [1566](../scraper/score_jobs.py#L1566) |  |
+| `workable_detail_jd` | def | [521](../scraper/score_jobs.py#L521) | Workable job detail: apply.workable.com/{slug}/j/{shortcode}/ -&gt; v2 detail JSON |
+| `workatastartup_detail_jd` | def | [535](../scraper/score_jobs.py#L535) | Y Combinator's Work at a Startup — an Inertia.js app, so the page ships its whole |
+| `_PHENOM_JOB_RE` | const | [563](../scraper/score_jobs.py#L563) |  |
+| `phenom_detail_jd` | def | [566](../scraper/score_jobs.py#L566) | Phenom-native job pages ({origin}/us/en/job/{id}) — the jobDetail widget POST |
+| `paylocity_detail_jd` | def | [586](../scraper/score_jobs.py#L586) | Paylocity posting pages. The company's job LIST is client-rendered, but a posting page |
+| `_PS_JOB_RE` | const | [601](../scraper/score_jobs.py#L601) |  |
+| `peoplesoft_detail_jd` | def | [604](../scraper/score_jobs.py#L604) | PeopleSoft posting pages. The description sits in HRS_SCH_PSTDSC_DESCRLONG$N spans — |
+| `ultipro_detail_jd` | def | [626](../scraper/score_jobs.py#L626) | UKG Pro: the OpportunityDetail page is a JS shell, but the full Description |
+| `bamboo_detail_jd` | def | [640](../scraper/score_jobs.py#L640) | BambooHR: /careers/{id}/detail JSON carries the full description. |
+| `rippling_detail_jd` | def | [651](../scraper/score_jobs.py#L651) | Rippling job pages are server-rendered Next.js; the posting (incl. description) |
+| `_date_beats_stored` | def | [683](../scraper/score_jobs.py#L683) | Should a date read off the detail page replace what the scrape stored? |
+| `_parse_date_any` | def | [706](../scraper/score_jobs.py#L706) | Best-effort 'whatever the page says' -&gt; 'YYYY-MM-DD' ('' if unparseable). |
+| `page_posted_date` | def | [726](../scraper/score_jobs.py#L726) | Pull a posting date from a job page's structured data: SuccessFactors' |
+| `_GH_JID_RE` | const | [760](../scraper/score_jobs.py#L760) |  |
+| `_GH_FOR_RE` | const | [763](../scraper/score_jobs.py#L763) |  |
+| `_GH_PATH_RE` | const | [765](../scraper/score_jobs.py#L765) |  |
+| `_GH_BOARDS` | const | [766](../scraper/score_jobs.py#L766) |  |
+| `_gh_embed_html` | def | [769](../scraper/score_jobs.py#L769) | Greenhouse's tokenless embed page for one job id, or "". Works for ANY job id without |
+| `_gh_board_token` | def | [780](../scraper/score_jobs.py#L780) | The Greenhouse board token for a company-hosted job page. |
+| `amazon_rematch_jd` | def | [812](../scraper/score_jobs.py#L812) | A withdrawn amazon.jobs posting, matched to a LIVE requisition by title and location. |
+| `greenhouse_detail_jd` | def | [858](../scraper/score_jobs.py#L858) | Greenhouse behind an employer's own domain, identified by gh_jid in the query string. |
+| `microdata_jd` | def | [904](../scraper/score_jobs.py#L904) | Generic deep fallback: many career sites (incl. every SuccessFactors CSB job |
+| `_META_BROWSER_HEADERS` | const | [941](../scraper/score_jobs.py#L941) |  |
+| `_meta_json_str` | def | [950](../scraper/score_jobs.py#L950) | Pull a JSON string value ("key":"...") out of the embedded page JSON. |
+| `_meta_json_items` | def | [961](../scraper/score_jobs.py#L961) | Pull a JSON list-of-{item} ("key":\[{"item":".."},..\]) and join the items. |
+| `metacareers_detail_jd` | def | [973](../scraper/score_jobs.py#L973) | Meta job description from the detail page's embedded JSON (responsibilities + |
+| `detail_jd` | def | [990](../scraper/score_jobs.py#L990) | JD + posting date for ONE job via its ATS detail endpoint, else the posting page. |
+| `_norm_cmp` | def | [1058](../scraper/score_jobs.py#L1058) | Comparable form of a derived value. Supabase hands back real booleans/ints but the |
+| `_persist_derived` | def | [1074](../scraper/score_jobs.py#L1074) | Derive each job's state/metro/remote flag, pay range and JD signals, and write them to |
+| `_send_derived` | def | [1166](../scraper/score_jobs.py#L1166) | One diffed payload -&gt; the jobs table, or a self-serve migration hint if the columns |
+| `NEW_JOBS_FILE` | const | [1182](../scraper/score_jobs.py#L1182) |  |
+| `JD_CACHE_FILE` | const | [1185](../scraper/score_jobs.py#L1185) |  |
+| `_load_jd_cache` | def | [1188](../scraper/score_jobs.py#L1188) |  |
+| `_save_jd_cache` | def | [1196](../scraper/score_jobs.py#L1196) |  |
+| `THIN_LEDGER_KEY` | const | [1222](../scraper/score_jobs.py#L1222) |  |
+| `THIN_PROBE_MAX` | const | [1223](../scraper/score_jobs.py#L1223) |  |
+| `THIN_PROBE_PER_HOST` | const | [1224](../scraper/score_jobs.py#L1224) |  |
+| `THIN_DRAIN_MAX` | const | [1225](../scraper/score_jobs.py#L1225) |  |
+| `THIN_BACKOFF_CAP` | const | [1226](../scraper/score_jobs.py#L1226) |  |
+| `CURSOR_KEY` | const | [1228](../scraper/score_jobs.py#L1228) |  |
+| `ANALYZE_CHUNK` | const | [1231](../scraper/score_jobs.py#L1231) |  |
+| `_is_thin_jd` | def | [1249](../scraper/score_jobs.py#L1249) | A stored description that is present but unusable. |
+| `_accept_jd` | def | [1260](../scraper/score_jobs.py#L1260) | Should this freshly-fetched text replace what is stored? |
+| `_extractor_rev` | def | [1290](../scraper/score_jobs.py#L1290) | A fingerprint of the JD-extraction code, so shipping a working extractor re-opens every |
+| `_load_thin_ledger` | def | [1323](../scraper/score_jobs.py#L1323) | {"rev": &lt;fingerprint&gt;, "hosts": {host: {f, next, last, n, ok}}}. |
+| `_save_thin_ledger` | def | [1336](../scraper/score_jobs.py#L1336) |  |
+| `_score_rev` | def | [1340](../scraper/score_jobs.py#L1340) | A fingerprint of what the match score MEANS: the three functions that define it, plus the |
+| `_load_cursor` | def | [1384](../scraper/score_jobs.py#L1384) | The (first_seen, found_date, url) key the last truncated pass stopped after, or None. |
+| `_save_cursor` | def | [1399](../scraper/score_jobs.py#L1399) | Store where to resume, or clear it when the pass completed (key=None). |
+| `_thin_host` | def | [1404](../scraper/score_jobs.py#L1404) |  |
+| `_host_window` | def | [1409](../scraper/score_jobs.py#L1409) | The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow. |
+| `_thin_retry_plan` | def | [1442](../scraper/score_jobs.py#L1442) | (urls to probe, hosts probed) for this run. |
+| `_record_thin_outcomes` | def | [1488](../scraper/score_jobs.py#L1488) | Update the ledger from what the run actually managed. Mutates and returns it. |
+| `_jd_corpus` | def | [1517](../scraper/score_jobs.py#L1517) | (row_jd, missing, db_missing) for a pass that needs EVERY stored description. |
+| `_new_only_targets` | def | [1559](../scraper/score_jobs.py#L1559) | URLs worth (re)scoring when we're not doing the whole corpus. |
+| `main` | def | [1589](../scraper/score_jobs.py#L1589) |  |
 
 ## `resume_score.py` — symbols
 
