@@ -798,6 +798,60 @@ def test_the_bulk_phase_visits_every_board_exactly_once():
            sorted({b for b, _a, _c in boards} - set(seen))[:3]))
 
 
+_ORACLE_URL = ("https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/"
+               "sites/CX_45001/job/344471")
+# Shaped from the real response for that requisition, trimmed to the keys under test.
+_ORACLE_ITEM = {
+    "ExternalDescriptionStr": "<p>Position is based in Nashville, TN. The LVV team is seeking "
+                              "experienced vendor managers.</p>",
+    "ExternalQualificationsStr": "",
+    "requisitionFlexFields": [
+        {"Prompt": "Role", "Value": "Individual Contributor"},
+        {"Prompt": "Years", "Value": "3 to 5+ years"},
+        {"Prompt": "Additional Info",
+         "Value": "Visa / work permit sponsorship is not available for this position"},
+        {"Prompt": "Empty one", "Value": ""},
+        {"Prompt": "", "Value": "orphan value with no label"},
+    ],
+}
+
+
+def test_oracle_reads_its_FIELD_TABLE_not_just_the_description():
+    """The two facts that decide whether a posting is worth opening are not in its prose.
+
+    Oracle's candidate page renders a labelled block above the description -- Role, Job Type,
+    Years, Additional Info -- and every one is a requisitionFlexFields entry. The extractor read
+    only the four description fields, so a posting showing "Years: 3 to 5+ years" on its own
+    page reported "Not stated in this posting" here.
+
+    THE SPONSORSHIP HALF IS THE SERIOUS ONE. "Visa / work permit sponsorship is not available for
+    this position" sits in the same block, and core.sponsorship_from_jd reads it correctly the
+    moment it can see it -- so without it the card fell back to the EMPLOYER's filing history
+    and said "H-1B Likely" on a posting that rules sponsorship out in writing. 2,495 active rows
+    are on this host, including JPMorgan Chase (582) and Oracle (513).
+    """
+    saved = sj.scraper._get_json
+    try:
+        sj.scraper._get_json = lambda *a, **kw: {"items": [_ORACLE_ITEM]}
+        jd = sj.oracle_detail_jd(_ORACLE_URL)
+    finally:
+        sj.scraper._get_json = saved
+
+    assert "vendor managers" in jd, "the description itself must survive"
+    assert "Years: 3 to 5+ years" in jd, jd[-200:]
+    assert "Visa / work permit sponsorship is not available" in jd, jd[-200:]
+    # A label or a value alone is not a field, and rendering "": "" would be noise in jd_terms.
+    assert "Empty one" not in jd and "orphan value" not in jd, jd[-200:]
+
+    clean = sj.core.clean_jd(jd)[0]
+    assert sj.core.experience_years(clean) == 3, sj.core.experience_years(clean)
+    verdict, _why = sj.core.sponsorship_from_jd(clean)
+    assert verdict == "blocked", verdict
+    # ...and that verdict must actually strip the employer's routes off the card.
+    assert sj.core.visa_tags_for_posting(("h1b", "green_card"), verdict, _why) == (), \
+        "a posting that rules sponsorship out still showed the employer's H-1B chip"
+
+
 def test_the_blind_boards_rotate_and_every_one_is_reached():
     """jibe/phenom boards are ROTATED, not skipped, and the rotation must reach all of them.
 

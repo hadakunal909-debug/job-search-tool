@@ -3590,7 +3590,12 @@ _EXP_EDU_YEARS_RE = re.compile(
 _EXP_CTX_RE = re.compile(
     r"experien|\bexp\b|industry|professional|relevant|track record|"
     r"working|in a .{0,25}\brole|of work|background|hands-on|"
-    r"qualificat|requirement|must have|you have|proven|demonstrated", re.I)
+    r"qualificat|requirement|must have|you have|proven|demonstrated|"
+    # A FIELD LABELLED "Years", which is a structured ATS block rather than prose. Oracle's
+    # candidate page renders "Years: 3 to 5+ years" in its requisition field table, and with no
+    # context word in reach that read as no requirement at all. The colon is what makes this
+    # safe: it matches a LABEL, not the word "years" appearing in a sentence.
+    r"\byears?\s*:", re.I)
 
 # THE FOUR THAT ARE ALSO ORDINARY ENGLISH, kept apart from the list above because they need a
 # guard the others do not. A bulleted requirement genuinely reads "7+ years in product
