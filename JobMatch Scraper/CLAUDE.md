@@ -40,8 +40,11 @@ setting it afterwards does nothing. One unguarded `feed_parity.py` run wrote 98.
   second-most-coupled file in the repo.
 - **`companies.json` is a shipped runtime asset**, not a cache. It is in `build_deploy_zip.py`'s
   **required** `FILES` and on `.cpanel.yml`'s `cp` line; without it `/companies` renders nothing.
-  Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`,
-  and run `--check` — it fails if a high-traffic employer landed in `Unsorted`.
+  Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`
+  **or adopting boards** — its universe is SOURCES + the `boards` table + `sponsors.txt` +
+  corpus spellings, so an adoption run stales it and nothing says so. Point it at the live
+  database (`DB_REQUIRE=proxy` + the `DB_PROXY_*` pair) and run `--check` — it fails if a
+  high-traffic employer landed in `Unsorted`.
 - **The logos are ours, harvested and committed to `static/logos/`.** Nothing is fetched from a
   third party at request time and `web.py`'s CSP `img-src 'self' data:` enforces it. Rebuild with
   `python scripts/build_logos.py` (sequential on purpose, resumable, no `--workers` — 12 threads

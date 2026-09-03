@@ -48,6 +48,8 @@ JobMatch Scraper/visa_tags_build.log
 # -> scripts/probe_discovered -> scraper.adopt_everify_boards -> scripts/report_stem_opt_xlsx)
 # and the durable outputs are the code and the boards table, not these snapshots.
 JobMatch Scraper/discovered_*.csv
+# ...and the human-readable review that goes with a discovery batch.
+JobMatch Scraper/discovered_*.md
 # scripts/rank_new_sponsors.py stage-0 output: a ranked slice of the USCIS raw CSVs, so it
 # is regenerable in seconds and would otherwise land a few hundred KB of federal employer
 # spellings in the history every refresh.

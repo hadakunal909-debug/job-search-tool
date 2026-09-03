@@ -244,6 +244,23 @@ INDEX = (
         "dict. {core.py::admits_on_description} is the rescue path for a job whose TITLE matched "
         "nothing.",
         "python scripts/dump_titles.py"),
+    Row("R", "A US job never reaches the feed although its board is scraped fine",
+        "{scraper/__init__.py::is_us_location} -- the US-only gate, applied at INGEST",
+        "so the CORPUS is the wrong place to measure it: it only holds rows that already "
+        "passed (6 rejects in 42,180). Measure on RAW board output. Unknown or blank is KEPT; "
+        "the function only drops what it can place abroad. Two twins must move with it -- "
+        "{scraper/__init__.py::title_says_non_us} and adopt_everify_boards._names_non_us, both "
+        "of which read {scraper/__init__.py::_NON_US_RE} directly, and the second is a VETO "
+        "that must answer False for anything it cannot place rather than True. The veto runs "
+        "BEFORE the state check, so a foreign city name beats a US state code unless the name "
+        "is in {scraper/__init__.py::_US_NAMESAKE_CITIES}: no positional rule can separate "
+        "\"Lima, OH\" from \"Indore, IN\", because in all ten real collisions the two-letter "
+        "code FOLLOWS the name and IN, OR and DE are India, Odisha and Germany colliding with "
+        "Indiana, Oregon and Delaware. STILL UNFIXED and the biggest known loss: a bare city "
+        "(\"San Francisco\", \"Austin\", \"Bay Area\") is not placed at all, which cost one "
+        "75-board batch ~70 on-target US roles across 10 real US employers. That needs a "
+        "gazetteer; do not guess it.",
+        "python test_us_location.py"),
     Row("Y", "A whole board suddenly returns nothing",
         "the adapter for its ATS in {scraper/__init__.py::SCRAPERS} -- 29 entries, ats_type -> "
         "function",
