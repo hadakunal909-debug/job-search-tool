@@ -901,6 +901,39 @@ def greenhouse_detail_jd(url):
     return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
 
 
+# How deep a JobPosting may be nested before we stop looking. Two is enough for every shape
+# seen (mainEntity, @graph, a bare list) and stops a pathological document walking forever.
+_LD_MAX_DEPTH = 4
+
+
+def _jobposting_nodes(data, depth=0):
+    """Every JobPosting in a JSON-LD document, however it is wrapped.
+
+    THE TOP LEVEL IS NOT WHERE IT ALWAYS IS. This used to test `data["@type"] == "JobPosting"`
+    on the root only, and roberthalf.com wraps its posting in a WebPage whose `mainEntity` is
+    the JobPosting -- so the extractor found nothing, fell through to core.fetch_jd, and stored
+    7,921 characters of the site's own navigation as the description. `@graph` is the other
+    common wrapper. Both are ordinary schema.org, not quirks.
+    """
+    if depth > _LD_MAX_DEPTH:
+        return
+    if isinstance(data, list):
+        for x in data:
+            for hit in _jobposting_nodes(x, depth + 1):
+                yield hit
+        return
+    if not isinstance(data, dict):
+        return
+    t = data.get("@type")
+    if t == "JobPosting" or (isinstance(t, list) and "JobPosting" in t):
+        yield data
+        return
+    for key in ("mainEntity", "@graph", "mainEntityOfPage", "itemListElement"):
+        if key in data:
+            for hit in _jobposting_nodes(data[key], depth + 1):
+                yield hit
+
+
 def microdata_jd(url):
     """Generic deep fallback: many career sites (incl. every SuccessFactors CSB job
     page) mark the JD up with schema.org microdata (itemprop=description) or embed a
@@ -923,12 +956,10 @@ def microdata_jd(url):
                 data = json.loads(tag.string or "", strict=False)   # see page_posted_date
             except Exception:
                 continue
-            items = data if isinstance(data, list) else [data]
-            for it in items:
-                if isinstance(it, dict) and it.get("@type") == "JobPosting":
-                    txt = _text(it.get("description") or "")
-                    if len(txt) > 200:
-                        return txt, date
+            for it in _jobposting_nodes(data):
+                txt = _text(it.get("description") or "")
+                if len(txt) > 200:
+                    return txt, date
         return "", date
     except Exception:
         return "", ""
