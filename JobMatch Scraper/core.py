@@ -3514,8 +3514,13 @@ def visa_alert(timeline):
 # ------------------------------------------------------------
 # A year mention: '5 years', '5+ years', '5-7 years', '5 to 7 years', '5 yrs'.
 # Group 1 = the FLOOR (the smaller number — what you actually need to qualify).
+# THE SEPARATOR MAY BE A HYPHEN, and this is the compound-adjective form: "1-year experience",
+# "2-year experience as a medical assistant". Found by scripts/audit_jd_reading.py rather than by
+# reading, which is the point of that script -- the range branch below already consumed a hyphen
+# but only when a SECOND number followed it, so "3-5 years" read and "3-year" did not.
 _EXP_YEARS_RE = re.compile(
-    r"(\d{1,2})\s*(?:\+|(?:\s*(?:-|–|—|to)\s*\d{1,2})\s*\+?)?\s*(?:years?|yrs?)\b", re.I)
+    r"(\d{1,2})\s*(?:\+|(?:\s*(?:-|–|—|to)\s*\d{1,2})\s*\+?)?\s*[-–—]?\s*(?:years?|yrs?)\b",
+    re.I)
 
 # The same mention SPELLED OUT, with or without the digit repeated in brackets beside it:
 # "five years", "Minimum of eight (8) years", "two to three years".

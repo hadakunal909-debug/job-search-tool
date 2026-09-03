@@ -56,7 +56,7 @@ flowchart TB
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,408 lines · 36 sections<br/>db.py · 2,929 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,413 lines · 36 sections<br/>db.py · 2,929 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE

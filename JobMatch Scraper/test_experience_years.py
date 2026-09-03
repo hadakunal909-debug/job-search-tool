@@ -165,6 +165,31 @@ def test_a_duration_is_not_experience():
     _eq("18 months of relevant experience", 1)          # a real floor still reads
 
 
+def test_the_compound_adjective_form():
+    """"1-year experience" — a hyphen where the parser wanted a space, and singular.
+
+    Found by scripts/audit_jd_reading.py, not by reading: the range branch already consumed a
+    hyphen, but only when a SECOND number followed it, so "3-5 years" read and "3-year" did not.
+    846 of the 42,419 cached descriptions use the form.
+    """
+    _eq("1-year experience in a professional office environment is required.", 1)
+    _eq("2-year experience as a medical assistant is required.", 2)
+    _eq("3-year experience preferred in a related field.", 3)
+    _eq("3-5 years of experience", 3)              # the range form still reads its floor
+
+
+def test_markdown_escapes_do_not_hide_the_number():
+    """The renderer has always stripped these and the parser never did.
+
+    The same posting stored twice — plain text from one host, markdown from another — answered
+    5 and None. core.clean_jd unescapes now, so a caller that goes through the one door reads
+    what the reader reads. 820 of 42,419 descriptions gain a floor from this.
+    """
+    md = "* 5\\+ years of Project or Program Management experience in enterprise IT."
+    assert core.experience_years(md) is None, "the raw form really is unreadable"
+    assert core.experience_years(core.clean_jd(md + " padding. " * 60)[0]) == 5
+
+
 def test_workdays_degree_picker_states_years_of_SCHOOLING():
     """"Bachelors Degree (+/- 16 years)" is sixteen years of EDUCATION, and employers paste it.
 
