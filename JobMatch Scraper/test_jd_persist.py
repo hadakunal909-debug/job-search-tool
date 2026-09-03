@@ -758,6 +758,60 @@ def test_rotation_does_not_loosen_the_per_host_cap():
         assert hosts == ["shell.com"], hosts
 
 
+def test_the_bulk_phase_visits_every_board_exactly_once():
+    """The windowed submission must not drop or repeat a board.
+
+    The bulk loop was `ex.map(_one, bulk)`, which submits all of them at once and holds each
+    result until the consumer reaches it IN ORDER -- so one slow board pins every map that
+    finished behind it, and jd_map_for returns a WHOLE BOARD with every description. That is
+    the phase 4 of the 6 score-step runs in the live cron log were SIGKILLed inside. It is now
+    a bounded window drained with as_completed, which changes both the ORDER boards are visited
+    in and the number in flight; this pins the part that must not change.
+    """
+    rows = _thin_rows(1)
+    seen = []
+
+    def _map(board_url, ats, needed=None):
+        seen.append(board_url)
+        return {}
+
+    boards = [("https://boards.example.com/b%02d" % i, "greenhouse", "Co%02d" % i)
+              for i in range(40)]
+    saved_sources = sj.scraper.SOURCES
+    saved_custom = sj.scraper.custom_sources
+    saved_has = sj._board_has_missing
+    try:
+        sj.scraper.SOURCES = boards
+        sj.scraper.custom_sources = lambda: []
+        sj._board_has_missing = lambda *a, **kw: True
+        _run_with_fetch(rows, {rows[0]["url"]: _SHELL}, [], lambda _u: _JD, jd_map=_map)
+    finally:
+        sj.scraper.SOURCES = saved_sources
+        sj.scraper.custom_sources = saved_custom
+        sj._board_has_missing = saved_has
+
+    assert len(seen) == len(set(seen)), "a board was fetched twice: %r" % (
+        [b for b in seen if seen.count(b) > 1][:3],)
+    assert set(seen) == {b for b, _a, _c in boards}, (
+        "%d of %d boards visited; missing %r"
+        % (len(set(seen)), len(boards),
+           sorted({b for b, _a, _c in boards} - set(seen))[:3]))
+
+
+def test_the_bulk_window_is_smaller_than_a_real_board_list():
+    """The window is the memory bound, so it must actually bound something.
+
+    151 boards were in flight on the run that died; the point of the constant is that the
+    number of COMPLETED board maps waiting to be consumed is fixed regardless of how many
+    boards there are. A window at or above the board count would be the old behaviour wearing
+    a constant's name.
+    """
+    assert 0 < sj._BULK_WINDOW <= 32, sj._BULK_WINDOW
+    # Not tied to the worker count, and deliberately: workers are a throttling decision about
+    # outbound concurrency, the window is a memory one.
+    assert sj._BULK_WINDOW >= 8, "a window below the worker count starves the pool"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
