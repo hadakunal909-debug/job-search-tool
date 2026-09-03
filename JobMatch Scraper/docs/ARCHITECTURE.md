@@ -56,7 +56,7 @@ flowchart TB
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,364 lines · 36 sections<br/>db.py · 2,929 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,377 lines · 36 sections<br/>db.py · 2,929 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -220,7 +220,7 @@ worth of context, and all three must agree.
 ```mermaid
 flowchart TB
   S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2437</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 853</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 873</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
