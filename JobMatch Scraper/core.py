@@ -3,6 +3,7 @@ core.py — all the logic for the job-match app, kept free of Streamlit so it ca
 be tested on its own. app.py imports from here and only handles the UI.
 """
 
+import bisect
 import csv
 import html
 import logging
@@ -3234,27 +3235,174 @@ def visa_alert(timeline):
 # Group 1 = the FLOOR (the smaller number — what you actually need to qualify).
 _EXP_YEARS_RE = re.compile(
     r"(\d{1,2})\s*(?:\+|(?:\s*(?:-|–|—|to)\s*\d{1,2})\s*\+?)?\s*(?:years?|yrs?)\b", re.I)
+
+# The same mention SPELLED OUT, with or without the digit repeated in brackets beside it:
+# "five years", "Minimum of eight (8) years", "two to three years".
+#
+# Measured 2026-09-03 over the 41,434 cached descriptions: 1,623 state their requirement ONLY
+# in words, so a digits-only rule read every one of them as "states no requirement" -- and this
+# parser's None means KEEP, so those senior roles sat in an entry-level feed. A missed floor is
+# invisible from the outside: it looks exactly like a posting that never named one.
+_WORD_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+             "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15,
+             "twenty": 20}
+_EXP_WORD_YEARS_RE = re.compile(
+    r"\b(" + "|".join(_WORD_NUM) + r")\b"
+    r"\s*(?:\(\s*\d{1,2}\s*\))?"                       # "eight (8)"
+    r"(?:\s*(?:-|–|—|to|or)\s*(?:" + "|".join(_WORD_NUM) + r"|\d{1,2})\b)?"   # "two to three"
+    r"\s*(?:\+|plus)?\s*(?:years?|yrs?)\b", re.I)
+
+# Experience stated in MONTHS. Floor-divided, so "6 months" is 0 years and "18 months" is 1 --
+# the honest reading for a filter whose only job is to separate entry-level from not.
+_EXP_MONTHS_RE = re.compile(r"\b(\d{1,3})\s*months?\b", re.I)
+
 # Words that mark a year-count as an EXPERIENCE requirement (vs. "5 years ago",
 # "5-year plan", a tenure/age figure, etc.). Checked just around the match.
+#
+# The heading words at the end are here because a requirements LIST does not repeat the word
+# "experience" on every bullet: "Basic Qualifications: 7+ years of security engineering" states
+# a floor and names no experience word within reach of it. 800 descriptions were missed for
+# exactly that reason.
 _EXP_CTX_RE = re.compile(
     r"experien|\bexp\b|industry|professional|relevant|track record|"
-    r"working|in a .{0,25}\brole|of work|background|hands-on", re.I)
+    r"working|in a .{0,25}\brole|of work|background|hands-on|"
+    r"qualificat|requirement|must have|you have|proven|demonstrated|"
+    r"engineering|development|management|leadership", re.I)
 _EXP_MIN_RE = re.compile(r"minimum|at\s+least|min\.?\b|no\s+less\s+than", re.I)
+
+# A floor the employer is NOT insisting on. "10+ years preferred" next to "5 years required" is
+# a five-year job; taking the maximum over both made it a ten-year job, and the entry-level
+# filter then hid a role the reader qualifies for. That is the expensive direction of this
+# error -- a job seeker never learns about the posting they were wrongly filtered out of.
+_EXP_SOFT_RE = re.compile(
+    r"preferred|preferable|nice[\s-]to[\s-]have|a plus|bonus|ideally|desirable|advantage", re.I)
+
+# How far either side of a match to read for those words. `after` was 45 and that was short by
+# about a clause: "5+ years software engineering and/or production experience" puts its only
+# context word at character 52.
+_EXP_BEFORE, _EXP_AFTER = 30, 80
+
+
+# Where one requirement stops and the next begins. Bullet lists arrive as newlines from
+# core._soup_text, which is why that character is in here alongside the punctuation.
+_CLAUSE_SPLIT_RE = re.compile(r"[;.\n•|]")
+
+# THE DEGREE LADDER, and it is the reason a maximum is not simply "the strict reading".
+# Measured on Amgen, and the shape is everywhere in big-company reqs:
+#
+#   "Doctorate degree OR Master's degree and 2 years of experience OR Bachelor's degree and
+#    4 years OR Associate's degree and 8 years OR High school diploma and 10 years"
+#
+# Those are ALTERNATIVES, not a stack. Someone holding a Master's qualifies at two years, so
+# the honest floor for this posting is 2 -- and both the old maximum (10) and a naive
+# required-only maximum (8) describe a job that does not exist. Read as 8, an entry-level
+# filter hides a posting its reader is qualified for, which is this parser's costly direction.
+#
+# A line only collapses to its minimum when it BOTH offers alternatives and names the degrees
+# they trade against; "8+ years of Python and 2 years of SQL" has no degree words and keeps
+# its maximum, which is the AND-list the strictness was built for.
+_DEGREE_RE = re.compile(
+    r"bachelor|master|doctorate|ph\.?\s?d|associate|diploma|\bged\b|high school|degree", re.I)
+_ALTERNATIVE_RE = re.compile(r"\bor\b", re.I)
+
+
+def _clause_after(s):
+    """`s` up to the first clause boundary."""
+    return _CLAUSE_SPLIT_RE.split(s, 1)[0]
+
+
+def _clause_before(s):
+    """`s` back to the last clause boundary."""
+    return _CLAUSE_SPLIT_RE.split(s)[-1]
+
+
+def _experience_floors_split(text):
+    """(hard, soft) — the floors the employer insists on, and the ones it merely prefers.
+
+    A year count only counts when an experience-ish word sits near it, so '10-key' and '401k
+    vesting after 3 years' don't masquerade as a requirement. Three notations are read: digits
+    ('5+ years'), words ('eight (8) years') and months ('18 months', floor-divided to 1).
+    """
+    text = text or ""
+    hard, soft = [], []
+    seen = set()                      # a span can match both the digit and the word pattern
+    for rx, kind in ((_EXP_YEARS_RE, "d"), (_EXP_WORD_YEARS_RE, "w"), (_EXP_MONTHS_RE, "m")):
+        for m in rx.finditer(text):
+            if any(s <= m.start() < e for s, e in seen):
+                continue
+            before = text[max(0, m.start() - _EXP_BEFORE):m.start()]
+            after = text[m.end():m.end() + _EXP_AFTER]
+            if not (_EXP_CTX_RE.search(after) or _EXP_CTX_RE.search(before)
+                    or _EXP_MIN_RE.search(before)):
+                continue
+            if kind == "d":
+                n = int(m.group(1))
+            elif kind == "w":
+                n = _WORD_NUM[m.group(1).lower()]
+            else:
+                n = int(m.group(1)) // 12
+                if n <= 0:            # under a year: a real floor, and it is zero
+                    n = 0
+            if n > 20:                # noise ('30 years combined', a company-tenure stat)
+                continue
+            seen.add((m.start(), m.end()))
+            # "preferred" is read on BOTH sides -- employers write it either way round, as
+            # "preferred: 5 years" and as "5 years ... preferred" -- but only WITHIN THE SAME
+            # CLAUSE. Read across a clause boundary it inverts the answer it exists to give:
+            # "5 years of experience required; 10+ years preferred" marked the five-year floor
+            # soft as well, both floors became soft, and the maximum came back as ten -- the
+            # exact ten-year reading this rule was added to prevent.
+            bucket = soft if (_EXP_SOFT_RE.search(_clause_after(after))
+                              or _EXP_SOFT_RE.search(_clause_before(before))) else hard
+            bucket.append((m.start(), m.end(), n))
+
+    hard = _collapse_ladders(text, hard)
+    soft = _collapse_ladders(text, soft)
+    return hard, soft
+
+
+# How much text may sit between two rungs of the same ladder. Amgen's widest gap is ~70
+# characters ("... OR Associate's degree and 8 years of experience in Computer Science, IT or
+# related fields OR High school diploma / GED and 10 years ...").
+_LADDER_GAP = 120
+
+
+def _collapse_ladders(text, hits):
+    """[(start, end, years)] -> [years], each run of ladder rungs reduced to its lowest.
+
+    ADJACENCY, not lines. The obvious grouping is per line, and it is wrong here: 89.9% of the
+    41,434 cached descriptions arrive as ONE blob with no newline in it, so a per-line rule
+    puts every year mention in a document into a single group and collapses the lot to its
+    minimum the moment the text says "or" and "degree" anywhere — which is nearly always. That
+    is precisely the "a senior req hides behind its most junior line item" failure that made
+    experience_years take a maximum in the first place; measured, it moved 9,958 descriptions.
+
+    So two hits join a ladder only when they are NEIGHBOURS and the text between them is the
+    alternation itself: an "or", a degree word, and less than _LADDER_GAP characters.
+    """
+    if not hits:
+        return []
+    hits = sorted(hits)
+    out, group = [], [hits[0]]
+    for prev, cur in zip(hits, hits[1:]):
+        between = text[prev[1]:cur[0]]
+        # ...and within ONE sentence. Without this, "9 years of leadership experience.
+        # Separately, our CEO has a degree or two and 2 years here" reads as a ladder and
+        # answers 2. A real alternation is punctuated with commas and slashes, never a stop.
+        if (len(between) <= _LADDER_GAP and not _CLAUSE_SPLIT_RE.search(between)
+                and _ALTERNATIVE_RE.search(between) and _DEGREE_RE.search(between)):
+            group.append(cur)
+        else:
+            out.append(min(n for _s, _e, n in group))
+            group = [cur]
+    out.append(min(n for _s, _e, n in group))
+    return out
 
 
 def _experience_floors(text):
-    """Every experience-requirement floor (in years) stated in the text. A bare year
-    count only counts when an experience-ish word sits right next to it (so '10-key'
-    or '401k vesting after 3 years' don't masquerade as a requirement)."""
-    out = []
-    for m in _EXP_YEARS_RE.finditer(text or ""):
-        before = text[max(0, m.start() - 20):m.start()]
-        after = text[m.end():m.end() + 45]
-        if _EXP_CTX_RE.search(after) or _EXP_CTX_RE.search(before) or _EXP_MIN_RE.search(before):
-            n = int(m.group(1))
-            if n <= 20:                  # >20 is noise ('30 years combined', a tenure stat)
-                out.append(n)
-    return out
+    """Every stated floor, hard or soft. Kept as the flat list experience_min_years reads."""
+    hard, soft = _experience_floors_split(text)
+    return hard + soft
 
 
 def experience_years(text):
@@ -3265,8 +3413,16 @@ def experience_years(text):
     reading the floor instead let a senior req hide behind its most junior line item, so
     "Entry · <=2 yrs" returned eight-year roles. A JD that states no year count at all
     returns None and is always KEPT by the filter (many genuine entry-level posts state none).
+
+    REQUIRED beats PREFERRED, which is the 2026-09-03 correction and the only loosening here.
+    Taking the maximum over both readings turned "5 years required, 10+ preferred" into a
+    ten-year job and hid a role the reader qualifies for — and that is the expensive direction
+    of this error, because nobody ever learns about the posting they were wrongly filtered out
+    of. When a text states ONLY soft floors the maximum of those still stands: an employer who
+    says "10+ years preferred" and nothing else is not describing an entry-level job.
     """
-    fl = _experience_floors(text)
+    hard, soft = _experience_floors_split(text)
+    fl = hard or soft
     return max(fl) if fl else None
 
 
