@@ -1789,7 +1789,15 @@ EIGHTFOLD_BOARDS = [
 # + SuccessFactors + PeopleSoft + Eightfold + Meta + Michael Page + Jobvite + Werfen.
 # (Adzuna was in this list until 2026-08-16; see the removal note above EXTRA_BOARDS.)
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
+ROBERTHALF_SITEMAP = ("https://www.roberthalf.com/content/"
+                      "roberthalf.sitemap.us-external-job-details-sitemap.xml")
+# Robert Half's CLIENT placements, distinct from the RobertHalfStaffingCareers Workday board
+# already in WORKDAY_BOARDS (that one is jobs AT Robert Half). One sitemap request; see
+# scrape_roberthalf for why the client is never named and what that costs.
+ROBERTHALF_BOARDS = [(ROBERTHALF_SITEMAP, "roberthalf", "Robert Half")]
+
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
+           + ROBERTHALF_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
            + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS + AQUENT_BOARDS
@@ -5806,6 +5814,84 @@ def scrape_werfen(board_url):
     return rows
 
 
+# ---- Robert Half client placements (roberthalf.com) -----------------------------------------
+# NOT the same board as roberthalf.wd1.myworkdayjobs.com, which is already in SOURCES: that one
+# is jobs working AT Robert Half. This is the far larger set of CLIENT roles they recruit for --
+# you apply through them and they place you.
+#
+# THE CHEAPEST ADAPTER HERE, and it is worth saying why so nobody "improves" it into a crawler.
+# Their sitemap URL carries everything the sweep needs:
+#
+#     /us/en/job/walnut-creek-ca/attorneylawyer/00340-0013308169-usen
+#                 ^ city + state   ^ title slug  ^ requisition id
+#
+# So title, location and url all come from ONE 8,429-entry sitemap request and the title filter
+# runs for free on the slug -- 639 of 8,429 (7.6%) survive it. No per-posting fetch happens in
+# the sweep at all, where scrape_google has to pull a 161 KB page each. The description is left
+# to score_jobs' JD phase like every other board.
+#
+# WHAT THE READER MUST KNOW, and the reason this needed a decision rather than just code: the
+# CLIENT IS NEVER NAMED. Every posting's JSON-LD says hiringOrganization "Robert Half" and the
+# text says "our client". So these rows enter as company="Robert Half", core.is_agency() is True
+# for them, and the feed's "Hide staffing agencies" default hides them. That is not a bug to
+# route around -- for a PERM placement the client sponsors and we genuinely cannot say who they
+# are. For CONTRACT work Robert Half is the employer of record and its own filing record (122
+# H-1B approvals, H-1B / Green Card / E-3) is the correct signal, which is why these are worth
+# having at all.
+# /us/en/job/<city-st>/<title-slug>/<id>-usen
+_RH_JOB_RE = re.compile(r"/us/en/job/([a-z0-9-]+)/([a-z0-9-]+)/([0-9][0-9-]*)-usen/?$", re.I)
+# Two-letter state at the end of the city segment: "walnut-creek-ca" -> ("Walnut Creek", "CA").
+_RH_CITY_RE = re.compile(r"^(.*)-([a-z]{2})$", re.I)
+
+
+def _rh_location(city_slug):
+    """"walnut-creek-ca" -> "Walnut Creek, CA", or "" when the slug has no state on it.
+
+    Returned in the shape parse_location already reads, so nothing downstream needs to know
+    this board exists. A slug with no trailing state is skipped rather than guessed at: the
+    sitemap is US-only, but "remote" and a few malformed segments do appear.
+    """
+    m = _RH_CITY_RE.match(city_slug or "")
+    if not m:
+        return ""
+    city = " ".join(w.capitalize() for w in m.group(1).split("-") if w)
+    return "%s, %s" % (city, m.group(2).upper()) if city else ""
+
+
+def scrape_roberthalf(board_url):
+    """Robert Half client placements, from their published job sitemap. One request.
+
+    Everything the sweep stores is in the URL, so unlike scrape_google there is no per-posting
+    page fetch and therefore no ledger, no page cap and no wall clock -- the whole board costs
+    one 8,429-line sitemap read. Descriptions come later through score_jobs like any other board.
+    """
+    try:
+        r = _safe_get(board_url or ROBERTHALF_SITEMAP, timeout=40)
+    except Exception:
+        return []
+    if r.status_code != 200:
+        return []
+    rows, seen = [], set()
+    for u in re.findall(r"<loc>\s*([^<]+?)\s*</loc>", r.text):
+        m = _RH_JOB_RE.search(u.strip())
+        if not m:
+            continue
+        city_slug, title_slug, jid = m.groups()
+        if jid in seen:
+            continue
+        title = " ".join(w for w in title_slug.replace("-", " ").split() if w).strip()
+        loc = _rh_location(city_slug)
+        # The slug IS the title, so the filter runs before anything is fetched. Skipping the
+        # rest here rather than in main() is what makes this board free: 639 of 8,429 survive.
+        if not title or not title_verdict(title)[0]:
+            continue
+        if not loc or not is_us_location(loc):
+            continue
+        seen.add(jid)
+        rows.append({"title": title.title(), "url": u.strip(), "location": loc})
+    return rows
+
+
 # ---- Google careers (careers.google.com) --------------------------------------------------
 # Google has NO public jobs API. Its careers site is a BOQ app that talks batchexecute RPC, so
 # there is nothing to call -- but careers.google.com/jobs/sitemap lists every posting, and each
@@ -6439,6 +6525,7 @@ SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
     "google": scrape_google,
+    "roberthalf": scrape_roberthalf,
     "ibm": scrape_ibm,
     "deloitte": scrape_deloitte,
     "apple": scrape_apple,

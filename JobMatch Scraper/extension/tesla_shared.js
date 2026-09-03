@@ -41,8 +41,12 @@ function jmStripHtml(html) {
 
 // Accept extracted text as a JD only if it actually reads like one — otherwise we'd
 // store nav/footer junk and the match score would be garbage.
+//
+// 400 MATCHES core._MIN_JD_CHARS, which is what /api/ext/jds now gates on. At 300 this fetched,
+// judged and posted descriptions the server then dropped in silence, and the popup still counted
+// them as attached — the extension reported work it had not done.
 function jmLooksLikeJd(txt) {
-  return txt.length > 300 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(txt);
+  return txt.length > 400 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(txt);
 }
 
 // Defensive parser for /cua-api/apps/careers/state. Tesla ships compact field names
@@ -169,7 +173,35 @@ async function jmPageFetchJds(ids) {
     return String(h || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
   }
-  function looksJd(t) { return t.length > 300 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(t); }
+  // SEND THE MARKUP, DECIDE ON THE TEXT. strip() flattens every <li> and <p> into a space, so
+  // what reached the server was one unbroken line and core._soup_text had nothing left to find
+  // block boundaries with — jd_nodes then had to guess the structure back, and the section
+  // chips, the requirements boost and bigram formation all degraded for extension rows only.
+  // The server is the one door (core.html_to_text -> core.clean_jd); its job is easier if we
+  // hand it markup. strip() stays, but only to JUDGE whether this looks like a posting.
+  //
+  // Mirrors core._MAIN_SELECTORS and core.fetch_jd's decompose list on purpose: picking the
+  // region here is also what keeps the POST small, since a whole page is 200 KB+ and this
+  // endpoint takes up to 200 jobs at a time.
+  function jdHtml(h) {
+    try {
+      const doc = new DOMParser().parseFromString(String(h || ""), "text/html");
+      doc.querySelectorAll("script,style,nav,header,footer,form,aside,noscript,svg,[aria-hidden=true]")
+         .forEach((n) => n.remove());
+      const SEL = ["[itemprop=description]", "[data-automation-id=jobPostingDescription]",
+                   "[class*=job-description]", "[id*=job-description]", "[class*=jobDescription]",
+                   "main", "article", "[role=main]"];
+      for (const s of SEL) {
+        const el = doc.querySelector(s);
+        if (el && (el.textContent || "").trim().length >= 250) return el.innerHTML;
+      }
+      return (doc.body && doc.body.innerHTML) || String(h || "");
+    } catch (e) { return String(h || ""); }
+  }
+  // 400, not 300, because core._MIN_JD_CHARS is 400 and the server drops anything under it.
+  // At 300 the extension fetched, judged and posted descriptions the server then discarded in
+  // silence — the popup counted them as attached and nothing was stored.
+  function looksJd(t) { return t.length > 400 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(t); }
   const out = {};
   for (const id of ids) {
     let jd = "";
@@ -190,7 +222,10 @@ async function jmPageFetchJds(ids) {
     if (!jd) {
       try {
         const r = await fetch("/careers/search/job/" + id, { credentials: "include" });
-        if (r.ok) { const t = strip(await r.text()); if (looksJd(t)) jd = t.slice(0, 12000); }
+        if (r.ok) {
+          const html = await r.text();
+          if (looksJd(strip(html))) jd = jdHtml(html).slice(0, 40000);
+        }
       } catch (e) {}
     }
     if (jd) out[id] = jd;
@@ -210,7 +245,24 @@ async function jmPageFetchGenericDetails(urls) {
       .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
   }
-  function looksJd(t) { return t.length > 300 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(t); }
+  // Same pair as jmPageFetchJds above, and duplicated for the same reason the strip() beside it
+  // is: these functions are injected with chrome.scripting and cannot see any outer scope.
+  function jdHtml(h) {
+    try {
+      const doc = new DOMParser().parseFromString(String(h || ""), "text/html");
+      doc.querySelectorAll("script,style,nav,header,footer,form,aside,noscript,svg,[aria-hidden=true]")
+         .forEach((n) => n.remove());
+      const SEL = ["[itemprop=description]", "[data-automation-id=jobPostingDescription]",
+                   "[class*=job-description]", "[id*=job-description]", "[class*=jobDescription]",
+                   "main", "article", "[role=main]"];
+      for (const s of SEL) {
+        const el = doc.querySelector(s);
+        if (el && (el.textContent || "").trim().length >= 250) return el.innerHTML;
+      }
+      return (doc.body && doc.body.innerHTML) || String(h || "");
+    } catch (e) { return String(h || ""); }
+  }
+  function looksJd(t) { return t.length > 400 && /responsibilit|qualificat|requirement|what you.ll do|we are looking|experience in/i.test(t); }
   function fromLd(html) {
     const out = { jd: "", location: "", found_date: "" };
     const doc = new DOMParser().parseFromString(html, "text/html");
@@ -284,8 +336,10 @@ async function jmPageFetchGenericDetails(urls) {
           const html = await r.text();
           Object.assign(d, fromLd(html), d.jd ? { jd: d.jd } : {});
           if (!d.jd) {
-            const txt = strip(html);
-            if (looksJd(txt)) d.jd = txt.slice(0, 12000);
+            // The markup, not the flattened text — see jdHtml. fromLd above already yields
+            // HTML (a JobPosting's description field is HTML), so both paths now hand the
+            // server the same shape and core.html_to_text is the single converter.
+            if (looksJd(strip(html))) d.jd = jdHtml(html).slice(0, 40000);
           }
         }
       }
