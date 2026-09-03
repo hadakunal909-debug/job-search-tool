@@ -798,6 +798,27 @@ def test_the_bulk_phase_visits_every_board_exactly_once():
            sorted({b for b, _a, _c in boards} - set(seen))[:3]))
 
 
+def test_the_blind_boards_rotate_and_every_one_is_reached():
+    """jibe/phenom boards are ROTATED, not skipped, and the rotation must reach all of them.
+
+    _board_has_missing answers True unconditionally for these two because their rows store an
+    apply url whose host varies per tenant -- correct, and the reason Actalent's 1,461 rows
+    stopped sitting on a loading shell. The cost was never counted: 149 of the 151 boards a
+    live run bulk-fetches are these, each returning its WHOLE board to satisfy almost none of
+    the wanted rows. Taking a rotating slice bounds that, but only if the slice moves; a fixed
+    head would fetch the same 20 forever and the other 129 would never be visited at all.
+    """
+    blind = sorted(("https://b%03d.example.com" % i, "jibe", "Co%03d" % i) for i in range(149))
+    seen, n = set(), sj._BLIND_BOARDS_PER_RUN
+    for day in range(9):
+        window = sj._host_window(blind, n, 20260901 + day)
+        assert len(window) == n, "run %d took %d boards, not %d" % (day, len(window), n)
+        seen |= set(window)
+    assert seen == set(blind), (
+        "%d of %d blind boards reached in 9 runs; %d never visited"
+        % (len(seen), len(blind), len(set(blind) - seen)))
+
+
 def test_the_bulk_window_is_smaller_than_a_real_board_list():
     """The window is the memory bound, so it must actually bound something.
 

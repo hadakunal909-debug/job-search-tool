@@ -302,6 +302,16 @@ BULK_JD_ATS = ("greenhouse", "lever", "ashby", "amazon", "jibe", "pinpoint", "jo
 # board with every description, so 151 of them buffered is gigabytes while 16 is bounded.
 # 16 = twice the worker count, so a slow board never starves the pool.
 _BULK_WINDOW = int(os.environ.get("SCORE_BULK_WINDOW") or 16)
+# THE TWO ATS WHOSE ROWS CANNOT BE TESTED AGAINST A BOARD CHEAPLY. Their rows store an APPLY
+# url whose host varies per tenant (icims.com, Oracle, Salesforce), so _board_has_missing
+# answers True for them unconditionally rather than skip a board that might hold the rows we
+# want -- which is right, and is why Actalent's 1,461 rows stopped sitting on a loading shell.
+_BLIND_ATS = ("jibe", "phenom")
+# ...and how many of them one run may fetch. 149 of the 151 boards a live run bulk-fetches are
+# these, each returning its WHOLE board -- 533 and 735 descriptions in one sampled run -- to
+# satisfy approximately none of the 547 rows wanted. 20 keeps the cost bounded and still walks
+# all 149 in about eight runs, which is four days at two crons a weekday.
+_BLIND_BOARDS_PER_RUN = int(os.environ.get("SCORE_BLIND_BOARDS") or 20)
 
 
 def jd_map_for(board_url, ats, needed=None):
@@ -1778,6 +1788,30 @@ def main():
         bulk = [(b, a, c) for b, a, c in boards
                 if a in BULK_JD_ATS
                 and _board_has_missing(b, a, missing)]
+        # THE UNTESTABLE BOARDS ARE ROTATED, NOT SKIPPED, AND THIS IS WHERE THE MEMORY WENT.
+        #
+        # _board_has_missing answers True unconditionally for jibe and phenom -- deliberately,
+        # because those rows store an APPLY url whose host varies per tenant, so no cheap URL
+        # test exists and Actalent's 1,461 rows once sat on a "Loading ..." shell forever
+        # because the slug test said False. The cost of that decision was never counted:
+        # measured on the live box, 149 of the 151 boards a run fetches are these, each
+        # returning its WHOLE board (533 and 735 descriptions were in one sample) to satisfy
+        # approximately none of the 547 rows actually wanted. That is ~450 MB of text
+        # downloaded and parsed per run on an account with almost no headroom, and it is why
+        # bounding the in-flight window alone still died at board 78 of 151.
+        #
+        # Rotated by the same rule _host_window uses for thin probes, and for the same reason:
+        # a fixed head would fetch the same boards forever and never reach the tail. Every
+        # board is still visited, just over several runs instead of all in one -- and a board
+        # that CAN be tested cheaply is never rotated out, so this only ever delays the boards
+        # we cannot ask about anyway.
+        blind = sorted(e for e in bulk if e[1] in _BLIND_ATS)
+        if len(blind) > _BLIND_BOARDS_PER_RUN:
+            seed = int(_dtm.date.today().strftime("%Y%m%d"))
+            keep = set(_host_window(blind, _BLIND_BOARDS_PER_RUN, seed))
+            bulk = [e for e in bulk if e[1] not in _BLIND_ATS or e in keep]
+            print("  %d board(s) have no cheap missing-row test: taking %d this run, the rest "
+                  "on later runs." % (len(blind), _BLIND_BOARDS_PER_RUN))
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))
 
