@@ -152,6 +152,14 @@
          what the experience filter is acting on when it shows a job it cannot judge. #}
       <h2 class="sechdr">What This Posting Asks For</h2>
       <dl class="asks">
+        {# THE THREE NO-ANSWER CASES ARE NAMED HERE AND NOWHERE ELSE. The card carries a figure
+           or nothing, so this page is where "the employer did not say" has to stop being
+           confused with "we have not read it" — they are opposite facts and only one of them
+           will change on its own. #}
+        {%- set unread_why = {
+              'unfetched': 'We have not fetched this description yet — this line fills in once we do',
+              'unreadable': 'The employer’s site returned a page rather than a posting, so we cannot read this'
+            } -%}
         <dt>Experience</dt>
         <dd>
           {%- if asks.exp_req is not none %}<b>{{ asks.exp_req }}+ years</b> required
@@ -160,6 +168,7 @@
           {%- elif asks.exp_inferred %}<b class="asks-guess">Senior role</b>
             <span class="asks-note">read from the title, not from the description &mdash;
               96% of postings titled this way ask for three years or more</span>
+          {%- elif asks.unread %}<span class="asks-none">{{ unread_why[asks.unread] }}</span>
           {%- else %}<span class="asks-none">Not stated in this posting</span>
           {%- endif %}
         </dd>
@@ -168,6 +177,7 @@
           {%- if asks.edu_req %}<b>{{ asks.edu_req }}</b> required
             {%- if asks.edu_pref %} · {{ asks.edu_pref }} preferred{% endif %}
           {%- elif asks.edu_pref %}<b>{{ asks.edu_pref }}</b> preferred, none required
+          {%- elif asks.unread %}<span class="asks-none">{{ unread_why[asks.unread] }}</span>
           {%- else %}<span class="asks-none">Not stated in this posting</span>
           {%- endif %}
         </dd>
