@@ -1,10 +1,20 @@
 #!/bin/bash
 # Scheduled scrape, run by cPanel cron on the same box as the app and the database.
 #
-# THE SCHEDULE. Two slots, Mon-Fri. `crontab -l` over SSH reads the LIVE one -- cPanel's web
-# form is a view onto it, not the only copy, which an earlier version of this comment claimed:
+# THE SCHEDULE. Two full slots and one analyse-only slot, Mon-Fri. `crontab -l` over SSH reads
+# the LIVE one -- cPanel's web form is a view onto it, not the only copy, which an earlier
+# version of this comment claimed:
 #
 #   0 17,20 * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh
+#   30 * * * 1-5      /home/astrocha/stemjobs/bin/cron_scrape.sh --analyze-only
+#
+# THE HOURLY ONE EXISTS BECAUSE jd_terms IS WHAT THE FEED READS, NOT jd. The sweep writes the
+# description; only the analyse pass writes the packed analysis, and a card with no analysis
+# shows "Not scored" however good the description behind it is. At two slots a day a job found
+# at 20:20 waited until 17:00 the next day for a number the job PAGE could already compute on
+# demand -- measured 2026-09-04: 461 active rows unanalysed, 278 of them holding a readable
+# description. The hourly pass costs one corpus + IDF load against a 4-minute analysis budget
+# and takes the same lock as the full run, so it skips rather than stacks.
 #
 # THAT IS UTC, WHICH IS THIS BOX'S LOCAL TIME -- `date` and `date -u` print the same thing. So
 # 17 and 20 UTC are 1pm and 4pm EDT (noon and 3pm under EST, the same DST drift scrape.yml
@@ -47,6 +57,19 @@
 # database is on this machine.
 
 set -u
+
+# --analyze-only: the hourly slot. Runs the ANALYSE pass and nothing else -- no sweep, no JD
+# fetch, no repost clustering. Everything above it in this file (the log ceiling, the cd, the
+# lock) is shared on purpose: a second script would have to duplicate all of it, and a
+# duplicated schedule is how the documented slot and the live crontab drifted three hours apart.
+ANALYZE_ONLY=0
+if [ "${1:-}" = "--analyze-only" ]; then
+    ANALYZE_ONLY=1
+elif [ -n "${1:-}" ]; then
+    echo "usage: $0 [--analyze-only]" >&2
+    exit 2
+fi
+
 APP="$HOME/stemjobs"
 PY="$HOME/virtualenv/stemjobs/3.9/bin/python"
 LOG="$APP/logs/cron_scrape.log"
@@ -151,10 +174,16 @@ export RECONCILE_CLOSED=1
 # so a failed run costs a cycle and loses nothing.
 export DB_REQUIRE=pg
 
-echo "===== $(date -u +%FT%TZ) scrape start =====" >> "$LOG"
-"$PY" -u -m scraper >> "$LOG" 2>&1
-rc=$?
-echo "===== $(date -u +%FT%TZ) scrape end rc=$rc =====" >> "$LOG"
+if [ "$ANALYZE_ONLY" = 1 ]; then
+    # rc is read by the log lines below and by nothing else in this mode. 0, not "skipped":
+    # every later message spells the mode out, so a bare rc does not have to carry it.
+    rc=0
+else
+    echo "===== $(date -u +%FT%TZ) scrape start =====" >> "$LOG"
+    "$PY" -u -m scraper >> "$LOG" 2>&1
+    rc=$?
+    echo "===== $(date -u +%FT%TZ) scrape end rc=$rc =====" >> "$LOG"
+fi
 
 # Score only what the sweep just found. Without this the new rows carry no description and no
 # match score, so they are invisible to the feed's filter — the sweep alone is half a job.
@@ -222,10 +251,16 @@ if [ -f "$APP/resume.txt" ]; then
     # The sweep's rc rides along on this line so a killed sweep stays visible in the log even
     # though it no longer stops the scoring. Grepping "score start" now tells you scoring ran;
     # the rc next to it tells you whether the sweep that fed it completed.
-    echo "----- $(date -u +%FT%TZ) score start (sweep rc=$rc) -----" >> "$LOG"
-    "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
-    src=$?
-    echo "----- $(date -u +%FT%TZ) score end rc=$src -----" >> "$LOG"
+    if [ "$ANALYZE_ONLY" = 1 ]; then
+        # The fetch phase is the expensive half and the one that gets SIGKILLed; the hourly
+        # slot skips it entirely and analyses what the two full runs already banked.
+        src=0
+    else
+        echo "----- $(date -u +%FT%TZ) score start (sweep rc=$rc) -----" >> "$LOG"
+        "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
+        src=$?
+        echo "----- $(date -u +%FT%TZ) score end rc=$src -----" >> "$LOG"
+    fi
 
     # ---- SECOND PASS: ANALYSE WHATEVER THE FIRST ONE BANKED -------------------------------
     #
@@ -302,7 +337,18 @@ if [ -f "$APP/resume.txt" ]; then
     # happened while 614 freshly-fetched descriptions sat waiting to be analysed. 100 costs four
     # extra upserts per 500 rows and turns "all or nothing" back into "forward progress".
     export SCORE_ANALYZE_CHUNK=100
-    echo "----- $(date -u +%FT%TZ) analyse start (fetch pass rc=$src) -----" >> "$LOG"
+    if [ "$ANALYZE_ONLY" = 1 ]; then
+        # 12 -> 4. This slot runs twelve times a weekday against a backlog the two full runs
+        # have already mostly cleared, so it wants to be small and frequent rather than long
+        # and rare -- at ~206 ms/row, 4 minutes still covers ~1,150 rows, which is more than a
+        # single slot has ever left behind. It also has to share the box with the website at
+        # times of day the two full slots deliberately avoid.
+        export SCORE_ANALYZE_BUDGET_MIN=4
+        mode="analyse-only"
+    else
+        mode="fetch pass rc=$src"
+    fi
+    echo "----- $(date -u +%FT%TZ) analyse start ($mode) -----" >> "$LOG"
     "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
     echo "----- $(date -u +%FT%TZ) analyse end rc=$? -----" >> "$LOG"
 fi
@@ -336,8 +382,14 @@ fi
 # writes it does not. Clustering reads url/title/company/location/first_seen off the CORPUS, so
 # on a sweep that banked nothing this is idempotent — it rewrites the same map — and on one that
 # banked eleven slices it is the only thing that will cluster them before tomorrow.
-echo "----- $(date -u +%FT%TZ) reposts start (sweep rc=$rc) -----" >> "$LOG"
-"$PY" -u -m scraper.reposts --write --top 0 >> "$LOG" 2>&1
-echo "----- $(date -u +%FT%TZ) reposts end rc=$? -----" >> "$LOG"
+#
+# Skipped by --analyze-only: the map is derived from url/title/company/location/first_seen, none
+# of which that mode touches, so running it twelve more times a day would rewrite the identical
+# rows at 28 s a go.
+if [ "$ANALYZE_ONLY" = 0 ]; then
+    echo "----- $(date -u +%FT%TZ) reposts start (sweep rc=$rc) -----" >> "$LOG"
+    "$PY" -u -m scraper.reposts --write --top 0 >> "$LOG" 2>&1
+    echo "----- $(date -u +%FT%TZ) reposts end rc=$? -----" >> "$LOG"
+fi
 
 exit 0
