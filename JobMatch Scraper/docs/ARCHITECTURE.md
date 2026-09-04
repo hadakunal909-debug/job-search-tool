@@ -45,7 +45,7 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,520 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,598 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
@@ -56,7 +56,7 @@ flowchart TB
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,430 lines · 36 sections<br/>db.py · 3,029 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,430 lines · 36 sections<br/>db.py · 3,060 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -219,7 +219,7 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2437</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2515</i>"]
   C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 997</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
@@ -285,13 +285,31 @@ shallow copies. Two consequences that are easy to undo by accident:
   eviction used to cost a ~1.9 s rebuild and now costs ~200 ms, which is what makes a small cap
   acceptable.
 
-**Invalidation, and the trap in it.** `jobs_fingerprint()` is `(row count, max first_seen)` â and
-`db.update_job_fields`, which the extension's JD patch calls, moves **neither**. A re-read
-therefore returns an *equal* fingerprint while the underlying descriptions have changed, so
-anything keyed on it would serve stale rows for ever. `_invalidate_jobs()` exists for exactly this
-and clears the jobs cache, the base rows and the snapshot together; `/reload` and
+**Invalidation, and the trap in it.** `jobs_fingerprint()` is
+`(row count, max first_seen, scored count)`. The first two move on **inserts only**; the third
+counts the rows holding `jd_terms`, so it moves when the scoring pass writes. It was added on
+2026-09-04 because without it a card read "JD pending" at score 0 while the job page — which
+fetches the description live on the url key — scored the same posting at 18%. The scrape
+inserts a bare row, which moves the first two and freezes a snapshot holding `jd_terms` NULL; the
+score pass then fills that column by UPDATE, which moved nothing the probe could see. Past
+`_JOBS_TTL` the probe re-confirmed "unchanged" and restamped the sidecar, so the wrong answer
+renewed itself hourly and only the next insert ever broke the loop.
+
+`db.update_job_fields` still moves **nothing** when it writes a column the fingerprint does not
+count — the extension's JD patch writes `jd`, `location` and `found_date`, never `jd_terms`. A
+re-read therefore returns an *equal* fingerprint while the underlying descriptions have changed,
+so anything keyed on it would serve stale rows for ever. `_invalidate_jobs()` exists for exactly
+this and clears the jobs cache, the base rows and the snapshot together; `/reload` and
 `_bust_job_caches` additionally drop the stored score files. The same function also refuses to key
-on the probe's "don't know" answer, `(None, "")`, which is a non-empty and therefore truthy tuple.
+on the probe's "don't know" answer, `db.FP_UNKNOWN` — a non-empty and therefore truthy tuple,
+which is why every caller tests `fp[0]` and why `web._corpus_key()` is the single place that rule
+is written down.
+
+**The per-user caches carry the corpus too**, and did not until the same date. `_score_cache` and
+`_rows_cache` were keyed on `(user, résumé)` alone, and nothing clears them when the corpus
+moves on its own — `_bust_job_caches`, `/reload` and the onboarding prefs step are all explicit
+*actions*. A warm worker therefore went on serving its first render's rows through any number of
+scrapes, which defeated the fingerprint above it however correct that became.
 
 ## The module tour
 
