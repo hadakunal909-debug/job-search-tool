@@ -449,6 +449,17 @@ _BLOCK_TAGS = ("p", "div", "br", "li", "ul", "ol", "tr", "table", "section", "ar
 # throw a whitespace-only marker away. \x01 cannot occur in a description; jdrender.JD_CUT
 # uses the same character for the same reason.
 _CUT = "\x01"
+# AND A SECOND ONE, FOR <li> ONLY. The bullet used to be written into the tree as _CUT + "\u2022 ",
+# which put the GLYPH BETWEEN TWO SENTINELS for <li><p>text</p></li> -- the commonest ATS list
+# shape -- because the inner <p> inserts a sentinel of its own. The collapse below cannot bridge
+# that (the glyph is not whitespace), so the bullet became a line of its own and
+# jdrender.jd_nodes read it as a paragraph: an empty bullet above its own sentence, on ~4% of
+# stored rows. MARKING the <li> instead of DECORATING it means the glyph is emitted once, by the
+# collapse, after every sentinel in the run has been consumed. \x02 is as impossible in a
+# description as \x01, and both are guaranteed consumed: every occurrence is inside a matched
+# run. jdrender.JD_ORPHAN_BULLET repairs the rows written before this.
+_LI_CUT = "\x02"
+_CUT_RUN = re.compile("(?: *[%s%s] *)+" % (_CUT, _LI_CUT))
 
 
 def _soup_text(soup):
@@ -479,9 +490,11 @@ def _soup_text(soup):
         # corpus today, so this is defence rather than a fix -- but it is one line.
         tag.decompose()
     for tag in soup.find_all(_BLOCK_TAGS):
-        tag.insert_before(_CUT + "\u2022 " if tag.name == "li" else _CUT)
+        tag.insert_before(_LI_CUT if tag.name == "li" else _CUT)
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
-    return re.sub(r"(?: *%s *)+" % re.escape(_CUT), "\n", text).strip()
+    # One bullet per RUN, not per sentinel, so nesting cannot multiply it: <li><ul><li>a
+    # gave "\u2022\n\u2022 a" before and gives "\u2022 a" now.
+    return _CUT_RUN.sub(lambda m: "\n\u2022 " if _LI_CUT in m.group(0) else "\n", text).strip()
 
 
 def html_to_text(raw):

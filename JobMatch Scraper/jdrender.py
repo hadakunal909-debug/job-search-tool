@@ -57,6 +57,23 @@ def esc(s):
 # ---------------------------------------------------------------------------------------------
 JD_BULLET = re.compile(r"^\s*(?:[\u2022\u00b7\u25aa\u25cf\u25e6\u2023\u2043*\u2013\u2014-]"
                        r"|\(?\d{1,2}[.)])\s+")
+# INVISIBLE CHARACTERS THAT ARE NOT WHITESPACE, so nothing else in this file can see them.
+# U+200B is not \s and str.strip() does NOT remove it -- ' \u200b x '.strip() is '\u200b x'.
+# Workday writes one after every field colon ("Job Title : <zwsp> Program Manager"), and left in
+# it defeats rstrip(":") in the stacked-field branch, re.sub(r":\Z") in add_heading,
+# MD_BOLD_LINE's (?<=\S) and every (\S.*) capture here. Measured on ~2% of stored rows.
+ZERO_WIDTH = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")
+# A BULLET GLYPH ALONE ON A LINE, which is nothing anybody typed: it is core._soup_text's <li>
+# marker orphaned from its words by a block tag INSIDE the <li> -- <li><p>text</p></li>, the
+# commonest ATS list shape. JD_BULLET cannot match it (that requires \s+ AFTER the glyph), so it
+# fell through to the paragraph path and rendered as a <p> holding one bullet with its sentence
+# in the <p> below. core.py no longer writes this shape, but ~4% of stored rows predate the fix
+# and are not being re-scraped, so the repair has to be on READ.
+#
+# DELIBERATELY NARROWER THAN JD_BULLET'S CLASS. "*", "-", en dash and em dash alone on a line are
+# ambiguous in the markdown and plain-text feeds -- a footnote marker, a short rule, a dash
+# separator -- and _soup_text can never have produced one: it emits U+2022 and nothing else.
+JD_ORPHAN_BULLET = re.compile(r"^[\u2022\u00b7\u25aa\u25cf\u25e6\u2023\u2043]\s*$")
 JD_HEAD = re.compile(
     r"^(?:about|responsibilit|qualificat|requirement|what you|who you|the role|your role|"
     r"benefit|perks|compensation|skills|experience|education|duties|essential|preferred|"
@@ -64,11 +81,18 @@ JD_HEAD = re.compile(
     r"our team|job (?:summary|description|details))", re.I)
 
 
+def is_shout(t):
+    """Entirely upper case, with enough letters to mean it. This was is_jd_heading's own test,
+    lifted out and named because jd_nodes' hard-wrap join needs the same question answered. The
+    >= 3 letter floor is load-bearing: t == t.upper() is true of any line with no cased letters
+    at all, so without it "5+ / 10+ / 15+" counts as shouting."""
+    return len(re.sub(r"[^A-Za-z]", "", t)) >= 3 and t == t.upper()
+
+
 def is_jd_heading(t):
     if not t or len(t) > 70 or JD_BULLET.match(t):
         return False
-    letters = re.sub(r"[^A-Za-z]", "", t)
-    if len(letters) >= 3 and t == t.upper():
+    if is_shout(t):
         return True                                   # short ALL-CAPS line
     if t.endswith(":") and len(t.split()) <= 8:
         return True                                   # "Requirements:"
@@ -264,7 +288,27 @@ FIELD_LABELS = frozenset([
     "salary", "salary range", "pay range", "compensation", "benefits eligible", "flsa status",
     "key skills for success", "key skills", "skills",
     "education", "experience", "years of experience",
+    # WORKDAY'S OWN HEADER BLOCK, which writes the label with a space BEFORE the colon.
+    # "job description" is deliberately NOT here: it is a very common opening HEADING, it is in
+    # JD_SECTION_STRONG and in the summary bucket, and making it a field would steal it from the
+    # heading path and from the jump strip. It needs no fixing either -- with the zero-width
+    # strip above, "Job Description :" reaches is_jd_heading via JD_HEAD and add_heading's
+    # trailing-colon trim renders it as the heading it is.
+    "company", "job title", "job posting location", "posting location",
 ])
+
+
+# THE SAME FIELDS, ON ONE LINE. Workday writes its header as "Company : AHI agilon health, inc."
+# -- label, space, colon, value -- so the STACKED parser below never saw it and each line opened
+# the description as its own stray paragraph.
+#
+# THE VALUE IS BOUNDED, AND THAT BOUND IS THE WHOLE RULE. jd_samples.json[16] is a real posting
+# flattened onto ONE line that starts "Job Title: Senior Program and Project Manager Location:
+# Remote Duration: 6 Months ..." -- an unbounded (\S.*) capture turns that entire description
+# into a single <dd>. A value running past 69 characters, or holding a second colon, is prose
+# wearing a label; that is the same 70-character judgement the stacked branch already makes
+# about its own candidate values.
+FIELD_INLINE = re.compile(r"^\s*([^:]{2,40}?)\s*:\s*(\S[^:]{0,68})$")
 
 
 def _field_label(t):
@@ -286,6 +330,12 @@ def jd_nodes(text):
     """The whole of pass 1: raw description -> typed nodes."""
     src = str("" if text is None else text).replace("\r\n", "\n").replace("\r", "\n") \
         .replace("\u00a0", " ")
+    # Gated on a hit so the 98% of descriptions holding none are byte-identical by
+    # construction. The re-collapse is [^\S\n] and not \s because removing a zero-width leaves
+    # "Location :  Grand Rapids" with a doubled space, and collapsing \n along with it would
+    # destroy the line structure this entire pass is built on.
+    if ZERO_WIDTH.search(src):
+        src = re.sub(r"[^\S\n]{2,}", " ", ZERO_WIDTH.sub("", src))
     out, para, lst = [], [], None
 
     def flush_para():
@@ -299,13 +349,22 @@ def jd_nodes(text):
             out.append(("ul", lst))
         lst = None
 
+    def _before_body():
+        """Has the description itself started yet? `para` and `lst` count, and that is the fix:
+        prose sits in the buffer until something flushes it, so reading `out` alone let a field
+        name halfway down a description with no blank line above it be pulled out of context
+        anyway -- exactly what the comment on the stacked branch promises cannot happen. The
+        LATE case in scripts/test_jdrender.py passes today only because its fixture has that
+        blank line."""
+        return not para and not lst and not any(k in ("p", "ul") for k, _v in out)
+
     def add_heading(txt):
         # Some boards mark a FIELD up as a heading: "##### **REQ#:****RQ225292**" arrives here as
         # "REQ#:RQ225292". While the metadata block is still open, put those in the field list
         # instead of leaving three one-line headings stranded above the description. Gated on the
         # same vocabulary, so an ordinary "Why Join Us: The Team" heading is untouched.
         m2 = re.match(r"^\s*([^:]{2,40}?)\s*:\s*(\S.*)$", txt or "")
-        if m2 and _field_label(m2.group(1)) and not any(k in ("p", "ul") for k, _v in out):
+        if m2 and _field_label(m2.group(1)) and _before_body():
             flush_para()
             flush_list()
             out.append(("kv", (m2.group(1).strip(), [m2.group(2).strip()])))
@@ -315,6 +374,13 @@ def jd_nodes(text):
         out.append(("h", re.sub(r":\Z", "", txt).strip()))
 
     lines = src.split("\n")
+    # A SHOUTED LINE IS NEVER A CONTINUATION -- unless the whole posting shouts. Some ATS feeds
+    # are upper case end to end, and there this rule would split every hard-wrapped fragment
+    # into its own paragraph and turn the description into a ladder. Above a quarter of the
+    # lines, shouting is the house style and carries no signal. The quarter is a judgement, not
+    # a measurement.
+    _nonblank = [l.strip() for l in lines if l.strip()]
+    notice_ok = sum(1 for l in _nonblank if is_shout(l)) <= max(1, len(_nonblank) // 4)
     i = 0
     while i < len(lines):
         t = lines[i].strip()
@@ -323,6 +389,26 @@ def jd_nodes(text):
             flush_para()
             flush_list()
             continue
+        # Joined ONLY to the line immediately below, and BEFORE the setext lookahead: a bare
+        # glyph does not match JD_BULLET, so a bullet sitting above a "-----" rule is otherwise
+        # promoted to a heading named after the glyph. _soup_text's collapse emits no blank
+        # lines at all, so a blank under a lone glyph means some other writer put it there and
+        # it is not ours to bridge. Anything that is not plain content below -- a rule, a
+        # heading, another bullet, another orphan, the end of the text -- means the glyph has no
+        # words to carry, so it is dropped: a bullet with no item is not information, and it is
+        # not alphanumeric, so test_jdrender's no-text-is-dropped projection cannot see it go.
+        if JD_ORPHAN_BULLET.match(t):
+            nxt = lines[i].strip() if i < len(lines) else ""
+            if not (nxt and not MD_RULE.match(nxt) and not MD_ATX.match(nxt)
+                    and not MD_BOLD_LINE.match(nxt) and not MD_STRAY.fullmatch(nxt)
+                    and not JD_BULLET.match(nxt) and not JD_ORPHAN_BULLET.match(nxt)):
+                continue
+            # Re-formed as the line _soup_text should have written, then dropped through to the
+            # ordinary bullet branch below -- so a repaired row and a freshly scraped one cannot
+            # render differently. Not gated on is_jd_heading(nxt): <li><p>RESPONSIBILITIES</p>
+            # </li> is a shouted list ITEM, and promoting it would be the wrong repair.
+            t = "\u2022 " + nxt
+            i += 1
         # A rule on its own line. Its text (if any) was consumed by the setext branch below, so
         # anything reaching here is a bare separator: end the block and drop the punctuation.
         if MD_RULE.match(t):
@@ -341,10 +427,21 @@ def jd_nodes(text):
             add_heading(strip_md(t))
             i += 1
             continue
+        # The same fields written INLINE -- "Company : Acme" -- which the stacked parser below
+        # cannot see, because _field_label only recognises a line that is JUST a label. Same
+        # vocabulary and the same "only before the description starts" gate; the value bound
+        # lives in FIELD_INLINE itself, and it is what stops a one-line posting being eaten
+        # whole by its own opening words.
+        mi = FIELD_INLINE.match(strip_md(t))
+        if mi and _field_label(mi.group(1)) and _before_body():
+            flush_para()
+            flush_list()
+            out.append(("kv", (mi.group(1).strip(), [mi.group(2).strip()])))
+            continue
         # A stacked metadata field, but ONLY while the description has not started yet: the moment
         # real prose or a list appears we stop looking, so a "Location" mentioned halfway down a
         # paragraph-heavy description can never be pulled out of its context.
-        if _field_label(strip_md(t)) and not any(k in ("p", "ul") for k, _v in out):
+        if _field_label(strip_md(t)) and _before_body():
             label = strip_md(t).rstrip(":").strip()
             vals, j = [], i
             while j < len(lines):
@@ -374,9 +471,19 @@ def jd_nodes(text):
         bm = JD_BULLET.match(t)
         if bm:
             flush_para()
+            # A marker carrying nothing but emphasis punctuation ("* **", "- __") used to
+            # append "" and render as an empty <li>. Skip the ITEM, not the line: the paragraph
+            # above still ends here, and a list already open stays open, so one junk marker in
+            # the middle of a real list does not split it in two. flush_list needs no matching
+            # guard -- lst is only ever assigned None, or a list appended to on the same pass,
+            # so an all-empty list is unreachable and a check there would be dead code reading
+            # like a live invariant.
+            item = strip_md(t[bm.end():].strip())
+            if not item:
+                continue
             if lst is None:
                 lst = []
-            lst.append(strip_md(t[bm.end():].strip()))
+            lst.append(item)
             continue
         t = strip_md(t)
         if not t:                        # was nothing but emphasis punctuation
@@ -388,8 +495,16 @@ def jd_nodes(text):
         # Hard-wrapped prose: a long previous line that doesn't end a sentence is mid-paragraph,
         # so join onto it. Otherwise start a new <p>, so separate one-line statements do not get
         # glued into a wall.
+        # "ONLY CANDIDATES LOCATED IN THE TRAVERSE CITY, MI AREA WILL BE CONSIDERED - THIS IS A
+        # HYBRID OPPORTUNITY!" is 104 characters, so is_jd_heading's <= 70 gate rightly declines
+        # to call it a heading -- and this join then glued it onto the end of the paragraph
+        # above, mid-sentence. It is a standalone statement either way, so it gets its own <p>.
+        # This cannot promote ordinary prose: is_jd_heading has already claimed every caps line
+        # of 70 characters or fewer before control reaches here, so is_shout can only ever fire
+        # on a LONG one. A hard-wrapped acronym run ("AWS GCP AZURE") never gets this far.
         prev = para[-1] if para else ""
-        if prev and not (len(prev) > 62 and not re.search(r"[.:;!?]\Z", prev)):
+        if prev and ((notice_ok and (is_shout(t) or is_shout(prev)))
+                     or not (len(prev) > 62 and not re.search(r"[.:;!?]\Z", prev))):
             flush_para()
         para.append(t)
     flush_para()
