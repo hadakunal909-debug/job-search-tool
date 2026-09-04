@@ -1712,6 +1712,29 @@ def initials(name):
         return words[0][:2].upper()
     return (words[0][0] + words[1][0]).upper()
 
+# THE HOSTS THAT ARE A HIRING PLATFORM RATHER THAN AN EMPLOYER. A posting URL on one of these
+# carries a TENANT name, not a website -- "seic.wd1.myworkdayjobs.com" says nothing about
+# seic.com -- so any rule that reads a company's domain off its own board URL has to refuse
+# them first. Lived in web.py as _PLATFORM_HOSTS until 2026-09-04, when scripts/build_logos.py
+# needed the same list; a second copy of it is exactly the kind of twin this repo keeps warning
+# about, so it moved here and both callers import it.
+#
+# IT IS NOT COMPLETE AND CANNOT BE. Measured 2026-09-04 against the live board set, jibeapply.com
+# is a platform serving three of our employers and was absent from this tuple. So a caller that
+# trusts a board host must ALSO refuse any host claimed by more than one employer, which derives
+# platform-ness from the corpus instead of from this hand list. Both are needed: the corpus rule
+# misses a platform with a single tenant (jobdiva.com, one claimant), and this list misses a
+# platform nobody has written down yet.
+PLATFORM_HOSTS = (
+    "myworkdayjobs.com", "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com",
+    "icims.com", "jobvite.com", "workable.com", "bamboohr.com", "taleo.net", "successfactors.com",
+    "sapsf.com", "avature.net", "jobdiva.com", "ultipro.com", "paylocity.com", "oraclecloud.com",
+    "eightfold.ai", "recruitics.com", "rippling.com", "isolvedhire.com", "apploi.com",
+    "phenompeople.com", "peoplefluent.com", "silkroad.com", "brassring.com", "dayforcehcm.com",
+    "jibeapply.com",
+)
+
+
 def norm_company(company):
     """scraper._norm_name(company), memoized.
 

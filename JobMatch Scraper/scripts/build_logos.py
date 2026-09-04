@@ -32,6 +32,7 @@ import argparse
 import collections
 import csv
 import datetime
+import base64
 import hashlib
 import io
 import json
@@ -50,8 +51,11 @@ LEDGER = "logo_harvest.json"
 AUDIT_CSV = "company_domains_audit.csv"
 DISCOVER_CSV = "company_domains_discovered.csv"
 DOMAINS = {}                 # norm_company -> domain; filled by run_harvest, see load_domains
+BOARD_DOMAINS = {}           # norm_company -> domain read off the board URL, see load_board_domains
 LOGO_DIR = os.path.join("static", "logos")
 MANIFEST = os.path.join(LOGO_DIR, "index.json")
+
+_PUBLIC_SUFFIX_2LD = ("co", "com", "ac", "org", "gov", "edu", "net")
 
 WD_API = "https://www.wikidata.org/w/api.php"
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
@@ -172,6 +176,19 @@ PLATFORM_HOSTS = (
 # keyed on core.norm_company. "" means "we have no domain and guessing is worse than not".
 DOMAIN_OVERRIDE = {
     "alphabet": "abc.xyz",
+    # + 2026-09-04. THREE HOMONYMS THAT SURVIVED IN company_domains.json, which was written on
+    # 2026-08-22 -- before the P1082 place rule landed the next day -- and whose carry-over loop
+    # then kept them, because each one corroborates its employer's name perfectly:
+    #   werfen     -> gemeindewerfen.at   the MUNICIPALITY of Werfen, Austria
+    #   providence -> providenceri.gov    the CITY of Providence, Rhode Island
+    #   eli lilly  -> lilly.it            Eli Lilly Italy, not the company
+    # The place gate rejects the ENTITY; it never re-examined a domain already banked. Two of
+    # the three are answered by the employer's own board URL (werfen.com, careers.lilly.com) and
+    # Providence's board is on oraclecloud.com, so only a pin reaches it. stored is tried before
+    # the board domain, so without these the wrong answer keeps winning.
+    "werfen": "werfen.com",
+    "providence": "providence.org",
+    "eli lilly": "lilly.com",
     # HAND-READ 2026-08-23, and this list is the ANSWER to --discover-domains rather than a
     # supplement to it. Three tightening passes took the guess from ~1-in-3 wrong to ~1-in-6, and
     # then it stopped converging, because the ways a guessed domain lies are open-ended: a broker
@@ -249,6 +266,22 @@ LOGO_OVERRIDE = {
     "assaabloy": "Assa Abloy.svg",
     "viasat": "ViaSat-Logo.svg",
     'rocket': '"Rocket Companies" logo.svg',
+    # + 2026-09-04, same NAME-to-entity failure as the ten above, found by ranking the
+    # logo-less by feed rows. "Eli Lilly" resolved to an entity whose P856 is lilly.it rather
+    # than to Q632240, and "Analogdevices" -- one squashed token, which is how the corpus spells
+    # it -- reaches no entity at all while Q484930 sits there with a clean SVG. Both confirmed
+    # from the employer's own board URL (careers.lilly.com, analogdevices.wd1.myworkdayjobs.com).
+    "eli-lilly": "Eli Lilly and Company.svg",
+    "analogdevices": "Analog Devices Logo.svg",
+    # + 2026-09-04, and these two are a SLUG MOVE, not a new resolution. companies.json
+    # renamed "Fluor Corporation" -> "Fluor Corp." and re-admitted "Lpl Financial" as
+    # "LPL FINANCIAL LLC", and neither new spelling reaches the entity the old one did:
+    # fluor-corp is no-entity, lpl-financial-llc falls through to a site with no icon.
+    # The files below are the ones their OWN previous accepted entries carried, Q653581
+    # and Q6459734, so this pins an identity already verified rather than asserting a new
+    # one. Without them --prune reads a moved slug as a lost logo and deletes both.
+    "fluor-corp": "Logo FLUOR.svg",
+    "lpl-financial-llc": "LPL Financial logo.svg",
 }
 
 
@@ -907,6 +940,12 @@ def _hex_is_dark(col):
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5
 
 
+# The SVG elements that actually paint something. An <image>-only file has none of these, which
+# is how it is told apart from a real vector that merely embeds a texture alongside its art.
+_SVG_DRAWABLE = frozenset(("path", "rect", "circle", "ellipse", "polygon", "polyline", "line",
+                           "text", "textPath", "tspan", "use"))
+
+
 def svg_meta(raw):
     """(ar, mono, why) for a SANITISED SVG, judged structurally instead of on pixels.
 
@@ -942,6 +981,43 @@ def svg_meta(raw):
     if not (w and h):
         return 0, 0, "svg-no-geometry"
     ar = round(w / h, 3)
+
+    # AN SVG WHOSE ONLY DRAWABLE IS A BITMAP IS NOT A VECTOR, AND THE PARAGRAPH ABOVE STOPS
+    # BEING TRUE OF IT. What makes this weaker gate acceptable is "a vector cannot BE a blurry
+    # upscale" -- but favicon.svg is quite often a PNG in an SVG envelope, and then every
+    # pixel-level rule judge() would have applied is skipped on a technicality about the file
+    # extension. Measured over the whole logo directory: 6 of 810 stored SVGs are a bare
+    # <image>, and one of them, Brightstar Lottery, was fetched from /img/favicon/DARK/ and is
+    # white ink on transparent -- 0.000 ink composited on white against 0.281 on black, i.e.
+    # an invisible logo on the card, shipped and passing --check. The other five measure 0.13
+    # to 0.38 on white and are fine, which is the point: the raster gate separates them and
+    # this gate cannot. So decode the bitmap and judge THAT, which is this file's own rule --
+    # judge what you ship.
+    imgs = root.findall(".//{http://www.w3.org/2000/svg}image") or root.findall(".//image")
+    drawable = [el for el in root.iter()
+                if etree.QName(el).localname in _SVG_DRAWABLE]
+    if imgs and not drawable:
+        href = ""
+        for k in ("href", "{http://www.w3.org/1999/xlink}href"):
+            href = imgs[0].get(k) or href
+        m = re.match(r"data:image/([a-z+]+);base64,(.+)$", (href or "").strip(), re.S)
+        if not m:
+            # A remote <image> is worse still: the asset would not render offline at all.
+            return ar, 0, "svg-remote-image"
+        # AN EMBEDDED SVG IS STILL A VECTOR, so it keeps the structural gate rather than being
+        # handed to PIL, which would call it "undecodable" and reject a good logo. Johnson
+        # Controls' file is exactly this: an Illustrator SVG base64'd into an <image> inside
+        # <defs>. Only a real bitmap gets the pixel treatment.
+        if "svg" in m.group(1):
+            return ar, 0, ""
+        try:
+            inner = base64.b64decode(m.group(2))
+        except Exception:
+            return ar, 0, "svg-image-undecodable"
+        ok, why, meta = judge(inner)
+        if not ok:
+            return meta.get("ar") or ar, 0, why
+        return meta.get("ar") or ar, 1 if meta.get("mono") else 0, ""
     if ar > MAX_AR or ar < 1.0 / MAX_AR:
         return ar, 0, "aspect"
     # MONO MEANS "ONE DARK INK, SAFE TO INVERT ON A DARK BACKGROUND", not merely "low chroma",
@@ -1331,8 +1407,14 @@ def domain_candidates(name, stored, p856):
     forced = DOMAIN_OVERRIDE.get(core.norm_company(name) or "")
     if forced is not None:
         return [forced] if forced else []
+    # THE BOARD DOMAIN GOES LAST, deliberately. It is the strongest witness we have for an
+    # employer that reaches no entity at all, but appending it cannot change the answer for any
+    # employer that already resolves -- the loop below tries candidates in order and the first
+    # to yield an asset that passes judge() wins, so a run with this rule on re-derives every
+    # previous acceptance unchanged. See load_board_domains for why a shared host is refused.
+    board = BOARD_DOMAINS.get(core.norm_company(name) or "") or ""
     out = []
-    for d in (stored or "", p856 or ""):
+    for d in (stored or "", p856 or "", board):
         d = (d or "").strip().lower()
         if d and d not in out and domain_agrees(name, d):
             out.append(d)
@@ -1552,11 +1634,128 @@ def load_domains():
         return {}
 
 
+def load_board_domains():
+    """norm_company -> the employer's own domain, read off its careers URL in companies.json.
+
+    THE THIRD WITNESS, AND THE ONLY ONE THAT IS NOT A GUESS. 78 logo-less employers had no
+    domain from any source -- no P856 because the name reaches no entity, nothing in
+    company_domains.json -- while their own board URL sat in companies.json pointing straight at
+    akima.com, arcfield.com, hercrentals.com, mastec.com, halliburton.com. That is the same rule
+    the adoption pass already trusts: resolve an ambiguous employer from its BOARD URL, never
+    from its name.
+
+    A BOARD HOST IS ONLY THE EMPLOYER'S WHEN EXACTLY ONE EMPLOYER CLAIMS IT, and that rule is
+    doing the work core.PLATFORM_HOSTS cannot. Measured here: jibeapply.com served HEB, Matthews
+    and Quarterhill and is in no platform list anywhere in this repo; grainger.com and
+    virginia.edu each had two claimants. Trusting a host with several tenants is how GardaWorld
+    took appcast.io's logo, so the count is checked before the name is. The hand list still runs
+    too -- jobdiva.com has a single claimant here and the corpus rule alone would have believed
+    it.
+
+    Nothing here bypasses a gate. The result is appended to domain_candidates LAST, so no
+    employer that already resolves loses its winning candidate, and it goes through the same
+    domain_agrees() check as every other candidate -- which is why the three acronym cases
+    (Baylor College of Medicine -> bcm.edu, University of Cincinnati -> uc.edu, University of
+    North Dakota -> ndus.edu) drop out here instead of needing to be hand-skipped. They are what
+    DOMAIN_OVERRIDE is for.
+    """
+    try:
+        with open(COMPANIES_JSON, encoding="utf-8") as fh:
+            blob = json.load(fh) or {}
+    except Exception:
+        return {}
+    prefix = blob.get("prefix") or {}
+
+    def host_of(careers):
+        head, _, rest = (careers or "").partition("|")
+        url = (prefix[head] + rest) if head in prefix else (careers or "")
+        try:
+            return (urllib.parse.urlsplit(url).hostname or "").lower()
+        except Exception:
+            return ""
+
+    def registrable(host):
+        labels = [x for x in host.split(".") if x]
+        if len(labels) < 2:
+            return ""
+        # web.py::company_domain takes labels[-2:]; the extra clause is for a two-letter ccTLD
+        # under a public suffix (co.uk, com.au), where labels[-2:] would return the suffix itself.
+        if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _PUBLIC_SUFFIX_2LD:
+            return ".".join(labels[-3:])
+        return ".".join(labels[-2:])
+
+    seen = []
+    for r in blob.get("rows") or []:
+        host = host_of(r[2] if len(r) > 2 else "")
+        seen.append((r[0], host, registrable(host)))
+    claims = collections.Counter(d for _, _, d in seen if d)
+
+    out = {}
+    for name, host, dom in seen:
+        if not dom or claims[dom] != 1:
+            continue
+        if any(p in host for p in core.PLATFORM_HOSTS):
+            continue
+        if not board_domain_agrees(name, host, dom):
+            continue
+        key = core.norm_company(name) or ""
+        if key:
+            out[key] = dom
+    return out
+
+
+def board_domain_agrees(name, host, dom):
+    """domain_agrees, but at LABEL level and with the government-portal case refused.
+
+    THE GENERAL CHECK IS TOO LOOSE FOR THIS WITNESS, and both leaks were measured on the first
+    run of the rule rather than reasoned about:
+
+      University of Maryland College Park posts on umcp.bncollege.com, and bncollege.com is
+      BARNES & NOBLE COLLEGE, the bookstore contractor. domain_agrees accepted it because it
+      asks whether any name token of 3+ characters appears ANYWHERE in the domain, and
+      "college" appears inside "bncollege". That is the failure the discovery pass already
+      wrote down -- if you are leaning on one word, that word has to be the whole name -- and
+      a generic word in a long institutional name is exactly when it bites. So the token has
+      to match the domain's ROOT LABEL, not a substring of it.
+
+      Texas Health and Human Services Commission posts on hhs.texas.gov, which reduces to
+      texas.gov -- the state's shared portal, whose icon is the Texas.gov wordmark and not the
+      agency's. Reducing to the registrable domain is right for a company (careers.herzog.com
+      is Herzog) and wrong for a government host, where the subdomain IS the employer and the
+      parent is shared by every agency on it. p856_domain refuses to truncate for the same
+      reason -- aws.amazon.com is not amazon.com.
+
+    Neither is fixed by loosening or tightening domain_agrees itself: that function also guards
+    P856, where the host is already specific and these two shapes do not arise.
+    """
+    labels = [p for p in (dom or "").split(".") if p]
+    if not labels:
+        return False
+    root = labels[0]
+    sub = [p for p in (host or "").split(".") if p][:-len(labels)] if host else []
+    if labels[-1] == "gov" and [s for s in sub if s != "www"]:
+        return False
+    toks = _tokens(name)
+    if not toks:
+        return False
+    squash = "".join(toks)
+    if root == squash or root in toks:
+        return True
+    if len(root) >= 3 and (squash.startswith(root) or root.startswith(squash)):
+        return True
+    if len(toks) >= 2:
+        acronym = "".join(t[0] for t in toks)
+        if len(acronym) >= 2 and root == acronym:
+            return True
+    return False
+
+
 def run_harvest(args):
     rows = load_rows()
     ledger = load_ledger()
-    global DOMAINS
+    global DOMAINS, BOARD_DOMAINS
     DOMAINS = load_domains()
+    BOARD_DOMAINS = load_board_domains()
     net = Net(pace=args.delay)
     cache = ClassCache(net)
 
@@ -2116,9 +2315,18 @@ def run_write_domains(args):
 # The floors sit ~7 points below each, which is wide enough that a source having a bad day does
 # not fail the build and tight enough that losing a hundred logos does. Raise them when a
 # harvest beats them by more than that margin -- a floor that no longer bites is not a gate.
-HEAD_HARD = 1000        # 143 rows, 71.3% covered
-HARD_FLOOR = 0.64
-HEAD_SOFT = 100         # 702 rows, 70.5% covered
+#
+# RE-BASELINED 2026-09-04, and the DENOMINATORS moved more than the rates did. companies.json was
+# rebuilt against the live database for the first time since the JobSpy PM ingest and the
+# discovery run, going 3,728 -> 4,995 employers; the 1,000+ cohort went 143 -> 190 rows and the
+# 100+ cohort 702 -> 988. Measured after that rebuild and a 1,285-company backlog harvest:
+# 144/190 = 75.8% and 668/988 = 67.6%. So the hard floor had drifted to 11.8 points of slack and
+# stopped being a gate; it goes to 0.69. The soft floor is left where it is -- 4.6 points under
+# the measured rate is already inside the intended band, and it is the cohort the tail dilutes
+# fastest as new small employers arrive.
+HEAD_HARD = 1000        # 190 rows, 75.8% covered
+HARD_FLOOR = 0.69
+HEAD_SOFT = 100         # 988 rows, 67.6% covered
 SOFT_FLOOR = 0.63
 
 
