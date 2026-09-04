@@ -45,7 +45,7 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,641 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,655 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
@@ -219,7 +219,7 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2562</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2576</i>"]
   C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 997</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]

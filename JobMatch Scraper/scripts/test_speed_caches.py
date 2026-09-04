@@ -724,6 +724,37 @@ def live_analysis():
         web._live_analysis(base)
         want("memoised on the corpus, so a second user pays nothing", len(asked) == n)
 
+        # ONE DOOR. load_jobs_by_urls skips a failed BATCH rather than raising, so without the
+        # fallback a bad batch leaves rows unscored while /job -- reading the same text through
+        # get_job_jd -- goes on printing a percentage for every one of them. That is the card /
+        # page disagreement this whole function exists to remove, reappearing one layer down.
+        saved_gjj = db.get_job_jd
+        try:
+            asked_single = []
+
+            def fake_gjj(u):
+                asked_single.append(u)
+                return JD
+            db.get_job_jd = fake_gjj
+            db.load_jobs_by_urls = lambda urls, include_jd=True: []   # every batch failed
+            web._live_meta.update(fp=None, by_url={})
+            m2 = web._live_analysis([row("https://d/1")])
+            want("a row the batch never returned is asked for the way /job asks",
+                 "https://d/1" in m2 and asked_single == ["https://d/1"])
+
+            # A row the batch DID return holding an empty description genuinely has none.
+            # Re-asking is the wasteful call get_job_jd's own miss-caching exists to prevent.
+            del asked_single[:]
+            db.load_jobs_by_urls = lambda urls, include_jd=True: [{"url": u, "jd": ""}
+                                                                  for u in urls]
+            web._live_meta.update(fp=None, by_url={})
+            want("...but a row it returned EMPTY is not asked again",
+                 web._live_analysis([row("https://d/2")]) == {} and asked_single == [],
+                 "single-row calls: %d" % len(asked_single))
+        finally:
+            db.get_job_jd = saved_gjj
+            db.load_jobs_by_urls = fake_lbu
+
         # A description with nothing in it is honestly pending, and must not become a 0% ring.
         db.load_jobs_by_urls = lambda urls, include_jd=True: [{"url": u, "jd": ""} for u in urls]
         web._live_meta.update(fp=None, by_url={})
