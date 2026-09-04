@@ -2055,6 +2055,17 @@ def main():
             bank = _load_jd_cache()
             bank.update({u: jd for u, jd in fetched.items() if jd})
             _save_jd_cache(bank)
+            # RELEASED IMMEDIATELY, the way the repair path at the top of the run already
+            # does it. This dict is every stored description -- 492 MB peak RSS for 29,991
+            # entries, measured on the cPanel box 2026-09-04 -- and without this `del` it
+            # stayed referenced for the whole ANALYSIS below, which is the most expensive
+            # phase in the process and the one that then gets SIGKILLed by an account-wide
+            # ~1.2 GB LVE budget it shares with the website.
+            #
+            # Merging here is unavoidable: new-only holds only the rows it scored, so the
+            # cache has to be read to avoid writing the corpus away. Holding it afterwards
+            # is not.
+            del bank
     else:
         _save_jd_cache({u: jd for u, jd in row_jd.items() if jd})
 
@@ -2137,13 +2148,44 @@ def main():
     # most of the rest, so only genuinely-unseen rows cost a request.
     if new_only:
         need = [u for u in todo if u not in row_jd]
-        if need:
-            bank = _load_jd_cache()
-            row_jd.update({u: bank[u] for u in need if u in bank})
-            need = [u for u in need if u not in row_jd]
+        # THE DATABASE IS ASKED FIRST, AND THE ORDER IS THE ENTIRE FIX.
+        #
+        # _load_jd_cache() materialises EVERY stored description into one dict. Measured on
+        # the cPanel box 2026-09-04: 8 MB -> 492 MB peak RSS, 29,991 entries, 159 MB of text,
+        # and json.load() over the 35 MB gzip takes all of it in a single step that cannot be
+        # chunked. This block asked for that FIRST, to serve a `need` of a few hundred rows --
+        # the 18:14 run wanted 267.
+        #
+        # 484 MB landing on a fetch pass that already holds the corpus, 22 board maps and its
+        # freshly fetched JDs, against an ACCOUNT-wide ~1.2 GB LVE budget shared with the
+        # website's Passenger workers, is why that pass was SIGKILLed on EVERY run from
+        # 2026-09-02 -- always immediately after the "Picking up N row(s)" lines, which are the
+        # statements directly above this one. rc=137, twice a weekday, straight to cron mail.
+        #
+        # load_jobs_by_urls asks for exactly these urls, batched by query-string length, and
+        # was ALREADY the fallback below. So this reorder introduces no new path -- it runs the
+        # one every run already reaches, before the expensive one instead of after it.
+        #
+        # The cache stays as the fallback rather than being deleted: it is the only place a
+        # description lives when a row reached the corpus but not the table, the case the
+        # reconciliation phase above prints as "Re-persisting N cached JD(s)". It is now read
+        # only when the table genuinely holds no text, so the 484 MB is spent on that repair
+        # instead of on every run.
+        #
+        # Where both hold text the table now wins, which is the right way round: it is the
+        # system of record, the analysis writes back to it, and the cache is a rebuildable
+        # by-product of fetches that already happened.
         if need:
             row_jd.update({r["url"]: (r.get("jd") or "")
                            for r in db.load_jobs_by_urls(need) if r.get("url")})
+            # `not row_jd.get(u)`, not `u not in row_jd`: a row the table answers with an
+            # EMPTY jd has to stay in `need` so the cache can still repair it. Testing
+            # membership would drop it here and analyse a blank description.
+            need = [u for u in need if not row_jd.get(u)]
+        if need:
+            bank = _load_jd_cache()
+            row_jd.update({u: bank[u] for u in need if u in bank})
+            del bank                     # same reason as the merge above
     # THE ANALYSIS IS THE EXPENSIVE PHASE, and until now it was the only unbudgeted one.
     # core.job_meta costs ~206 ms/row against a 622k-term idf (core.score_against is 2.5 ms —
     # the cost is reading the posting, not comparing it to the résumé), so a full pass over

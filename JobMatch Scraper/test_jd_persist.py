@@ -120,7 +120,7 @@ def _write_resume(tmp):
         fh.write("Program manager. Roadmap, stakeholder management, risk, budget, delivery.\n")
 
 
-def _run_main(rows, cache, argv):
+def _run_main(rows, cache, argv, idf=None):
     """Run score_jobs.main() over `rows` with `cache` on disk. Returns the fake db.
 
     Every network path is poisoned rather than mocked-out-to-empty: a fetch attempted during
@@ -149,7 +149,14 @@ def _run_main(rows, cache, argv):
         sj.NEW_JOBS_FILE = os.path.join(tmp, "no_such_new_jobs.json")
         sj.detail_jd = _no_network
         sj.jd_map_for = _no_network
-        sj.core.load_idf = lambda *a, **kw: {}
+        # `idf` DEFAULTS TO EMPTY, WHICH IS NOT A NEUTRAL CHOICE. An empty idf sends main()
+        # down its cold-start branch, and that branch reads the WHOLE corpus into row_jd --
+        # after which every row already holds its text and the by-url lookup below it is
+        # never reached. A test about that lookup has to hand over a warm idf or it silently
+        # exercises nothing, which is exactly how the first version of
+        # test_the_analysis_asks_the_database_before_the_whole_jd_cache passed against the
+        # unfixed code and proved nothing.
+        sj.core.load_idf = lambda *a, **kw: dict(idf or {})
         sj.core.load_jdmeta = lambda *a, **kw: {}
         sj.core.save_jdmeta = lambda *a, **kw: None
         sys.argv = ["score_jobs"] + argv
@@ -1061,6 +1068,67 @@ def test_batching_the_group_did_not_change_the_wire():
             "sponsor_reason": "", "jd_terms": "x"} for i in range(450)]
     sizes = [len(p) for p in _upsert_posts(big, keys=sj.JD_DERIVED_COLS)]
     assert sizes == [200, 200, 50], "450 rows went out as %r" % (sizes,)
+
+
+def test_the_analysis_asks_the_database_before_the_whole_jd_cache():
+    """The analysis setup must fetch the rows it needs, not materialise every description.
+
+    _load_jd_cache() builds a dict of EVERY stored description. Measured on the cPanel box
+    2026-09-04: 8 MB -> 492 MB peak RSS, 29,991 entries, 159 MB of text, taken in one
+    json.load() that cannot be chunked. The analysis setup asked for it FIRST in order to
+    supply text for a few hundred rows -- 267 on the 18:14 run -- and db.load_jobs_by_urls,
+    which asks for exactly those urls, was sitting right underneath it as the fallback.
+
+    That is why the fetch pass was SIGKILLed on EVERY cron run from 2026-09-02: rc=137,
+    twice a weekday, straight to cron mail. The log always cut off in the same place, the
+    line after "Picking up N row(s) a previous run left unscored."
+
+    ASSERTED AS A CALL COUNT, not as peak memory. The cache written by this harness holds
+    two rows and would not move RSS by a measurable byte, so a memory assertion here would
+    pass against the old code as well. What is being pinned is that the expensive read is
+    never REACHED when the database can answer, which is exactly what the count states.
+
+    The scenario is built so this block is the ONLY thing that could load the cache: every
+    row holds a description in the database, so urls_missing_jd() is empty and the repair
+    path above does not read it, and nothing is fetched, so the merge-and-save path does
+    not either. A non-zero count can therefore only have come from the statement under test.
+    """
+    rows = [
+        # A description in the DATABASE and no jd_terms: this is the analysis backlog, the
+        # set urls_missing_jd_terms() - urls_missing_jd() returns.
+        {"url": "https://ex.com/a", "jd": _JD, "location": "Boston, MA",
+         "found_date": "2026-08-01", "first_seen": "2026-08-01",
+         "title": "Program Manager", "company": "Ex"},
+        {"url": "https://ex.com/c", "jd": _JD, "location": "Austin, TX",
+         "found_date": "2026-08-02", "first_seen": "2026-08-02",
+         "title": "Program Manager", "company": "Ex"},
+    ]
+    reads = []
+    saved = sj._load_jd_cache
+
+    def _counted():
+        reads.append(1)
+        return saved()
+
+    try:
+        sj._load_jd_cache = _counted
+        # A WARM idf, so main() takes its normal path -- see _run_main, where the default
+        # empty one reads the whole corpus into row_jd and this statement is never reached.
+        #
+        # The cache holds an UNRELATED url. Seeding it with these two rows defeats the test
+        # a second way: the fetch queue would be satisfied from the cache, row_jd would be
+        # filled from there instead, and `need` would again be empty.
+        fake = _run_main(rows, {"https://ex.com/z": _JD}, ["--new-only"],
+                         idf={"program": 1.0, "manager": 1.0, "roadmap": 2.0})
+    finally:
+        sj._load_jd_cache = saved
+
+    assert fake.score_calls, (
+        "nothing was scored, so the run never reached the statement under test")
+    assert not reads, (
+        "the analysis loaded the entire JD cache %d time(s) even though the database held "
+        "every description it asked for -- on the live box that read is 484 MB, and it is "
+        "what gets the pass SIGKILLed" % len(reads))
 
 
 if __name__ == "__main__":
