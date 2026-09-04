@@ -663,6 +663,103 @@ def warm_user_scores():
     return bad
 
 
+def live_analysis():
+    """A description we can read is not "pending", and the SHARED row must never learn that.
+
+    The reported defect: a card said "JD pending" while /job, holding the same bytes, printed a
+    real percentage. web._live_analysis closes it -- but it is built from a network read that can
+    fail, so it must stay OUT of _build_row and the persisted row_cache/. Those are keyed on
+    (jobs_fingerprint(), _derived_signature()) and shared by the whole worker pool, and a worker
+    whose read failed writing DIFFERENT rows under the SAME key is the ping-pong that key's
+    docstring records. Everything below is that boundary.
+    """
+    print("=" * 74)
+    print("live analysis of rows a scoring run has not reached")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    JD = ("We are hiring a hospital operations manager to own the delivery roadmap, work with "
+          "stakeholders across the system, run python and sql reporting, and manage budgets and "
+          "staffing for the perioperative service line. ") * 6
+    asked = []
+
+    def row(u, **kw):
+        r = {"url": u, "score_pending": True, "closed": False, "jd_unavailable": False,
+             "first_seen": "2026-09-04"}
+        r.update(kw)
+        return r
+
+    saved_lbu, saved_fp = db.load_jobs_by_urls, web._corpus_fp
+    try:
+        def fake_lbu(urls, include_jd=True):
+            asked.append(list(urls))
+            return [{"url": u, "jd": JD} for u in urls]
+        db.load_jobs_by_urls = fake_lbu
+        web._corpus_fp = lambda: ("live-analysis-test", 1)
+
+        base = [row("https://x/1"), row("https://x/2", score_pending=False),
+                row("https://x/3", closed=True), row("https://x/4", jd_unavailable=True)]
+        web._live_meta.update(fp=None, by_url={})
+        m = web._live_analysis(base)
+
+        want("a readable description gets analysed", "https://x/1" in m,
+             "%d term(s)" % len((m.get("https://x/1") or {}).get("terms") or []))
+        want("a row that already has an analysis is not asked about",
+             "https://x/2" not in m)
+        want("a closed row is not asked about", "https://x/3" not in m)
+        want("a host that publishes nothing readable is not asked about",
+             "https://x/4" not in m, "jd_unavailable already says so")
+        want("...so the budget is spent only on rows it can help",
+             asked and sorted(asked[0]) == ["https://x/1"], str(asked[0] if asked else None))
+        want("THE SHARED ROW IS NOT MUTATED", all(r["score_pending"] for r in base if
+                                                  r["url"] != "https://x/2"),
+             "row_cache/ is written from these and read by every worker")
+
+        n = len(asked)
+        web._live_analysis(base)
+        want("memoised on the corpus, so a second user pays nothing", len(asked) == n)
+
+        # A description with nothing in it is honestly pending, and must not become a 0% ring.
+        db.load_jobs_by_urls = lambda urls, include_jd=True: [{"url": u, "jd": ""} for u in urls]
+        web._live_meta.update(fp=None, by_url={})
+        want("a row whose stored description is empty stays pending",
+             web._live_analysis([row("https://y/1")]) == {})
+
+        # A failed read costs the placeholder that was there anyway -- never the feed.
+        def boom(urls, include_jd=True):
+            raise RuntimeError("the database said no")
+        db.load_jobs_by_urls = boom
+        web._live_meta.update(fp=None, by_url={})
+        try:
+            out = web._live_analysis([row("https://z/1")])
+            want("a failed read degrades to the placeholder, it does not raise", out == {})
+        except Exception as e:
+            want("a failed read degrades to the placeholder, it does not raise", False, repr(e))
+
+        # The cap is what keeps a bad day off a cold worker's first feed.
+        db.load_jobs_by_urls = fake_lbu
+        web._live_meta.update(fp=None, by_url={})
+        many = [row("https://big/%d" % i) for i in range(web._LIVE_ANALYZE_MAX + 400)]
+        t0 = time.time()
+        got = web._live_analysis(many)
+        dt = time.time() - t0
+        want("never asks for more than the cap",
+             asked and len(asked[-1]) <= web._LIVE_ANALYZE_MAX, "%d urls" % len(asked[-1]))
+        want("the wall-clock budget actually stops it",
+             dt <= web._LIVE_ANALYZE_BUDGET_S + 2.0 and len(got) <= web._LIVE_ANALYZE_MAX,
+             "%.2f s, %d analysed, budget %.1f s" % (dt, len(got), web._LIVE_ANALYZE_BUDGET_S))
+    finally:
+        db.load_jobs_by_urls = saved_lbu
+        web._corpus_fp = saved_fp
+        web._live_meta.update(fp=None, by_url={})
+    return bad
+
+
 def row_files():
     """The shared row file must be byte-faithful, and its key must cover every input.
 
@@ -858,14 +955,14 @@ def row_files():
         base = web._base_rows()
         sc = {r["url"]: (i * 7) % 101 for i, r in enumerate(base)}
 
-        def score_of(r):
-            return 0 if r["score_pending"] else sc.get(r["url"], 0)
+        def overlay(r):
+            return dict(r, score=(0 if r["score_pending"] else sc.get(r["url"], 0)))
 
         # THE EQUIVALENCE, over the whole corpus and after the sort ranked_rows applies. Python's
         # sort is stable, so a plan that produced the same SET in a different order would rank
         # ties differently and nothing else here would notice.
-        by_plan = web._apply_dedupe_plan(base, meta["plan"], score_of)
-        by_ref = web._dedupe_rows([dict(r, score=score_of(r)) for r in base])
+        by_plan = web._apply_dedupe_plan(base, meta["plan"], overlay)
+        by_ref = web._dedupe_rows([overlay(r) for r in base])
         want("the plan reproduces _dedupe_rows exactly", by_plan == by_ref,
              "%d vs %d rows" % (len(by_plan), len(by_ref)))
         by_plan.sort(key=lambda r: r["score"], reverse=True)
@@ -1014,6 +1111,7 @@ def main():
     fails += score_pct_equivalence()
     fails += warm_user_scores()
     fails += row_files()
+    fails += live_analysis()
     fails += corpus_fp()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
