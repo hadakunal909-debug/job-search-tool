@@ -282,11 +282,18 @@ fi
 # `-m scraper.reposts`, not scripts/: .cpanel.yml copies scraper/ but NOT scripts/, so the module
 # form is the only one that exists on this box.
 #
-# IT LIVES HERE AS WELL AS IN THE ACTIONS WORKFLOW ON PURPOSE. The Actions DB_PROXY_SECRET has been
-# wrong since ~2026-08-15, so every later step of the 09:00 ET run fails `401 bad signature`. This
-# cron runs on the same box as the database and talks to it over the loopback via PG_DSN, so it is
-# the path that actually works today. When the secret is fixed both will refresh it, which is
-# harmless: the write is idempotent and replaces the whole row.
+# IT LIVES HERE AS WELL AS IN THE ACTIONS WORKFLOW ON PURPOSE, and the reason is not the one this
+# comment used to give. It said the Actions DB_PROXY_SECRET had been wrong since ~2026-08-15, so
+# every later step of the 09:00 ET run failed `401 bad signature` and this cron was the only path
+# that worked. THAT IS NO LONGER TRUE -- verified 2026-09-04, the Actions run completed all
+# thirteen steps green through the proxy, this step among them. Do not reason from the old claim:
+# a stale "the secret is broken" note sends the next person hunting a fault that was fixed weeks
+# ago, which is the more expensive kind of wrong comment because it reads like hard-won knowledge.
+#
+# It stays duplicated because the two paths cover different slots -- Actions takes 09:00 ET, this
+# cron takes 13:00 and 16:00 -- and because this one reaches the database over the loopback via
+# PG_DSN rather than the HTTPS proxy, so it still refreshes the map on a day that hop is having
+# trouble. Both writing it is harmless: the write is idempotent and replaces the whole row.
 #
 # Not gated on the score step: the clustering reads url/title/company/location/first_seen and needs
 # neither a description nor a match score. Gated on the SWEEP, because clustering a corpus the
