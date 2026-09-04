@@ -23,7 +23,12 @@ APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 PROBE = ("import db;"
-         "print(type(db._http.__getattr__('get').__self__).__module__, db.using_supabase())")
+         "print(type(db._http.__getattr__('get').__self__).__module__, db.has_remote_db())")
+# A SECOND probe that does NOT touch _http. Needed since 2026-09-01: with no backend configured
+# there is no session to resolve and touching _http raises, so PROBE reports ("?", False) for
+# BOTH "nothing configured" and "the process crashed". This one answers the narrower question --
+# does db think a remote exists, and what does it name -- without triggering that.
+FLAG = "import db; print(db.has_remote_db(), '|', db.backend_name())"
 
 fails, ran = [], []
 
@@ -66,8 +71,13 @@ print("=" * 74)
 print("TRANSPORT SELECTION")
 print("=" * 74)
 
-check("nothing set: Supabase, as today",
-      transport(), ("requests.sessions", True))
+# STALE SUPABASE CREDENTIALS ARE INERT NOW, and this is the case that proves the removal.
+# transport() deliberately injects SUPABASE_URL and SUPABASE_KEY (see the helper), which is what
+# a real developer box still has sitting in .streamlit/secrets.toml. Until 2026-09-01 that alone
+# selected a live Supabase session and this line asserted ("requests.sessions", True). There is
+# no third transport to select any more, so the probe finds no backend and raises.
+check("stale SUPABASE_* creds select nothing",
+      transport(), ("?", False))
 
 # A half-configured proxy must NOT half-switch — and as of 2026-08-19 it must not fall through to
 # Supabase either. THIS EXPECTATION IS REVERSED FROM WHAT IT WAS, deliberately, and the reason is
@@ -104,13 +114,17 @@ def refusal_reason(**env):
     return (p.stderr or "").strip()
 
 
-for label, kw in (("url only", {"DB_PROXY_URL": "https://x/api/db"}),
-                  ("secret only", {"DB_PROXY_SECRET": "s"})):
+for label, kw, missing in (("url only", {"DB_PROXY_URL": "https://x/api/db"}, "DB_PROXY_SECRET"),
+                           ("secret only", {"DB_PROXY_SECRET": "s"}, "DB_PROXY_URL")):
     why = refusal_reason(**kw)
+    # It must still refuse for the RIGHT reason, and the reason changed with the transport: the
+    # message used to warn about falling through to Supabase and now names the variable that is
+    # missing. Asserting on the variable name is also the stronger test -- it is the one thing
+    # the reader needs and the one thing a reworded message must keep.
     check("%s refuses for the RIGHT reason" % label,
-          ("half-configured" in why and "Supabase" in why, True), (True, True))
+          ("half-configured" in why and missing in why, True), (True, True))
 check("empty strings are not configuration",
-      transport(DB_PROXY_URL="", DB_PROXY_SECRET="", PG_DSN=""), ("requests.sessions", True))
+      transport(DB_PROXY_URL="", DB_PROXY_SECRET="", PG_DSN=""), ("?", False))
 
 check("both proxy vars: the scraper's path",
       transport(DB_PROXY_URL="https://x/api/db", DB_PROXY_SECRET="s"), ("dbproxy", True))
@@ -124,12 +138,32 @@ check("both set: PG_DSN wins",
       transport(PG_DSN="host=127.0.0.1 dbname=d",
                 DB_PROXY_URL="https://x/api/db", DB_PROXY_SECRET="s"), ("pgrest", True))
 
-# using_supabase() is the "is there a remote database at all" gate, and every db function uses
+# has_remote_db() is the "is there a remote database at all" gate, and every db function uses
 # it to choose between the network and the local CSV. A transport that is configured but reports
 # False would silently drop the whole application onto jobs.csv.
+def remote_flag(_cwd=None, **env):
+    """(has_remote_db, backend_name) without resolving a transport."""
+    e = dict(os.environ)
+    for k in ("PG_DSN", "DB_PROXY_URL", "DB_PROXY_SECRET", "SUPABASE_URL", "SUPABASE_KEY"):
+        e.pop(k, None)
+    e.update({k: v for k, v in env.items() if v is not None})
+    if _cwd:
+        e["PYTHONPATH"] = APP + os.pathsep + e.get("PYTHONPATH", "")
+    out = subprocess.run([sys.executable, "-c", FLAG], cwd=_cwd or APP, env=e,
+                         capture_output=True, text=True).stdout.strip()
+    return out
+
+
 with tempfile.TemporaryDirectory() as empty:
+    # Asserted through FLAG rather than PROBE: with nothing configured there is no session to
+    # resolve, so PROBE's ("?", False) cannot tell "fell back to the CSV" from "crashed".
     check("no credentials of any kind: the CSV fallback",
-          transport(_cwd=empty, SUPABASE_URL="", SUPABASE_KEY=""), ("requests.sessions", False))
+          (remote_flag(_cwd=empty, SUPABASE_URL="", SUPABASE_KEY=""), True),
+          ("False | jobs.csv", True))
+    check("...and SUPABASE_* present changes nothing",
+          (remote_flag(_cwd=empty, SUPABASE_URL="https://example.supabase.co",
+                       SUPABASE_KEY="anon-key"), True),
+          ("False | jobs.csv", True))
     check("...and a PG_DSN still wins there",
           transport(_cwd=empty, SUPABASE_URL="", SUPABASE_KEY="",
                     PG_DSN="host=127.0.0.1 dbname=d"), ("pgrest", True))

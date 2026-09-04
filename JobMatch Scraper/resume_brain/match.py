@@ -46,9 +46,18 @@ def rank_stories(stories, analyzed, jd_terms, model, lessons, top_k=6):
     a human-readable reason for each."""
     assoc = model.get("assoc") or {}
     salient = set(jd_terms[:_TOP_TERMS])
-    boost_ids = set()
+    # WEIGHT NOW COUNTS. Every lesson carried a `weight` that nothing read, so a lesson the
+    # user had reinforced ranked exactly like one they had written once and forgotten. MAX and
+    # not SUM across lessons, so two lessons naming the same story cannot stack past the
+    # "nudges, never dominates" bargain _ASSOC_CAP makes just above.
+    boost = {}
     for l in applicable_lessons(jd_terms, lessons):
-        boost_ids |= set(l.get("boost_story_ids") or [])
+        try:
+            w = float(l.get("weight", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            w = 1.0
+        for sid in l.get("boost_story_ids") or []:
+            boost[sid] = max(boost.get(sid, 0.0), w)
     ranked = []
     for s in stories or []:
         sid = s.get("id")
@@ -58,7 +67,7 @@ def rank_stories(stories, analyzed, jd_terms, model, lessons, top_k=6):
         for t in salient:
             learned += (assoc.get(t) or {}).get(sid, 0.0)
         learned = min(_ASSOC_CAP, learned)
-        lbonus = _LESSON_BONUS if sid in boost_ids else 0.0
+        lbonus = _LESSON_BONUS * boost.get(sid, 0.0)
         total = cov + learned + lbonus
         reason = []
         if have:
@@ -77,13 +86,18 @@ def rank_stories(stories, analyzed, jd_terms, model, lessons, top_k=6):
 
 
 # ---------------- self-training updates ----------------
-def record_tailor(jd_terms, model):
-    """A job was tailored against -> fold its salient terms into the idf corpus."""
-    df = model.setdefault("df", {})
-    for t in set(jd_terms[:40]):
-        df[t] = int(df.get(t, 0)) + 1
-    model["n"] = int(model.get("n", 0)) + 1
-    return model
+#
+# record_tailor USED TO LIVE HERE and has been deleted. It folded each tailored job's terms into
+# a PER-USER document-frequency table, model["df"] / model["n"] -- which nothing ever read, in
+# any version. So it grew a jsonb column on the users row on every tailor and bought nothing;
+# measured on the local KB it held 36 terms over n=3, including "take", "through", "emphasis",
+# "responsible", "procedures" and a company name.
+#
+# It cannot be rescued by wiring up a reader either. The question it was trying to answer -- how
+# common is this term, so how much should matching it count -- is a corpus question, and a corpus
+# answer now exists: norms.py over 41,427 postings, and core.load_idf() over the same. Three
+# documents can never beat either. What DOES belong here is the association below, because that
+# is about this user's own choices and nothing corpus-wide can know it.
 
 
 def learn_associations(jd_terms, story_ids, model, amount=1.0):

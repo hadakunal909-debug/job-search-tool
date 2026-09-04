@@ -35,7 +35,7 @@ import scraper
 
 def _user_job_rows():
     """[(username, url, status)] across every user, both backends."""
-    if db.using_supabase():
+    if db.has_remote_db():
         return [(r.get("username"), r.get("url"), r.get("status"))
                 for r in db._fetch_all(db.USERJOBS_TABLE,
                                        {"select": "username,url,status"})

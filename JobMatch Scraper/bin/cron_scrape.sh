@@ -110,10 +110,23 @@ export SCRAPE_BUDGET_MIN=0
 # concurrency, not a memory one, and lowering it would trade a documented judgement for an
 # undocumented guess. Slice size is the lever that bounds the peak.
 export SCRAPE_SLICE=100
-# Bounds the DESCRIPTION LOOKUP, which SCRAPE_BUDGET_MIN above does not -- that one stops the
-# board sweep. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
+# Bounds the SPECULATIVE half of the description lookup -- the fetches that exist only to
+# second-guess a title the filter rejected. SCRAPE_BUDGET_MIN above stops the board sweep; this
+# stops that. Same shape as the SCORE_BUDGET_MIN / SCORE_ANALYZE_BUDGET_MIN pair below. 3 rather
 # than the 2 CI uses: there is no step timeout out here, only the gap to the next cron slot.
 export JD_LOOKUP_BUDGET_MIN=3
+# AND THE OTHER HALF IS DELIBERATELY NOT CAPPED. JD_KEEP_BUDGET (count) is left at its default
+# of 0 = unlimited: a posting that has passed the title filter is going into the feed, and it
+# must not go in without a description because a counter ran out. Without one the card reads
+# "JD pending" with no match number, and on a fast-turnover board the description is gone before
+# any later pass can fetch it -- measured on Actalent, only 31 of 755 such rows were still on
+# their board when we went back for them.
+#
+# The clock below is a runaway guard, not a budget. Measured 2026-09-02: a complete 21-slice
+# sweep of 2,032 boards took 67 min and kept 917 rows, about 700 of which needed a fetch, at
+# ~34 fetches/min on 6 workers -- so roughly 20 minutes of work against a 3-hour gap to the next
+# slot. 45 leaves generous room and still refuses to run forever.
+export JD_KEEP_BUDGET_MIN=45
 export MAX_AGE_DAYS=30
 export PRUNE_DAYS=30
 export DISCOVER_LIMIT=20          # board auto-discovery, small bite per run
@@ -146,7 +159,29 @@ echo "===== $(date -u +%FT%TZ) scrape end rc=$rc =====" >> "$LOG"
 # Score only what the sweep just found. Without this the new rows carry no description and no
 # match score, so they are invisible to the feed's filter — the sweep alone is half a job.
 # new-only mode reuses the stored IDF instead of re-reading every description.
-if [ $rc -eq 0 ] && [ ! -f "$APP/resume.txt" ]; then
+#
+# NOT GATED ON $rc, AND THAT GATE WAS THE SINGLE LARGEST SOURCE OF "JD pending" ROWS.
+#
+# It read `[ $rc -eq 0 ] && [ -f resume.txt ]`, which sounds careful and is exactly backwards.
+# SCRAPE_SLICE banks every slice before the next one starts (that is the whole point of the
+# 2026-08-24 slicing fix), so a sweep killed at slice 3 of 21 has ALREADY written its jobs to
+# the database. Refusing to score them does not undo the sweep; it just leaves the rows that
+# did land with a NULL match_score and no jd_terms, which the feed renders as "JD pending"
+# with no number. The next run then re-scrapes those same postings, sees them in `seen`, and
+# skips them — so nothing ever comes back for them except the arrears pass.
+#
+# MEASURED 2026-09-01: eight of the last nine cron runs exited rc=137 (SIGKILL at the ~1.2 GB
+# CloudLinux LVE cap), so eight consecutive scoring passes were skipped. That left 1,539 rows
+# with a NULL match_score, every one of them first_seen that day — and 1,135 of those already
+# HELD a full description in the jd column. The text was sitting there and nothing analysed it.
+#
+# .github/workflows/scrape.yml hit the identical bug on 2026-08-21 and fixed it with
+# `!cancelled()` on the steps after the scrape. This is that fix, out here.
+#
+# Scoring a corpus the sweep did not manage to add to is cheap and idempotent: new-only mode
+# reuses the stored IDF, and _new_only_targets falls back to the NULL-match_score backlog when
+# last_new_jobs.json is missing or truncated, so a killed sweep still hands it real work.
+if [ ! -f "$APP/resume.txt" ]; then
     # score_jobs aborts without this file and EXITS 0, so the run logs a success and silently
     # never scores. That is how the first cron test looked fine: scrape end rc=0, score start
     # and score end on the same second, nothing in between. Say it loudly instead — an
@@ -156,7 +191,7 @@ if [ $rc -eq 0 ] && [ ! -f "$APP/resume.txt" ]; then
          "as 'JD pending' with no match score. Deploy resume.txt to $APP." >> "$LOG"
 fi
 
-if [ $rc -eq 0 ] && [ -f "$APP/resume.txt" ]; then
+if [ -f "$APP/resume.txt" ]; then
     export SCORE_NEW_ONLY=yes
     # 400 -> 1500, AND 8 -> 25 BELOW, because the sweep fix changed the arithmetic these two
     # were sized against. Under the old 12-minute deadline a run swept ~500 boards and added a
@@ -184,9 +219,59 @@ if [ $rc -eq 0 ] && [ -f "$APP/resume.txt" ]; then
     # which would just move the bottleneck one step down and leave the extra JDs sitting
     # unanalysed. 12 minutes covers the fetch plus a bite of the unscored arrears.
     export SCORE_ANALYZE_BUDGET_MIN=12
-    echo "----- $(date -u +%FT%TZ) score start -----" >> "$LOG"
+    # The sweep's rc rides along on this line so a killed sweep stays visible in the log even
+    # though it no longer stops the scoring. Grepping "score start" now tells you scoring ran;
+    # the rc next to it tells you whether the sweep that fed it completed.
+    echo "----- $(date -u +%FT%TZ) score start (sweep rc=$rc) -----" >> "$LOG"
     "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
-    echo "----- $(date -u +%FT%TZ) score end rc=$? -----" >> "$LOG"
+    src=$?
+    echo "----- $(date -u +%FT%TZ) score end rc=$src -----" >> "$LOG"
+
+    # ---- SECOND PASS: ANALYSE WHATEVER THE FIRST ONE BANKED -------------------------------
+    #
+    # A SEPARATE PROCESS, and that is the entire point -- not a tidiness preference.
+    #
+    # score_jobs runs FETCH first and ANALYSE second, in one process, and only the second phase
+    # writes jd_terms, which is what the feed reads to decide whether a card says "JD pending".
+    # On this box the first phase is the one that gets SIGKILLed at the ~1.2 GB LVE cap, so the
+    # phase that clears the badge sits behind the phase that kills the run.
+    #
+    # MEASURED 2026-09-02, by hand, on the live box:
+    #
+    #   pass with SCORE_MAX_FETCH=1500 / SCORE_BUDGET_MIN=25
+    #       -> RSS 1.06 GB at 5 min, 1.12 GB at 7 min, killed during "Detail-fetching 926
+    #          remaining JD(s)". No traceback, no summary line. It DID bank 391 descriptions
+    #          (rows with no jd: 860 -> 469) because _persist_jds flushes every 150 -- and it
+    #          analysed nothing at all: jd_terms and match_score were bit-for-bit unchanged.
+    #   pass with SCORE_MAX_FETCH=1 / SCORE_BUDGET_MIN=0.5, run straight afterwards
+    #       -> completed, exit 0, scored 1,626 rows. Rows the feed called "JD pending"
+    #          went 2,851 -> 1,322 in one pass.
+    #
+    # So the fetch is SAFE TO LOSE and the analysis is not: a killed fetch leaves its
+    # descriptions in the column, and the next run's analysis pass picks them up through
+    # urls_missing_jd_terms(). Giving the analysis its own process means a fresh heap and the
+    # 1.2 GB budget starts over, which is the only lever available from a shell script.
+    #
+    # Deliberately NOT done by lowering SCORE_BUDGET_MIN to some value that "should" survive:
+    # nobody has measured where the ceiling actually is, and a guessed number that is slightly
+    # too high fails exactly the same way while looking like it was reasoned about. This
+    # arrangement does not need to know.
+    #
+    # Cost is one extra corpus + IDF load, ~1-2 min. SCORE_MAX_FETCH=1 rather than 0, because
+    # score_jobs reads 0 as "no cap at all" and would refetch the whole backlog here.
+    export SCORE_MAX_FETCH=1
+    export SCORE_BUDGET_MIN=0.5
+    export SCORE_ANALYZE_BUDGET_MIN=12
+    # 500 -> 100 rows per banked upsert. The analysis loop persists every SCORE_ANALYZE_CHUNK
+    # rows, and on this box the process is routinely SIGKILLed mid-loop by the ACCOUNT-wide LVE
+    # budget -- the website's Passenger workers plus two sibling apps were measured at 1,355 MB
+    # of it. At 500 a pass killed at row 400 banks nothing; measured 2026-09-02, exactly that
+    # happened while 614 freshly-fetched descriptions sat waiting to be analysed. 100 costs four
+    # extra upserts per 500 rows and turns "all or nothing" back into "forward progress".
+    export SCORE_ANALYZE_CHUNK=100
+    echo "----- $(date -u +%FT%TZ) analyse start (fetch pass rc=$src) -----" >> "$LOG"
+    "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
+    echo "----- $(date -u +%FT%TZ) analyse end rc=$? -----" >> "$LOG"
 fi
 
 # The repost-cluster map the feed card's "Posted Nx" badge reads. Derived from the corpus, so it
@@ -197,19 +282,29 @@ fi
 # `-m scraper.reposts`, not scripts/: .cpanel.yml copies scraper/ but NOT scripts/, so the module
 # form is the only one that exists on this box.
 #
-# IT LIVES HERE AS WELL AS IN THE ACTIONS WORKFLOW ON PURPOSE. The Actions DB_PROXY_SECRET has been
-# wrong since ~2026-08-15, so every later step of the 09:00 ET run fails `401 bad signature`. This
-# cron runs on the same box as the database and talks to it over the loopback via PG_DSN, so it is
-# the path that actually works today. When the secret is fixed both will refresh it, which is
-# harmless: the write is idempotent and replaces the whole row.
+# IT LIVES HERE AS WELL AS IN THE ACTIONS WORKFLOW ON PURPOSE, and the reason is not the one this
+# comment used to give. It said the Actions DB_PROXY_SECRET had been wrong since ~2026-08-15, so
+# every later step of the 09:00 ET run failed `401 bad signature` and this cron was the only path
+# that worked. THAT IS NO LONGER TRUE -- verified 2026-09-04, the Actions run completed all
+# thirteen steps green through the proxy, this step among them. Do not reason from the old claim:
+# a stale "the secret is broken" note sends the next person hunting a fault that was fixed weeks
+# ago, which is the more expensive kind of wrong comment because it reads like hard-won knowledge.
+#
+# It stays duplicated because the two paths cover different slots -- Actions takes 09:00 ET, this
+# cron takes 13:00 and 16:00 -- and because this one reaches the database over the loopback via
+# PG_DSN rather than the HTTPS proxy, so it still refreshes the map on a day that hop is having
+# trouble. Both writing it is harmless: the write is idempotent and replaces the whole row.
 #
 # Not gated on the score step: the clustering reads url/title/company/location/first_seen and needs
 # neither a description nor a match score. Gated on the SWEEP, because clustering a corpus the
 # sweep failed to update would just republish yesterday's map under today's date.
-if [ $rc -eq 0 ]; then
-    echo "----- $(date -u +%FT%TZ) reposts start -----" >> "$LOG"
-    "$PY" -u -m scraper.reposts --write --top 0 >> "$LOG" 2>&1
-    echo "----- $(date -u +%FT%TZ) reposts end rc=$? -----" >> "$LOG"
-fi
+# Also no longer gated on $rc, for the reason above. The note about "republishing yesterday's
+# map under today's date" assumed a failed sweep left the corpus untouched; with per-slice
+# writes it does not. Clustering reads url/title/company/location/first_seen off the CORPUS, so
+# on a sweep that banked nothing this is idempotent — it rewrites the same map — and on one that
+# banked eleven slices it is the only thing that will cluster them before tomorrow.
+echo "----- $(date -u +%FT%TZ) reposts start (sweep rc=$rc) -----" >> "$LOG"
+"$PY" -u -m scraper.reposts --write --top 0 >> "$LOG" 2>&1
+echo "----- $(date -u +%FT%TZ) reposts end rc=$? -----" >> "$LOG"
 
 exit 0

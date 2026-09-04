@@ -108,13 +108,12 @@
       <div class="rvbox-h">Your Library</div>
       <a class="rvlink" href="{{ url_for('brain_teach') }}#stories">
         <span class="rvlink-t">Stories <b>{{ stories|length }}</b></span>
-        <span class="rvlink-d">Reusable accounts of things you did. Tailoring pulls the ones that
-          fit a posting.</span>
+        <span class="rvlink-d">Things you did, written once. Tailoring pulls the ones that fit.</span>
       </a>
       <a class="rvlink" href="{{ url_for('brain_teach') }}#lessons">
         <span class="rvlink-t">Lessons <b>{{ lessons|length }}</b></span>
-        <span class="rvlink-d">Rules you have taught it — “for fintech roles, lead with the
-          reconciliation work”.</span>
+        <span class="rvlink-d">Rules you&rsquo;ve taught it &mdash; &ldquo;for fintech, lead with the
+          reconciliation work&rdquo;.</span>
       </a>
     </section>
   </aside>
@@ -124,15 +123,15 @@
     {% if not report %}
       <div class="panel">
         <h1>Start with a résumé</h1>
-        <p class="sub">Upload one on the left — PDF, Word, LaTeX or plain text. This page then grades
-        it against the checks recruiters screen on, shows the text an applicant tracking system
-        extracts, and marks every problem in the document itself.</p>
+        <p class="sub">Upload one on the left &mdash; PDF, Word, LaTeX or text. You get a score
+          against what recruiters screen on, the text an ATS reads, and every problem marked in the
+          document.</p>
         <ul class="rvsell">
-          <li><b>Every bullet, scored</b> — which lines are missing a verb, scope or a result, and
-            what kind of number to add to each one.</li>
-          <li><b>The keywords your roles expect</b> — measured against the real postings in your
-            feed, not a generic list.</li>
-          <li><b>Nothing leaves your account.</b> No AI, no upload to anyone else, instant.</li>
+          <li><b>Every bullet, scored</b> &mdash; which lines lack a verb, scope or result, and what
+              number to add.</li>
+          <li><b>Keywords your roles expect</b> &mdash; from the real postings in your feed, not a
+              generic list.</li>
+          <li><b>Nothing leaves your account.</b> No AI, no uploads, instant.</li>
         </ul>
         <form method="post" action="{{ url_for('resume') }}">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
@@ -180,10 +179,10 @@
          total, and no way to reconcile the two except by diffing them and guessing. #}
       <div class="banner rvgate">
         <strong>Capped at {{ r.impact_ceiling }} by quantified impact.</strong>
-        Everything else here could be perfect and this résumé still would not score above
-        {{ r.impact_ceiling }}, because it mostly describes duties rather than results. Fifteen tidy
-        checks do not outweigh one missing number — a recruiter does not average, and neither does
-        this. Add metrics to your bullets and the ceiling lifts with them.
+        Everything else could be perfect and this r&eacute;sum&eacute; still wouldn&rsquo;t beat
+          {{ r.impact_ceiling }}, because it lists duties, not results. Fifteen tidy checks don&rsquo;t
+          outweigh one missing number &mdash; recruiters don&rsquo;t average, and nor does this. Add
+          metrics and the ceiling lifts.
       </div>
       {% endif %}
 
@@ -250,9 +249,9 @@
       {% if p %}
       <details class="rvats">
         <summary class="rs-sum">What an ATS sees</summary>
-        <p class="rs-detail">Your résumé as a parser reads it — the same extraction this page scored.
-          If something below is missing or wrong, an applicant tracking system reads it the same way,
-          and no recruiter search will find you.</p>
+        <p class="rs-detail">Your résumé as a parser reads it — the text this page scored. If
+                  anything below is missing or wrong, an ATS reads it the same way and no recruiter
+                  search finds you.</p>
         <div class="tiles">
           <div class="tile"><div class="tile-n">{{ p.words }}</div><div class="tile-l">Words extracted</div></div>
           <div class="tile"><div class="tile-n">~{{ p.pages }}</div><div class="tile-l">Estimated pages</div></div>
@@ -277,9 +276,9 @@
         </table>
         </div>
         {% if not p.found_experience_section %}
-        <div class="banner">No experience section was recognised. An ATS that cannot find your work
-          history may read you as unemployed — label the section literally
-          (<em>Experience</em> or <em>Professional Experience</em>) on its own line.</div>
+        <div class="banner">No experience section found. An ATS that can&rsquo;t find your work
+            history may read you as unemployed &mdash; label it plainly (<em>Experience</em> or
+            <em>Professional Experience</em>) on its own line.</div>
         {% endif %}
       </details>
       {% endif %}
@@ -300,9 +299,9 @@
       <div class="section-head"><h2>Every Bullet, Line by Line</h2>
         <span class="count-pill">{{ bullets.complete }} of {{ bullets.total }} complete
           ({{ bullets.complete_pct }}%)</span></div>
-      <p class="sub">A bullet that works has three parts: a strong <strong>verb</strong>, the
-      <strong>scope</strong> of what you did, and a measurable <strong>result</strong>. Missing one is
-      the difference between an achievement and a duty. Worst first — this is a work queue, not an
+      <p class="sub">A good bullet has three parts: a strong <strong>verb</strong>, the
+        <strong>scope</strong>, and a measurable <strong>result</strong>. Miss one and it reads as a
+        duty, not an achievement. Worst first &mdash; this is a work queue, not an
       inventory.</p>
       <div class="tiles">
         <div class="tile"><div class="tile-n {{ 'meter-strong' if bullets.complete_pct>=80 else ('meter-good' if bullets.complete_pct>=50 else 'meter-weak') }}">{{ bullets.complete_pct }}%</div><div class="tile-l">All three parts</div></div>
@@ -353,12 +352,11 @@
       {% if keywords and keywords.total %}
       <div class="section-head"><h2>Keywords Your Roles Expect</h2>
         <span class="count-pill">{{ keywords.have|length }} of {{ keywords.total }}</span></div>
-      <p class="sub">Read from {{ keywords.total }} skills that <strong>{{ keywords.track }}</strong>-track
-      postings ask for most{% if keywords.source == 'corpus' %}, measured across
-      {% if keywords.corpus_jobs %}the {{ "{:,}".format(keywords.corpus_jobs) }} real jobs{% else %}the real jobs{% endif %}
-      in your own feed{% else %}, from a curated skill list rather than from your own feed{% endif %}. A keyword only
-      counts when it appears in an <strong>accomplishment</strong> — pasting it into a skills list is
-      the habit recruiters read as filler.</p>
+      <p class="sub">The {{ keywords.total }} skills <strong>{{ keywords.track }}</strong>-track
+            postings ask for most{% if keywords.source == 'corpus' %}, from
+            {% if keywords.corpus_jobs %}{{ "{:,}".format(keywords.corpus_jobs) }} real jobs{% else %}real jobs{% endif %}
+            in your feed{% else %}, from a curated list, not your feed{% endif %}. A keyword counts only
+            inside an <strong>accomplishment</strong> — in a skills list it reads as filler.</p>
       {% if keywords.missing %}
       <h3>Missing ({{ keywords.missing|length }})</h3>
       <div class="kw">{% for k in keywords.missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
@@ -368,8 +366,8 @@
       <div class="kw">{% for k in keywords.have %}<span class="tag have">{{ k }}</span>{% endfor %}</div>
       {% endif %}
       {% else %}
-      <p class="u-m0">Not available yet — the keyword list has not been built from the job corpus on
-      this server. Every other tab works without it.</p>
+      <p class="u-m0">Not available yet — the keyword list hasn't been built from the job corpus
+            on this server. Every other tab works without it.</p>
       {% endif %}
     </div>
 
@@ -379,8 +377,8 @@
       <div class="section-head"><h2>Original File</h2>
         <span class="count-pill">{{ files|length }} stored</span></div>
       {% if files %}
-      <p class="sub">The file exactly as you uploaded it. The Review tab shows the text an ATS
-      extracts from it — if the two disagree, the extraction is what recruiters search.</p>
+      <p class="sub">The file as you uploaded it. The Review tab shows what an ATS extracts &mdash;
+            if the two disagree, the extraction is what recruiters search.</p>
       {# An <iframe>, not an <object>: the CSP sets `object-src 'none'`, so every <object> fell
          through to its fallback text. The file response overrides frame-ancestors and
          X-Frame-Options for the same reason -- see brain_resume_file. #}
@@ -402,8 +400,8 @@
       {% endif %}
       {% endfor %}
       {% else %}
-      <p class="u-m0">No original file stored for this résumé. Uploads kept only the extracted text
-      before now — upload it again on the left and the file itself is kept too.</p>
+      <p class="u-m0">No original file stored. Uploads used to keep only the extracted text &mdash;
+            upload again on the left and the file is kept too.</p>
       {% endif %}
     </div>
 

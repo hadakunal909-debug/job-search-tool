@@ -7,7 +7,7 @@
 __pycache__/
 *.pyc
 
-# local data (lives in Supabase once you go cloud; keep local runs out of git)
+# local data (the real corpus lives in the remote database; keep local runs out of git)
 jobs.csv
 user_jobs.json
 log.txt
@@ -16,14 +16,27 @@ user_jobs_local.json
 jds.json
 boards.json
 jdmeta.json
+# ...AND EVERY COPY OF IT. Moving jdmeta.json aside is the documented way to force a re-derive
+# (_persist_derived prefers a cached entry over recomputing, so a stale file writes the old
+# parser's answers straight back) -- and the renamed copy is not matched by the line above. One
+# `git add -A` on 2026-09-03 committed a 71 MB jdmeta.json.pre-cleanjd for exactly that reason.
+jdmeta.json.*
+# THE RESUME IS THE OWNER'S, and resume.txt is tracked deliberately (the scraper scores against
+# it) -- but a hand-made backup of it is not, and .gitignore had no rule that would catch one.
+# The same `git add -A` also committed resume.txt.local-may30-backup.
+resume.txt.*
+!resume.txt
 # Written by the running web app to share the feed rows across Passenger workers. Runtime
 # state, regenerated on demand — must never be deployed or committed.
 jobs_snapshot.json.gz
 jobs_snapshot.json.gz.*.tmp
+# The fingerprint sidecar next to it -- same corpus, 120 bytes of it.
+jobs_snapshot.json.gz.fp.json
 # Per-user match scores, same idea as the snapshot above: a rebuildable cache, not state.
 score_cache/
+row_cache/
 # The stored job descriptions, carried between CI runs via actions/cache so the heavy scoring
-# pass doesn't re-download ~128 MB from Supabase every day. Rebuilt from the DB on a cache miss.
+# pass doesn't re-download ~128 MB from the database every day. Rebuilt from the DB on a miss.
 jd_cache.json.gz
 jd_cache.json.gz.tmp
 brain_kb_local.json
@@ -83,7 +96,9 @@ jd_backfill_*.log
 # Generated Postgres DSN (contains the database password).
 .pg_dsn
 
-# Supabase session-pooler URL (contains the database password).
+# .supabase_dsn is kept listed on purpose even though the file was deleted on 2026-09-01: an old
+# script or a stale checkout must not be able to reintroduce a credential file. (.pg_dsn, which
+# holds the live password, is already listed below.)
 .supabase_dsn
 
 # Shared secret for the scraper -> /api/db transport.

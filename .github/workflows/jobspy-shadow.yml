@@ -14,8 +14,13 @@ name: JobSpy shadow report
 # scrape down with it.
 #
 # WRITES NOTHING. scripts/jobspy_shadow.py has no --apply flag at all, deliberately — it reads
-# the corpus, queries the aggregators, prints, and exits. The Supabase key is passed because the
-# script needs to read the corpus to compute overlap; nothing in its code path writes.
+# the corpus, queries the aggregators, prints, and exits. Database credentials are passed because
+# the script needs to READ the corpus to compute overlap; nothing in its code path writes.
+#
+# It passed SUPABASE_URL / SUPABASE_KEY until 2026-09-01. That transport was removed, so those
+# secrets are now inert — a run with them would have found no backend, fallen to an empty local
+# CSV, and reported an overlap computed against nothing. Same pair as scrape.yml now, including
+# DB_REQUIRE, so a run whose secrets never arrived dies instead of printing a confident zero.
 #
 # This does NOT enable the feature. JOBSPY_SITES is read by scraper/__init__.py to build
 # JOBSPY_BOARDS; it is set here only as a CLI argument to the shadow script, and scrape.yml does
@@ -65,8 +70,9 @@ jobs:
       - name: Shadow report
         timeout-minutes: 10
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
+          DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}
+          DB_REQUIRE: proxy
           # Inputs go through the environment rather than being interpolated into the script
           # body. A ${{ }} expansion is substituted as raw text BEFORE the shell parses the
           # line, so a phrase containing a quote or a semicolon would run as a command; read as

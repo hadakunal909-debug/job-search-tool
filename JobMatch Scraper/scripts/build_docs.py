@@ -69,6 +69,9 @@ MODULES = (
     ("resume_keywords.py",      "Which curated skills a track is expected to show."),
     ("resume_bullets.py",       "Per-bullet review: verb, scope, result."),
     ("jdrender.py",             "Job description -> HTML. Kept out of web.py and core.py."),
+    ("norms.py",                "What the corpus knows about a ROLE and an EMPLOYER. Kept out "
+                                "of core.py for the reason jdrender is: the scraper and the "
+                                "digest import core and need neither."),
     ("pgrest.py",               "Transport 1: PostgREST verbs reimplemented over psycopg."),
     ("dbproxy.py",              "Transport 2: HMAC-signed HTTPS, how off-host code reaches the DB."),
     ("analytics.py",            "Event capture. Reads EV_OFF once, at import."),
@@ -109,6 +112,102 @@ INDEX = (
         "{static/app.js::cardHTML}. ~16 function-for-function twins exist between these two "
         "files; this pair and the filter above are the ones that bite.",
         "python scripts/test_card_meta.py"),
+    Row("R", "A job's keywords name the wrong things, or the match % looks wrong",
+        "{core.py::analyze_jd} -- the résumé-independent half: which terms a posting names, "
+        "and what each is worth",
+        "ATS keywords are matched by {core.py::_term_in}, NOT by `kw in jd_low`. That substring "
+        "test invented a hard skill in 89% of stored postings -- `visio` from \"division\" "
+        "(59.5% of the corpus), `excel` from \"excellence\" (37.1%), `sla` from \"translate\", "
+        "`git` from \"digital\", `safe` from \"safety\", `lean` from \"cleaning\" -- and each "
+        "took x2.5 for being a hard skill and x1.6 again for the requirements section, so the "
+        "phantoms outweighed the real terms INSIDE core_terms and moved the percentage itself. "
+        "Do not \"simplify\" it to a word boundary on both sides: that also throws away "
+        "`stakeholders` (7,165 postings), `budgets`/`budgeting`, `kpis` and `roadmaps`, which "
+        "the substring rule was legitimately earning. phrase_exact=True is the other half -- on "
+        "the JD side a phrase must be NAMED, because the scattered-stem rule that is right for "
+        "a résumé fired `business requirements` on 63.8% of postings. An unseen term takes "
+        "{core.py::_UNSEEN_W}, never max(idf): 54.4% of idf.json's entries sit at the maximum, "
+        "so the median of its value list IS the maximum and the correction the old comment "
+        "described never took effect. Measure with scripts/measure_jd_reading.py, which keeps "
+        "its own copy of the old rule so the number stays meaningful.",
+        "python test_scoring.py"),
+    Row("R", "A job page opens with a navigation bar instead of the job",
+        "{core.py::clean_jd} -- the one door every reader of a stored description goes through",
+        "fetch_jd's last resort stores the WHOLE PAGE when no selector finds a description, and "
+        "the gate on it was one-sided: MIN_PAGE_JD_CHARS is a FLOOR, so a shell that was too "
+        "LONG was invisible. 1,052 of careers.google.com's 1,099 cached rows were its "
+        "navigation stored as a job description, 790 truncated at fetch_jd's own 8,000 limit -- "
+        "over 400 chars means never \"thin\", never thin means never retried, and "
+        "{scraper/score_jobs.py::_accept_jd}'s 3x gain rule then made it permanent. Cleaning "
+        "happens ON READ, so all 41,434 rows are fixed by a deploy with no migration; the "
+        "stored column stays the archive. THE CUT IS DECIDED BY THE FURNITURE AND ONLY TIDIED "
+        "BY A HEADING: jumping to the next heading was the first rule and it discarded posting "
+        "text on 37% of the rows it touched, because Amazon's nav is one marker at character 98 "
+        "and its next heading is 1,238 characters later. A verdict of not-a-posting reads as "
+        "THIN everywhere downstream, which is the answer the pipeline already carries.",
+        "python test_clean_jd.py"),
+    Row("R", "An experience filter shows jobs that plainly do not match it",
+        "{core.py::experience_years} -- the years a posting asks for, read from its description",
+        "None means \"states no requirement\", which the filter reads as KEEP -- so measured on "
+        "the live corpus \"0 to 2 Years\" showed 18,331 of 40,294 rows and 14,672 of them (80%) "
+        "were in only because nothing could be read, including 4,405 titled Senior, Staff, "
+        "Principal, Director or VP. {core.py::title_experience_tier} fills that gap and nothing "
+        "else: a STATED floor always wins, because it is the employer's own number. Its "
+        "vocabulary is calibrated at 95.7% over the 12,576 postings that carry both signals, "
+        "and \"manager\" (87.1%), the roman numerals (71-81%) and bare \"associate\" (64.1%) "
+        "are deliberately excluded. The row carries three fields -- exp_years (stated), exp_eff "
+        "(what the filters compare) and exp_src -- and ALL THREE FILTERS compare exp_eff: "
+        "{web.py::_filter_rows}, {static/app.js::matches} and {core.py::prefs_match}. "
+        "exp_max_years is a STORED COLUMN, so a parser change reaches the feed only after a "
+        "re-derive; the digest computes it live and will disagree until then.",
+        "python test_experience_years.py"),
+    Row("R", "A description reads as one run-on wall, or carries page furniture",
+        "{core.py::_soup_text} -- the one place HTML becomes a stored description",
+        "block tags become NEWLINES and <li> becomes a bullet, because {jdrender.py::jd_nodes} "
+        "is a newline-driven parser and was only guessing since this function had deleted the "
+        "signal it needs. A newline in the jd column needs no migration -- 9.4% of stored rows "
+        "already carry one (the jobspy path stores markdown). Source-formatting whitespace is "
+        "collapsed FIRST, so only real block boundaries survive. {core.py::fetch_jd} is the "
+        "only step in score_jobs.detail_jd's chain that can SUCCEED AT READING THE WRONG THING, "
+        "so it prefers a content region via {core.py::_main_region} before falling back to the "
+        "whole document. html.unescape stays BEFORE the parse: Greenhouse's content field is "
+        "HTML-escaped HTML.",
+        "python scripts/test_html_to_text.py"),
+    Row("Y", "A keyword panel offers something absurd as a skill to add",
+        "{core.py::display_terms} -- one filter, three surfaces",
+        "it lives in core because web imports resume_brain and not the reverse, which is why "
+        "/job used to filter and /tailor and /brain/tailor did not -- and the unfiltered list "
+        "was what brain_tailor.html posted back into apply_feedback, so noise became permanent "
+        "trigger keys in users.brain_kb. {core.py::ELIGIBILITY_TERMS} is separate from "
+        "PERK_TERMS on purpose: a clearance is a condition you meet or do not, not a skill you "
+        "can choose to add. Short names that ARE real skills (c#, go, bi, qa, ux) survive the "
+        "three-character floor because ATS_KEYWORDS exempts them.",
+        "python test_scoring.py"),
+    Row("Y", "A role norm or an employer's tool list looks wrong, stale or empty",
+        "{norms.py::load_norms} -- reads norms.json, built by scripts/build_norms.py",
+        "the statistic is a PREVALENCE DIFFERENCE, share_in_family minus share_in_corpus, and "
+        "not a lift ratio: lift saturates, so its top terms for `ops` were \"salaried\", "
+        "\"stairs\", \"mile\" and \"shifts\". Three corrections the measurement forced and "
+        "none of which is optional -- an EMPLOYER CAP, because one employer held 328 of the "
+        "1,822 `systems` postings and without it their template became \"what the role asks "
+        "for\"; the company layer restricted to {core.py::ATS_TOOLS}, because over every term "
+        "the honest answer is a boilerplate paragraph (Northrop \"employees 94%\", Amazon "
+        "\"onboarding 97%\"); and the company baseline being that employer's OWN role mix, "
+        "not the corpus, or it just re-describes who they hire. Three of twenty-four families "
+        "are under {norms.py::MIN_FAMILY} and correctly get no norm at all. _meta.role_keys is "
+        "asserted equal to core.ROLE_KEYS, so editing ROLE_FAMILIES FAILS THE TEST rather than "
+        "silently re-weighting every share a reader is shown.",
+        "python scripts/test_norms.py"),
+    Row("B", "\"What are my chances\" -- why the app refuses to give a probability",
+        "{norms.py::coverage} -- a count of the role's usual ask that the résumé holds",
+        "there is nothing to calibrate a probability against: the applications table holds 233 "
+        "rows, every one still `applied`, with no interview, offer or rejection recorded and "
+        "match_score NULL on all of them, and ev_usage's apply-rate-by-score curve runs "
+        "41.8% -> 30.2% -> 27.5% -> 6.9% -> 0%, i.e. INVERTED. Until that curve rights itself "
+        "and outcomes are actually recorded, \"you hold 7 of the 12 things this role usually "
+        "asks for, and here are the five you do not\" is the strongest claim the data supports "
+        "-- and it is more actionable than a number.",
+        "python scripts/test_norms.py"),
     Row("B", "Search misses an obvious hit, or ranks badly",
         "{web.py::searchHit} and {web.py::searchRank} -- typo-tolerant matching",
         "mirrored in app.js function-for-function. {web.py::_search_tol} sets how much typo "
@@ -130,6 +229,22 @@ INDEX = (
         "therefore truthy tuple -- {web.py::_invalidate_jobs} clears it outright because the "
         "extension's JD patch moves neither half of that fingerprint. {web.py::warm} builds the "
         "shared half off the user's path; {web.py::_cache_max} charges it one entry.",
+        "python scripts/test_speed_caches.py"),
+    Row("Y", "A COLD worker is slow -- so the site is slow right after a restart or a deploy",
+        "{web.py::_corpus_fp} -- the corpus KEY without the corpus, which is what the whole "
+        "cold path now turns on",
+        "everything a cold render needs is already on disk in row_cache/ and score_cache/, and "
+        "both are keyed on the fingerprint -- so the worker needed the KEY, not the 46 MB the "
+        "key is stored inside. {web.py::_snapshot_fp} reads it from a 120-byte sidecar stamped "
+        "with the snapshot's own (mtime_ns, size); if that cannot be trusted, db's fingerprint "
+        "probe answers; only then does {web.py::get_jobs} run. Three things must hold. "
+        "{web.py::_snapshot_touch} and {web.py::_snapshot_write} must RESTAMP the sidecar, or "
+        "os.utime silently kills the fast path it feeds. {web.py::_derived_signature} must hash "
+        "file CONTENT, not mtime, or a deploy -- which rewrites every file and changes no byte "
+        "-- invalidates all 40k rows and charges the first visitor ~7 s. And "
+        "{web.py::_apply_dedupe_plan} must stay equal to {web.py::_dedupe_rows} over the whole "
+        "corpus INCLUDING order, because ranked_rows sorts on score right after and that sort "
+        "is stable. Measured 2026-09-01 at 40,294 rows: 2,143 ms -> ~500 ms.",
         "python scripts/test_speed_caches.py"),
     Row("R", "The first feed load after a scrape takes many seconds",
         "{web.py::_warm_user_scores} -- every account's score file, written off the request path",
@@ -159,8 +274,25 @@ INDEX = (
         "dict. {core.py::admits_on_description} is the rescue path for a job whose TITLE matched "
         "nothing.",
         "python scripts/dump_titles.py"),
+    Row("R", "A US job never reaches the feed although its board is scraped fine",
+        "{scraper/__init__.py::is_us_location} -- the US-only gate, applied at INGEST",
+        "so the CORPUS is the wrong place to measure it: it only holds rows that already "
+        "passed (6 rejects in 42,180). Measure on RAW board output. Unknown or blank is KEPT; "
+        "the function only drops what it can place abroad. Two twins must move with it -- "
+        "{scraper/__init__.py::title_says_non_us} and adopt_everify_boards._names_non_us, both "
+        "of which read {scraper/__init__.py::_NON_US_RE} directly, and the second is a VETO "
+        "that must answer False for anything it cannot place rather than True. The veto runs "
+        "BEFORE the state check, so a foreign city name beats a US state code unless the name "
+        "is in {scraper/__init__.py::_US_NAMESAKE_CITIES}: no positional rule can separate "
+        "\"Lima, OH\" from \"Indore, IN\", because in all ten real collisions the two-letter "
+        "code FOLLOWS the name and IN, OR and DE are India, Odisha and Germany colliding with "
+        "Indiana, Oregon and Delaware. STILL UNFIXED and the biggest known loss: a bare city "
+        "(\"San Francisco\", \"Austin\", \"Bay Area\") is not placed at all, which cost one "
+        "75-board batch ~70 on-target US roles across 10 real US employers. That needs a "
+        "gazetteer; do not guess it.",
+        "python test_us_location.py"),
     Row("Y", "A whole board suddenly returns nothing",
-        "the adapter for its ATS in {scraper/__init__.py::SCRAPERS} -- 29 entries, ats_type -> "
+        "the adapter for its ATS in {scraper/__init__.py::SCRAPERS} -- 40 entries, ats_type -> "
         "function",
         "{scraper/__init__.py::SOURCES} holds the built-in boards; app-added ones come from the "
         "boards table and are merged on top. {scraper/__init__.py::save_board_health} keeps an "
@@ -240,7 +372,7 @@ INDEX = (
         ".env is read relative to the CURRENT WORKING DIRECTORY, so a script that does not cd "
         "here first silently writes somewhere else and exits 0. {db.py::_check_backend_intent} "
         "plus DB_REQUIRE is how you make that fail loudly. {db.py::backend_name} tells you which "
-        "backend you have; using_supabase() answers True for three of them and will not.",
+        "backend you have; has_remote_db() answers True for three of them and will not.",
         "python scripts/probe_db_proxy.py"),
     Row("Y", "A query works locally but 403s from GitHub Actions",
         "{dbproxy.py::ALLOWED_TABLES} -- the proxy's allowlist",
@@ -1008,6 +1140,8 @@ CACHE = (
     ("jdmeta.json", "precomputed per-job term maps",
      "built on the Actions runner, whose filesystem is discarded"),
     ("jobs_snapshot.json.gz", "cross-worker feed cache", ""),
+    ("jobs_snapshot.json.gz.fp.json", "its fingerprint, without the 46 MB around it",
+     "stamped with the snapshot's stat; a mismatch is refused, never repaired"),
     ("last_new_jobs.json", "one run's new rows", "the digest's only input"),
     ("jobs.csv", "the no-credentials fallback store", ""),
 )

@@ -3,13 +3,12 @@
 
 {% block admin %}
 <div class="banner">
-  <b>This cannot be undone.</b> Deleting an account also removes every row belonging to it.
-  There is no backup other than Supabase's point-in-time recovery.
+  <b>This cannot be undone.</b> Deleting an account deletes every row it owns. No backup.
 </div>
 
 <section class="panel">
   <h2>What Will Be Deleted</h2>
-  <p class="muted">Counted live, just now. This is not an estimate.</p>
+  <p class="muted">Counted live, not estimated.</p>
   <table class="adm-t">
     <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
     <tbody>
@@ -21,8 +20,8 @@
   </table>
   {# Destructive action — the list of what's lost stays. #}
   <p class="muted u-mt-150">
-    Their liked/hidden/applied jobs, logged applications and résumés go with the account. The
-    jobs themselves stay.
+    Their saved, hidden and applied jobs, applications and résumés go too.
+    The postings stay.
   </p>
 </section>
 

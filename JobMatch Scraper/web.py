@@ -26,7 +26,9 @@ import functools
 import collections
 import math
 
+import io
 import gzip as _gzip
+import pickle as _pickle
 
 # Anchor to this file's directory BEFORE core/db import, because both read files by relative
 # path (.env, idf.json, sponsor_counts.json, sponsors.txt, everify.txt).
@@ -60,6 +62,7 @@ import db
 import dbproxy
 import auth
 import jdrender
+import norms
 import resume_score
 import resume_keywords
 import resume_bullets
@@ -129,17 +132,39 @@ def _fallback_secret():
     return hashlib.sha256(seed.encode()).hexdigest()
 
 
-# Session signing key: explicit APP_SECRET, else the (secret, server-side) Supabase key,
-# else a machine-local dev fallback. Stable across restarts so logins persist.
+# Session signing key: explicit APP_SECRET, else a machine-local dev fallback.
+#
+# THE MIDDLE OPTION IS GONE, and it was load-bearing. Until 2026-09-01 this read
+# `db._creds()[1]` — the Supabase key — and hashed it into the session secret, so an install
+# that never set APP_SECRET was signing every session cookie and extension token with a
+# credential from a database this project left on 2026-08-15. Deleting the Supabase transport
+# deletes that source, which means:
+#
+#   * the signing key CHANGES on the deploy that lands this, so every existing session cookie
+#     and extension token is invalidated once. Unavoidable: the old key was derived from a
+#     secret being removed. Setting APP_SECRET to sha256(old_supabase_key) preserves them if
+#     that matters more than a clean break.
+#   * _fallback_secret() must never be what a real deployment lands on. It is sha256 over
+#     hostname + this file's path — deterministic, so logins survive a restart, and therefore
+#     GUESSABLE by anyone who knows both. Its own docstring calls it a dev key.
+#
+# So: with a remote database configured, refuse to start rather than sign with it. Same rule
+# db._check_backend_intent applies one module over — a half-configured process fails in one
+# second instead of doing something that looks like working.
 _explicit_secret = os.environ.get("APP_SECRET")
-_supabase_key = db._creds()[1]
-app.secret_key = (_explicit_secret
-                  or (hashlib.sha256(_supabase_key.encode()).hexdigest() if _supabase_key
-                      else _fallback_secret()))
-if not _explicit_secret and not _supabase_key:
+app.secret_key = _explicit_secret or _fallback_secret()
+if not _explicit_secret:
     import sys as _sys
-    print("WARNING: no APP_SECRET or SUPABASE_KEY set. Using a machine-local dev signing "
-          "key. Set APP_SECRET in production so sessions/tokens can't be forged.", file=_sys.stderr)
+    if db.has_remote_db():
+        raise RuntimeError(
+            "APP_SECRET is not set, and this process has a real database (%s). The session key "
+            "would fall back to a machine-local value derived from the hostname and this file's "
+            "path, which is guessable — sessions and extension tokens could be forged. Set "
+            "APP_SECRET to a long random string (cPanel: Setup Python App -> Environment "
+            "variables). Note it invalidates existing logins once; set it to the sha256 of the "
+            "old SUPABASE_KEY instead if you need them to survive." % db.backend_name())
+    print("WARNING: no APP_SECRET set. Using a machine-local dev signing key, which is fine "
+          "offline and unsafe anywhere real.", file=_sys.stderr)
 
 app.permanent_session_lifetime = 60 * 60 * 24 * 30      # 30-day login
 # Cookie hardening: HttpOnly (no JS access) + SameSite=Lax (blocks cross-site POST CSRF on
@@ -343,7 +368,8 @@ _rows_cache = collections.OrderedDict()    # (username, resume_md5) -> [row w/o 
 # Measured over all 21,960 rows: 1,941 ms -> 184 ms, with zero rows differing in any field and
 # an identical row order. The dedupe and the sort stay per-user; see ranked_rows for why the
 # dedupe in particular cannot move in here.
-_base_rows_cache = {"fp": None, "rows": None}
+_base_rows_cache = {"fp": None, "sig": None, "rows": None, "by_url": None, "fresh": 0,
+                    "persisted": None, "meta": None}
 # BOUNDED BY MEMORY, NOT BY COUNT, and the difference is the whole point.
 #
 # This was `_SCORE_CACHE_MAX = 64` for the life of the app, and it was safe when the corpus
@@ -377,8 +403,17 @@ def _cache_max():
     Uses the rows already in memory, so it costs a len() and needs no configuration. Falls
     back to a pessimistic 20k when the corpus has not been read yet — guessing LOW there
     would raise the cap on a worker that is about to load a large corpus, which is backwards.
+
+    THE BUILT ROWS COUNT TOO, and since 2026-09-01 they are usually the only ones there. A
+    worker serving from row_cache/ never loads the corpus at all, so _jobs_cache stays empty and
+    the 20k fallback fired against a 40,294-row corpus: per-entry halved, the cap doubled, and
+    a shared-host worker sized itself at ~340 MB where the budget said 170. They are also the
+    better estimate of the two -- a per-user entry is a shallow copy of THESE dicts, not of the
+    source rows.
     """
-    rows = len(_jobs_cache.get("rows") or ()) or 20000
+    rows = (len(_jobs_cache.get("rows") or ())
+            or len(_base_rows_cache.get("rows") or ())
+            or 20000)
     per_entry_mb = max(1.0, rows * _ROW_CACHE_BYTES_PER_ROW / 1048576.0)
     # _base_rows_cache holds one corpus-worth of the same dicts and is charged one entry here.
     # It is shared by every user, so it is not free and it is not per-user: leaving it out of
@@ -722,6 +757,12 @@ _JOBS_TTL = 3600             # jobs change only on the daily scrape; force-refre
 # every read and write is best-effort, so if the path isn't writable the app simply degrades to
 # the old per-worker behaviour rather than failing a request.
 _JOBS_SNAPSHOT = os.environ.get("JOBS_SNAPSHOT") or os.path.join(_APP_DIR, "jobs_snapshot.json.gz")
+# THE FINGERPRINT, WITHOUT THE 46 MB IT IS STORED INSIDE. The snapshot carries its own
+# fingerprint, so reading it meant parsing the whole corpus -- 616 ms measured at 40,294
+# rows -- even on a request that wanted only the KEY, in order to look up built rows it
+# already had on disk. This sidecar holds the same tuple in ~120 bytes, stamped with the
+# snapshot's own (mtime_ns, size) so a stale or hand-copied one can never be believed.
+_JOBS_SNAPSHOT_FP = _JOBS_SNAPSHOT + ".fp.json"
 
 # How old a snapshot may be and still be worth REVALIDATING (not serving blind — see get_jobs).
 # Correctness comes from the fingerprint, so this is not a freshness limit; it is a bound on the
@@ -740,6 +781,82 @@ _JOBS_SNAPSHOT = os.environ.get("JOBS_SNAPSHOT") or os.path.join(_APP_DIR, "jobs
 _SNAPSHOT_MAX_AGE = int(os.environ.get("JOBS_SNAPSHOT_MAX_AGE") or 24 * 3600)
 
 
+def _snapshot_fp_write(fingerprint):
+    """Stamp the sidecar with the snapshot's fingerprint and the snapshot's own stat.
+
+    Best-effort in every direction: a read-only deploy simply never gets the fast path back.
+    """
+    try:
+        st = os.stat(_JOBS_SNAPSHOT)
+        tmp = "%s.%d.tmp" % (_JOBS_SNAPSHOT_FP, os.getpid())
+        with io.open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"fingerprint": list(fingerprint or ()),
+                       "st": [st.st_mtime_ns, st.st_size]}, fh)
+        os.replace(tmp, _JOBS_SNAPSHOT_FP)
+    except Exception:
+        pass
+
+
+def _snapshot_fp(max_age):
+    """The snapshot's fingerprint WITHOUT parsing the snapshot, or None if it cannot be trusted.
+
+    THE STAMP IS THE WHOLE SAFETY ARGUMENT. A fingerprint keys the shared row file, so believing
+    a wrong one serves another corpus's cards for the life of the worker. The sidecar therefore
+    records the (st_mtime_ns, st_size) of the snapshot it was written from, and anything that
+    rewrites or re-times the snapshot -- _snapshot_write, _snapshot_touch's os.utime -- restamps
+    it. A mismatch is not repaired here; it just returns None, and the caller pays the full read
+    it would have paid anyway.
+
+    max_age mirrors get_jobs' own gate exactly, so this answers only in the window where
+    get_jobs would have served those same rows without a probe. Outside it, None -> the caller
+    falls back to get_jobs and its fingerprint revalidation runs unchanged.
+    """
+    try:
+        st = os.stat(_JOBS_SNAPSHOT)
+        if time.time() - st.st_mtime > max_age:
+            return None
+        with io.open(_JOBS_SNAPSHOT_FP, encoding="utf-8") as fh:
+            blob = json.load(fh)
+        if list(blob.get("st") or ()) != [st.st_mtime_ns, st.st_size]:
+            return None
+        fp = tuple(blob.get("fingerprint") or ())
+        return fp if fp and fp[0] is not None else None
+    except Exception:
+        return None
+
+
+def _corpus_fp():
+    """The corpus fingerprint, without loading the corpus when that can be avoided.
+
+    Everything keyed on the corpus -- the stored scores, the stored rows -- needs the KEY before
+    it needs the rows, and on a cold worker whose caches are on disk it never needs the rows at
+    all. get_jobs stays the fallback and its semantics are unchanged; this only skips ahead when
+    the sidecar can answer inside get_jobs' own TTL window.
+    """
+    if _jobs_cache["rows"] is not None and time.time() - _jobs_cache["at"] <= _JOBS_TTL:
+        return _jobs_cache.get("fp")
+    fp = _snapshot_fp(_JOBS_TTL)
+    if fp is not None:
+        return fp
+    # THE DATABASE ALREADY KNOWS, and asking it is the cheapest answer that is always available.
+    # jobs_fingerprint() is a HEAD plus a one-row select -- the same probe get_jobs uses to
+    # revalidate -- so it costs a round trip against the 616 ms parse it replaces. This is the
+    # branch that covers the two cases the sidecar cannot: right after a deploy, which rewrites
+    # the snapshot's mtime and so invalidates the stamp, and on a quiet site where nothing has
+    # touched the snapshot for over an hour. Both are exactly when a cold worker appears.
+    #
+    # "Don't know" is (None, "") and must NOT be keyed on -- see _base_rows. Falling through to
+    # get_jobs from here is the old behaviour, unchanged.
+    try:
+        probe = db.jobs_fingerprint()
+    except Exception:
+        probe = None
+    if probe and probe[0] is not None:
+        return tuple(probe)
+    get_jobs()
+    return _jobs_cache.get("fp")
+
+
 def _snapshot_read(max_age):
     """(rows, fingerprint) from the shared snapshot if it exists and is younger than max_age
     seconds, else (None, None)."""
@@ -749,14 +866,35 @@ def _snapshot_read(max_age):
         with _gzip.open(_JOBS_SNAPSHOT, "rt", encoding="utf-8") as fh:
             blob = json.load(fh)
         rows = blob.get("rows") or None
-        return rows, tuple(blob.get("fingerprint") or ())
+        fp = tuple(blob.get("fingerprint") or ())
+        # Self-healing: we have just paid the parse, so leave the sidecar behind for the next
+        # worker. That matters after a deploy, which ships a snapshot and no sidecar.
+        if rows and fp and fp[0] is not None and _snapshot_fp(max_age) != fp:
+            _snapshot_fp_write(fp)
+        return rows, fp
     except Exception:
         return None, None            # missing, half-written, or corrupt -> just re-read
 
 
 def _snapshot_write(rows, fingerprint):
     """Replace the shared snapshot atomically. Written to a pid-suffixed temp file and renamed,
-    because two workers can refresh at once and a reader must never see a partial file."""
+    because two workers can refresh at once and a reader must never see a partial file.
+
+    AN EMPTY CORPUS IS NEVER WORTH PERSISTING, and this guard is here because it happened.
+    The caller is `rows = db.load_jobs(include_jd=False) or []`, so a read that fails softly --
+    a transient network blip, a permissions change, or simply no backend configured -- hands
+    over []. Without the guard that becomes a 95-byte file with fingerprint [null, ""] written
+    over a multi-megabyte good one, for EVERY worker, since the snapshot is the cross-worker
+    cache. It self-heals on the next request (an empty read is falsy, so get_jobs falls through
+    to the database) but only after every worker has paid a full corpus read, and in the window
+    between the two a feed can render with nothing in it.
+
+    Measured locally on 2026-09-01: a script run with no backend configured blanked a 4.4 MB
+    snapshot to 95 bytes. Refusing to write is strictly better -- the old file stays valid and
+    the fingerprint check decides whether to trust it.
+    """
+    if not rows:
+        return
     try:
         tmp = "%s.%d.tmp" % (_JOBS_SNAPSHOT, os.getpid())
         # compresslevel=6, matching _compress. The default is 9, and at ~25k rows this file is
@@ -765,6 +903,7 @@ def _snapshot_write(rows, fingerprint):
         with _gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as fh:
             json.dump({"rows": rows, "fingerprint": list(fingerprint or ())}, fh)
         os.replace(tmp, _JOBS_SNAPSHOT)
+        _snapshot_fp_write(fingerprint)    # the sidecar is only ever as new as the file it names
     except Exception:
         pass                          # an optimization only; never fail a request over it
 
@@ -782,6 +921,10 @@ def _snapshot_touch(rows, fingerprint):
         os.utime(_JOBS_SNAPSHOT, None)
     except OSError:
         _snapshot_write(rows, fingerprint)     # missing or unwritable: do the real write
+        return
+    # os.utime MOVED st_mtime_ns, which is half of what the sidecar is stamped with, so without
+    # this line every revalidation would invalidate the fast path it exists to feed.
+    _snapshot_fp_write(fingerprint)
 
 
 def get_jobs(force=False):
@@ -875,7 +1018,13 @@ def _invalidate_jobs():
     # JD patch moves neither. So a re-read would come back with an fp EQUAL to the stored one and
     # the built rows would keep serving jd_admit / score_pending / sponsor badges derived from
     # descriptions that have since changed. Clearing it here covers every caller at once.
-    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None
+    #
+    # The FILE has to go with it, and more urgently: an in-memory cache dies with the worker, so
+    # it self-heals within minutes. A file keyed on an unchanged fingerprint would outlive the
+    # patch indefinitely.
+    _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None, meta=None)
+    _rows_clear()
     try:
         os.remove(_JOBS_SNAPSHOT)
     except Exception:
@@ -1039,9 +1188,12 @@ def user_scores(username, resume):
     if key in _score_cache:
         _score_cache.move_to_end(key)        # a read is a use: keeps active users out of the evictor
         return _score_cache[key]
-    # get_jobs() FIRST: it is what refreshes the fingerprint the stored file is keyed on.
-    rows = get_jobs()
-    fp = _jobs_cache.get("fp")
+    # THE FINGERPRINT, NOT THE CORPUS. This is the key the stored file is written under, and
+    # on a hit the rows are never touched -- so asking get_jobs for them first meant a 46 MB
+    # parse to discover it was not needed. _corpus_fp falls back to get_jobs whenever it cannot
+    # answer cheaply, so the fingerprint is exactly as authoritative as it was.
+    rows = None
+    fp = _corpus_fp()
     stored = _scores_read(username, rmd5, fp)
     if stored is not None:
         if len(_score_cache) >= _cache_max():
@@ -1049,6 +1201,9 @@ def user_scores(username, resume):
         _score_cache[key] = stored
         return stored
     resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
+    # A real scoring pass is the one thing here that does need the corpus.
+    rows = get_jobs()
+    fp = _jobs_cache.get("fp") or fp
     scores = {}
     for j in rows:
         u = j.get("url")
@@ -1100,6 +1255,17 @@ _INTERN_RE = re.compile(
 
 
 _JD_VERDICT_KEY = "jd_host_verdicts"
+# BOTH verdicts mean the same thing to a reader: no description is coming from this employer.
+# "blocked" is a bot wall or a refusal (Tesla behind Akamai, 403 on every request); "unknown" is
+# a 200 with a real page and no extractable text (a client-rendered apply app -- Actalent serves
+# one 448 KB shell for every job). Only "blocked" counted here until 2026-09-02, which left the
+# larger of the two classes still promising "it'll get a match score once the full job
+# description is fetched".
+#
+# Deliberately NOT "gone" (that closes the row, so it leaves the feed entirely), not "transient"
+# (a 5xx says nothing about the posting), and not "mixed" -- close_dead_jds uses that for probes
+# that disagreed, which is an admission of ignorance rather than a finding.
+_JD_UNREADABLE = frozenset(("blocked", "unknown"))
 _jd_blocked_hosts = None
 
 
@@ -1117,7 +1283,7 @@ def _host_jd_blocked(url):
         try:
             hosts = (db.get_kv(_JD_VERDICT_KEY) or {}).get("hosts") or {}
             _jd_blocked_hosts = {h for h, v in hosts.items()
-                                 if (v or {}).get("verdict") == "blocked"}
+                                 if (v or {}).get("verdict") in _JD_UNREADABLE}
         except Exception:
             _jd_blocked_hosts = set()
     if not _jd_blocked_hosts:
@@ -1265,6 +1431,14 @@ def _build_row(j, score):
     c = j.get("company") or ""
     u = j.get("url")
     exp_y, exp_lvl, sv, sreason = _jd_fields(j)
+    # THE TITLE ONLY EVER FILLS A GAP. A stated floor is the employer's own number and wins even
+    # when the title disagrees with it; core.title_experience_tier is consulted for the 26% of
+    # postings that state nothing at all. See its comment for the calibration and the 4.3% this
+    # gets wrong.
+    exp_eff, exp_src = exp_y, ("stated" if exp_y is not None else "")
+    if exp_eff is None:
+        exp_eff = core.title_experience_tier(j.get("title") or "")
+        exp_src = "inferred" if exp_eff is not None else ""
     strength, scount = core.sponsor_strength(c, sponsor_counts())
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
     # sponsorship must not carry sponsorship badges (see core.visa_tags_for_posting).
@@ -1396,7 +1570,18 @@ def _build_row(j, score):
             # stem_opt IS the E-Verify fact; the everify.txt path stays as a fallback for
             # anyone who built that file (it has never existed in this repo).
             "everify": ("stem_opt" in vtags) or core.is_everify(c, _EVERIFY_INDEX),
+            # THREE FIELDS, BECAUSE "WE COULD NOT TELL" IS NOT "THE EMPLOYER SAID NOTHING
+            # MATTERS". exp_years is what the DESCRIPTION states and is unchanged. exp_eff is
+            # what the filters compare -- the stated floor, or the one the TITLE implies when
+            # there is no stated one. exp_src says which, so the card can label it and the
+            # reader can tell a verified entry-level posting from an unread one.
+            #
+            # THE INFERENCE IS COMPUTED HERE, SERVER-SIDE, AND THE CLIENT ONLY READS exp_eff.
+            # Deliberate: core.title_experience_tier is a calibrated vocabulary and a second
+            # copy of it in app.js would be a fourth member of the filter triplet. This way the
+            # twins still compare one number, exactly as they did before.
             "exp_years": exp_y if exp_y is not None else "", "exp_level": exp_lvl,
+            "exp_eff": exp_eff if exp_eff is not None else "", "exp_src": exp_src,
             "strength": strength, "strength_n": scount,
             "intern": bool(_INTERN_RE.search(j.get("title") or "")),
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
@@ -1467,7 +1652,237 @@ def _dedupe_rows(rows):
     return out
 
 
-def _base_rows():
+def _dedupe_plan(base):
+    """_dedupe_rows' decisions, as INDICES into base, computed once per corpus.
+
+    Which rows are duplicates of each other is a fact about the postings -- title, company,
+    location, host -- and none of it depends on the reader. Only the CHOICE among a group does,
+    because _dupe_rank tie-breaks on the score. So the grouping moves here and the choice stays
+    per-user, which is the same split _base_rows already makes for the rows themselves.
+
+    Worth doing because the ratio is extreme. Measured at 40,294 rows: _dupe_key over the corpus
+    is 225 ms of the 280 ms dedupe, and it decides ONE HUNDRED AND SIXTY-FIVE rows -- 0.41% --
+    are contested. Every user was paying a whole-corpus normalisation pass to arbitrate 68 tiny
+    groups.
+
+    The plan is a list in _dedupe_rows' exact output order, where an int passes a row through
+    and a list is a group to arbitrate. Reproducing the ORDER matters and is not decoration:
+    ranked_rows sorts on score immediately afterwards and Python's sort is stable, so two rows
+    on the same score keep whatever order this produced. scripts/test_speed_caches.py asserts
+    the two paths agree row for row over the whole corpus.
+    """
+    groups, plan = {}, []
+    for i, r in enumerate(base):
+        k = _dupe_key(r)
+        if k is None:                        # missing title or company: never merge blindly
+            plan.append(i)
+        else:
+            groups.setdefault(k, []).append(i)
+    for grp in groups.values():
+        if len(grp) > 1 and len({_host(base[i]) for i in grp}) > 1:
+            plan.append(grp)
+        else:
+            plan.extend(grp)
+    return plan
+
+
+def _apply_dedupe_plan(base, plan, score_of):
+    """The scored, deduplicated corpus -- byte-for-byte what _dedupe_rows(overlay(base)) gives.
+
+    One pass, one dict copy per surviving row, and _dupe_rank still runs on SCORED copies so a
+    group's survivor is chosen exactly as before.
+    """
+    out = []
+    for e in plan:
+        if type(e) is int:
+            r = base[e]
+            out.append(dict(r, score=score_of(r)))
+        else:
+            out.append(min((dict(base[i], score=score_of(base[i])) for i in e), key=_dupe_rank))
+    return out
+
+
+def _role_counts_for(rows):
+    """{role_key: how many postings} over raw job dicts -- a corpus fact, so built with them."""
+    counts = {k: 0 for k in core.ROLE_KEYS}
+    for j in rows:
+        for k in core.roles_for_title(j.get("title")):
+            counts[k] += 1
+    return counts
+
+
+# The built rows on disk, shared by every worker. Same shape and the same reasoning as
+# score_cache/ above, and it exists because the reasoning I first wrote here was WRONG.
+#
+# I measured the build at ~4,100 ms on production and decided not to persist it, on the grounds
+# that "/warm builds the shared half off the user's path". That premise does not hold: /warm is
+# one HTTP request, so it reaches ONE worker. Passenger runs several with no session affinity
+# and recycles them freely, so cold workers keep appearing and each one's first request paid the
+# full build. Measured live 2026-09-01: after warming four workers in parallel, three of the
+# next eight probes still landed on a cold one at 6.3-7.0 s. A cron cannot win that race; a
+# shared file removes it, which is exactly why the score files DO work.
+#
+# THE KEY IS NOT JUST THE FINGERPRINT, and that was the real objection worth keeping. A built
+# row embeds logo_url, sponsor_counts and visa_tags output plus two KV maps, and
+# jobs_fingerprint() covers NONE of them -- so a key of the fingerprint alone would serve rows
+# built against last week's logos for ever. An in-memory cache gets away with that because it
+# dies with the worker. A file does not, so every input is in the key.
+_ROWS_DIR = os.environ.get("ROWS_DIR") or os.path.join(_APP_DIR, "row_cache")
+_ROWS_MAX_FILES = 3               # one live corpus, one mid-scrape, one spare
+_ROWS_SUFFIX = ".rows.gz"
+# PICKLE, NOT JSON, and the reason is measured rather than stylistic. At 40,294 rows the same
+# blob costs, read back cold:
+#
+#     json + gzip6   587 ms   2.5 MB      <- what this used to be
+#     pickle + gzip1 343 ms   3.3 MB      <- what it is
+#     pickle, raw    227 ms  18.3 MB
+#
+# gzip1 over raw because this ships to a shared host where disk is the contended resource and
+# 15 MB x _ROWS_MAX_FILES is a poor trade for 116 ms. On top of the 244 ms, pickle round-trips
+# a tuple as a tuple: `visa` used to come back a list and needed a fix-up pass over every row
+# (another ~200 ms) to put it back. The file is written by this app, into a directory this app
+# owns, and is read with the same trust as jobs_snapshot.json.gz next to it -- but the format
+# is not self-describing, so the NAME changed with it. An old .json.gz is now simply never
+# read, and _rows_write sweeps it away on the next write.
+_ROWS_PROTOCOL = 4                # 3.4+, and stable; not pickle.HIGHEST_PROTOCOL, which moves
+
+
+_derived_sig_memo = {"stat": None, "sig": None}
+
+
+def _derived_signature():
+    """A short hash of the FILES a built row depends on that the corpus fingerprint does not cover.
+
+    DETERMINISTIC BY CONSTRUCTION, and that is the whole requirement. Every worker must compute
+    the same value from the same filesystem, because this keys a file they all share.
+
+    IT USED TO INCLUDE THE TWO KV MAPS -- repost_clusters and jd_host_verdicts -- and that was a
+    live defect, not a nicety. Both arrive through db.get_kv, i.e. over the network, and both
+    _repost_count and _host_jd_blocked swallow a failed read and fall back to an empty map. So a
+    worker whose read failed computed a DIFFERENT signature, missed the shared file, paid the
+    full 7,101 ms build, and -- having had no prior to build from -- wrote the file back with its
+    own signature. The next worker missed in the other direction. Measured on production
+    2026-09-01: renders pairing 63 ms and 8,401 ms at the same second, two workers ping-ponging
+    a file neither could ever read. A cache key must never depend on a call that can fail
+    silently.
+
+    What covers those two maps instead: both are written by the scrape (scraper.reposts and
+    scripts/close_dead_jds.py), and a scrape moves jobs_fingerprint(), which IS in the key. The
+    residue is a script run on its own without a scrape -- run /reload after one, which clears
+    the file outright.
+
+    IT IS THE CONTENT, NOT THE MTIME, and that distinction is worth 6.3 seconds on the one
+    render nobody can avoid. A deploy is a zip extract: it rewrites static/ and the data files
+    wholesale, so every mtime moves even where not one byte changed. Keyed on mtime, the first
+    visitor after every upload paid a full 6.9 s rebuild of 40,294 rows that were still exactly
+    correct. Keyed on content, an identical file is identical and the stored rows survive the
+    deploy -- which is precisely the "slow the first time I open it" case, since a deploy is
+    when a cold worker is guaranteed.
+
+    Hashing 6.2 MB is 11.9 ms, so it is memoised on the cheap (mtime_ns, size) triple: the hash
+    is recomputed only when a stat actually moves, i.e. once per worker per deploy. The memo is
+    a fast path, never an authority -- a stat that matches is only ever used to REUSE a hash of
+    those same bytes.
+    """
+    paths = (_LOGO_MANIFEST_PATH,
+             os.path.join(_APP_DIR, "sponsor_counts.json"),
+             os.path.join(_APP_DIR, "visa_tags.json"))
+    stat_key = []
+    for p in paths:
+        try:
+            st = os.stat(p)
+            stat_key.append((os.path.basename(p), st.st_mtime_ns, st.st_size))
+        except Exception:
+            stat_key.append((os.path.basename(p), -1, -1))
+    stat_key = tuple(stat_key)
+    memo = _derived_sig_memo
+    if memo["stat"] == stat_key and memo["sig"]:
+        return memo["sig"]
+    h = hashlib.sha256()
+    for p in paths:
+        try:
+            with io.open(p, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+        except Exception:
+            h.update(("absent:" + os.path.basename(p)).encode("utf-8"))
+        h.update(b"|")                       # so two files cannot run into one another
+    sig = h.hexdigest()[:32]
+    memo.update(stat=stat_key, sig=sig)
+    return sig
+
+
+def _rows_path(fp):
+    h = hashlib.sha256(("rows|%s" % (list(fp),)).encode("utf-8")).hexdigest()[:32]
+    return os.path.join(_ROWS_DIR, "%s%s" % (h, _ROWS_SUFFIX))
+
+
+def _rows_stale(name):
+    """Is this directory entry a row file (current format or the JSON one it replaced)?"""
+    return name.endswith(_ROWS_SUFFIX) or name.endswith(".json.gz")
+
+
+def _rows_read(fp, sig):
+    """(rows, meta) for this (corpus, derived-inputs) pair, or None.
+
+    None on anything unexpected -- absent, unreadable, or built against different inputs. Every
+    failure path rebuilds, which is slow but never wrong.
+    """
+    if not fp or fp[0] is None or not sig:
+        return None
+    try:
+        with _gzip.open(_rows_path(fp), "rb") as fh:
+            blob = _pickle.load(fh)
+        if not isinstance(blob, dict):
+            return None
+        if list(blob.get("fingerprint") or ()) != list(fp) or blob.get("sig") != sig:
+            return None
+        rows = blob.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return None
+        meta = blob.get("meta")
+        if not isinstance(meta, dict) or "plan" not in meta:
+            return None                     # written by an older build: rebuild rather than guess
+        return rows, meta
+    except Exception:
+        return None
+
+
+def _rows_write(fp, sig, rows, meta):
+    """Persist the built rows and their corpus-derived metadata. Atomic, bounded, never fatal."""
+    if not fp or fp[0] is None or not sig or not rows:
+        return
+    try:
+        os.makedirs(_ROWS_DIR, exist_ok=True)
+        try:                                # bound the directory, oldest mtime first
+            kept = sorted((os.path.getmtime(os.path.join(_ROWS_DIR, n)),
+                           os.path.join(_ROWS_DIR, n))
+                          for n in os.listdir(_ROWS_DIR) if _rows_stale(n))
+            for _, path in kept[:max(0, len(kept) - _ROWS_MAX_FILES + 1)]:
+                os.remove(path)
+        except Exception:
+            pass
+        target = _rows_path(fp)
+        tmp = "%s.%d.tmp" % (target, os.getpid())
+        with _gzip.open(tmp, "wb", compresslevel=1) as fh:
+            _pickle.dump({"fingerprint": list(fp), "sig": sig, "rows": rows, "meta": meta},
+                         fh, protocol=_ROWS_PROTOCOL)
+        os.replace(tmp, target)             # two workers may write at once; readers see one file
+    except Exception:
+        pass                                # an optimization only
+
+
+def _rows_clear():
+    """Drop every stored row file. /reload and any corpus write mean rebuild."""
+    try:
+        for n in os.listdir(_ROWS_DIR):
+            if _rows_stale(n):
+                os.remove(os.path.join(_ROWS_DIR, n))
+    except Exception:
+        pass
+
+
+def _base_rows(persist=False):
     """Every posting as a card row with score 0, built ONCE per corpus and shared by everyone.
 
     This is the impersonal 40/41ths of _build_row: sponsor tier, visa routes, logo, dates, pay
@@ -1475,11 +1890,21 @@ def _base_rows():
     cache -- and rebuilding it per user is what made a cold feed render take 1,941 ms.
 
     Keyed on the jobs fingerprint rather than a TTL, so a scrape replaces it and nothing else
-    does. get_jobs() FIRST: it is the call that refreshes the fingerprint, exactly as
-    user_scores documents for the stored score file.
+    does.
+
+    THE CORPUS IS LOADED ONLY IF SOMETHING HAS TO BE BUILT, and that is where most of a cold
+    render went. This used to open with get_jobs(), on the reasoning that it is what refreshes
+    the fingerprint -- true, but the fingerprint is the only part needed, and _corpus_fp answers
+    it from a 120-byte sidecar under exactly the conditions get_jobs would have answered it from
+    the snapshot. A cold worker whose row file matches now serves the feed without parsing
+    46 MB of JSON it would immediately have thrown away: 616 ms measured at 40,294 rows.
+
+    persist=True (i.e. /warm) still loads it, deliberately. That path is off every user's
+    request, and having the source rows in hand is what lets the NEXT fingerprint move be
+    incremental instead of a full rebuild.
     """
-    rows = get_jobs()
-    fp = _jobs_cache.get("fp")
+    rows = get_jobs() if persist else None
+    fp = _jobs_cache.get("fp") if persist else _corpus_fp()
     # "DON'T KNOW" IS NOT A KEY, and the test for it is fp[0], not fp. db.jobs_fingerprint()
     # answers (None, "") when the probe is unavailable -- which is a non-empty tuple and so
     # perfectly TRUTHY. Keyed on that, two different unknown corpora compare equal and the
@@ -1487,12 +1912,115 @@ def _base_rows():
     # revalidation with `fp[0] is not None` twenty lines up; this is the same test.
     key = tuple(fp) if fp and fp[0] is not None else None
     hit = _base_rows_cache
-    if key is not None and hit["rows"] is not None and hit["fp"] == key:
+    # NOTE there is exactly ONE early return here, and it tests the derived signature as well as
+    # the fingerprint. An earlier version of this function had a second, fingerprint-only check
+    # sitting above it: that one fired first, so the signature was never consulted and /warm's
+    # persist step was never reached. Both bugs were silent -- new logos would not have moved a
+    # single card, and the shared file would have frozen at whichever corpus wrote it last.
+    # Three layers, cheapest first, the same shape user_scores uses: this process's dict above,
+    # then the shared FILE, then the build. Only the last one is slow, and it is the one the
+    # other two exist to stop repeating -- across workers, which is the part a per-process
+    # cache cannot do however often it is warmed.
+    sig = _derived_signature() if key is not None else ""
+    if key is not None and hit["rows"] is not None and hit["fp"] == key and hit.get("sig") == sig:
+        # THE MEMORY HIT MUST NOT SHORT-CIRCUIT THE WRITE, and it did until this line existed.
+        # A request builds incrementally and deliberately does not persist; /warm then arrives,
+        # hits this branch, and returned in 0 ms having written nothing -- so the file stayed at
+        # whatever fingerprint it was last written with, and every cold worker rebuilt from
+        # scratch for ever. The whole file mechanism silently stopped updating, with /warm
+        # reporting success the entire time.
+        if persist and hit.get("persisted") != (key, sig):
+            _rows_write(key, sig, hit["rows"], hit.get("meta") or {})
+            hit["persisted"] = (key, sig)
         return hit["rows"]
-    built = [_build_row(j, 0) for j in rows if j.get("url")]
-    # One entry, replaced not appended: a different fingerprint means the old corpus is gone.
+
+    got = _rows_read(key, sig) if key is not None else None
+    built, meta = got if got is not None else (None, None)
+    if built is None:
+        if rows is None:                         # only now is the corpus actually needed
+            rows = get_jobs()
+            fp = _jobs_cache.get("fp")
+            # get_jobs may have found the corpus moved under the sidecar's answer. Re-key on
+            # what it actually read, or the file would be written under the wrong fingerprint.
+            key2 = tuple(fp) if fp and fp[0] is not None else None
+            if key2 != key:
+                key, sig = key2, (_derived_signature() if key2 is not None else "")
+                got = _rows_read(key, sig) if key is not None else None
+                if got is not None:
+                    built, meta = got
+        # INCREMENTAL, and this is what makes a moving corpus survivable. jobs_fingerprint() is
+        # (row count, max first_seen), so ONE new posting invalidates the built rows for 40,000
+        # unchanged ones -- measured on production as a 4 s rebuild plus a 2.5 MB write, on the
+        # request path, every time the extension imported a board.
+        #
+        # REUSE IS BY VALUE, NOT BY URL, and that distinction is the whole correctness argument.
+        # A scrape does not only ADD rows: it updates is_active when a posting closes, fills
+        # posted_verified, moves last_seen. Reusing a built row because its url is familiar would
+        # serve a closed job as open and an unverified date as confirmed. Comparing the source
+        # dict is a C-level equality over ~24 keys that short-circuits on the first difference,
+        # so it costs a few tens of ms over the corpus against ~4,000 ms to rebuild it.
+        #
+        # A changed derived signature (logos, sponsor counts, visa tags, the two KV maps) still
+        # forces a FULL rebuild, because those move every row at once and no per-row comparison
+        # would notice.
+        prior = hit.get("by_url") if (hit.get("by_url") and hit.get("sig") == sig) else None
+        built, by_url, fresh = [], {}, 0
+        for j in rows:
+            u = j.get("url")
+            if not u:
+                continue
+            was = prior.get(u) if prior else None
+            if was is not None and was[0] == j:
+                r = was[1]                       # unchanged source -> the built row still holds
+            else:
+                r = _build_row(j, 0)
+                fresh += 1
+            built.append(r)
+            by_url[u] = (j, r)
+        # The corpus-derived half of what the per-user paths would otherwise recompute: which
+        # rows are duplicates of which, and how many postings each role family has. Both are
+        # facts about the postings, both were being paid per user, and both travel in the file.
+        meta = {"plan": _dedupe_plan(built), "roles": _role_counts_for(rows)}
+        # WRITING IS 94% OF THIS PATH, so a request does not do it. Measured at 40,294 rows:
+        # the incremental build is 138 ms (28 ms to value-compare every row, 105 ms to rebuild
+        # the url map, 4 ms to build the ~120 genuinely new ones) while _rows_write is 2,153 ms
+        # of gzip. Persisting on every fingerprint move put all of that in front of whoever
+        # happened to load the feed next.
+        #
+        # /warm passes persist=True, so the file is refreshed off the user's path every five
+        # minutes. The cost of that choice, stated plainly: a worker that starts cold in the
+        # window between a corpus move and the next tick finds no matching file and pays a full
+        # build. Bounded at five minutes, against 2.1 s charged to a real request every time.
+        # PERSIST WHEN THE BUILD WAS FULL, not only when /warm asks. The cost/benefit differs
+        # sharply between the two shapes and treating them the same was a regression:
+        #
+        #   * No prior to build from (a fresh worker, or a changed derived signature) means a
+        #     FULL build -- 7,101 ms measured on production. Writing costs ~2,100 ms once and
+        #     saves every other cold worker the whole 7 s. Skipping it meant each worker rebuilt
+        #     independently until the next five-minute tick, which is worse the more workers
+        #     there are. Measured as a user-visible LCP of 7.36 s right after a restart.
+        #   * A prior exists, so this is the incremental path at ~55 ms. Writing would put
+        #     2,100 ms of gzip in front of a request to save nobody very much; /warm has it
+        #     within five minutes.
+        if persist or prior is None:
+            _rows_write(key, sig, built, meta)
+            _base_rows_cache["persisted"] = (key, sig)
+        _base_rows_cache["by_url"] = by_url
+        _base_rows_cache["fresh"] = fresh        # what /warm reports, so the win is observable
+    else:
+        # Came from the file. PAIR THE SOURCE ROWS UP ONLY IF WE ALREADY HAVE THEM -- otherwise
+        # this would reintroduce the 46 MB read the file hit just avoided, to buy an incremental
+        # rebuild on some later fingerprint move that /warm reaches first anyway. persist=True
+        # always has them, so /warm keeps the incremental path alive off the request path.
+        if rows is not None:
+            _base_rows_cache["by_url"] = {r["url"]: (j, r) for j, r in
+                                          zip((x for x in rows if x.get("url")), built)}
+        else:
+            _base_rows_cache["by_url"] = None
+        _base_rows_cache["fresh"] = 0
     # An unusable key stores None, so the next call rebuilds rather than trusting this one.
-    _base_rows_cache["fp"], _base_rows_cache["rows"] = key, built
+    _base_rows_cache["fp"], _base_rows_cache["sig"], _base_rows_cache["rows"] = key, sig, built
+    _base_rows_cache["meta"] = meta
     return built
 
 
@@ -1505,19 +2033,25 @@ def ranked_rows(username, resume):
     if key in _rows_cache:
         _rows_cache.move_to_end(key)         # a read is a use: see _score_cache
         return _rows_cache[key]
+    base = _base_rows()
     scores = user_scores(username, resume)
     # Shallow copies over the shared base, so a per-user row can carry a per-user score without
     # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
     # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
     # missing number rather than a false one.
-    rows = [dict(r, score=(0 if r["score_pending"] else scores.get(r["url"], 0)))
-            for r in _base_rows()]
+    def score_of(r):
+        return 0 if r["score_pending"] else scores.get(r["url"], 0)
     # DEDUPE AFTER THE OVERLAY, NOT BEFORE, and this is the one ordering constraint here.
     # _dupe_rank tie-breaks on r["score"] -- it prefers the copy that HAS a score -- so folding
-    # duplicates in _base_rows() while every score is still 0 would pick a different survivor
-    # than this user's scores imply, and the two feeds would disagree about which host's copy of
-    # a Greenhouse posting they are showing.
-    rows = _dedupe_rows(rows)
+    # duplicates while every score is still 0 would pick a different survivor than this user's
+    # scores imply, and the two feeds would disagree about which host's copy of a Greenhouse
+    # posting they are showing. _apply_dedupe_plan preserves that: the GROUPING is corpus work
+    # and moved into _base_rows, the CHOICE still runs here against scored copies.
+    plan = (_base_rows_cache.get("meta") or {}).get("plan")
+    if plan is not None and len(plan) <= len(base):
+        rows = _apply_dedupe_plan(base, plan, score_of)
+    else:                                    # no plan (older file, or an unusable key): as before
+        rows = _dedupe_rows([dict(r, score=score_of(r)) for r in base])
     rows.sort(key=lambda r: r["score"], reverse=True)
     # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
     # against — so it gets the same derived limit rather than a second constant to keep in step.
@@ -1988,17 +2522,20 @@ def _filter_rows(rows, statuses, p):
             continue
         if track != "any" and r.get("track") != track:
             continue
-        # "Only postings that state their years." OFF by default; see core.DEFAULT_PREFS for the
-        # measurement behind it (72% of results under a years filter state no number at all).
-        if exp_stated and (r["exp_years"] == "" or r["exp_years"] is None):
+        # "Only postings whose experience we could read." OFF by default. It now drops the rows
+        # with NO answer at all (exp_src ""), so a posting whose seniority was read off its title
+        # survives it — before, this quietly removed every "JD pending" card and its tooltip did
+        # not say so.
+        if exp_stated and not r.get("exp_src"):
             continue
         if exp != "any":
-            # exp_years is the HIGHEST year count the JD states (core.experience_years), so
-            # "8+ years required; 2 years of SQL preferred" is an 8-year job and "<=2 yrs"
-            # drops it. A JD that states no number is ALWAYS kept — many genuine entry-level
-            # posts state none, and the card badge marks them so the two populations are
-            # distinguishable. Mirrored in app.js matches() and core.prefs_match().
-            ev = r["exp_years"]
+            # exp_eff, NOT exp_years: the highest year count the DESCRIPTION states, or the floor
+            # the TITLE implies when it states none. "8+ years required; 2 years of SQL
+            # preferred" is an 8-year job and "<=2 yrs" drops it. A posting with NEITHER signal
+            # is still always kept — many genuine entry-level posts state no number — and the
+            # card says "years not stated" so the two populations are distinguishable.
+            # Mirrored in app.js matches() and core.prefs_match().
+            ev = r.get("exp_eff")
             if ev != "" and ev is not None:
                 try:
                     yrs = int(ev)
@@ -2112,15 +2649,15 @@ def _error_response(code, title, message, log=None):
 def _handle_404(_e):
     return _error_response(
         404, "Page not found",
-        "That link doesn't lead anywhere. It may have moved, or the address has a typo in it.")
+        "That link doesn't lead anywhere. It may have moved, or the address has a typo.")
 
 
 @app.errorhandler(500)
 def _handle_500(e):
     return _error_response(
         500, "Something broke on our side",
-        "That is our fault, not yours. Nothing you were doing was lost — try again, and if it "
-        "keeps happening the details are in the server log.", log=e)
+        "Our fault, not yours. Nothing was lost — try again. If it keeps happening, "
+        "the details are in the server log.", log=e)
 
 
 # --- company logo helpers (Google favicon by domain, with a letter-avatar fallback;
@@ -2484,7 +3021,7 @@ def login():
         u = (request.form.get("username") or "").strip()
         p = request.form.get("password") or ""
         if u and _too_many_logins(u):              # short-circuit BEFORE the expensive hash
-            flash("Too many sign-in attempts. Please wait a few minutes and try again.")
+            flash("Too many sign-in attempts. Wait a few minutes.")
             return render_template("login.html", bad_login=True, username=u)
         rec = None
         db_down = False
@@ -2612,12 +3149,10 @@ def feed():
 
 # Words that carry no signal in a "what does this employer hire for" list: they appear in
 # almost every posting, so ranking by weight surfaces them above the actual tools.
-_SKILL_STOP = frozenset("""
-communication teamwork leadership collaboration interpersonal verbal written organizational
-problem solving detail oriented time management customer service work experience team player
-fast paced self starter multi task english degree bachelor master responsibilities requirements
-qualifications preferred required ability able strong excellent knowledge understanding
-""".split())
+# MOVED TO core.SKILL_STOP so resume_brain can reach it too -- web imports resume_brain and not
+# the other way round, which is why only one of three surfaces used to filter. See
+# core.display_terms. Aliased rather than renamed: _company_profile also reads this name.
+_SKILL_STOP = core.SKILL_STOP
 
 
 def _clean_research_list(items, lo=2, hi=48, cap=14, no_digits=False):
@@ -2922,63 +3457,27 @@ _HL_TERMS = 10
 # "applicable federal", "york", "posted", "state" and "laws" as keywords to add to a résumé. The
 # boilerplate rule below catches most of that class by shape; these are the leftovers that sit in
 # ordinary prose.
-_KEYWORD_STOP = frozenset("""
-posted posting position role job company employer candidate applicant applicants
-state states city york county country federal laws law legal notice notices least
-website site email phone contact address information available provide provided
-please based employment technology technologies tools services service solutions
-business teams environment opportunity support various including needs help
-""".split())
+# MOVED TO core.KEYWORD_STOP, alongside SKILL_STOP and the new ELIGIBILITY_TERMS.
+_KEYWORD_STOP = core.KEYWORD_STOP
 
 
 def _useful_terms(terms, company, jd, cap):
-    """Keywords worth showing a reader, weight order preserved.
+    """core.display_terms for a STORED description: split the legal notice off, then filter.
 
-    Four things get dropped, in cheapness order:
-      * the generic-skill stoplist _company_profile already uses, plus the ones above
-      * the employer's own name. It is genuinely one of the highest-weighted terms in any
-        description and says nothing: "Capital One" was marked six times in one posting.
-      * anything under three characters, or a multi-word term made only of stopwords
-      * TERMS THAT ONLY EVER APPEAR IN LEGAL BOILERPLATE. analyze_jd reads the whole
-        description, EEO notice included, so the raw list contains phrases from it. Subtracting
-        the boilerplate text is a property of this posting rather than a blacklist to maintain,
-        and it is what stops the page advising somebody to put "regarding criminal" on a résumé.
+    The rules live in core so /tailor and /brain/tailor share them -- see the note there. This
+    wrapper is only the jdrender step, which core is not allowed to import.
     """
-    # PERKS AND BENEFITS. text_halves below separates the LEGAL notice, which is a different
-    # thing: an EEO paragraph is boilerplate by shape, while a benefits section is ordinary prose
-    # sitting in the body, so the "in the notice and nowhere else" rule never touched it. That is
-    # why /job offered "retirement", "dental", "tuition" and "flexible time" as keywords worth
-    # adding to a résumé — the most visible way this panel can lose a reader's trust, because
-    # the error is obvious to them while the rest of it is not verifiable at a glance.
-    stop = set(_SKILL_STOP) | _KEYWORD_STOP | core.PERK_TERMS
-    stop.update(w for w in re.split(r"\W+", (company or "").lower()) if len(w) > 2)
-    # The company as the CORPUS spells it, not only as this row does. A row mislabelled "Amat"
-    # subtracted nothing from a description that opens "Applied Materials is a global leader",
-    # which is how the employer's own name came to be marked red under a legend reading "Red is
-    # one worth adding". canonical_url now folds the Workday casing that caused that split
-    # (see the note there), and this covers the rows already stored under the alias.
-    try:
-        stop.update(w for w in core.norm_company(company or "").split() if len(w) > 2)
-    except Exception:
-        pass
     try:
         body, boiler = jdrender.text_halves(jd or "")
     except Exception:
+        # NOT SILENT ANY MORE. This fell back to an empty `boiler` on every description carrying
+        # a metadata header, because text_halves raised TypeError on the kv node kind -- and an
+        # empty boiler makes the "in the notice and nowhere else" rule drop nothing at all.
+        # Degrading is still right, since a keyword panel must not 500 a job page, but a filter
+        # that quietly stops filtering is exactly what hid this.
+        app.logger.exception("text_halves failed; legal-boilerplate filter degraded")
         body, boiler = (jd or "").lower(), ""
-    out = []
-    for t in terms:
-        low = (t or "").strip().lower()
-        if len(low) < 3 or low in stop:
-            continue
-        if all(w in stop or len(w) < 3 for w in low.split()):
-            continue
-        # In the notice but not in the rest of the posting: it is a legal phrase, not a skill.
-        if boiler and low in boiler and low not in body:
-            continue
-        out.append(t)
-        if len(out) >= cap:
-            break
-    return out
+    return core.display_terms(terms, company, cap, body=body, boiler=boiler)
 
 
 def _company_brief(display, open_rows):
@@ -2991,8 +3490,14 @@ def _company_brief(display, open_rows):
     with 500 openings would put tens of milliseconds of pure CPU on every job view for a chip row
     that /company already shows one click away.
 
-    So: no jd_terms aggregation and no per-year history bars. Everything here is either already
-    on the rows we were handed or a dict lookup.
+    So: no jd_terms aggregation. Everything here is either already on the rows we were handed
+    or a dict lookup.
+
+    THE HISTORY BARS ARE HERE NOW (2026-09-03), and the clause that used to say "and no
+    per-year history bars" is gone with them, because it bundled two costs that are not alike.
+    The jd_terms aggregation walks the entire corpus. core.sponsor_history is ONE lookup into a
+    165 KB dict that sponsor_years() has already cached lazily, plus a zero-fill across at most
+    six years -- so the job page was linking out to /company for a chart it could draw itself.
     """
     try:
         research = _research_for(display) or {}
@@ -3000,7 +3505,18 @@ def _company_brief(display, open_rows):
         research = {}
     strength, scount = core.sponsor_strength(display, sponsor_counts())
     states = collections.Counter(r["loc_state"] for r in open_rows if r.get("loc_state"))
+    # Per-year approvals, scaled here rather than in the template so a bar is one number. The
+    # same four lines as _company_profile, reading the same core.sponsor_history, so the two
+    # pages cannot draw different charts for one employer.
+    hist = core.sponsor_history(display, sponsor_years())
+    peak = max([n for _y, n in hist] or [0])
+    bars = [{"year": y, "n": n, "pct": (2 + int(96.0 * n / peak)) if (peak and n) else 0}
+            for y, n in hist]
     return {
+        "bars": bars,
+        "hist_total": sum(n for _y, n in hist),
+        "hist_from": hist[0][0] if hist else None,
+        "hist_to": hist[-1][0] if hist else None,
         "research": research,
         "researched": bool(research.get("what_they_do") or research.get("about")
                            or research.get("mission")),
@@ -3028,6 +3544,24 @@ def _and_list(items):
     return "%s and %s" % (", ".join(items[:-1]), items[-1])
 
 
+# The reporting verb, stripped. sponsor_reason is stamped by the scorer in the pipeline's
+# voice -- "JD says no visa sponsorship" -- and the reader wants the fact, not our reading of it
+# (owner's direction 2026-09-03).
+#
+# ONLY "says"/"states" come off, never the posting's own verb: eating that turned "JD requires a
+# security clearance" into "A security clearance", which is shorter and means something else.
+#
+# Twinned with static/app.js::plainReason, deliberately duplicated rather than shared for the
+# same reason _route_of below is: it is three lines, and the alternative is shipping a computed
+# field on every row so the card can render one tooltip.
+_JD_NARRATOR_RE = re.compile(r"^JD\s+(?:says|states)\s+|^JD\s+", re.I)
+
+
+def _plain_reason(s):
+    s = _JD_NARRATOR_RE.sub("", str(s or ""), count=1).strip()
+    return (s[:1].upper() + s[1:]) if s else ""
+
+
 def _route_of(row):
     """The data-route value, server-side. Mirrors the one expression in app.js cardHTML.
 
@@ -3038,6 +3572,67 @@ def _route_of(row):
     if (row.get("sponsor_jd") or "") == "blocked":
         return "blocked"
     return row.get("visa_likely") or "none"
+
+
+def _posting_asks(row, jd):
+    """THE SAME FOUR ROWS ON EVERY JOB PAGE, whatever shape the employer wrote in.
+
+    This is the "standard way of writing a job description" the owner asked for, and the shape
+    it takes is deliberate: the employer's PROSE is never reordered or reworded -- jdrender's
+    rule about that still holds and is right -- but the ANSWER to the six questions a reader
+    actually has is assembled into one block that never changes position or order. You learn
+    where to look once instead of hunting the qualifications section of every posting.
+
+    A LINE THAT CANNOT BE FILLED SAYS SO IN WORDS rather than disappearing. A block whose rows
+    come and go is one you have to read to know what is in it, which defeats the whole point;
+    "not stated in this posting" is a real answer and it is the one the experience filter is
+    acting on, so hiding it is how the filter came to look broken.
+
+    Assembled here rather than in core because it needs BOTH core (the parsers) and jdrender
+    (the sections), and jdrender deliberately imports neither core nor anything else -- see its
+    module docstring. core stays free of presentation; this is presentation.
+    """
+    clean, verdict = core.clean_jd(jd)
+    exp_req, exp_pref = core.experience_floors(clean)
+    edu_req, edu_pref = core.education_floors(clean)
+    # The title tier only ever fills a gap, exactly as in _build_row -- and it is named as an
+    # inference in the copy, because a guess presented as a fact is worse than no answer.
+    inferred = core.title_experience_tier(row.get("title") or "") if exp_req is None else None
+    # MUST-HAVE VERSUS NICE-TO-HAVE, from the sections jdrender now tells apart. Display only:
+    # the match percentage is computed over the whole description exactly as before, so nothing
+    # here moves a score. It answers "which of these do I actually need", which a single flat
+    # keyword list cannot.
+    must, nice = [], []
+    if clean.strip():
+        bucket, seen = None, set()
+        for kind, val in jdrender.jd_nodes(clean):
+            if kind == "h":
+                bucket = jdrender.classify_heading(val)
+            elif bucket in ("req", "pref"):
+                text = " ".join(val) if kind == "ul" else (
+                    val[0] + " " + " ".join(val[1]) if kind == "kv" else val)
+                for term in core.extract_keywords(text, top_n=8, idf=core.load_idf(),
+                                                  extra_skip=core.PLACE_TERMS):
+                    if term in seen:
+                        continue
+                    seen.add(term)
+                    (must if bucket == "req" else nice).append(term)
+    # WHY THERE IS NO ANSWER, which the CARD no longer spends a line on. The card carries a
+    # figure or nothing at all (the owner's call: on a feed where most rows have no figure, a
+    # column of cards explaining what the app does not know is not a feed). That makes THIS the
+    # place the distinction has to survive, for the one posting a reader has chosen to open.
+    if clean.strip() and verdict != "not-a-posting":
+        unread = ""                    # we read it; whatever it says or does not say is its own
+    elif verdict == "not-a-posting":
+        unread = "unreadable"          # a careers-site page, a dead link, a cookie notice
+    else:
+        unread = "unfetched"           # nothing stored for this row yet
+    return {
+        "verdict": verdict, "unread": unread,
+        "exp_req": exp_req, "exp_pref": exp_pref, "exp_inferred": inferred,
+        "edu_req": edu_req, "edu_pref": edu_pref,
+        "must": must[:8], "nice": nice[:8],
+    }
 
 
 @app.route("/job")
@@ -3129,6 +3724,33 @@ def job_page():
     have = _useful_terms(have, company, jd, _SKILL_SHOWN)
     missing = _useful_terms(missing, company, jd, _SKILL_SHOWN)
 
+    asks = _posting_asks(row, jd)
+    # One clean, shared by the block above and the rendered description below, so the two can
+    # never be reading different text about the same posting.
+    jd_clean = core.clean_jd(jd)[0] if asks["verdict"] != "not-a-posting" else ""
+
+    # WHAT THE CORPUS KNOWS THAT THIS POSTING CANNOT SAY. Three questions no single description
+    # answers: what this KIND of job usually asks for, which tools this EMPLOYER leans on beyond
+    # its own role mix, and what is unusual about THIS one. See norms.py.
+    #
+    # All of it is absent until scripts/build_norms.py has run: load_norms() returns {} and every
+    # call below is empty, which is the contract core.load_sponsor_counts already has -- a missing
+    # data file costs the feature, never the page.
+    #
+    # THE FAMILY IS THE FIRST ONE THAT HAS A NORM, not simply roles[0]: a title can belong to
+    # several families and three of the twenty-four are below norms.MIN_FAMILY, so picking blindly
+    # would show nothing for a posting we can in fact describe. roles_for_title returns them in
+    # ROLE_KEYS order, so this is deterministic.
+    _norms = norms.load_norms()
+    fam = next((k for k in (row.get("roles") or []) if k in (_norms.get("fam") or {})), None)
+    role_usual = norms.role_norm(fam, blob=_norms) if fam else []
+    role_n = ((_norms.get("fam") or {}).get(fam) or {}).get("n") if fam else 0
+    # Coverage is the honest answer to "what are my chances" -- a count of the role's usual ask
+    # that the résumé already holds, not a probability. See the note on norms.coverage.
+    role_cover = norms.coverage(fam, resume.lower(), blob=_norms) if (fam and resume) else None
+    co_tools, co_unusual = norms.company_tools(db.block_key(company or ""), blob=_norms)
+    jd_unusual = norms.distinctive(fam, analyzed.get("terms") or [], blob=_norms) if fam else []
+
     vtags = row.get("visa") or ()
     # EMPLOYER-level routes, so the page can say "they have filed for Green Card, but this posting
     # rules it out" — information visa_tags_for_posting destroys at card level with no way to
@@ -3197,12 +3819,27 @@ def job_page():
     resp = app.make_response(render_template(
         "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
         similar=similar, similar_roles=similar_roles,
-        jd_html=jdrender.render_jd(jd, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
-        jd_jumps=jdrender.jump_sections(jd), has_jd=bool(jd.strip()),
-        sec_labels=jdrender.SEC_LABELS,
+        # THE CLEANED TEXT, not the stored column. This is the whole read-time cleaning bargain
+        # paying out: careers.google.com's 1,052 captured navigation bars stop being rendered as
+        # job descriptions the moment this deploys, with no migration and no re-fetch. It also
+        # gives the highlighter its budget back — MAX_HITS_PER_TERM is spent in document order,
+        # so on a junk-prefixed posting all three green marks landed in the nav bar.
+        jd_html=jdrender.render_jd(jd_clean, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
+        jd_jumps=jdrender.jump_sections(jd_clean), has_jd=bool(jd_clean.strip()), asks=asks,
+        # NOTHING STORED and STORED BUT UNREADABLE are different facts and the page must not
+        # tell the reader the wrong one. clean_jd answers "not-a-posting" for an empty string
+        # too -- correctly, it is not a posting -- so the template needs this to tell the two
+        # apart. 2,316 rows have never been fetched at all; saying their employer returned a
+        # navigation bar would be inventing a story about a request nobody made.
+        had_text=bool((jd or "").strip()),
         have=have, missing=missing, has_resume=bool(resume), live_score=live_score,
+        role_label=core.ROLE_LABELS.get(fam) if fam else None, role_usual=role_usual,
+        role_n=role_n, role_cover=role_cover, co_tools=co_tools, co_unusual=co_unusual,
+        jd_unusual=jd_unusual, norms_built=norms.built(_norms).get("built") or "",
+        norms_postings=norms.built(_norms).get("postings") or 0,
         about=brief, researching=research_pending, research_pending=research_pending,
-        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE))
+        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE,
+        sponsor_reason_plain=_plain_reason(row.get("sponsor_reason"))))
     # NO Cache-Control here, and it is a deliberate refusal. `private, max-age=30` makes the
     # prefetched copy serve the click outright — measured in a real browser as transferSize
     # 352 -> 0 and TTFB 0, so the open really is free. But a navigation served from cache never
@@ -3280,7 +3917,7 @@ def _research_eligible(company):
     # read-modify-write of a whole JSON file, so two workers crawling two employers can lose a
     # record. One condition removes the only data-loss path this feature has.
     try:
-        if not db.using_supabase():
+        if not db.has_remote_db():
             return ""
     except Exception:
         return ""
@@ -3464,6 +4101,9 @@ _RELAX = [
                                        "30": "Past 30 days", "90": "Past 90 days"}.get(v, v)),
     ("minsal",       "",    lambda v: "the pay minimum"),
     ("exp",          "any", lambda v: "the experience filter"),
+    # expstated was MISSING, so when the one control that changes the POPULATION rather than
+    # narrowing it was what emptied the feed, this panel blamed the match minimum instead.
+    ("expstated",    "0",   lambda v: "Hide postings with no experience answer"),
     ("intern",       "any", lambda v: "the internship filter"),
     ("remote",       "0",   lambda v: "Remote only"),
     ("hidenospon",   "0",   lambda v: "Hide no-sponsorship"),
@@ -3659,13 +4299,15 @@ def reload_jobs():
     the module would not load. The check itself is the same one it makes.
     """
     if not is_admin():
-        flash("Reloading the shared job cache is admin-only.", "error")
+        flash("Reloading the shared job cache is admin only.", "error")
         return redirect(url_for("feed"))
     get_jobs(force=True)
     _score_cache.clear()
     _scores_clear()          # ...including the stored ones: this also re-pulls _jdmeta
     _rows_cache.clear()
-    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
+    _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None, meta=None)   # the shared half of _rows_cache
+    _rows_clear()                                              # ...and its on-disk copy
     _profile_cache.clear()
     _resume_cache.clear()
     _status_cache.clear()
@@ -3677,6 +4319,7 @@ def reload_jobs():
     if (os.environ.get("JDMETA") or "").strip() in ("1", "true", "yes"):
         _jdmeta.update(core.load_jdmeta())   # re-pull the cron's latest precompute from disk
     core._reset_idf_cache()
+    norms._reset_cache()      # pick up a rebuilt norms.json
     flash("Jobs reloaded.")
     return redirect(url_for("feed"))
 
@@ -4012,7 +4655,7 @@ def admin_required(f):
             flash("That page is admin-only.")
             return redirect(url_for("feed"))
         if request.method not in ("GET", "HEAD", "OPTIONS") and not _check_csrf():
-            flash("That form expired. Reload the page and try again.")
+            flash("That form expired. Reload and try again.")
             return redirect(url_for("admin_users"))
         return f(*a, **k)
     return wrap
@@ -5354,7 +5997,7 @@ def admin_user_revoke_token():
         try:
             db.bump_token_epoch(name)
             _accounts(force=True)
-            flash("Revoked '%s' extension tokens. They can copy a new one from their profile."
+            flash("Revoked '%s' extension tokens. They copy a new one from their profile."
                   % name)
         except Exception as e:
             flash("Couldn't revoke that. Has SUPABASE_ADMIN_MIGRATION.sql been run? (%s)" % e)
@@ -5385,12 +6028,12 @@ def admin_user_delete():
                                total=sum(counts.values()))
 
     if (request.form.get("confirm") or "").strip() != name:
-        flash("Type the username exactly to confirm.")
+        flash("Type the username exactly.")
         return redirect(url_for("admin_user_delete", username=name))
     try:
         removed = db.delete_user(name)
     except Exception as e:
-        flash("Delete failed partway. The account was left in place. (%s)" % e)
+        flash("Delete failed partway. The account is still there. (%s)" % e)
         return redirect(url_for("admin_users"))
     _accounts(force=True)
     _resume_cache.pop(name, None)
@@ -5412,13 +6055,13 @@ def _require_supabase():
     """"" when it's safe to touch data, else the reason to refuse.
 
     Every db.* function silently falls through to a local *_local.json / jobs.csv when
-    using_supabase() is false, and most of those files do not exist on the deployed box. So
+    has_remote_db() is false, and most of those files do not exist on the deployed box. So
     with Supabase briefly unreachable a delete would walk an empty local file, report
     "0 removed", and leave the real rows untouched. Reading that as "there was nothing to
     delete" is precisely how you delete the wrong thing on the retry, so destructive actions
     refuse rather than no-op. The count probe doubles as the liveness check.
     """
-    if not db.using_supabase():
+    if not db.has_remote_db():
         return ("No database is configured. Refusing to run against the local-file "
                 "fallback. Nothing here would touch the real database.")
     if db.table_count(db.TABLE) is None:
@@ -5433,7 +6076,9 @@ def _bust_job_caches():
     _score_cache.clear()
     _scores_clear()
     _rows_cache.clear()
-    _base_rows_cache["fp"] = _base_rows_cache["rows"] = None   # the shared half of _rows_cache
+    _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None, meta=None)   # the shared half of _rows_cache
+    _rows_clear()                                              # ...and its on-disk copy
     _sponsor_cache.clear()
     _admin_stats_cache["data"] = None
     _admin_usage_cache["data"] = None
@@ -5486,7 +6131,7 @@ def admin_jobs_preview():
     company = (request.form.get("company") or "").strip()
     urls = [u for u in re.split(r"[\s,]+", request.form.get("urls") or "") if u.startswith("http")]
     if mode == "urls" and not urls:
-        flash("Give a company name, or paste at least one job URL.")
+        flash("Give a company name, or at least one job URL.")
         return redirect(url_for("admin_data"))
     plan = _build_plan(mode, company, urls[:ADMIN_DELETE_MAX])
     if not plan["n"]:
@@ -5522,13 +6167,13 @@ def admin_jobs_apply():
         return redirect(url_for("admin_data"))
     plan = session.get("del_plan") or {}
     if not plan or time.time() - (plan.get("at") or 0) > _PLAN_TTL:
-        flash("That confirmation expired. Start again so the counts are current.")
+        flash("That confirmation expired. Start again for current counts.")
         return redirect(url_for("admin_data"))
 
     fresh = _build_plan(plan["mode"], plan.get("company", ""), plan.get("urls") or [])
     expected = plan.get("company") if plan["mode"] == "company" else "DELETE %d JOBS" % plan["n"]
     if (request.form.get("confirm") or "").strip() != expected:
-        flash("Type the confirmation exactly as shown.")
+        flash("Type the confirmation exactly.")
         return redirect(url_for("admin_data"))
     # A scrape landing between preview and apply changes what you agreed to. Refuse rather
     # than delete a different set than the one on the screen.
@@ -5590,7 +6235,7 @@ def admin_block():
     if remove:
         db.remove_blocked(remove)
         db.audit_log(actor, "company.unblock", remove, 1)
-        flash("Unblocked. It can be scraped again from the next run.")
+        flash("Unblocked. Scraped again from the next run.")
     else:
         name = (request.form.get("name") or "").strip()
         if not name:
@@ -5618,7 +6263,7 @@ def action():
     simply stops appearing, which is interpretable rather than confusing.
     """
     if not _check_csrf():
-        flash("That form expired. Reload the page and try again.")
+        flash("That form expired. Reload and try again.")
         return redirect(request.referrer or url_for("feed"))
     url = request.form.get("url", "")
     status = (request.form.get("status") or "").strip()   # liked|hidden|applied|'' (clear)
@@ -5798,6 +6443,10 @@ def tailor():
     jd = db.get_job_jd(url) or ""        # feed rows omit JD text; fetch this one on demand
     if resume and jd:
         score, have, missing = core.score_against(resume.lower(), jd_meta({"url": url, "jd": jd}, core.load_idf())["analyzed"])
+        # THE SAME FILTER /job USES. Without it this page offered "collaboration", "teamwork",
+        # "tuition reimbursement" and "consideration regarding" as keywords worth adding.
+        have = _useful_terms(have, job.get("company"), jd, _SKILL_SHOWN)
+        missing = _useful_terms(missing, job.get("company"), jd, _SKILL_SHOWN)
     else:
         score, have, missing = job.get("match_score") or 0, [], []
     return render_template("tailor.html", job=job, score=int(score or 0),
@@ -5995,7 +6644,7 @@ def brain_feedback():
     rb.apply_feedback(user, jd_terms, story_ids, request.form.get("feedback", ""),
                       request.form.get("company", ""))
     _bust_profile(user)
-    flash("Learned. The brain will weight these for similar jobs from now on.")
+    flash("Learned. These now weight similar jobs.")
     return redirect(url_for("brain_home"))
 
 
@@ -6016,7 +6665,7 @@ def brain_rewrite():
               "jd": (request.form.get("jd") or "").strip(),
               "intensity": (request.form.get("intensity") or "").strip()}
     if not key:
-        flash("Add an AI key to use AI rewrite (the field on the tailor page).")
+        flash("Add an AI key on the tailor page to use AI rewrite.")
         return redirect(url_for("brain_home"))
     data = rb.run_tailor(user, jd_text=inputs["jd"], job_url=inputs["job_url"],
                          company_name=inputs["company"], company_url=inputs["company_url"],
@@ -6176,7 +6825,7 @@ def brain_resume_save():
     back = request.form.get("back") or "brain_teach"
     back = back if back in ("brain_teach", "brain_home") else "brain_teach"
     if not (content or "").strip():
-        flash(err or "Nothing to save. Attach a file or paste the text.")
+        flash(err or "Nothing to save. Attach a file or paste text.")
         return redirect(url_for(back))
     name = (request.form.get("name") or "").strip()
     if not name and uploaded:
@@ -6723,7 +7372,7 @@ def board_delete():
         flash("That board is not in the list.", "error")
         return redirect(url_for("add_board"))
     if not is_admin() and (row.get("added_by") or "") != session["user"]:
-        flash("Someone else added that board, so only an admin can remove it.", "error")
+        flash("Someone else added that board. Only an admin can remove it.", "error")
         return redirect(url_for("add_board"))
     try:
         db.delete_board(url)
@@ -7044,7 +7693,7 @@ def _require_csrf():
         return jsonify({"ok": False,
                         "error": "That page has been open a while and its security token expired. "
                                  "Reload and try again."}), 400
-    flash("That page has been open a while and its security token expired. Reload and try again.")
+    flash("That page sat too long and its token expired. Reload and try again.")
     return redirect(request.referrer or url_for("feed"))
 
 
@@ -7262,7 +7911,7 @@ def profile_password():
     user = session["user"]
     hit = _rate_hit(("pwchange", user), _PWCHANGE_TIERS)
     if hit:
-        flash("Too many password attempts. Wait a few minutes and try again.", "error")
+        flash("Too many password attempts. Wait a few minutes.", "error")
         return redirect(url_for("profile"))
     cur = request.form.get("current_password") or ""
     new = request.form.get("new_password") or ""
@@ -7283,7 +7932,7 @@ def profile_password():
         flash(problem, "error")
         return redirect(url_for("profile"))
     if new == cur:
-        flash("That is the password you already have.", "error")
+        flash("That is already your password.", "error")
         return redirect(url_for("profile"))
     try:
         db.set_user_password(user, auth.hash_password(new))
@@ -7308,7 +7957,7 @@ def profile_revoke_token():
     try:
         db.bump_token_epoch(session["user"])
         _accounts(force=True)
-        flash("Old tokens revoked. Paste the new one below into the extension.")
+        flash("Old tokens revoked. Paste the new one into the extension.")
     except Exception:
         flash("Couldn't revoke that token. The database may need "
               "SUPABASE_ADMIN_MIGRATION.sql run first.")
@@ -7401,9 +8050,17 @@ def role_counts():
         return _role_counts_cache["v"]
     counts = {k: 0 for k in core.ROLE_KEYS}
     try:
-        for j in get_jobs():
-            for k in core.roles_for_title(j.get("title")):
-                counts[k] += 1
+        # THE CORPUS IS NOT LOADED FOR THIS. It is a whole-corpus pass over raw titles on the
+        # hottest route in the app, and on a cold worker that meant parsing 46 MB of snapshot
+        # for a handful of integers -- after _base_rows had just served the feed without it.
+        # The counts are built with the rows and travel in the same file; falling back to
+        # get_jobs only when there is no file to read keeps the old behaviour available.
+        _base_rows()
+        stored = (_base_rows_cache.get("meta") or {}).get("roles")
+        if stored:
+            counts = {k: int(stored.get(k, 0)) for k in core.ROLE_KEYS}
+        else:
+            counts = _role_counts_for(get_jobs())
     except Exception:
         pass                                   # a picker without counts still works
     _role_counts_cache.update(at=now, v=counts)
@@ -7618,7 +8275,7 @@ def welcome():
 
     if request.method == "POST":
         if not _check_csrf():
-            flash("That form expired. Please fill it in again.")
+            flash("That form expired. Fill it in again.")
             return redirect(url_for("welcome"))
         f = request.form
         try:
@@ -8634,8 +9291,9 @@ def ext_jds():
     """Extension -> attach job DESCRIPTIONS to jobs it just bulk-imported. Bot-walled
     sites (Tesla) block our servers, so score_jobs can never fetch these JDs — but the
     user's browser can, and without a stored JD the job scores 0% and hides below the
-    match slider. Token-auth; only urls already in the jobs table are accepted; text is
-    length-gated (too short = nav junk) and size-capped. Body: {token, jds: {url: text}}."""
+    match slider. Token-auth; only urls already in the jobs table are accepted; text goes
+    through core.html_to_text + core.clean_jd like every other writer, and is then gated on
+    _MIN_JD_CHARS and on the verdict. Body: {token, jds: {url: text}}."""
     import scraper
     from flask import jsonify
     if request.method == "OPTIONS":
@@ -8654,8 +9312,16 @@ def ext_jds():
         # value is either a bare JD string, or {jd, location, found_date} from the
         # generic detail-fetch (JSON-LD detail pages carry real location + datePosted).
         jd = val if isinstance(val, str) else (val.get("jd") if isinstance(val, dict) else "")
-        if isinstance(jd, str) and len(jd.strip()) > 200:
-            clean[u] = jd.strip()[:12000]
+        # THROUGH THE SAME DOOR AS EVERY OTHER WRITER. This endpoint used to be the one path
+        # into jobs.jd that no cleaner touched: the extension's own strip() is a regex
+        # tag-removal followed by \s+ -> " ", which produces exactly the one-line wall
+        # core._soup_text was rewritten to stop, and its gate was 200 characters -- below both
+        # _MIN_JD_CHARS (400) and score_jobs.MIN_PAGE_JD_CHARS (250). A browser reading a
+        # bot-walled careers site sees the same navigation a server would.
+        if isinstance(jd, str):
+            jd, verdict = core.clean_jd(core.html_to_text(jd))
+            if verdict != "not-a-posting" and len(jd) >= core._MIN_JD_CHARS:
+                clean[u] = jd[:12000]
         if isinstance(val, dict):
             patch = {"url": u}
             loc = (val.get("location") or "").strip()[:300]
@@ -8773,7 +9439,13 @@ def warm():
     _stage("sponsor_counts", sponsor_counts)
     _stage("visa_index", visa_index)
     _stage("logo_manifest", lambda: _logo_manifest().get("ar") or {})
-    _stage("base_rows", _base_rows)
+    _stage("base_rows", lambda: _base_rows(persist=True))
+    # How many rows had to be REBUILT, as opposed to reused from the previous corpus. A scrape
+    # that adds 120 postings should show ~120 here, not 40,000 -- if it ever shows the whole
+    # corpus on an ordinary tick, the incremental path has stopped working and the cron log is
+    # where that becomes visible.
+    if isinstance(out.get("base_rows"), dict):
+        out["base_rows"]["rebuilt"] = _base_rows_cache.get("fresh")
     # THE PER-USER HALF, and it is the one that was actually hurting. Skippable with &users=0.
     if (request.args.get("users") or "1") != "0":
         a = time.time()

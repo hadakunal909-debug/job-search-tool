@@ -106,6 +106,41 @@ ATS_BOARDS = [
 
     # Workday boards need Playwright (pip install playwright && playwright install chromium):
     # ("https://acme.wd1.myworkdayjobs.com/careers", "workday", "Acme"),
+    # --- Added 2026-09-03 (jobright discovery: harvest -> screen -> probe -> adopt). These are
+    # employers the jobright landing pages surfaced that no board of ours already covers; each
+    # was probed and its board read before being written here. Counts are US rows PASSING THE
+    # TITLE FILTER at add time, not the board's total, because that is what the board is worth.
+    # ION is mostly Milan/Trento/Noida/Chisinau -- 30 of its 69 are US. Sony Music's board
+    # reports itself as "Sony Music Global Job Board"; the slug and its postings confirm the
+    # employer, which is why adopt_everify_boards held it for review rather than dropping it. ---
+    ("https://jobs.lever.co/ion",                               "lever", "ION"),                  # ~12
+    ("https://job-boards.greenhouse.io/sonymusicentertainment", "greenhouse",
+     "Sony Music Entertainment"),                                                                 # ~4
+    ("https://job-boards.greenhouse.io/cipherhealth",           "greenhouse", "CipherHealth"),    # ~2
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://jobs.lever.co/3pillarglobal",                   "lever", "3Pillar Global"),      # ~56
+    ("https://jobs.smartrecruiters.com/AdvantageSolutions",   "smartrecruiters", "Advantage Solutions"),      # ~4
+    ("https://jobs.ashbyhq.com/biograph",                     "ashby", "Biograph"),      # ~16
+    ("https://jobs.lever.co/capital",                         "lever", "Capital Group"),      # ~38
+    ("https://job-boards.greenhouse.io/extenteamcareers",     "greenhouse", "Extenteam Careers"),      # ~3
+    ("https://job-boards.greenhouse.io/gassouth",             "greenhouse", "Gas South"),      # ~2
+    ("https://job-boards.greenhouse.io/kalcon",               "greenhouse", "KALCON"),      # ~40
+    ("https://jobs.lever.co/marquetteassociates",             "lever", "Marquette Associates Inc"),      # ~3
+    ("https://jobs.ashbyhq.com/ontic",                        "ashby", "Ontic"),      # ~17
+    ("https://jobs.ashbyhq.com/payabli",                      "ashby", "Payabli"),      # ~11
+    ("https://job-boards.greenhouse.io/pluribusdigital",      "greenhouse", "Pluribus Digital"),      # ~11
+    ("https://jobs.smartrecruiters.com/PrimeCareCoordination", "smartrecruiters", "Prime Care Coordination"),      # ~1
+    ("https://job-boards.greenhouse.io/sixspeed",             "greenhouse", "SixSpeed"),      # ~4
+    ("https://jobs.ashbyhq.com/tapcheck",                     "ashby", "Tapcheck"),      # ~13
+    ("https://job-boards.greenhouse.io/thrive",               "greenhouse", "Thrive"),      # ~3
+    ("https://jobs.smartrecruiters.com/UniversityofNevadaReno", "smartrecruiters", "University of Nevada, Reno"),      # ~1
+    ("https://job-boards.greenhouse.io/valaratomics",         "greenhouse", "Valar Atomics"),      # ~80
+    ("https://jobs.lever.co/waremalcomb",                     "lever", "Ware Malcomb"),      # ~123
+    ("https://jobs.lever.co/zerohomes",                       "lever", "Zero Homes"),      # ~20
 ]
 
 # Amazon's own portal (amazon.jobs): its job search is allowed by robots.txt and has a
@@ -1357,6 +1392,15 @@ WORKDAY_BOARDS = [
     # measured 0 on-target of 24, and a second entry for one employer would be the only
     # duplicate company name in SOURCES.
     ("https://bentley.wd503.myworkdayjobs.com/staff",                              "workday", "Bentley University"), # ~17 -> 2 (cap-exempt)
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    # Greystar is property management: 12 of 1,625 clear the title filter. Same flood shape as
+    # the retail giants that got blocklisted, kept deliberately -- remove it if the ratio bites.
+    ("https://baxter.wd1.myworkdayjobs.com/baxter",           "workday", "Baxter"),      # ~566
+    ("https://greystar.wd1.myworkdayjobs.com/External",       "workday", "Greystar"),      # ~1625
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -1411,6 +1455,12 @@ SF_BOARDS = [
     # reads as coverage in this list. Re-probe before adding either back.
     ("https://careers.capgemini.com",      "successfactors", "Capgemini"),          # ~211 rows
     ("https://careers.ey.com",             "successfactors", "EY"),                 # ~19 rows
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://jobs.kellanova.com",                            "successfactors", "Kellanova"),      # ~106
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -1601,6 +1651,13 @@ JIBE_BOARDS = [
     # WORKDAY_BOARDS). Novant Health is cap-exempt, which is the only reason it is worth 1,677
     # postings: the board is overwhelmingly clinical, so 9 rows clear the title filter. ---
     ("https://jobs.novanthealth.org", "jibe", "Novant Health"),   # ~1,677 -> 9 on-target US (0.5%; cap-exempt)
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://coolsys.jibeapply.com",                         "jibe", "CoolSys"),      # ~334
+    ("https://dish.jibeapply.com",                            "jibe", "EchoStar"),      # ~440
 ]
 
 # Adzuna (the aggregator API) was REMOVED on 2026-08-16, along with its 40 company boards and
@@ -1705,6 +1762,45 @@ JOBSPY_BOARDS = [("jobspy:%s|%s|%s" % (site, phrase, JOBSPY_LOCATION), "jobspy",
 JOBSPY_REQUIRE_VISA_RECORD = (
     (os.environ.get("JOBSPY_REQUIRE_VISA_RECORD") or "1").lower() not in ("0", "false", "no"))
 
+# ---- jobright.ai: ONE templated landing page per role x city --------------------------------
+# jobright's own /jobs/recommend feed is deliberately NOT scraped. Their robots.txt disallows it
+# by name (along with /jobs/profile, /jobs/liked, /jobs/applied, /matching and all of /api/*),
+# it is an empty client-rendered shell, and filling it needs a logged-in session token. The
+# PUBLIC landing pages under /jobs/* are explicitly Allow-ed, and they are server-rendered with
+# the same row payload the recommend page draws — so this reads those instead.
+#
+# Volume comes from BREADTH, not depth: adding ?page=2 makes the __NEXT_DATA__ script disappear
+# entirely (pagination is a client-side /api/ call), so each URL yields exactly its first ~20
+# rows and more selectors is the only lever. That is the same shape as JOBSPY_BOARDS, which is
+# why this mirrors its role x location cross product.
+#
+# The slug template is "h1b-visa-sponsored-<role>-jobs-in-<city>-<state>". The un-prefixed
+# variant 303s, so every row this source returns is H-1B-relevant by construction.
+JOBRIGHT_ROLES = [r.strip() for r in
+                  (os.environ.get("JOBRIGHT_ROLES")
+                   or "software-engineer|data-engineer|data-scientist|product-manager"
+                   ).split("|") if r.strip()]
+JOBRIGHT_CITIES = [c.strip() for c in
+                   (os.environ.get("JOBRIGHT_CITIES")
+                    or "united-states").split("|") if c.strip()]
+
+# Empty by default, exactly like JOBSPY_BOARDS: with JOBRIGHT_ON unset there are no jobright
+# entries in SOURCES and nothing in this file reaches the network. Enabling it is a deliberate
+# act, not a side effect of importing the module.
+JOBRIGHT_ON = (os.environ.get("JOBRIGHT_ON") or "").lower() in ("1", "true", "yes")
+JOBRIGHT_BOARDS = ([("jobright:%s|%s" % (role, city), "jobright", "Jobright")
+                    for role in JOBRIGHT_ROLES for city in JOBRIGHT_CITIES]
+                   if JOBRIGHT_ON else [])
+
+JOBRIGHT_CALLS = [0]      # landing pages actually fetched — printed each run, same as JOBSPY_CALLS
+JOBRIGHT_ROWS = [0]       # raw rows parsed, before any of main()'s filters
+
+# Same reasoning as JOBSPY_REQUIRE_VISA_RECORD, and mostly redundant here because the slug
+# already selects for sponsorship — kept because it costs nothing and the long tail on these
+# pages is heavily staffing/consulting. Set to 0 to take everything.
+JOBRIGHT_REQUIRE_VISA_RECORD = (
+    (os.environ.get("JOBRIGHT_REQUIRE_VISA_RECORD") or "1").lower() not in ("0", "false", "no"))
+
 # Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
 # we trust for it — Meta's careers site is a Facebook Relay/GraphQL app, so it's scraped
 # by driving a headless browser (Playwright). Kept in its own list because, unlike every
@@ -1718,6 +1814,13 @@ METACAREERS_BOARDS = [
 PEOPLESOFT_BOARDS = [
     ("https://jobs.omni.fsu.edu/psc/sprdhr_er/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL",
      "peoplesoft", "Florida State University"),                                          # ~207
+    # Added 2026-09-03 via jobright discovery. CAP-EXEMPT, and the largest single yield of that
+    # batch: 502 of 510 postings are US and 61 clear the title filter. NOT any of the three
+    # "Northwestern" entries already in SOURCES -- those are Northwestern Mutual, Northwestern
+    # Medicine and Northwestern Medical Center, all different employers on SmartRecruiters.
+    ("https://careers.northwestern.edu/psc/hrnu_er/EMPLOYEE/HRMS/c/"
+     "HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL",
+     "peoplesoft", "Northwestern University"),                                           # ~61
 ]
 
 # Paylocity Recruiting — small and mid-size US employers. One board per company, keyed by the
@@ -1783,16 +1886,31 @@ WERFEN_BOARDS = [
 EIGHTFOLD_BOARDS = [
     ("https://bayer.eightfold.ai/careers?domain=bayer.com", "eightfold", "Bayer"),        # 607
     ("https://insight.eightfold.ai/careers?domain=insight.com", "eightfold", "Insight Enterprises"),  # 183
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://careers.fluor.com/careers?domain=fluor.com",    "eightfold", "Fluor Corp."),      # ~620
 ]
 
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Avature
 # + SuccessFactors + PeopleSoft + Eightfold + Meta + Michael Page + Jobvite + Werfen.
 # (Adzuna was in this list until 2026-08-16; see the removal note above EXTRA_BOARDS.)
 # (Amazon-only: SOURCES = AMAZON   |   boards only: SOURCES = ATS_BOARDS + EXTRA_BOARDS)
+ROBERTHALF_SITEMAP = ("https://www.roberthalf.com/content/"
+                      "roberthalf.sitemap.us-external-job-details-sitemap.xml")
+# Robert Half's CLIENT placements, distinct from the RobertHalfStaffingCareers Workday board
+# already in WORKDAY_BOARDS (that one is jobs AT Robert Half). One sitemap request; see
+# scrape_roberthalf for why the client is never named and what that costs.
+ROBERTHALF_BOARDS = [(ROBERTHALF_SITEMAP, "roberthalf", "Robert Half")]
+
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
+           + ROBERTHALF_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
-           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS + AQUENT_BOARDS
+           + JOBSPY_BOARDS + JOBRIGHT_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
+           + AQUENT_BOARDS
            + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
            + JOBVITE_BOARDS + WERFEN_BOARDS)
 
@@ -3579,6 +3697,150 @@ def scrape_jobspy(board_url):
     return rows
 
 
+# ---- jobright.ai: the public landing pages, NOT the logged-in recommend feed ----
+# Config and JOBRIGHT_BOARDS live up by SOURCES, next to the JobSpy block this mirrors.
+JOBRIGHT_BASE = "https://jobright.ai"
+JOBRIGHT_SLUG = "/jobs/h1b-visa-sponsored-%s-jobs-in-%s"
+
+_JOBRIGHT_NEXT_RE = re.compile(
+    r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
+
+
+def _jobright_jd(job):
+    """One listing's description, composed from the three fields the payload already carries.
+
+    jobright hands us jobSummary (prose) plus coreResponsibilities and requirements (lists of
+    whole sentences), and composing them measured 1,396-5,807 chars — every sampled row clears
+    core._MIN_JD_CHARS. That matters more here than on most sources: the row's own url is a
+    jobright interstitial, so if the JD did not arrive WITH the listing, score_jobs would have
+    to fetch that interstitial to find one, and it does not carry the employer's text either.
+    """
+    parts = [_text(job.get("jobSummary"))]
+    for key in ("coreResponsibilities", "requirements"):
+        v = job.get(key)
+        if isinstance(v, list):
+            parts.append("\n".join("- %s" % _text(x) for x in v if _text(x)))
+        else:
+            parts.append(_text(v))
+    return "\n\n".join(p for p in parts if p.strip())
+
+
+def _jobright_location(job):
+    """The corpus stores one location string; jobright splits across two shapes."""
+    loc = _text(job.get("jobLocation"))
+    if loc:
+        return loc
+    locs = job.get("jobLocations")
+    if isinstance(locs, list):
+        return ", ".join(_text(x) for x in locs if _text(x))
+    return ""
+
+
+def _jobright_rows(payload):
+    """The listing rows out of a parsed __NEXT_DATA__ blob, whichever key holds them.
+
+    Two page families serve the SAME inner row shape under different names: /remote-jobs uses
+    `defaultData`, the /jobs/<slug> pages use `jobList`. Reading both means one adapter covers
+    both, and an unknown third family degrades to zero rows rather than a KeyError.
+    """
+    props = (payload or {}).get("props", {}).get("pageProps", {})
+    for key in ("jobList", "defaultData"):
+        rows = props.get(key)
+        if isinstance(rows, list) and rows:
+            return rows
+    return []
+
+
+def scrape_jobright(board_url):
+    """One jobright.ai public landing page. board_url is a selector,
+    'jobright:<role>|<city>' — e.g. 'jobright:data-engineer|raleigh-nc'.
+
+    WHY THIS SOURCE IS SHAPED LIKE THIS. jobright's /jobs/recommend is disallowed by their
+    robots.txt by name, is an empty client-rendered shell, and needs a logged-in session token —
+    so it is not read here and must not be. The public /jobs/* landing pages are Allow-ed and
+    server-render the same rows, so this reads those. One request per selector, no pagination:
+    a ?page= param makes the __NEXT_DATA__ script vanish because paging is a client-side /api/
+    call, so each URL is worth its first ~20 rows and nothing more.
+
+    Every row's url is a jobright interstitial — the payload carries no direct employer link at
+    all, unlike JobSpy's job_url_direct. That is why "jobright." is in core.AGGREGATOR_HOSTS:
+    it makes fingerprint_duplicate treat these as aggregator rows, so a posting we already hold
+    from the employer's own board suppresses the jobright copy instead of double-listing it.
+    """
+    sel = board_url.split(":", 1)[1] if ":" in board_url else board_url
+    parts = [p.strip() for p in sel.split("|")]
+    role = parts[0] if parts else ""
+    city = parts[1] if len(parts) > 1 else "united-states"
+    if not role:
+        raise ValueError("bad jobright selector %r (want jobright:<role>|<city>)" % board_url)
+
+    url = JOBRIGHT_BASE + JOBRIGHT_SLUG % (role, city)
+    JOBRIGHT_CALLS[0] += 1
+    r = _safe_get(url, timeout=30)
+    if r.status_code != 200:
+        # A 303 is the signal that this slug is not a real landing page — the un-prefixed
+        # "<role>-jobs-in-<city>" form redirects rather than 404s. Say which, so a typo in
+        # JOBRIGHT_ROLES reads as a bad selector and not as a quiet day.
+        print("  note: jobright %s -> HTTP %d (bad slug, or blocked?)" % (sel, r.status_code))
+        return []
+
+    m = _JOBRIGHT_NEXT_RE.search(r.text)
+    if not m:
+        # The page rendered but carried no server-side data. This is exactly what a paged or
+        # bot-flagged response looks like, and it is NOT the same as a slug with no openings.
+        print("  note: jobright %s served no __NEXT_DATA__ (client-rendered or refused?)" % sel)
+        return []
+    try:
+        records = _jobright_rows(json.loads(m.group(1)))
+    except ValueError:
+        print("  note: jobright %s __NEXT_DATA__ did not parse as JSON" % sel)
+        return []
+
+    JOBRIGHT_ROWS[0] += len(records)
+    if not records:
+        print("  note: jobright %s returned 0 rows" % sel)
+        return []
+
+    rows, seen = [], set()
+    for rec in records:
+        job = (rec or {}).get("jobResult") or {}
+        comp = (rec or {}).get("companyResult") or {}
+        link = _text(job.get("applyLink")) or _text(job.get("url"))
+        if not link or not is_http_url(link):
+            continue
+        canon = canonical_url(link)
+        if canon in seen:
+            continue
+        seen.add(canon)
+        company = _text(comp.get("companyName"))
+        title = _text(job.get("jobTitle"))
+        if not company or not title:
+            # Same call scrape_jobspy makes: a row with no employer cannot be sponsor-matched,
+            # cannot get a company page, and renders as a blank card.
+            continue
+        row = {"title": title,
+               "url": link,
+               "company": company,
+               "location": _jobright_location(job),
+               # Tagged so main() can apply the sponsor-record gate to THESE rows and not to the
+               # direct boards. Dropped on the way to storage — FIELDNAMES does not list it.
+               "_src": "jobright"}
+        # publishTime is "YYYY-MM-DD HH:MM:SS" and is jobright STATING when the job was posted,
+        # so it is sliced to a bare ISO date. core.is_trusted_date treats a bare date as a
+        # publisher field and a timestamp as one of ours — storing the full string would mark a
+        # real posting date as derived. See the date-semantics note in core.
+        posted = _text(job.get("publishTime"))
+        if posted[:10].count("-") == 2:
+            row["found_date"] = posted[:10]
+        jd = _jobright_jd(job)
+        if jd:
+            # main() banks this via listing_jds, the same path lever/ashby/jibe use. Guarded
+            # there at core._MIN_JD_CHARS, so a thin summary can never be stored as complete.
+            row["jd"] = jd
+        rows.append(row)
+    return rows
+
+
 # ---- Meta (metacareers.com): no public feed, so drive a headless browser ----
 # Meta's careers site is a Facebook Relay/GraphQL app: a plain HTTP request gets a 400,
 # the jobs aren't in the page HTML, and the job-search query needs a CSRF token + a
@@ -3898,9 +4160,28 @@ def scrape_phenom(board_url):
             seen.add(url)
             loc = ", ".join(x for x in (j.get("city"), j.get("state"), j.get("country")) if x) \
                   or (j.get("cityState") or "")
-            rows.append({"title": (j.get("title") or "").strip(), "url": url,
-                         "location": loc,
-                         "found_date": (str(j.get("postedDate") or j.get("dateCreated") or ""))[:10]})
+            row = {"title": (j.get("title") or "").strip(), "url": url,
+                   "location": loc,
+                   "found_date": (str(j.get("postedDate") or j.get("dateCreated") or ""))[:10]}
+            # CARRY THE ID FORWARD, because for a Phenom tenant with an external applyUrl the
+            # stored url is the ONLY thing about this posting that cannot be read later.
+            #
+            # Actalent is the case that proves it. Its applyUrl is a Salesforce Lightning app
+            # that serves one 448,446-byte shell for every job -- byte-identical across four
+            # postings, measured -- so detail_jd gets nothing from the row we store. The
+            # description is available the whole time from this tenant's own jobDetail widget,
+            # keyed by exactly the id sitting in this response.
+            #
+            # And the window is SHORT. Measured 2026-09-01 against the live board: of 755
+            # Actalent rows the feed was calling "JD pending", only 31 (4.1%) were still listed.
+            # 724 had already left. Coming back for the description a few hours later loses that
+            # race ~96% of the time, which is why this is captured here rather than queued for
+            # score_jobs. FIELDNAMES filters the row on the way into the database, so these two
+            # keys never reach a column.
+            if j.get("jobId"):
+                row["_phenom_jid"] = j["jobId"]
+                row["_phenom_origin"] = base
+            rows.append(row)
         offset += len(jobs)
         if total and offset >= total:
             break
@@ -5787,6 +6068,84 @@ def scrape_werfen(board_url):
     return rows
 
 
+# ---- Robert Half client placements (roberthalf.com) -----------------------------------------
+# NOT the same board as roberthalf.wd1.myworkdayjobs.com, which is already in SOURCES: that one
+# is jobs working AT Robert Half. This is the far larger set of CLIENT roles they recruit for --
+# you apply through them and they place you.
+#
+# THE CHEAPEST ADAPTER HERE, and it is worth saying why so nobody "improves" it into a crawler.
+# Their sitemap URL carries everything the sweep needs:
+#
+#     /us/en/job/walnut-creek-ca/attorneylawyer/00340-0013308169-usen
+#                 ^ city + state   ^ title slug  ^ requisition id
+#
+# So title, location and url all come from ONE 8,429-entry sitemap request and the title filter
+# runs for free on the slug -- 639 of 8,429 (7.6%) survive it. No per-posting fetch happens in
+# the sweep at all, where scrape_google has to pull a 161 KB page each. The description is left
+# to score_jobs' JD phase like every other board.
+#
+# WHAT THE READER MUST KNOW, and the reason this needed a decision rather than just code: the
+# CLIENT IS NEVER NAMED. Every posting's JSON-LD says hiringOrganization "Robert Half" and the
+# text says "our client". So these rows enter as company="Robert Half", core.is_agency() is True
+# for them, and the feed's "Hide staffing agencies" default hides them. That is not a bug to
+# route around -- for a PERM placement the client sponsors and we genuinely cannot say who they
+# are. For CONTRACT work Robert Half is the employer of record and its own filing record (122
+# H-1B approvals, H-1B / Green Card / E-3) is the correct signal, which is why these are worth
+# having at all.
+# /us/en/job/<city-st>/<title-slug>/<id>-usen
+_RH_JOB_RE = re.compile(r"/us/en/job/([a-z0-9-]+)/([a-z0-9-]+)/([0-9][0-9-]*)-usen/?$", re.I)
+# Two-letter state at the end of the city segment: "walnut-creek-ca" -> ("Walnut Creek", "CA").
+_RH_CITY_RE = re.compile(r"^(.*)-([a-z]{2})$", re.I)
+
+
+def _rh_location(city_slug):
+    """"walnut-creek-ca" -> "Walnut Creek, CA", or "" when the slug has no state on it.
+
+    Returned in the shape parse_location already reads, so nothing downstream needs to know
+    this board exists. A slug with no trailing state is skipped rather than guessed at: the
+    sitemap is US-only, but "remote" and a few malformed segments do appear.
+    """
+    m = _RH_CITY_RE.match(city_slug or "")
+    if not m:
+        return ""
+    city = " ".join(w.capitalize() for w in m.group(1).split("-") if w)
+    return "%s, %s" % (city, m.group(2).upper()) if city else ""
+
+
+def scrape_roberthalf(board_url):
+    """Robert Half client placements, from their published job sitemap. One request.
+
+    Everything the sweep stores is in the URL, so unlike scrape_google there is no per-posting
+    page fetch and therefore no ledger, no page cap and no wall clock -- the whole board costs
+    one 8,429-line sitemap read. Descriptions come later through score_jobs like any other board.
+    """
+    try:
+        r = _safe_get(board_url or ROBERTHALF_SITEMAP, timeout=40)
+    except Exception:
+        return []
+    if r.status_code != 200:
+        return []
+    rows, seen = [], set()
+    for u in re.findall(r"<loc>\s*([^<]+?)\s*</loc>", r.text):
+        m = _RH_JOB_RE.search(u.strip())
+        if not m:
+            continue
+        city_slug, title_slug, jid = m.groups()
+        if jid in seen:
+            continue
+        title = " ".join(w for w in title_slug.replace("-", " ").split() if w).strip()
+        loc = _rh_location(city_slug)
+        # The slug IS the title, so the filter runs before anything is fetched. Skipping the
+        # rest here rather than in main() is what makes this board free: 639 of 8,429 survive.
+        if not title or not title_verdict(title)[0]:
+            continue
+        if not loc or not is_us_location(loc):
+            continue
+        seen.add(jid)
+        rows.append({"title": title.title(), "url": u.strip(), "location": loc})
+    return rows
+
+
 # ---- Google careers (careers.google.com) --------------------------------------------------
 # Google has NO public jobs API. Its careers site is a BOQ app that talks batchexecute RPC, so
 # there is nothing to call -- but careers.google.com/jobs/sitemap lists every posting, and each
@@ -6420,6 +6779,7 @@ SCRAPERS = {
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
     "google": scrape_google,
+    "roberthalf": scrape_roberthalf,
     "ibm": scrape_ibm,
     "deloitte": scrape_deloitte,
     "apple": scrape_apple,
@@ -6437,6 +6797,7 @@ SCRAPERS = {
     "personio": scrape_personio,
     "jsonld": scrape_jsonld,
     "jobspy": scrape_jobspy,
+    "jobright": scrape_jobright,
     "phenom": scrape_phenom,
     "oracle": scrape_oracle,
     "workable": scrape_workable,
@@ -7428,18 +7789,185 @@ JD_LOOKUP_WORKERS = int(os.environ.get("JD_LOOKUP_WORKERS") or 8)
 # The runner killed it 0.14 s after it printed its last line, and because GitHub skips every
 # later step once one fails, that one overrun also cost the score pass and the digest.
 JD_LOOKUP_BUDGET_MIN = float(os.environ.get("JD_LOOKUP_BUDGET_MIN") or 3)
+# A LOWER PER-EMPLOYER CEILING FOR THE RESCUE QUEUE THAN FOR THE KEEP QUEUE. A rescued posting is
+# a guess we are paying to check; a kept one is a job that is going into the feed either way and
+# will read "JD pending" without this. Same shape, different price.
+JD_LOOKUP_PER_KEPT_BOARD = int(os.environ.get("JD_LOOKUP_PER_KEPT_BOARD") or 300)
+# THE KEEP QUEUE IS UNCAPPED BY DEFAULT, AND THAT IS THE WHOLE POINT.
+#
+# A posting that has passed the title filter is going into the feed. If it goes in without a
+# description it reads "JD pending" with no match number, and on a fast-turnover board the
+# posting is gone before any later pass can fetch one -- measured on Actalent, only 31 of 755
+# such rows were still on their board when we went back. So the description has to be bought
+# now, and a counter running out is not a good enough reason not to buy it.
+#
+# 0 = no count limit. The variable exists so a pathological run can be pegged from the
+# environment without a deploy, not because a limit is wanted.
+#
+# The clock is a runaway guard, not a budget: 45 minutes against a measured ~20 (about 700 of
+# the 917 rows a full 21-slice sweep keeps need a fetch, at ~34 fetches/min on 6 workers) and
+# a 3-hour gap between the 17:00 and 20:00 UTC cron slots. A phase with no clock at all is what
+# overran the CI step in August; a guard that never fires costs nothing.
+JD_KEEP_BUDGET = int(os.environ.get("JD_KEEP_BUDGET") or 0)
+JD_KEEP_BUDGET_MIN = float(os.environ.get("JD_KEEP_BUDGET_MIN") or 45)
+
+# BOTH BUDGETS ABOVE SPAN THE RUN, NOT THE SLICE -- and until 2026-09-02 neither did.
+#
+# fill_missing_jds is called once per SLICE, and both ceilings were evaluated fresh on every
+# call, so SCRAPE_SLICE=100 over a 2,032-board list turned "1,200 fetches and 3 minutes" into 21
+# x 1,200 = 25,200 fetches and 63 minutes. The 2026-09-01 20:00 cron run spent its entire life
+# in this phase: two slices of twenty-one in fifteen minutes, 1,688 description fetches, and 4
+# descriptions stored for the 121 rows it actually kept.
+#
+# test_scrape_slice.py already froze this exact lesson for SCRAPE_BUDGET_MIN ("THE BUDGET MUST
+# SPAN THE RUN, NOT RESET PER SLICE"). This pair was added after the slicing and never got it.
+#
+# main() arms this once before the slice loop. A direct call arms it lazily, so a unit test or a
+# one-off script still gets a bounded pass without knowing the protocol.
+# TWO PURSES, because the two queues are not the same kind of work. Keeping them in one dict
+# rather than two module globals keeps reset_jd_lookup_budget the single place they are armed.
+_JD_RUN = {"keep_spent": 0, "keep_secs": None,
+           "resc_spent": 0, "resc_secs": None, "armed": False}
 
 
-def fill_missing_jds(scraped, seen, blocked):
-    """Fetch descriptions for the postings a second opinion could plausibly rescue.
+def reset_jd_lookup_budget():
+    """Start a new run's description budget. Called once by main(), before the slices.
 
-    Mutates rows in place, setting j["jd"]. Returns (fetched, rescued_candidates) for the run
-    summary. Never raises: a JD lookup failing is a posting that drops on its title, which is
-    exactly what would have happened without this pass.
+    `secs_left` is a PURSE OF SECONDS SPENT FETCHING, not a wall-clock deadline, and the
+    difference is the whole reason this function is worth reading.
+
+    The first version of this set `deadline = now + JD_LOOKUP_BUDGET_MIN * 60`. That is right for
+    a phase that runs once and wrong for one called per slice: slice 1 spends ~4 minutes fetching
+    BOARDS before fill_missing_jds is reached at all, so a 3-minute run-wide clock had already
+    expired the first time it was asked and every slice after it returned (0, 0). Measured on a
+    full 21-slice sweep: the phase logged nothing whatsoever -- 63 minutes of JD lookup had become
+    zero. Both numbers are wrong; the budget is meant to bound the phase, not to race the sweep.
+
+    So the clock only ticks while this phase is actually fetching. Sweep time, filtering time and
+    database time are not charged to it, because none of them are what the budget is protecting
+    against.
     """
-    if JD_LOOKUP_BUDGET <= 0:
+    _JD_RUN["keep_spent"] = _JD_RUN["resc_spent"] = 0
+    _JD_RUN["armed"] = True
+    _JD_RUN["keep_secs"] = (JD_KEEP_BUDGET_MIN * 60) if JD_KEEP_BUDGET_MIN > 0 else None
+    _JD_RUN["resc_secs"] = (JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
+
+
+def _fetch_jd_queue(items, secs_left, label, score_jobs):
+    """Fetch descriptions for one queue. Returns (tried, got, seconds_left_after).
+
+    ONE QUEUE PER CALL, and that is what lets the two purses have different clocks:
+    as_completed takes a single timeout, so two queues sharing one executor would have to share
+    one deadline, and the uncapped keep queue would then hand its 45 minutes to the rescue queue
+    it is supposed to outrank. Calling this twice also makes "kept rows first" structural rather
+    than an artefact of the order `want` happened to be built in.
+
+    Mutates the rows in place, setting j["jd"]. Never raises.
+    """
+    if not items:
+        return 0, 0, secs_left
+
+    def one(j):
+        try:
+            # ASK PHENOM BY ID. For a Phenom tenant with an external applyUrl the url we store is
+            # an apply app that renders no description for any job (Actalent serves one 448 KB
+            # shell for every posting), so detail_jd on it is a guaranteed-empty round trip.
+            # scrape_phenom carried the jobId here for exactly this.
+            jid, origin = j.get("_phenom_jid"), j.get("_phenom_origin")
+            if jid and origin:
+                return j, score_jobs.phenom_jd_by_id(origin, jid)
+            _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
+            return j, jd or ""
+        except Exception:
+            return j, ""
+
+    got, tried = 0, 0
+    t0 = time.monotonic()
+    deadline = (t0 + secs_left) if secs_left is not None else None
+    # ex.map WOULD NOT HAVE SURVIVED THE TIMEOUT, which is why this is submit/as_completed: map
+    # submits every future up front, so the `with` block's shutdown(wait=True) drains all of them
+    # on the way out no matter where the loop stopped. Only shutdown(cancel_futures=True) drops
+    # the queued work. The requests already in flight still finish, so the overshoot is one fetch
+    # per worker, not one pass. cancel_futures needs Python 3.9, which is what cPanel runs.
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
+    try:
+        futures = [ex.submit(one, j) for j in items]
+        try:
+            for f in concurrent.futures.as_completed(
+                    futures,
+                    timeout=None if deadline is None else max(0.1, deadline - time.monotonic())):
+                j, jd = f.result()
+                tried += 1
+                if len(jd) >= core._MIN_JD_CHARS:
+                    j["jd"] = jd
+                    got += 1
+        except concurrent.futures.TimeoutError:
+            # NOT the builtin: on 3.9 concurrent.futures.TimeoutError is its own class and is not
+            # a subclass of builtins.TimeoutError. On 3.11+ it is an alias, so this covers both.
+            print("  !! JD lookup clock ran out while %s -- %d of %d fetched in this slice;"
+                  " the rest are offered again next run." % (label, tried, len(items)))
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+        # Charged in the `finally` so an exception cannot leave the purse full and let the next
+        # slice spend the same seconds again.
+        if secs_left is not None:
+            secs_left = max(0.0, secs_left - (time.monotonic() - t0))
+    return tried, got, secs_left
+
+
+def fill_missing_jds(scraped, seen, blocked, age_cutoff="", long_cutoff=""):
+    """Buy descriptions for this slice's postings, KEPT ONES FIRST.
+
+    Mutates rows in place, setting j["jd"]. Returns (attempted, usable) for the run summary.
+    Never raises: a JD lookup failing is a posting that drops on its title or reads "JD pending"
+    for a while, which is exactly what would have happened without this pass.
+
+    TWO QUEUES, AND THE ORDER BETWEEN THEM IS THE WHOLE POINT OF THIS FUNCTION.
+
+      KEEP    the posting already passed the title filter, so it is going into the corpus, and it
+              has no description. Without one it lands with an empty jd and an empty jd_terms, and
+              the card reads "JD pending" with no match number until some later scoring pass gets
+              to it -- if the posting is still readable by then, which on a fast-turnover board it
+              will not be.
+      RESCUE  the title said nothing useful and a description might overturn that. This is what
+              the function was originally built for, and it is now SECOND rather than only.
+
+    Until 2026-09-02 the keep queue did not exist: the loop below read `if keep: continue` and
+    every fetch went to the rescue queue. What that looked like in production, from the cron log
+    of the 2026-09-01 20:00 run, one slice:
+
+        JD lookup: fetching 1200 description(s) for title-rejected postings
+        JD lookup: 1200 of 1200 returned a usable description.
+        add_jobs (105 rows)
+        Stored 4 description(s) that arrived with the listing.
+
+    1,200 descriptions bought for postings that were then discarded; 4 for the 105 rows kept.
+    Measured the same day: 404 of the 2,274 rows added (17.8%) landed with no description at all
+    -- Google 148, Cognizant 113, and a 143-row tail -- every one of them readable on request.
+    Nothing had asked.
+
+    The keep queue is CHEAP, which is why this is a reordering rather than a new cost: roughly
+    400 fetches for a whole run, against the 25,200 the rescue queue could previously reach.
+    """
+    if not _JD_RUN["armed"]:                          # direct call (test, one-off script)
+        reset_jd_lookup_budget()
+    # ROOM IN EACH PURSE, INDEPENDENTLY. keep_room None means uncapped, which is the default.
+    # Note there is no `if JD_LOOKUP_BUDGET <= 0: return` any more: that used to disable the
+    # whole phase, and now zero means "buy nothing speculative", which must not stop us buying
+    # descriptions for postings we are about to store.
+    keep_room = None if JD_KEEP_BUDGET <= 0 else max(0, JD_KEEP_BUDGET - _JD_RUN["keep_spent"])
+    resc_room = max(0, JD_LOOKUP_BUDGET - _JD_RUN["resc_spent"]) if JD_LOOKUP_BUDGET > 0 else 0
+    keep_secs, resc_secs = _JD_RUN["keep_secs"], _JD_RUN["resc_secs"]
+    if keep_secs is not None and keep_secs <= 0:
+        keep_room = 0                                 # clock spent: same effect as no room
+    if resc_secs is not None and resc_secs <= 0:
+        resc_room = 0
+    if keep_room == 0 and resc_room == 0:
         return 0, 0
-    per_board, want = {}, []
+
+    from . import score_jobs                           # lazy: see the note above
+    keep_board, resc_board = {}, {}
+    priority, rescue = [], []
     for j in scraped:
         if len((j.get("jd") or "").strip()) >= core._MIN_JD_CHARS:
             continue                                  # the board already gave us one
@@ -7459,65 +7987,68 @@ def fill_missing_jds(scraped, seen, blocked):
                         or title_says_non_us(title)):
             continue
         keep, why = title_verdict(title)
-        if keep or why.startswith("off-target"):
-            continue                                  # kept already, or vetoed and not ours to
-        if not core.pm_title_gate(title):             # overturn
+        if keep:
+            # THE FRESHNESS GATE, MIRRORED FROM THE KEEP LOOP RATHER THAN APPROXIMATED -- same
+            # expression, including the per-row long-lived choice. A looser rule here would buy
+            # descriptions for postings the loop is about to drop on their age; a tighter one
+            # would skip rows it is about to admit.
+            if age_cutoff:
+                posted = (j.get("found_date") or "")[:10]
+                cut = long_cutoff if db.is_long_lived(url) else age_cutoff
+                if posted and posted < cut:
+                    continue
+            bucket, per_board, cap = priority, keep_board, JD_LOOKUP_PER_KEPT_BOARD
+        elif why.startswith("off-target"):
+            continue                                  # vetoed, and not ours to overturn
+        elif not core.pm_title_gate(title):
             continue
+        else:
+            bucket, per_board, cap = rescue, resc_board, JD_LOOKUP_PER_BOARD
         c = j.get("company", "")
-        if per_board.get(c, 0) >= JD_LOOKUP_PER_BOARD:
+        if per_board.get(c, 0) >= cap:
             continue
+        # ROOM CHECKED BEFORE THE PER-EMPLOYER TALLY IS INCREMENTED. It used to increment first
+        # and then test `len(bucket) < left`, so a full queue kept charging employers for rows it
+        # was not taking -- which inflated the per-employer count and, once the queue emptied
+        # again, could refuse an employer that had never actually had a fetch spent on it.
+        room = keep_room if bucket is priority else resc_room
+        if room is not None and len(bucket) >= room:
+            continue                                  # that purse is full; the other may not be
         per_board[c] = per_board.get(c, 0) + 1
-        want.append(j)
-        if len(want) >= JD_LOOKUP_BUDGET:
+        bucket.append(j)
+        # Stop only when BOTH queues are full. Breaking on the rescue queue alone is how a
+        # priority queue silently turns back into a second rescue queue: on a slice whose first
+        # boards are title-poor, rescue fills in the first few hundred postings and every kept
+        # row after that would never be seen. With keep_room None the keep queue is never full,
+        # so this never fires -- which is correct, and the reason it is the only stop condition.
+        if keep_room is not None and len(priority) >= keep_room and len(rescue) >= resc_room:
             break
-    if not want:
+
+    if not priority and not rescue:
         return 0, 0
 
-    from . import score_jobs                           # lazy: see the note above
-    print("JD lookup: fetching %d description(s) for title-rejected postings across %d employer(s)"
-          % (len(want), len(per_board)))
-
-    def one(j):
-        try:
-            _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
-            return j, jd or ""
-        except Exception:
-            return j, ""
-
-    # ex.map WOULD NOT HAVE SURVIVED A `break`, which is why this is submit/as_completed rather
-    # than the obvious two-line edit: map submits every future up front, so the `with` block's
-    # shutdown(wait=True) drains all 1,200 of them on the way out no matter where the loop
-    # stopped. Only shutdown(cancel_futures=True) drops the queued work. The requests already in
-    # flight still finish, so the overshoot is one fetch per worker, not one pass. cancel_futures
-    # needs Python 3.9, which is what cPanel runs (bin/cron_scrape.sh) -- that is the floor here.
+    # The employer count is derived from the queues themselves rather than the per-board
+    # tallies, because this line is read as a description of what is about to be fetched.
     #
-    # Truncating is the same no-op the docstring promises for a failed fetch: an unfetched row
-    # drops on its title, and since it was never stored it is offered again on the next run.
-    got, tried = 0, 0
-    deadline = (time.monotonic() + JD_LOOKUP_BUDGET_MIN * 60) if JD_LOOKUP_BUDGET_MIN > 0 else None
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=JD_LOOKUP_WORKERS)
-    try:
-        futures = [ex.submit(one, j) for j in want]
-        try:
-            for f in concurrent.futures.as_completed(
-                    futures,
-                    timeout=None if deadline is None else max(0.1, deadline - time.monotonic())):
-                j, jd = f.result()
-                tried += 1
-                if len(jd) >= core._MIN_JD_CHARS:
-                    j["jd"] = jd
-                    got += 1
-        except concurrent.futures.TimeoutError:
-            # NOT the builtin: on 3.9 concurrent.futures.TimeoutError is its own class and is not
-            # a subclass of builtins.TimeoutError. On 3.11+ it is an alias, so this covers both.
-            print("  !! JD lookup budget of %g min ran out after %d of %d fetch(es) -- the rest"
-                  " drop on their titles and are offered again next run."
-                  % (JD_LOOKUP_BUDGET_MIN, tried, len(want)))
-    finally:
-        ex.shutdown(wait=False, cancel_futures=True)
-    # `tried`, not len(want): the caller prints this as "N of M returned a usable description",
-    # and M has to be what was actually asked for or a truncated pass reads as a failure rate.
-    return tried, got
+    # THE ABSENCE OF THIS LINE IS THE FAILURE SIGNAL. A clock bug on 2026-09-02 made the whole
+    # phase return (0, 0) on every slice of a 21-slice sweep, and the only evidence was that this
+    # print appeared nowhere in the log. Grep for "JD lookup" before believing a run worked.
+    print("JD lookup: fetching %d description(s) -- %d for postings we are KEEPING, %d to"
+          " second-guess a title -- across %d employer(s)"
+          % (len(priority) + len(rescue), len(priority), len(rescue),
+             len({j.get("company", "") for j in priority + rescue})))
+
+    # KEPT ROWS FIRST, and in their own call, so the rescue queue cannot spend their clock.
+    kt, kg, keep_secs = _fetch_jd_queue(priority, keep_secs, "buying the ones we keep", score_jobs)
+    _JD_RUN["keep_spent"] += kt
+    _JD_RUN["keep_secs"] = keep_secs
+    rt, rg, resc_secs = _fetch_jd_queue(rescue, resc_secs, "second-guessing titles", score_jobs)
+    _JD_RUN["resc_spent"] += rt
+    _JD_RUN["resc_secs"] = resc_secs
+    # `tried`, not the queue lengths: the caller prints this as "N of M returned a usable
+    # description", and M has to be what was actually asked for or a truncated pass reads as a
+    # failure rate.
+    return kt + rt, kg + rg
 
 
 US_STATE_ABBR = {"AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
@@ -7622,6 +8153,38 @@ def title_says_non_us(title):
     return bool(place) and bool(_NON_US_RE.search(_fold(place)))
 
 
+# Foreign place names the US also uses. The veto in is_us_location runs before the state
+# check, so without this "Lima, OH" reads as Lima, Peru and "London, OH" as London, UK.
+#
+# POSITION CANNOT DECIDE THIS, which is the whole reason the list exists. Measured over 8,958
+# real location strings (the live corpus plus one adoption batch fetched raw), the veto and a
+# valid US state code collide on exactly ten, and five are genuinely foreign: "Ahmedabad,
+# Gujarat, IN", "Indore, IN", "Anywhere in Tamilnadu, Tamil Nadu, IN", "Bhubaneswar, OR" and
+# "Germany - Remote, DE" -- where the trailing code is India's, Odisha's and Germany's and
+# merely COLLIDES with Indiana, Oregon and Delaware. In all ten the code follows the foreign
+# token, so "a US state code after the name" flips every one of the five. Only knowing which
+# names have a US namesake separates them, and that is a curated list, deliberately short:
+# every entry is a US place of some size, and each still needs a valid state code beside it.
+_US_NAMESAKE_CITIES = frozenset((
+    "amsterdam", "berlin", "cairo", "delhi", "dublin", "greece", "lima", "lisbon", "london",
+    "madrid", "melbourne", "mexico", "panama", "paris", "toronto", "vancouver", "warsaw"))
+
+
+def _us_namesake_only(low, loc):
+    """True when EVERY foreign name in the string has a US namesake and a US state code says
+    which one this is. Both halves are load-bearing:
+
+    every -- "Vancouver, BC, Canada" matches vancouver (exempt) AND canada (not), so the veto
+    stands; "Mexico City, MX" matches "mexico city" as well as "mexico" and stays foreign.
+    a state code -- "Dublin, Ireland" has no US state, so nothing here rescues it.
+    """
+    hits = _NON_US_RE.findall(low)
+    if not hits or any(h not in _US_NAMESAKE_CITIES for h in hits):
+        return False
+    m = _STATE_ABBR_RE.search(loc)
+    return bool(m and m.group(1).upper() in US_STATE_ABBR)
+
+
 def is_us_location(loc):
     """Heuristic: True if the location looks US-based. Unknown/blank -> kept."""
     if not loc:
@@ -7629,9 +8192,11 @@ def is_us_location(loc):
     low = _fold(loc)                                # accent-folded: see _fold's docstring
     if re.search(r"\b\d+\s+locations?\b|multiple locations?", low):
         return True                                 # bare 'N Locations' count -> unknown, keep
-    if _NON_US_RE.search(low):                      # explicit non-US signal -> drop
-        return False
     if "united states" in low or "usa" in low or "u.s." in low:
+        return True                                 # named the country -> outranks the veto
+    if _NON_US_RE.search(low) and not _us_namesake_only(low, loc):
+        return False                                # explicit non-US signal -> drop
+    if re.search(r"\bus\b", low):                   # bare "US": "Quincy MA US", "City, US, 90221"
         return True
     m = _STATE_ABBR_RE.search(loc)                  # e.g. "Boston, MA"
     if m and m.group(1).upper() in US_STATE_ABBR:
@@ -7971,6 +8536,7 @@ SCRAPE_PER_HOST = _env_num("SCRAPE_PER_HOST", 4, int)
 # to retire anything from a board it could not read, and it is fetched again next run.
 SCRAPE_BOARD_TIMEOUT = {
     "jobspy": _env_num("JOBSPY_BOARD_TIMEOUT_SEC", 90, int),
+    "jobright": _env_num("JOBRIGHT_BOARD_TIMEOUT_SEC", 60, int),
     "workday": _env_num("WORKDAY_BOARD_TIMEOUT_SEC", 300, int),
 }
 
@@ -8214,7 +8780,11 @@ def fingerprint_duplicate(job, fingerprints):
     return None
 
 
-RECONCILE_SKIP_ATS = {"jobspy"}
+# Sources whose "board" is a QUERY, not a listing. reconcile_closed retires anything a board
+# stopped showing, which is only sound when the board shows its whole inventory. A keyword
+# sweep or a landing page shows a rotating slice — jobright serves 20 rows against a stated
+# total of ~1,800 — so every run would "stop seeing" nearly everything and close live jobs.
+RECONCILE_SKIP_ATS = {"jobspy", "jobright"}
 
 
 def _url_prefix(urls):
@@ -8313,6 +8883,45 @@ def _release_memory():
         ctypes.CDLL("libc.so.6").malloc_trim(0)
     except Exception:
         pass
+
+
+SCRAPE_MEMPROF = (os.environ.get("SCRAPE_MEMPROF") or "").strip() in ("1", "true", "yes")
+
+
+def _memprof_report(slice_n, top=10):
+    """Name what is actually holding memory at a slice boundary. Off unless SCRAPE_MEMPROF=1.
+
+    WHY THIS EXISTS RATHER THAN A GUESS. The [mem] line above already answers "how much" and it
+    has been enough to rule things OUT, but not to find the cause. On 2026-09-01 it read 262 MB
+    after slice 1 and 483 MB after slice 2 of 21, and the only quantity it names -- the urls held
+    in board_results -- grew by 85,356 strings over that step, which is roughly 19 MB. So about
+    200 MB of the 221 MB was something the instrumentation could not see, and the run was
+    SIGKILLed at the ~1.2 GB CloudLinux LVE cap three slices in.
+
+    _release_memory() has already run by the time this is called, so what it reports is what
+    SURVIVED a gc.collect() and a malloc_trim -- live objects, not allocator high-water mark.
+    That distinction is the whole reason the earlier arena theory was worth testing and wrong.
+
+    tracemalloc roughly doubles allocation cost, which is why this is opt-in: it is a diagnostic
+    to run once against a real sweep, not something to leave on in cron.
+    """
+    if not SCRAPE_MEMPROF:
+        return
+    try:
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            tracemalloc.start(1)
+            print("  [memprof] tracing started; the first slice is the baseline")
+            return
+        snap = tracemalloc.take_snapshot()
+        print("  [memprof] top %d allocation sites after slice %d" % (top, slice_n))
+        for st in snap.statistics("lineno")[:top]:
+            fr = st.traceback[0]
+            print("      %8.1f MB  %6d blocks  %s:%d"
+                  % (st.size / 1048576.0, st.count,
+                     fr.filename.replace(os.getcwd() + os.sep, ""), fr.lineno))
+    except Exception as e:
+        print("  [memprof] unavailable (%s)" % str(e)[:70])
 
 
 def save_board_health(board_results):
@@ -8627,6 +9236,8 @@ def main():
     # scrape for the sponsor flag, gating on "did they load" would silently switch this
     # gate on for every aggregator row, which is a drop rule, not a flag.
     jobspy_visa_gate = bool(JOBSPY_BOARDS and JOBSPY_REQUIRE_VISA_RECORD and visa_index)
+    jobright_visa_gate = bool(
+        JOBRIGHT_BOARDS and JOBRIGHT_REQUIRE_VISA_RECORD and visa_index)
     if jobspy_visa_gate:
         print("Sponsor records: %d employer(s) with a visa tag, %d with USCIS approvals."
               % (len(visa_index or {}), len(sponsor_counts or {})))
@@ -8756,6 +9367,9 @@ def main():
     # contract scrape_all has always had for boards, one level up.
     _sweep_t0 = time.monotonic()
     _slice_n = 0
+    # Arm the description budget ONCE for the whole run. fill_missing_jds is called per slice and
+    # used to re-derive both its ceilings on every call; see _JD_RUN.
+    reset_jd_lookup_budget()
     for _sl in _slices:
         _slice_n += 1
         def _sl_progress(done, total, found, phase="scraping", force=False):
@@ -8781,6 +9395,9 @@ def main():
         if JOBSPY_CALLS[0]:
             print("JobSpy: %d quer%s, %d raw row(s)."
                   % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))
+        if JOBRIGHT_CALLS[0]:
+            print("Jobright: %d landing page(s), %d raw row(s)."
+                  % (JOBRIGHT_CALLS[0], JOBRIGHT_ROWS[0]))
 
         # PHASE TIMING, because the alternative is a silent gap. The 2026-08-21 run was killed by
         # the step timeout with its last line being the JobSpy count and NOTHING for the 5m17s after
@@ -8801,7 +9418,8 @@ def main():
         kept = []
         listing_jds = {}
         try:
-            jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked)
+            jd_tried, jd_got = fill_missing_jds(scraped, seen, blocked,
+                                                age_cutoff, long_cutoff)
             if jd_tried:
                 print("JD lookup: %d of %d returned a usable description." % (jd_got, jd_tried))
         except Exception as e:
@@ -8880,7 +9498,9 @@ def main():
             # the ones it found had no record in ANY federal file, against 10% for the corpus. The
             # direct boards are exempt because those employers were chosen deliberately, and several
             # are cap-exempt universities and hospitals this test would wrongly drop.
-            if jobspy_visa_gate and j.get("_src") == "jobspy":
+            _agg_src = j.get("_src")
+            if ((jobspy_visa_gate and _agg_src == "jobspy")
+                    or (jobright_visa_gate and _agg_src == "jobright")):
                 co = j.get("company") or ""
                 if not core.visa_tags(co, visa_index) and not core.sponsor_strength(
                         co, sponsor_counts)[0]:
@@ -8955,6 +9575,7 @@ def main():
               " %d url(s), %d kept row(s)"
               % (_rss_mb(), _slice_n, len(_slices), len(board_results),
                  _urls_held, len(all_kept)))
+        _memprof_report(_slice_n)
 
     if fp_seen:
         # Broken out by host on purpose. The check keys off "is this an aggregator row", not
@@ -9036,7 +9657,7 @@ def main():
         print(f"  - {j['title']} - {j['company']} ({j['location'] or 'n/a'}){flag}")
         print(f"    {j['url']}")
     if all_kept:
-        where = db.backend_name() if db.using_supabase() else OUTPUT_CSV
+        where = db.backend_name() if db.has_remote_db() else OUTPUT_CSV
         print(f"\nSaved to {where}. Run `python -m scraper.score_jobs` next to score them.")
     else:
         print("Nothing new this run.")

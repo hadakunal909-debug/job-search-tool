@@ -304,6 +304,106 @@ check("web.py derives the flag instead of reading a column",
           encoding="utf-8").read(),
       "a stamped column would need a hand-run migration and could drift from the filter")
 
+# ---------------------------------------------------------------------------------------------
+# THE EXPERIENCE INK, AND THE FOURTH STATE THAT MAKES IT HONEST
+# ---------------------------------------------------------------------------------------------
+# The card reads exp_max_years, a STORED column; /job reads the description LIVE. When the column
+# is stale the two contradict each other in the same session -- a card saying "years not stated"
+# over a page that just printed "5+ years required". Measured on the live corpus before the
+# 2026-09-03 re-derive: 21.5% of the 39,459 rows holding a description.
+#
+# A re-derive fixes the stale ones. What it CANNOT fix is a row fetched since the last scoring
+# run, and for those "years not stated" is not a stale answer, it is a FALSE CLAIM: it asserts
+# something about the employer's posting when the only fact we hold is about our own pipeline.
+# The two flags that separate the cases already exist and already drive the score ring.
+# A FIGURE OR NOTHING. The card briefly carried the three no-answer states in words -- "years
+# not stated", "not read yet", "unknown" -- and on a feed where most rows are one of them that
+# is a column of cards explaining what the app does not know. The owner asked for silence
+# instead, so the distinction has to live on /job, where it is one posting and there is room.
+for _gone in ("years not stated", "years not read yet", "years unknown"):
+    check("the card does not print %r" % _gone, _gone not in CODE,
+          "a missing figure already reads as 'no figure'")
+check("...and /job still names which of the three it is",
+      "unread_why" in JOBHTML and "have not fetched" in JOBHTML
+      and "rather than a posting" in JOBHTML,
+      "'the employer did not say' and 'we have not read it' are opposite facts, and only one "
+      "of them changes on its own")
+check("the inferred case survives, because it is an ANSWER",
+      "senior role" in CODE,
+      "silence there means a job vanishing from '0 to 2 Years' with nothing to say why")
+# INK, NOT A CHIP. CLAUDE.md: one blue and one chip, walked back twice already.
+CSS = open(os.path.join(APP, "static", "style.css"), encoding="utf-8").read()
+check("the experience is ink in the fact grid, not a second chip",
+      "cexp" in CODE and "cexp" in CSS,
+      "reusing .exp / .exp-hi would give it the /job chip's background by stylesheet accident")
+
+print()
+print("THE FACT GRID -- a chip is a verdict, a fact is a column (2026-09-03)")
+# THE THREE FIELDS THE CARD WAS ALREADY BEING HANDED AND NEVER DREW. web.py::_build_row has
+# shipped salary_label, remote and exp_level in the feed JSON the whole time; cardHTML read
+# none of them, so the server paid to compute and serialise three facts per row for nobody. A
+# grep for salary_label in app.js returned 0 hits the day this was written.
+for _field in ("j.salary_label", "j.remote"):
+    check("the card draws %s" % _field, _field in CODE,
+          "it is already on the row and already over the wire")
+check("...through one cell builder", "function factCell(" in CODE,
+      "a top-level function, because feed_parity.py and test_filter_memory.py lift by source "
+      "text and a var would break both")
+check("the four fact cells are still addressable",
+      all(("'%s'" % k) in CODE for k in ("cf-loc", "cf-rem", "cf-pay", "cf-exp")),
+      "the classes outlived the emoji they used to carry; the ordering check below needs them")
+check("...and no emoji is left on a card or in the description",
+      ".cfi{" not in CSS and "jsi" not in CSS
+      and not re.search(r'jdh\[data-sec="\w+"\]::before', CSS),
+      "removed 2026-09-03 at the owner's direction")
+# FIXED TRACKS ARE THE WHOLE FEATURE. Collapse the empty cells and pay stops sitting under pay,
+# which is the only reason a uniform grid beats the 330px auto-fill one it replaced -- there,
+# every card was its own width and nothing lined up with anything.
+check("the fact tracks are fixed and equal",
+      ".cfacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))" in CSS,
+      "equal halves in a uniform grid put pay at the same offset in all three columns")
+# Scoped to the FEED's own rules: /companies has its own auto-fill grid (.codir) and is not
+# making a claim about shared offsets.
+check("the feed is a fixed three-column grid, not auto-fill",
+      ".feedgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))" in CSS
+      and not re.search(r"#feed\s*\{[^}]*grid-template-columns", CSS),
+      "auto-fill sizes cards to the viewport, so the offsets stop being shared -- and an #feed "
+      "rule beats .feedgrid on ID specificity no matter where it sits in the file")
+# ORDER IS BY COVERAGE. location 98% / years 91% / pay 41% / remote 17%, so the two near-universal
+# facts take line one and the 52% of cards carrying exactly two read as one line, not a diagonal.
+_order = [CODE.index("'cf-%s'" % k) for k in ("loc", "exp", "pay", "rem")]
+check("fact cells are ordered by how often they are populated", _order == sorted(_order),
+      "place, years, pay, remote -- see the measured coverage in cardHTML")
+check("an unknown fact renders an empty cell, not a placeholder",
+      "cfact-blank" in CODE and "cfact-blank" in CSS)
+for _gone in ("Not stated", "Salary not stated", "Not specified"):
+    check("the grid does not print %r" % _gone, _gone not in CODE,
+          "a blank cell already reads as 'no figure' -- the same rule the years ink follows")
+# NO SENIORITY CELL. exp_level is core.exp_level_for(exp_years): the same number the years cell
+# prints, bucketed. Two columns saying "Entry Level" and "0+ yrs" is one fact twice.
+check("exp_level is still not drawn on the card", "j.exp_level" not in CODE,
+      "it is the years cell restated, and it would spend a track to say nothing new")
+
+print()
+print("THE VERDICT COLUMN -- our claim, kept apart from the employer's")
+check("the score label reuses the ring's own thresholds",
+      "function matchLabel(" in CODE
+      and all(s in CODE for s in ("'Strong Match'", "'Good Match'", "'Low Match'")))
+check("...and is absolute, never a percentile",
+      "s >= 70 ?" in CODE and "percentile" not in CODE.lower(),
+      "CLAUDE.md: the feed SORTS on this number, so a relative scale saturates")
+check("...and says nothing when there is no ring",
+      "!HAS_RESUME || (j && (j.jd_unavailable || j.score_pending))" in CODE,
+      "a label under a dashed placeholder would name a number that is not there")
+check("the verdict is its own element, separable from the posting's facts",
+      "'<div class=\"cardverdict\">'" in CODE and ".cardverdict{" in CSS,
+      "it was a ruled side column while the feed was full-width rows and is the top-right "
+      "corner at three to a line; what must survive either way is that it is ONE element "
+      "holding everything that depends on who is asking")
+check("the chip cap survived the redesign",
+      CODE.count('class="spon"') == 1 and CODE.count('class="nospon"') == 1,
+      "one hedged sponsorship verdict, still, plus Closed")
+
 print()
 if FAILS:
     print("FAILURES (%d): %s" % (len(FAILS), "; ".join(FAILS)))

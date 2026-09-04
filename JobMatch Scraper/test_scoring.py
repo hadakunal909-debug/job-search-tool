@@ -132,6 +132,150 @@ def test_is_agency():
                  "Keysight Technologies Inc.", "Cadence Design Systems", ""):
         assert not core.is_agency(name), "should NOT be agency: %r" % name
 
+# ---- the 2026-09-02 JD-reading repair ---------------------------------------------------------
+#
+# analyze_jd matched ATS_KEYWORDS with a bare `kw in jd_low`, which invented a hard skill in 89%
+# of stored postings. Each phantom then took x2.5 for being a "hard skill" and x1.6 again for the
+# requirements section, so it outweighed the terms the job actually named and landed inside
+# core_terms -- it moved the match percentage, not just the chip list. Both columns below are
+# measured document frequencies from the real corpus; see scripts/measure_jd_reading.py.
+
+_PHANTOMS = (
+    ("We work across every division and supervision tier.", "visio"),      # 59.5% of postings
+    ("A track record of excellence in delivery.", "excel"),                # 37.1%
+    ("You will translate requirements for partners.", "sla"),              # 24.7%
+    ("Own our digital roadmap end to end.", "git"),                        # 24.0%
+    ("Maintain a strong safety culture and work safely.", "safe"),         # 20.6%
+    ("Keep the cleaning schedule current.", "lean"),                       # 9.0%
+)
+
+_INFLECTIONS = (
+    ("We align stakeholders across every team.", "stakeholder"),           # 7,165 postings
+    ("You will own budgets and budgeting.", "budget"),                     # 2,238
+    ("Publish roadmaps each quarter.", "roadmap"),                         # 1,126
+    ("Report on KPIs every week.", "kpi"),                                 # 968
+    ("Drive implementations to completion.", "implementation"),            # 720
+    ("Run retrospectives after each sprint.", "retrospective"),            # 217
+)
+
+
+def test_ats_keywords_are_not_minted_from_longer_words():
+    for text, phantom in _PHANTOMS:
+        terms = core.analyze_jd(_RICH_JD + " " + text, None)["terms"]
+        assert phantom not in terms, "%r invented from %r" % (phantom, text)
+
+
+def test_ats_keyword_inflections_are_still_earned():
+    """A word boundary on BOTH sides would have been the easy fix and a worse bug: these are
+    the matches the substring rule was legitimately making."""
+    for text, kw in _INFLECTIONS:
+        terms = core.analyze_jd(text * 8, None)["terms"]
+        assert kw in terms, "%r lost from %r" % (kw, text)
+
+
+def test_punctuated_skill_names_are_reachable_at_all():
+    """extract_keywords strips "-.+#/" and drops anything under three characters, so c++ became
+    "c" and vanished -- measured, ci/cd is named in 12.0% of descriptions and could never once
+    become a keyword. They are ATS_KEYWORDS members now, matched as phrases."""
+    terms = core.analyze_jd(
+        _RICH_JD + " You will write C++ and C# and own the CI/CD pipeline.", None)["terms"]
+    for kw in ("c++", "c#", "ci/cd"):
+        assert kw in terms, "%r still unreachable" % kw
+
+
+def test_a_phrase_must_be_NAMED_not_merely_scattered():
+    """The resume side asks "did you do this" and a scattered-stem match is right for it. The JD
+    side asks "does this posting NAME this", and there the same rule fired `business
+    requirements` on 63.8% of postings, because almost every description contains "business"
+    somewhere and "requirements" somewhere."""
+    scattered = ("Requirements: five years running a business unit. Responsibilities include "
+                 "scheduling, vendor negotiation, budget ownership and reporting. " * 4)
+    assert "business requirements" not in core.analyze_jd(scattered, None)["terms"]
+    named = scattered + " You will gather business requirements from partners."
+    assert "business requirements" in core.analyze_jd(named, None)["terms"]
+
+
+def test_the_resume_side_still_matches_a_scattered_phrase():
+    """The other half of that contract: phrase_exact must not have leaked onto the resume."""
+    a = {"terms": ["project management"], "weight": {"project management": 1.0},
+         "total": 1.0, "thin": False}
+    # PRESENCE, not the number: a one-term analysis is capped at 16 by the confidence cap, and
+    # phrase_exact is about whether the term is found, not about what it then scores.
+    have = core.score_against("managed multiple projects end to end", a)[1]
+    assert have == ["project management"], have
+
+
+def test_an_unseen_term_is_not_the_heaviest_thing_in_the_table():
+    """`sorted(idf.values())[len // 2]` was meant to be a median and was the MAXIMUM: 54.4% of
+    idf.json's entries sit at max(idf), so the median of the distinct value list lands inside
+    that block. This is the assertion that would have caught it."""
+    assert core._UNSEEN_W < core._RARE_W_CAP
+    assert core._UNSEEN_W < 10.8216            # max(idf) on the live corpus
+
+
+def test_analyze_jd_term_order_is_deterministic():
+    """jd_terms is TEXT and score_jobs DIFFS the stored string against the one it just built to
+    decide whether to write. terms came from `list(<set of str>)`, whose order PYTHONHASHSEED
+    randomises per process, so the diff never matched and the full pass re-upserted the whole
+    corpus every day."""
+    a = core.analyze_jd(_RICH_JD, None)["terms"]
+    b = core.analyze_jd(_RICH_JD, None)["terms"]
+    assert a == b == sorted(a), "term order is not repeatable"
+
+
+def test_display_terms_refuses_eligibility_gates_and_keeps_short_skills():
+    """A clearance is not a skill you can choose to add, so offering it under "worth adding" is
+    advice nobody can act on -- the owner's own example. And a flat three-character floor hid
+    c#, go, bi, qa and ux, every one of them an ATS keyword."""
+    got = core.display_terms(
+        ["clearance", "security clearance", "collaboration", "power bi", "c#",
+         "Acme Corp", "tuition", "sql"], "Acme Corp", 10)
+    assert got == ["power bi", "c#", "sql"], got
+
+
+def test_display_terms_drops_a_term_that_lives_only_in_the_notice():
+    got = core.display_terms(["regarding criminal", "power bi"], "Acme", 10,
+                             body="own the power bi roadmap",
+                             boiler="will receive consideration regarding criminal history")
+    assert got == ["power bi"], got
+
+
+def test_an_acronym_that_is_also_an_english_word_needs_its_own_case():
+    """A word boundary is necessary and not sufficient. `safe` is SAFe, the Scaled Agile
+    Framework; once the boundary fix stopped it matching "safety" it still matched the
+    adjective. Measured over 6,000 stored descriptions: the word "safe" appears in 13.8% and
+    only 15.5% of those are the framework, so 11.7% of the corpus was credited with a hard
+    skill it never named. Case is the discriminator a lowercased pipeline throws away."""
+    pad = (" Responsibilities include reporting, budget ownership and vendor negotiation."
+           " Requirements: five years of program management and stakeholder management.") * 3
+    for text, kw, want in (
+            ("Maintains a safe and clean work area at all times.", "safe", False),
+            ("Experience with SAFe and scaled agile delivery.", "safe", True),
+            ("Certified SAFE Agilist leading a release train.", "safe", True),
+            ("We lean into feedback and keep a lean team.", "lean", False),
+            ("Lean and Six Sigma driven continuous improvement.", "lean", True)):
+        got = kw in core.analyze_jd(text + pad, None)["terms"]
+        assert got is want, "%r: expected %s for %r" % (kw, want, text)
+
+
+def test_a_place_is_not_a_skill():
+    """Pay-transparency notices enumerate states and cities, and they sit in the BODY rather
+    than the EEO paragraph, so the "in the notice and nowhere else" rule never caught them. A
+    real Accenture Federal posting offered maine, cleveland, vermont, hawaii and minnesota as
+    keywords worth adding. Measured: geography reached core_terms on 13.2% of postings."""
+    jd = (_RICH_JD + " The pay range applies in Colorado, Hawaii, Maine, Minnesota, Vermont, "
+          "New York, Los Angeles, San Francisco and the District of Columbia. " * 3)
+    terms = core.analyze_jd(jd, None)["terms"]
+    for place in ("maine", "hawaii", "vermont", "minnesota", "columbia", "district",
+                  "san francisco", "los angeles", "york"):
+        assert place not in terms, "%r is not a skill" % place
+    # the posting's real skills are untouched
+    assert "project management" in terms and "power bi" in terms
+    # and the display filter holds independently, for rows analysed before the skip existed
+    assert core.display_terms(["maine", "san francisco", "angeles county", "power bi"],
+                              "Acme", 10) == ["power bi"]
+
+
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

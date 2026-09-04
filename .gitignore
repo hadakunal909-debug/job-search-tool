@@ -48,6 +48,8 @@ JobMatch Scraper/visa_tags_build.log
 # -> scripts/probe_discovered -> scraper.adopt_everify_boards -> scripts/report_stem_opt_xlsx)
 # and the durable outputs are the code and the boards table, not these snapshots.
 JobMatch Scraper/discovered_*.csv
+# ...and the human-readable review that goes with a discovery batch.
+JobMatch Scraper/discovered_*.md
 # scripts/rank_new_sponsors.py stage-0 output: a ranked slice of the USCIS raw CSVs, so it
 # is regenerable in seconds and would otherwise land a few hundred KB of federal employer
 # spellings in the history every refresh.
@@ -56,6 +58,14 @@ JobMatch Scraper/recheck_*.csv
 JobMatch Scraper/phase23_*.csv
 JobMatch Scraper/allfix_*.csv
 JobMatch Scraper/unscrapeable_boards.csv
+
+# The local-fallback stores db.py writes when no remote database is configured, and the
+# read-check output of an adoption batch. docs/OPERATIONS.md has listed *_local.json as
+# "disposable and gitignored" for a while and it was never actually ignored --
+# resume_files_local.json holds base64 .docx RESUME BYTES, so one `git add -A` would have
+# committed a person's CV. Preventive only: none of these has ever been tracked.
+JobMatch Scraper/*_local.json
+JobMatch Scraper/new_board_jobs.csv
 JobMatch Scraper/adopted_companies_*.csv
 
 # Generated spreadsheets handed to the user, alongside jobmatch_companies.xlsx above.

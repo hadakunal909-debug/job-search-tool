@@ -5,8 +5,8 @@
 {% include "_brainnav.html" %}
 
 <h1>Library</h1>
-<p class="sub">Your résumés, the stories you can pull into one, and the rules the brain has learned.
-Everything here counts toward your feed match scores. Private to your account.</p>
+<p class="sub">Your résumés, stories and learned rules. All of it feeds your match scores.
+Private to your account.</p>
 
 <!-- ============ Résumés ============ -->
 <section class="panel" id="resumes">
@@ -64,8 +64,8 @@ Everything here counts toward your feed match scores. Private to your account.</
       </form>
     {% endfor %}
   {% else %}
-    <div class="empty sm">No résumés yet. Click <strong>Add a Résumé</strong> to paste your first.
-      It powers your feed match scores and every tailored draft.</div>
+    <div class="empty sm">No résumés yet. Click <strong>Add a Résumé</strong> to paste your
+          first — it powers your match scores and every tailored draft.</div>
   {% endif %}
 </section>
 
@@ -75,8 +75,8 @@ Everything here counts toward your feed match scores. Private to your account.</
     <h2>Stories <span class="count-pill">{{ stories|length }}</span></h2>
     <button type="button" class="btn primary lg add-toggle" data-target="add-story">Write a Story</button>
   </div>
-  <p class="muted small u-subnote">One experience each. The brain picks the most
-    relevant stories per job and weaves them into your tailored résumé.</p>
+  <p class="muted small u-subnote">One experience each. The brain picks the most relevant
+      stories per job and weaves them into your tailored résumé.</p>
 
   <form id="add-story" class="addbox" method="post" action="{{ url_for('brain_story_save') }}">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
@@ -124,7 +124,7 @@ Everything here counts toward your feed match scores. Private to your account.</
        it while that form is showing. It used to stay rendered directly UNDER the open form,
        telling the reader to press the button they had just pressed. #}
     <div class="empty sm" data-empty-for="add-story">No stories yet. Click <strong>Write a Story</strong> to add your first.
-      Stories are what let the brain tailor beyond a single résumé.</div>
+          Stories are what let the brain tailor beyond one résumé.</div>
   {% endif %}
 </section>
 
