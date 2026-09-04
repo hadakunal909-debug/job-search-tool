@@ -175,6 +175,27 @@ def handle(raw, ts, sig, secret, backend, now=None, local_ok=True):
                  "headers": {"Content-Range": (r.headers or {}).get("Content-Range", "")}}
 
 
+def _repeatable(method, prefer):
+    """May this request be sent again when we never learned whether the first one landed?
+
+    Retrying is only worth having if it cannot double-write, so this is decided from the
+    request itself rather than assumed:
+
+      * GET and HEAD change nothing.
+      * PATCH and DELETE always carry their filter in `params` -- pgrest.build refuses an
+        unfiltered DELETE outright -- so applying one twice writes the same values to the same
+        rows and deletes an already-deleted row.
+      * POST is safe only as an UPSERT. db.py sends `resolution=merge-duplicates` on every
+        insert that can collide, so a replay merges. The one bare POST in the codebase is the
+        admin_audit append, where a replay would genuinely be a second audit row -- so a bare
+        POST is sent exactly once and a blip during it fails loudly, which is the right
+        outcome for an audit trail.
+    """
+    if method in ("GET", "HEAD", "PATCH", "DELETE"):
+        return True
+    return method == "POST" and "merge-duplicates" in (prefer or "")
+
+
 class Session:
     """Client side: the five verbs, over HTTPS, for db._http to use."""
 
@@ -205,26 +226,86 @@ class Session:
             self._http = s
         return self._http
 
+    # WHAT IS WORTH A SECOND ATTEMPT -- and what deliberately still is not.
+    #
+    # _session() above refuses to retry statuses, and that reasoning holds for the proxy's OWN
+    # vocabulary: 401 bad signature, 403 table not allowed, 400 malformed. Retrying an
+    # explanation three times replaces it with a timeout, which is how the first live test
+    # wasted a debugging round.
+    #
+    # It does NOT hold for the hop in front of the proxy. /api/db is a Flask route on shared
+    # cPanel hosting behind LiteSpeed, and when that front end hiccups the request never
+    # reaches the application at all: it comes back 502/503/504, or -- the case that actually
+    # took the 2026-09-03 scrape down -- 200 carrying an HTML error page. r.json() was called
+    # on whatever arrived, so a few seconds of web-server trouble raised JSONDecodeError out
+    # of db.load_jobs() and killed the run on its FIRST query, twelve seconds after the
+    # preflight step had proved the database was reachable. Three steps died that way inside
+    # one minute and the day's scrape banked nothing.
+    #
+    # A genuine "503 no local database" from the proxy itself gets retried too. That is the
+    # accepted cost: three attempts, ~3s, and the caller still ends up with the server's own
+    # message. Losing a day's scrape to a blip is not a trade worth making to save it.
+    _RETRY_STATUSES = frozenset((502, 503, 504))
+    _ATTEMPTS = 3
+    _BACKOFF = 1.0
+
     def _run(self, method, url, headers=None, params=None, data=None, timeout=None):
         table = str(url).rsplit("/rest/v1/", 1)[-1].split("?")[0]
         body = None
         if data is not None:
             body = json.loads(data.decode("utf-8") if isinstance(data, bytes) else data)
+        prefer = (headers or {}).get("Prefer") or ""
         raw = json.dumps({"method": method, "table": table,
                           "params": params or {},
-                          "prefer": (headers or {}).get("Prefer") or "",
+                          "prefer": prefer,
                           "body": body}, separators=(",", ":")).encode("utf-8")
-        ts = "%d" % int(time.time())
-        r = self._session().post(
-            self.url, data=raw, timeout=timeout or 120,
-            headers={"Content-Type": "application/json",
-                     "X-DB-Ts": ts, "X-DB-Sig": sign(self.secret, ts, raw)})
-        if r.status_code >= 400:
-            # Surface the proxy's own reason; db.py's callers already read .text on failure.
-            return pgrest.Response(r.status_code, {"message": (r.text or "")[:300]})
-        payload = r.json()
-        return pgrest.Response(payload.get("status", 200), payload.get("rows"),
-                               payload.get("headers") or {})
+        attempts = self._ATTEMPTS if _repeatable(method, prefer) else 1
+        for i in range(attempts):
+            if i:
+                time.sleep(self._BACKOFF * (2 ** (i - 1)))
+            # ts and the signature are recomputed per attempt on purpose: the server rejects a
+            # stale X-DB-Ts, so reusing the first attempt's clock would turn a backoff into a
+            # 401 -- a retry that reports the wrong cause is worse than no retry.
+            ts = "%d" % int(time.time())
+            try:
+                r = self._session().post(
+                    self.url, data=raw, timeout=timeout or 120,
+                    headers={"Content-Type": "application/json",
+                             "X-DB-Ts": ts, "X-DB-Sig": sign(self.secret, ts, raw)})
+            except Exception:
+                # urllib3 already retried the CONNECTION twice inside that call, so arriving
+                # here means the host is down or the read timed out. Re-raise on the last
+                # attempt rather than inventing a Response: callers have always seen the
+                # transport exception for this case and several catch it by type.
+                if i == attempts - 1:
+                    raise
+                continue
+            if r.status_code >= 400:
+                # Surface the proxy's own reason; db.py's callers already read .text on failure.
+                resp = pgrest.Response(r.status_code, {"message": (r.text or "")[:300]})
+                if r.status_code in self._RETRY_STATUSES and i < attempts - 1:
+                    continue
+                return resp
+            try:
+                payload = r.json()
+            except ValueError:
+                # 200 with a body that is not JSON. Answer in the same shape the >=400 branch
+                # above uses so raise_for_status() reports "HTTP 502: <the HTML>" instead of a
+                # JSONDecodeError thrown from inside requests, which named neither the table
+                # nor the transport and read like a bug in our own parsing.
+                if i < attempts - 1:
+                    continue
+                return pgrest.Response(502, {"message": "proxy returned non-JSON: %s"
+                                                        % (r.text or "")[:300]})
+            if not isinstance(payload, dict):
+                # Valid JSON, wrong envelope -- an interstitial that answers `[]` or `"ok"`.
+                # .get() on it would AttributeError two frames from here.
+                if i < attempts - 1:
+                    continue
+                return pgrest.Response(502, {"message": "proxy returned a %s, not an envelope"
+                                                        % type(payload).__name__})
+            return pgrest.Response(payload.get("status", 200), payload.get("rows"),
+                                   payload.get("headers") or {})
 
     def get(self, url, **kw):
         return self._run("GET", url, **kw)
