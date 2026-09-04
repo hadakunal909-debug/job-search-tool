@@ -2920,7 +2920,12 @@ def admits_on_description(title, text, min_anchors=None, min_points=None):
 # because the feed applies it at render time and the scraper applies it before insert, and the
 # two must not drift — the same reason scripts/feed_parity.py exists for the filter twins.
 # ------------------------------------------------------------
-AGGREGATOR_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.")
+AGGREGATOR_HOSTS = ("adzuna.", "indeed.", "linkedin.", "ziprecruiter.", "glassdoor.",
+                    # jobright serves EVERY row as an interstitial on its own domain — its
+                    # payload has no direct employer link at all — so without this entry
+                    # fingerprint_duplicate's guard 1 would exempt them and we would double-
+                    # list every posting we already hold from the employer's own board.
+                    "jobright.")
 
 _HOST_RE = re.compile(r"^[a-z]+://([^/?#]+)", re.I)
 

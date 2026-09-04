@@ -86,6 +86,7 @@ SUITES = (
     Suite("test_jd_lookup_order",   "test_jd_lookup_order.py",           "root",   "offline"),
     Suite("test_jd_persist",        "test_jd_persist.py",                "root",   "offline"),
     Suite("test_jobspy_adapter",    "test_jobspy_adapter.py",            "root",   "offline"),
+    Suite("test_jobright_adapter",  "test_jobright_adapter.py",          "root",   "offline"),
     Suite("test_liveness",          "test_liveness.py",                  "root",   "offline"),
     Suite("test_password_rule",     "test_password_rule.py",             "root",   "offline"),
     Suite("test_pm_rule",           "test_pm_rule.py",                   "root",   "offline"),

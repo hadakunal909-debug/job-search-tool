@@ -106,6 +106,41 @@ ATS_BOARDS = [
 
     # Workday boards need Playwright (pip install playwright && playwright install chromium):
     # ("https://acme.wd1.myworkdayjobs.com/careers", "workday", "Acme"),
+    # --- Added 2026-09-03 (jobright discovery: harvest -> screen -> probe -> adopt). These are
+    # employers the jobright landing pages surfaced that no board of ours already covers; each
+    # was probed and its board read before being written here. Counts are US rows PASSING THE
+    # TITLE FILTER at add time, not the board's total, because that is what the board is worth.
+    # ION is mostly Milan/Trento/Noida/Chisinau -- 30 of its 69 are US. Sony Music's board
+    # reports itself as "Sony Music Global Job Board"; the slug and its postings confirm the
+    # employer, which is why adopt_everify_boards held it for review rather than dropping it. ---
+    ("https://jobs.lever.co/ion",                               "lever", "ION"),                  # ~12
+    ("https://job-boards.greenhouse.io/sonymusicentertainment", "greenhouse",
+     "Sony Music Entertainment"),                                                                 # ~4
+    ("https://job-boards.greenhouse.io/cipherhealth",           "greenhouse", "CipherHealth"),    # ~2
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://jobs.lever.co/3pillarglobal",                   "lever", "3Pillar Global"),      # ~56
+    ("https://jobs.smartrecruiters.com/AdvantageSolutions",   "smartrecruiters", "Advantage Solutions"),      # ~4
+    ("https://jobs.ashbyhq.com/biograph",                     "ashby", "Biograph"),      # ~16
+    ("https://jobs.lever.co/capital",                         "lever", "Capital Group"),      # ~38
+    ("https://job-boards.greenhouse.io/extenteamcareers",     "greenhouse", "Extenteam Careers"),      # ~3
+    ("https://job-boards.greenhouse.io/gassouth",             "greenhouse", "Gas South"),      # ~2
+    ("https://job-boards.greenhouse.io/kalcon",               "greenhouse", "KALCON"),      # ~40
+    ("https://jobs.lever.co/marquetteassociates",             "lever", "Marquette Associates Inc"),      # ~3
+    ("https://jobs.ashbyhq.com/ontic",                        "ashby", "Ontic"),      # ~17
+    ("https://jobs.ashbyhq.com/payabli",                      "ashby", "Payabli"),      # ~11
+    ("https://job-boards.greenhouse.io/pluribusdigital",      "greenhouse", "Pluribus Digital"),      # ~11
+    ("https://jobs.smartrecruiters.com/PrimeCareCoordination", "smartrecruiters", "Prime Care Coordination"),      # ~1
+    ("https://job-boards.greenhouse.io/sixspeed",             "greenhouse", "SixSpeed"),      # ~4
+    ("https://jobs.ashbyhq.com/tapcheck",                     "ashby", "Tapcheck"),      # ~13
+    ("https://job-boards.greenhouse.io/thrive",               "greenhouse", "Thrive"),      # ~3
+    ("https://jobs.smartrecruiters.com/UniversityofNevadaReno", "smartrecruiters", "University of Nevada, Reno"),      # ~1
+    ("https://job-boards.greenhouse.io/valaratomics",         "greenhouse", "Valar Atomics"),      # ~80
+    ("https://jobs.lever.co/waremalcomb",                     "lever", "Ware Malcomb"),      # ~123
+    ("https://jobs.lever.co/zerohomes",                       "lever", "Zero Homes"),      # ~20
 ]
 
 # Amazon's own portal (amazon.jobs): its job search is allowed by robots.txt and has a
@@ -1357,6 +1392,15 @@ WORKDAY_BOARDS = [
     # measured 0 on-target of 24, and a second entry for one employer would be the only
     # duplicate company name in SOURCES.
     ("https://bentley.wd503.myworkdayjobs.com/staff",                              "workday", "Bentley University"), # ~17 -> 2 (cap-exempt)
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    # Greystar is property management: 12 of 1,625 clear the title filter. Same flood shape as
+    # the retail giants that got blocklisted, kept deliberately -- remove it if the ratio bites.
+    ("https://baxter.wd1.myworkdayjobs.com/baxter",           "workday", "Baxter"),      # ~566
+    ("https://greystar.wd1.myworkdayjobs.com/External",       "workday", "Greystar"),      # ~1625
 ]
 
 # SAP SuccessFactors "Career Site Builder" sites (jobs.<co>.com / careers.<co>.com with
@@ -1411,6 +1455,12 @@ SF_BOARDS = [
     # reads as coverage in this list. Re-probe before adding either back.
     ("https://careers.capgemini.com",      "successfactors", "Capgemini"),          # ~211 rows
     ("https://careers.ey.com",             "successfactors", "EY"),                 # ~19 rows
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://jobs.kellanova.com",                            "successfactors", "Kellanova"),      # ~106
 ]
 
 # Phenom People career sites that are Phenom-NATIVE (apply links don't go to Workday —
@@ -1601,6 +1651,13 @@ JIBE_BOARDS = [
     # WORKDAY_BOARDS). Novant Health is cap-exempt, which is the only reason it is worth 1,677
     # postings: the board is overwhelmingly clinical, so 9 rows clear the title filter. ---
     ("https://jobs.novanthealth.org", "jibe", "Novant Health"),   # ~1,677 -> 9 on-target US (0.5%; cap-exempt)
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://coolsys.jibeapply.com",                         "jibe", "CoolSys"),      # ~334
+    ("https://dish.jibeapply.com",                            "jibe", "EchoStar"),      # ~440
 ]
 
 # Adzuna (the aggregator API) was REMOVED on 2026-08-16, along with its 40 company boards and
@@ -1705,6 +1762,45 @@ JOBSPY_BOARDS = [("jobspy:%s|%s|%s" % (site, phrase, JOBSPY_LOCATION), "jobspy",
 JOBSPY_REQUIRE_VISA_RECORD = (
     (os.environ.get("JOBSPY_REQUIRE_VISA_RECORD") or "1").lower() not in ("0", "false", "no"))
 
+# ---- jobright.ai: ONE templated landing page per role x city --------------------------------
+# jobright's own /jobs/recommend feed is deliberately NOT scraped. Their robots.txt disallows it
+# by name (along with /jobs/profile, /jobs/liked, /jobs/applied, /matching and all of /api/*),
+# it is an empty client-rendered shell, and filling it needs a logged-in session token. The
+# PUBLIC landing pages under /jobs/* are explicitly Allow-ed, and they are server-rendered with
+# the same row payload the recommend page draws — so this reads those instead.
+#
+# Volume comes from BREADTH, not depth: adding ?page=2 makes the __NEXT_DATA__ script disappear
+# entirely (pagination is a client-side /api/ call), so each URL yields exactly its first ~20
+# rows and more selectors is the only lever. That is the same shape as JOBSPY_BOARDS, which is
+# why this mirrors its role x location cross product.
+#
+# The slug template is "h1b-visa-sponsored-<role>-jobs-in-<city>-<state>". The un-prefixed
+# variant 303s, so every row this source returns is H-1B-relevant by construction.
+JOBRIGHT_ROLES = [r.strip() for r in
+                  (os.environ.get("JOBRIGHT_ROLES")
+                   or "software-engineer|data-engineer|data-scientist|product-manager"
+                   ).split("|") if r.strip()]
+JOBRIGHT_CITIES = [c.strip() for c in
+                   (os.environ.get("JOBRIGHT_CITIES")
+                    or "united-states").split("|") if c.strip()]
+
+# Empty by default, exactly like JOBSPY_BOARDS: with JOBRIGHT_ON unset there are no jobright
+# entries in SOURCES and nothing in this file reaches the network. Enabling it is a deliberate
+# act, not a side effect of importing the module.
+JOBRIGHT_ON = (os.environ.get("JOBRIGHT_ON") or "").lower() in ("1", "true", "yes")
+JOBRIGHT_BOARDS = ([("jobright:%s|%s" % (role, city), "jobright", "Jobright")
+                    for role in JOBRIGHT_ROLES for city in JOBRIGHT_CITIES]
+                   if JOBRIGHT_ON else [])
+
+JOBRIGHT_CALLS = [0]      # landing pages actually fetched — printed each run, same as JOBSPY_CALLS
+JOBRIGHT_ROWS = [0]       # raw rows parsed, before any of main()'s filters
+
+# Same reasoning as JOBSPY_REQUIRE_VISA_RECORD, and mostly redundant here because the slug
+# already selects for sponsorship — kept because it costs nothing and the long tail on these
+# pages is heavily staffing/consulting. Set to 0 to take everything.
+JOBRIGHT_REQUIRE_VISA_RECORD = (
+    (os.environ.get("JOBRIGHT_REQUIRE_VISA_RECORD") or "1").lower() not in ("0", "false", "no"))
+
 # Meta (metacareers.com): the ONLY source with no public feed AND no aggregator stand-in
 # we trust for it — Meta's careers site is a Facebook Relay/GraphQL app, so it's scraped
 # by driving a headless browser (Playwright). Kept in its own list because, unlike every
@@ -1718,6 +1814,13 @@ METACAREERS_BOARDS = [
 PEOPLESOFT_BOARDS = [
     ("https://jobs.omni.fsu.edu/psc/sprdhr_er/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL",
      "peoplesoft", "Florida State University"),                                          # ~207
+    # Added 2026-09-03 via jobright discovery. CAP-EXEMPT, and the largest single yield of that
+    # batch: 502 of 510 postings are US and 61 clear the title filter. NOT any of the three
+    # "Northwestern" entries already in SOURCES -- those are Northwestern Mutual, Northwestern
+    # Medicine and Northwestern Medical Center, all different employers on SmartRecruiters.
+    ("https://careers.northwestern.edu/psc/hrnu_er/EMPLOYEE/HRMS/c/"
+     "HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL",
+     "peoplesoft", "Northwestern University"),                                           # ~61
 ]
 
 # Paylocity Recruiting — small and mid-size US employers. One board per company, keyed by the
@@ -1783,6 +1886,12 @@ WERFEN_BOARDS = [
 EIGHTFOLD_BOARDS = [
     ("https://bayer.eightfold.ai/careers?domain=bayer.com", "eightfold", "Bayer"),        # 607
     ("https://insight.eightfold.ai/careers?domain=insight.com", "eightfold", "Insight Enterprises"),  # 183
+    # --- Added 2026-09-03 (entry/associate discovery sweep: 23 level-specific phrases x Indeed
+    # -> 503 employers -> 453 net-new -> 48 boards -> 40 verified. Counts are the board's total
+    # at add time, not US-filtered. Dollar General was rejected by the verifier itself (probe
+    # claimed 88,645 postings, the scraper reads 0) and Royal Farms because the title filter
+    # keeps 0 of 590. Citigroup and TD Bank were already here under different names. ---
+    ("https://careers.fluor.com/careers?domain=fluor.com",    "eightfold", "Fluor Corp."),      # ~620
 ]
 
 # Everything scrapeable: Amazon + boards + Workday + iCIMS/Jibe + Oracle + Phenom + Avature
@@ -1800,7 +1909,8 @@ SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ROBERTHALF_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
            + SF_BOARDS + PEOPLESOFT_BOARDS + PAYLOCITY_BOARDS
-           + JOBSPY_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS + AQUENT_BOARDS
+           + JOBSPY_BOARDS + JOBRIGHT_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
+           + AQUENT_BOARDS
            + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
            + JOBVITE_BOARDS + WERFEN_BOARDS)
 
@@ -3584,6 +3694,150 @@ def scrape_jobspy(board_url):
     if len(records) >= JOBSPY_RESULTS:
         note_truncation("jobspy:%s|%s" % (site, phrase), len(rows), JOBSPY_RESULTS,
                         detail="(results_wanted ceiling)")
+    return rows
+
+
+# ---- jobright.ai: the public landing pages, NOT the logged-in recommend feed ----
+# Config and JOBRIGHT_BOARDS live up by SOURCES, next to the JobSpy block this mirrors.
+JOBRIGHT_BASE = "https://jobright.ai"
+JOBRIGHT_SLUG = "/jobs/h1b-visa-sponsored-%s-jobs-in-%s"
+
+_JOBRIGHT_NEXT_RE = re.compile(
+    r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
+
+
+def _jobright_jd(job):
+    """One listing's description, composed from the three fields the payload already carries.
+
+    jobright hands us jobSummary (prose) plus coreResponsibilities and requirements (lists of
+    whole sentences), and composing them measured 1,396-5,807 chars — every sampled row clears
+    core._MIN_JD_CHARS. That matters more here than on most sources: the row's own url is a
+    jobright interstitial, so if the JD did not arrive WITH the listing, score_jobs would have
+    to fetch that interstitial to find one, and it does not carry the employer's text either.
+    """
+    parts = [_text(job.get("jobSummary"))]
+    for key in ("coreResponsibilities", "requirements"):
+        v = job.get(key)
+        if isinstance(v, list):
+            parts.append("\n".join("- %s" % _text(x) for x in v if _text(x)))
+        else:
+            parts.append(_text(v))
+    return "\n\n".join(p for p in parts if p.strip())
+
+
+def _jobright_location(job):
+    """The corpus stores one location string; jobright splits across two shapes."""
+    loc = _text(job.get("jobLocation"))
+    if loc:
+        return loc
+    locs = job.get("jobLocations")
+    if isinstance(locs, list):
+        return ", ".join(_text(x) for x in locs if _text(x))
+    return ""
+
+
+def _jobright_rows(payload):
+    """The listing rows out of a parsed __NEXT_DATA__ blob, whichever key holds them.
+
+    Two page families serve the SAME inner row shape under different names: /remote-jobs uses
+    `defaultData`, the /jobs/<slug> pages use `jobList`. Reading both means one adapter covers
+    both, and an unknown third family degrades to zero rows rather than a KeyError.
+    """
+    props = (payload or {}).get("props", {}).get("pageProps", {})
+    for key in ("jobList", "defaultData"):
+        rows = props.get(key)
+        if isinstance(rows, list) and rows:
+            return rows
+    return []
+
+
+def scrape_jobright(board_url):
+    """One jobright.ai public landing page. board_url is a selector,
+    'jobright:<role>|<city>' — e.g. 'jobright:data-engineer|raleigh-nc'.
+
+    WHY THIS SOURCE IS SHAPED LIKE THIS. jobright's /jobs/recommend is disallowed by their
+    robots.txt by name, is an empty client-rendered shell, and needs a logged-in session token —
+    so it is not read here and must not be. The public /jobs/* landing pages are Allow-ed and
+    server-render the same rows, so this reads those. One request per selector, no pagination:
+    a ?page= param makes the __NEXT_DATA__ script vanish because paging is a client-side /api/
+    call, so each URL is worth its first ~20 rows and nothing more.
+
+    Every row's url is a jobright interstitial — the payload carries no direct employer link at
+    all, unlike JobSpy's job_url_direct. That is why "jobright." is in core.AGGREGATOR_HOSTS:
+    it makes fingerprint_duplicate treat these as aggregator rows, so a posting we already hold
+    from the employer's own board suppresses the jobright copy instead of double-listing it.
+    """
+    sel = board_url.split(":", 1)[1] if ":" in board_url else board_url
+    parts = [p.strip() for p in sel.split("|")]
+    role = parts[0] if parts else ""
+    city = parts[1] if len(parts) > 1 else "united-states"
+    if not role:
+        raise ValueError("bad jobright selector %r (want jobright:<role>|<city>)" % board_url)
+
+    url = JOBRIGHT_BASE + JOBRIGHT_SLUG % (role, city)
+    JOBRIGHT_CALLS[0] += 1
+    r = _safe_get(url, timeout=30)
+    if r.status_code != 200:
+        # A 303 is the signal that this slug is not a real landing page — the un-prefixed
+        # "<role>-jobs-in-<city>" form redirects rather than 404s. Say which, so a typo in
+        # JOBRIGHT_ROLES reads as a bad selector and not as a quiet day.
+        print("  note: jobright %s -> HTTP %d (bad slug, or blocked?)" % (sel, r.status_code))
+        return []
+
+    m = _JOBRIGHT_NEXT_RE.search(r.text)
+    if not m:
+        # The page rendered but carried no server-side data. This is exactly what a paged or
+        # bot-flagged response looks like, and it is NOT the same as a slug with no openings.
+        print("  note: jobright %s served no __NEXT_DATA__ (client-rendered or refused?)" % sel)
+        return []
+    try:
+        records = _jobright_rows(json.loads(m.group(1)))
+    except ValueError:
+        print("  note: jobright %s __NEXT_DATA__ did not parse as JSON" % sel)
+        return []
+
+    JOBRIGHT_ROWS[0] += len(records)
+    if not records:
+        print("  note: jobright %s returned 0 rows" % sel)
+        return []
+
+    rows, seen = [], set()
+    for rec in records:
+        job = (rec or {}).get("jobResult") or {}
+        comp = (rec or {}).get("companyResult") or {}
+        link = _text(job.get("applyLink")) or _text(job.get("url"))
+        if not link or not is_http_url(link):
+            continue
+        canon = canonical_url(link)
+        if canon in seen:
+            continue
+        seen.add(canon)
+        company = _text(comp.get("companyName"))
+        title = _text(job.get("jobTitle"))
+        if not company or not title:
+            # Same call scrape_jobspy makes: a row with no employer cannot be sponsor-matched,
+            # cannot get a company page, and renders as a blank card.
+            continue
+        row = {"title": title,
+               "url": link,
+               "company": company,
+               "location": _jobright_location(job),
+               # Tagged so main() can apply the sponsor-record gate to THESE rows and not to the
+               # direct boards. Dropped on the way to storage — FIELDNAMES does not list it.
+               "_src": "jobright"}
+        # publishTime is "YYYY-MM-DD HH:MM:SS" and is jobright STATING when the job was posted,
+        # so it is sliced to a bare ISO date. core.is_trusted_date treats a bare date as a
+        # publisher field and a timestamp as one of ours — storing the full string would mark a
+        # real posting date as derived. See the date-semantics note in core.
+        posted = _text(job.get("publishTime"))
+        if posted[:10].count("-") == 2:
+            row["found_date"] = posted[:10]
+        jd = _jobright_jd(job)
+        if jd:
+            # main() banks this via listing_jds, the same path lever/ashby/jibe use. Guarded
+            # there at core._MIN_JD_CHARS, so a thin summary can never be stored as complete.
+            row["jd"] = jd
+        rows.append(row)
     return rows
 
 
@@ -6543,6 +6797,7 @@ SCRAPERS = {
     "personio": scrape_personio,
     "jsonld": scrape_jsonld,
     "jobspy": scrape_jobspy,
+    "jobright": scrape_jobright,
     "phenom": scrape_phenom,
     "oracle": scrape_oracle,
     "workable": scrape_workable,
@@ -8281,6 +8536,7 @@ SCRAPE_PER_HOST = _env_num("SCRAPE_PER_HOST", 4, int)
 # to retire anything from a board it could not read, and it is fetched again next run.
 SCRAPE_BOARD_TIMEOUT = {
     "jobspy": _env_num("JOBSPY_BOARD_TIMEOUT_SEC", 90, int),
+    "jobright": _env_num("JOBRIGHT_BOARD_TIMEOUT_SEC", 60, int),
     "workday": _env_num("WORKDAY_BOARD_TIMEOUT_SEC", 300, int),
 }
 
@@ -8524,7 +8780,11 @@ def fingerprint_duplicate(job, fingerprints):
     return None
 
 
-RECONCILE_SKIP_ATS = {"jobspy"}
+# Sources whose "board" is a QUERY, not a listing. reconcile_closed retires anything a board
+# stopped showing, which is only sound when the board shows its whole inventory. A keyword
+# sweep or a landing page shows a rotating slice — jobright serves 20 rows against a stated
+# total of ~1,800 — so every run would "stop seeing" nearly everything and close live jobs.
+RECONCILE_SKIP_ATS = {"jobspy", "jobright"}
 
 
 def _url_prefix(urls):
@@ -8976,6 +9236,8 @@ def main():
     # scrape for the sponsor flag, gating on "did they load" would silently switch this
     # gate on for every aggregator row, which is a drop rule, not a flag.
     jobspy_visa_gate = bool(JOBSPY_BOARDS and JOBSPY_REQUIRE_VISA_RECORD and visa_index)
+    jobright_visa_gate = bool(
+        JOBRIGHT_BOARDS and JOBRIGHT_REQUIRE_VISA_RECORD and visa_index)
     if jobspy_visa_gate:
         print("Sponsor records: %d employer(s) with a visa tag, %d with USCIS approvals."
               % (len(visa_index or {}), len(sponsor_counts or {})))
@@ -9133,6 +9395,9 @@ def main():
         if JOBSPY_CALLS[0]:
             print("JobSpy: %d quer%s, %d raw row(s)."
                   % (JOBSPY_CALLS[0], "y" if JOBSPY_CALLS[0] == 1 else "ies", JOBSPY_ROWS[0]))
+        if JOBRIGHT_CALLS[0]:
+            print("Jobright: %d landing page(s), %d raw row(s)."
+                  % (JOBRIGHT_CALLS[0], JOBRIGHT_ROWS[0]))
 
         # PHASE TIMING, because the alternative is a silent gap. The 2026-08-21 run was killed by
         # the step timeout with its last line being the JobSpy count and NOTHING for the 5m17s after
@@ -9233,7 +9498,9 @@ def main():
             # the ones it found had no record in ANY federal file, against 10% for the corpus. The
             # direct boards are exempt because those employers were chosen deliberately, and several
             # are cap-exempt universities and hospitals this test would wrongly drop.
-            if jobspy_visa_gate and j.get("_src") == "jobspy":
+            _agg_src = j.get("_src")
+            if ((jobspy_visa_gate and _agg_src == "jobspy")
+                    or (jobright_visa_gate and _agg_src == "jobright")):
                 co = j.get("company") or ""
                 if not core.visa_tags(co, visa_index) and not core.sponsor_strength(
                         co, sponsor_counts)[0]:
