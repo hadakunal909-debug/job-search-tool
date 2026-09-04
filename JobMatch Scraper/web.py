@@ -523,18 +523,32 @@ def _live_analysis(base):
         try:
             idf = core.load_idf()
             urls = [r["url"] for r in want[:_LIVE_ANALYZE_MAX]]
-            rank = {u: i for i, u in enumerate(urls)}
-            got = db.load_jobs_by_urls(urls, include_jd=True)
-            got.sort(key=lambda r: rank.get(r.get("url"), 1 << 30))
-            for r in got:
-                jd = (r.get("jd") or "").strip()
-                if not jd:
-                    continue                 # no text at all: honestly pending, nothing to do
-                an = (core.job_meta(jd, idf) or {}).get("analyzed") or {}
-                # THIN IS NOT UNSCORED, exactly as /job has it. A number derived from six generic
-                # terms a broad resume fully covers is the fake ~100% that flag exists to stop.
-                if an.get("terms") and not an.get("thin"):
-                    out[r["url"]] = an
+            # Batched first, because one request for 600 rows beats 600 requests. rank puts
+            # them back into ask-order: the batch answers in no order at all.
+            have = {r.get("url"): (r.get("jd") or "") for r in db.load_jobs_by_urls(
+                urls, include_jd=True)}
+            for u in urls:
+                jd = (have.get(u) or "").strip()
+                # ONE DOOR, and this fallback is what makes it one. load_jobs_by_urls SKIPS a
+                # failed batch rather than raising, so one bad batch would silently leave a
+                # hundred rows unscored -- while /job went on printing a percentage for every
+                # one of them, because it reads the same text through db.get_job_jd. A card and
+                # a page disagreeing about the same posting is the whole defect this function
+                # exists to remove, so a row the batch never returned is asked for the way /job
+                # asks. `u not in have` and not `not jd`: a row the batch DID return holding an
+                # empty description genuinely has none, and re-asking for it is the wasteful
+                # call get_job_jd's own miss-caching exists to prevent.
+                if not jd and u not in have:
+                    jd = (db.get_job_jd(u) or "").strip()
+                if jd:
+                    an = (core.job_meta(jd, idf) or {}).get("analyzed") or {}
+                    # THIN IS NOT UNSCORED, exactly as /job has it. A number derived from six
+                    # generic terms a broad resume fully covers is the fake ~100% that flag
+                    # exists to stop.
+                    if an.get("terms") and not an.get("thin"):
+                        out[u] = an
+                # Checked every iteration, including the ones that did no work, so the single-row
+                # fallback path is bounded by the same clock as the batched one.
                 if time.time() - t0 > _LIVE_ANALYZE_BUDGET_S:
                     break
         except Exception:
