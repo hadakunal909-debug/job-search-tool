@@ -188,7 +188,11 @@ jobs:
           # with silence — the watchdog does its own has-it-run-today check before dispatching,
           # so gating dispatch here would just duplicate that in the place where it is wrong.
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            SINCE=$(TZ=America/New_York date -d "today 00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+            # Two date calls for the reason scrape-watchdog.yml spells out: -u sets the
+            # zone for parsing too, so the one-call form silently reads Eastern midnight
+            # as UTC midnight and starts the window four hours early.
+            ET_MIDNIGHT=$(TZ=America/New_York date +%Y-%m-%dT00:00:00%:z)
+            SINCE=$(date -u -d "$ET_MIDNIGHT" +%Y-%m-%dT%H:%M:%SZ)
             DONE=$(gh run list --workflow=scrape.yml --limit 50 \
                      --json createdAt,conclusion,databaseId \
                      --jq "[.[] | select(.createdAt >= \"$SINCE\")

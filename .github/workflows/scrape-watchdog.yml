@@ -65,10 +65,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Eastern midnight, expressed as the UTC instant the API compares against. Doing this
-          # by string-matching the UTC date would start the window at 20:00 the previous ET day
-          # in summer, which counts yesterday evening's runs as today's.
-          SINCE=$(TZ=America/New_York date -d "today 00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+          # ET midnight as a UTC instant. TWO date calls, not one, and this is not style.
+          # `TZ=America/New_York date -d "today 00:00" -u` reads as if it would work; it does
+          # not, because -u sets the zone for PARSING as well as output and so silently wins
+          # over the TZ in front of it. Verified on a runner before this fix: it printed
+          # 2026-09-04T00:00:00Z when Eastern midnight was 04:00:00Z, four hours early -- which
+          # pulls 8pm-to-midnight ET of the PREVIOUS day into "today". Under the delays this
+          # watchdog exists for, a scrape landing at 9pm ET is exactly the case that would then
+          # be miscounted as today's success and suppress the dispatch.
+          #
+          # The first call stamps today's Eastern date with an explicit offset, which -u has no
+          # freedom to reinterpret. %:z is the offset NOW rather than at midnight, so on the two
+          # DST-transition days the window starts an hour either side of midnight; that is a
+          # boundary this check does not care about, and the alternative is arithmetic nobody
+          # will read.
+          ET_MIDNIGHT=$(TZ=America/New_York date +%Y-%m-%dT00:00:00%:z)
+          SINCE=$(date -u -d "$ET_MIDNIGHT" +%Y-%m-%dT%H:%M:%SZ)
           echo "Eastern day starts at $SINCE (UTC).  Now: $(TZ=America/New_York date '+%a %F %H:%M %Z')"
 
           TODAY=$(gh run list --workflow=scrape.yml --limit 50 \
