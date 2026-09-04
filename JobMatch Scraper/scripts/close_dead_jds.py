@@ -256,8 +256,9 @@ def main():
     # the exclusion with an explicit "jd_host_verdicts does NOT move the signature" check.
     #
     # So the invalidation is manual, and it is the same move a data-only DB fix needs:
-    # jobs_fingerprint() is (row count, max first_seen) and recording a verdict moves
-    # neither, so nothing invalidates the built rows on its own.
+    # jobs_fingerprint() is (row count, max first_seen, scored count) and recording a verdict
+    # moves none of the three -- it is a KV write, and it does not touch the jobs table at all --
+    # so nothing invalidates the built rows on its own.
     print("Then, so the feed shows it:  rm row_cache/*.rows.gz && touch tmp/restart.txt")
     return 0
 

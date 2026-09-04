@@ -231,8 +231,9 @@ patch moves neither half of the fingerprint and a file, unlike a process, does n
 `row_cache/` is disposable and gitignored; `_ROWS_MAX_FILES` bounds it at 3.
 
 **And the rows are built INCREMENTALLY, which is what makes a moving corpus survivable.**
-`jobs_fingerprint()` is (row count, max first_seen), so one new posting invalidated the built
-rows for 40,000 unchanged ones. Measured at 40,294 rows:
+`jobs_fingerprint()` is (row count, max first_seen, scored count), so one new posting — or one
+flush of the score pass, which banks every `SCORE_JD_WRITE_CHUNK` (2,000) rows — invalidated the
+built rows for 40,000 unchanged ones. Measured at 40,294 rows:
 
 | after a scrape lands | before | after |
 |---|---|---|
