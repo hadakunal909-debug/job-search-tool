@@ -2707,13 +2707,9 @@ _DOMAIN_MAP = {
 # Hosts belonging to a hiring PLATFORM rather than to the employer. A posting on one of these
 # says nothing about the company's own domain — "seic.wd1.myworkdayjobs.com" is a Workday tenant
 # name, not a website — so the URL is only trusted when its host is none of them.
-_PLATFORM_HOSTS = (
-    "myworkdayjobs.com", "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com",
-    "icims.com", "jobvite.com", "workable.com", "bamboohr.com", "taleo.net", "successfactors.com",
-    "sapsf.com", "avature.net", "jobdiva.com", "ultipro.com", "paylocity.com", "oraclecloud.com",
-    "eightfold.ai", "recruitics.com", "rippling.com", "isolvedhire.com", "apploi.com",
-    "phenompeople.com", "peoplefluent.com", "silkroad.com", "brassring.com", "dayforcehcm.com",
-)
+# Shared with scripts/build_logos.py, which reads a company's domain off its own board URL
+# and needs the same refusal. One copy, in core.
+_PLATFORM_HOSTS = core.PLATFORM_HOSTS
 
 
 _VERIFIED_DOMAINS_PATH = "company_domains.json"
