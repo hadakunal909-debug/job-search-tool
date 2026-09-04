@@ -1970,20 +1970,42 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
   /* Wide tables (per-table sizes, per-user actions) scroll rather than squeeze to nothing. */
   .panel{overflow-x:auto}
 }
-/* THREE, THEN TWO, THEN ONE. A card needs roughly 380px before the two fact tracks stop being
-   readable, so a narrowing viewport drops a COLUMN rather than squeezing the cells. */
-/* 1360, DOWN FROM 1600, and the reason is that 1600 excluded the machine this is built for.
-   A 1920x1080 laptop at Windows' default 125% display scaling reports a 1536px CSS viewport --
-   under 1601, so it showed two columns while an external monitor showed three, and zooming the
-   browser out to ~80% was the only way to get three. That is the browser being asked to fix a
-   breakpoint.
-   1400 is the line, and it is MEASURED. The panel is a fixed 148px of every card, so the white
-   half is card-width minus 148: at 1536 that is a 484px card and a 334px body, which holds a
-   two-line title comfortably. 1360 was tried first and let 1366 in at a 277px body, where 36 of
-   60 locations ellipsed and the title clamped mid-word -- so the floor sits above the common
-   1366 laptop, which gets two comfortable columns (649px cards) instead of three cramped ones.
-   Affordable at all because the type came down a step and the panel with it. */
-@media (max-width:1400px){
+/* THE COLUMN COUNT STOPPED DEPENDING ON THE VIEWPORT BEING GUESSED RIGHT.
+   Two attempts to place a three-column floor by viewport both missed the machine this is built
+   for -- 1600 excluded it, then 1400 excluded it -- because the width was inferred from a
+   screenshot instead of measured, and a breakpoint you cannot measure is the wrong mechanism.
+   What actually made three columns expensive was the PANEL: a fixed 156px side column out of
+   every card, so the white half was card-width minus 156 and a laptop had ~280px left for a
+   title. So the panel gives way first (below 1500 it becomes a strip inside the card and the
+   body gets the full width back), and only then does the grid drop a column. Three columns now
+   cost a card ~366px instead of ~440, which is why the floor can sit at 1080.
+
+   1760 IS SOLVED, NOT PICKED. The side column costs 156px of body, so it is worth having only
+   while the body still clears ~400px: body = (vw - 84)/3 - 158 >= 400 gives vw >= 1758.
+   Measured, the switch is stark -- at 1600 with the side column 36 of 60 titles clamped; at
+   1500 with the strip, 0 did, on a card 33px NARROWER. The panel was the whole cost. */
+@media (max-width:1760px){
+  /* THE PANEL BECOMES A STRIP, and this is the whole fix. Ring, label and the sponsorship line
+     on one row across the top of the card; .cardbody then has the card's full width for the
+     title, which is what a laptop was short of. Above this the side column is better -- it
+     reads as a column of verdicts down the page -- so it stays there. */
+  .card{flex-direction:column}
+  .cardbody{padding:14px 18px 16px}
+  /* order:-1 puts the strip ABOVE the body. Source order sends it to the bottom, which left the
+     card ending on a heavy block with Apply and Hide stranded above it -- the actions have to be
+     the last thing. On a wide screen the panel is on the trailing edge and that is right;
+     stacked, "trailing" would put it after the buttons. */
+  .cardverdict{order:-1;flex:0 0 auto;width:100%;flex-direction:row;justify-content:flex-start;
+    align-items:center;gap:var(--space-150);padding:8px 18px;text-align:left;
+    border-left:0;border-bottom:1px solid var(--verdict-line)}
+  /* 44px, not 72. In a strip the ring sits beside its own label rather than above it, so it is
+     one line tall and does not need to anchor a column. */
+  .cardverdict .score-ring{width:44px;height:44px}
+  .cardverdict .score-pending,.cardverdict .score-none{width:44px;height:44px}
+  .cvlabel{letter-spacing:var(--tracking-normal)}
+  .cbadges{width:auto;margin:0 0 0 auto;padding:0;border-top:0;align-items:flex-end}
+}
+@media (max-width:1080px){
   .feedgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:780px){
@@ -1992,19 +2014,8 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 @media (max-width:700px){
   /* 176 is 51% of a 345px body on a phone. The cap comes down with the card. */
   .cmark{max-width:140px}
-  /* THE PANEL BECOMES A STRIP. Below this there is no width to spend on a 132px column, so it
-     turns into a band across the top of the card -- ring, label and the sponsorship line on one
-     row. The card itself keeps padding:0; .cardbody carries it, exactly as at full width. */
-  .card{flex-direction:column}
   .cardbody{padding:16px}
-  /* order:-1 puts the strip ABOVE the body. Source order sends it to the bottom, which left
-     the card ending on a heavy blue block with Apply and Hide stranded above it -- the actions
-     have to be the last thing. On desktop the panel is on the trailing edge and that is right;
-     stacked, "trailing" would put it after the buttons. */
-  .cardverdict{order:-1;flex:0 0 auto;width:100%;flex-direction:row;justify-content:flex-start;
-    align-items:center;gap:var(--space-150);padding:10px 16px;text-align:left}
-  .cardverdict .score-ring{width:52px;height:52px}
-  .cbadges{width:auto;margin:0 0 0 auto;padding:0;border-top:0;align-items:flex-end}
+  .cardverdict{padding:10px 16px}
   /* FIXED TRACKS EARN NOTHING HERE, so they go. Their whole purpose is comparing a cell against
      the same cell on a neighbouring card, and at this width there is only ever one card on a
      line -- what the grid buys instead is two empty cells holding their gaps open, so
