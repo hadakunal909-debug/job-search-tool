@@ -978,17 +978,19 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    in .cardbody. overflow:hidden is what squares the panel off inside the card's radius. */
 .card{position:relative;background:var(--surface);border:1px solid var(--border-card);border-radius:var(--radius-lg);padding:0;display:flex;flex-direction:row;align-items:stretch;overflow:hidden;cursor:pointer;box-shadow:var(--shadow-xs);content-visibility:auto;contain-intrinsic-size:auto 214px}
 .cardbody{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--space-100);padding:18px}
-/* A COLUMN, NOT A CORNER. 164px, and that number is MEASURED rather than chosen: rendered at
-   nowrap the three labels are 123, 136 and 138px ("Sponsorship unlikely" is the widest) and the
-   match label is 82, so the content needs 138 + 24 of padding = 162. At 152 the star wrapped
-   onto its own line under "Sponsorship likely" and "unlikely" broke across two.
+/* A COLUMN, NOT A CORNER. 156px, and MEASURE IT rather than scaling the old number -- 148 was
+   arrived at by assuming 11px type would need proportionally less than 12px did, and it was 3px
+   short, so every "Sponsorship likely" on the feed rendered as "Sponsorship likel...". Measured
+   at nowrap with the tick included: 113 / 125 / 127px ("Sponsorship unlikely" widest) + 24 of
+   padding = 151, so 156 with a little slack. At 12px the same three were 123 / 136 / 138 and
+   needed 164. Undersize it and the ellipsis hides the word that carries the meaning.
    min-width:0 IS LOAD-BEARING AND IT IS NOT OBVIOUS. A flex item's automatic minimum size is
    its MIN-CONTENT width, so `flex:0 0 152px` is a floor and not a width: "Sponsorship unlikely"
    measured 161px and simply widened the panel, while "Sponsorship likely" left it at 146. Three
    different panel widths meant three different BODY widths on cards that are all 599px, and the
    fact cells stopped landing at the same offsets -- 19,225 / 19,226 / 19,232 across the grid,
    which is the one thing the fixed tracks exist to prevent. Measured, not spotted by eye. */
-.cardverdict{flex:0 0 164px;min-width:0;display:flex;flex-direction:column;align-items:center;
+.cardverdict{flex:0 0 156px;min-width:0;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:var(--space-050);padding:18px 12px;text-align:center;
   background:var(--verdict-bg);color:var(--verdict-ink);border-left:1px solid var(--verdict-line)}
 /* The ring is repainted from custom properties scoped here, so scoreRing() itself is UNTOUCHED
@@ -1040,8 +1042,8 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    slot instead of collapsing and letting pay slide under place. */
 .cfacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
   gap:var(--space-050) var(--space-150);margin-top:var(--space-025)}
-.cfact{display:block;min-width:0;font-size:var(--text-sm);color:var(--text-secondary);
-  line-height:1.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cfact{display:block;min-width:0;font-size:var(--text-xs);color:var(--text-secondary);
+  line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* NO ICONS. Each cell led with a real emoji (\01F4CD place, \01F4C5 years, \01F4B2 pay,
    \01F3E0 remote) until 2026-09-03; removed at the owner's direction. The .cf-* classes stay on
    the cells as hooks -- they cost nothing and the fact ORDER is asserted through them -- but
@@ -1198,12 +1200,15 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    with the button; what stays is the two-line clamp, the inherited ink colour, and CRUCIALLY the
    focus ring, which is the entire reason the title was promoted to a control in the first place.
    Never add outline:none here without a focus-visible replacement. */
-/* --text-md and no min-height, both because of the row. The title is the first thing read on
-   a card and it now has a full-width column to be read in, so it leads at 18px; and the 42px
-   floor that used to reserve a second line for a short title is dead weight when the line has
-   1,400px to run in. The two-line clamp stays for the genuinely long ones. */
+/* --text-base, DOWN FROM --text-md. 18px was right when a card was 599px wide; at three
+   columns on a 1536px laptop the white half is ~336px, and 18px put two words on a line and
+   clamped the rest. The whole card came down one step TOGETHER -- title 16, company 13, date
+   12, facts 13, panel 11 -- so the relationships are unchanged and only the scale moved. The
+   owner's own framing: adjust the words, not the layout.
+   No min-height: the 42px floor that reserved a second line for a short title is dead weight
+   now that the title has the card's full width. The two-line clamp stays for the long ones. */
 .ctitle{display:-webkit-box;width:100%;text-align:left;text-decoration:none;
-  font-weight:600;font-size:var(--text-md);line-height:1.3;letter-spacing:-.01em;
+  font-weight:600;font-size:var(--text-base);line-height:1.3;letter-spacing:-.01em;
   color:var(--ink);cursor:pointer;text-wrap:balance;
   -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .ctitle:hover{text-decoration:underline}
@@ -1211,11 +1216,13 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 /* Reaching any control inside a card lifts the whole card, so a keyboard user sees the same
    "this one" the mouse gets on hover instead of a ring floating on an otherwise flat grid. */
 .card:focus-within{box-shadow:var(--shadow-md);border-color:color-mix(in srgb,currentColor 30%,var(--border-default))}
-/* ONE SCALE ON THE CARD, top to bottom: title 18 / company 14 / date 13 / facts 14 / panel 12.
-   It had accumulated four sizes across five rows -- 18, 13, 11, and an inherited 13 in the fact
-   grid -- which is what read as unfinished rather than dense. */
+/* ONE SCALE ON THE CARD, top to bottom: title 16 / company 13 / date 12 / facts 13 / panel 11.
+   It had accumulated four unrelated sizes across five rows -- 18, 13, 11, and an inherited 13
+   in the fact grid -- which is what read as unfinished rather than dense. Standardised at
+   18/14/13/14/12 first, then moved down one step together on 2026-09-04 so three columns fit a
+   1536px laptop; the RELATIONSHIPS are the point, not the absolute numbers. */
 .cmeta{color:var(--muted);font-size:var(--text-xs);line-height:1.6}
-.cident a{font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--ink);
+.cident a{font-size:var(--text-xs);font-weight:var(--weight-semibold);color:var(--ink);
   text-decoration:none}
 .cident a:hover{text-decoration:underline}
 /* The meta-row separator. Set apart from the words it divides so the eye reads three facts
@@ -1303,7 +1310,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
    render, so nothing wraps today; the ellipsis is what stops a longer one overflowing the panel
    rather than breaking mid-phrase. */
 .cardverdict .cbadges > *{margin-left:0;background:transparent;border:0;padding:0;
-  max-width:100%;color:var(--verdict-sub);font-size:var(--text-2xs);
+  max-width:100%;color:var(--verdict-sub);font-size:var(--text-3xs);
   font-weight:var(--weight-semibold);line-height:1.35;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cardverdict .cbadges > *::before{content:"\2713";margin-right:5px;color:var(--verdict-ink)}
@@ -1311,7 +1318,7 @@ input[type=range].ranged{-webkit-appearance:none;appearance:none;background:tran
 .cbadges > *{margin-left:0}
 /* Dates and pay are things you compare down a column, so they get the data face and figures
    that hold their width while the feed renders. */
-.cmeta .posted{font-family:var(--font-data);font-size:var(--text-xs);font-variant-numeric:tabular-nums;letter-spacing:0}
+.cmeta .posted{font-family:var(--font-data);font-size:var(--text-2xs);font-variant-numeric:tabular-nums;letter-spacing:0}
 /* "Added <date>" — this employer publishes no posting date (Tesla's careers API has no date
    field at all), so the card shows when the job reached us instead. Italic + a dotted underline
    so it can never be misread as a posting date. Plain .posted has no rule of its own: it just
@@ -1965,13 +1972,18 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 }
 /* THREE, THEN TWO, THEN ONE. A card needs roughly 380px before the two fact tracks stop being
    readable, so a narrowing viewport drops a COLUMN rather than squeezing the cells. */
-/* 1600, and the number comes from what the PANEL costs. It is a fixed 164px out of every
-   card, so the white half is card-width minus 164 -- at 1440 that is a 452px card and a 288px
-   body, where the title clamps mid-word and "US - San Francisco, CA" ellipses to
-   "US - San Franci...". At 1600 the card is ~505 and the body ~341, which holds both.
-   Two wide cards beat three cramped ones: the row is only worth three across when there is
-   room for three, and above 1600 there is. */
-@media (max-width:1600px){
+/* 1360, DOWN FROM 1600, and the reason is that 1600 excluded the machine this is built for.
+   A 1920x1080 laptop at Windows' default 125% display scaling reports a 1536px CSS viewport --
+   under 1601, so it showed two columns while an external monitor showed three, and zooming the
+   browser out to ~80% was the only way to get three. That is the browser being asked to fix a
+   breakpoint.
+   1400 is the line, and it is MEASURED. The panel is a fixed 148px of every card, so the white
+   half is card-width minus 148: at 1536 that is a 484px card and a 334px body, which holds a
+   two-line title comfortably. 1360 was tried first and let 1366 in at a 277px body, where 36 of
+   60 locations ellipsed and the title clamped mid-word -- so the floor sits above the common
+   1366 laptop, which gets two comfortable columns (649px cards) instead of three cramped ones.
+   Affordable at all because the type came down a step and the panel with it. */
+@media (max-width:1400px){
   .feedgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:780px){
