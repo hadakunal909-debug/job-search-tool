@@ -40,8 +40,11 @@ setting it afterwards does nothing. One unguarded `feed_parity.py` run wrote 98.
   second-most-coupled file in the repo.
 - **`companies.json` is a shipped runtime asset**, not a cache. It is in `build_deploy_zip.py`'s
   **required** `FILES` and on `.cpanel.yml`'s `cp` line; without it `/companies` renders nothing.
-  Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`,
-  and run `--check` — it fails if a high-traffic employer landed in `Unsorted`.
+  Rebuild with `python scripts/build_companies.py` after touching `SOURCES` or `sponsors.txt`
+  **or adopting boards** — its universe is SOURCES + the `boards` table + `sponsors.txt` +
+  corpus spellings, so an adoption run stales it and nothing says so. Point it at the live
+  database (`DB_REQUIRE=proxy` + the `DB_PROXY_*` pair) and run `--check` — it fails if a
+  high-traffic employer landed in `Unsorted`.
 - **The logos are ours, harvested and committed to `static/logos/`.** Nothing is fetched from a
   third party at request time and `web.py`'s CSP `img-src 'self' data:` enforces it. Rebuild with
   `python scripts/build_logos.py` (sequential on purpose, resumable, no `--workers` — 12 threads
@@ -85,12 +88,26 @@ is GitHub. Use `python scripts/build_deploy_zip.py`, then upload/extract in File
 
 ## Database
 
-Three transports behind one interface, resolved in `db.py::_LazyHTTP`: `PG_DSN` → direct psycopg
-(the cPanel app); `DB_PROXY_URL` + `DB_PROXY_SECRET` → HMAC HTTPS (Actions, your laptop); neither
-→ Supabase → local CSV. A **half-set** `DB_PROXY_*` pair raises rather than falling through.
+**Two** transports behind one interface, resolved in `db.py::_LazyHTTP`: `PG_DSN` → direct
+psycopg (the cPanel app); `DB_PROXY_URL` + `DB_PROXY_SECRET` → HMAC HTTPS (Actions, your laptop);
+neither → local CSV. A **half-set** `DB_PROXY_*` pair raises rather than falling through, and so
+does asking for a session with nothing configured at all.
 
-`db.using_supabase()` means "is there a remote database at all" and answers **True for all three**
-— the name is historical. `db.backend_name()` is the one that tells you which.
+`db.has_remote_db()` means "is there a remote database at all" and answers True for both.
+`db.backend_name()` is the one that tells you which.
+
+**There was a third, and it was the default.** An unauthenticated Supabase REST session, removed
+2026-09-01. It resolved from `.streamlit/secrets.toml`, so *any* process started here without
+`PG_DSN` or `DB_PROXY_*` silently read and wrote the database this project left on 2026-08-15 —
+including `scripts/dump_schema.py`, which had been printing that database's schema as "live" for
+two weeks. If you are reading old code or docs that mention it: `using_supabase()` was renamed to
+`has_remote_db()` (99 call sites) because a predicate named after a backend that no longer exists
+is worse than a wide diff.
+
+**`APP_SECRET` is now required whenever a remote database is configured.** The session key used to
+fall back to `sha256(SUPABASE_KEY)`; with that gone, the only fallback left is a machine-local dev
+value derived from the hostname and file path, which is guessable — so `web.py` refuses to import
+rather than sign cookies and extension tokens with it.
 
 - **`db.load_jobs()` with no `cols` downloads ~130 MB** of descriptions. Four scripts have done
   this; `db._warn_full_jd_read` is the tripwire it added.
@@ -113,14 +130,49 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   and ranking is destroyed. If it needs rescaling, rescale what it measures (`core.core_terms`).
 - **Don't reach for a job aggregator.** Adzuna was removed 2026-08-16: at 6% of the feed it was
   38% of every job with no usable description. Reasoning in `docs/OPERATIONS.md`.
-- **One hue, and the card answers one question.** Colour used to mean *which* sponsorship route.
-  As of 2026-08-31 every card wears the same blue and shows a single chip — "Sponsorship likely"
-  / "Sponsorship unlikely", a star for a top H-1B sponsor, and no chip at all where there is no
-  filing record. Both at the owner's direction after seeing the live feed. `static/style.css`
-  states the rule (in the `--route-*` block, where only the h1b trio holds a value and the other
-  four alias it) and `scripts/test_contrast.py` gates it in CI. Routes are still named in full on
-  `/job` and `/companies`, which have room for them. Everything else is ink. **Don't reintroduce
-  a per-route colour or a second chip on the card** — that has now been walked back twice.
+- **One hue, and ONE CHIP. A chip is a verdict; a fact is a column.** Colour used to mean
+  *which* sponsorship route. As of 2026-08-31 every card wears the same blue and shows a single
+  chip — "Sponsorship likely" / "Sponsorship unlikely", a star for a top H-1B sponsor, and no
+  chip at all where there is no filing record. Both at the owner's direction after seeing the
+  live feed. `static/style.css` states the rule (in the `--route-*` block, where only the h1b
+  trio holds a value and the other four alias it) and `scripts/test_contrast.py` gates it in CI.
+  Routes are still named in full on `/job` and `/companies`, which have room for them.
+  Everything else is ink. **Don't reintroduce a per-route colour or a second chip on the card**
+  — that has now been walked back twice.
+  **Where the blue lives, 2026-09-03: the CARD IS WHITE with an outline, and the one hue is
+  spent on `.cardverdict`** — a TINTED column (`#eaf1fe`, not a saturated slab; `#1d4ed8` with
+  white on it was tried and read as a dark block bolted to a white card) down the trailing edge,
+  holding the ring, the match label and the sponsorship line. The wash that tinted every card is gone. The rule is not
+  weakened by this, it is aimed: one hue, on the one part of a card that is *our* claim rather
+  than the employer's. Two things that bite here — `.cardverdict` needs `min-width:0` or its
+  automatic minimum resolves to min-content and the panel silently sizes to its own label
+  (146px vs 161px, so every card gets a different body width and the fact cells stop sharing an
+  offset); and its width is MEASURED from the widest rendered label (138px + 24 padding = 164),
+  not chosen. A second stale `.cardverdict` rule left further down the file will win on source
+  order and undo both without looking broken.
+  **The other half, added 2026-09-03: the cap is on the VERDICT, and it was never a cap on
+  FACTS.** The card behaved as though it were, which is how `salary_label`, `remote` and
+  `exp_level` came to be computed by `_build_row`, serialised, and shipped to every browser
+  while `cardHTML` drew none of them — `grep -ac salary_label static/app.js` returned 0. Pay,
+  place and years are things the EMPLOYER stated; they are ink in `.cfacts`, in fixed tracks so
+  a column can be compared down the feed, and they add no chip and no hue. If you are tempted to
+  add something to a card, ask which one it is: a verdict goes in `.cardverdict` and has to
+  displace the chip that is there, a fact gets a column.
+- **The feed is a FIXED three-column grid, and "fixed" is the load-bearing word.** It was
+  `repeat(auto-fill,minmax(330px,1fr))` until 2026-09-03, and briefly one full-width row per
+  job in between. Auto-fill is what has to stay gone: it sizes cards to whatever the viewport
+  leaves over, so no two cards share a width and the fact cells never line up. With three equal
+  columns, `.cfacts` resolves to the same offsets in every card — measured `19,232,19,232` on
+  all 60 — so pay sits under pay across a line and down the page. `.cardact` carries
+  `margin-top:auto` for the same reason: a grid row stretches to its tallest card, and without
+  it a two-line title steps its own Apply button below its neighbours'.
+  Three traps if you touch this: `#feed` inside `@media (min-width:1200px)` used to override
+  `.feedgrid` by ID specificity regardless of source order (deleted — the feed rendered four
+  columns of row-styled cards and nothing warned); `contain-intrinsic-size` sizes the CONTENT
+  box, so set it from a measurement with `content-visibility` forced off or on-screen and
+  off-screen cards report two different heights and only one is real; and the fact cells are
+  ordered by COVERAGE (location 98%, years 91%, pay 41%, remote 17%), not by importance, so the
+  52% of cards carrying exactly two facts fill line one instead of sitting diagonally opposite.
 - **A card field that isn't the score belongs to the POSTING, not to the reader.**
   `_build_row` emits 41 keys and exactly one, `score`, depends on who is asking. `_base_rows()`
   builds the other 40 once per corpus and `ranked_rows` overlays the score onto shallow copies:
@@ -128,13 +180,26 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   AFTER that overlay** — `_dupe_rank` tie-breaks on the score, so folding duplicates while every
   base score is 0 keeps a different copy. Moving it into `_base_rows` for speed passes every
   other test; `scripts/test_speed_caches.py` is the one that catches it.
-- **Don't persist the built rows to disk.** Measured: 1,360 ms to build against 282 ms to read
-  back from a 1.4 MB gzip, so it looks free. It isn't — a built row embeds `logo_url`,
-  `sponsor_counts` and `visa_index` output, and **none of those three is covered by
-  `jobs_fingerprint()`**, so new logos without a scrape would leave a file serving stale badges
-  for ever where an in-memory cache dies with the worker. Reasoning in `docs/OPERATIONS.md`.
-  If more cold-start speed is needed, make `_build_row` cheaper (62 µs/row) — that helps the
-  warm path too and adds no cache.
+- **The built rows ARE persisted now, and the key is the whole design.** This bullet used to
+  say don't, on the grounds that a built row embeds `logo_url`, `sponsor_counts` and
+  `visa_index` output and `jobs_fingerprint()` covers none of them. That objection was right
+  and the conclusion was wrong: the fix is to put those inputs IN the key, not to throw the
+  work away. `row_cache/*.rows.gz` is keyed on `(jobs_fingerprint(), _derived_signature())`.
+  What made the old reasoning fail in practice: "`/warm` builds the shared half off the user's
+  path" assumed one warm reaches every worker, and `/warm` is one HTTP request — Passenger runs
+  several workers with no affinity and recycles them freely, so cold workers kept appearing and
+  each one's first request paid the full build.
+  Three rules that are each a bug someone already shipped:
+  **(1) `_derived_signature()` hashes file CONTENT, memoised on the stat.** On mtime, a deploy
+  — a zip extract, so every file rewritten and not a byte changed — invalidated all 40k rows
+  and charged the first visitor ~7 s.
+  **(2) Nothing that can fail silently may be in the key.** It once included two KV maps read
+  over the network whose readers swallow a failure into `{}`; workers computed different keys,
+  each rebuilt 7 s and overwrote the other's file. Production showed 63 ms and 8,401 ms in the
+  same second.
+  **(3) A request never writes the file; `/warm` (`persist=True`) and a from-scratch build do.**
+  The gzip is most of the cost and charging it to whoever loads the feed next is the regression
+  this replaced. `scripts/test_speed_caches.py` gates all three.
 - **The fonts are ours too, and the CSP is what enforces it.** Six woff2 in `static/fonts/`,
   `@font-face` at the top of `style.css`. `font-src 'self'` with no remote origin left in
   `style-src` either — the same bargain as `img-src` for the logos. What this replaced was a

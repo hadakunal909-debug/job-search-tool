@@ -5,8 +5,8 @@
 {% include "_brainnav.html" %}
 
 <h1>Tailor to a Job</h1>
-<p class="sub">Paste a job description and this reads it against your whole profile — which résumé
-fits best, which stories to feature, and what the posting is asking for that you have not said yet.</p>
+<p class="sub">Paste a job description. This reads it against your whole profile: which
+résumé fits, which stories to feature, and what the posting wants that you haven't said.</p>
 
 {# Caps the FORM at a readable width while the results below it use the full two columns. #}
 <div class="brainform">
@@ -75,8 +75,8 @@ fits best, which stories to feature, and what the posting is asking for that you
       <div class="cov">
         <div class="cov-num"><span class="big">{{ r.before }}%</span><span class="muted small">this résumé</span></div>
       </div>
-      <p class="muted small">No stories in your library yet, so there is nothing to add on top of
-        this. <a href="{{ url_for('brain_teach') }}">Write one</a> and this shows what it lifts.</p>
+      <p class="muted small">No stories yet, so there is nothing to add on top of this.
+              <a href="{{ url_for('brain_teach') }}">Write one</a> and this shows what it lifts.</p>
       {% endif %}
     {% else %}<p class="muted">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in your Library</a>.</p>{% endif %}
     {% if r.missing %}<p class="muted small">Keywords to add (only if true):</p><div class="chips">{% for k in r.missing %}<span class="chip miss">{{ k }}</span>{% endfor %}</div>{% endif %}
@@ -85,7 +85,7 @@ fits best, which stories to feature, and what the posting is asking for that you
 
   <div class="card">
     <h2>Stories to Feature</h2>
-    <p class="muted small">Check the ones you'll use and the brain weights them for jobs like this from now on. Add a note to teach it something specific.</p>
+    <p class="muted small">Check the ones you'll use; the brain weights them for jobs like this from now on. Add a note to teach it something specific.</p>
     <form method="post" action="{{ url_for('brain_feedback') }}">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="jd_terms" value="{{ r.jd_terms | join(',') }}">
@@ -108,7 +108,7 @@ fits best, which stories to feature, and what the posting is asking for that you
 
   <div class="card ai">
     <h2>Write it for me <span class="muted small">(optional AI)</span></h2>
-    <p class="muted small">Turn the plan into a finished tailored résumé <em>and</em> cover letter, grounded in your real material. Your key, your account only; the matching and scoring stay AI-free.</p>
+    <p class="muted small">Turn the plan into a finished résumé <em>and</em> cover letter, from your real material. Your key, your account only; matching and scoring stay AI-free.</p>
     <form method="post" action="{{ url_for('brain_rewrite') }}" id="rewriteForm">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="company" value="{{ inputs.company }}">

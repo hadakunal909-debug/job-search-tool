@@ -123,7 +123,7 @@ def main():
     print("\ndeleting...")
     # remote_only when Supabase is the real backend: with it briefly unreachable the CSV
     # fallback would rewrite an absent jobs.csv, report "0 removed", and leave the rows there.
-    n = db.delete_urls(urls, progress=prog, remote_only=db.using_supabase())
+    n = db.delete_urls(urls, progress=prog, remote_only=db.has_remote_db())
     left = db.table_count(db.TABLE)
     print("\ndeleted %d row(s). table now holds %s (was %d)." % (n, left, total))
 

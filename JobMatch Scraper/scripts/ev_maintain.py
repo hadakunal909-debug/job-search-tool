@@ -152,7 +152,7 @@ def main():
     ap.add_argument("--cache-days", type=int, default=CACHE_DAYS)
     a = ap.parse_args()
 
-    if not db.using_supabase():
+    if not db.has_remote_db():
         print("No Supabase credentials — nothing to do.")
         return 0
     # "CANNOT READ IT" AND "IT IS NOT THERE" ARE DIFFERENT ANSWERS, and this used to print the

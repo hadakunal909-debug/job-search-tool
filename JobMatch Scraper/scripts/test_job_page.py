@@ -15,6 +15,7 @@ QUIETLY rather than loudly:
 import os
 import re
 import sys
+import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +25,7 @@ import core
 import db
 import web
 import analytics
+import scraper.liveness as liveness
 
 USER = "jobpage@test"
 LIVE = "https://boards.example.com/acme/1"
@@ -104,6 +106,17 @@ JOBS = [
 
 # Keep this test off the network and off the database.
 web.get_jobs = lambda: [dict(j) for j in JOBS]
+# STUBBING get_jobs IS NOT ENOUGH ON ITS OWN. web._corpus_fp() answers the corpus
+# fingerprint from a sidecar or the database probe WITHOUT loading the corpus, and
+# _base_rows then reads row_cache/ under that key -- so with a real fingerprint in
+# reach these synthetic jobs are silently replaced by whatever the developer last
+# built. Filling _jobs_cache (rows, a fake fp, and a FRESH `at`) makes the memory
+# branch win, which is the same thing .claude/devpreview.py does and for the same
+# reason. scripts/run_tests.py also points ROWS_DIR at an empty directory.
+web._jobs_cache.update(rows=[dict(j) for j in JOBS], fp=(len(JOBS), "jobpage"),
+                       at=time.time())
+web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                            persisted=None, meta=None)
 web._session_dead = lambda u: ""
 web._needs_onboarding = lambda u: False
 web.current_profile = lambda: "python sql aws docker terraform spark airflow"
@@ -111,7 +124,7 @@ web.user_statuses = lambda u: {}
 web.sponsor_counts = lambda: {}
 web.sponsor_years = lambda: {}
 db.get_job_jd = lambda url: next((j["jd"] for j in JOBS if j["url"] == url), "")
-db.using_supabase = lambda: False          # so no research thread is ever started
+db.has_remote_db = lambda: False          # so no research thread is ever started
 db.get_brain_company = lambda dom: {}
 db.list_brain_companies = lambda: {}
 # scripts/close_dead_jds.py records this after probing; _host_jd_blocked reads it and caches.
@@ -199,8 +212,9 @@ check("jobpage.js is loaded, app.js is not",
 # app.js keys off #feed to decide it is on a feed page. Shipping one here would have it try to
 # render a card grid into the job page.
 check("no #feed on the page", 'id="feed"' not in body)
-check("the route attribute is present", 'data-route="' in body,
-      re.search(r'data-route="([a-z_]*)"', body).group(1))
+_route = re.search(r'data-route="([a-z_]*)"', body)
+check("the route attribute is present", _route is not None,
+      _route.group(1) if _route else "no data-route in %d bytes" % len(body))
 
 print()
 print("THE DESCRIPTION")
@@ -213,7 +227,12 @@ body_text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", body))  # noqa: E501  (re
 check("the employer's own heading wording survives",
       "Basic Qualifications" in body_text and "What We Offer" in body_text,
       "not rewritten to a canonical label")
-check("sections are bucketed", 'data-sec="req"' in body and 'data-sec="resp"' in body)
+# summary, not resp. "About the Role" is a role SUMMARY, and it used to classify as
+# Responsibilities because the summary vocabulary lived inside the resp pattern — so the jump
+# strip labelled an overview RESPONSIBILITIES. The six-bucket split is what fixed it.
+check("sections are bucketed", 'data-sec="req"' in body and 'data-sec="summary"' in body)
+check("a summary is not filed as a responsibility", 'data-sec="resp"' not in body,
+      "this fixture has an overview and a qualifications list, and no duties section")
 check("the jump strip is rendered", 'class="jdjump"' in body and "#jdsec-req" in body)
 check("keywords are highlighted inline", 'class="kw-' in body)
 check("the JD is not inside its own scroll box",
@@ -240,8 +259,17 @@ check("no per-route glossary table", "routelist" not in body and "routewhy" not 
       "five rows explaining what H-1B means is not what a job page is for")
 check("the filing history is one statement",
       "has a federal filing history for" in body_text or "no federal filing record" in body_text)
-check("the absence caveat is still verbatim from core", core.VISA_ABSENCE_NOTE in body,
+# REMOVED FROM THE PAGE 2026-09-03, at the owner's direction and after the trade-off was put
+# to them: it is a caveat about our DATA on a page that is about the POSTING. The assertion is
+# inverted rather than deleted so the removal stays deliberate -- if it reappears, that should be
+# a decision somebody makes again, not a paste.
+check("the absence caveat is NOT on the job page", core.VISA_ABSENCE_NOTE not in body,
       repr(core.VISA_ABSENCE_NOTE))
+# The RULE it stated is what actually matters and it is unaffected: the constant still exists for
+# the scripts that reason about it, and the feed still FLAGS sponsorship rather than filtering on
+# it, which is the behaviour the sentence was describing.
+check("...but the constant still exists for the code that reasons about it",
+      bool(core.VISA_ABSENCE_NOTE))
 # Removed from THIS page on request. It stays on /welcome and /profile, which is where somebody is
 # actually entering the dates it warns about; test_onboarding.py still asserts it there.
 check("the immigration-advice callout is NOT on the job page",
@@ -320,6 +348,37 @@ check("jd_unavailable is set only for the walled host",
       rows[BLOCKED]["jd_unavailable"] is True and rows[PENDING]["jd_unavailable"] is False)
 check("both are still score_pending, so neither shows a fake 0%",
       rows[BLOCKED]["score_pending"] and rows[PENDING]["score_pending"])
+
+# ---------------------------------------------------------------------------------------------
+# WHICH VERDICTS COUNT AS "no description is coming". The block above stubs the resolved host
+# SET; this exercises the step that builds it from the KV row close_dead_jds writes.
+#
+# Only "blocked" counted until 2026-09-02, and the larger class was "unknown" -- a 200 with a
+# real page and nothing extractable, which is what a client-rendered apply app looks like
+# (Actalent serves one 448 KB shell for every job). Both mean the same thing to a reader, so
+# both must set the badge; the rest must not.
+_saved_hosts = web._jd_blocked_hosts
+_saved_get_kv = db.get_kv
+VERDICTS = {"blocked": "walled.example.com", "unknown": "shell.example.com",
+            "gone": "dead.example.com", "transient": "flaky.example.com",
+            "mixed": "disagreed.example.com", "readable": "fine.example.com"}
+db.get_kv = lambda key: ({"hosts": {h: {"verdict": v} for v, h in VERDICTS.items()}}
+                         if key == web._JD_VERDICT_KEY else {})
+web._jd_blocked_hosts = None                    # force the cached read to happen again
+try:
+    for verdict, host in sorted(VERDICTS.items()):
+        want = verdict in ("blocked", "unknown")
+        got = web._host_jd_blocked("https://%s/careers/1" % host)
+        check("verdict %-10s -> %s" % (verdict, "unavailable" if want else "still pending"),
+              got is want, "got %r" % got)
+    check("'mixed' is close_dead_jds' own label for probes that DISAGREED, not a finding",
+          "mixed" not in web._JD_UNREADABLE)
+    check("every verdict web.py acts on is one liveness.classify can actually return",
+          web._JD_UNREADABLE <= set(liveness.VERDICT_NOTES) | {"blocked", "unknown"})
+finally:
+    db.get_kv = _saved_get_kv
+    web._jd_blocked_hosts = _saved_hosts
+    web._rows_cache.clear()
 
 print()
 print("A ROW THAT HOLDS A DESCRIPTION NOBODY ANALYSED — the reported defect")

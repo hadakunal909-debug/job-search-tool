@@ -130,7 +130,13 @@ def _names_non_us(loc):
     scraper.title_says_non_us' docstring makes the same point about the same function.
     """
     low = scraper._fold(loc or "")
-    return bool(low) and bool(scraper._NON_US_RE.search(low))
+    if not low or not scraper._NON_US_RE.search(low):
+        return False
+    # ...and a US namesake is not "somewhere abroad". Same list is_us_location uses: without
+    # it a board whose every posting sits in Lima OH or London OH reads as 100% foreign and
+    # this veto rejects a real US employer -- the failure mode the docstring above warns
+    # about, arriving through the regex instead of through is_us_location.
+    return not scraper._us_namesake_only(low, loc)
 
 
 def foreign_share(rec):

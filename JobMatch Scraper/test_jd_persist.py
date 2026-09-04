@@ -26,6 +26,7 @@ import os
 import sys
 import tempfile
 
+import db as real_db
 import scraper.score_jobs as sj
 
 
@@ -40,6 +41,7 @@ class _FakeDB(object):
         self.jd_writes = []                       # every url passed to update_jds, in order
         self.kv = {}                              # put_kv/get_kv blobs, incl. the thin ledger
         self.score_calls = []                     # one entry per update_scores call: its urls
+        self.field_calls = []                     # one entry per update_job_fields call
 
     # --- reads -------------------------------------------------------------------
     def load_jobs(self, include_jd=True, cols=None):
@@ -70,8 +72,25 @@ class _FakeDB(object):
             if u in self.rows:
                 self.rows[u]["match_score"] = s
 
-    def update_job_fields(self, rows):
-        pass
+    def update_job_fields(self, rows, keys=None):
+        # Applied the way db._upsert would, and the two details it gets right are the whole
+        # reason these tests can see anything:
+        #   1. it WRITES the columns rather than merging truthy values, so a stale value failing
+        #      to clear is visible (the CSV fallback merges; the remote path does not);
+        #   2. with no `keys`, the union is taken over the rows' NON-NULL values, because
+        #      _upsert drops Nones on its way to computing it. A fake that unioned the raw keys
+        #      would send exp_max_years on every batch for free and the group-naming test would
+        #      pass against the old behaviour.
+        cols = (sorted(keys) if keys else
+                sorted({k for r in rows for k, v in r.items() if v is not None}))
+        self.field_calls.append({"urls": [r.get("url") for r in rows], "cols": cols})
+        for r in rows:
+            row = self.rows.get(r.get("url"))
+            if row is None:
+                continue
+            for k in cols:
+                if k != "url":
+                    row[k] = r.get(k)
 
     # --- run bookkeeping main() touches but these tests don't assert on ------------
     # The thin-JD retry ledger lives in this KV row (db.get_kv/put_kv over scrape_status).
@@ -90,7 +109,7 @@ class _FakeDB(object):
     def backend_name(self):
         return "fake"
 
-    def using_supabase(self):
+    def has_remote_db(self):
         return True
 
 
@@ -703,6 +722,345 @@ def test_new_only_reaches_the_oldest_unscored_row_before_the_newest():
     assert scored == ["d", "e", "f"],         "scored %r; the budget must reach the OLDEST unscored rows, or the ones under a busy "         "day's ingest are never analysed at all" % (scored,)
     for ch in "abc":
         assert fake.rows[_url(ch)]["match_score"] is None,             "row %s was written despite the budget stopping before it" % ch
+
+
+def test_the_probed_window_moves_from_one_run_to_the_next():
+    """THREE FIXED ROWS MUST NOT SPEAK FOR A WHOLE HOST.
+
+    _thin_retry_plan took `sorted(by_host[h])[:3]` -- the same three urls, alphabetically, on
+    every run forever. The daily seed rotated which HOSTS were due; nothing rotated which ROWS.
+    So a host whose first three urls happened to be unfetchable recorded a failure every single
+    run, doubled its backoff toward 64 days, and the rest of its backlog was never touched.
+
+    Measured on the live corpus 2026-09-01: apply.actalentservices.com held 755 rows the feed
+    was calling "JD pending" and sat at f=2, next=2026-09-05, while 31 of those rows were still
+    listed on the board and would have returned a 5,393-character description on request.
+    """
+    urls = ["https://shell.com/job/%02d" % i for i in range(30)]
+    day1 = sj._host_window(urls, 3, 40)
+    day2 = sj._host_window(urls, 3, 41)
+    assert day1 != day2, "the window did not move between runs: %r" % (day1,)
+    assert not (set(day1) & set(day2)),         "consecutive runs re-probed %r -- the offset must step by the WINDOW, not by 1"         % (sorted(set(day1) & set(day2)),)
+
+    # ...and it eventually reaches every row, which is the property the host-level backoff needs
+    # in order to ever be re-earned.
+    seen = set()
+    for d in range(len(urls)):
+        seen.update(sj._host_window(urls, 3, d))
+    assert seen == set(urls), "%d of %d rows are unreachable by any seed" % (len(seen), len(urls))
+
+
+def test_the_window_still_bounds_itself_at_the_edges():
+    """The rotation must not change the size of the bite, or THIN_PROBE_MAX stops bounding the
+    run -- and a wrapped window must not silently return fewer rows than it was asked for."""
+    urls = ["https://shell.com/job/%02d" % i for i in range(10)]
+    for seed in range(0, 97):
+        w = sj._host_window(urls, 3, seed)
+        assert len(w) == 3, "seed %d returned %d rows" % (seed, len(w))
+        assert len(set(w)) == 3, "seed %d returned a duplicate: %r" % (seed, w)
+        assert set(w) <= set(urls), "seed %d invented a url: %r" % (seed, w)
+    assert sj._host_window(urls, 3, 0) == urls[:3], "seed 0 must keep the plain head"
+    assert sj._host_window(urls[:2], 3, 7) == urls[:2], "a short list must not wrap onto itself"
+    assert sj._host_window([], 3, 7) == []
+    assert sj._host_window(urls, 0, 7) == []
+
+
+def test_rotation_does_not_loosen_the_per_host_cap():
+    """The cap is what makes an unreachable ledger safe. Rotating WHICH rows are taken must not
+    change HOW MANY -- the bound is by construction, not by the ledger."""
+    rows = _thin_rows(40)
+    cache = {r["url"]: _SHELL for r in rows}
+    for seed in (0, 1, 7, 13):
+        plan, hosts = sj._thin_retry_plan(sorted(cache), {}, sj._extractor_rev(),
+                                          "2026-09-02", seed=seed)
+        assert len(plan) == sj.THIN_PROBE_PER_HOST,             "seed %d planned %d probes; the cap is %d" % (seed, len(plan), sj.THIN_PROBE_PER_HOST)
+        assert hosts == ["shell.com"], hosts
+
+
+def test_the_bulk_phase_visits_every_board_exactly_once():
+    """The windowed submission must not drop or repeat a board.
+
+    The bulk loop was `ex.map(_one, bulk)`, which submits all of them at once and holds each
+    result until the consumer reaches it IN ORDER -- so one slow board pins every map that
+    finished behind it, and jd_map_for returns a WHOLE BOARD with every description. That is
+    the phase 4 of the 6 score-step runs in the live cron log were SIGKILLed inside. It is now
+    a bounded window drained with as_completed, which changes both the ORDER boards are visited
+    in and the number in flight; this pins the part that must not change.
+    """
+    rows = _thin_rows(1)
+    seen = []
+
+    def _map(board_url, ats, needed=None):
+        seen.append(board_url)
+        return {}
+
+    boards = [("https://boards.example.com/b%02d" % i, "greenhouse", "Co%02d" % i)
+              for i in range(40)]
+    saved_sources = sj.scraper.SOURCES
+    saved_custom = sj.scraper.custom_sources
+    saved_has = sj._board_has_missing
+    try:
+        sj.scraper.SOURCES = boards
+        sj.scraper.custom_sources = lambda: []
+        sj._board_has_missing = lambda *a, **kw: True
+        _run_with_fetch(rows, {rows[0]["url"]: _SHELL}, [], lambda _u: _JD, jd_map=_map)
+    finally:
+        sj.scraper.SOURCES = saved_sources
+        sj.scraper.custom_sources = saved_custom
+        sj._board_has_missing = saved_has
+
+    assert len(seen) == len(set(seen)), "a board was fetched twice: %r" % (
+        [b for b in seen if seen.count(b) > 1][:3],)
+    assert set(seen) == {b for b, _a, _c in boards}, (
+        "%d of %d boards visited; missing %r"
+        % (len(set(seen)), len(boards),
+           sorted({b for b, _a, _c in boards} - set(seen))[:3]))
+
+
+_ORACLE_URL = ("https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/"
+               "sites/CX_45001/job/344471")
+# Shaped from the real response for that requisition, trimmed to the keys under test.
+_ORACLE_ITEM = {
+    "ExternalDescriptionStr": "<p>Position is based in Nashville, TN. The LVV team is seeking "
+                              "experienced vendor managers.</p>",
+    "ExternalQualificationsStr": "",
+    "requisitionFlexFields": [
+        {"Prompt": "Role", "Value": "Individual Contributor"},
+        {"Prompt": "Years", "Value": "3 to 5+ years"},
+        {"Prompt": "Additional Info",
+         "Value": "Visa / work permit sponsorship is not available for this position"},
+        {"Prompt": "Empty one", "Value": ""},
+        {"Prompt": "", "Value": "orphan value with no label"},
+    ],
+}
+
+
+def test_oracle_reads_its_FIELD_TABLE_not_just_the_description():
+    """The two facts that decide whether a posting is worth opening are not in its prose.
+
+    Oracle's candidate page renders a labelled block above the description -- Role, Job Type,
+    Years, Additional Info -- and every one is a requisitionFlexFields entry. The extractor read
+    only the four description fields, so a posting showing "Years: 3 to 5+ years" on its own
+    page reported "Not stated in this posting" here.
+
+    THE SPONSORSHIP HALF IS THE SERIOUS ONE. "Visa / work permit sponsorship is not available for
+    this position" sits in the same block, and core.sponsorship_from_jd reads it correctly the
+    moment it can see it -- so without it the card fell back to the EMPLOYER's filing history
+    and said "H-1B Likely" on a posting that rules sponsorship out in writing. 2,495 active rows
+    are on this host, including JPMorgan Chase (582) and Oracle (513).
+    """
+    saved = sj.scraper._get_json
+    try:
+        sj.scraper._get_json = lambda *a, **kw: {"items": [_ORACLE_ITEM]}
+        jd = sj.oracle_detail_jd(_ORACLE_URL)
+    finally:
+        sj.scraper._get_json = saved
+
+    assert "vendor managers" in jd, "the description itself must survive"
+    assert "Years: 3 to 5+ years" in jd, jd[-200:]
+    assert "Visa / work permit sponsorship is not available" in jd, jd[-200:]
+    # A label or a value alone is not a field, and rendering "": "" would be noise in jd_terms.
+    assert "Empty one" not in jd and "orphan value" not in jd, jd[-200:]
+
+    clean = sj.core.clean_jd(jd)[0]
+    assert sj.core.experience_years(clean) == 3, sj.core.experience_years(clean)
+    verdict, _why = sj.core.sponsorship_from_jd(clean)
+    assert verdict == "blocked", verdict
+    # ...and that verdict must actually strip the employer's routes off the card.
+    assert sj.core.visa_tags_for_posting(("h1b", "green_card"), verdict, _why) == (), \
+        "a posting that rules sponsorship out still showed the employer's H-1B chip"
+
+
+def test_the_blind_boards_rotate_and_every_one_is_reached():
+    """jibe/phenom boards are ROTATED, not skipped, and the rotation must reach all of them.
+
+    _board_has_missing answers True unconditionally for these two because their rows store an
+    apply url whose host varies per tenant -- correct, and the reason Actalent's 1,461 rows
+    stopped sitting on a loading shell. The cost was never counted: 149 of the 151 boards a
+    live run bulk-fetches are these, each returning its WHOLE board to satisfy almost none of
+    the wanted rows. Taking a rotating slice bounds that, but only if the slice moves; a fixed
+    head would fetch the same 20 forever and the other 129 would never be visited at all.
+    """
+    blind = sorted(("https://b%03d.example.com" % i, "jibe", "Co%03d" % i) for i in range(149))
+    seen, n = set(), sj._BLIND_BOARDS_PER_RUN
+    for day in range(9):
+        window = sj._host_window(blind, n, 20260901 + day)
+        assert len(window) == n, "run %d took %d boards, not %d" % (day, len(window), n)
+        seen |= set(window)
+    assert seen == set(blind), (
+        "%d of %d blind boards reached in 9 runs; %d never visited"
+        % (len(seen), len(blind), len(set(blind) - seen)))
+
+
+def test_the_bulk_window_is_smaller_than_a_real_board_list():
+    """The window is the memory bound, so it must actually bound something.
+
+    151 boards were in flight on the run that died; the point of the constant is that the
+    number of COMPLETED board maps waiting to be consumed is fixed regardless of how many
+    boards there are. A window at or above the board count would be the old behaviour wearing
+    a constant's name.
+    """
+    assert 0 < sj._BULK_WINDOW <= 32, sj._BULK_WINDOW
+    # Not tied to the worker count, and deliberately: workers are a throttling decision about
+    # outbound concurrency, the window is a memory one.
+    assert sj._BULK_WINDOW >= 8, "a window below the worker count starves the pool"
+
+
+# --- the derived-column write ----------------------------------------------------------------
+#
+# _persist_derived writes two column GROUPS, and the JD one (exp_max_years, sponsor_jd,
+# sponsor_reason, jd_terms) is the expensive one to lose: it is the product of the analysis pass,
+# and everything else a run produces has already been banked by the time it is sent. It is
+# written in batches as the loop builds it; these two tests pin what batching must preserve.
+
+_META = {"analyzed": {"weight": {"roadmap": 1.5, "stakeholder": 1.0}, "thin": False},
+         "exp_years": None, "exp_level": "", "sponsor_jd": ["", ""]}
+
+
+def _derived_rows(n):
+    """n rows the derived phase wants to write: a readable description, and no JD columns stored
+    at all, so every one of them diffs as changed."""
+    return [{"url": "https://ex.com/d%02d" % i, "jd": _JD, "location": "Boston, MA",
+             "found_date": "2026-09-01", "first_seen": "2026-09-01",
+             "title": "Program Manager", "company": "Ex"} for i in range(n)]
+
+
+def _run_derived(rows, fake=None, chunk=2):
+    """Drive _persist_derived directly, with every row's analysis supplied.
+
+    main() is not needed to test the WRITE and would bury the batch boundaries under a
+    fetch/analyse pass; handing over jdmeta also keeps core.job_meta (~206 ms a row) out of it.
+    """
+    fake = fake if fake is not None else _FakeDB(rows)
+    saved = (sj.db, sj.JD_WRITE_CHUNK)
+    try:
+        sj.db, sj.JD_WRITE_CHUNK = fake, chunk
+        sj._persist_derived({r["url"]: r["location"] for r in rows},
+                            {r["url"]: r["jd"] for r in rows},
+                            current_rows=[dict(r) for r in rows],
+                            jdmeta={r["url"]: dict(_META) for r in rows}, idf={})
+    finally:
+        sj.db, sj.JD_WRITE_CHUNK = saved
+    return fake
+
+
+def test_a_failed_jd_batch_does_not_throw_away_the_batches_around_it():
+    """The JD write is the one phase whose work nothing else banks.
+
+    On 2026-09-03 the pass printed `Derived fields: updated 1809 job(s)` and then died with no
+    traceback at 1.24 GB RSS -- inside the single call that wrote the four JD columns for the
+    whole corpus. match_score, loc_state and every fetched description had landed; only the
+    analysis output was lost, and re-deriving it took an hour. So a write that fails must cost
+    its own rows and nobody else's.
+    """
+    rows = _derived_rows(6)
+    fake = _FakeDB(rows)
+    real, calls = fake.update_job_fields, []
+
+    def _flaky(payload, keys=None):
+        calls.append([r["url"] for r in payload])
+        if len(calls) == 2:                   # the second batch is the one the box kills
+            raise RuntimeError("proxy said no")
+        real(payload, keys=keys)
+
+    fake.update_job_fields = _flaky
+    _run_derived(rows, fake=fake, chunk=2)
+
+    assert len(calls) >= 4, \
+        "%d write(s) -- this test needs the JD group split into batches around a failing one" \
+        % (len(calls),)
+    stored = [bool(fake.rows[r["url"]].get("jd_terms")) for r in rows]
+    assert stored == [True, True, False, False, True, True], \
+        "stored %r -- one failed batch must not cost the batches before or after it" % (stored,)
+
+
+def test_a_jd_batch_stating_no_years_still_clears_a_stale_floor():
+    """Every batch writes the whole column GROUP, not the columns it happens to hold.
+
+    db._upsert normalises each call to the union of its rows' keys and drops Nones on the way, so
+    a batch in which no row states an experience floor would not send exp_max_years at all -- and
+    a number an older, more credulous parser wrote would survive the very re-derive meant to
+    clear it. Batching is what makes that reachable: with the whole corpus in one call, some row
+    always carries a floor.
+    """
+    rows = _derived_rows(2)
+    rows[0]["exp_max_years"] = 7              # what an earlier run's parser read
+    fake = _run_derived(rows, chunk=1)        # one row a batch, so no batch holds a floor
+
+    assert fake.rows[rows[0]["url"]].get("exp_max_years") is None, \
+        "the stale floor survived -- the batch never sent the column"
+    jd_calls = [c for c in fake.field_calls if "jd_terms" in c["cols"]]
+    assert jd_calls and all("exp_max_years" in c["cols"] for c in jd_calls), \
+        "a JD batch sent %r -- every batch must write the named group" \
+        % ([c["cols"] for c in jd_calls],)
+
+
+class _StubHTTP(object):
+    """Records what db._upsert would have put ON THE WIRE. Only .post is needed -- that is the
+    only verb an upsert uses -- and no credentials are touched, because db._rest and db._headers
+    are pure since Supabase was removed. So this runs in CI, which has no database."""
+
+    class _Resp(object):
+        status_code = 204
+        text = ""
+
+    def __init__(self):
+        self.posts = []
+
+    def post(self, url, headers=None, params=None, data=None, timeout=None):
+        self.posts.append(json.loads(data))
+        return self._Resp()
+
+
+def _upsert_posts(rows, keys=None):
+    """The batches db.update_job_fields sends for `rows`, with only the HTTP layer stubbed."""
+    saved = (real_db._http, real_db.has_remote_db)
+    stub = _StubHTTP()
+    try:
+        real_db._http, real_db.has_remote_db = stub, lambda: True
+        real_db.update_job_fields([dict(r) for r in rows], keys=keys)
+    finally:
+        real_db._http, real_db.has_remote_db = saved
+    return stub.posts
+
+
+def test_the_real_upsert_sends_the_column_group_it_was_handed():
+    """_FakeDB above MIMICS db._upsert's key handling, so it cannot also be the proof of it.
+
+    Driven for real, with only the HTTP layer stubbed: handed rows in which no row states an
+    experience floor, the inferred union does not contain exp_max_years at all, so the column is
+    never written and whatever an older, more credulous parser left there survives. Naming the
+    group is what puts it on the wire. Only the columns that can be None are exposed this way --
+    an unfound sponsorship verdict is "" and rides along either way -- which is why this is
+    stated as a measurement of the payload rather than as a rule about nulls.
+    """
+    rows = [{"url": "https://ex.com/u1", "exp_max_years": None, "sponsor_jd": "",
+             "sponsor_reason": "", "jd_terms": '{"w":{"roadmap":1.5},"n":0}'},
+            {"url": "https://ex.com/u2", "exp_max_years": None, "sponsor_jd": "",
+             "sponsor_reason": "", "jd_terms": '{"w":{"budget":1.1},"n":0}'}]
+
+    inferred = _upsert_posts(rows)[0]
+    named = _upsert_posts(rows, keys=sj.JD_DERIVED_COLS)[0]
+
+    assert "exp_max_years" not in inferred[0], \
+        "the inferred union already carried exp_max_years, so this test proves nothing"
+    assert sorted(named[0]) == sorted(sj.JD_DERIVED_COLS), \
+        "a named group sent %r" % (sorted(named[0]),)
+    assert all(r["exp_max_years"] is None for r in named), \
+        "the column went out without the null that clears a stale floor"
+
+
+def test_batching_the_group_did_not_change_the_wire():
+    """The batches are a memory bound, not a request budget.
+
+    db._upsert has chunked the wire at 200 rows since long before this; if flushing the JD group
+    every JD_WRITE_CHUNK rows had turned into one request per row, the write would be slower on
+    the box it was meant to survive.
+    """
+    big = [{"url": "https://ex.com/b%03d" % i, "exp_max_years": None, "sponsor_jd": "",
+            "sponsor_reason": "", "jd_terms": "x"} for i in range(450)]
+    sizes = [len(p) for p in _upsert_posts(big, keys=sj.JD_DERIVED_COLS)]
+    assert sizes == [200, 200, 50], "450 rows went out as %r" % (sizes,)
 
 
 if __name__ == "__main__":

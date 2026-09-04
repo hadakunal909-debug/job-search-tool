@@ -45,22 +45,22 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>8,848 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,520 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
-    S["<b>scraper/__init__.py</b><br/>9,051 lines · 38 ATS adapters<br/>1,192 boards"]
-    J["score_jobs.py · 2,094 lines"]
+    S["<b>scraper/__init__.py</b><br/>9,672 lines · 40 ATS adapters<br/>1,221 boards"]
+    J["score_jobs.py · 2,392 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 3,323 lines · 32 sections<br/>db.py · 2,952 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,430 lines · 36 sections<br/>db.py · 3,029 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
-  SPINE --> D{"db.py::_LazyHTTP<br/>line 59"}
+  SPINE --> D{"db.py::_LazyHTTP<br/>line 46"}
   D -->|"PG_DSN"| P["pgrest — direct psycopg<br/><i>the cPanel app</i>"]
   D -->|"DB_PROXY_URL + SECRET"| X["dbproxy — HMAC HTTPS<br/><i>Actions, your laptop</i>"]
   D -->|"half a pair"| R["RuntimeError<br/><i>refuses rather than guessing</i>"]
@@ -105,46 +105,46 @@ declares them — "blocked company" is listed fifth and applied second.
 
 ```mermaid
 flowchart TB
-  SRC["1,192 boards → scrape_all<br/>38 ATS adapters"]
+  SRC["1,221 boards → scrape_all<br/>40 ATS adapters"]
   JD["fill_missing_jds()<br/><i>descriptions bought before the gates</i>"]
   SRC --> JD
   G0{"already known"}
-  D0["already known<br/><i>:8813</i>"]
+  D0["already known<br/><i>:9431</i>"]
   JD --> G0
   G0 -->|dropped| D0
   class D0 trap
   G1{"blocked company"}
-  D1["blocked company<br/><i>:8819</i>"]
+  D1["blocked company<br/><i>:9437</i>"]
   G0 --> G1
   G1 -->|dropped| D1
   class D1 trap
   G2{"off-target function title"}
-  D2["off-target function title<br/><i>:8841</i>"]
+  D2["off-target function title<br/><i>:9459</i>"]
   G1 --> G2
   G2 -->|dropped| D2
   class D2 trap
   G3{"no matching role keyword"}
-  D3["no matching role keyword<br/><i>:8842</i>"]
+  D3["no matching role keyword<br/><i>:9460</i>"]
   G2 --> G3
   G3 -->|dropped| D3
   class D3 trap
   G4{"non-US location"}
-  D4["non-US location<br/><i>:8851</i>"]
+  D4["non-US location<br/><i>:9469</i>"]
   G3 --> G4
   G4 -->|dropped| D4
   class D4 trap
   G5{"posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)"}
-  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:8866</i>"]
+  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:9484</i>"]
   G4 --> G5
   G5 -->|dropped| D5
   class D5 trap
   G6{"no federal sponsor record (aggregator)"}
-  D6["no federal sponsor record (aggregator)<br/><i>:8887</i>"]
+  D6["no federal sponsor record (aggregator)<br/><i>:9507</i>"]
   G5 --> G6
   G6 -->|dropped| D6
   class D6 trap
   G7{"aggregator copy of a job we hold"}
-  D7["aggregator copy of a job we hold<br/><i>:8903</i>"]
+  D7["aggregator copy of a job we hold<br/><i>:9523</i>"]
   G6 --> G7
   G7 -->|dropped| D7
   class D7 trap
@@ -187,7 +187,7 @@ flowchart LR
     G -.->|"NEVER RUNS"| C[".cpanel.yml"]
   end
   subgraph GOOD["&#9635; the actual deploy"]
-    B["build_deploy_zip.py<br/>18 modules + 4 dirs"] --> Z["stemjobs1_deploy.zip"]
+    B["build_deploy_zip.py<br/>19 modules + 4 dirs"] --> Z["stemjobs1_deploy.zip"]
     Z --> U["File Manager<br/>upload + extract"]
     U --> T["touch tmp/restart.txt"] --> LIVE["stemjobs1.astrochakra.co"]
   end
@@ -219,13 +219,13 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 1903</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 813</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2437</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 997</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
   C --- GUARD
-  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 2579 — shares the filters, skips \"posted within\"</i>"]
+  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 3207 — shares the filters, skips \"posted within\"</i>"]
   GUARD -.-> D
   classDef web fill:#e0e4fe,stroke:#4f46e5,color:#101319
   classDef client fill:#e4e7ec,stroke:#5f6573,color:#101319
@@ -331,17 +331,30 @@ Things that are true on purpose, and expensive to rediscover.
 5. **`jobs.jd_terms` is TEXT, not jsonb, and its key order is semantic.** It's the analyzer's
    frozen term order; it breaks ties in the skill panel, and the scorer diffs the stored string to
    decide whether to write at all. Converting it re-upserts the whole corpus every run.
-6. **One hue, and the card answers one question.** Colour used to mean *which* sponsorship
-   route; since 2026-08-31 every card wears the same blue and shows a single chip, at the
-   owner's direction after seeing the live feed. The route survives as the LABEL, which
-   already named it in full — the hue was reinforcing the word, not replacing it. What is
-   lost, recorded so it is a decision and not an accident: route is no longer distinguishable
-   at a glance. `static/style.css` states the rule, `scripts/test_contrast.py` gates it, and
-   `CLAUDE.md` is the source of truth if these ever disagree again. Everything else is ink;
-   these docs use a different palette on purpose.
+6. **One hue, and ONE CHIP — but a chip is a verdict, not a fact.** Colour used to mean
+   *which* sponsorship route; since 2026-08-31 every card wears the same blue and shows a
+   single chip, at the owner's direction after seeing the live feed. The route survives as the
+   LABEL, which already named it in full — the hue was reinforcing the word, not replacing it.
+   What is lost, recorded so it is a decision and not an accident: route is no longer
+   distinguishable at a glance. `static/style.css` states the rule,
+   `scripts/test_contrast.py` gates it, and `CLAUDE.md` is the source of truth if these ever
+   disagree again. Everything else is ink; these docs use a different palette on purpose.
+
+   **Amended 2026-09-03 twice, and neither is a walk-back.** First: the card is now WHITE with
+   an outline and the single hue is spent on `.cardverdict`, a tinted column on the trailing
+   edge carrying the ring, its label and the sponsorship line — the wash that tinted the whole card
+   is gone, so the one colour now marks the one thing that is not the employer's. Second: the
+   cap is on the VERDICT and it still holds at one. What the cap never meant — though the card behaved as if it did — was
+   "few facts": pay, place and years are things the employer stated, and they now sit in a
+   fixed-track grid (`.cfacts`) as ink, in one hue, with no chip added. Conflating the two is
+   why `salary_label`, `remote` and `exp_level` were computed, serialised and shipped to the
+   browser for months while `cardHTML` drew none of them. Chips are verdicts; grids are facts.
 7. **A card field that is not the score belongs to the posting, not to the reader.**
    `_build_row` emits 41 keys and exactly one depends on who is asking, so the other 40 are
    built once per corpus (§5). The dedupe must stay **after** the score overlay, because
    `_dupe_rank` tie-breaks on the score and folding duplicates at 0 keeps a different copy.
+   Since 2026-09-03 this invariant is also drawn in pixels: everything on a card is the
+   posting's own except `.cardverdict` — the ring, and its 70/40 threshold in words — which
+   holds the top-right corner and is the only part that changes with who is looking.
 8. **Never load-test production.** Shared cPanel throttles at the account level, no restart
    clears it, and the previous account was suspended once.

@@ -48,6 +48,32 @@ PHENOM_JD_DETAILS_MAX = int(os.environ.get("PHENOM_JD_DETAILS_MAX") or 400)
 PHENOM_JD_WORKERS = 6
 
 
+def phenom_jd_by_id(origin, jid):
+    """The full description for one Phenom posting, from its jobDetail widget. "" on any failure.
+
+    PUBLIC and standalone because there are now two callers and they are in different modules:
+    _phenom_jd_map below (which has to pair applyUrl -> jobId off the search feed first) and the
+    SWEEP, which already holds the jobId from the listing response and needs no pairing at all.
+    One definition, because the two differ only in where the id came from.
+
+    Ask by id rather than fetching the Phenom job PAGE. Both work -- careers.<tenant>.com
+    /us/en/job/<id> renders the same text -- but the page is ~708 KB against a few KB of JSON
+    here, and at 400 rows a run that difference is ~280 MB of transfer on a box that is already
+    being SIGKILLed at a 1.2 GB memory cap.
+    """
+    try:
+        body = scraper._phenom_body(0, 1)
+        body.update({"ddoKey": "jobDetail", "jobId": jid,
+                     "pageName": "job-details", "pageId": "page-job-details"})
+        r = scraper._safe_post(origin.rstrip("/") + "/widgets", body, timeout=20)
+        if r.status_code != 200:
+            return ""
+        job = (((r.json() or {}).get("jobDetail") or {}).get("data") or {}).get("job") or {}
+        return _text(job.get("description") or "")
+    except Exception:
+        return ""
+
+
 def _phenom_jd_map(board_url, needed):
     """{applyUrl: full description} for a Phenom board.
 
@@ -97,17 +123,7 @@ def _phenom_jd_map(board_url, needed):
 
     def _detail(item):
         u, jid = item
-        try:
-            body = scraper._phenom_body(0, 1)
-            body.update({"ddoKey": "jobDetail", "jobId": jid,
-                         "pageName": "job-details", "pageId": "page-job-details"})
-            r = scraper._safe_post(origin + "/widgets", body, timeout=20)
-            if r.status_code != 200:
-                return u, ""
-            job = (((r.json() or {}).get("jobDetail") or {}).get("data") or {}).get("job") or {}
-            return u, _text(job.get("description") or "")
-        except Exception:
-            return u, ""
+        return u, phenom_jd_by_id(origin, jid)
 
     out = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=PHENOM_JD_WORKERS) as ex:
@@ -279,6 +295,23 @@ def _canonical_keys(jd_map):
 # silently answers nothing, which is indistinguishable from a board that has no backlog.
 BULK_JD_ATS = ("greenhouse", "lever", "ashby", "amazon", "jibe", "pinpoint", "jobdiva",
                "phenom", "ibm")
+# HOW MANY BOARD MAPS MAY BE IN MEMORY AT ONCE. Not a worker count -- workers stay at 8, which
+# is a THROTTLING decision about outbound concurrency on shared hosting and is deliberately not
+# traded for a memory one. This bounds how many COMPLETED maps can pile up waiting to be
+# consumed, which is a different quantity and the one that overflows: jd_map_for returns a whole
+# board with every description, so 151 of them buffered is gigabytes while 16 is bounded.
+# 16 = twice the worker count, so a slow board never starves the pool.
+_BULK_WINDOW = int(os.environ.get("SCORE_BULK_WINDOW") or 16)
+# THE TWO ATS WHOSE ROWS CANNOT BE TESTED AGAINST A BOARD CHEAPLY. Their rows store an APPLY
+# url whose host varies per tenant (icims.com, Oracle, Salesforce), so _board_has_missing
+# answers True for them unconditionally rather than skip a board that might hold the rows we
+# want -- which is right, and is why Actalent's 1,461 rows stopped sitting on a loading shell.
+_BLIND_ATS = ("jibe", "phenom")
+# ...and how many of them one run may fetch. 149 of the 151 boards a live run bulk-fetches are
+# these, each returning its WHOLE board -- 533 and 735 descriptions in one sampled run -- to
+# satisfy approximately none of the 547 rows wanted. 20 keeps the cost bounded and still walks
+# all 149 in about eight runs, which is four days at two crons a weekday.
+_BLIND_BOARDS_PER_RUN = int(os.environ.get("SCORE_BLIND_BOARDS") or 20)
 
 
 def jd_map_for(board_url, ats, needed=None):
@@ -455,9 +488,32 @@ def oracle_detail_jd(url):
         items = d.get("items") or []
         if not items:
             return ""
-        return " ".join(_text(items[0].get(k) or "") for k in
+        body = " ".join(_text(items[0].get(k) or "") for k in
                         ("ExternalDescriptionStr", "ShortDescriptionStr",
                          "ExternalQualificationsStr", "ExternalResponsibilitiesStr")).strip()
+        # ...AND THE FIELD TABLE, which is where this ATS puts the two facts that decide whether
+        # a posting is worth opening. Oracle's candidate page renders a labelled block above the
+        # description -- Role, Job Type, Years, Additional Info -- and every one of those is a
+        # `requisitionFlexFields` entry, not prose. Reading only the four description fields
+        # meant a real Oracle posting showing "Years: 3 to 5+ years" on its own page reported
+        # "Not stated in this posting" here.
+        #
+        # THE SPONSORSHIP ONE IS WHY THIS IS URGENT rather than tidy. "Additional Info: Visa /
+        # work permit sponsorship is not available for this position" lives in the same block,
+        # and core.sponsorship_from_jd reads it correctly the moment it can see it -- so without
+        # this the card fell back to Oracle's EMPLOYER filing history and said "H-1B Likely" on
+        # a posting that rules sponsorship out in writing. 2,495 active rows are on this host,
+        # including JPMorgan Chase (582), Oracle (513) and American Express (170).
+        #
+        # Appended as "Prompt: Value" lines, which is what the page shows and what
+        # jdrender._field_label already renders as a definition list.
+        fields = []
+        for f in (items[0].get("requisitionFlexFields") or []):
+            label = _text(str(f.get("Prompt") or f.get("Name") or "")).strip()
+            value = _text(str(f.get("Value") or "")).strip()
+            if label and value and value.lower() not in ("null", "none"):
+                fields.append("%s: %s" % (label[:60], value[:200]))
+        return (body + ("\n" + "\n".join(fields) if fields else "")).strip()
     except Exception:
         return ""
 
@@ -845,6 +901,39 @@ def greenhouse_detail_jd(url):
     return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
 
 
+# How deep a JobPosting may be nested before we stop looking. Two is enough for every shape
+# seen (mainEntity, @graph, a bare list) and stops a pathological document walking forever.
+_LD_MAX_DEPTH = 4
+
+
+def _jobposting_nodes(data, depth=0):
+    """Every JobPosting in a JSON-LD document, however it is wrapped.
+
+    THE TOP LEVEL IS NOT WHERE IT ALWAYS IS. This used to test `data["@type"] == "JobPosting"`
+    on the root only, and roberthalf.com wraps its posting in a WebPage whose `mainEntity` is
+    the JobPosting -- so the extractor found nothing, fell through to core.fetch_jd, and stored
+    7,921 characters of the site's own navigation as the description. `@graph` is the other
+    common wrapper. Both are ordinary schema.org, not quirks.
+    """
+    if depth > _LD_MAX_DEPTH:
+        return
+    if isinstance(data, list):
+        for x in data:
+            for hit in _jobposting_nodes(x, depth + 1):
+                yield hit
+        return
+    if not isinstance(data, dict):
+        return
+    t = data.get("@type")
+    if t == "JobPosting" or (isinstance(t, list) and "JobPosting" in t):
+        yield data
+        return
+    for key in ("mainEntity", "@graph", "mainEntityOfPage", "itemListElement"):
+        if key in data:
+            for hit in _jobposting_nodes(data[key], depth + 1):
+                yield hit
+
+
 def microdata_jd(url):
     """Generic deep fallback: many career sites (incl. every SuccessFactors CSB job
     page) mark the JD up with schema.org microdata (itemprop=description) or embed a
@@ -867,12 +956,10 @@ def microdata_jd(url):
                 data = json.loads(tag.string or "", strict=False)   # see page_posted_date
             except Exception:
                 continue
-            items = data if isinstance(data, list) else [data]
-            for it in items:
-                if isinstance(it, dict) and it.get("@type") == "JobPosting":
-                    txt = _text(it.get("description") or "")
-                    if len(txt) > 200:
-                        return txt, date
+            for it in _jobposting_nodes(data):
+                txt = _text(it.get("description") or "")
+                if len(txt) > 200:
+                    return txt, date
         return "", date
     except Exception:
         return "", ""
@@ -987,6 +1074,15 @@ def detail_jd(url):
         # row honest: it reads as "description pending" and stays retryable.
         if len(jd or "") < MIN_PAGE_JD_CHARS:
             jd = ""
+        # ...AND THE CEILING, which is what this gate never had. MIN_PAGE_JD_CHARS is a FLOOR,
+        # and the whole comment above reasons about shells that are too SHORT — 47, 46, 63, 97
+        # characters. The opposite failure was invisible: careers.google.com returned its
+        # entire application shell, 1,052 rows of it, 790 truncated at fetch_jd's own 8,000
+        # limit. Long, so never thin; never thin, so never retried; and _accept_jd's gain rule
+        # then made it permanent, because a correct 3,400-char description cannot beat 3x8,000.
+        # core.clean_jd names it for what it is, and nothing else has to change.
+        elif core.clean_jd(jd)[1] == "not-a-posting":
+            jd = ""
     return url, jd, date
 
 
@@ -1004,6 +1100,30 @@ def _norm_cmp(key, val):
         except (TypeError, ValueError):
             return None
     return str(val)
+
+
+# The JD-derived column group, NAMED rather than inferred from the rows being written. Handed to
+# every batch below, because db._upsert computes its key union per CALL and drops Nones on the
+# way: a batch in which no row states an experience floor would not send exp_max_years at all,
+# and a stale value the parser no longer agrees with would survive. Naming the group means every
+# batch writes all four columns whatever it happens to hold.
+JD_DERIVED_COLS = ("url", "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms")
+
+# Rows per JD-fields write. This used to be the whole corpus accumulated in memory and sent in
+# ONE call after the loop, which is exactly where the 2026-09-03 pass died: `Derived fields:
+# updated 1809 job(s)` printed, then silence and a nonzero exit with no traceback, at 1.24 GB RSS
+# against a ~1.2 GB account-wide LVE cap. Read the missing traceback as the diagnosis --
+# _send_derived's `except Exception` would have CAUGHT a proxy timeout or an unknown column and
+# printed the migration hint, so a silent death past that guard is a SIGKILL.
+#
+# jd_terms is ~600 B a row over ~46k rows, and db._upsert copies the list it is handed (it merges
+# duplicate urls first) before serialising it -- so the peak arrives on the one phase whose work
+# nothing else banks. match_score, loc_state and every fetched description had already landed
+# that day; an hour of analysis was re-run to recover a write that was 100% complete in memory.
+# Writing as we go costs the same requests (_upsert already chunks the WIRE at 200) and caps what
+# a kill can lose at one batch. 2000 is a bound rather than a tuned number -- the ~1.2 MB of
+# terms it holds is nowhere near the cap. SCORE_JD_WRITE_CHUNK moves it without a deploy.
+JD_WRITE_CHUNK = int(os.environ.get("SCORE_JD_WRITE_CHUNK") or 2000)
 
 
 def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
@@ -1037,6 +1157,32 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
 
     payload, jd_payload = [], []
     stats = {"state": 0, "remote": 0, "salary": 0, "exp": 0, "spon": 0, "terms": 0}
+    jd_write = {"sent": 0, "lost": 0, "hint": True}
+
+    def _flush_jd(force=False):
+        """Bank the JD columns built so far, then forget them. A batch is what a kill costs.
+
+        A failed batch does NOT stop the rest: db._upsert has already ridden out four attempts,
+        and a proxy that answered one write with HTML has no bearing on the next. The migration
+        hint is printed once, though -- twenty-four batches must not print the schema
+        twenty-four times.
+        """
+        if not jd_payload or (len(jd_payload) < JD_WRITE_CHUNK and not force):
+            return
+        n = len(jd_payload)
+        if _send_derived(jd_payload, "JD fields", keys=JD_DERIVED_COLS, hint=jd_write["hint"]):
+            jd_write["sent"] += n
+        else:
+            jd_write["lost"] += n
+            jd_write["hint"] = False
+        del jd_payload[:]
+        # Progress an operator can act on: these rows are IN the table now, so polling
+        # `exp_max_years IS NULL` mid-run finally means something. It did not before -- the whole
+        # corpus was analysed in memory and written in one call at the very end, which read as a
+        # pass stalled at ~2% until the last second.
+        if not force:
+            print("  JD fields: %d job(s) banked." % jd_write["sent"], flush=True)
+
     for u, loc in row_loc.items():
         p = core.parse_location(loc, row_jd.get(u) or "")
         s = core.parse_salary(row_jd.get(u) or "")
@@ -1085,32 +1231,61 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         # steady state is still ~0 writes.
         if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want_jd.items()):
             jd_payload.append(dict(want_jd, url=u))
+            _flush_jd()
 
     # TWO writes, not one combined payload. db._upsert normalizes each chunk to the UNION of
     # its rows' keys and fills the gaps with None, so a row that skipped the JD block above
     # would be sent with an explicit exp_max_years: null and ERASE a value an earlier run
     # derived. Separate calls mean separate key unions.
+    #
+    # The location/pay group stays ONE write, and that is measured rather than assumed: it only
+    # ever carries rows whose parse CHANGED -- 1,809 of ~46k on the run that died, and it had
+    # already landed when the process was killed. The JD group is the big one because jd_terms is
+    # deliberately not in db.COLS_SCORE, so every row a pass analyses diffs as changed.
     _send_derived(payload, "Derived fields",
                   "%d state, %d remote, %d with pay"
                   % (stats["state"], stats["remote"], stats["salary"]))
-    _send_derived(jd_payload, "JD fields",
-                  "%d with an experience floor, %d with a sponsorship verdict, %d scoreable"
+    _flush_jd(force=True)
+    jd_summary = ("%d with an experience floor, %d with a sponsorship verdict, %d scoreable"
                   % (stats["exp"], stats["spon"], stats["terms"]))
+    # One line at the end whatever the batch count -- `JD fields:` is what the cron log is
+    # grepped for, and what says the pass got all the way through its write.
+    if jd_write["lost"]:
+        print("JD fields: updated %d job(s), LOST %d to a failed write -- %s."
+              % (jd_write["sent"], jd_write["lost"], jd_summary))
+    elif jd_write["sent"]:
+        print("JD fields: updated %d job(s) — %s." % (jd_write["sent"], jd_summary))
+    else:
+        print("JD fields already current (%s)." % jd_summary)
 
 
-def _send_derived(payload, label, summary):
+def _send_derived(payload, label, summary=None, keys=None, hint=True):
     """One diffed payload -> the jobs table, or a self-serve migration hint if the columns
-    aren't there yet. Split out so the location/pay and JD groups can be written separately."""
+    aren't there yet. Split out so the location/pay and JD groups can be written separately, and
+    so the JD group can be written in batches as its loop builds it.
+
+    True if the rows landed. An empty payload counts as landed -- there was nothing to lose.
+
+    `summary` prints alongside the row count; a batch passes None, because the counts it would
+    quote are the run's totals and not the batch's, so its caller prints one line at the end.
+    `keys` names the column group -- see db._upsert on why a batched write has to state it.
+    `hint` prints the schema; the caller turns it off after the first failure.
+    """
     if not payload:
-        print("%s already current (%s)." % (label, summary))
-        return
+        if summary is not None:
+            print("%s already current (%s)." % (label, summary))
+        return True
     try:
-        db.update_job_fields(payload)
-        print("%s: updated %d job(s) — %s." % (label, len(payload), summary))
+        db.update_job_fields(payload, keys=keys)
     except Exception as e:
         print("  (%s write failed: %s)" % (label.lower(), str(e)[:160]))
-        print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
-        print(db.JOBS_DERIVED_SQL)
+        if hint:
+            print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
+            print(db.JOBS_DERIVED_SQL)
+        return False
+    if summary is not None:
+        print("%s: updated %d job(s) — %s." % (label, len(payload), summary))
+    return True
 
 
 # Breadcrumb the scraper writes with THIS run's new postings (same file notify.py reads).
@@ -1163,11 +1338,22 @@ THIN_BACKOFF_CAP = 6                                                 # 2**6 = 64
 CURSOR_KEY = "score_cursor"
 """Where a budget-truncated full pass stopped, so the next one resumes instead of restarting."""
 
-ANALYZE_CHUNK = 500
+ANALYZE_CHUNK = int(os.environ.get("SCORE_ANALYZE_CHUNK") or 500)
 """Rows analyzed per banked upsert. The analysis is ~200 ms/row, so this is ~100 s of work at
 risk if the process is killed between flushes — against one extra upsert per 500 rows, which is
-~46 writes over a 23k-row corpus. Tuned for "lose a little", not for "write as rarely as
-possible": the whole point of this phase is that its work survives being cut off."""
+~46 writes over a 23k-work corpus. Tuned for "lose a little", not for "write as rarely as
+possible": the whole point of this phase is that its work survives being cut off.
+
+TUNABLE SINCE 2026-09-02, because 500 is only "a little" when the process usually finishes.
+On the cPanel box it often does not: the CloudLinux LVE budget is metered per ACCOUNT, and the
+website's own Passenger workers plus two unrelated sibling apps were measured holding 1,355 MB
+of it, so a score pass gets SIGKILLed with no traceback partway through the loop. Measured that
+day: a pass reached "Scoring 925 of 40675" and was killed before row 500, which banked NOTHING
+even though the run had done minutes of real work and the 614 descriptions it was analysing were
+already stored. bin/cron_scrape.sh sets 100 for that reason.
+
+Lower is not free -- it is one upsert per N rows -- but an upsert is cheap and losing the whole
+loop is not, and on a box where the kill is routine the trade moves."""
 
 
 def _is_thin_jd(jd):
@@ -1181,7 +1367,7 @@ def _is_thin_jd(jd):
     return 0 < len(t) < core._MIN_JD_CHARS
 
 
-def _accept_jd(url, jd, thin_len):
+def _accept_jd(url, jd, thin_len, stored=None):
     """Should this freshly-fetched text replace what is stored?
 
     A GAIN RULE, not a length test, and the distinction is the whole point: re-reading the same
@@ -1192,9 +1378,19 @@ def _accept_jd(url, jd, thin_len):
 
     Consequence worth stating plainly: a probe can never shorten or blank a description we
     already hold, so the retry below cannot make the corpus worse.
+
+    ...EXCEPT WHERE WHAT WE HOLD IS NOT A DESCRIPTION. The gain rule is right for shells and
+    exactly backwards for a captured careers-site page: those are LONG, so a correct 3,400-char
+    Google description would have to reach 24,000 to displace an 8,000-char navigation bar, and
+    the 1,052 rows in that state were frozen permanently. `stored` is optional and only ever
+    read to ask core.clean_jd whether the incumbent is a posting at all; when it is not, any
+    replacement that IS one wins on merit rather than on length.
     """
     if not jd:
         return False
+    if stored and core.clean_jd(stored)[1] == "not-a-posting" \
+            and core.clean_jd(jd)[1] != "not-a-posting":
+        return True
     old = thin_len.get(url, 0)
     if not old:
         return True
@@ -1271,7 +1467,15 @@ def _score_rev(resume):
         import hashlib
         import inspect
         src = b""
-        for fn in (core.analyze_jd, core.score_against, core.job_meta):
+        # HOW A DESCRIPTION IS READ IS PART OF WHAT THE SCORE MEANS, and these two were not in
+        # the list. clean_jd decides which characters analyze_jd ever sees and experience_years
+        # produces exp_max_years outright, but getsource(analyze_jd) returns only its OWN body,
+        # so both are invisible here. Both were edited on 2026-09-03 -- markdown escapes, then
+        # the "1-year experience" form -- and neither moved the fingerprint, so the cursor would
+        # have skipped rows whose answer had just changed. Named individually rather than
+        # hashing core.py whole, for the reason the docstring above gives.
+        for fn in (core.analyze_jd, core.score_against, core.job_meta,
+                   core.clean_jd, core.experience_years):
             try:
                 src += inspect.getsource(fn).encode("utf-8", "replace")
             except Exception:
@@ -1312,6 +1516,39 @@ def _thin_host(url):
     return (urlparse(url or "").netloc or "?").lower()
 
 
+def _host_window(urls, n, seed):
+    """The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow.
+
+    This used to be `sorted(by_host[h])[:n]` -- the same three URLs, alphabetically, on every
+    single run forever. The daily `seed` above rotates which HOSTS are due; nothing rotated which
+    ROWS within a host, so a host whose first three URLs happened to be unfetchable recorded a
+    failure every time, doubled its backoff toward 64 days, and the rest of its backlog was never
+    touched at all.
+
+    That is not hypothetical. Measured on the live corpus 2026-09-01: apply.actalentservices.com
+    held 755 rows the feed called "JD pending" and sat at f=2 with next=2026-09-05, while 31 of
+    those rows were still listed on the board and would have returned a 5,393-character
+    description on request. Three fixed draws spoke for 755 rows.
+
+    The offset is `seed * n`, not `seed`. With a bare seed, consecutive days share n-1 of their n
+    rows -- day 40 draws [40,41,42] and day 41 draws [41,42,43] -- so a host is re-probed almost
+    entirely on rows that just failed. Stepping by the window size makes each run a fresh window
+    and walks the whole backlog in len(urls)/n runs.
+
+    seed=0 keeps the plain head, which is what the existing tests pin and what a caller that does
+    not care about rotation gets.
+    """
+    if not urls or n <= 0:
+        return []
+    if not seed or len(urls) <= n:
+        return urls[:n]
+    off = (seed * n) % len(urls)
+    # Modulo indexing rather than a slice, so the window wraps instead of being truncated when
+    # the offset lands near the end -- otherwise the tail of every list is probed less often than
+    # its head, which is a quieter version of the bug this function exists to fix.
+    return [urls[(off + i) % len(urls)] for i in range(n)]
+
+
 def _thin_retry_plan(thin_urls, ledger, rev, today, seed=0):
     """(urls to probe, hosts probed) for this run.
 
@@ -1343,7 +1580,8 @@ def _thin_retry_plan(thin_urls, ledger, rev, today, seed=0):
     for fails, _neg, h in due:
         rec = hosts.get(h) or {}
         hot = int(rec.get("f") or 0) == 0 and int(rec.get("ok") or 0) > 0
-        take = sorted(by_host[h])[:(THIN_DRAIN_MAX if hot else THIN_PROBE_PER_HOST)]
+        take = _host_window(sorted(by_host[h]),
+                            THIN_DRAIN_MAX if hot else THIN_PROBE_PER_HOST, seed)
         if not take:
             continue
         probed.append(h)
@@ -1683,6 +1921,30 @@ def main():
         bulk = [(b, a, c) for b, a, c in boards
                 if a in BULK_JD_ATS
                 and _board_has_missing(b, a, missing)]
+        # THE UNTESTABLE BOARDS ARE ROTATED, NOT SKIPPED, AND THIS IS WHERE THE MEMORY WENT.
+        #
+        # _board_has_missing answers True unconditionally for jibe and phenom -- deliberately,
+        # because those rows store an APPLY url whose host varies per tenant, so no cheap URL
+        # test exists and Actalent's 1,461 rows once sat on a "Loading ..." shell forever
+        # because the slug test said False. The cost of that decision was never counted:
+        # measured on the live box, 149 of the 151 boards a run fetches are these, each
+        # returning its WHOLE board (533 and 735 descriptions were in one sample) to satisfy
+        # approximately none of the 547 rows actually wanted. That is ~450 MB of text
+        # downloaded and parsed per run on an account with almost no headroom, and it is why
+        # bounding the in-flight window alone still died at board 78 of 151.
+        #
+        # Rotated by the same rule _host_window uses for thin probes, and for the same reason:
+        # a fixed head would fetch the same boards forever and never reach the tail. Every
+        # board is still visited, just over several runs instead of all in one -- and a board
+        # that CAN be tested cheaply is never rotated out, so this only ever delays the boards
+        # we cannot ask about anyway.
+        blind = sorted(e for e in bulk if e[1] in _BLIND_ATS)
+        if len(blind) > _BLIND_BOARDS_PER_RUN:
+            seed = int(_dtm.date.today().strftime("%Y%m%d"))
+            keep = set(_host_window(blind, _BLIND_BOARDS_PER_RUN, seed))
+            bulk = [e for e in bulk if e[1] not in _BLIND_ATS or e in keep]
+            print("  %d board(s) have no cheap missing-row test: taking %d this run, the rest "
+                  "on later runs." % (len(blind), _BLIND_BOARDS_PER_RUN))
         if bulk:
             print("Bulk-fetching JDs from %d board(s)..." % len(bulk))
 
@@ -1696,16 +1958,52 @@ def main():
                 except Exception as e:
                     return company, {}, str(e)
 
+            # BOUNDED IN FLIGHT, AND THIS IS THE PHASE THE CRON DIES IN.
+            #
+            # jd_map_for returns EVERY posting on a board with its description -- that is what
+            # makes it one request instead of hundreds -- and a big board is tens of megabytes.
+            # `ex.map(_one, bulk)` submits all 151 boards at once and holds each result until
+            # the consumer reaches it IN ORDER, so one slow board pins every map that finished
+            # behind it. Measured on the live box: 4 of the 6 score-step runs in the log exited
+            # rc=137, always here, always inside "Bulk-fetching JDs from N board(s)".
+            #
+            # The account is the constraint and it cannot be tuned away: 1,189 MB of the ~1.2 GB
+            # budget is already held by the web app's Passenger workers (842 MB) and two sibling
+            # apps this account must not touch (586 MB). SCORE_MAX_FETCH was the documented
+            # lever and it is the wrong one -- it bounds ROWS, and what overflows here is BOARD
+            # MAPS, which the cap does not govern at all.
+            #
+            # as_completed, a submission window, and `del m` so a board's map is released the
+            # moment its handful of wanted rows have been copied out. Flushed every CHUNK too,
+            # for the reason the detail phase below already gives: a run killed mid-phase should
+            # keep what it has fetched. The window is the memory bound; the flush is the
+            # progress bound.
+            CHUNK, buf, pending, queue = 150, {}, {}, list(bulk)
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                for company, m, err in ex.map(_one, bulk):
-                    if err:
-                        print("  FAIL %-16s %s" % (company, err))
-                        continue
-                    hits = {u: jd for u, jd in m.items()
-                            if u in missing and _accept_jd(u, jd, thin_len)}
-                    fetched.update(hits)
-                    print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), len(m)))
-            _persist_jds(fetched)           # save bulk hits before the slower detail phase
+                while queue or pending:
+                    while queue and len(pending) < _BULK_WINDOW:
+                        entry = queue.pop()
+                        pending[ex.submit(_one, entry)] = entry
+                    done, _ = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for fut in done:
+                        pending.pop(fut, None)
+                        company, m, err = fut.result()
+                        if err:
+                            print("  FAIL %-16s %s" % (company, err))
+                            continue
+                        hits = {u: jd for u, jd in m.items()
+                                if u in missing and _accept_jd(u, jd, thin_len, row_jd.get(u))}
+                        n_board = len(m)
+                        del m                   # the board's whole map, gone before the next
+                        fetched.update(hits)
+                        buf.update(hits)
+                        print("  OK   %-16s %d of %d JDs needed" % (company, len(hits), n_board))
+                        if len(buf) >= CHUNK:
+                            _persist_jds(buf)
+                            buf = {}
+            if buf:
+                _persist_jds(buf)
             missing -= set(fetched)
 
         # 3) The rest need a per-job detail fetch (SmartRecruiters/Workday/page scrape) —
@@ -1734,7 +2032,7 @@ def main():
                 for u, jd, date in ex.map(_detail, [u for u in order if u in missing]):
                     # _accept_jd, not `if jd`: a failed fetch must never blank a stored JD, and
                     # re-reading the same shell must not count as a repair either.
-                    if _accept_jd(u, jd, thin_len):
+                    if _accept_jd(u, jd, thin_len, row_jd.get(u)):
                         fetched[u] = jd
                         buf[u] = jd
                         if len(buf) >= CHUNK:

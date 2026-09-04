@@ -468,6 +468,9 @@ _HOSPITAL_RE = re.compile(
 # it stays Unsorted and the page says so. `--check` is what holds this line.
 _CURATED_LISTS = {
     "Software & Internet": [
+        # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
+        # run put 269 new employers into the universe.
+        "84.51", "Box",
         "Amazon", "Amazon Web Services", "Apple", "Microsoft", "Meta", "Meta Platforms",
         "Alphabet", "eBay", "ADP", "Cerner", "VMware", "Salesforce.com", "Cisco Systems",
         "Oracle America", "Twitter", "Juniper Networks", "Eightfold AI",
@@ -498,6 +501,9 @@ _CURATED_LISTS = {
         "Y Combinator's Work at a Startup",
     ],
     "IT Services & Consulting": [
+        # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
+        # run put 269 new employers into the universe.
+        "APLOMB Technologies", "Circana", "Forge Group",
         "Michael Page", "EY", "KBR", "ICF", "Serco", "Guidehouse", "CBIZ", "Eide Bailly",
         "CSC", "Maximus", "Quest Global", "Populus Group LLC", "Grandison Management",
         "Bureau Veritas", "Pearson", "HCL Technologies", "Wood Group",
@@ -523,6 +529,9 @@ _CURATED_LISTS = {
         "Block", "Milliman", "Plymouth Rock",
     ],
     "Healthcare, Pharma & Biotech": [
+        # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
+        # run put 269 new employers into the universe.
+        "Align Technology",
         "Philips", "Roche", "Johnson & Johnson", "Anthem",
         "Danaher", "IQVIA", "Medpace", "BD", "Aegis Therapies", "Novo Nordisk, Inc.",
         "Eurofins", "Zimmer Biomet", "Zimmer", "Teleflex", "Labcorp", "Revolution Medicines",
@@ -566,6 +575,9 @@ _CURATED_LISTS = {
         "Coupang", "Chewy", "Wayfair",
     ],
     "Retail, Consumer & Hospitality": [
+        # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
+        # run put 269 new employers into the universe.
+        "Williams-Sonoma",
         "Walgreens", "Walmart", "Walmart Global Tech", "Wal Mart Associates",
         "Safeway", "Staples", "Cintas", "Red Bull", "Skechers", "Chobani", "Sephora",
         "Meijer", "Dollar general", "Autozone", "Peloton", "Bose", "Juul Labs",
@@ -575,6 +587,9 @@ _CURATED_LISTS = {
         "Mcdonalds",
     ],
     "Media, Telecom & Gaming": [
+        # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
+        # run put 269 new employers into the universe.
+        "Aristocrat",
         "Netflix", "Sony", "Oath", "Yahoo",
         "FanDuel", "IGT", "FloSports Inc.", "Genesis",
         "Audible", "iHeartMedia",
@@ -603,6 +618,18 @@ _CURATED_TAIL = {
     # protein-bar startup. Sonos follows Bose/Garmin/Peloton into Retail rather than Hardware,
     # matching how this file already treats consumer audio.
     "Software & Internet": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Gigamon", "ZIPRECRUITER INC", "VISTEX INC", "Glean",
+        "Lookout", "Integral Ad Science", "Imprivata", "SeatGeek",
+        "MenuSifu Inc.", "Celigo", "Airbyte", "Bazaarvoice",
+        "Ocrolus", "Ping Identity", "ComplianceQuest", "Arena",
+        "Boson AI", "Sovrn", "OpenX", "Cognition",
+        "Middesk", "Boulevard", "Ladders", "Doppel",
+        "Clockwork Systems", "AdvancedMD", "Incident IQ", "Intelerad",
+        "BlueSight", "Notable", "Outtake", "Ditto",
+        "Cinder", "LendingPad", "Alchemer",
         # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
         "AMDOCS INC", "BOOMI LP", "SOPHOS INC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
@@ -690,6 +717,12 @@ _CURATED_TAIL = {
         "Qurrent", "Garage Technologies, Inc.", "Y Combinator",
     ],
     "IT Services & Consulting": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "MAGANTI IT RESOURCES LLC", "RAKS GROUP LLC", "BridgeNexus Technologies Inc", "Enexus Global Inc.",
+        "Further", "Accellor", "PingWind Inc.", "Toptal",
+        "Fearless", "Appnovation", "AgileEngine",
         # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
         "ADVITHRI TECHNOLOGIES LLC", "CAPRUS IT INC", "EMONICS LLC", "GALAX-ESYSTEMS CORPORATION",
         "INTELLYK INC", "ISPACE INC", "ITVORKS INC", "KANAP SYSTEMS LLC", "KYYBA INC", "MAVEN COMPANIES INC",
@@ -746,6 +779,10 @@ _CURATED_TAIL = {
             "Honigman LLP", "Davis Wright Tremaine", "Moore & Van Allen",
     ],
     "Semiconductors & Hardware": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "CelLink", "TTI, Inc.",
         # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
         "COGNEX CORPORATION", "ENTEGRIS, INC.",
         # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
@@ -762,6 +799,12 @@ _CURATED_TAIL = {
             "TENSORDYNE, INC",
     ],
     "Banking, Finance & Insurance": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Deluxe Corporation", "Veterans United Home Loans", "Mapfre", "Trepp, Inc.",
+        "SitusAMC", "Alter Domus", "MoonPay", "Burford Capital",
+        "Column", "Gravie",
         # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
         "TOWER RESEARCH CAPITAL LLC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
@@ -787,6 +830,11 @@ _CURATED_TAIL = {
             "Sedgwick", "ServiceLink", "OKX", "FalconX", "Red Cell Partners", "FM",
     ],
     "Healthcare, Pharma & Biotech": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "GENSCRIPT USA INC", "Butterfly Network", "Everest Clinical Research", "Apella",
+        "Prolaio", "HistoSonics",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Abridge", "Everlywell", "SmithRx", "Impiricus", "Octave", "Emmes Group", "HealthPRO Heritage", "Alteva RCM",
         "Envista Holdings",
@@ -820,6 +868,10 @@ _CURATED_TAIL = {
             "Starkey", "ATCC", "Neuralink", "BillionToOne", "Clarioclinical", "Heidihealth.Com.Au",
     ],
     "Hospitals & Health Systems": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "INTERNATIONAL QUALITY HOMECARE COR", "Akumin", "Vinfen",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "AdventHealth", "AmeriHealth Caritas", "RadNet", "STERIS",
 
@@ -828,6 +880,10 @@ _CURATED_TAIL = {
         "AccentCare", "Aegis Therapies", "Pristine Rehab Care",
     ],
     "Universities & Research": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "PALNI INC",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
         "Aegis Ventures",
 
@@ -856,6 +912,12 @@ _CURATED_TAIL = {
         "CALSTART", "Halvik", "Empower AI Inc.", "Torch Technologies",
     ],
     "Aerospace, Defense & Industrial": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Henkel", "Crown Equipment", "Valmont Industries", "Covestro",
+        "Velo3D", "DXP Enterprises", "Woodward, Inc.", "Air Liquide",
+        "Vast", "Pickle Robot Company",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Advanced Space", "Acron Aviation", "Stratasys", "Innomotics", "Amphenol", "Mueller Industries",
         "Klein Tools", "TGW Systems", "Ceco Environmental", "Messer", "Urban Sky", "Sofar Ocean",
@@ -900,6 +962,11 @@ _CURATED_TAIL = {
             "Atomic Machines", "Rhombus Power", "Heidelberg",
     ],
     "Energy & Utilities": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Wood Mackenzie", "Plug Power Inc", "Triumvirate Environmental", "RigUp",
+        "General Matter",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Arcadia",
         # + 2026-08-31 refresh, newly prominent -- see the note on _CURATED_TAIL.
@@ -914,6 +981,11 @@ _CURATED_TAIL = {
         "Kinetic Inc", "Gridware", "EdgeConneX", "Renewed Vision",
     ],
     "Engineering, Construction & Real Estate": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Roofstock", "SOCOTEC", "RE/SPEC Inc", "SitelogIQ",
+        "J.F. Electric",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "Oldcastle BuildingEnvelope", "Mesa Associates, Inc.", "Qualus", "Castle Rock Associates", "Boccard",
         "Johns Manville", "Haworth", "Graybar",
@@ -941,6 +1013,11 @@ _CURATED_TAIL = {
             "CUPERTINO ELECTRIC",
     ],
     "Transport, Logistics & Automotive": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Radial", "ArcBest", "Fleetpride", "United States Cold Storage",
+        "Drivemode",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.
         "TrueCar, Inc.",
         # discovery-sweep tail, curated 2026-08-24 -- see the note above
@@ -956,6 +1033,12 @@ _CURATED_TAIL = {
         "Iko", "Everpure",
     ],
     "Retail, Consumer & Hospitality": [
+        # + 2026-09-02: the adoption run added 269 employers to the universe and took
+        # Unsorted from 1.4% to 6.7%, over the ceiling. Ambiguous names resolved from
+        # the BOARD URL, never the name; genuinely unrecognisable ones left Unsorted.
+        "Express", "Rust-Oleum", "Fairlife, LLC", "McCormick & Company",
+        "Brown-Forman", "Amway", "Patagonia", "iFIT",
+        "Amplifon",
         # + adopted 2026-08-31, ranked-sponsor probe batch 2 (federal spellings).
         "BEYOND INC", "ULTA INC", "WEEE INC",
         # + 2026-08-31 discovery-sweep arrivals, curated by board URL.

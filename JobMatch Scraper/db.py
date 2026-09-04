@@ -10,15 +10,21 @@ Resolution order, most specific first:
   2. DB_PROXY_URL + DB_PROXY_SECRET  -> dbproxy.Session, HMAC-signed HTTPS to POST /api/db.
                                         How GitHub Actions and a laptop reach the database,
                                         since PG_DSN is loopback-only.
-  3. SUPABASE_URL + SUPABASE_KEY     -> Supabase PostgREST. Vestigial; the database moved to
-                                        cPanel Postgres on 2026-08-15.
-  4. nothing                         -> local jobs.csv + user_jobs.json, zero setup.
+  3. nothing                         -> local jobs.csv + user_jobs.json, zero setup.
 
-A HALF-SET DB_PROXY_* pair raises rather than silently falling through to 3 or 4 —
-see _check_backend_intent, and set DB_REQUIRE to pin the backend you meant.
+There was a step between 2 and 3 until 2026-09-01: SUPABASE_URL + SUPABASE_KEY, a Supabase
+PostgREST session. The database moved to cPanel Postgres on 2026-08-15 and it sat there
+vestigial for two weeks, still resolving from a stale .streamlit/secrets.toml, still the
+DEFAULT destination for any process that had not configured 1 or 2. Removed.
 
-Note `using_supabase()` answers "is there a remote database at all" and is True for
-1, 2 AND 3 — the name is historical. `backend_name()` is the one that says which.
+A HALF-SET DB_PROXY_* pair raises rather than silently falling through — see
+_check_backend_intent, and set DB_REQUIRE to pin the backend you meant.
+
+There was a third transport, an unauthenticated Supabase REST session, and it was the
+default fall-through: every misconfiguration landed there silently. Removed 2026-09-01.
+
+Note `has_remote_db()` answers "is there a remote database at all" and is True for
+BOTH remotes. `backend_name()` is the one that says which.
 
 Setup, schema and env vars: docs/OPERATIONS.md. Live DDL: schema.sql.
 """
@@ -33,25 +39,6 @@ import collections
 import datetime
 
 
-def _make_http():
-    """Session for all Supabase REST calls: keep-alive pooling + automatic retry with
-    backoff on transient failures. Shared-network blips (the recurring WinError 10054
-    'connection forcibly closed' during chunked JD upserts) used to abort a whole
-    score run; now each request retries itself. Retrying writes is safe here because
-    every write is idempotent — upserts keyed on url, patches/deletes on eq filters."""
-    import requests
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.retry import Retry
-    retry = Retry(total=3, connect=3, read=2, backoff_factor=0.5,
-                  status_forcelist=(429, 500, 502, 503, 504),
-                  allowed_methods=frozenset({"GET", "POST", "PATCH", "DELETE", "HEAD"}),
-                  respect_retry_after_header=True)
-    s = requests.Session()
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=8)
-    s.mount("https://", adapter)
-    s.mount("http://", adapter)
-    return s
-
 
 _http_session = None
 
@@ -63,17 +50,29 @@ class _LazyHTTP:
     def __getattr__(self, name):
         global _http_session
         if _http_session is None:
-            # Three transports, one interface, checked most-specific first. PG_DSN wins because
+            # TWO transports, one interface, checked most-specific first. PG_DSN wins because
             # a process that can reach the database directly should never route through HTTP to
             # reach itself — the cPanel app sets PG_DSN, the scraper sets DB_PROXY_*, and
             # neither should ever have both.
+            #
+            # There used to be a third: an unauthenticated fall-through to Supabase REST, which
+            # is what made every misconfiguration silent. It is gone (2026-09-01), and so is the
+            # `or _make_http()` that expressed it — a caller that reaches here without a
+            # configured backend gets an exception naming the two variables, not a session
+            # pointed at a database this project left on 2026-08-15.
             if PG_DSN:
                 import pgrest
                 _http_session = pgrest.Session(PG_DSN)
             else:
                 import dbproxy
                 _check_backend_intent()
-                _http_session = dbproxy.client_from_env() or _make_http()
+                _http_session = dbproxy.client_from_env()
+                if _http_session is None:
+                    raise RuntimeError(
+                        "no database backend is configured: set PG_DSN (on the box) or both "
+                        "DB_PROXY_URL and DB_PROXY_SECRET (off it). has_remote_db() answers "
+                        "False in this state, so a caller that guards on it never reaches "
+                        "here — if you are seeing this, that guard is missing.")
         return getattr(_http_session, name)
 
 
@@ -81,13 +80,19 @@ def _check_backend_intent():
     """Refuse to silently downgrade to a backend nobody asked for.
 
     `dbproxy.client_from_env()` returns a Session only when BOTH DB_PROXY_URL and
-    DB_PROXY_SECRET are non-empty, and the caller above reads None as "use Supabase". So a
-    missing or typo'd secret does not fail — it redirects every write to the database this
-    project left behind on 2026-08-15. Measured 2026-08-19: with DB_PROXY_URL set and
-    DB_PROXY_SECRET empty, `backend_name()` answers "Supabase", and the run reports success.
+    DB_PROXY_SECRET are non-empty. A missing or typo'd secret is therefore indistinguishable
+    from "no proxy configured" at the call site above.
 
-    That is the same failure family as the PG_DSN-read-before-.env bug documented below: the
-    configuration said one thing, the process did another, and nothing raised. Two rules:
+    WHY THIS STILL MATTERS NOW THAT THE SILENT FALLBACK IS GONE. Until 2026-09-01 that None was
+    read as "use Supabase", so a half-set pair redirected every write to the database this
+    project left on 2026-08-15 and the run reported success — measured 2026-08-19, with
+    DB_PROXY_URL set and DB_PROXY_SECRET empty, `backend_name()` answered "Supabase". That
+    specific hazard is now impossible; what remains is that a half-set pair would otherwise
+    raise deep inside the first query with a confusing message, or fall to the local CSV. Both
+    are worse than failing here, by name, before anything is read or written.
+
+    Same failure family as the PG_DSN-read-before-.env bug documented below: the configuration
+    said one thing, the process did another, and nothing raised. Two rules:
 
       * HALF-SET IS A MISCONFIGURATION, never a request for the old backend.
       * DB_REQUIRE lets a caller state the backend it expects, so CI and cron fail in one second
@@ -99,17 +104,23 @@ def _check_backend_intent():
         have, missing = ("DB_PROXY_URL", "DB_PROXY_SECRET") if url else ("DB_PROXY_SECRET",
                                                                         "DB_PROXY_URL")
         raise RuntimeError(
-            "DB_PROXY is half-configured: %s is set but %s is empty, and falling back to "
-            "Supabase would send every write to the database this project moved off on "
-            "2026-08-15. Set %s, or unset both to choose Supabase deliberately."
-            % (have, missing, missing))
+            "DB_PROXY is half-configured: %s is set but %s is empty, so this process has no "
+            "usable remote backend and would fall to the local CSV. Set %s, or unset both if "
+            "the local fallback is what you meant." % (have, missing, missing))
 
     want = (os.environ.get("DB_REQUIRE") or "").strip().lower()
     if not want:
         return
-    got = "proxy" if (url and secret) else ("supabase" if using_supabase() else "csv")
+    got = "proxy" if (url and secret) else "csv"
+    # `supabase` is still ACCEPTED and always mismatches, deliberately: a cron or CI job pinned
+    # to DB_REQUIRE=supabase must fail loudly saying the backend is gone, not be told its
+    # configuration is malformed. Remove it once nothing in .github/workflows sets it.
     if want not in ("proxy", "pg", "supabase", "csv"):
-        raise RuntimeError("DB_REQUIRE=%r is not one of proxy / pg / supabase / csv" % want)
+        raise RuntimeError("DB_REQUIRE=%r is not one of proxy / pg / csv" % want)
+    if want == "supabase":
+        raise RuntimeError(
+            "DB_REQUIRE=supabase, but the Supabase transport was removed on 2026-09-01. This "
+            "process talks to %s. Use proxy, pg or csv." % backend_name())
     if want == "pg":
         # PG_DSN is handled by the branch above and never reaches here, so arriving with
         # DB_REQUIRE=pg means PG_DSN was empty — exactly the cPanel misconfiguration to catch.
@@ -127,7 +138,7 @@ _http = _LazyHTTP()
 
 def _load_env_file(path=".env"):
     """Load KEY=VALUE pairs from a .env file into os.environ (set-if-absent), so every
-    module reads ONE config source: db's SUPABASE_*, web's GH_TOKEN, the scraper's
+    module reads ONE config source: db's PG_DSN / DB_PROXY_*, web's GH_TOKEN, the scraper's
     ADZUNA_APP_ID/ADZUNA_APP_KEY. No python-dotenv dependency; comments and blank
     lines ignored; real environment variables always win; never raises."""
     try:
@@ -251,70 +262,30 @@ JOBS_DERIVED_SQL = (
     "-- reads as missing until it happens to reload.\n"
     "notify pgrst, 'reload schema';\n")
 
-_creds_cache = None
-
-
-def _creds():
-    global _creds_cache
-    if _creds_cache is None:
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
-        if not (url and key):                       # .env file (any Python version; cPanel + cron)
-            try:
-                with open(".env", encoding="utf-8") as f:
-                    for ln in f:
-                        ln = ln.strip()
-                        if ln and not ln.startswith("#") and "=" in ln:
-                            k, v = ln.split("=", 1)
-                            v = v.strip().strip('"').strip("'")
-                            if k.strip() == "SUPABASE_URL":
-                                url = url or v
-                            elif k.strip() == "SUPABASE_KEY":
-                                key = key or v
-            except Exception:
-                pass
-        if not (url and key):                       # local secrets file (Streamlit, py3.11+)
-            try:
-                import tomllib
-                with open(os.path.join(".streamlit", "secrets.toml"), "rb") as f:
-                    sec = tomllib.load(f).get("supabase", {})
-                url = url or sec.get("url")
-                key = key or sec.get("key")
-            except Exception:
-                pass
-        if not (url and key):                       # Streamlit Cloud secrets
-            try:
-                import streamlit as st
-                sec = st.secrets.get("supabase", {})
-                url = url or sec.get("url")
-                key = key or sec.get("key")
-            except Exception:
-                pass
-        _creds_cache = (url.rstrip("/") if url else None, key)
-    return _creds_cache
-
-
-def using_supabase():
+def has_remote_db():
     """True when there is a REMOTE database to talk to, of either kind.
 
-    The name is historical and now reads as "not the local CSV fallback" — every caller uses it
-    to choose between the network path and jobs.csv, and a direct-Postgres backend belongs on
-    the network side of that question. Renaming it would touch ~40 call sites for no behavioural
-    change, so the docstring carries the meaning instead."""
-    if PG_DSN or (os.environ.get("DB_PROXY_URL") and os.environ.get("DB_PROXY_SECRET")):
-        return True
-    url, key = _creds()
-    return bool(url and key)
+    Called `using_supabase` until 2026-09-01, a name that had not been true since the move to
+        cPanel Postgres on 2026-08-15: it answered yes for all three transports, so every caller read
+    it as "not the local CSV fallback" while the name said something else. Its own docstring
+    argued the rename was not worth ~40 call sites; deleting the Supabase transport settled that,
+    because a predicate named after a backend that no longer exists is worse than a wide diff.
+    It was 99 sites in the end.
+
+    `db.backend_name()` is still the one that tells you WHICH backend."""
+    return bool(PG_DSN or (os.environ.get("DB_PROXY_URL")
+                           and os.environ.get("DB_PROXY_SECRET")))
 
 
 def backend_name():
     """Where writes are actually going, for anything that prints it.
 
-    Four scripts ended a run with `"Supabase" if db.using_supabase() else "jobs.csv"`, which was
-    true when Supabase was the only remote there was. It is now the wrong question: that helper
-    means "is there a remote database at all" and answers yes for all three transports, so a run
-    writing 714 descriptions into a Postgres on cPanel still signed off with "-> Supabase". The
-    log was the only record of that run, and it named the wrong database.
+    Four scripts once ended a run with `"Supabase" if db.using_supabase() else "jobs.csv"`, which
+    was true when Supabase was the only remote there was. It became the wrong question: that
+    helper means "is there a remote database at all", so a run writing 714 descriptions into a
+    Postgres on cPanel still signed off with "-> Supabase". The log was the only record of that
+    run, and it named the wrong database. Both the helper and that backend are gone now; this
+    function is what remains of the lesson.
 
     Short enough to sit at the end of a summary line, specific enough to be worth reading.
     """
@@ -327,22 +298,26 @@ def backend_name():
     if proxy and os.environ.get("DB_PROXY_SECRET"):
         host = proxy.split("://", 1)[-1].split("/")[0]
         return "the app at %s" % host if host else "the app proxy"
-    return "Supabase" if using_supabase() else JOBS_CSV
+    return JOBS_CSV                     # nothing remote configured: the local CSV fallback
 
 
 def _rest(path=""):
-    url, _ = _creds()
-    if (PG_DSN or os.environ.get("DB_PROXY_URL")) and not url:
-        # pgrest.Session only reads the part after /rest/v1/ to find the table, so the host is
-        # a placeholder. Keeping the same shape means _rest()'s callers stay identical.
-        return "pg://local/rest/v1/%s" % path
-    return "%s/rest/v1/%s" % (url, path)
+    """The PostgREST-shaped path both transports parse.
+
+    pgrest.Session and dbproxy.Session read only the part after /rest/v1/ to find the table, so
+    the host is a placeholder and always has been for them. With Supabase gone there is no real
+    host left to build, so the placeholder is unconditional and every call site is unchanged."""
+    return "pg://local/rest/v1/%s" % path
 
 
 def _headers(extra=None):
-    _, key = _creds()
-    h = {"apikey": key, "Authorization": "Bearer %s" % key,
-         "Content-Type": "application/json"}
+    """Request headers for the two transports.
+
+    The apikey / Authorization pair went with Supabase. Neither remaining transport ever read
+    them — checked: pgrest.Session and dbproxy.Session both pull `Prefer` and nothing else — so
+    dropping them changes no behaviour, and it stops every call site passing a credential to a
+    function that discards it."""
+    h = {"Content-Type": "application/json"}
     if extra:
         h.update(extra)
     return h
@@ -380,10 +355,10 @@ def table_count(table, params=None):
     Every admin panel below distinguishes those two, and a delete preview that reports 0 rows
     because the request failed is exactly how you delete the wrong thing on the retry.
 
-    HEAD is already allowlisted by the retry adapter in _make_http, so this needs no plumbing.
+    HEAD needs no special plumbing on either transport.
     `params` takes the usual PostgREST filters, e.g. {"company": "eq.Tesla"}.
     """
-    if not using_supabase():
+    if not has_remote_db():
         return None
     p = dict(params or {})
     # Any column works — HEAD returns no body regardless — but naming one keeps the request
@@ -418,7 +393,7 @@ def jobs_fingerprint():
     never as "unchanged" — a probe that fails while the DB is briefly unreachable would
     otherwise pin a stale feed in place indefinitely.
     """
-    if not using_supabase():
+    if not has_remote_db():
         return (None, "")
     n = table_count(TABLE)
     if n is None:
@@ -435,14 +410,15 @@ def jobs_fingerprint():
         return (None, "")
 
 
-def _upsert(rows, chunk=200):
+def _upsert(rows, chunk=200, keys=None):
     """Insert/merge rows on the `url` primary key (PostgREST upsert), in chunks with a soft retry.
     A single huge merge-upsert (a full re-score, or a big backlog of new jobs after the scheduled
     scrape has been down) is one giant statement; splitting it keeps each write small. On top of
     that, free-tier Supabase occasionally goes through a minute or two of HTTP 500s under load, so
     each chunk gets a couple of extra spaced-out attempts before we give up (and then we surface
     the real response body, not a bare RetryError). PostgREST needs every object in a bulk write
-    to share the SAME keys, so we normalize to the union of keys (missing -> None)."""
+    to share the SAME keys, so we normalize to the union of keys (missing -> None) — or to the
+    group `keys` names, which a caller writing one column group in several batches must pass."""
     if not rows:
         return
     # A single PostgREST upsert can't touch the same `url` twice — Postgres raises 21000
@@ -462,7 +438,12 @@ def _upsert(rows, chunk=200):
             order.append(u)
         merged[u].update({k: v for k, v in r.items() if v is not None})
     rows = [merged[u] for u in order] + passthrough
-    keys = sorted({k for r in rows for k in r})
+    # A named group is sent on every row, whatever this batch happens to hold. Inferred instead,
+    # the union is computed per CALL and the merge above has just dropped every None — so a batch
+    # in which some column is None on all of its rows does not send that column at all, and a
+    # stale value the caller meant to CLEAR survives. Not only a batching hazard: a 3-row payload
+    # in which none of the three states an experience floor could never clear one either.
+    keys = sorted(keys) if keys else sorted({k for r in rows for k in r})
     for i in range(0, len(rows), chunk):
         payload = json.dumps([{k: r.get(k) for k in keys} for r in rows[i:i + chunk]])
         last = ""
@@ -631,7 +612,7 @@ def load_jobs(include_jd=True, cols=None):
     include_jd=False path rather than raising, because reading more than necessary is a cost and
     failing here would take down a scrape.
     """
-    if using_supabase():
+    if has_remote_db():
         if cols:
             try:
                 return _fetch_all(TABLE, {"select": cols})
@@ -692,7 +673,7 @@ def get_job_jd(url):
     if url in _jd_cache:
         _jd_cache.move_to_end(url)             # a read is a use
         return _jd_cache[url]
-    if using_supabase():
+    if has_remote_db():
         try:
             rows = _fetch_all(TABLE, {"url": "eq.%s" % url, "select": "jd"})
             jd = (rows[0].get("jd") or "") if rows else ""
@@ -728,7 +709,7 @@ def load_jobs_by_urls(urls, include_jd=True):
     urls = [u for u in dict.fromkeys(urls) if u]      # de-dup, preserve order, drop blanks
     if not urls:
         return []
-    if using_supabase():
+    if has_remote_db():
         sel = "*" if include_jd else _FEED_COLS
         rows = []
         for batch in _url_batches(urls):
@@ -775,7 +756,7 @@ def sample_jobs(n=5, cols=None, **filters):
     have nothing can catch it.
     """
     n = max(1, int(n))
-    if not using_supabase():
+    if not has_remote_db():
         # No filter language off-line; "not.is.null" is read as "this column must be non-empty",
         # which is what every caller here means by it.
         want = [k for k, v in filters.items() if "null" in str(v)]
@@ -799,7 +780,7 @@ def urls_missing_jd():
     would quietly drop them from the fetch queue forever. Empty set on error, which a caller
     must read as "no backlog known" and not as "everything has a JD".
     """
-    if using_supabase():
+    if has_remote_db():
         try:
             return {r["url"] for r in _fetch_all(TABLE, {"select": "url",
                                                          "or": "(jd.is.null,jd.eq.)"})
@@ -827,7 +808,7 @@ def urls_missing_jd_terms():
     `if not packed` treats it as absent. Empty set on error, which a caller must read as "no
     backlog known" rather than "everything is analysed".
     """
-    if using_supabase():
+    if has_remote_db():
         try:
             return {r["url"] for r in _fetch_all(TABLE, {"select": "url",
                                                          "or": "(jd_terms.is.null,jd_terms.eq.)"})
@@ -842,7 +823,7 @@ def urls_with_jd():
     pulling the JD text. Cheap (urls only). Empty set on error.
 
     For the inverse question prefer urls_missing_jd(), which pages ~5.6x fewer rows."""
-    if using_supabase():
+    if has_remote_db():
         try:
             return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "not.is.null"})
                     if r.get("url")}
@@ -852,7 +833,7 @@ def urls_with_jd():
 
 
 def existing_urls():
-    if using_supabase():
+    if has_remote_db():
         return {row["url"] for row in _fetch_all(TABLE, {"select": "url"}) if row.get("url")}
     return {r["url"] for r in _read_csv()}
 
@@ -861,7 +842,7 @@ def add_jobs(rows):
     """Insert NEW jobs (deduped by url). rows = list of dicts."""
     if not rows:
         return
-    if using_supabase():
+    if has_remote_db():
         # first_seen is EXCLUDED on purpose, even though it's in FIELDS. _upsert normalizes each
         # chunk to the union of its rows' keys, so a single row carrying it would make every
         # other row in that chunk send an explicit null and merge-duplicates would blank dates
@@ -878,15 +859,19 @@ def add_jobs(rows):
     _write_csv(_read_csv() + new)
 
 
-def update_job_fields(rows):
+def update_job_fields(rows, keys=None):
     """Patch specific columns on existing jobs: rows = [{url, location?, found_date?}].
     Used by the extension's detail-fetch to fill in the real location / posting date for
-    browser-imported jobs (the listing page often only had a code or nothing)."""
+    browser-imported jobs (the listing page often only had a code or nothing).
+
+    `keys` names the column group being written — only needed by a caller that writes one group
+    in SEVERAL calls; see _upsert. The CSV fallback below ignores it, because that branch copies
+    truthy values only and so cannot clear a column with or without a key list."""
     rows = [r for r in rows if r.get("url")]
     if not rows:
         return
-    if using_supabase():
-        _upsert(rows)                      # merge-on-url updates only the given columns
+    if has_remote_db():
+        _upsert(rows, keys=keys)           # merge-on-url updates only the given columns
         return
     by_url = {r["url"]: r for r in rows}
     out = _read_csv()
@@ -903,7 +888,7 @@ def update_scores(scores):
     """scores = {url: int match_score}."""
     if not scores:
         return
-    if using_supabase():
+    if has_remote_db():
         _upsert([{"url": u, "match_score": int(s)} for u, s in scores.items()])
         return
     rows = _read_csv()
@@ -915,7 +900,7 @@ def update_scores(scores):
 
 def set_status(url, status):
     """status: 'liked' | 'hidden' | 'applied' | '' to clear."""
-    if using_supabase():
+    if has_remote_db():
         r = _http.patch(
             _rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
             params={"url": "eq.%s" % url},
@@ -932,7 +917,7 @@ def set_status(url, status):
 
 def get_statuses():
     """{url: status} for liked/hidden/applied jobs."""
-    if using_supabase():
+    if has_remote_db():
         return {row["url"]: row["status"]
                 for row in _fetch_all(TABLE, {"select": "url,status"}) if row.get("status")}
     return _load_actions()
@@ -983,10 +968,10 @@ def delete_urls(urls, progress=None, remote_only=False):
     urls = [u for u in dict.fromkeys(urls) if u]     # de-dup, preserve order, drop blanks
     if not urls:
         return 0
-    if remote_only and not using_supabase():
+    if remote_only and not has_remote_db():
         raise RuntimeError("delete_urls(remote_only=True) with no Supabase credentials. "
                            "refusing to touch the local-file fallback.")
-    if using_supabase():
+    if has_remote_db():
         done = 0
         for batch in _url_batches(urls):
             resp = _http.delete(
@@ -1019,7 +1004,7 @@ def delete_all(confirm=""):
         raise RuntimeError("delete_all() requires confirm='yes-wipe-the-jobs-table'")
     if os.environ.get("ALLOW_DELETE_ALL") != "1":
         raise RuntimeError("delete_all() requires ALLOW_DELETE_ALL=1 in the environment")
-    if using_supabase():
+    if has_remote_db():
         resp = _http.delete(_rest(TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"url": "neq.__none__"}, timeout=60)
         resp.raise_for_status()
@@ -1030,7 +1015,7 @@ def delete_all(confirm=""):
 def all_flagged_urls():
     """Every job URL any user has liked / applied / hidden — so a prune never deletes a job
     someone is tracking. Empty set on error / local with no file."""
-    if using_supabase():
+    if has_remote_db():
         try:
             return {r["url"] for r in _fetch_all(USERJOBS_TABLE, {"select": "url"}) if r.get("url")}
         except Exception:
@@ -1104,9 +1089,9 @@ def stale_urls(days=30, long_days=None):
     cutoff = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
     long_cutoff = ((datetime.date.today() - datetime.timedelta(days=int(long_days))).isoformat()
                    if long_days else cutoff)
-    if using_supabase():
+    if has_remote_db():
         rows = None
-        # first_seen / posted_verified may not exist yet (see SUPABASE_PENDING_MIGRATION.sql);
+        # first_seen / posted_verified may not exist yet on an old database (see schema.sql);
         # drop the optional columns and retry rather than failing the whole purge.
         for sel in ("url,found_date,posted_verified,first_seen",
                     "url,found_date,posted_verified", "url,found_date"):
@@ -1151,7 +1136,7 @@ def prune_old_jobs(days=60, dry_run=False, protect_flagged=True, progress=None, 
 
 def import_from_files():
     """One-time migration: push local jobs.csv + user_jobs.json into Supabase."""
-    if not using_supabase():
+    if not has_remote_db():
         print("No database credentials found. Set them first (see docs/OPERATIONS.md).")
         return
     rows = _read_csv()
@@ -1206,7 +1191,7 @@ def create_user(username, password_hash, resume=""):
     upsert — merging on conflict would silently overwrite an existing user's password, which
     is the one outcome a "create" must never have.
     """
-    if using_supabase():
+    if has_remote_db():
         resp = _http.post(
             _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
             data=json.dumps({"username": username, "password_hash": password_hash,
@@ -1235,7 +1220,7 @@ def get_user(username, cols=None):
     answer questions like "what is this user's token_epoch?". None keeps the old `*` so
     existing callers are unaffected; the local-file path ignores it and returns everything.
     """
-    if using_supabase():
+    if has_remote_db():
         r = _http.get(_rest(USERS_TABLE), headers=_headers(),
                          params={"username": "eq.%s" % username,
                                  "select": cols or "*", "limit": 1},
@@ -1251,7 +1236,7 @@ def get_user(username, cols=None):
 
 
 # Widest-first select ladder, same idea as load_jobs' column fallback: ask for the admin
-# columns, and drop back to the original pair if SUPABASE_ADMIN_MIGRATION.sql hasn't been run.
+# columns, and drop back to the original pair on a database without the admin columns.
 # Rows from the short select simply lack the keys, so every consumer must use .get().
 _USER_COLS = ("username,created_at,disabled_at,token_epoch", "username,created_at")
 
@@ -1259,7 +1244,7 @@ _USER_COLS = ("username,created_at,disabled_at,token_epoch", "username,created_a
 def list_users():
     """Every account. Never includes password_hash — this feeds the admin table and the
     per-request account cache, neither of which has any business holding hashes."""
-    if using_supabase():
+    if has_remote_db():
         last = None
         for sel in _USER_COLS:
             try:
@@ -1277,7 +1262,7 @@ def list_users():
 
 
 def _patch_user(username, fields):
-    if using_supabase():
+    if has_remote_db():
         resp = _http.patch(
             _rest(USERS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
             params={"username": "eq.%s" % username}, data=json.dumps(fields), timeout=30)
@@ -1299,7 +1284,7 @@ def set_user_resume(username, resume):
 
 
 def set_user_disabled(username, disabled=True):
-    """Disable (or re-enable) an account. Requires SUPABASE_ADMIN_MIGRATION.sql — without the
+    """Disable (or re-enable) an account. Requires the admin columns — without the
     column PostgREST 400s and this raises, which the caller surfaces as "run the migration"."""
     _patch_user(username, {"disabled_at":
                            datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -1343,7 +1328,7 @@ def delete_user(username, dry_run=False):
     removing the users row, so a partial failure leaves a live account rather than exactly the
     orphans this function exists to stop creating.
 
-    The child deletes are redundant once SUPABASE_ADMIN_MIGRATION.sql has added the cascading
+    The child deletes are redundant once the admin migration has added the cascading
     foreign keys — kept anyway so this stays correct before the migration is run, on the
     local-file backend, and so dry_run can report per-table counts for the confirm screen.
 
@@ -1351,7 +1336,7 @@ def delete_user(username, dry_run=False):
     has no usable per-user filter and is pruned by age instead.
     """
     out = {}
-    if using_supabase():
+    if has_remote_db():
         for table in _user_child_tables() + (USERS_TABLE,):
             if dry_run:
                 out[table] = table_count(table, {"username": "eq.%s" % username}) or 0
@@ -1454,7 +1439,7 @@ def blocked_company_keys():
 
 def list_blocked():
     """[{name_key, name, reason, added_by, created_at}], newest first. [] if unavailable."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(BLOCKED_TABLE), headers=_headers(),
                           params={"select": "*", "order": "created_at.desc"}, timeout=20)
@@ -1474,7 +1459,7 @@ def add_blocked(name, reason="", added_by=""):
         return False
     rec = {"name_key": key, "name": (name or "").strip()[:200],
            "reason": (reason or "")[:300], "added_by": (added_by or "")[:80]}
-    if using_supabase():
+    if has_remote_db():
         try:
             resp = _http.post(
                 _rest(BLOCKED_TABLE),
@@ -1491,7 +1476,7 @@ def add_blocked(name, reason="", added_by=""):
 
 
 def remove_blocked(name_key):
-    if using_supabase():
+    if has_remote_db():
         try:
             resp = _http.delete(_rest(BLOCKED_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                 params={"name_key": "eq.%s" % name_key}, timeout=20)
@@ -1520,7 +1505,7 @@ def audit_log(actor, action, target="", count=0, detail=None):
     rec = {"id": uuid.uuid4().hex, "actor": (actor or "")[:80], "action": (action or "")[:60],
            "target": (target or "")[:200], "count": int(count or 0),
            "detail": detail if isinstance(detail, dict) else {}}
-    if using_supabase():
+    if has_remote_db():
         try:
             resp = _http.post(_rest(AUDIT_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                               data=json.dumps(rec), timeout=20)
@@ -1541,7 +1526,7 @@ def audit_update(audit_id, count, detail=None):
     fields = {"count": int(count or 0)}
     if isinstance(detail, dict):
         fields["detail"] = detail
-    if using_supabase():
+    if has_remote_db():
         try:
             _http.patch(_rest(AUDIT_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                         params={"id": "eq.%s" % audit_id}, data=json.dumps(fields), timeout=20)
@@ -1556,7 +1541,7 @@ def audit_update(audit_id, count, detail=None):
 
 def list_audit(limit=25):
     """Most recent admin actions. [] if the table doesn't exist yet."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(AUDIT_TABLE), headers=_headers(),
                           params={"select": "*", "order": "at.desc", "limit": limit}, timeout=20)
@@ -1574,7 +1559,7 @@ def list_audit(limit=25):
 # ---- per-user liked / hidden / applied ----
 def get_user_statuses(username):
     """{url: status} for THIS user's liked/hidden/applied jobs."""
-    if using_supabase():
+    if has_remote_db():
         return {row["url"]: row["status"]
                 for row in _fetch_all(USERJOBS_TABLE,
                                       {"username": "eq.%s" % username, "select": "url,status"})
@@ -1601,7 +1586,7 @@ def set_user_status(username, url, status):
     if status and status not in USER_STATUSES:
         raise ValueError("status must be one of %s or '' to clear, not %r"
                          % (", ".join(USER_STATUSES), status[:40]))
-    if using_supabase():
+    if has_remote_db():
         if status:
             resp = _http.post(
                 _rest(USERJOBS_TABLE),
@@ -1616,7 +1601,7 @@ def set_user_status(username, url, status):
                                  "updated_at": datetime.datetime.now(
                                      datetime.timezone.utc).isoformat()}), timeout=30)
             if resp.status_code >= 400 and "updated_at" in (resp.text or ""):
-                # SUPABASE_EVENTS_MIGRATION.sql hasn't been run: drop the column and retry, the
+                # the events table predates that column: drop it and retry, the
                 # same shape as load_jobs' column fallback. Losing the timestamp costs recency
                 # reporting, not the like itself.
                 resp = _http.post(
@@ -1651,7 +1636,7 @@ def update_jds(jds):
         return
     for r in rows:
         _jd_cache.pop(r["url"], None)          # the only thing that can falsify _jd_cache
-    if using_supabase():
+    if has_remote_db():
         for i in range(0, len(rows), 30):     # ~30 JDs/request keeps the body small
             _upsert(rows[i:i + 30])
         return
@@ -1666,7 +1651,7 @@ BOARDS_FILE = "boards.json"          # local fallback
 def list_boards():
     """[{url, ats_type, company, added_by, created_at}] of user-added boards.
     Defensive: a missing table / failed request returns [] so the scrape never breaks."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(BOARDS_TABLE), headers=_headers(),
                              params={"select": "*", "order": "created_at"}, timeout=30)
@@ -1682,7 +1667,7 @@ def add_board(url, ats_type, company, added_by=""):
     """Insert/replace a custom board (PK = url). Returns (ok, error_message)."""
     rec = {"url": url, "ats_type": ats_type, "company": company,
            "added_by": added_by, "created_at": _now()}
-    if using_supabase():
+    if has_remote_db():
         resp = _http.post(
             _rest(BOARDS_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
@@ -1696,7 +1681,7 @@ def add_board(url, ats_type, company, added_by=""):
 
 
 def delete_board(url):
-    if using_supabase():
+    if has_remote_db():
         resp = _http.delete(_rest(BOARDS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"url": "eq.%s" % url}, timeout=30)
         if resp.status_code >= 400:
@@ -1704,6 +1689,96 @@ def delete_board(url):
         return
     rows = [b for b in list_boards() if b.get("url") != url]
     _dump_json(BOARDS_FILE, rows)
+
+
+# ================= JobSpy / aggregator findings (SIDECAR — never the feed) =================
+# A DISCOVERY LEDGER, not a job source. Rows here are postings the daily sweep saw on
+# LinkedIn/Indeed/jobright. They exist to answer "which employers are hiring that we do not
+# scrape yet", and to keep the evidence behind a board being adopted.
+#
+# NOTHING IN THE FEED PATH READS THIS TABLE, and the writer touches no other table. That is the
+# whole point of it being separate. CLAUDE.md's "don't reach for a job aggregator" stands:
+# Adzuna was 6% of the feed and 38% of every job with no usable description, and writing these
+# rows into `jobs` would repeat exactly that. Nothing here is scored, deduped against the corpus,
+# or rendered. `jobs`, `boards` and the company tables are never written by this module.
+#
+# PK is the posting url, so re-running a day upserts instead of piling up duplicates.
+FINDINGS_TABLE = "jobspy_findings"
+FINDINGS_FILE = "jobspy_findings_local.json"     # local fallback, same pattern as BOARDS_FILE
+FINDINGS_FIELDS = ("url", "title", "company", "posted_date", "location", "source",
+                   "career_page", "board_url", "ats_type", "seniority", "salary",
+                   "h1b_filings", "visa_routes", "company_is_new", "run_date", "created_at")
+
+# Surfaced the same self-serve way as APPLICATIONS_SQL: all `if not exists`, safe to re-run.
+FINDINGS_SQL = """-- Sidecar ledger for the daily aggregator sweep. NOT read by the feed.
+create table if not exists public.jobspy_findings (
+  url text primary key,
+  title text, company text,
+  posted_date date,
+  location text, source text,
+  career_page text, board_url text, ats_type text,
+  seniority text, salary text,
+  h1b_filings integer, visa_routes text,
+  company_is_new boolean,
+  run_date date,
+  created_at timestamptz default now());
+create index if not exists jobspy_findings_company_idx on public.jobspy_findings (company);
+create index if not exists jobspy_findings_run_idx on public.jobspy_findings (run_date);
+create index if not exists jobspy_findings_new_idx on public.jobspy_findings (company_is_new);
+"""
+
+
+def list_findings(limit=0):
+    """Rows from the findings ledger, newest run first. Defensive: never raises."""
+    if has_remote_db():
+        try:
+            params = {"select": "*", "order": "run_date.desc"}
+            if limit:
+                params["limit"] = str(int(limit))
+            r = _http.get(_rest(FINDINGS_TABLE), headers=_headers(), params=params, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return []
+    rows = _load_json(FINDINGS_FILE)
+    rows = rows if isinstance(rows, list) else []
+    return rows[:limit] if limit else rows
+
+
+def add_findings(rows):
+    """Upsert findings on url. Returns (written, error_message).
+
+    Batched: a sweep produces hundreds of rows and one request each would spend the run's whole
+    time budget on round trips. Returns the first error rather than raising, so a failed write
+    still leaves the sweep free to emit its report artifact -- the report is the deliverable the
+    user actually reads, and losing it to a database hiccup would be the worse outcome.
+    """
+    recs = []
+    for r in rows or []:
+        if not (r or {}).get("url"):
+            continue
+        rec = {k: r.get(k) for k in FINDINGS_FIELDS}
+        rec["created_at"] = rec.get("created_at") or _now()
+        recs.append(rec)
+    if not recs:
+        return 0, ""
+    if has_remote_db():
+        written = 0
+        for i in range(0, len(recs), 500):
+            chunk = recs[i:i + 500]
+            resp = _http.post(
+                _rest(FINDINGS_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "url"}, data=json.dumps(chunk), timeout=60)
+            if resp.status_code >= 400:
+                return written, "add_findings %s: %s" % (resp.status_code, resp.text[:300])
+            written += len(chunk)
+        return written, ""
+    have = {r.get("url"): r for r in list_findings()}
+    for rec in recs:
+        have[rec["url"]] = rec
+    _dump_json(FINDINGS_FILE, list(have.values()))
+    return len(recs), ""
 
 
 # ================= per-user application tracker =================
@@ -1785,7 +1860,7 @@ APPLICATIONS_SQL = (
 
 def list_applications(username):
     """This user's applications, newest first. Defensive: missing table / error -> []."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(APPLICATIONS_TABLE), headers=_headers(),
                              params={"username": "eq.%s" % username, "select": "*",
@@ -1812,7 +1887,7 @@ def save_application(username, rec):
     payload = {k: rec.get(k) for k in APP_FIELDS if k in rec}
     if not payload.get("applied_date"):
         payload["applied_date"] = None              # empty string isn't a valid SQL date
-    if using_supabase():
+    if has_remote_db():
         resp = _http.post(
             _rest(APPLICATIONS_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
@@ -1842,7 +1917,7 @@ def find_application_by_url(username, url):
 
 
 def delete_application(username, app_id):
-    if using_supabase():
+    if has_remote_db():
         resp = _http.delete(_rest(APPLICATIONS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"id": "eq.%s" % app_id, "username": "eq.%s" % username}, timeout=30)
         if resp.status_code >= 400:
@@ -1864,7 +1939,7 @@ RESUME_FIELDS = ("id", "username", "name", "content", "created_at", "active")
 
 def list_resumes(username):
     """This user's saved résumé versions. Defensive: missing table / error -> []."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(RESUMES_TABLE), headers=_headers(),
                              params={"username": "eq.%s" % username, "select": "*",
@@ -1887,7 +1962,7 @@ def save_resume(username, rec):
     if not rec.get("created_at"):
         rec["created_at"] = _now()
     payload = {k: rec.get(k) for k in RESUME_FIELDS if k in rec}
-    if using_supabase():
+    if has_remote_db():
         resp = _http.post(
             _rest(RESUMES_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
@@ -1910,7 +1985,7 @@ def save_resume(username, rec):
 
 
 def delete_resume(username, rid):
-    if using_supabase():
+    if has_remote_db():
         resp = _http.delete(_rest(RESUMES_TABLE), headers=_headers({"Prefer": "return=minimal"}),
                                params={"id": "eq.%s" % rid, "username": "eq.%s" % username}, timeout=30)
         if resp.status_code >= 400:
@@ -2036,7 +2111,7 @@ notify pgrst, 'reload schema';"""
 
 def list_resume_files(username, resume_id=None):
     """File METADATA for this user (or one resume). Never returns b64 -- see the note above."""
-    if using_supabase():
+    if has_remote_db():
         try:
             params = {"username": "eq.%s" % username,
                       "select": ",".join(RESUME_FILE_META), "order": "created_at.desc"}
@@ -2056,7 +2131,7 @@ def list_resume_files(username, resume_id=None):
 
 def get_resume_file(username, fid):
     """One file WITH its bytes. The only read that pulls a payload."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(RESUME_FILES_TABLE), headers=_headers(),
                           params={"id": "eq.%s" % fid, "username": "eq.%s" % username,
@@ -2095,7 +2170,7 @@ def save_resume_file(username, rec):
                 delete_resume_file(username, old["id"])
             except Exception:
                 pass
-    if using_supabase():
+    if has_remote_db():
         resp = _http.post(
             _rest(RESUME_FILES_TABLE),
             headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
@@ -2112,7 +2187,7 @@ def save_resume_file(username, rec):
 
 
 def delete_resume_file(username, fid):
-    if using_supabase():
+    if has_remote_db():
         resp = _http.delete(_rest(RESUME_FILES_TABLE),
                             headers=_headers({"Prefer": "return=minimal"}),
                             params={"id": "eq.%s" % fid, "username": "eq.%s" % username},
@@ -2135,7 +2210,7 @@ def prune_resume_files(days=RESUME_FILES_TTL_DAYS):
     """
     cutoff = (datetime.datetime.now(datetime.timezone.utc)
               - datetime.timedelta(days=int(days))).isoformat()
-    if using_supabase():
+    if has_remote_db():
         try:
             resp = _http.delete(_rest(RESUME_FILES_TABLE),
                                 headers=_headers({"Prefer": "return=representation"}),
@@ -2179,7 +2254,7 @@ def get_brain_kb(username):
     kb = None
     if username:
         try:
-            if using_supabase():
+            if has_remote_db():
                 kb = (get_user(username, "brain_kb") or {}).get("brain_kb")
                 if kb is None:                              # column missing/empty -> local backup
                     kb = _load_json(BRAIN_KB_FILE).get(username)
@@ -2219,7 +2294,7 @@ def save_brain_kb(username, kb):
     column hasn't been added yet) falls back to a local file so data is never lost."""
     if not username:
         return
-    if using_supabase():
+    if has_remote_db():
         try:
             _patch_user(username, {"brain_kb": kb})
             return
@@ -2233,7 +2308,7 @@ def get_brain_company(domain):
     if not domain:
         return None
     try:
-        if using_supabase():
+        if has_remote_db():
             r = _http.get(_rest(BRAIN_COMPANIES_TABLE), headers=_headers(),
                           params={"domain": "eq.%s" % domain, "select": "*", "limit": 1}, timeout=20)
             r.raise_for_status()
@@ -2255,7 +2330,7 @@ def put_brain_company(domain, rec):
     rec = dict(rec)
     rec["domain"] = domain
     rec["fetched_at"] = _now()
-    if using_supabase():
+    if has_remote_db():
         try:
             payload = {"domain": domain, "data": rec, "fetched_at": rec["fetched_at"]}
             resp = _http.post(
@@ -2276,7 +2351,7 @@ def put_brain_company(domain, rec):
 def list_brain_companies():
     """{domain: record} for all researched companies (shared)."""
     try:
-        if using_supabase():
+        if has_remote_db():
             out = {}
             for row in _fetch_all(BRAIN_COMPANIES_TABLE, {"select": "*"}):
                 d = row.get("data")
@@ -2380,7 +2455,7 @@ def _decode_profile(rec):
 
 def get_profile(username):
     """This user's profile dict (or {} if none / missing table)."""
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(PROFILES_TABLE), headers=_headers(),
                              params={"username": "eq.%s" % username, "select": "*", "limit": 1}, timeout=30)
@@ -2404,7 +2479,7 @@ def save_profile(username, fields):
                 rec[k] = {}
     rec["username"] = username
     rec["updated_at"] = _now()
-    if using_supabase():
+    if has_remote_db():
         def _post(payload):
             return _http.post(
                 _rest(PROFILES_TABLE),
@@ -2445,7 +2520,7 @@ def get_tailored(cache_key):
     if not cache_key:
         return None
     try:
-        if using_supabase():
+        if has_remote_db():
             r = _http.get(_rest(TAILORED_CACHE_TABLE), headers=_headers(),
                           params={"id": "eq.%s" % cache_key, "select": "data", "limit": 1}, timeout=20)
             r.raise_for_status()
@@ -2464,7 +2539,7 @@ def put_tailored(cache_key, payload, username=""):
     """Upsert a tailor payload (keyed on cache_key). Local fallback on DB failure."""
     if not cache_key:
         return
-    if using_supabase():
+    if has_remote_db():
         try:
             body = {"id": cache_key, "username": username, "data": payload, "created_at": _now()}
             resp = _http.post(
@@ -2521,7 +2596,7 @@ def get_learned(username):
     """Map of {key: {value,type,options,company,count,label}} for the user. {} if none/unavailable."""
     if not username:
         return {}
-    if using_supabase():
+    if has_remote_db():
         try:
             r = _http.get(_rest(LEARNED_TABLE), headers=_headers(),
                           params={"username": "eq.%s" % username,
@@ -2562,7 +2637,7 @@ def save_learned(username, items):
                      "count": int(prev.get("count", 0) or 0) + 1, "updated_at": _now()})
     if not rows:
         return 0
-    if using_supabase():
+    if has_remote_db():
         try:
             resp = _http.post(_rest(LEARNED_TABLE),
                               headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
@@ -2588,7 +2663,7 @@ def delete_learned(username, key):
     on success. Used by the 'manage learned answers' UI in the extension."""
     if not username or not key:
         return False
-    if using_supabase():
+    if has_remote_db():
         try:
             resp = _http.delete(_rest(LEARNED_TABLE), headers=_headers(),
                                 params={"username": "eq.%s" % username, "key": "eq.%s" % key}, timeout=20)
@@ -2623,7 +2698,7 @@ def put_kv(key, obj):
         # UTC with an offset so the browser parses it correctly — a scrape may run on GitHub's
         # UTC runners while the viewer is in any timezone, and a naive local time skews elapsed.
         rec["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        if using_supabase():
+        if has_remote_db():
             try:
                 payload = {"id": key, "data": rec, "updated_at": rec["updated_at"]}
                 resp = _http.post(
@@ -2649,7 +2724,7 @@ def get_kv(key, default=None):
     """The JSON blob stored under `key`, or `default` ({} unless given). Never raises."""
     fallback = {} if default is None else default
     try:
-        if using_supabase():
+        if has_remote_db():
             try:
                 r = _http.get(_rest(SCRAPE_STATUS_TABLE), headers=_headers(),
                               params={"id": "eq.%s" % key, "select": "data", "limit": 1},
@@ -2739,11 +2814,13 @@ notify pgrst, 'reload schema';
 
 
 # ---- product analytics events ----
-# Schema lives in SUPABASE_EVENTS_MIGRATION.sql; this constant is only the path so the admin
-# page can point at it when a write fails because the table isn't there yet.
+# The admin page shows this path when an events write fails because the table is not there yet,
+# so it has to name a file that EXISTS. It used to be SUPABASE_EVENTS_MIGRATION.sql, which was
+# deleted with the Supabase transport on 2026-09-01; schema.sql is the live DDL now, regenerated
+# by scripts/dump_schema.py from the database itself rather than hand-maintained.
 EVENTS_TABLE = "events"
 EVENTS_DAILY_TABLE = "events_daily"
-EVENTS_SQL_FILE = "SUPABASE_EVENTS_MIGRATION.sql"
+EVENTS_SQL_FILE = "schema.sql"
 
 
 def insert_events(rows):
@@ -2756,7 +2833,7 @@ def insert_events(rows):
     Analytics must never break a request or a scrape, so every failure is swallowed. The caller
     (analytics.py) counts consecutive failures and stops trying rather than retrying forever.
     """
-    if not rows or not using_supabase():
+    if not rows or not has_remote_db():
         return False
     # PostgREST requires a uniform key set across a bulk insert; a missing key in one row of
     # the batch makes it reject the whole batch rather than defaulting that column.
@@ -2836,7 +2913,7 @@ def newest_event_ts():
     A one-row ordered select, NOT _fetch_all — that helper overwrites `limit` with its 1000-row
     page size and would walk the whole events table to answer a question about one row.
     """
-    if not using_supabase():
+    if not has_remote_db():
         return ""
     try:
         r = _http.get(_rest(EVENTS_TABLE), headers=_headers(),
@@ -2862,7 +2939,7 @@ def ev_usage(days=7):
     defaults to `order=url`, a column this table doesn't have), so reading 60k events over the
     wire from shared cPanel is 60 sequential round trips for numbers Postgres can produce in one.
     """
-    if not using_supabase():
+    if not has_remote_db():
         return {}
     try:
         r = _http.post(_rest("rpc/ev_usage"), headers=_headers(),
@@ -2877,7 +2954,7 @@ def ev_usage(days=7):
 
 def events_daily(since_day):
     """Pre-aggregated daily counts from `since_day` (ISO date). [] if unavailable."""
-    if not using_supabase():
+    if not has_remote_db():
         return []
     try:
         r = _http.get(_rest(EVENTS_DAILY_TABLE), headers=_headers(),
@@ -2895,7 +2972,7 @@ def prune_events(before_day):
     table PLATEAUS rather than shrinking. That is the intended outcome; the dashboard number
     settling instead of dropping is not a bug.
     """
-    if not using_supabase():
+    if not has_remote_db():
         return False
     try:
         r = _http.delete(_rest(EVENTS_TABLE), headers=_headers({"Prefer": "return=minimal"}),
@@ -2916,7 +2993,7 @@ def db_stats():
     real one; and pg_database_size is a FLOOR on what Supabase bills, which counts the whole
     instance including the auth/storage schemas and WAL.
     """
-    if not using_supabase():
+    if not has_remote_db():
         return {}
     try:
         r = _http.post(_rest("rpc/db_stats"), headers=_headers(), data="{}", timeout=20)
@@ -2930,7 +3007,7 @@ def db_stats():
 
 if __name__ == "__main__":
     import sys
-    if not using_supabase():
+    if not has_remote_db():
         print("Storage backend: local files")
         print("Jobs available:", len(load_jobs()))
     else:

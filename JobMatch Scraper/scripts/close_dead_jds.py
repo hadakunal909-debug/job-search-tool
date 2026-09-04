@@ -170,7 +170,13 @@ def main():
         if counts.get("readable"):
             top, note = "readable", "an extractor works here — do not close"
         elif n < MIN_AGREE and len(outs) >= MIN_AGREE:
-            top, note = "unknown", "probes disagreed"
+            # "mixed", NOT "unknown". This branch and liveness.classify's "unknown" used to share
+            # a label while meaning opposite things: this one is "the probes could not agree", and
+            # that one is "every probe reached a real page and got no text out of it". The second
+            # is a finding the feed can act on -- it is exactly the state Actalent's apply domain
+            # is in -- and the first is an admission that we do not know. Merging them meant the
+            # badge could not use either.
+            top, note = "mixed", "probes disagreed"
         else:
             note = liveness.VERDICT_NOTES.get(top, "")
         print("%-42s %6d  %-10s %-18s %s" % (h[:42], len(us), top, statuses, note))
@@ -237,6 +243,22 @@ def main():
     except Exception:
         pass
     print("\nNow run: python -m scraper.score_jobs   (the cleared rows re-enter the fetch queue)")
+    # AND THE BADGE WILL NOT APPEAR UNTIL THE ROW CACHE TURNS OVER. Measured 2026-09-02: the
+    # verdicts above were written, web._host_jd_blocked resolved the host correctly,
+    # _build_row returned jd_unavailable=True -- and /job STILL rendered "it gets a match
+    # score after the next scoring run", because the page is served from the persisted base
+    # rows in row_cache/, which were built before this ran and hold the old flag.
+    #
+    # That is by design and must not be "fixed" by putting the verdicts in the cache key:
+    # web._derived_signature() excludes them deliberately, because a KV read whose failure
+    # mode is {} made two workers compute different keys and overwrite each other's file
+    # (production showed 63 ms and 8,401 ms in the same second). test_speed_caches.py pins
+    # the exclusion with an explicit "jd_host_verdicts does NOT move the signature" check.
+    #
+    # So the invalidation is manual, and it is the same move a data-only DB fix needs:
+    # jobs_fingerprint() is (row count, max first_seen) and recording a verdict moves
+    # neither, so nothing invalidates the built rows on its own.
+    print("Then, so the feed shows it:  rm row_cache/*.rows.gz && touch tmp/restart.txt")
     return 0
 
 

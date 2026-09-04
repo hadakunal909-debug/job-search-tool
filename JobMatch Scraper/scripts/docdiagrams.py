@@ -194,7 +194,7 @@ def surfaces(f):
         c.text(330, y + 20, "->  " + got, 12, mono=True, colour=INK)
         c.text(660, y + 20, why, 12, colour=DIM)
         y += 36
-    c.text(0, y + 18, "using_supabase() answers True for the first three. backend_name() is the "
+    c.text(0, y + 18, "has_remote_db() answers True for the first three. backend_name() is the "
            "one that tells you which.", 12.5, colour=HEX["trap"][2], weight="600")
     return c.render()
 
