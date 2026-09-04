@@ -229,6 +229,39 @@ if [ -f "$APP/resume.txt" ]; then
 
     # ---- SECOND PASS: ANALYSE WHATEVER THE FIRST ONE BANKED -------------------------------
     #
+    # 2026-09-04: THE FIRST PASS NO LONGER DIES, SO rc=137 HERE IS A BUG REPORT AGAIN.
+    #
+    # Everything below this amendment is the history and it is worth keeping, but read it as
+    # history. It says the fetch pass is SIGKILLed on every run and that this second process
+    # is the compensation. That was true from 2026-09-02 and is not true now.
+    #
+    # The cause was one statement in score_jobs' analysis setup: it called _load_jd_cache(),
+    # which materialises EVERY stored description into one dict, to supply text for the few
+    # hundred rows the run still needed -- and db.load_jobs_by_urls, which asks for exactly
+    # those urls, was already sitting underneath it as the fallback. Measured on this box:
+    # 8 MB -> 492 MB peak RSS, 29,991 entries. The merge-and-save above it also held that
+    # dict and never released it, so the old code rebound it while the first copy was still
+    # live. Asking the database first, and a `del` at both retained sites, was the whole fix.
+    #
+    # Re-run here afterwards with this block's exact env -- SCORE_NEW_ONLY=yes,
+    # SCORE_MAX_FETCH=1500, SCORE_BUDGET_MIN=25, SCORE_ANALYZE_BUDGET_MIN=12 -- sampling
+    # /proc/$PID/status rather than ps -C or pgrep -f, both of which match the watching shell
+    # here and lie:
+    #
+    #   rc=0, peak RSS 737 MB, and it did the analysis itself: 461 jobs scored, 447 rows of
+    #   JD fields written. Against a ~1.2 GB account-wide LVE cap, with room to spare.
+    #
+    # SO: IF YOU SEE `score end rc=137` AGAIN, SOMETHING HAS REGRESSED. Do not read it as
+    # normal because the text below calls it expected -- that is exactly the trap the stale
+    # Actions-secret note in this file was, and it cost a later reader a hunt for a fault
+    # that had been fixed weeks earlier.
+    #
+    # This pass STAYS, and not out of caution about the above. A fresh heap is still the only
+    # lever a shell script has, the run costs ~48 s, and the first pass is still the one
+    # carrying every board map and fetched description when it reaches the analysis. It is
+    # cheap insurance that has already been proven to work; what changed is that it should
+    # now be finding nothing left to do.
+    #
     # A SEPARATE PROCESS, and that is the entire point -- not a tidiness preference.
     #
     # score_jobs runs FETCH first and ANALYSE second, in one process, and only the second phase
