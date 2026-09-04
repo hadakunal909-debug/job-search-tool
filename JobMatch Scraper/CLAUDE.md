@@ -130,14 +130,49 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   and ranking is destroyed. If it needs rescaling, rescale what it measures (`core.core_terms`).
 - **Don't reach for a job aggregator.** Adzuna was removed 2026-08-16: at 6% of the feed it was
   38% of every job with no usable description. Reasoning in `docs/OPERATIONS.md`.
-- **One hue, and the card answers one question.** Colour used to mean *which* sponsorship route.
-  As of 2026-08-31 every card wears the same blue and shows a single chip — "Sponsorship likely"
-  / "Sponsorship unlikely", a star for a top H-1B sponsor, and no chip at all where there is no
-  filing record. Both at the owner's direction after seeing the live feed. `static/style.css`
-  states the rule (in the `--route-*` block, where only the h1b trio holds a value and the other
-  four alias it) and `scripts/test_contrast.py` gates it in CI. Routes are still named in full on
-  `/job` and `/companies`, which have room for them. Everything else is ink. **Don't reintroduce
-  a per-route colour or a second chip on the card** — that has now been walked back twice.
+- **One hue, and ONE CHIP. A chip is a verdict; a fact is a column.** Colour used to mean
+  *which* sponsorship route. As of 2026-08-31 every card wears the same blue and shows a single
+  chip — "Sponsorship likely" / "Sponsorship unlikely", a star for a top H-1B sponsor, and no
+  chip at all where there is no filing record. Both at the owner's direction after seeing the
+  live feed. `static/style.css` states the rule (in the `--route-*` block, where only the h1b
+  trio holds a value and the other four alias it) and `scripts/test_contrast.py` gates it in CI.
+  Routes are still named in full on `/job` and `/companies`, which have room for them.
+  Everything else is ink. **Don't reintroduce a per-route colour or a second chip on the card**
+  — that has now been walked back twice.
+  **Where the blue lives, 2026-09-03: the CARD IS WHITE with an outline, and the one hue is
+  spent on `.cardverdict`** — a TINTED column (`#eaf1fe`, not a saturated slab; `#1d4ed8` with
+  white on it was tried and read as a dark block bolted to a white card) down the trailing edge,
+  holding the ring, the match label and the sponsorship line. The wash that tinted every card is gone. The rule is not
+  weakened by this, it is aimed: one hue, on the one part of a card that is *our* claim rather
+  than the employer's. Two things that bite here — `.cardverdict` needs `min-width:0` or its
+  automatic minimum resolves to min-content and the panel silently sizes to its own label
+  (146px vs 161px, so every card gets a different body width and the fact cells stop sharing an
+  offset); and its width is MEASURED from the widest rendered label (138px + 24 padding = 164),
+  not chosen. A second stale `.cardverdict` rule left further down the file will win on source
+  order and undo both without looking broken.
+  **The other half, added 2026-09-03: the cap is on the VERDICT, and it was never a cap on
+  FACTS.** The card behaved as though it were, which is how `salary_label`, `remote` and
+  `exp_level` came to be computed by `_build_row`, serialised, and shipped to every browser
+  while `cardHTML` drew none of them — `grep -ac salary_label static/app.js` returned 0. Pay,
+  place and years are things the EMPLOYER stated; they are ink in `.cfacts`, in fixed tracks so
+  a column can be compared down the feed, and they add no chip and no hue. If you are tempted to
+  add something to a card, ask which one it is: a verdict goes in `.cardverdict` and has to
+  displace the chip that is there, a fact gets a column.
+- **The feed is a FIXED three-column grid, and "fixed" is the load-bearing word.** It was
+  `repeat(auto-fill,minmax(330px,1fr))` until 2026-09-03, and briefly one full-width row per
+  job in between. Auto-fill is what has to stay gone: it sizes cards to whatever the viewport
+  leaves over, so no two cards share a width and the fact cells never line up. With three equal
+  columns, `.cfacts` resolves to the same offsets in every card — measured `19,232,19,232` on
+  all 60 — so pay sits under pay across a line and down the page. `.cardact` carries
+  `margin-top:auto` for the same reason: a grid row stretches to its tallest card, and without
+  it a two-line title steps its own Apply button below its neighbours'.
+  Three traps if you touch this: `#feed` inside `@media (min-width:1200px)` used to override
+  `.feedgrid` by ID specificity regardless of source order (deleted — the feed rendered four
+  columns of row-styled cards and nothing warned); `contain-intrinsic-size` sizes the CONTENT
+  box, so set it from a measurement with `content-visibility` forced off or on-screen and
+  off-screen cards report two different heights and only one is real; and the fact cells are
+  ordered by COVERAGE (location 98%, years 91%, pay 41%, remote 17%), not by importance, so the
+  52% of cards carrying exactly two facts fill line one instead of sitting diagonally opposite.
 - **A card field that isn't the score belongs to the POSTING, not to the reader.**
   `_build_row` emits 41 keys and exactly one, `score`, depends on who is asking. `_base_rows()`
   builds the other 40 once per corpus and `ranked_rows` overlays the score onto shallow copies:

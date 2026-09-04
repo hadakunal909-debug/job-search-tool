@@ -113,9 +113,9 @@
       <div class="cochart" role="img"
            aria-label="H-1B approvals by fiscal year, {{ about.hist_from }} to {{ about.hist_to }}">
         {% for b in about.bars %}
-        <div class="cobar" title="FY{{ b.year }}, {{ '{:,}'.format(b.n) }} approval{{ '' if b.n == 1 else 's' }}">
-          <div class="cobar-fill" style="height:{{ b.pct }}%"></div>
-          <span class="cobar-y">{{ b.year % 100 }}</span>
+        <div class="cochart-bar" title="FY{{ b.year }}, {{ '{:,}'.format(b.n) }} approval{{ '' if b.n == 1 else 's' }}">
+          <div class="cochart-fill" style="height:{{ b.pct }}%"></div>
+          <span class="cochart-y">{{ b.year % 100 }}</span>
         </div>
         {% endfor %}
       </div>

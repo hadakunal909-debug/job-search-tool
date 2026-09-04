@@ -33,7 +33,6 @@
   // The last fiscal year the sponsorship data actually covers. Read off #feed rather than
   // hardcoded, so refreshing sponsor_years.json moves every label that quotes it in one step.
   // Falls back to the current shipped vintage when the attribute is absent (an older template).
-  var SPONSOR_DATA_THROUGH = (feed && feed.getAttribute("data-spon-through")) || "FY2023";
 
   var q = document.getElementById("q"), minR = document.getElementById("min"),
       minLab = document.getElementById("minlab"), sortSel = document.getElementById("sort"),
@@ -260,15 +259,15 @@
     // there isn't one"; a middle dot inside it read as a rendering artefact, and screen
     // readers announced it. The tooltip carries the actual explanation.
     if (!HAS_RESUME)
-      return '<span class="score-none" title="Add your résumé to see how well each job matches you. Until then there is nothing to compare against."></span>';
+      return '<span class="score-none" title="Add your résumé for match scores"></span>';
     // Two different facts, and they were one chip until 2026-08-18. "pending" means we have not
     // read the description YET; "unavailable" means this employer refuses every server-side read
     // (Akamai, an AWS WAF challenge) so no run will ever change it. Promising a score that
     // cannot arrive is worse than saying so.
     if (j && j.jd_unavailable)
-      return '<span class="score-pending" title="This employer does not publish a description we can read, so this job cannot be scored against your r\u00e9sum\u00e9. Open the posting to read it.">No JD</span>';
+      return '<span class="score-pending" title="No readable description">No JD</span>';
     if (j && j.score_pending)
-      return '<span class="score-pending" title="Not scored yet: no full description has been read for this posting. It\'ll get a match score once the full job description is fetched.">JD pending</span>';
+      return '<span class="score-pending" title="Not scored yet">JD pending</span>';
     return scoreRing((j && j.score) || 0);
   }
   function toast(msg, undoFn) {
@@ -405,20 +404,26 @@
   // was doing the naming, at banner scale. It then spent a fortnight as a 20px chip on the
   // identity line.
   //
-  // What makes the corner survivable this time is the CAP, not the position: 24px tall and
-  // 104px wide is 35% of the row at its widest, a bit over half the banner's footprint, and it
-  // shares a row that already exists rather than opening one. The name still identifies the
-  // employer -- the mark is decoration next to it, which is why it is capped and why 15% of
-  // feed rows having no logo at all costs nothing (measured 2026-09-02 over 42,180 rows).
+  // What makes the corner survivable is the CAP, not the position. 32px tall and 132px wide
+  // (raised from 24/104 on 2026-09-03, at the owner's request) is 29% of a 452px card at its
+  // widest -- a smaller share of the row than the old cap was of the old 294px card, because the
+  // card grew when the feed went to three columns. The name still identifies the employer; the
+  // mark is decoration next to it, which is why it is capped and why 15% of feed rows having no
+  // logo at all costs nothing (measured 2026-09-02 over 42,180 rows).
   //
-  // It fits in .cardtop's existing height, so a card WITHOUT a logo is not short a row: the
-  // score cell already sets that row's height and holds the right edge via margin-left:auto.
-  // That is what makes "image or nothing" still work here.
+  // It shares the TITLE's line now (.cardlede), so a card without a logo is not short a row:
+  // the title and the identity line set that height between them and the mark is centred
+  // against the pair. That is what makes "image or nothing" still work here. It had a 24px row
+  // of its own until 2026-09-03, which cost every card ~32px to say nothing.
   //
   // width/height are ATTRIBUTES, not an inline style, and they are the first consumer of
-  // logo_ar: they reserve the box before the image loads, so the identity line does not reflow
-  // on a slow connection. web.py::_build_row has shipped logo_ar since the harvest landed and
-  // nothing read it.
+  // logo_ar: they reserve the box before the image loads, so the row does not reflow on a slow
+  // connection. web.py::_build_row has shipped logo_ar since the harvest landed.
+  //
+  // THEY HAVE TO TRACK .cmark's CSS OR THEY ARE WORSE THAN NOTHING. These said 24/104 while the
+  // stylesheet said 32/132, so every logo reserved a box 8px short and then grew into a
+  // different one -- a guaranteed shift on load, in the exact place the attributes exist to
+  // prevent one. If you change the height or the cap in .cmark, change both numbers here.
   //
   // IMAGE OR NOTHING -- deliberately no monogram twin here. A fixed slot would buy alignment
   // this row does not need (nothing sits under the mark that has to line up with it) and would
@@ -427,8 +432,61 @@
   function companyMark(j) {
     if (!j.logo) return '';
     return '<img class="cmark" src="' + H(j.logo) + '" alt="" loading="lazy" decoding="async"' +
-      ' height="24" width="' + Math.round(Math.min(24 * (j.logo_ar || 1), 104)) + '"' +
+      ' height="32" width="' + Math.round(Math.min(32 * (j.logo_ar || 1), 176)) + '"' +
       (j.logo_mono ? ' data-mono="1"' : '') + '>';
+  }
+
+  // ONE FACT, ONE FIXED SLOT -- and the fixed part is the whole feature.
+  //
+  // The grid tracks are fixed and an unknown value renders an EMPTY cell rather than a shorter
+  // row, so pay sits under pay the whole way down the feed and ten jobs can be compared without
+  // reading ten cards. Collapse the empties instead and row 3's salary slides under row 2's
+  // location, which is the ragged run-on identity line this replaced.
+  //
+  // `html` is ALREADY ESCAPED by the caller. The experience cell passes a <span> of its own
+  // (see expIn below), so this cannot esc() here; every other call site runs esc() itself.
+  //
+  // NO ICON. Each cell carried a real emoji in a <span class="cfi"> until 2026-09-03 -- owner's
+  // direction, removed. `kind` stays as a class on the cell rather than being deleted with the
+  // glyph: it is what makes the four cells addressable in CSS and in test_card_meta's ordering
+  // check, and it costs nothing now that it draws nothing.
+  function factCell(kind, html, title) {
+    if (!html) return '<span class="cfact cfact-blank"></span>';
+    return '<span class="cfact ' + kind + '"' + (title ? ' title="' + H(title) + '"' : '') +
+      '>' + html + '</span>';
+  }
+
+  // A REASON, WITHOUT THE NARRATOR. The stored sponsor_reason is written from the pipeline's
+  // point of view -- "JD says no visa sponsorship", "JD offers visa sponsorship" -- which tells
+  // the reader about our READING rather than about the job. Owner's direction 2026-09-03: state
+  // the fact and stop.
+  //
+  // Rewritten HERE rather than at the source because the scorer stamps that string onto the row:
+  // changing the wording in scraper/ would mean re-scoring the whole corpus to fix a label, and
+  // every row already banked would keep the old phrasing until it was.
+  function plainReason(s) {
+    // Only the NARRATOR comes off. An earlier pass also ate the verb, which turned
+    // "JD requires a security clearance" into "A security clearance" -- a shorter sentence that
+    // says something else. "says"/"states" are the reporting verbs; everything after is the fact.
+    s = String(s || '').replace(/^JD\s+(?:says|states)\s+/i, '').replace(/^JD\s+/i, '');
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+  }
+
+  // The ring's own thresholds, in words, under the number.
+  //
+  // ABSOLUTE, NEVER A PERCENTILE -- CLAUDE.md: the feed SORTS on this number, so a relative
+  // scale saturates and the top forty rows all read the same. 70/40 restates scoreRing's pair
+  // rather than sharing a constant with it, deliberately: scoreRing is text-lifted out of this
+  // file and asserted under node by test_card_meta, so it stays byte-for-byte untouched.
+  //
+  // The three guards mirror scoreCell's, in the same order: no resume, no readable JD, and not
+  // scored yet each mean there is no ring to label, and a label under a dashed placeholder
+  // would name a number that is not there.
+  function matchLabel(j) {
+    if (!HAS_RESUME || (j && (j.jd_unavailable || j.score_pending))) return '';
+    var s = (j && j.score) || 0;
+    return '<span class="cvlabel">' +
+      (s >= 70 ? 'Strong Match' : s >= 40 ? 'Good Match' : 'Low Match') + '</span>';
   }
 
   // Build one card's HTML from its data object — mirrors the old Jinja <article> exactly.
@@ -455,10 +513,14 @@
     // lottery" and "years not stated", which is a card spending its whole width telling you
     // what it does not know.
     //
-    // A card is for ONE question -- can this employer sponsor me -- so it answers that and
-    // stops. Nothing is lost: /job renders pay, remote, internship, years, cap-exempt, agency,
-    // repost and matched-on-description, with the caveats that never fitted on a card, and
-    // that is where a reader who has decided to open a posting already is.
+    // A CHIP IS A VERDICT; A FACT GOES IN THE GRID. That distinction is what the cap was
+    // always really about, and conflating the two is why the card lost facts along with the
+    // noise. Pay, place and years are things the EMPLOYER stated -- they are ink in .cfacts
+    // below, in fixed columns, and they cost the sponsorship question nothing. What stays
+    // capped here is the VERDICT: one hedged claim about sponsorship, or silence.
+    //
+    // Still only on /job, because each needs a caveat that does not fit in a column:
+    // internship, cap-exempt, agency, repost and matched-on-description.
     //
     // THREE STATES, TWO LABELS, AND SILENCE FOR THE THIRD. The posting rules sponsorship out,
     // or the employer has a federal filing record, or we have neither -- and the third gets NO
@@ -478,18 +540,21 @@
     var badges = "";
     var vtop = j.visa_likely || "";
     if (j.sponsor_jd === "blocked") {
-      badges += '<span class="nospon" title="' + H(j.sponsor_reason) +
+      badges += '<span class="nospon" title="' + H(plainReason(j.sponsor_reason)) +
         '">Sponsorship unlikely</span>';
     } else if (vtop || j.sponsor_jd === "open") {
       // THE STAR REPLACES A CLAUSE. This chip used to append ", top sponsor to FY2025", which
-      // doubled its width on 30% of cards to carry one bit. The mark carries the vintage in
-      // its tooltip and the feed prints the legend once above the grid, so the window is still
-      // stated -- once per page instead of once per card. SPONSOR_DATA_THROUGH rides in on
-      // #feed's data-spon-through, so refreshing the sponsorship files moves both at once.
+      // doubled its width on 30% of cards to carry one bit.
+      //
+      // The tooltip is three words as of 2026-09-03. It used to spend one sentence on the data
+      // vintage and another disclaiming that a filing history describes the EMPLOYER and not
+      // this posting -- both true, neither what somebody hovering a star is asking. The vintage
+      // still appears once per PAGE, in the legend above the grid ("= top H-1B sponsor
+      // (FY2025)"), which is where a window belongs; that legend reads sponsor_data_through()
+      // straight from the template, so nothing here has to carry it.
       var top = (vtop === "h1b" && j.strength === "high");
       badges += '<span class="spon"' +
-        (top ? ' title="Top H-1B sponsor by federal filings through ' + H(SPONSOR_DATA_THROUGH) +
-               '. It describes the employer\'s history, not this posting."' : '') +
+        (top ? ' title="Top H-1B sponsor"' : '') +
         '>Sponsorship likely' +
         (top ? ' <span class="topspon" aria-hidden="true">\u2605</span>' : '') + '</span>';
     }
@@ -542,24 +607,35 @@
     // cards explaining what the app does not know instead of showing jobs. A missing figure
     // already reads as "no figure"; /job says which of the three it is, in words, for the one
     // posting the reader has decided to open.
+    // THE TOOLTIP IS THE FACT, NOT AN ACCOUNT OF HOW WE GOT IT. Owner's direction 2026-09-03,
+    // after hovering the years and being handed two sentences about what the posting states and
+    // what 96% of similarly-titled postings do.
+    //
+    // The inferred case gets NO tooltip at all. Its visible words already say "senior role", and
+    // the only thing a tooltip could add is the provenance the reader has just said they do not
+    // want. That distinction is not lost, it is relocated: /job still separates "the employer
+    // did not say" from "we read it off the title", in words, for the one posting somebody has
+    // decided to open. Same bargain the chip cap already makes.
     var expTxt = '', expTitle = '';
     if (j.exp_src === 'stated') {
       expTxt = j.exp_eff + '+ yrs';
-      expTitle = 'This posting asks for ' + j.exp_eff + '+ years of experience.';
+      expTitle = j.exp_eff + '+ years experience';
     } else if (j.exp_src === 'inferred') {
       // KEPT, because it is an ANSWER rather than an absence -- and it is the answer the
       // experience filter is acting on when it hides this row. Silence here would mean a job
       // vanishing from "0 to 2 Years" with nothing on the card to say why.
       expTxt = 'senior role';
-      expTitle = 'This posting states no year count. Its TITLE names a senior role, and ' +
-        '96% of postings titled this way ask for three years or more.';
     }
     // cexp-*, not exp-*: .exp-lo/.exp-mid/.exp-hi are the /job page's CHIP and carry a
     // background and a route colour. Reusing those names here would put a chip back on the card
     // by stylesheet accident, which is the thing this must not do.
+    //
+    // NO SEPARATE SENIORITY CELL, though exp_level has ridden on the row all along and nothing
+    // has ever drawn it. It is core.exp_level_for(exp_years) -- the same number this cell
+    // already prints, bucketed. A column reading "Entry Level" beside one reading "0+ yrs" is a
+    // restatement, not a second fact, and it would spend a track that has nothing to put in it.
     var expIn = expTxt
-      ? SEP + '<span class="cexp cexp-' + j.exp_src + '" title="' + H(expTitle) + '">'
-          + esc(expTxt) + '</span>'
+      ? '<span class="cexp cexp-' + j.exp_src + '">' + esc(expTxt) + '</span>'
       : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "");
@@ -591,15 +667,22 @@
       // decoration rather than as data, and the paint containment that makes a long grid cheap
       // to scroll would have clipped it.
       //
-      // The mark leads this row again as of 2026-09-02 -- see companyMark above for the cap
-      // that makes the corner survivable. The New flag follows it rather than owning the
-      // corner; the score still holds the right edge by margin-left:auto, which does not
-      // depend on how many children precede it.
-      '<div class="cardtop">' +
-        companyMark(j) +
-        newFlag +
-        scoreCell(j) +
-      '</div>' +
+      // THE LEDE: who is hiring on the left, what we make of it on the right.
+      //
+      // .cardverdict is the only part of a card that is about the READER rather than about the
+      // job -- invariant 7's line, drawn in pixels. At three cards to a line there is no room
+      // for it to be a ruled column down the side, so it holds the top-right corner and the
+      // label under the ring carries the separation that the rule used to.
+      //
+      // The mark leads the row (owner's direction 2026-09-02; the cap in companyMark is what
+      // makes the corner survivable) and the New flag follows it. margin-left:auto on the
+      // verdict holds the right edge and does not care how many children precede it.
+      //
+      // The title is NOT in here. It spans the card's full width on the next line, which is
+      // what lets every title in the grid start at the same x without reserving a fixed slot
+      // for a mark that is 39px wide for Mastercard and absent on 15% of rows.
+      '<div class="cardbody">' +
+      '<div class="cardlede">' + companyMark(j) + newFlag + '</div>' +
       // A REAL LINK to a real page. It was a <button> that opened the modal, which was itself a
       // fix for the card being an <article> with a click handler and no tabindex — the feed used
       // to be mouse-only. An <a href> keeps all of that and adds what a button structurally
@@ -618,11 +701,34 @@
       // identity line can never take more than one line and the chips can never be pushed
       // down by a verbose employer.
       '<div class="cmeta">' +
-        '<div class="cident">' + companyLink(j.company) + SEP +
-          '<span class="cloc" title="' + H(j.location || '') + '">' +
-          esc(j.location || 'Location not stated') + '</span>' + posted + expIn +
-        '</div>' +
-        (badges ? '<div class="cbadges">' + badges + '</div>' : '') +
+        '<div class="cident">' + companyLink(j.company) + posted + '</div>' +
+      '</div>' +
+      // THE FACT GRID. Four fixed tracks: place, work mode, pay, years. Every value here was
+      // already built by web.py::_build_row and already shipped in the feed JSON -- salary_label
+      // and remote had simply never been drawn by anything, and location and the years moved out
+      // of the run-on identity line above so they could line up with their neighbours.
+      //
+      // FOUR, NOT SIX. Jobright's grid also carries an employment type and a three-state work
+      // mode; we hold neither. There is no full-time/part-time field anywhere in this corpus,
+      // and `remote` is a BOOLEAN -- core.parse_location drops "hybrid" and "onsite" as noise
+      // tokens when it picks a city -- so a third state would have to be invented. An empty
+      // column is honest; a fabricated one is not.
+      // ORDER IS BY COVERAGE, NOT BY IMPORTANCE, because the grid is two cells wide and a
+      // blank holds its slot. Measured over 120 live rows: location 98%, years 91%, pay 41%,
+      // remote 17%. Putting the two near-universal facts on the FIRST line means the common
+      // card -- 52% of them carry exactly two -- reads as one tidy line with an empty line
+      // under it. Ordered place/remote/pay/years instead, that same card put its location top
+      // left and its years bottom RIGHT, diagonally opposite across two blanks.
+      '<div class="cfacts">' +
+        factCell('cf-loc', esc(j.location || 'Location not stated'), j.location || '') +
+        factCell('cf-exp', expIn, expTitle) +
+        factCell('cf-pay', esc(j.salary_label || ''),
+                 j.salary_label ? 'Pay range stated in this posting.' : '') +
+        // "Remote" or nothing, never "Onsite": absence here means the posting did not say so,
+        // which is not the same claim. Same rule core.py already applies to a missing visa
+        // route -- no record is not a refusal.
+        factCell('cf-rem', j.remote ? 'Remote' : '',
+                 j.remote ? 'This posting is remote.' : '') +
       '</div>' +
       '<div class="cardact">' +
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>' +
@@ -635,6 +741,25 @@
           '<button class="ico" data-act="applied">' + (st === 'applied' ? 'Applied' : 'Mark applied') + '</button>' +
           '<button class="ico" data-act="hidden">' + (st === 'hidden' ? 'Hidden' : 'Hide') + '</button>' +
         '</span>' +
+      '</div>' +
+      '</div>' +
+      // THE VERDICT PANEL. Everything the READER's own profile decides -- the score, that score
+      // in words, and the one sponsorship claim -- in a tinted column down the trailing edge,
+      // against a white card carrying only what the EMPLOYER published. That is invariant 7
+      // drawn in pixels, and it is why the blue moved here: the whole card used to be washed in
+      // it, which spent the one hue on a distinction it was not making.
+      //
+      // A TINT, not a slab. The first cut was #1d4ed8 with white on it and read as a dark block
+      // bolted to a white card; the panel only has to mark a different KIND of claim, and a tint
+      // does that without shouting.
+      //
+      // The chip comes WITH the score rather than sitting under the facts, because it is the
+      // same kind of claim -- our reading of a federal filing history, not something the posting
+      // says. It is still exactly one chip; only its address changed.
+      '<div class="cardverdict">' +
+        scoreCell(j) +
+        matchLabel(j) +
+        (badges ? '<div class="cbadges">' + badges + '</div>' : '') +
       '</div>' +
     '</article>';
   }
