@@ -3490,8 +3490,14 @@ def _company_brief(display, open_rows):
     with 500 openings would put tens of milliseconds of pure CPU on every job view for a chip row
     that /company already shows one click away.
 
-    So: no jd_terms aggregation and no per-year history bars. Everything here is either already
-    on the rows we were handed or a dict lookup.
+    So: no jd_terms aggregation. Everything here is either already on the rows we were handed
+    or a dict lookup.
+
+    THE HISTORY BARS ARE HERE NOW (2026-09-03), and the clause that used to say "and no
+    per-year history bars" is gone with them, because it bundled two costs that are not alike.
+    The jd_terms aggregation walks the entire corpus. core.sponsor_history is ONE lookup into a
+    165 KB dict that sponsor_years() has already cached lazily, plus a zero-fill across at most
+    six years -- so the job page was linking out to /company for a chart it could draw itself.
     """
     try:
         research = _research_for(display) or {}
@@ -3499,7 +3505,18 @@ def _company_brief(display, open_rows):
         research = {}
     strength, scount = core.sponsor_strength(display, sponsor_counts())
     states = collections.Counter(r["loc_state"] for r in open_rows if r.get("loc_state"))
+    # Per-year approvals, scaled here rather than in the template so a bar is one number. The
+    # same four lines as _company_profile, reading the same core.sponsor_history, so the two
+    # pages cannot draw different charts for one employer.
+    hist = core.sponsor_history(display, sponsor_years())
+    peak = max([n for _y, n in hist] or [0])
+    bars = [{"year": y, "n": n, "pct": (2 + int(96.0 * n / peak)) if (peak and n) else 0}
+            for y, n in hist]
     return {
+        "bars": bars,
+        "hist_total": sum(n for _y, n in hist),
+        "hist_from": hist[0][0] if hist else None,
+        "hist_to": hist[-1][0] if hist else None,
         "research": research,
         "researched": bool(research.get("what_they_do") or research.get("about")
                            or research.get("mission")),
@@ -3525,6 +3542,24 @@ def _and_list(items):
     if len(items) <= 1:
         return items[0] if items else ""
     return "%s and %s" % (", ".join(items[:-1]), items[-1])
+
+
+# The reporting verb, stripped. sponsor_reason is stamped by the scorer in the pipeline's
+# voice -- "JD says no visa sponsorship" -- and the reader wants the fact, not our reading of it
+# (owner's direction 2026-09-03).
+#
+# ONLY "says"/"states" come off, never the posting's own verb: eating that turned "JD requires a
+# security clearance" into "A security clearance", which is shorter and means something else.
+#
+# Twinned with static/app.js::plainReason, deliberately duplicated rather than shared for the
+# same reason _route_of below is: it is three lines, and the alternative is shipping a computed
+# field on every row so the card can render one tooltip.
+_JD_NARRATOR_RE = re.compile(r"^JD\s+(?:says|states)\s+|^JD\s+", re.I)
+
+
+def _plain_reason(s):
+    s = _JD_NARRATOR_RE.sub("", str(s or ""), count=1).strip()
+    return (s[:1].upper() + s[1:]) if s else ""
 
 
 def _route_of(row):
@@ -3803,7 +3838,8 @@ def job_page():
         jd_unusual=jd_unusual, norms_built=norms.built(_norms).get("built") or "",
         norms_postings=norms.built(_norms).get("postings") or 0,
         about=brief, researching=research_pending, research_pending=research_pending,
-        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE))
+        chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE,
+        sponsor_reason_plain=_plain_reason(row.get("sponsor_reason"))))
     # NO Cache-Control here, and it is a deliberate refusal. `private, max-age=30` makes the
     # prefetched copy serve the click outright — measured in a real browser as transferSize
     # 352 -> 0 and TTFB 0, so the open really is free. But a navigation served from cache never

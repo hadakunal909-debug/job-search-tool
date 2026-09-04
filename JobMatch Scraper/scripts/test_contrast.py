@@ -53,6 +53,12 @@ TEXT_PAIRS = [
     ("--visa-blocked-text", "--visa-blocked-bg"),
     ("--visa-unknown-text", "--visa-unknown-bg"),
     ("--posting-agency-text", "--posting-agency-bg"),
+    # THE VERDICT PANEL, both colours that print on it. This is the one solid-colour surface on
+    # a card, so nothing else in the sheet vouches for what is legible against it -- and the
+    # dark theme needed a different blue to pass, which is exactly the kind of thing that gets
+    # missed by eye (#2563eb put the sub colour at 4.14).
+    ("--verdict-ink", "--verdict-bg"),
+    ("--verdict-sub", "--verdict-bg"),
     # THE MATCH METER. All three, against the opaque disc they are actually drawn on rather
     # than against --bg-surface in the abstract. --match-weak used to be exempt as a
     # "quantitative ramp end, never used as body text"; that stopped being true on 2026-08-11,

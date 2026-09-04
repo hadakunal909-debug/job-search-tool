@@ -150,7 +150,7 @@
          EVERY ROW ALWAYS RENDERS. A block whose rows come and go is one you have to read to
          know what is in it, and "not stated in this posting" is a real answer -- it is exactly
          what the experience filter is acting on when it shows a job it cannot judge. #}
-      <h2 class="sechdr">What This Posting Asks For</h2>
+      <h2 class="jobsec">What This Posting Asks For</h2>
       <dl class="asks">
         {# THE THREE NO-ANSWER CASES ARE NAMED HERE AND NOWHERE ELSE. The card carries a figure
            or nothing, so this page is where "the employer did not say" has to stop being
@@ -191,7 +191,7 @@
       </dl>
 
       {# ---- 3. THE DESCRIPTION, in the employer's own words and order. ---- #}
-      <h2 class="sechdr">Job Description</h2>
+      <h2 class="jobsec">Job Description</h2>
       {% if asks.verdict == 'not-a-posting' and had_text %}
       {# WHAT WE HOLD IS A PAGE, NOT A JOB -- a careers-site shell, a cookie notice wrapped
          around a dead link, or a results list. 828 of the 41,434 cached descriptions are one of
@@ -218,7 +218,7 @@
 
       {# ---- 3. the keywords, as lists, after the prose they refer to ---- #}
       {% if have or missing %}
-      <h2 class="sechdr">Keywords in This Description</h2>
+      <h2 class="jobsec">Keywords in This Description</h2>
       {% if missing %}
       <p class="coprose small">Worth adding to your résumé</p>
       <div class="kw">{% for k in missing %}<span class="tag miss">{{ k }}</span>{% endfor %}</div>
@@ -230,7 +230,7 @@
       {% endif %}
 
       {% if role_usual or co_tools %}
-      <h2 class="sechdr">What This Kind of Job Usually Asks For</h2>
+      <h2 class="jobsec">What This Kind of Job Usually Asks For</h2>
       {% if role_usual %}
       <p class="coprose small">Across the {{ role_n }} {{ role_label }} postings in our corpus.
         The percentage is how many of them say it.</p>
@@ -264,7 +264,7 @@
       {% endif %}
       {% endif %}
 
-      <h2 class="sechdr">Tailor Your Résumé</h2>
+      <h2 class="jobsec">Tailor Your Résumé</h2>
       <p class="coprose">Resume Brain reads this description, ranks your stored r&eacute;sum&eacute;s
               and stories against it, and drafts the rewrite. It researches the employer too, which fills
               the
@@ -272,7 +272,7 @@
       <p><a class="btn primary" href="{{ url_for('brain_tailor_page') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a></p>
 
       {# ---- 4. the employer, LAST. Context for a decision, not the reason for the visit. ---- #}
-      <h2 class="sechdr">About {{ row.company }}</h2>
+      <h2 class="jobsec">About {{ row.company }}</h2>
       <div id="coresearch" data-research="{{ row.company }}"
            data-pending="{{ '1' if research_pending else '' }}"
            data-csrf="{{ csrf_token() }}">
@@ -288,9 +288,16 @@
       {# ---- 5. sponsorship history, condensed to a statement ----
          Two sentences, no per-route glossary. What this employer has filed for is a fact about the
          company, and the posting's own text is the fact about this job; those are the only two
-         things worth saying here. The company page carries the per-route detail and the year by
-         year chart for anyone who wants them. #}
-      <h2 class="sechdr">Sponsorship History</h2>
+         things worth saying here. The company page carries the per-route detail for anyone
+         who wants it.
+
+         THE YEAR-BY-YEAR CHART IS HERE NOW. It used to be the reason for the link out, and it
+         should not have been: "does this employer sponsor" is the wrong question and the two
+         sentences below answer it. "Are they still sponsoring, and at what rate" is the right
+         one, and only the shape of the series answers that -- a single windowed total reads
+         the same whether the filings all landed in 2020 or all landed last year. Same markup
+         and same _company_brief numbers as /company, so the two pages cannot disagree. #}
+      <h2 class="jobsec">Sponsorship History</h2>
       <p class="coprose">
         {%- if filed %}{{ row.company }} has a federal filing history for {{ filed }}.
         {%- else %}There is no federal filing record on file for {{ row.company }}.{% endif %}
@@ -302,10 +309,37 @@
         {%- if narrowed %} The history above is about the company, not this job.{% endif %}
         {%- elif row.sponsor_jd == 'open' %}<strong>This posting offers sponsorship.</strong>
         {%- else %}This posting says nothing either way about sponsorship.{% endif %}
-        {%- if row.sponsor_reason %} <span class="muted">({{ row.sponsor_reason }}.)</span>{% endif %}
+        {%- if sponsor_reason_plain %} <span class="muted">({{ sponsor_reason_plain }}.)</span>{% endif %}
       </p>
-      <p class="fnote">From past federal filings. {{ absence_note }}
-        <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">See the year by year history</a>.</p>
+      {% if about.bars %}
+      <div class="cochart" role="img"
+           aria-label="H-1B approvals by fiscal year, {{ about.hist_from }} to {{ about.hist_to }}">
+        {% for b in about.bars %}
+        <div class="cochart-bar" title="FY{{ b.year }}, {{ '{:,}'.format(b.n) }} approval{{ '' if b.n == 1 else 's' }}">
+          <div class="cochart-fill" style="height:{{ b.pct }}%"></div>
+          <span class="cochart-y">{{ b.year % 100 }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {# NO TOTAL IN HERE, deliberately. The sentence above already gives one, over the
+         five-year tier window, and it is the number the star on the card is derived from. This
+         footnote used to open with hist_total over the FULL history -- so the same block showed
+         "3,987 across FY2021-2025" and "4,776 across FY2020-2025" one line apart. Both were
+         correctly labelled and both were right, which is exactly what makes a reader stop and
+         work out which one they are being told. The chart's job is the SHAPE; the total is
+         said once. #}
+      <p class="fnote">Approvals by fiscal year, USCIS H-1B Employer Data Hub. Hover a bar for
+        its count.</p>
+      {% endif %}
+      {# core.VISA_ABSENCE_NOTE used to close this block -- "No route shown means no record, not
+         a refusal." Removed 2026-09-03 at the owner's direction, after the trade-off was put to
+         them explicitly. It is a caveat about OUR data, and this page is now for the posting.
+         The RULE it states is unchanged and still enforced where it actually binds: core.py
+         still defines the constant, sponsorship is still a flag and never a filter, and
+         CLAUDE.md still says absence is not a refusal. What is gone is the sentence on screen,
+         not the behaviour. #}
+      <p class="fnote"><a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">Route
+        detail and current openings</a>.</p>
     </div>
 
     <aside class="jobaside">

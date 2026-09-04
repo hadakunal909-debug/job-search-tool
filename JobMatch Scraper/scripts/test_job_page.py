@@ -259,8 +259,17 @@ check("no per-route glossary table", "routelist" not in body and "routewhy" not 
       "five rows explaining what H-1B means is not what a job page is for")
 check("the filing history is one statement",
       "has a federal filing history for" in body_text or "no federal filing record" in body_text)
-check("the absence caveat is still verbatim from core", core.VISA_ABSENCE_NOTE in body,
+# REMOVED FROM THE PAGE 2026-09-03, at the owner's direction and after the trade-off was put
+# to them: it is a caveat about our DATA on a page that is about the POSTING. The assertion is
+# inverted rather than deleted so the removal stays deliberate -- if it reappears, that should be
+# a decision somebody makes again, not a paste.
+check("the absence caveat is NOT on the job page", core.VISA_ABSENCE_NOTE not in body,
       repr(core.VISA_ABSENCE_NOTE))
+# The RULE it stated is what actually matters and it is unaffected: the constant still exists for
+# the scripts that reason about it, and the feed still FLAGS sponsorship rather than filtering on
+# it, which is the behaviour the sentence was describing.
+check("...but the constant still exists for the code that reasons about it",
+      bool(core.VISA_ABSENCE_NOTE))
 # Removed from THIS page on request. It stays on /welcome and /profile, which is where somebody is
 # actually entering the dates it warns about; test_onboarding.py still asserts it there.
 check("the immigration-advice callout is NOT on the job page",

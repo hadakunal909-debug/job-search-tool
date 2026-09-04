@@ -45,7 +45,7 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,484 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,520 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
@@ -220,7 +220,7 @@ worth of context, and all three must agree.
 ```mermaid
 flowchart TB
   S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2437</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 872</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 997</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
@@ -331,17 +331,30 @@ Things that are true on purpose, and expensive to rediscover.
 5. **`jobs.jd_terms` is TEXT, not jsonb, and its key order is semantic.** It's the analyzer's
    frozen term order; it breaks ties in the skill panel, and the scorer diffs the stored string to
    decide whether to write at all. Converting it re-upserts the whole corpus every run.
-6. **One hue, and the card answers one question.** Colour used to mean *which* sponsorship
-   route; since 2026-08-31 every card wears the same blue and shows a single chip, at the
-   owner's direction after seeing the live feed. The route survives as the LABEL, which
-   already named it in full — the hue was reinforcing the word, not replacing it. What is
-   lost, recorded so it is a decision and not an accident: route is no longer distinguishable
-   at a glance. `static/style.css` states the rule, `scripts/test_contrast.py` gates it, and
-   `CLAUDE.md` is the source of truth if these ever disagree again. Everything else is ink;
-   these docs use a different palette on purpose.
+6. **One hue, and ONE CHIP — but a chip is a verdict, not a fact.** Colour used to mean
+   *which* sponsorship route; since 2026-08-31 every card wears the same blue and shows a
+   single chip, at the owner's direction after seeing the live feed. The route survives as the
+   LABEL, which already named it in full — the hue was reinforcing the word, not replacing it.
+   What is lost, recorded so it is a decision and not an accident: route is no longer
+   distinguishable at a glance. `static/style.css` states the rule,
+   `scripts/test_contrast.py` gates it, and `CLAUDE.md` is the source of truth if these ever
+   disagree again. Everything else is ink; these docs use a different palette on purpose.
+
+   **Amended 2026-09-03 twice, and neither is a walk-back.** First: the card is now WHITE with
+   an outline and the single hue is spent on `.cardverdict`, a tinted column on the trailing
+   edge carrying the ring, its label and the sponsorship line — the wash that tinted the whole card
+   is gone, so the one colour now marks the one thing that is not the employer's. Second: the
+   cap is on the VERDICT and it still holds at one. What the cap never meant — though the card behaved as if it did — was
+   "few facts": pay, place and years are things the employer stated, and they now sit in a
+   fixed-track grid (`.cfacts`) as ink, in one hue, with no chip added. Conflating the two is
+   why `salary_label`, `remote` and `exp_level` were computed, serialised and shipped to the
+   browser for months while `cardHTML` drew none of them. Chips are verdicts; grids are facts.
 7. **A card field that is not the score belongs to the posting, not to the reader.**
    `_build_row` emits 41 keys and exactly one depends on who is asking, so the other 40 are
    built once per corpus (§5). The dedupe must stay **after** the score overlay, because
    `_dupe_rank` tie-breaks on the score and folding duplicates at 0 keeps a different copy.
+   Since 2026-09-03 this invariant is also drawn in pixels: everything on a card is the
+   posting's own except `.cardverdict` — the ring, and its 70/40 threshold in words — which
+   holds the top-right corner and is the only part that changes with who is looking.
 8. **Never load-test production.** Shared cPanel throttles at the account level, no restart
    clears it, and the previous account was suspended once.
