@@ -124,6 +124,26 @@ def prune_cache(cache_days, apply_changes):
         print("        delete FAILED: %s" % e)
 
 
+def _probe_events():
+    """(status, detail) for a one-row read of the events table.
+
+    Only ever called after table_count() has already answered None, purely to find out WHICH
+    kind of None it was. A HEAD would be cheaper but PostgREST answers it with no body, and the
+    body is where the PGRST205 code that names a missing table lives.
+
+    limit=1 rather than a count: this asks whether the table can be read at all, and on a table
+    with a million rows a count is a table scan to learn something a single row already proves.
+    """
+    try:
+        r = db._http.get(db._rest(db.EVENTS_TABLE), headers=db._headers(),
+                         params={"select": "id", "limit": 1}, timeout=20)
+        return r.status_code, (r.text or "")[:300]
+    except Exception as e:
+        # A transport that raises rather than answering — a dead host. Reported as 0, which is
+        # not a status any server sends, so it cannot be mistaken for one.
+        return 0, "%s: %s" % (type(e).__name__, str(e)[:200])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="actually write/delete")
@@ -135,9 +155,31 @@ def main():
     if not db.using_supabase():
         print("No Supabase credentials — nothing to do.")
         return 0
+    # "CANNOT READ IT" AND "IT IS NOT THERE" ARE DIFFERENT ANSWERS, and this used to print the
+    # second one for both. db.table_count returns None for a missing table, an HTTP error AND
+    # PostgREST's unknown-count form — its own docstring says so — so any blip made this step
+    # announce "run SUPABASE_EVENTS_MIGRATION.sql first" and exit 0.
+    #
+    # That is exactly what happened on 2026-09-03. The DB proxy was returning HTML for about a
+    # minute; three steps above this one died on it, this one printed the migration advice half
+    # a second later, and the rollup silently did not run. The log read as a completed
+    # housekeeping step with nothing to do. Anyone acting on that message would have gone
+    # looking for an unapplied migration that had been applied months earlier.
+    #
+    # A 404 (or PostgREST's PGRST205) is the table genuinely not existing and stays a quiet
+    # exit 0 — this is housekeeping and a fresh database should not shout. Anything else is a
+    # failure to ASK, and it exits non-zero so the step goes red. scrape.yml runs this with
+    # continue-on-error, so red here reports the problem without failing the scrape.
     if db.table_count(db.EVENTS_TABLE) is None:
-        print("No `events` table — run SUPABASE_EVENTS_MIGRATION.sql first. Nothing to do.")
-        return 0
+        status, detail = _probe_events()
+        if status in (404, 406) or "PGRST205" in detail:
+            print("No `events` table — run SUPABASE_EVENTS_MIGRATION.sql first. Nothing to do.")
+            return 0
+        print("Could NOT read the events table (HTTP %s) — which is NOT the same as it being"
+              % status)
+        print("absent. The rollup and the prune have been SKIPPED, not completed.")
+        print("  %s" % (detail or "no detail from the transport")[:300])
+        return 2
 
     print("mode: %s\n" % ("APPLY" if a.apply else "dry run (use --apply to commit)"))
     rollup(a.rollup_days, a.apply)
