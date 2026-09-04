@@ -26,6 +26,7 @@ import os
 import sys
 import tempfile
 
+import db as real_db
 import scraper.score_jobs as sj
 
 
@@ -992,6 +993,74 @@ def test_a_jd_batch_stating_no_years_still_clears_a_stale_floor():
     assert jd_calls and all("exp_max_years" in c["cols"] for c in jd_calls), \
         "a JD batch sent %r -- every batch must write the named group" \
         % ([c["cols"] for c in jd_calls],)
+
+
+class _StubHTTP(object):
+    """Records what db._upsert would have put ON THE WIRE. Only .post is needed -- that is the
+    only verb an upsert uses -- and no credentials are touched, because db._rest and db._headers
+    are pure since Supabase was removed. So this runs in CI, which has no database."""
+
+    class _Resp(object):
+        status_code = 204
+        text = ""
+
+    def __init__(self):
+        self.posts = []
+
+    def post(self, url, headers=None, params=None, data=None, timeout=None):
+        self.posts.append(json.loads(data))
+        return self._Resp()
+
+
+def _upsert_posts(rows, keys=None):
+    """The batches db.update_job_fields sends for `rows`, with only the HTTP layer stubbed."""
+    saved = (real_db._http, real_db.has_remote_db)
+    stub = _StubHTTP()
+    try:
+        real_db._http, real_db.has_remote_db = stub, lambda: True
+        real_db.update_job_fields([dict(r) for r in rows], keys=keys)
+    finally:
+        real_db._http, real_db.has_remote_db = saved
+    return stub.posts
+
+
+def test_the_real_upsert_sends_the_column_group_it_was_handed():
+    """_FakeDB above MIMICS db._upsert's key handling, so it cannot also be the proof of it.
+
+    Driven for real, with only the HTTP layer stubbed: handed rows in which no row states an
+    experience floor, the inferred union does not contain exp_max_years at all, so the column is
+    never written and whatever an older, more credulous parser left there survives. Naming the
+    group is what puts it on the wire. Only the columns that can be None are exposed this way --
+    an unfound sponsorship verdict is "" and rides along either way -- which is why this is
+    stated as a measurement of the payload rather than as a rule about nulls.
+    """
+    rows = [{"url": "https://ex.com/u1", "exp_max_years": None, "sponsor_jd": "",
+             "sponsor_reason": "", "jd_terms": '{"w":{"roadmap":1.5},"n":0}'},
+            {"url": "https://ex.com/u2", "exp_max_years": None, "sponsor_jd": "",
+             "sponsor_reason": "", "jd_terms": '{"w":{"budget":1.1},"n":0}'}]
+
+    inferred = _upsert_posts(rows)[0]
+    named = _upsert_posts(rows, keys=sj.JD_DERIVED_COLS)[0]
+
+    assert "exp_max_years" not in inferred[0], \
+        "the inferred union already carried exp_max_years, so this test proves nothing"
+    assert sorted(named[0]) == sorted(sj.JD_DERIVED_COLS), \
+        "a named group sent %r" % (sorted(named[0]),)
+    assert all(r["exp_max_years"] is None for r in named), \
+        "the column went out without the null that clears a stale floor"
+
+
+def test_batching_the_group_did_not_change_the_wire():
+    """The batches are a memory bound, not a request budget.
+
+    db._upsert has chunked the wire at 200 rows since long before this; if flushing the JD group
+    every JD_WRITE_CHUNK rows had turned into one request per row, the write would be slower on
+    the box it was meant to survive.
+    """
+    big = [{"url": "https://ex.com/b%03d" % i, "exp_max_years": None, "sponsor_jd": "",
+            "sponsor_reason": "", "jd_terms": "x"} for i in range(450)]
+    sizes = [len(p) for p in _upsert_posts(big, keys=sj.JD_DERIVED_COLS)]
+    assert sizes == [200, 200, 50], "450 rows went out as %r" % (sizes,)
 
 
 if __name__ == "__main__":
