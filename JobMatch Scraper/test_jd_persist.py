@@ -40,6 +40,7 @@ class _FakeDB(object):
         self.jd_writes = []                       # every url passed to update_jds, in order
         self.kv = {}                              # put_kv/get_kv blobs, incl. the thin ledger
         self.score_calls = []                     # one entry per update_scores call: its urls
+        self.field_calls = []                     # one entry per update_job_fields call
 
     # --- reads -------------------------------------------------------------------
     def load_jobs(self, include_jd=True, cols=None):
@@ -70,8 +71,25 @@ class _FakeDB(object):
             if u in self.rows:
                 self.rows[u]["match_score"] = s
 
-    def update_job_fields(self, rows):
-        pass
+    def update_job_fields(self, rows, keys=None):
+        # Applied the way db._upsert would, and the two details it gets right are the whole
+        # reason these tests can see anything:
+        #   1. it WRITES the columns rather than merging truthy values, so a stale value failing
+        #      to clear is visible (the CSV fallback merges; the remote path does not);
+        #   2. with no `keys`, the union is taken over the rows' NON-NULL values, because
+        #      _upsert drops Nones on its way to computing it. A fake that unioned the raw keys
+        #      would send exp_max_years on every batch for free and the group-naming test would
+        #      pass against the old behaviour.
+        cols = (sorted(keys) if keys else
+                sorted({k for r in rows for k, v in r.items() if v is not None}))
+        self.field_calls.append({"urls": [r.get("url") for r in rows], "cols": cols})
+        for r in rows:
+            row = self.rows.get(r.get("url"))
+            if row is None:
+                continue
+            for k in cols:
+                if k != "url":
+                    row[k] = r.get(k)
 
     # --- run bookkeeping main() touches but these tests don't assert on ------------
     # The thin-JD retry ledger lives in this KV row (db.get_kv/put_kv over scrape_status).
@@ -885,6 +903,95 @@ def test_the_bulk_window_is_smaller_than_a_real_board_list():
     # Not tied to the worker count, and deliberately: workers are a throttling decision about
     # outbound concurrency, the window is a memory one.
     assert sj._BULK_WINDOW >= 8, "a window below the worker count starves the pool"
+
+
+# --- the derived-column write ----------------------------------------------------------------
+#
+# _persist_derived writes two column GROUPS, and the JD one (exp_max_years, sponsor_jd,
+# sponsor_reason, jd_terms) is the expensive one to lose: it is the product of the analysis pass,
+# and everything else a run produces has already been banked by the time it is sent. It is
+# written in batches as the loop builds it; these two tests pin what batching must preserve.
+
+_META = {"analyzed": {"weight": {"roadmap": 1.5, "stakeholder": 1.0}, "thin": False},
+         "exp_years": None, "exp_level": "", "sponsor_jd": ["", ""]}
+
+
+def _derived_rows(n):
+    """n rows the derived phase wants to write: a readable description, and no JD columns stored
+    at all, so every one of them diffs as changed."""
+    return [{"url": "https://ex.com/d%02d" % i, "jd": _JD, "location": "Boston, MA",
+             "found_date": "2026-09-01", "first_seen": "2026-09-01",
+             "title": "Program Manager", "company": "Ex"} for i in range(n)]
+
+
+def _run_derived(rows, fake=None, chunk=2):
+    """Drive _persist_derived directly, with every row's analysis supplied.
+
+    main() is not needed to test the WRITE and would bury the batch boundaries under a
+    fetch/analyse pass; handing over jdmeta also keeps core.job_meta (~206 ms a row) out of it.
+    """
+    fake = fake if fake is not None else _FakeDB(rows)
+    saved = (sj.db, sj.JD_WRITE_CHUNK)
+    try:
+        sj.db, sj.JD_WRITE_CHUNK = fake, chunk
+        sj._persist_derived({r["url"]: r["location"] for r in rows},
+                            {r["url"]: r["jd"] for r in rows},
+                            current_rows=[dict(r) for r in rows],
+                            jdmeta={r["url"]: dict(_META) for r in rows}, idf={})
+    finally:
+        sj.db, sj.JD_WRITE_CHUNK = saved
+    return fake
+
+
+def test_a_failed_jd_batch_does_not_throw_away_the_batches_around_it():
+    """The JD write is the one phase whose work nothing else banks.
+
+    On 2026-09-03 the pass printed `Derived fields: updated 1809 job(s)` and then died with no
+    traceback at 1.24 GB RSS -- inside the single call that wrote the four JD columns for the
+    whole corpus. match_score, loc_state and every fetched description had landed; only the
+    analysis output was lost, and re-deriving it took an hour. So a write that fails must cost
+    its own rows and nobody else's.
+    """
+    rows = _derived_rows(6)
+    fake = _FakeDB(rows)
+    real, calls = fake.update_job_fields, []
+
+    def _flaky(payload, keys=None):
+        calls.append([r["url"] for r in payload])
+        if len(calls) == 2:                   # the second batch is the one the box kills
+            raise RuntimeError("proxy said no")
+        real(payload, keys=keys)
+
+    fake.update_job_fields = _flaky
+    _run_derived(rows, fake=fake, chunk=2)
+
+    assert len(calls) >= 4, \
+        "%d write(s) -- this test needs the JD group split into batches around a failing one" \
+        % (len(calls),)
+    stored = [bool(fake.rows[r["url"]].get("jd_terms")) for r in rows]
+    assert stored == [True, True, False, False, True, True], \
+        "stored %r -- one failed batch must not cost the batches before or after it" % (stored,)
+
+
+def test_a_jd_batch_stating_no_years_still_clears_a_stale_floor():
+    """Every batch writes the whole column GROUP, not the columns it happens to hold.
+
+    db._upsert normalises each call to the union of its rows' keys and drops Nones on the way, so
+    a batch in which no row states an experience floor would not send exp_max_years at all -- and
+    a number an older, more credulous parser wrote would survive the very re-derive meant to
+    clear it. Batching is what makes that reachable: with the whole corpus in one call, some row
+    always carries a floor.
+    """
+    rows = _derived_rows(2)
+    rows[0]["exp_max_years"] = 7              # what an earlier run's parser read
+    fake = _run_derived(rows, chunk=1)        # one row a batch, so no batch holds a floor
+
+    assert fake.rows[rows[0]["url"]].get("exp_max_years") is None, \
+        "the stale floor survived -- the batch never sent the column"
+    jd_calls = [c for c in fake.field_calls if "jd_terms" in c["cols"]]
+    assert jd_calls and all("exp_max_years" in c["cols"] for c in jd_calls), \
+        "a JD batch sent %r -- every batch must write the named group" \
+        % ([c["cols"] for c in jd_calls],)
 
 
 if __name__ == "__main__":

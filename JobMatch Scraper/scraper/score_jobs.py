@@ -1102,6 +1102,30 @@ def _norm_cmp(key, val):
     return str(val)
 
 
+# The JD-derived column group, NAMED rather than inferred from the rows being written. Handed to
+# every batch below, because db._upsert computes its key union per CALL and drops Nones on the
+# way: a batch in which no row states an experience floor would not send exp_max_years at all,
+# and a stale value the parser no longer agrees with would survive. Naming the group means every
+# batch writes all four columns whatever it happens to hold.
+JD_DERIVED_COLS = ("url", "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms")
+
+# Rows per JD-fields write. This used to be the whole corpus accumulated in memory and sent in
+# ONE call after the loop, which is exactly where the 2026-09-03 pass died: `Derived fields:
+# updated 1809 job(s)` printed, then silence and a nonzero exit with no traceback, at 1.24 GB RSS
+# against a ~1.2 GB account-wide LVE cap. Read the missing traceback as the diagnosis --
+# _send_derived's `except Exception` would have CAUGHT a proxy timeout or an unknown column and
+# printed the migration hint, so a silent death past that guard is a SIGKILL.
+#
+# jd_terms is ~600 B a row over ~46k rows, and db._upsert copies the list it is handed (it merges
+# duplicate urls first) before serialising it -- so the peak arrives on the one phase whose work
+# nothing else banks. match_score, loc_state and every fetched description had already landed
+# that day; an hour of analysis was re-run to recover a write that was 100% complete in memory.
+# Writing as we go costs the same requests (_upsert already chunks the WIRE at 200) and caps what
+# a kill can lose at one batch. 2000 is a bound rather than a tuned number -- the ~1.2 MB of
+# terms it holds is nowhere near the cap. SCORE_JD_WRITE_CHUNK moves it without a deploy.
+JD_WRITE_CHUNK = int(os.environ.get("SCORE_JD_WRITE_CHUNK") or 2000)
+
+
 def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
     """Derive each job's state/metro/remote flag, pay range and JD signals, and write them to
     the jobs table. Only rows whose values actually CHANGED are sent, so the daily run costs
@@ -1133,6 +1157,32 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
 
     payload, jd_payload = [], []
     stats = {"state": 0, "remote": 0, "salary": 0, "exp": 0, "spon": 0, "terms": 0}
+    jd_write = {"sent": 0, "lost": 0, "hint": True}
+
+    def _flush_jd(force=False):
+        """Bank the JD columns built so far, then forget them. A batch is what a kill costs.
+
+        A failed batch does NOT stop the rest: db._upsert has already ridden out four attempts,
+        and a proxy that answered one write with HTML has no bearing on the next. The migration
+        hint is printed once, though -- twenty-four batches must not print the schema
+        twenty-four times.
+        """
+        if not jd_payload or (len(jd_payload) < JD_WRITE_CHUNK and not force):
+            return
+        n = len(jd_payload)
+        if _send_derived(jd_payload, "JD fields", keys=JD_DERIVED_COLS, hint=jd_write["hint"]):
+            jd_write["sent"] += n
+        else:
+            jd_write["lost"] += n
+            jd_write["hint"] = False
+        del jd_payload[:]
+        # Progress an operator can act on: these rows are IN the table now, so polling
+        # `exp_max_years IS NULL` mid-run finally means something. It did not before -- the whole
+        # corpus was analysed in memory and written in one call at the very end, which read as a
+        # pass stalled at ~2% until the last second.
+        if not force:
+            print("  JD fields: %d job(s) banked." % jd_write["sent"], flush=True)
+
     for u, loc in row_loc.items():
         p = core.parse_location(loc, row_jd.get(u) or "")
         s = core.parse_salary(row_jd.get(u) or "")
@@ -1181,32 +1231,61 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         # steady state is still ~0 writes.
         if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want_jd.items()):
             jd_payload.append(dict(want_jd, url=u))
+            _flush_jd()
 
     # TWO writes, not one combined payload. db._upsert normalizes each chunk to the UNION of
     # its rows' keys and fills the gaps with None, so a row that skipped the JD block above
     # would be sent with an explicit exp_max_years: null and ERASE a value an earlier run
     # derived. Separate calls mean separate key unions.
+    #
+    # The location/pay group stays ONE write, and that is measured rather than assumed: it only
+    # ever carries rows whose parse CHANGED -- 1,809 of ~46k on the run that died, and it had
+    # already landed when the process was killed. The JD group is the big one because jd_terms is
+    # deliberately not in db.COLS_SCORE, so every row a pass analyses diffs as changed.
     _send_derived(payload, "Derived fields",
                   "%d state, %d remote, %d with pay"
                   % (stats["state"], stats["remote"], stats["salary"]))
-    _send_derived(jd_payload, "JD fields",
-                  "%d with an experience floor, %d with a sponsorship verdict, %d scoreable"
+    _flush_jd(force=True)
+    jd_summary = ("%d with an experience floor, %d with a sponsorship verdict, %d scoreable"
                   % (stats["exp"], stats["spon"], stats["terms"]))
+    # One line at the end whatever the batch count -- `JD fields:` is what the cron log is
+    # grepped for, and what says the pass got all the way through its write.
+    if jd_write["lost"]:
+        print("JD fields: updated %d job(s), LOST %d to a failed write -- %s."
+              % (jd_write["sent"], jd_write["lost"], jd_summary))
+    elif jd_write["sent"]:
+        print("JD fields: updated %d job(s) — %s." % (jd_write["sent"], jd_summary))
+    else:
+        print("JD fields already current (%s)." % jd_summary)
 
 
-def _send_derived(payload, label, summary):
+def _send_derived(payload, label, summary=None, keys=None, hint=True):
     """One diffed payload -> the jobs table, or a self-serve migration hint if the columns
-    aren't there yet. Split out so the location/pay and JD groups can be written separately."""
+    aren't there yet. Split out so the location/pay and JD groups can be written separately, and
+    so the JD group can be written in batches as its loop builds it.
+
+    True if the rows landed. An empty payload counts as landed -- there was nothing to lose.
+
+    `summary` prints alongside the row count; a batch passes None, because the counts it would
+    quote are the run's totals and not the batch's, so its caller prints one line at the end.
+    `keys` names the column group -- see db._upsert on why a batched write has to state it.
+    `hint` prints the schema; the caller turns it off after the first failure.
+    """
     if not payload:
-        print("%s already current (%s)." % (label, summary))
-        return
+        if summary is not None:
+            print("%s already current (%s)." % (label, summary))
+        return True
     try:
-        db.update_job_fields(payload)
-        print("%s: updated %d job(s) — %s." % (label, len(payload), summary))
+        db.update_job_fields(payload, keys=keys)
     except Exception as e:
         print("  (%s write failed: %s)" % (label.lower(), str(e)[:160]))
-        print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
-        print(db.JOBS_DERIVED_SQL)
+        if hint:
+            print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
+            print(db.JOBS_DERIVED_SQL)
+        return False
+    if summary is not None:
+        print("%s: updated %d job(s) — %s." % (label, len(payload), summary))
+    return True
 
 
 # Breadcrumb the scraper writes with THIS run's new postings (same file notify.py reads).

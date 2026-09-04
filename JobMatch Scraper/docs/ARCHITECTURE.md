@@ -50,13 +50,13 @@ flowchart TB
   end
   subgraph SCH["&#9719; scheduled"]
     S["<b>scraper/__init__.py</b><br/>9,672 lines · 40 ATS adapters<br/>1,221 boards"]
-    J["score_jobs.py · 2,313 lines"]
+    J["score_jobs.py · 2,392 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,430 lines · 36 sections<br/>db.py · 3,019 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,430 lines · 36 sections<br/>db.py · 3,029 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE

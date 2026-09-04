@@ -410,14 +410,15 @@ def jobs_fingerprint():
         return (None, "")
 
 
-def _upsert(rows, chunk=200):
+def _upsert(rows, chunk=200, keys=None):
     """Insert/merge rows on the `url` primary key (PostgREST upsert), in chunks with a soft retry.
     A single huge merge-upsert (a full re-score, or a big backlog of new jobs after the scheduled
     scrape has been down) is one giant statement; splitting it keeps each write small. On top of
     that, free-tier Supabase occasionally goes through a minute or two of HTTP 500s under load, so
     each chunk gets a couple of extra spaced-out attempts before we give up (and then we surface
     the real response body, not a bare RetryError). PostgREST needs every object in a bulk write
-    to share the SAME keys, so we normalize to the union of keys (missing -> None)."""
+    to share the SAME keys, so we normalize to the union of keys (missing -> None) — or to the
+    group `keys` names, which a caller writing one column group in several batches must pass."""
     if not rows:
         return
     # A single PostgREST upsert can't touch the same `url` twice — Postgres raises 21000
@@ -437,7 +438,12 @@ def _upsert(rows, chunk=200):
             order.append(u)
         merged[u].update({k: v for k, v in r.items() if v is not None})
     rows = [merged[u] for u in order] + passthrough
-    keys = sorted({k for r in rows for k in r})
+    # A named group is sent on every row, whatever this batch happens to hold. Inferred instead,
+    # the union is computed per CALL and the merge above has just dropped every None — so a batch
+    # in which some column is None on all of its rows does not send that column at all, and a
+    # stale value the caller meant to CLEAR survives. Not only a batching hazard: a 3-row payload
+    # in which none of the three states an experience floor could never clear one either.
+    keys = sorted(keys) if keys else sorted({k for r in rows for k in r})
     for i in range(0, len(rows), chunk):
         payload = json.dumps([{k: r.get(k) for k in keys} for r in rows[i:i + chunk]])
         last = ""
@@ -853,15 +859,19 @@ def add_jobs(rows):
     _write_csv(_read_csv() + new)
 
 
-def update_job_fields(rows):
+def update_job_fields(rows, keys=None):
     """Patch specific columns on existing jobs: rows = [{url, location?, found_date?}].
     Used by the extension's detail-fetch to fill in the real location / posting date for
-    browser-imported jobs (the listing page often only had a code or nothing)."""
+    browser-imported jobs (the listing page often only had a code or nothing).
+
+    `keys` names the column group being written — only needed by a caller that writes one group
+    in SEVERAL calls; see _upsert. The CSV fallback below ignores it, because that branch copies
+    truthy values only and so cannot clear a column with or without a key list."""
     rows = [r for r in rows if r.get("url")]
     if not rows:
         return
     if has_remote_db():
-        _upsert(rows)                      # merge-on-url updates only the given columns
+        _upsert(rows, keys=keys)           # merge-on-url updates only the given columns
         return
     by_url = {r["url"]: r for r in rows}
     out = _read_csv()
