@@ -52,7 +52,27 @@ on:
     # Actions keeps the 9am slot deliberately: it is the pass that emails the digest and runs
     # verify_dates against a rate-limited service, and a GitHub runner is a whole machine for
     # 45 minutes, whereas the cPanel box has to serve the website at the same time.
-    - cron: "0 13 * * 1-5"      # 9am ET Mon-Fri (8am under EST) — the heavy pass
+    # 12:47 UTC, not 13:00. GitHub queues every cron in the world at the top of the hour and
+    # drains it as capacity appears, so :00 is the single most congested minute there is and the
+    # delay lands on us. MEASURED on this repo, first fire after the 13:00 slot:
+    #
+    #   Aug 24-26   13:43  13:42  13:48      +43 to +48 min
+    #   Aug 27-28   22:42  22:49              +9h42, +9h49
+    #   Aug 31      19:19                     +6h19
+    #   Sep 1-3     17:05  16:56  16:48       +4h05, +3h56, +3h48
+    #   Sep 4       never fired at all
+    #
+    # So "9am" has not meant 9am for over a week, and on 2026-09-04 the event was dropped
+    # outright — while push-triggered runs on the same repo that morning started normally, which
+    # rules out a disabled workflow or an exhausted minute allowance and leaves scheduled-event
+    # delivery itself. Moving to :47 buys back the top-of-hour queue and puts a typically
+    # delayed run at roughly 9:00-9:15 ET instead of 9:45.
+    #
+    # It does NOT make the schedule reliable, because nothing here can. scrape-watchdog.yml is
+    # what guarantees the run happens: it checks whether today's scrape landed and fires a
+    # workflow_dispatch if it did not, and dispatch is delivered immediately rather than queued
+    # with the world's crons. This line is now the fast path, not the guarantee.
+    - cron: "47 12 * * 1-5"     # ~9am ET Mon-Fri (~8am under EST) — the heavy pass
   workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
 
 defaults:
@@ -62,6 +82,14 @@ defaults:
 jobs:
   scrape:
     runs-on: ubuntu-latest          # Linux = 1x minute billing (Windows is 2x, macOS 10x)
+
+    # Stated rather than inherited. The gate step below calls `gh run list` to find out whether
+    # today's scrape already succeeded, which needs actions:read — and if the repository default
+    # is ever tightened to contents-only, an unstated permission turns that query into a silent
+    # `|| echo 0`, i.e. the duplicate-suppression quietly stops working and nothing says so.
+    permissions:
+      contents: read                # actions/checkout
+      actions: read                 # gh run list, in the gate
     # 45 -> 58. MEASURED, and the job cap was the real ceiling, not the step's. On 2026-08-20 the
     # whole job ran 40.5 min of 45: scrape 19.5 + score 11.7 + verify 8.4. So raising the scrape
     # step alone would just move the kill from the step to the job.
@@ -146,9 +174,37 @@ jobs:
           #
           # If a second scheduled slot is ever added back here, this needs a real decision again.
           RUN=yes; HEAVY=yes
+
+          # ...with ONE real branch, and it is load-bearing rather than decorative.
+          #
+          # scrape-watchdog.yml dispatches this workflow when the 12:47 cron does not deliver.
+          # GitHub does not cancel the dropped event, it delivers it late — up to nine hours late
+          # on this repo in August — so the watchdog's run and the belated scheduled one can both
+          # land on the same day. That is 40 wasted minutes of a metered allowance and a second
+          # digest email into the same inbox.
+          #
+          # ONLY `schedule` is gated. A workflow_dispatch is somebody (or the app's "Update jobs"
+          # button) asking for a scrape right now, and an explicit request must never be answered
+          # with silence — the watchdog does its own has-it-run-today check before dispatching,
+          # so gating dispatch here would just duplicate that in the place where it is wrong.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            SINCE=$(TZ=America/New_York date -d "today 00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+            DONE=$(gh run list --workflow=scrape.yml --limit 50 \
+                     --json createdAt,conclusion,databaseId \
+                     --jq "[.[] | select(.createdAt >= \"$SINCE\")
+                                | select(.conclusion == \"success\")
+                                | select(.databaseId != ${{ github.run_id }})] | length" 2>/dev/null || echo 0)
+            if [ "${DONE:-0}" -gt 0 ]; then
+              RUN=no; HEAVY=no
+              echo "::notice::A scrape already succeeded today ($DONE run(s) since $SINCE). This late cron fire is a no-op."
+            fi
+          fi
+
           echo "run=$RUN"     >> "$GITHUB_OUTPUT"
           echo "heavy=$HEAVY" >> "$GITHUB_OUTPUT"
           echo "ET $(TZ=America/New_York date '+%a %H:%M') (dow=$D hour=$H)  event=${{ github.event_name }}  ->  run=$RUN heavy=$HEAVY"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install dependencies
         if: steps.gate.outputs.run == 'yes'
@@ -164,6 +220,7 @@ jobs:
       # run pointed at the database the app actually reads? DB_REQUIRE=proxy above makes db.py
       # raise rather than fall back, so this step is where that surfaces.
       - name: Preflight — confirm the database
+        id: preflight
         if: steps.gate.outputs.run == 'yes'
         timeout-minutes: 2
         run: |
@@ -191,7 +248,12 @@ jobs:
       # allowance, touched daily so it never hits the 7-day eviction window.
       - name: Restore the JD corpus cache
         if: steps.gate.outputs.run == 'yes'
-        uses: actions/cache@v4
+        # v6, not v4. checkout and setup-python were moved off their Node 20 entrypoints when
+        # the runners started forcing those onto Node 24; this one was missed, so every run
+        # since has carried a deprecation annotation for it — which is noise on a green run and
+        # camouflage on a red one, where it sat directly above the real errors on 2026-09-03.
+        # Nothing about the cache's behaviour or key format changes between these majors.
+        uses: actions/cache@v6
         with:
           path: JobMatch Scraper/jd_cache.json.gz
           key: jd-corpus-${{ github.run_id }}
@@ -408,6 +470,7 @@ jobs:
       # !cancelled() and NOT always(): the 45-minute job cap must still stop the pipeline
       # rather than start a 15-minute step inside a runner that is already being torn down.
       - name: Score jobs
+        id: score
         if: steps.gate.outputs.run == 'yes' && !cancelled()
         timeout-minutes: 15
         env:
@@ -577,3 +640,35 @@ jobs:
           ALERT_TO: ${{ secrets.ALERT_TO }}
           ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
         run: python -m scraper.notify
+
+      # SAY SOMETHING WHEN IT BREAKS. The 2026-09-03 run failed at 16:49 UTC and went unnoticed
+      # until the next day, because a red tick on the Actions tab is only a notification to
+      # somebody who is looking at the Actions tab. A stale feed is invisible from the app —
+      # it looks exactly like a quiet week of hiring.
+      #
+      # `failure()` and not `always()`: this fires when a step that is allowed to fail the job
+      # did, which is the four steps without continue-on-error. The housekeeping steps carry
+      # continue-on-error precisely because they should not raise an alarm, and this respects
+      # that rather than second-guessing it.
+      #
+      # continue-on-error on the alert itself, so a bad SMTP secret cannot turn one red run into
+      # a confusing two. The script also swallows its own send errors; this is the belt to that
+      # brace, covering the case where python itself cannot start.
+      - name: Say that it failed
+        if: failure()
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+          # Named individually rather than dumping the whole steps context: outcome is the
+          # value BEFORE continue-on-error is applied, so this reports what actually broke
+          # rather than what was allowed to break.
+          FAILED_STEPS: >-
+            preflight=${{ steps.preflight.outcome || 'n/a' }}
+            scrape=${{ steps.scrape.outcome || 'n/a' }}
+            score=${{ steps.score.outcome || 'n/a' }}
+        run: python scripts/alert_run_failure.py
