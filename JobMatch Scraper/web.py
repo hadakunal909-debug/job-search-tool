@@ -457,6 +457,92 @@ _jdmeta = core.load_jdmeta() if (os.environ.get("JDMETA") or "").strip() in ("1"
 # its baseline match_score until the next cron run refreshes jdmeta.json.
 _EMPTY_META = {"analyzed": {}, "exp_years": None, "exp_level": "", "sponsor_jd": ("", "")}
 
+# ------------------ the analysis a scoring run has not got to yet ------------------
+# A row can hold a full description and no jd_terms: the sweep writes the TEXT, the analyse pass
+# writes the ANALYSIS, and they are different phases run at different times. Between them the
+# card had nothing to show and said so, while /job -- which fetches that one row's text and
+# analyses it on demand -- printed a real percentage from the same bytes. A page and a card
+# disagreeing about the same posting is the reported defect, and the card was the wrong one.
+#
+# THIS IS AN OVERLAY AND IT MUST STAY ONE. It is deliberately NOT wired into _row_pending, so
+# _build_row and the persisted row_cache/ never see it. Those are keyed on (jobs_fingerprint(),
+# _derived_signature()) and shared by every worker, while this map is built from a network read
+# that can fail -- so a worker whose read failed would write DIFFERENT rows under the SAME key,
+# which is exactly the ping-pong _derived_signature's docstring records (63 ms and 8,401 ms in
+# the same second). Kept out here, a failed read costs one user one render of the placeholder
+# they would have had anyway.
+# MEASURED, on the corpus this was written against (~6 KB descriptions, idf already loaded):
+#
+#     pending rows      0      50     278     461    1000
+#     wall            0 ms  171 ms  896 ms  1.50 s  1.50 s      <- capped, 396 of 1000 analysed
+#     memoised re-call             0.002 ms
+#
+# So the cost is ZERO in the steady state, because the hourly analyse pass keeps the backlog
+# near empty; 278 was the whole live backlog the day this was written and it is the number the
+# budget was sized against. The cap is what stops a bad day (a long sweep, a failed analyse run)
+# from putting seconds onto a cold worker's first feed -- rows it does not reach keep the
+# placeholder, which is exactly the behaviour that existed before this function.
+_LIVE_ANALYZE_MAX = 600          # rows per corpus; the whole backlog measured 461 when written
+_LIVE_ANALYZE_BUDGET_S = 1.5     # wall clock: this can land on a cold worker's first feed
+_live_meta = {"fp": None, "by_url": {}}
+
+
+def _live_analysis(base):
+    """{url: analyze_jd shape} for rows holding a description no scoring run has analysed.
+
+    Memoised on the corpus fingerprint, so the cost falls once per worker per scrape rather than
+    per request or per user. IT ASKS FOR THAT FINGERPRINT ITSELF rather than taking the caller's:
+    _corpus_fp is the cheap half of get_jobs' revalidation (an in-memory hit inside _JOBS_TTL),
+    so the second call costs nothing, and owning the memo key keeps this function usable from
+    anywhere without a caller having to know it needs one.
+
+    CANDIDATES COME FROM THE BUILT ROWS, NOT THE CORPUS, and that is not a shortcut: _base_rows
+    serves from row_cache/ WITHOUT loading the corpus at all ("only now is the corpus actually
+    needed"), and reaching for get_jobs() here would put the 3,231 ms cold path back that the
+    2026-09-01 speed pass took out. score_pending, closed and jd_unavailable are all already on
+    the row, and the last of those keeps the budget off hosts that publish nothing readable.
+
+    NEWEST FIRST, UNDER A WALL-CLOCK BUDGET. The rows a reader is looking at when they notice
+    this are the ones that just arrived, and a budget that runs out should give up on the oldest
+    rather than on an arbitrary slice -- load_jobs_by_urls returns rows in no order, so they are
+    put back into ask-order before any analysis is done. Whatever it does not reach keeps saying
+    "Not scored" until the hourly analyse pass writes the column properly.
+    """
+    try:
+        fp = _corpus_fp()
+    except Exception:
+        fp = None                            # no key is not a key: rebuild rather than guess
+    if fp is not None and _live_meta["fp"] == fp:
+        return _live_meta["by_url"]
+    want = [r for r in base if r.get("score_pending")
+            and not r.get("closed") and not r.get("jd_unavailable") and r.get("url")]
+    want.sort(key=lambda r: str(r.get("first_seen") or ""), reverse=True)
+    out = {}
+    if want:
+        t0 = time.time()
+        try:
+            idf = core.load_idf()
+            urls = [r["url"] for r in want[:_LIVE_ANALYZE_MAX]]
+            rank = {u: i for i, u in enumerate(urls)}
+            got = db.load_jobs_by_urls(urls, include_jd=True)
+            got.sort(key=lambda r: rank.get(r.get("url"), 1 << 30))
+            for r in got:
+                jd = (r.get("jd") or "").strip()
+                if not jd:
+                    continue                 # no text at all: honestly pending, nothing to do
+                an = (core.job_meta(jd, idf) or {}).get("analyzed") or {}
+                # THIN IS NOT UNSCORED, exactly as /job has it. A number derived from six generic
+                # terms a broad resume fully covers is the fake ~100% that flag exists to stop.
+                if an.get("terms") and not an.get("thin"):
+                    out[r["url"]] = an
+                if time.time() - t0 > _LIVE_ANALYZE_BUDGET_S:
+                    break
+        except Exception:
+            pass                             # degrade to the placeholder; never break the feed
+    _live_meta.update(fp=fp, by_url=out)
+    return out
+
+
 def job_analysis(j):
     """One row's résumé-independent keyword analysis (analyze_jd's shape), or {} when we have
     none — callers must treat {} as "not scoreable" and fall back to match_score.
@@ -482,7 +568,12 @@ def job_analysis(j):
     m = (_jdmeta.get(j.get("url") or "") or {}).get("analyzed")
     if m and m.get("terms"):
         return m
-    return core.unpack_analyzed(j.get("jd_terms")) if j.get("jd_terms") else {}
+    if j.get("jd_terms"):
+        return core.unpack_analyzed(j.get("jd_terms"))
+    # Third tier: an analysis THIS process computed for a row whose description arrived after the
+    # last scoring run. Read only -- _live_analysis fills it, and only ranked_rows calls that, so
+    # a caller that never asked for a feed sees exactly the two tiers above.
+    return _live_meta["by_url"].get(j.get("url") or "") or {}
 
 
 def _jd_fields(j):
@@ -1686,19 +1777,22 @@ def _dedupe_plan(base):
     return plan
 
 
-def _apply_dedupe_plan(base, plan, score_of):
+def _apply_dedupe_plan(base, plan, overlay):
     """The scored, deduplicated corpus -- byte-for-byte what _dedupe_rows(overlay(base)) gives.
 
     One pass, one dict copy per surviving row, and _dupe_rank still runs on SCORED copies so a
     group's survivor is chosen exactly as before.
+
+    `overlay` returns the finished copy rather than just a number: a row can come back both
+    scored AND no longer pending, and the two have to move together or a card shows a ring and
+    a "Not scored" label at once.
     """
     out = []
     for e in plan:
         if type(e) is int:
-            r = base[e]
-            out.append(dict(r, score=score_of(r)))
+            out.append(overlay(base[e]))
         else:
-            out.append(min((dict(base[i], score=score_of(base[i])) for i in e), key=_dupe_rank))
+            out.append(min((overlay(base[i]) for i in e), key=_dupe_rank))
     return out
 
 
@@ -2034,13 +2128,44 @@ def ranked_rows(username, resume):
         _rows_cache.move_to_end(key)         # a read is a use: see _score_cache
         return _rows_cache[key]
     base = _base_rows()
+    # BEFORE user_scores, which is the function that reads it: job_analysis consults this map as
+    # its third tier, so a row analysed here gets a real percentage rather than the stored
+    # match_score -- which is the OWNER's baseline, scored against the repo's own resume.txt.
+    live = _live_analysis(base)
     scores = user_scores(username, resume)
+    # SCORED HERE, NOT READ BACK OUT OF user_scores, and the difference is not stylistic.
+    # user_scores has a stored file in front of it (_scores_read), so on a corpus whose scores
+    # were written before this row's description was analysed it returns the map it already has
+    # -- with a 0 for exactly the rows this map exists to rescue. Same function, same résumé,
+    # same analysis, so the number is identical to the one the stored file will carry once it is
+    # next rebuilt, and identical to the one /job prints for the same row.
+    live_scores = {}
+    if live and resume:
+        resume_low = resume.lower()
+        for _u, _an in live.items():
+            try:
+                live_scores[_u] = core.score_pct(resume_low, _an)
+            except Exception:
+                pass                         # one unscoreable row must not cost the other 40,000
     # Shallow copies over the shared base, so a per-user row can carry a per-user score without
     # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
     # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
     # missing number rather than a false one.
-    def score_of(r):
-        return 0 if r["score_pending"] else scores.get(r["url"], 0)
+    # Shallow copies over the shared base, so a per-user row can carry a per-user score without
+    # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
+    # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
+    # missing number rather than a false one.
+    def overlay(r):
+        u = r["url"]
+        if r["score_pending"]:
+            # Analysed in this process a moment ago, so the card is not pending after all. Only
+            # the per-user COPY learns that; the shared base row keeps score_pending=True,
+            # because the database really does still have no analysis for it and row_cache/ is
+            # written from those rows and read by every other worker.
+            if u in live_scores:
+                return dict(r, score=live_scores[u], score_pending=False)
+            return dict(r, score=0)
+        return dict(r, score=scores.get(u, 0))
     # DEDUPE AFTER THE OVERLAY, NOT BEFORE, and this is the one ordering constraint here.
     # _dupe_rank tie-breaks on r["score"] -- it prefers the copy that HAS a score -- so folding
     # duplicates while every score is still 0 would pick a different survivor than this user's
@@ -2049,9 +2174,9 @@ def ranked_rows(username, resume):
     # and moved into _base_rows, the CHOICE still runs here against scored copies.
     plan = (_base_rows_cache.get("meta") or {}).get("plan")
     if plan is not None and len(plan) <= len(base):
-        rows = _apply_dedupe_plan(base, plan, score_of)
+        rows = _apply_dedupe_plan(base, plan, overlay)
     else:                                    # no plan (older file, or an unusable key): as before
-        rows = _dedupe_rows([dict(r, score=score_of(r)) for r in base])
+        rows = _dedupe_rows([overlay(r) for r in base])
     rows.sort(key=lambda r: r["score"], reverse=True)
     # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
     # against — so it gets the same derived limit rather than a second constant to keep in step.
