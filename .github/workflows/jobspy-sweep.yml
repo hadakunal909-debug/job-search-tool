@@ -1,0 +1,132 @@
+name: Daily aggregator sweep (sidecar)
+
+# Asks LinkedIn/Indeed (and jobright, when it will answer) what is being posted, and records it
+# in ONE place: the `jobspy_findings` table, plus a spreadsheet artifact per run.
+#
+# THIS IS A SIDECAR AND MUST STAY ONE. It does not write `jobs`, it does not write `boards`, it
+# touches no company table, and it adopts nothing. CLAUDE.md says "don't reach for a job
+# aggregator" and this does not reverse that: Adzuna was 6% of the feed and 38% of every job
+# with no usable description. The value here is the EMPLOYERS — a company posting that we do not
+# scrape is a board worth adopting — and adoption stays the deliberate reviewable step it is
+# today (probe_discovered -> adopt_everify_boards).
+#
+# WHY IT IS SEPARATE FROM scrape.yml, for the same three reasons jobspy-shadow.yml is: the
+# production scrape path stays untouched, this cannot take a real scrape down with it, and a
+# sweep that gets blocked fails alone.
+#
+# TIMING. 16:00 UTC = 12:00 noon EDT, which is the slot asked for. GitHub cron is UTC and does
+# NOT follow daylight saving, so from early November to mid-March this lands at 11:00 ET. That
+# is the same trade scrape.yml already makes (13:00 UTC = 9am ET, 8am under EST); the day is:
+#
+#   09:00 ET  scrape.yml        heavy pass — verify_dates, analytics rollup, digest email
+#   12:00 ET  THIS workflow     aggregator sweep -> jobspy_findings (writes no job rows)
+#   13:00 ET  cPanel cron       scrape + new-only score
+#   17:00 ET  cPanel cron       scrape + new-only score
+#
+# BUDGET. Actions minutes hit the free cap once already (2026-07-26, hourly -> 4x/day). This is
+# one Linux job a day at 1x billing, capped at 30 minutes, and --probe-limit bounds the only
+# unbounded part of it (one careers-site probe per NEW company).
+on:
+  schedule:
+    - cron: "0 16 * * *"        # 12:00 noon EDT daily (11:00 ET once EST starts)
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: "JobSpy sites (comma-separated)"
+        required: true
+        default: "indeed"
+      phrases:
+        description: "'entry', 'all', or pipe-separated phrases"
+        required: true
+        default: "entry"
+      hours:
+        description: "posting age window"
+        required: true
+        default: "24"
+      jobright:
+        description: "also try jobright (usually Cloudflare-blocked from a runner)"
+        type: boolean
+        default: false
+      apply:
+        description: "write to the jobspy_findings table"
+        type: boolean
+        default: true
+
+defaults:
+  run:
+    working-directory: JobMatch Scraper
+
+permissions:
+  contents: read
+
+concurrency:
+  # A sweep that overruns must not have a second one writing the same rows underneath it.
+  group: jobspy-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest        # Linux = 1x minute billing, same as the scrape job
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          # Must match scrape.yml and jobspy-shadow.yml. python-jobspy 1.1.82 pins
+          # numpy==1.26.3 EXACTLY and that numpy has no wheels past cp312, so a newer
+          # interpreter tries to build it from source and fails.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: "JobMatch Scraper/requirements.txt"
+
+      - name: Install dependencies
+        timeout-minutes: 8
+        run: |
+          pip install -r requirements.txt
+          pip install openpyxl        # the .xlsx report; requirements.txt only suggests it
+
+      - name: Sweep
+        timeout-minutes: 20
+        env:
+          DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
+          DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}
+          DB_REQUIRE: proxy
+          # Inputs go through the environment, never interpolated into the script body: a
+          # ${{ }} expansion is substituted as raw text BEFORE the shell parses the line, so a
+          # phrase containing a quote or semicolon would execute. Read as "$VAR" it is only
+          # ever data. Same mitigation as jobspy-shadow.yml.
+          IN_SITES: ${{ inputs.sites || 'indeed' }}
+          IN_PHRASES: ${{ inputs.phrases || 'entry' }}
+          IN_HOURS: ${{ inputs.hours || '24' }}
+          IN_JOBRIGHT: ${{ inputs.jobright && '--jobright' || '' }}
+          # Defaults to writing on the SCHEDULE (inputs are empty there), which is the point of
+          # the job; a manual run can turn it off.
+          IN_APPLY: ${{ (github.event_name == 'schedule' || inputs.apply) && '--apply' || '' }}
+        run: |
+          set -euo pipefail
+          echo "Runner egress IP (datacenter reputation decides what answers us):"
+          curl -s --max-time 10 https://api.ipify.org || echo "(lookup failed, not fatal)"
+          echo
+          python scripts/jobspy_sweep.py \
+            --sites "$IN_SITES" \
+            --phrases "$IN_PHRASES" \
+            --hours "$IN_HOURS" \
+            --results 50 \
+            --probe-limit 60 \
+            --out "jobspy_findings_$(date -u +%F).xlsx" \
+            $IN_JOBRIGHT $IN_APPLY -v 2>&1 | tee sweep-report.txt
+
+      - name: Upload the findings spreadsheet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobspy-findings
+          # Retained longer than a debug artifact because this IS the deliverable: the
+          # spreadsheet is what gets reviewed to decide which boards to adopt.
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            JobMatch Scraper/jobspy_findings_*.xlsx
+            JobMatch Scraper/jobspy_findings_*.csv
+            JobMatch Scraper/sweep-report.txt

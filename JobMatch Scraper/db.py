@@ -1681,6 +1681,96 @@ def delete_board(url):
     _dump_json(BOARDS_FILE, rows)
 
 
+# ================= JobSpy / aggregator findings (SIDECAR — never the feed) =================
+# A DISCOVERY LEDGER, not a job source. Rows here are postings the daily sweep saw on
+# LinkedIn/Indeed/jobright. They exist to answer "which employers are hiring that we do not
+# scrape yet", and to keep the evidence behind a board being adopted.
+#
+# NOTHING IN THE FEED PATH READS THIS TABLE, and the writer touches no other table. That is the
+# whole point of it being separate. CLAUDE.md's "don't reach for a job aggregator" stands:
+# Adzuna was 6% of the feed and 38% of every job with no usable description, and writing these
+# rows into `jobs` would repeat exactly that. Nothing here is scored, deduped against the corpus,
+# or rendered. `jobs`, `boards` and the company tables are never written by this module.
+#
+# PK is the posting url, so re-running a day upserts instead of piling up duplicates.
+FINDINGS_TABLE = "jobspy_findings"
+FINDINGS_FILE = "jobspy_findings_local.json"     # local fallback, same pattern as BOARDS_FILE
+FINDINGS_FIELDS = ("url", "title", "company", "posted_date", "location", "source",
+                   "career_page", "board_url", "ats_type", "seniority", "salary",
+                   "h1b_filings", "visa_routes", "company_is_new", "run_date", "created_at")
+
+# Surfaced the same self-serve way as APPLICATIONS_SQL: all `if not exists`, safe to re-run.
+FINDINGS_SQL = """-- Sidecar ledger for the daily aggregator sweep. NOT read by the feed.
+create table if not exists public.jobspy_findings (
+  url text primary key,
+  title text, company text,
+  posted_date date,
+  location text, source text,
+  career_page text, board_url text, ats_type text,
+  seniority text, salary text,
+  h1b_filings integer, visa_routes text,
+  company_is_new boolean,
+  run_date date,
+  created_at timestamptz default now());
+create index if not exists jobspy_findings_company_idx on public.jobspy_findings (company);
+create index if not exists jobspy_findings_run_idx on public.jobspy_findings (run_date);
+create index if not exists jobspy_findings_new_idx on public.jobspy_findings (company_is_new);
+"""
+
+
+def list_findings(limit=0):
+    """Rows from the findings ledger, newest run first. Defensive: never raises."""
+    if has_remote_db():
+        try:
+            params = {"select": "*", "order": "run_date.desc"}
+            if limit:
+                params["limit"] = str(int(limit))
+            r = _http.get(_rest(FINDINGS_TABLE), headers=_headers(), params=params, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return []
+    rows = _load_json(FINDINGS_FILE)
+    rows = rows if isinstance(rows, list) else []
+    return rows[:limit] if limit else rows
+
+
+def add_findings(rows):
+    """Upsert findings on url. Returns (written, error_message).
+
+    Batched: a sweep produces hundreds of rows and one request each would spend the run's whole
+    time budget on round trips. Returns the first error rather than raising, so a failed write
+    still leaves the sweep free to emit its report artifact -- the report is the deliverable the
+    user actually reads, and losing it to a database hiccup would be the worse outcome.
+    """
+    recs = []
+    for r in rows or []:
+        if not (r or {}).get("url"):
+            continue
+        rec = {k: r.get(k) for k in FINDINGS_FIELDS}
+        rec["created_at"] = rec.get("created_at") or _now()
+        recs.append(rec)
+    if not recs:
+        return 0, ""
+    if has_remote_db():
+        written = 0
+        for i in range(0, len(recs), 500):
+            chunk = recs[i:i + 500]
+            resp = _http.post(
+                _rest(FINDINGS_TABLE),
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                params={"on_conflict": "url"}, data=json.dumps(chunk), timeout=60)
+            if resp.status_code >= 400:
+                return written, "add_findings %s: %s" % (resp.status_code, resp.text[:300])
+            written += len(chunk)
+        return written, ""
+    have = {r.get("url"): r for r in list_findings()}
+    for rec in recs:
+        have[rec["url"]] = rec
+    _dump_json(FINDINGS_FILE, list(have.values()))
+    return len(recs), ""
+
+
 # ================= per-user application tracker =================
 # Each user's applications are scoped by `username` (private to them), exactly like
 # user_jobs. Tracks apps from THIS app AND ones the user made on any other platform.
