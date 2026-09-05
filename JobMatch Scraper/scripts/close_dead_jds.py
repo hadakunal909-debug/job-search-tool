@@ -234,8 +234,25 @@ def main():
         db.update_job_fields([{"url": u, "is_active": False} for u in close])
         print("closed %d row(s) (is_active=false)" % len(close))
 
-    db.put_kv(VERDICT_KEY, {"hosts": verdicts})
-    print("recorded %d host verdict(s) under %s" % (len(verdicts), VERDICT_KEY))
+    # MERGED, NOT REPLACED, and the difference is a whole class of silently lost measurement.
+    # This wrote {"hosts": verdicts} -- only the hosts THIS run probed -- so any run narrowed by
+    # --host discarded the verdict for every host it did not look at. Done on 2026-09-05 with
+    # eight --host flags, and it dropped the tesla / uber / actalentservices verdicts recorded
+    # three days earlier: 977 rows silently went back to promising a description that is never
+    # coming, and nothing said so. A verdict is a measurement someone paid for; a run that did
+    # not re-probe a host has learned nothing about it and must not speak for it.
+    try:
+        prior = (db.get_kv(VERDICT_KEY) or {}).get("hosts") or {}
+    except Exception:
+        prior = {}
+    kept = {h: v for h, v in prior.items() if h not in verdicts}
+    merged = dict(kept)
+    merged.update(verdicts)
+    db.put_kv(VERDICT_KEY, {"hosts": merged,
+                            "updated_at": datetime.datetime.now(
+                                datetime.timezone.utc).isoformat()})
+    print("recorded %d host verdict(s) under %s (%d kept from earlier runs, %d total)"
+          % (len(verdicts), VERDICT_KEY, len(kept), len(merged)))
     try:
         db.audit_log("close_dead_jds", "jd_cleanup", count=len(clear) + len(close),
                      detail={"cleared": len(clear), "closed": len(close),
@@ -256,8 +273,9 @@ def main():
     # the exclusion with an explicit "jd_host_verdicts does NOT move the signature" check.
     #
     # So the invalidation is manual, and it is the same move a data-only DB fix needs:
-    # jobs_fingerprint() is (row count, max first_seen) and recording a verdict moves
-    # neither, so nothing invalidates the built rows on its own.
+    # jobs_fingerprint() is (row count, max first_seen, scored count) and recording a verdict
+    # moves none of the three -- it is a KV write, and it does not touch the jobs table at all --
+    # so nothing invalidates the built rows on its own.
     print("Then, so the feed shows it:  rm row_cache/*.rows.gz && touch tmp/restart.txt")
     return 0
 

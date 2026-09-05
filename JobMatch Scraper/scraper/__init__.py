@@ -174,7 +174,7 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/netcracker",         "greenhouse", "Netcracker"),
     ("https://job-boards.greenhouse.io/maymobility",        "greenhouse", "May Mobility"),
     ("https://job-boards.greenhouse.io/yipitdata",          "greenhouse", "YipitData"),
-    ("https://job-boards.greenhouse.io/marqeta",            "greenhouse", "Marqeta"),
+    ("https://jobs.ashbyhq.com/marqeta-inc",                "ashby", "Marqeta"),
     ("https://job-boards.greenhouse.io/enova",              "greenhouse", "Enova"),
     ("https://job-boards.greenhouse.io/chargepoint",        "greenhouse", "ChargePoint"),
     ("https://job-boards.greenhouse.io/samsungresearchamerica", "greenhouse", "Samsung Research America"),
@@ -419,7 +419,7 @@ EXTRA_BOARDS = [
     ("https://jobs.lever.co/Aprio", "lever", "Aprio"),                                       # ~170
     ("https://job-boards.greenhouse.io/asteralabs", "greenhouse", "Astera Labs"),            # ~167
     ("https://careers.incyte.com", "jibe", "Incyte"),                                        # ~167
-    ("https://job-boards.greenhouse.io/clickhouse", "greenhouse", "ClickHouse"),             # ~166
+    ("https://jobs.ashbyhq.com/clickhouse",         "ashby", "ClickHouse"),                  # ~178
     ("https://jobs.barry-callebaut.com", "successfactors", "Barry Callebaut"),               # ~163
     ("https://brambles.wd5.myworkdayjobs.com/Brambles_Careers", "workday", "CHEP"),          # ~163
     ("https://careers.allanmyers.com", "jibe", "Allan Myers"),                               # ~159
@@ -812,7 +812,13 @@ EXTRA_BOARDS = [
     ("https://jobs.ashbyhq.com/blissway", "ashby", "BLISSWAY"),                              # ~7
     ("https://jobs.lever.co/disqo", "lever", "Disqo"),                                       # ~7
     ("https://job-boards.greenhouse.io/doximity", "greenhouse", "Doximity"),                 # ~7
-    ("https://job-boards.greenhouse.io/magicleap", "greenhouse", "Magic Leap"),              # ~7
+    # Magic Leap: REMOVED 2026-09-04, and NOT because the detect chain failed us.
+    # https://job-boards.greenhouse.io/magicleap 404s, and there is nothing to repoint it at:
+    # magicleap.com/careers 301s to resources.magicleap.cloud/careers, which answers HTTP 500
+    # -- "Application error: a server-side exception has occurred" -- to requests AND in a real
+    # browser, so it is not client-rendered content we are failing to read. Their careers site
+    # is down. It was ~7 postings. Re-probe the site before re-adding a slug; a dead row here
+    # costs a failed board every run and reads as OUR bug in the health report.
     ("https://jobs.ashbyhq.com/nusano", "ashby", "Nusano"),                                  # ~7
     ("https://job-boards.greenhouse.io/shopmonkey", "greenhouse", "Shopmonkey"),             # ~7
     ("https://jobs.lever.co/topazlabs", "lever", "Topaz Labs"),                              # ~7

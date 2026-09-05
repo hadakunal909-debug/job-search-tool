@@ -465,7 +465,15 @@ def base_rows():
         scores = {r["url"]: (i * 7) % 101 for i, r in enumerate(rows) if r.get("url")}
         # Force the tie-break to have a right answer: same posting, one copy scored and one not.
         scores[DUPE_LOSER], scores[DUPE_WINNER] = 0, 77
-        web._score_cache[("u", hashlib.md5(b"cv").hexdigest())] = scores
+        # THE CORPUS IS IN THE KEY, so the seed has to be built the way the product builds it.
+        # Spelling the key as a literal ("u", md5) is what this line used to do, and when the
+        # fingerprint joined the key the seed stopped matching in silence -- user_scores missed,
+        # scored the corpus for real, and 40,198 of 40,199 rows "differed" from the reference.
+        # That reads as a total product regression and is a stale literal in a test, so it goes
+        # through web._corpus_key like every caller.
+        seed_key = ("u", hashlib.md5(b"cv").hexdigest(),
+                    web._corpus_key(web._jobs_cache["fp"]))
+        web._score_cache[seed_key] = scores
         got = web.ranked_rows("u", "cv")
 
         ref = [web._build_row(j, scores.get(j.get("url"), 0)) for j in rows if j.get("url")]
@@ -1111,6 +1119,166 @@ def corpus_fp():
     return bad
 
 
+def score_write_visibility():
+    """A score write must reach the CARD, and until 2026-09-04 it did not.
+
+    THE BUG, as the owner hit it. jobs_fingerprint() was (row count, max first_seen) and both
+    move on INSERTS only. A scrape inserts a bare row (url/title/company/location), which moves
+    them and freezes a snapshot holding jd_terms NULL; the JD fetch and score pass then write
+    jd, jd_terms and match_score onto that same row with an UPDATE, which moved neither. So
+    _row_pending read a NULL column and the card said "JD pending" at score 0 -- while the job
+    page, which reads the description live on the url key, scored the same posting at 18%.
+    Worse than merely stale: past _JOBS_TTL the probe re-confirmed "unchanged" and restamped the
+    sidecar, so the wrong answer renewed itself hourly and only an INSERT ever broke the loop.
+    Measured on the live table that day: all 4,371 rows inserted passed through that window.
+
+    TWO INDEPENDENT HALVES had to move and both are pinned here, because either alone leaves the
+    card wrong:
+      1. db.jobs_fingerprint() grew a third component -- the count of rows WITH jd_terms.
+      2. _score_cache and _rows_cache took the corpus into their keys. They were keyed on
+         (user, resume) alone and nothing clears them when the corpus moves on its own, so a
+         warm worker went on serving its first render's rows however loudly (1) noticed.
+    """
+    print("=" * 74)
+    print("a score write reaches the card")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    # ---- 1. the probe itself ----
+    saved = (db.has_remote_db, db.table_count, db._http)
+    try:
+        state = {"n": 100, "scored": 60, "down": None}
+
+        class _Resp(object):
+            status_code = 200
+
+            def json(self):
+                return [{"first_seen": "2026-09-04"}]
+
+        class _Http(object):
+            def get(self, *a, **k):
+                return _Resp()
+
+        db.has_remote_db = lambda: True
+        db.table_count = (lambda table, params=None:
+                          None if state["down"] == ("scored" if params else "total")
+                          else (state["scored"] if params else state["n"]))
+        db._http = _Http()
+
+        fp1 = db.jobs_fingerprint()
+        want("the fingerprint carries three parts", len(fp1) == 3, str(fp1))
+        want("...and the third is the scored count", fp1[2] == 60)
+
+        state["scored"] = 61                        # one score write lands, nothing is inserted
+        fp2 = db.jobs_fingerprint()
+        want("a SCORE WRITE moves it", fp2 != fp1, "%s -> %s" % (fp1, fp2))
+        want("...though the count and the date sat still", fp2[:2] == fp1[:2])
+
+        # ALL OR NOTHING. A partial tuple would let two different unknown scoring states compare
+        # equal, which is the trap _base_rows and _snapshot_fp both already document.
+        state["down"] = "scored"
+        want("an unreachable scored count -> don't know",
+             db.jobs_fingerprint() == db.FP_UNKNOWN)
+        state["down"] = "total"
+        want("an unreachable total count -> don't know",
+             db.jobs_fingerprint() == db.FP_UNKNOWN)
+        want("...and 'don't know' is TRUTHY, so fp[0] is the test",
+             bool(db.FP_UNKNOWN) and db.FP_UNKNOWN[0] is None)
+        want("web._corpus_key refuses it", web._corpus_key(db.FP_UNKNOWN) is None)
+    finally:
+        db.has_remote_db, db.table_count, db._http = saved
+
+    # ---- 2. the caches sitting in front of it ----
+    tmp = tempfile.mkdtemp(prefix="scorewrite-")
+    saved2 = (web._ROWS_DIR, web._SCORES_DIR, dict(web._jobs_cache),
+              dict(web._base_rows_cache), web._jd_blocked_hosts, web._repost_clusters)
+    try:
+        web._ROWS_DIR = os.path.join(tmp, "rows")
+        web._SCORES_DIR = os.path.join(tmp, "scores")
+        os.makedirs(web._ROWS_DIR)
+        os.makedirs(web._SCORES_DIR)
+        # Offline by construction -- the same two memos base_rows() seeds, for the same reason.
+        web._jd_blocked_hosts = set()
+        web._repost_clusters = {}
+        web._jdmeta.clear()
+
+        SCORED = '{"w":{"python":1.0,"sql":0.9,"roadmap":0.8},"n":0}'
+        FRESH = "https://b.example/urbandale"
+        rows = [{"url": "https://b.example/%d" % i, "title": "Project Manager %d" % i,
+                 "company": "Acme", "location": "Boston, MA", "match_score": 40,
+                 "jd_terms": SCORED} for i in range(20)]
+        # The row the scrape inserted a moment ago: its description is on the way, and the
+        # scoring pass that will read it has not run yet.
+        rows.append({"url": FRESH, "title": "Hospital Operations Manager", "company": "Acme",
+                     "location": "Urbandale, Iowa, United States", "match_score": 0,
+                     "jd_terms": None})
+        RESUME = "python sql roadmap stakeholder delivery"
+
+        web._jobs_cache.update(rows=rows, at=10 ** 12, fp=(len(rows), "2026-09-04", 20))
+        web._base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
+                                    persisted=None, meta=None)
+        web._rows_cache.clear()
+        web._score_cache.clear()
+
+        first = web.ranked_rows("u", RESUME)
+        card = next(r for r in first if r["url"] == FRESH)
+        want("the just-inserted row starts as JD pending",
+             card["score_pending"] and card["score"] == 0)
+        want("an unmoved corpus still reuses the cache", web.ranked_rows("u", RESUME) is first)
+
+
+        # THE SCORE PASS LANDS. jd_terms arrives by UPDATE, so the row count and max(first_seen)
+        # do not budge -- only the third component does. This is the exact event that used to be
+        # invisible, and everything below is what the reader sees because of it.
+        # REPLACED, NOT MUTATED IN PLACE, and the distinction is what makes this test mean
+        # anything. _base_rows' incremental path reuses a built row when the SOURCE dict compares
+        # equal to the one it built from -- and it holds a reference to that very dict, so
+        # editing it in place makes `was[0] == j` compare an object against itself, always True,
+        # and the stale card survives a moved fingerprint. Production cannot do that: a corpus
+        # re-read parses fresh dicts out of JSON, so the comparison sees the new jd_terms. The
+        # first draft of this test mutated, and both assertions below failed against a fix that
+        # was working.
+        rows = [dict(r) for r in rows]
+        rows[-1] = dict(rows[-1], jd_terms=SCORED, match_score=18)
+        web._jobs_cache["rows"] = rows
+        web._jobs_cache["fp"] = (len(rows), "2026-09-04", 21)
+
+        second = web.ranked_rows("u", RESUME)
+        want("a moved corpus is NOT served from the warm cache", second is not first)
+        card2 = next(r for r in second if r["url"] == FRESH)
+        want("...the card stops saying JD pending", not card2["score_pending"])
+        want("...and carries a real number instead of 0",
+             card2["score"] > 0, "%d%%" % card2["score"])
+        want("the dead generation is dropped, not left to the LRU",
+             len(web._rows_cache) == 1, "%d entries" % len(web._rows_cache))
+        want("every _score_cache key carries the corpus",
+             bool(web._score_cache) and all(len(k) == 3 for k in web._score_cache),
+             "%d entries" % len(web._score_cache))
+
+        # "Don't know" must not be cached under, or two unknown corpora compare equal.
+        web._jobs_cache["fp"] = db.FP_UNKNOWN
+        before = len(web._rows_cache)
+        web.ranked_rows("u", RESUME)
+        want("an unknown corpus writes no cache entry",
+             len(web._rows_cache) == before, "%d entries" % len(web._rows_cache))
+    finally:
+        web._ROWS_DIR, web._SCORES_DIR = saved2[0], saved2[1]
+        web._jobs_cache.clear()
+        web._jobs_cache.update(saved2[2])
+        web._base_rows_cache.clear()
+        web._base_rows_cache.update(saved2[3])
+        web._jd_blocked_hosts, web._repost_clusters = saved2[4], saved2[5]
+        web._rows_cache.clear()
+        web._score_cache.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -1144,6 +1312,7 @@ def main():
     fails += row_files()
     fails += live_analysis()
     fails += corpus_fp()
+    fails += score_write_visibility()
     print("FAIL: %d problem(s)" % len(fails) if fails else "PASS: all speed caches are faithful")
     return 1 if fails else 0
 

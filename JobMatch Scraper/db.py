@@ -377,10 +377,15 @@ def table_count(table, params=None):
         return None
 
 
-def jobs_fingerprint():
-    """(row_count, newest_first_seen) — a near-free "has the corpus changed?" probe.
+# jobs_fingerprint()'s "don't know". A NON-EMPTY and therefore TRUTHY tuple, so every caller
+# tests fp[0] is not None rather than the tuple itself — see the note in web._base_rows.
+FP_UNKNOWN = (None, "", None)
 
-    Neither half returns rows: the count rides the HEAD in table_count(), and the date is a
+
+def jobs_fingerprint():
+    """(row_count, newest_first_seen, scored_count) — a near-free "has the corpus changed?" probe.
+
+    No part of it returns rows: the two counts ride HEADs in table_count(), and the date is a
     one-row ordered select. Together they let a caller revalidate a cache instead of re-reading
     it — the difference between ~0 bytes and the ~10.7 MB a full feed read costs at 19k rows.
 
@@ -390,25 +395,51 @@ def jobs_fingerprint():
     count moves on inserts and on the 30-day prune. A prune and an insert of the same size
     therefore still register, because the new rows carry a newer first_seen.
 
-    Returns (None, "") when unavailable. Callers MUST read that as "don't know" and refetch,
-    never as "unchanged" — a probe that fails while the DB is briefly unreachable would
-    otherwise pin a stale feed in place indefinitely.
+    THE THIRD COMPONENT IS THE ONE THAT CAN SEE AN UPDATE, and without it the feed stated a
+    falsehood. The first two move on INSERTS only. A scrape inserts a bare row (url, title,
+    company, location), which moves both and freezes a snapshot; the JD fetch and the score pass
+    then write `jd`, `jd_terms` and `match_score` onto that same row with an UPDATE, which moves
+    neither. So the snapshot kept jd_terms NULL, web._row_pending read that as "unreadable", and
+    the card said "JD pending" at score 0 — while the job page, which reads the description live
+    on the url key, showed a real percentage for the same posting. Worse than merely stale: past
+    _JOBS_TTL the probe re-confirmed "unchanged" and restamped the sidecar, so the wrong answer
+    renewed itself hourly and only an INSERT ever broke the loop.
+
+    Measured on the live table 2026-09-04: all 4,371 rows inserted that day were fully scored in
+    the database, and every one of them passed through that window. The filter is free — twelve
+    interleaved reps put a filtered HEAD within noise of an unfiltered one (255 ms vs 274 ms min,
+    both at the round-trip floor) — so this buys correctness for one extra request on a probe
+    that only runs once per TTL.
+
+    `not.is.null` rather than its inverse, because it decomposes cleanly: the count moves on
+    inserts and prunes, first_seen moves on inserts, and this moves on score writes and nothing
+    else. Rows that will never be scored (no description was ever fetched — 178 of them here)
+    hold it still, which is correct: nothing about them has changed.
+
+    Returns (None, "", None) when ANY part is unavailable. Callers MUST read that as "don't know"
+    and refetch, never as "unchanged" — a probe that fails while the DB is briefly unreachable
+    would otherwise pin a stale feed in place indefinitely. ALL OR NOTHING, because a partial
+    tuple is worse than none: two different unknown scoring states would compare equal and the
+    first one's rows would be served for the life of the worker.
     """
     if not has_remote_db():
-        return (None, "")
+        return FP_UNKNOWN
     n = table_count(TABLE)
     if n is None:
-        return (None, "")
+        return FP_UNKNOWN
+    scored = table_count(TABLE, {"jd_terms": "not.is.null"})
+    if scored is None:
+        return FP_UNKNOWN
     try:
         r = _http.get(_rest(TABLE), headers=_headers(),
                       params={"select": "first_seen", "order": "first_seen.desc.nullslast",
                               "limit": 1}, timeout=15)
         if r.status_code >= 400:
-            return (None, "")
+            return FP_UNKNOWN
         rows = r.json() or []
-        return (n, (rows[0].get("first_seen") or "") if rows else "")
+        return (n, (rows[0].get("first_seen") or "") if rows else "", scored)
     except Exception:
-        return (None, "")
+        return FP_UNKNOWN
 
 
 def _upsert(rows, chunk=200, keys=None):
@@ -1574,7 +1605,6 @@ def get_user_statuses(username):
 # "a browser writing a value that ends up in an aggregate" — while `status`, which decides
 # whether a posting is hidden from your feed forever, was passed through untouched.
 USER_STATUSES = ("liked", "hidden", "applied")
-
 
 # ---------------- the stored per-(user, job) match score ----------------
 # See MIGRATION_user_scores.sql for the whole argument. The short version: the score used to
