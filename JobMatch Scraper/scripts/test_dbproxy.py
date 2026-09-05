@@ -195,6 +195,107 @@ st, _ = dbproxy.handle(sent["raw"], sent["ts"], sent["sig"], SECRET, FakeBackend
 check("...and a real client request is accepted end to end", st == 200, st)
 
 print()
+print("=" * 74)
+print("TRANSPORT RESILIENCE — the 2026-09-03 scrape died here")
+print("=" * 74)
+# That run failed three steps inside one minute, all with the same JSONDecodeError raised out
+# of r.json() in _run. The proxy is a Flask route on shared cPanel hosting; when LiteSpeed in
+# front of it hiccups the client gets 200 + an HTML error page, and calling .json() on that
+# killed db.load_jobs() on the scrape's FIRST query -- twelve seconds after the preflight step
+# had proved the database was reachable. Every check below is that minute, replayed.
+dbproxy.Session._BACKOFF = 0.0        # the sleeps are the point elsewhere, not here
+
+
+class Blip:
+    """A canned sequence of what the front end returns. Counts attempts."""
+
+    def __init__(self, *seq):
+        self.seq, self.n = list(seq), 0
+
+    def post(self, url, data=None, timeout=None, headers=None):
+        r = self.seq[min(self.n, len(self.seq) - 1)]
+        self.n += 1
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+class Raw:
+    """A real HTTP response, not a pgrest.Response: .json() parses .text and may raise."""
+
+    def __init__(self, status, text):
+        self.status_code, self.text = status, text
+
+    def json(self):
+        return json.loads(self.text)
+
+
+GOOD = Raw(200, json.dumps({"status": 200, "rows": [{"url": "u1"}], "headers": {}}))
+HTML = Raw(200, "<html><body>503 Service Temporarily Unavailable</body></html>")
+GONE = Raw(502, "<html>Bad Gateway</html>")
+
+
+def through(*seq, **kw):
+    """Drive Session through `seq` and return (response, attempts)."""
+    s = dbproxy.Session("https://example.test/api/db", SECRET)
+    s._http = Blip(*seq)
+    verb = kw.pop("method", "GET").lower()
+    prefer = kw.pop("prefer", None)
+    r = getattr(s, verb)("https://x/rest/v1/jobs", headers={"Prefer": prefer} if prefer else {},
+                         params={"select": "url"},
+                         data=None if verb == "get" else json.dumps([{"url": "u1"}]))
+    return r, s._http.n
+
+
+r, n = through(HTML, GOOD)
+check("a 200 carrying HTML is retried, not raised", r.status_code == 200 and n == 2, (r.status_code, n))
+check("...and the retry's rows are returned", r.json() == [{"url": "u1"}], r.json())
+
+r, n = through(HTML)
+check("HTML on every attempt gives up as 502, still no exception",
+      r.status_code == 502 and n == dbproxy.Session._ATTEMPTS, (r.status_code, n))
+check("...naming the transport, so raise_for_status explains it",
+      "non-JSON" in (r.json() or {}).get("message", ""), r.json())
+
+r, n = through(GONE, GOOD)
+check("a 502 from the front end is retried", r.status_code == 200 and n == 2, (r.status_code, n))
+
+# The refusal half. _session() does not retry statuses because the proxy uses them to SPEAK,
+# and that has to survive this change: retrying "403 table not allowed" three times replaces
+# the server's explanation with a timeout.
+r, n = through(Raw(401, '{"error":"bad signature"}'))
+check("401 is NOT retried — it is the server explaining", r.status_code == 401 and n == 1, (r.status_code, n))
+r, n = through(Raw(403, '{"error":"table not allowed"}'))
+check("403 is NOT retried either", r.status_code == 403 and n == 1, (r.status_code, n))
+
+# Write safety. A retry that cannot tell whether the first attempt landed must only repeat
+# requests that are idempotent by construction.
+r, n = through(HTML, GOOD, method="POST", prefer="resolution=merge-duplicates,return=minimal")
+check("an upsert IS repeated — merge-duplicates makes it idempotent",
+      r.status_code == 200 and n == 2, (r.status_code, n))
+r, n = through(HTML, GOOD, method="POST", prefer="return=minimal")
+check("a bare POST insert is sent ONCE — a replay would be a second audit row",
+      r.status_code == 502 and n == 1, (r.status_code, n))
+r, n = through(HTML, GOOD, method="PATCH", prefer="return=minimal")
+check("a filtered PATCH IS repeated", r.status_code == 200 and n == 2, (r.status_code, n))
+
+# A connection error is not a bad response; callers have always seen the transport exception
+# for it and some catch it by type, so the last attempt must still raise rather than invent a
+# Response that only fails later at raise_for_status().
+import requests as _rq
+try:
+    through(_rq.exceptions.ConnectionError("host down"))
+    check("a dead host still raises", False, "returned instead of raising")
+except _rq.exceptions.ConnectionError:
+    check("a dead host still raises ConnectionError", True)
+r, n = through(_rq.exceptions.ConnectionError("blip"), GOOD)
+check("...but one dropped connection is retried", r.status_code == 200 and n == 2, (r.status_code, n))
+
+r, n = through(Raw(200, '"ok"'))
+check("valid JSON that is not an envelope is refused, not .get() on a str",
+      r.status_code == 502, r.status_code)
+
+print()
 if fails:
     print("FAILED (%d): %s" % (len(fails), "; ".join(fails)))
     sys.exit(1)

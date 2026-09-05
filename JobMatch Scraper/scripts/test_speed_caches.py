@@ -1231,7 +1231,6 @@ def score_write_visibility():
              card["score_pending"] and card["score"] == 0)
         want("an unmoved corpus still reuses the cache", web.ranked_rows("u", RESUME) is first)
 
-
         # THE SCORE PASS LANDS. jd_terms arrives by UPDATE, so the row count and max(first_seen)
         # do not budge -- only the third component does. This is the exact event that used to be
         # invisible, and everything below is what the reader sees because of it.
