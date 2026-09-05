@@ -42,8 +42,14 @@ import scraper
 
 
 def _build_index(rows):
-    """The same two structures main() builds: canonical urls, and posting fingerprints."""
-    seen, fingerprints = set(), {}
+    """The same two structures main() builds -- canonical urls and posting fingerprints -- plus
+    a url -> row map this script needs and main() does not.
+
+    The fingerprint VALUES are urls, exactly as main() stores them, because that is what
+    scraper.fingerprint_duplicate iterates. The incumbent ROW that the collision report wants is
+    a separate lookup rather than a second shape for the same map: one structure that has to be
+    both a url list and a row list is what broke this script twice."""
+    seen, fingerprints, by_url = set(), {}, {}
     for r in rows:
         u = r.get("url") or ""
         if not u:
@@ -52,8 +58,14 @@ def _build_index(rows):
         k = core.posting_key(r.get("title"), r.get("company"), r.get("location"),
                              require_location=True)
         if k:
-            fingerprints.setdefault(k, []).append(r)
-    return seen, fingerprints
+            # THE URL, not the row. scraper.fingerprint_duplicate iterates these and calls
+            # core.url_host() on each, so a dict here is a TypeError the moment any returned row
+            # is an aggregator URL whose posting key we already hold -- i.e. on the first real
+            # finding, every time. main() appends r.get("url") at scraper/__init__.py:9229 and
+            # the docstring above promises "the same two structures"; it was not.
+            fingerprints.setdefault(k, []).append(u)
+        by_url[u] = r
+    return seen, fingerprints, by_url
 
 
 def _classify(job, seen, fingerprints, blocked, age_cutoff):
@@ -109,7 +121,7 @@ def main():
 
     print("Reading the corpus (narrow select: %s)..." % db.COLS_DEDUPE)
     corpus = db.load_jobs(include_jd=False, cols=db.COLS_DEDUPE)
-    seen, fingerprints = _build_index(corpus)
+    seen, fingerprints, by_url = _build_index(corpus)
     blocked = db.blocked_company_keys()
     age_cutoff = ""
     if scraper.MAX_AGE_DAYS > 0:
@@ -157,11 +169,9 @@ def main():
                 local[bucket] += 1
                 per_site[site][bucket] += 1
                 if dupe_url:
-                    incumbent = next(
-                        (x for x in fingerprints.get(
-                            core.posting_key(r.get("title"), r.get("company"),
-                                             r.get("location"), require_location=True), [])
-                         if (x.get("url") or "") == dupe_url), {})
+                    # A dict lookup on the url fingerprint_duplicate just returned, rather than a
+                    # linear scan of the bucket it came out of.
+                    incumbent = by_url.get(dupe_url, {})
                     collisions.append((site, r, incumbent))
                     # BOTH sides carry a distinct employer-direct URL -> demonstrably two
                     # different openings, and suppressing one would be a real loss.

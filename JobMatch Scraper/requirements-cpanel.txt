@@ -19,3 +19,11 @@ pypdf==6.15.0
 # Postgres driver — only imported when PG_DSN is set (pgrest.py talks to a self-hosted
 # database directly). Harmless when unset: the import is lazy.
 psycopg2-binary>=2.9
+
+# The aggregator sweep (JOBSPY_SITES in bin/cron_scrape.sh). Every other source here is
+# EMPLOYER-side -- we only see a job if its company is already in SOURCES -- so this is the one
+# that surfaces employers we have never heard of. Measured 2026-09-05 before enabling: Indeed
+# returned 115 rows across 5 phrases, 94% carrying the employer's OWN url and 69% net-new,
+# in 10.8 s. Imported only when JOBSPY_SITES is set, so an install that skips this leaves the
+# scrape byte-for-byte what it was.
+python-jobspy
