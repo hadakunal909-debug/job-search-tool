@@ -37,6 +37,7 @@ import time
 import functools
 import collections
 import datetime
+import hashlib
 
 
 
@@ -1604,6 +1605,180 @@ def get_user_statuses(username):
 # "a browser writing a value that ends up in an aggregate" — while `status`, which decides
 # whether a posting is hidden from your feed forever, was passed through untouched.
 USER_STATUSES = ("liked", "hidden", "applied")
+
+
+# ---------------- the stored per-(user, job) match score ----------------
+# See MIGRATION_user_scores.sql for the whole argument. The short version: the score used to
+# live only in score_cache/*.json.gz, which is per process and on disk, so a restarted app or a
+# fresh worker showed "Not scored" for jobs the database could already answer for.
+USER_SCORES_TABLE = "user_scores"
+USER_SCORES_FILE = "user_scores_local.json"      # local fallback, same shape as USER_JOBS_FILE
+# Every score is stamped with the md5 of the profile it was computed against, and every read
+# filters on it. A row scored against an older resume does not come back, so the caller treats it
+# as missing and recomputes -- this table can be out of date, but it cannot silently serve a
+# number computed against a document the user has since replaced.
+# "table not allowed" is dbproxy's own refusal and belongs here with the rest: it means the
+# DEPLOYED proxy predates this table, which is the same "not available yet" state as an unrun
+# migration and wants the same handling. Reads happen on every feed build for every user, so a
+# state that persists until the next deploy must not print on each one.
+_MISSING_TABLE = ("does not exist", "PGRST205", "PGRST202", "42P01", "undefined_table",
+                  "table not allowed")
+
+
+def resume_fp(text):
+    """The identity of a profile, for scoring purposes. md5 of the exact text scored, which is
+    what web.user_scores has always keyed its own caches on -- so the stored rows and the
+    in-process ones agree by construction rather than by anyone remembering to."""
+    return hashlib.md5((text or "").encode("utf-8")).hexdigest()
+
+
+def _table_missing(exc):
+    """Has the migration simply not been run yet? Distinguished from a real failure because the
+    two want opposite handling: a missing table means fall back and carry on quietly, anything
+    else is worth surfacing."""
+    s = repr(exc)
+    return any(m in s for m in _MISSING_TABLE)
+
+
+def get_user_scores(username, fp):
+    """{url: score} for this user, computed against the profile whose hash is `fp`.
+
+    Returns {} rather than raising when the table is absent, so the app runs unchanged before
+    MIGRATION_user_scores.sql has been applied -- the caller's own fallback (compute it) is
+    exactly the behaviour that existed before this table.
+    """
+    if not username or not fp:
+        return {}
+    if has_remote_db():
+        try:
+            rows = _fetch_all(USER_SCORES_TABLE, {
+                "select": "url,score",
+                "username": "eq.%s" % username,
+                "resume_fp": "eq.%s" % fp})
+        except Exception as e:
+            if not _table_missing(e):
+                print("get_user_scores: %r" % (e,))
+            return {}
+        return {r["url"]: int(r["score"] or 0) for r in rows if r.get("url")}
+    store = _load_json(USER_SCORES_FILE).get(username) or {}
+    return {u: int(s) for u, s in (store.get(fp) or {}).items()}
+
+
+def save_user_scores(username, fp, scores, chunk=500, progress=None):
+    """Upsert {url: score} for one user. Returns the number of rows written.
+
+    Chunked for the same reason _upsert is: one statement carrying 47,845 rows is a single
+    enormous write, and on a shared box the failure mode is a reset connection rather than an
+    error you can read.
+    """
+    if not username or not fp or not scores:
+        return 0
+    items = [(u, int(s)) for u, s in scores.items() if u]
+    if not has_remote_db():
+        store = _load_json(USER_SCORES_FILE)
+        store.setdefault(username, {})[fp] = {u: s for u, s in items}
+        _dump_json(USER_SCORES_FILE, store)
+        return len(items)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    done = 0
+    for i in range(0, len(items), chunk):
+        payload = json.dumps([{"username": username, "url": u, "score": s,
+                               "resume_fp": fp, "updated_at": now}
+                              for u, s in items[i:i + chunk]])
+        last, dropped = "", False
+        for attempt in range(3):
+            try:
+                resp = _http.post(
+                    _rest(USER_SCORES_TABLE),
+                    headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                    params={"on_conflict": "username,url"}, data=payload, timeout=60)
+                if resp.status_code < 400:
+                    break
+                last = "%s: %s" % (resp.status_code, (resp.text or "")[:200])
+                if any(m in last for m in _MISSING_TABLE):
+                    raise RuntimeError("user_scores table is missing -- run "
+                                       "MIGRATION_user_scores.sql")
+                # A JOB THAT VANISHED IS NOT AN ERROR, it is the race this table's foreign key
+                # exists to describe: the corpus was read, a prune deleted a posting, and the
+                # score for it arrived afterwards. ON DELETE CASCADE means the row could not
+                # have survived anyway. PostgREST fails the whole BATCH on one bad row and has
+                # no per-row mode, so the batch is dropped rather than retried -- those jobs are
+                # gone, and any that are not reappear as gaps on the next run.
+                if "23503" in last or "foreign key" in last.lower():
+                    print("  (skipped %d score(s) for jobs deleted mid-run)"
+                          % len(items[i:i + chunk]))
+                    dropped = True
+                    break
+            except RuntimeError:
+                raise
+            except Exception as e:
+                last = repr(e)[:200]
+            if attempt < 2:
+                time.sleep(3 * (attempt + 1))
+        else:
+            raise RuntimeError("save_user_scores failed after retries: %s" % last)
+        if dropped:
+            continue                         # on purpose, and NOT counted as written
+        done += len(items[i:i + chunk])
+        if progress:
+            progress(done, len(items))
+    return done
+
+
+def clear_scores_for_urls(urls, progress=None):
+    """Drop every user's score for these jobs -- what a re-analysis means.
+
+    A stored score is derived from the job's jd_terms, so when the scoring pass rewrites that
+    column the number underneath it is about an analysis that no longer exists. Deleting is
+    right rather than recomputing here: this runs inside the scraper, which has no business
+    loading every user's profile, and the reader already treats a missing row as "compute it".
+    """
+    urls = [u for u in dict.fromkeys(urls) if u]
+    if not urls:
+        return 0
+    if not has_remote_db():
+        store = _load_json(USER_SCORES_FILE)
+        gone = 0
+        for _user, by_fp in store.items():
+            for _fp, m in by_fp.items():
+                for u in urls:
+                    gone += 1 if m.pop(u, None) is not None else 0
+        _dump_json(USER_SCORES_FILE, store)
+        return gone
+    done = 0
+    for batch in _url_batches(urls):
+        try:
+            resp = _http.delete(_rest(USER_SCORES_TABLE),
+                                headers=_headers({"Prefer": "return=minimal"}),
+                                params={"url": _in_list(batch)}, timeout=60)
+        except Exception as e:
+            if not _table_missing(e):
+                print("clear_scores_for_urls: %r" % (e,))
+            return done
+        if resp.status_code >= 400:
+            # COUNTED ONLY WHEN IT HAPPENED. Returning the batch size on a refused DELETE told
+            # the caller stale scores had been cleared when every one of them was still there,
+            # and the caller's next move is to stop worrying about them.
+            if not any(m in (resp.text or "") for m in _MISSING_TABLE):
+                print("clear_scores_for_urls %s: %s" % (resp.status_code, resp.text[:200]))
+            return done
+        done += len(batch)
+        if progress:
+            progress(done, len(urls))
+    return done
+
+
+def user_scores_count():
+    """How many scores are stored, or 0 when the table is not there yet. For an operator
+    checking whether the backfill has run, and for the admin panel to report."""
+    try:
+        # `or 0`: table_count answers None on a failed request rather than raising, so without
+        # this the caller gets None where it asked for a count and the except below never runs.
+        return table_count(USER_SCORES_TABLE) or 0
+    except Exception as e:
+        if not _table_missing(e):
+            print("user_scores_count: %r" % (e,))
+        return 0
 
 
 def set_user_status(username, url, status):

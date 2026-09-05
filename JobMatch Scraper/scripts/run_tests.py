@@ -133,6 +133,7 @@ SUITES = (
     # the api shape is the only thing standing between it and 216 blank descriptions.
     Suite("test_ibm_jd",            "scripts/test_ibm_jd.py",            "scripts", "offline"),
     Suite("test_jdrender",          "scripts/test_jdrender.py",          "scripts", "offline"),
+    Suite("test_user_scores",       "scripts/test_user_scores.py",       "scripts", "offline"),
     Suite("test_job_page",          "scripts/test_job_page.py",          "scripts", "offline"),
     Suite("test_jobs_cache",        "scripts/test_jobs_cache.py",        "scripts", "offline"),
     Suite("test_logos",             "scripts/test_logos.py",             "scripts", "offline"),
