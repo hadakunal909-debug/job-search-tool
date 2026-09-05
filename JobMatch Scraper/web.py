@@ -871,9 +871,12 @@ _JOBS_SNAPSHOT_FP = _JOBS_SNAPSHOT + ".fp.json"
 
 # How old a snapshot may be and still be worth REVALIDATING (not serving blind — see get_jobs).
 # Correctness comes from the fingerprint, so this is not a freshness limit; it is a bound on the
-# one thing the fingerprint cannot see. jobs_fingerprint() is (row count, max first_seen), and
-# update_job_fields moves NEITHER, so a run that only PATCHes existing rows — the scorer writing
-# match_score, a JD backfill — is invisible to it. Inserts move both, and the weekday scrapes
+# one thing the fingerprint cannot see. jobs_fingerprint() is (row count, max first_seen, scored
+# count) and update_job_fields moves only the THIRD, so a run that PATCHes existing rows without
+# touching jd_terms — a found_date correction, the extension's location fix — is still invisible
+# to it. The scorer is not, any more: writing jd_terms is exactly what the third component
+# watches, and it had to be added because a card said "JD pending" at score 0 while the job page
+# showed a real percentage for the same row. Inserts move the first two, and the weekday scrapes
 # insert, so in practice the probe is right twice a day and this cap only binds across a quiet
 # weekend. A day is deliberately shorter than the exposure the in-memory path already carries
 # (a long-lived worker revalidates by fingerprint with no age bound at all).
@@ -960,6 +963,25 @@ def _corpus_fp():
         return tuple(probe)
     get_jobs()
     return _jobs_cache.get("fp")
+
+
+
+def _corpus_key(fp):
+    """A fingerprint in its cache-key form: the tuple, or None when it says "don't know".
+
+    FIVE callers derive this and they must agree exactly, which is why it is a function and not
+    five copies of one expression. db.jobs_fingerprint() answers db.FP_UNKNOWN when it cannot
+    reach the database -- a NON-EMPTY and therefore perfectly truthy tuple -- so the test is
+    fp[0], never fp. Keyed on that sentinel, two different unknown corpora compare equal and the
+    first one's rows are served for the life of the worker.
+
+    It is also what a test must call to seed one of these caches by hand. scripts/
+    test_speed_caches.py pre-seeds _score_cache to pin ranked_rows against a reference
+    implementation, and when the corpus joined that key the seed silently stopped matching:
+    40,198 of 40,199 rows "differed", which reads as a catastrophic product regression and was
+    a stale literal in the test.
+    """
+    return tuple(fp) if fp and fp[0] is not None else None
 
 
 def _snapshot_read(max_age):
@@ -1119,8 +1141,10 @@ def _invalidate_jobs():
     _jobs_cache["at"] = 0
     _jobs_cache["fp"] = None
     # A FOURTH line, and it is here for the reason the fp=None note above gives. _base_rows_cache
-    # is keyed on jobs_fingerprint(), which is (row count, max first_seen) -- and the extension's
-    # JD patch moves neither. So a re-read would come back with an fp EQUAL to the stored one and
+    # is keyed on jobs_fingerprint(), which is (row count, max first_seen, scored count) -- and
+    # the extension's JD patch moves NONE of the three. It writes jd, location and found_date;
+    # jd_terms, which is what the third component counts, is the scorer's column and this route
+    # never sets it. So a re-read would come back with an fp EQUAL to the stored one and
     # the built rows would keep serving jd_admit / score_pending / sponsor badges derived from
     # descriptions that have since changed. Clearing it here covers every caller at once.
     #
@@ -1289,23 +1313,36 @@ def user_scores(username, resume):
     exist to stop repeating.
     """
     rmd5 = hashlib.md5((resume or "").encode("utf-8")).hexdigest()
-    key = (username, rmd5)
-    if key in _score_cache:
-        _score_cache.move_to_end(key)        # a read is a use: keeps active users out of the evictor
-        return _score_cache[key]
     # THE FINGERPRINT, NOT THE CORPUS. This is the key the stored file is written under, and
     # on a hit the rows are never touched -- so asking get_jobs for them first meant a 46 MB
     # parse to discover it was not needed. _corpus_fp falls back to get_jobs whenever it cannot
     # answer cheaply, so the fingerprint is exactly as authoritative as it was.
+    #
+    # IT IS IN THE MEMORY KEY TOO, and its absence there outlived the stored file's own guard.
+    # _scores_read is keyed on the fingerprint, so the FILE could never serve another corpus's
+    # scores -- but this dict sat in FRONT of it keyed on (user, résumé) alone, and nothing
+    # clears it when the corpus moves on its own (_bust_job_caches, /reload and the onboarding
+    # prefs step are all explicit ACTIONS, not corpus events). A warm worker therefore answered
+    # from the layer with no guard and never reached the one that had it, so every job added
+    # after its first feed render scored 0 -- `scores.get(url, 0)` in ranked_rows, a url the
+    # cached map has never heard of. Same defect, same shape, in ranked_rows; see the note there.
+    #
+    # Hoisted above the cache check rather than added to it: the key needs the value.
     rows = None
     fp = _corpus_fp()
+    ckey = _corpus_key(fp)
+    key = (username, rmd5, ckey)
+    if ckey is not None and key in _score_cache:
+        _score_cache.move_to_end(key)        # a read is a use: keeps active users out of the evictor
+        return _score_cache[key]
     stored = _scores_read(username, rmd5, fp)
     if stored is not None:
-        if len(_score_cache) >= _cache_max():
-            _score_cache.popitem(last=False)
-        _score_cache[key] = stored
+        if ckey is not None:                 # "don't know" is not a key -- see the note above
+            if len(_score_cache) >= _cache_max():
+                _score_cache.popitem(last=False)
+            _score_cache[key] = stored
         return stored
-    resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
+    resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was \u00d72,500)
     # THE STORED SCORES, seeded before the loop rather than instead of it. scripts/score_users.py
     # writes one row per (user, job) and stamps it with the md5 of the profile it was computed
     # against; db.get_user_scores filters on that hash, so a row scored against a resume the user
@@ -1322,6 +1359,13 @@ def user_scores(username, resume):
     # A real scoring pass is the one thing here that does need the corpus.
     rows = get_jobs()
     fp = _jobs_cache.get("fp") or fp
+    # RE-DERIVED, because get_jobs may have just moved the fingerprint out from under the value
+    # this function opened with -- that is the whole reason it was called. The scores below are
+    # computed against THESE rows, so they must be remembered under THIS corpus; keying them
+    # under the fp we probed on the way in would file fresh scores against the old corpus and
+    # then miss on every subsequent read. _scores_write already uses the refreshed fp.
+    ckey = _corpus_key(fp)
+    key = (username, rmd5, ckey)
     scores = {}
     for j in rows:
         u = j.get("url")
@@ -1363,9 +1407,10 @@ def user_scores(username, resume):
             # personalised match. A number that looks personalised and isn't is worse than no
             # number, because it teaches the user to distrust every other one on the card.
             scores[u] = 0
-    if len(_score_cache) >= _cache_max():
-        _score_cache.popitem(last=False)     # drop least-recently-used; bounds memory growth
-    _score_cache[key] = scores
+    if ckey is not None:                     # "don't know" is not a key -- see the note above
+        if len(_score_cache) >= _cache_max():
+            _score_cache.popitem(last=False)  # drop least-recently-used; bounds memory growth
+        _score_cache[key] = scores
     _scores_write(username, rmd5, fp, scores)
     return scores
 
@@ -2036,7 +2081,7 @@ def _base_rows(persist=False):
     # perfectly TRUTHY. Keyed on that, two different unknown corpora compare equal and the
     # first one's rows are served for the life of the worker. get_jobs() guards its own
     # revalidation with `fp[0] is not None` twenty lines up; this is the same test.
-    key = tuple(fp) if fp and fp[0] is not None else None
+    key = _corpus_key(fp)
     hit = _base_rows_cache
     # NOTE there is exactly ONE early return here, and it tests the derived signature as well as
     # the fingerprint. An earlier version of this function had a second, fingerprint-only check
@@ -2068,16 +2113,20 @@ def _base_rows(persist=False):
             fp = _jobs_cache.get("fp")
             # get_jobs may have found the corpus moved under the sidecar's answer. Re-key on
             # what it actually read, or the file would be written under the wrong fingerprint.
-            key2 = tuple(fp) if fp and fp[0] is not None else None
+            key2 = _corpus_key(fp)
             if key2 != key:
                 key, sig = key2, (_derived_signature() if key2 is not None else "")
                 got = _rows_read(key, sig) if key is not None else None
                 if got is not None:
                     built, meta = got
         # INCREMENTAL, and this is what makes a moving corpus survivable. jobs_fingerprint() is
-        # (row count, max first_seen), so ONE new posting invalidates the built rows for 40,000
-        # unchanged ones -- measured on production as a 4 s rebuild plus a 2.5 MB write, on the
-        # request path, every time the extension imported a board.
+        # (row count, max first_seen, scored count), so ONE new posting invalidates the built rows
+        # for 40,000 unchanged ones -- measured on production as a 4 s rebuild plus a 2.5 MB
+        # write, on the request path, every time the extension imported a board. The scored count
+        # made that MORE frequent, not less: a score pass flushes every SCORE_JD_WRITE_CHUNK
+        # (2,000) rows, so a run that scores 4,371 of them moves the fingerprint two or three
+        # times on its way through. This loop is why that is affordable -- the rows whose
+        # jd_terms actually landed are the only ones rebuilt.
         #
         # REUSE IS BY VALUE, NOT BY URL, and that distinction is the whole correctness argument.
         # A scrape does not only ADD rows: it updates is_active when a posting closes, fills
@@ -2154,9 +2203,35 @@ def ranked_rows(username, resume):
     """The FULL corpus as card rows, sorted by this user's match score (desc), cached per
     (user, profile). Reuses user_scores; the master ordering for both the inline top-N and the
     server-paged /api/feed. Status is NOT baked in (overlaid per request) so the cache is shared
-    and immutable. Cheap to filter in Python even at tens of thousands of rows."""
-    key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest())
-    if key in _rows_cache:
+    and immutable. Cheap to filter in Python even at tens of thousands of rows.
+
+    THE CORPUS IS IN THE KEY, and its absence quietly defeated every cache underneath this one.
+    This dict was keyed on (user, résumé) alone, and nothing clears it when the corpus moves on
+    its own -- _bust_job_caches, /reload and the onboarding prefs step are all explicit ACTIONS.
+    So a worker that had served one feed went on serving those same rows through a scrape that
+    added 4,371 postings, and _base_rows rebuilding underneath it changed nothing at all, because
+    this returned before ever calling it. It healed only when Passenger recycled the worker,
+    which is why it read as "the feed is sometimes behind" rather than as a cache bug.
+
+    _corpus_fp() is the cheap half of get_jobs' own revalidation -- an in-memory hit inside
+    _JOBS_TTL, a two-file sidecar stat past it, a probe only when neither can answer -- so this
+    adds no network call to the hot path.
+
+    A MOVED CORPUS KILLS EVERY OLD ENTRY rather than merely cooling it, so they are dropped on
+    the way past instead of being left for the LRU. Each one is a whole corpus of built dicts
+    (~49 MB at 22k rows, which is what _cache_max() is denominated in), and letting one dead
+    generation per user linger would halve the cap for nothing -- the same argument
+    _base_rows_cache makes when it holds exactly one entry.
+
+    "Don't know" is not a key: when the probe cannot answer, this neither reads nor writes the
+    cache and rebuilds instead. _base_rows refuses that value for the same reason -- two
+    different unknown corpora compare equal, and the first one's rows would then be served for
+    the life of the worker.
+    """
+    fp = _corpus_fp()
+    ckey = _corpus_key(fp)
+    key = (username, hashlib.md5((resume or "").encode("utf-8")).hexdigest(), ckey)
+    if ckey is not None and key in _rows_cache:
         _rows_cache.move_to_end(key)         # a read is a use: see _score_cache
         return _rows_cache[key]
     base = _base_rows()
@@ -2179,10 +2254,6 @@ def ranked_rows(username, resume):
                 live_scores[_u] = core.score_pct(resume_low, _an)
             except Exception:
                 pass                         # one unscoreable row must not cost the other 40,000
-    # Shallow copies over the shared base, so a per-user row can carry a per-user score without
-    # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
-    # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
-    # missing number rather than a false one.
     # Shallow copies over the shared base, so a per-user row can carry a per-user score without
     # writing into a dict every other user is reading. `score_pending` mirrors _build_row's own
     # rule at the point it sets "score": an unreadable JD is unscoreable, and 0 there is a
@@ -2212,9 +2283,12 @@ def ranked_rows(username, resume):
     rows.sort(key=lambda r: r["score"], reverse=True)
     # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
     # against — so it gets the same derived limit rather than a second constant to keep in step.
-    if len(_rows_cache) >= _cache_max():
-        _rows_cache.popitem(last=False)      # least-recently-used, not oldest-inserted
-    _rows_cache[key] = rows
+    if ckey is not None:                     # "don't know" is not a key -- see the note above
+        for k in [k for k in list(_rows_cache) if len(k) > 2 and k[2] != ckey]:
+            _rows_cache.pop(k, None)         # a moved corpus makes them dead, not colder
+        if len(_rows_cache) >= _cache_max():
+            _rows_cache.popitem(last=False)  # least-recently-used, not oldest-inserted
+        _rows_cache[key] = rows
     return rows
 
 
