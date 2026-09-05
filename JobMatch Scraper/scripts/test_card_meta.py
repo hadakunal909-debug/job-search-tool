@@ -123,8 +123,19 @@ check("cardHTML reads j.visa_likely", "j.visa_likely" in SRC)
 # Every chip below the old cap had to LAND somewhere, and these are the two that had no
 # job-page equivalent. Trimming the card without moving them would have deleted them.
 JOBHTML = open(os.path.join(APP, "templates", "job.html"), encoding="utf-8").read()
+# WHAT RENDERS, with the Jinja comments taken out. A {# ... #} block emits nothing, and the
+# comments in this template deliberately QUOTE the copy they replaced so the next reader can see
+# what was removed and why -- which made an assertion that a phrase is absent match the very
+# note explaining its absence. Any check about what a reader SEES has to run against this.
+JOBBODY = re.sub(r"\{#.*?#\}", " ", JOBHTML, flags=re.S)
+# A CHIP OR A COLUMN -- what is asserted is that the fact still reaches this page, not which
+# shape it takes. CLAUDE.md's own rule is that a fact gets a column and a verdict gets a chip,
+# and on 2026-09-05 pay, workplace and years moved into the At a Glance grid as fixed tracks
+# where they can be compared down the page. They carry data-fact="<name>" there. Pinning
+# `class="pay` would have frozen the chip shape and made following that rule a test failure.
 for _cls in ("pay", "rem", "intl", "exp", "cx", "agency", "repost", "jdadmit"):
-    check("/job still renders the %r chip" % _cls, 'class="%s' % _cls in JOBHTML,
+    check("/job still renders %r, as a chip or as a column" % _cls,
+          'class="%s' % _cls in JOBHTML or 'data-fact="%s"' % _cls in JOBHTML,
           "the card dropped it; the detail page is where it went")
 # The FULL list must survive: the visa filter narrows on it, and narrowing on the single chip
 # would hide every green-card employer whose chip reads H-1B.
@@ -323,11 +334,22 @@ check("web.py derives the flag instead of reading a column",
 for _gone in ("years not stated", "years not read yet", "years unknown"):
     check("the card does not print %r" % _gone, _gone not in CODE,
           "a missing figure already reads as 'no figure'")
+# SAID ONCE, ABOVE THE DESCRIPTION, rather than repeated into four rows. The claim this check
+# defends is unchanged and still binding: "the employer did not say" and "we have not read it"
+# are opposite facts and the page must not print the wrong one. What moved on 2026-09-05 is
+# where it is said. The four-row block spent a sentence per empty row explaining what the
+# posting did not contain, and the owner asked for a dash instead; the distinction those
+# sentences carried survives as one .jdstate line on the description itself.
 check("...and /job still names which of the three it is",
-      "unread_why" in JOBHTML and "have not fetched" in JOBHTML
-      and "rather than a posting" in JOBHTML,
+      "asks.verdict == 'not-a-posting'" in JOBHTML and "not has_jd" in JOBHTML
+      and "rather than a posting" in JOBHTML and "No description stored yet" in JOBHTML,
       "'the employer did not say' and 'we have not read it' are opposite facts, and only one "
       "of them changes on its own")
+check("...and an empty fact is a dash, not a sentence about the posting",
+      "&mdash;" in JOBBODY and "Not stated in this posting" not in JOBBODY
+      and "no separate required-skills" not in JOBBODY
+      and "Nothing listed as preferred" not in JOBBODY,
+      "the owner's instruction 2026-09-05: if it is not there, leave it blank")
 check("the inferred case survives, because it is an ANSWER",
       "senior role" in CODE,
       "silence there means a job vanishing from '0 to 2 Years' with nothing to say why")

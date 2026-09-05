@@ -45,18 +45,18 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,673 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,746 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
-    S["<b>scraper/__init__.py</b><br/>9,672 lines · 40 ATS adapters<br/>1,221 boards"]
+    S["<b>scraper/__init__.py</b><br/>9,678 lines · 40 ATS adapters<br/>1,220 boards"]
     J["score_jobs.py · 2,459 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,466 lines · 36 sections<br/>db.py · 3,204 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,466 lines · 36 sections<br/>db.py · 3,234 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -105,46 +105,46 @@ declares them — "blocked company" is listed fifth and applied second.
 
 ```mermaid
 flowchart TB
-  SRC["1,221 boards → scrape_all<br/>40 ATS adapters"]
+  SRC["1,220 boards → scrape_all<br/>40 ATS adapters"]
   JD["fill_missing_jds()<br/><i>descriptions bought before the gates</i>"]
   SRC --> JD
   G0{"already known"}
-  D0["already known<br/><i>:9431</i>"]
+  D0["already known<br/><i>:9437</i>"]
   JD --> G0
   G0 -->|dropped| D0
   class D0 trap
   G1{"blocked company"}
-  D1["blocked company<br/><i>:9437</i>"]
+  D1["blocked company<br/><i>:9443</i>"]
   G0 --> G1
   G1 -->|dropped| D1
   class D1 trap
   G2{"off-target function title"}
-  D2["off-target function title<br/><i>:9459</i>"]
+  D2["off-target function title<br/><i>:9465</i>"]
   G1 --> G2
   G2 -->|dropped| D2
   class D2 trap
   G3{"no matching role keyword"}
-  D3["no matching role keyword<br/><i>:9460</i>"]
+  D3["no matching role keyword<br/><i>:9466</i>"]
   G2 --> G3
   G3 -->|dropped| D3
   class D3 trap
   G4{"non-US location"}
-  D4["non-US location<br/><i>:9469</i>"]
+  D4["non-US location<br/><i>:9475</i>"]
   G3 --> G4
   G4 -->|dropped| D4
   class D4 trap
   G5{"posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)"}
-  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:9484</i>"]
+  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:9490</i>"]
   G4 --> G5
   G5 -->|dropped| D5
   class D5 trap
   G6{"no federal sponsor record (aggregator)"}
-  D6["no federal sponsor record (aggregator)<br/><i>:9507</i>"]
+  D6["no federal sponsor record (aggregator)<br/><i>:9513</i>"]
   G5 --> G6
   G6 -->|dropped| D6
   class D6 trap
   G7{"aggregator copy of a job we hold"}
-  D7["aggregator copy of a job we hold<br/><i>:9523</i>"]
+  D7["aggregator copy of a job we hold<br/><i>:9529</i>"]
   G6 --> G7
   G7 -->|dropped| D7
   class D7 trap
@@ -219,7 +219,7 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2594</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2668</i>"]
   C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 997</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
@@ -285,13 +285,31 @@ shallow copies. Two consequences that are easy to undo by accident:
   eviction used to cost a ~1.9 s rebuild and now costs ~200 ms, which is what makes a small cap
   acceptable.
 
-**Invalidation, and the trap in it.** `jobs_fingerprint()` is `(row count, max first_seen)` â and
-`db.update_job_fields`, which the extension's JD patch calls, moves **neither**. A re-read
-therefore returns an *equal* fingerprint while the underlying descriptions have changed, so
-anything keyed on it would serve stale rows for ever. `_invalidate_jobs()` exists for exactly this
-and clears the jobs cache, the base rows and the snapshot together; `/reload` and
+**Invalidation, and the trap in it.** `jobs_fingerprint()` is
+`(row count, max first_seen, scored count)`. The first two move on **inserts only**; the third
+counts the rows holding `jd_terms`, so it moves when the scoring pass writes. It was added on
+2026-09-04 because without it a card read "JD pending" at score 0 while the job page — which
+fetches the description live on the url key — scored the same posting at 18%. The scrape
+inserts a bare row, which moves the first two and freezes a snapshot holding `jd_terms` NULL; the
+score pass then fills that column by UPDATE, which moved nothing the probe could see. Past
+`_JOBS_TTL` the probe re-confirmed "unchanged" and restamped the sidecar, so the wrong answer
+renewed itself hourly and only the next insert ever broke the loop.
+
+`db.update_job_fields` still moves **nothing** when it writes a column the fingerprint does not
+count — the extension's JD patch writes `jd`, `location` and `found_date`, never `jd_terms`. A
+re-read therefore returns an *equal* fingerprint while the underlying descriptions have changed,
+so anything keyed on it would serve stale rows for ever. `_invalidate_jobs()` exists for exactly
+this and clears the jobs cache, the base rows and the snapshot together; `/reload` and
 `_bust_job_caches` additionally drop the stored score files. The same function also refuses to key
-on the probe's "don't know" answer, `(None, "")`, which is a non-empty and therefore truthy tuple.
+on the probe's "don't know" answer, `db.FP_UNKNOWN` — a non-empty and therefore truthy tuple,
+which is why every caller tests `fp[0]` and why `web._corpus_key()` is the single place that rule
+is written down.
+
+**The per-user caches carry the corpus too**, and did not until the same date. `_score_cache` and
+`_rows_cache` were keyed on `(user, résumé)` alone, and nothing clears them when the corpus
+moves on its own — `_bust_job_caches`, `/reload` and the onboarding prefs step are all explicit
+*actions*. A warm worker therefore went on serving its first render's rows through any number of
+scrapes, which defeated the fingerprint above it however correct that became.
 
 ## The module tour
 
