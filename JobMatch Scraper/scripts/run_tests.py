@@ -183,7 +183,11 @@ EXTRA_TOUCHES = {
     # style.css and templates/ as DATA, and the woff2 files are what it asserts exist.
     "test_fonts":              ("static/style.css", "templates/", "static/fonts/"),
     "test_doc_contrast":       ("docs/doc.css", "static/style.css"),
-    "test_card_meta":          ("static/app.js",),
+    # templates/ IS NOT OPTIONAL HERE and its absence was a live hole: this suite opens
+    # templates/job.html by path and asserts against its source, so every edit to that file was
+    # invisible to --changed and reported green while breaking it. Found 2026-09-05 while moving
+    # the card's facts onto the job page.
+    "test_card_meta":          ("static/app.js", "templates/"),
     "test_apply_confirm":      ("static/app.js", "static/applyask.js",
                                 "scripts/reset_autologged_applies.py"),
     "test_filter_memory":      ("static/app.js",),

@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -94,6 +95,27 @@ def alnum(s):
     return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
 
 
+def words(s):
+    return re.findall(r"[a-z0-9]+", (s or "").lower())
+
+
+# OUR SECTION LABELS ARE CHROME, exactly as <summary>'s "Legal and Equal Opportunity Notices" is,
+# so a projection meant to prove the EMPLOYER's words survived has to drop them.
+#
+# BUILT FROM THE VOCABULARY, NOT FROM A WILDCARD. A `<span class="jdlabel">.*?</span>` stripper
+# would silently swallow anything that ever leaked into that element and hide the regression it
+# exists to catch. This can only ever remove one of the eight strings jdrender itself declares;
+# a jdlabel holding anything else survives into the projection and fails the check.
+_CHROME = re.compile(
+    r'<span class="jdlabel">(?:%s)</span>'
+    % "|".join(re.escape(jdrender.esc(v))
+               for v in sorted(set(jdrender.SEC_LABELS.values()), key=len, reverse=True)))
+
+
+def unchrome(html):
+    return _CHROME.sub(" ", html or "")
+
+
 def text_of(html):
     """Visible text: drop tags, then un-escape the four entities esc() writes.
 
@@ -101,22 +123,67 @@ def text_of(html):
     Notices" is chrome this renderer adds rather than anything the employer wrote. Leaving it in
     made the projection 31 characters longer than the input and read as text loss inverted.
     """
-    t = re.sub(r"<summary>.*?</summary>", " ", html, flags=re.S)
+    t = unchrome(html)
+    t = re.sub(r"<summary>.*?</summary>", " ", t, flags=re.S)
     t = re.sub(r"<[^>]+>", " ", t)
     return (t.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">")
             .replace("&amp;", "&"))
 
 
-print("\nNO TEXT IS DROPPED, on any path (alphanumeric projection)")
-for label, kw in (("plain", {}), ("sectioned + highlighted",
-                                 {"have": ["python", "sql", "aws"], "missing": ["kubernetes"]})):
-    bad = []
-    for s in samples:
-        html = jdrender.render_jd(s["jd"], sections=(label != "plain"), **kw)
-        if alnum(text_of(html)) != alnum(s["jd"]):
-            bad.append(s.get("title") or "?")
-    check("all %d samples keep every character (%s)" % (len(samples), label), not bad,
-          "" if not bad else "lost text in %d: %s" % (len(bad), bad[:2]))
+print("\nNO TEXT IS DROPPED, on any path")
+# THE PLAIN PATH IS STILL AN EXACT, ORDER-SENSITIVE STRING COMPARISON, and it has to be: nothing
+# reorders on that path, so anything weaker would give up force for no reason.
+bad = []
+for s in samples:
+    if alnum(text_of(jdrender.render_jd(s["jd"], sections=False))) != alnum(s["jd"]):
+        bad.append(s.get("title") or "?")
+check("all %d samples keep every character (plain)" % len(samples), not bad,
+      "" if not bad else "lost text in %d: %s" % (len(bad), bad[:2]))
+
+# THE SECTIONED PATH REORDERS ON PURPOSE (see jdrender Pass 2), so an ordered comparison would
+# now fail on every sample and prove nothing. It is replaced by two checks that are together
+# STRICTLY STRONGER than the one they replace:
+#
+#   CONSERVATION -- a multiset, not a set. Order-insensitive, but it still catches a word
+#   dropped AND a word duplicated, which is the failure an ordered string compare would report
+#   as "lost text" and a set would not see at all.
+bad = []
+for s in samples:
+    html = jdrender.render_jd(s["jd"], have=["python", "sql", "aws"], missing=["kubernetes"])
+    if Counter(words(text_of(html))) != Counter(words(s["jd"])):
+        bad.append(s.get("title") or "?")
+check("all %d samples conserve every word (sectioned + highlighted)" % len(samples), not bad,
+      "" if not bad else "changed text in %d: %s" % (len(bad), bad[:2]))
+
+#   PERMUTATION -- checked at the level where the permutation actually happens, and BY IDENTITY.
+#   jd_sections must PARTITION its input: every content node placed exactly once, none copied,
+#   none rebuilt, none dropped. That is what makes "the reorder cannot lose text" a structural
+#   property of the code rather than something the word count happens to agree with today.
+#
+#   HEADING NODES ARE COUNTED SEPARATELY because they do not travel as nodes: _group lifts each
+#   one into its run's LABEL and _groups_html re-emits it. That is not a loophole -- it is the
+#   thing that went wrong first. Inference took the single node under a heading, left the run
+#   empty, and the empty-run filter deleted the heading's words with it. So the labels are
+#   asserted to survive as a multiset too, and both halves have to hold.
+bad, lost = [], []
+for s in samples:
+    # THE SAME PIPELINE THE RENDERER RUNS, entered at the same door. Checking identity against a
+    # separately-built node list cannot work: presplit rebuilds the nodes it cuts, so two calls
+    # produce equal-but-not-identical tuples and the check would be vacuous or wrong.
+    body, _legal = jdrender.prepare(s["jd"])
+    secs = jdrender._canon(jdrender._group(body))
+    placed = [n for _k, runs in secs for _h, ns, _i in runs for n in ns]
+    content = [n for n in body if n[0] != "h"]
+    if len(placed) != len(content) or not all(
+            sum(1 for p in placed if p is n) == 1 for n in content):
+        bad.append(s.get("title") or "?")
+    heads = [h for _k, runs in secs for h, _n, _i in runs if h]
+    if Counter(heads) != Counter(n[1] for n in body if n[0] == "h"):
+        lost.append(s.get("title") or "?")
+check("every content node is placed exactly once, by identity", not bad,
+      "" if not bad else "%d samples: %s" % (len(bad), bad[:2]))
+check("every employer heading survives as a run label", not lost,
+      "" if not lost else "%d samples: %s" % (len(lost), lost[:2]))
 
 # The same projection against the FROZEN bytes. If this fails, the shipped JS renderer was
 # dropping text too, and that is a live bug rather than a porting one.
@@ -190,6 +257,259 @@ check("empty input renders nothing at all", jdrender.render_jd("") == ""
       and jdrender.render_jd(None) == "")
 
 # ---------------------------------------------------------------------------------------------
+print("\nRENDER_SPLIT: THE TWO HALVES TOGETHER STILL HOLD EVERYTHING")
+# THIS CHECK EXISTS BECAUSE ITS ABSENCE SHIPPED A BUG. render_split lifts the `about` bucket out
+# of the body so /job can render it under its own About <Company> heading, and the first version
+# built that half by walking each run's NODES -- which is not where _group keeps a heading. It
+# keeps it in the run's LABEL. Every employer heading in that bucket was therefore deleted from
+# the page: measured at 5,850 heading strings across 4,351 of 45,755 cached descriptions,
+# including whole "Job Title:" and "Job Location:" blocks.
+#
+# The conservation check above did not see it because it only ever projected render_jd, and
+# `grep -c render_split` over this file returned 0. A second entry point needs its own guard.
+bad, empty = [], []
+for s in samples:
+    body, about, jumps = jdrender.render_split(s["jd"])
+    if Counter(words(text_of(body) + " " + text_of(about))) != Counter(words(s["jd"])):
+        bad.append(s.get("title") or "?")
+    # THE BODY MUST NOT BE EMPTY WHILE THE ABOUT HALF IS FULL. That is the whole description
+    # relocated to the foot of the page under About, leaving "Job Description" over an empty box.
+    if about.strip() and not body.strip():
+        empty.append(s.get("title") or "?")
+check("render_split conserves every word across BOTH halves", not bad,
+      "" if not bad else "%d samples: %s" % (len(bad), bad[:2]))
+check("render_split never empties the body into the about half", not empty,
+      "" if not empty else "%d samples: %s" % (len(empty), empty[:2]))
+
+# The two shapes that produced the bug, as explicit fixtures rather than only via the corpus.
+ABOUT_HEADED = ("About Us\n"
+                "We build payments infrastructure and we have done since 2011.\n\n"
+                "Our Mission\n"
+                "To make moving money boring, everywhere, for everyone who has to do it.\n\n"
+                "Responsibilities\n"
+                "- Own the ledger pipeline end to end\n"
+                "- Partner with the finance team every week\n")
+b, a, j = jdrender.render_split(ABOUT_HEADED)
+check("the employer's headings inside the about half still render",
+      "About Us" in a and "Our Mission" in a,
+      "_group keeps a heading in the run's LABEL, not as a node")
+check("...and the role content stays in the body", "ledger pipeline" in b)
+check("the jump strip never offers a link to the about anchor",
+      all(k != "about" for k, _l in j) and "jdsec-about" not in b,
+      "render_split emits no anchor for it, so the link would go nowhere")
+check("jump_sections agrees with render_split about that",
+      all(k != "about" for k, _l in jdrender.jump_sections(ABOUT_HEADED)),
+      "the two used to disagree: one included about, the other did not")
+
+# An unrecognised heading must never inherit `about`, because `about` leaves the description.
+WHO_WE_ARE = ("WHO WE ARE\n"
+              "We are a robotics company working on autonomous freight.\n\n"
+              "YOU WILL\n"
+              "- Own the perception stack end to end for the platform\n"
+              "- Partner with hardware on sensor placement each quarter\n\n"
+              "YOU HAVE\n"
+              "- Five years of production C++ in a robotics setting\n"
+              "- Strong grounding in sensor fusion and calibration\n")
+b2, a2, _j2 = jdrender.render_split(WHO_WE_ARE)
+check("an unrecognised heading does not inherit `about` and get relocated",
+      "perception stack" in b2 and "production C++" in b2,
+      "1,748 descriptions moved a median 17% of themselves to the page foot this way")
+check("...while the real company blurb still does move", "autonomous freight" in a2)
+
+
+# ---------------------------------------------------------------------------------------------
+print("\nPRESPLIT: RESHAPES BOUNDARIES, PRESERVES TEXT AND ORDER")
+# THE INVARIANT THAT MAKES EVERYTHING DOWNSTREAM SAFE. presplit is the only pass allowed to move
+# a node boundary; if its output is the same text in the same order, then no later pass can lose
+# text because no later pass cuts anything. Asserted IN ORDER (unlike the sectioned conservation
+# check further up), because presplit does not reorder and a weaker claim here would be a gift.
+bad = []
+for s in samples:
+    nodes = jdrender.jd_nodes(s["jd"])
+    cut = jdrender.presplit(nodes)
+    if alnum(" ".join(map(jdrender._node_text, cut))) != \
+            alnum(" ".join(map(jdrender._node_text, nodes))):
+        bad.append(s.get("title") or "?")
+check("presplit preserves every character, in document order", not bad,
+      "" if not bad else "%d samples: %s" % (len(bad), bad[:2]))
+check("presplit is idempotent", all(
+    jdrender.presplit(jdrender.presplit(jdrender.jd_nodes(s["jd"])))
+    == jdrender.presplit(jdrender.jd_nodes(s["jd"])) for s in samples),
+    "a second pass must find nothing left to cut")
+
+# SPLIT_PHRASE: the trap that cost the most during development.
+for text, want, why in (
+        ("We will be clear about role expectations. What You Need to Have Bachelor degree.",
+         True, "sentence-initial, Title Case, followed by a capital"),
+        ("You will translate requirements into actionable plans for the team.",
+         False, "MID-SENTENCE: cutting here leaves a dangling half-sentence"),
+        ("The company offers benefits to full time employees who qualify today.",
+         False, "same, on the word 'benefits'"),
+        ("He has many responsibilities. responsibilities are shared here.",
+         False, "lower case: prose, not a heading"),
+):
+    got = bool(jdrender.SPLIT_PHRASE.search(text))
+    check("SPLIT_PHRASE %-5s %r" % (want, text[:44]), got == want, why)
+
+# The three list recoveries, each with the guard that stops it firing on prose.
+HYPHEN_OK = ("Basic qualifications - 5+ years of experience building and operating "
+             "distributed systems - 3+ years of experience with Java or Python in "
+             "production - 2+ years leading engineering teams and mentoring juniors")
+check("a hyphen-flattened list is recovered", (jdrender._hyphen_list(HYPHEN_OK) or (0, []))[1])
+check("a date range and a compass direction are not a list",
+      jdrender._hyphen_list("The role runs from 2024 - 2025 and covers the East - West "
+                            "corridor of the whole region, generally speaking.") is None)
+NUM_OK = ("Requirements Bachelors degree or equivalent practical experience in a related "
+          "field. 3+ years managing content platforms such as Contentful and WordPress. "
+          "2+ years of A/B or multivariate testing experience with third party vendors. "
+          "5+ years of hands on analytics work across the whole acquisition funnel.")
+check("a number-opening requirements list is recovered",
+      len((jdrender._number_list(NUM_OK) or (0, []))[1]) == 3)
+check("one stray number in prose is not a list",
+      jdrender._number_list("The company was founded in 2019. 5 years later the team had "
+                            "grown to four hundred people worldwide and was still hiring.") is None)
+REP_OK = ("Understanding of CI/CD concepts and Git Some exposure or working knowledge with "
+          "Docker, Kubernetes or other containerization technologies Some exposure or "
+          "working knowledge debugging issues ranging from the operating system and the "
+          "application all the way to the cloud Some exposure or working knowledge with "
+          "building and supporting large-scale production services including logging")
+check("a list with NO separator is recovered from its repeated opener",
+      len((jdrender._repeat_list(REP_OK) or (0, []))[1]) >= 3)
+check("a repeated determiner is not a list",
+      jdrender._repeat_list(
+          "The company was founded in 2010 and has grown steadily since then. The company now "
+          "employs four hundred people across nine offices worldwide today. The company "
+          "believes in a flat structure and gives engineers real ownership of the work.") is None,
+      "REPEAT_STOP: 'The company' repeats in prose constantly")
+check("a recovered list's lead-in becomes its HEADING when it is one",
+      ("h", "Basic Qualifications") in jdrender.presplit(
+          [("p", "Basic Qualifications 3+ years managing content platforms and public "
+                 "websites at scale. 2+ years of A/B or multivariate testing experience "
+                 "with third party vendors. 5+ years of hands on analytics work across "
+                 "the whole acquisition funnel and beyond.")]),
+      "otherwise it renders as a two-word stub AND the section label is thrown away")
+
+print("\nLEGAL: CUT IT OFF THE PARAGRAPH, THEN DECIDE WHETHER TO LIFT IT")
+BENEFITS_PLUS_EEO = (
+    "What We Offer\n"
+    "Medical, dental and vision cover from day one, a 401(k) with a company match, twenty days "
+    "of paid time off and a genuine budget for the tools you need. Life insurance and short "
+    "and long term disability are included at no cost to the employee. "
+    "All qualified applicants will receive consideration for employment without regard to "
+    "race, colour, religion, sex, national origin, disability or protected veteran status.")
+h = jdrender.render_jd(BENEFITS_PLUS_EEO)
+check("the notice is collapsed", "jdlegal" in h)
+head, _, tail = h.partition("<details")
+check("...and the BENEFITS it was welded to are still on the page",
+      "401(k)" in head and "paid time off" in head,
+      "lifting the whole node would have hidden a real benefits list -- 71% of uncollapsed "
+      "notices are a single node like this one")
+check("...and the notice itself is inside the disclosure", "protected veteran" in tail)
+# The guard that keeps lift_legal from eating a description.
+ALL_LEGAL = ("All qualified applicants will receive consideration without regard to race. "
+             "Reasonable accommodations are available on request to applicants with disabilities.")
+check("a description that is ONLY notices is not lifted away",
+      "jdlegal" not in jdrender.render_jd(ALL_LEGAL),
+      "a page rendering as one closed <details> looks broken")
+STRAY_IN_LIST = ("Responsibilities\n"
+                 + "\n".join("- Build subsystem number %d and review it carefully" % i
+                              for i in range(1, 9))
+                 + "\n- Company is an Equal Opportunity Employer")
+check("a requirements list with ONE stray notice item is not lifted",
+      "jdlegal" not in jdrender.render_jd(STRAY_IN_LIST),
+      "the majority rule, same as split_boilerplate's")
+
+
+# ---------------------------------------------------------------------------------------------
+print("\nTHE CANONICAL STACK: same sections, same order, every posting")
+# ON A SYNTHETIC POSTING WRITTEN IN THE WRONG ORDER, deliberately. Whether the 20 fixtures happen
+# to be written benefits-last is a property of the fixture; what is under test is that the engine
+# does not care either way.
+SCRAMBLED = ("What We Offer\n"
+             "- Equity grants and a 401(k)\n- Unlimited paid time off\n\n"
+             "Basic Qualifications\n"
+             "- Five years of production Python\n- Strong SQL and schema design\n\n"
+             "About the Role\n"
+             "Build the payments service that moves several billion dollars a year.\n\n"
+             "Responsibilities\n"
+             "- Own the ledger pipeline end to end\n- Partner with the finance team weekly\n")
+scr = jdrender.render_jd(SCRAMBLED)
+order = re.findall(r'<h4 class="jdh" data-sec="(\w+)"', scr)
+check("sections render in SEC_ORDER whatever order the employer wrote them in",
+      order == [k for k in jdrender.SEC_ORDER if k in order], repr(order))
+check("Overview is first even though this posting opens with benefits",
+      order and order[0] == "summary", repr(order))
+check("the employer put benefits first and they render last",
+      order and order[-1] == "ben", repr(order))
+# THE TWIN OF test_job_page.py's ASSERTION, kept here too because that suite boots Flask and
+# this one is the fast gate. Our label names the section; theirs still labels the run.
+check("our label and the employer's both survive the move",
+      "Required Qualifications" in scr and "Basic Qualifications" in scr
+      and "What We Offer" in scr and "About the Role" in scr)
+check("the jump strip lists exactly the sections that rendered, in the same order",
+      [k for k, _l in jdrender.jump_sections(SCRAMBLED)] == order, repr(order))
+
+print("\nEMPTY SECTIONS DO NOT RENDER, AND DO NOT EXPLAIN THEMSELVES")
+bare = jdrender.render_jd("We need somebody who can ship quickly and talk to customers.")
+check("a posting with no structure renders one section, not eight",
+      bare.count('class="jdh"') <= 1, repr(bare[:120]))
+for absent in ("Preferred Qualifications", "Skills & Tools", "Compensation"):
+    check("...and says nothing about %r" % absent, jdrender.esc(absent) not in bare)
+
+print("\nTHE INFERENCE TIER MAY NOT MISLABEL")
+# THE RULE: a section the employer named is theirs, and inference is switched off underneath it.
+# Without this, a majority vote could pull an item out of a list the employer had labelled --
+# the one failure that would put our words on their claim.
+HEADED = ("Minimum Qualifications\n"
+          "- Five years of production Python and strong SQL\n"
+          "- Own the ledger pipeline end to end and partner with finance\n"
+          "- Lead the design reviews for the payments service\n"
+          "- Drive the quarterly roadmap with the product team\n")
+hd = jdrender.render_jd(HEADED)
+check("inference cannot split a list the employer headed",
+      'data-sec="resp"' not in hd, "four of five items read as duties; the heading still wins")
+check("...and that section is not marked inferred",
+      'data-sec="req"' in hd and "data-inferred" not in hd)
+# The opposite direction: no heading at all, so inference is free and SHOULD fire.
+UNHEADED = ("We are hiring for the payments team.\n"
+            "- Own the ledger pipeline end to end\n"
+            "- Partner with the finance team on month end close\n"
+            "- Lead design reviews for the payments service\n"
+            "- Drive the quarterly roadmap with product\n")
+un = jdrender.render_jd(UNHEADED)
+check("a list nobody headed IS sectioned by its shape", 'data-sec="resp"' in un)
+check("...and is marked as ours, not theirs", 'data-inferred="1"' in un)
+check("the opening line stays in Overview", un.index('data-sec="summary"') < un.index('data-sec="resp"'))
+# A single requirement-shaped sentence is not a Requirements section.
+check("one requirement-shaped line does not open a Requirements section",
+      'data-sec="req"' not in jdrender.render_jd(
+          "We are hiring for the payments team, which owns the ledger.\n"
+          "Experience with Python is useful here but we will teach you."),
+      "INFER_SHARE and the paragraph rule are what stop this")
+# The two false-positive classes that were live during development, kept as regressions.
+check("'diversity, equity and inclusion' is not a compensation section",
+      not jdrender._INF_BEN.search("We value diversity, equity and inclusion at every level."))
+check("'mental health care' is not a benefit",
+      not jdrender._INF_BEN.search("a leading provider of evidence-based mental health care"))
+check("a real benefits line still reads as one",
+      bool(jdrender._INF_BEN.search("We offer a 401(k), paid time off and health insurance.")))
+
+# A per-shape report, NOT an assertion: how many of each fixture shape produce a real stack. The
+# fixture's shape mix is a property of the fixture (see the reasoning further up this file), so
+# this is printed to make a regression in the inference tier visible in the run output even when
+# nothing fails.
+_byshape = {}
+for s in samples:
+    n = len(jdrender.jd_sections(s["jd"]))
+    _byshape.setdefault(s.get("shape") or "?", []).append(n)
+print("     sections recovered per fixture shape:")
+for _sh in sorted(_byshape):
+    _v = _byshape[_sh]
+    print("       %-24s %d of %d multi-section  %s"
+          % (_sh, sum(1 for x in _v if x > 1), len(_v), _v))
+
+
+# ---------------------------------------------------------------------------------------------
 print("\nHIGHLIGHTING")
 # NOT samples[0]: that one is a volunteer soccer coach posting and contains no engineering term
 # at all, so asserting against it produced zero marks and looked like a highlighter failure.
@@ -242,8 +562,8 @@ check("no event handler inside any real tag",
       "the word may appear as text, which is fine; as an attribute it is not")
 check("ampersands are escaped", "R&amp;D" in out)
 check("the only tags are ours",
-      set(re.findall(r"</?([a-z0-9]+)", out)) <= {"p", "ul", "li", "h4", "mark", "details",
-                                                  "summary", "dl", "dt", "dd"},
+      set(re.findall(r"</?([a-z0-9]+)", out)) <= {"p", "ul", "li", "h4", "h5", "mark", "span",
+                                                  "details", "summary", "dl", "dt", "dd"},
       repr(sorted(set(re.findall(r"</?([a-z0-9]+)", out)))))
 check("a term containing & still marks", 'class="kw-miss">R&amp;D</mark>' in out,
       "escaping runs AFTER the match, so an entity cannot be matched into")
@@ -288,12 +608,12 @@ check("a bare '**' line leaves nothing behind",
 check("emphasis inside a bullet is unwrapped, not dropped",
       "cross-functional" in md_html and "roadmap" in md_html)
 check("a trailing stray marker is stripped, text kept",
-      re.search(r"considering\s*<", md_html) is not None, repr(md_html[-150:]))
+      re.search(r"considering\s*<", unchrome(md_html)) is not None, repr(md_html[-150:]))
 # Not asserted: WHICH tag it lands in. Stripping the trailing "**" lets the pre-existing
 # is_jd_heading() heuristic see a short, unpunctuated line and call it a heading — which is what
 # the emphasis was signalling anyway. Pinning <p> here would freeze an unrelated heuristic.
 # The load-bearing one: punctuation may go, words may not.
-_proj = lambda s: re.sub(r"[^0-9a-z]+", "", re.sub(r"<[^>]+>", " ", s).lower())
+_proj = lambda s: re.sub(r"[^0-9a-z]+", "", re.sub(r"<[^>]+>", " ", unchrome(s)).lower())
 check("every WORD of the markdown source survives",
       _proj(md_html) == _proj(re.sub(r"[*_#-]", " ", MD)),
       "alphanumeric projection, so only markers differ")
@@ -340,7 +660,7 @@ check("consecutive fields render as ONE definition list", kv_html.count("<dl") =
 check("values are highlighted — they are the skills the reader is scanning for",
       '<mark class="kw-have">AWS</mark>' in kv_html and '<mark class="kw-have">Java</mark>' in kv_html)
 check("no field text is lost",
-      re.sub(r"[^0-9a-z]+", "", re.sub(r"<[^>]+>", " ", kv_html).lower()) ==
+      re.sub(r"[^0-9a-z]+", "", re.sub(r"<[^>]+>", " ", unchrome(kv_html)).lower()) ==
       re.sub(r"[^0-9a-z]+", "", re.sub(r"[*#\\]", " ", KV).lower()),
       "alphanumeric projection")
 # The two ways this could misfire, both checked rather than assumed.

@@ -3829,21 +3829,15 @@ def _posting_asks(row, jd):
     # the match percentage is computed over the whole description exactly as before, so nothing
     # here moves a score. It answers "which of these do I actually need", which a single flat
     # keyword list cannot.
-    must, nice = [], []
-    if clean.strip():
-        bucket, seen = None, set()
-        for kind, val in jdrender.jd_nodes(clean):
-            if kind == "h":
-                bucket = jdrender.classify_heading(val)
-            elif bucket in ("req", "pref"):
-                text = " ".join(val) if kind == "ul" else (
-                    val[0] + " " + " ".join(val[1]) if kind == "kv" else val)
-                for term in core.extract_keywords(text, top_n=8, idf=core.load_idf(),
-                                                  extra_skip=core.PLACE_TERMS):
-                    if term in seen:
-                        continue
-                    seen.add(term)
-                    (must if bucket == "req" else nice).append(term)
+    # THE MUST-HAVE AND NICE-TO-HAVE KEYWORD LISTS ARE GONE, along with the work of building
+    # them. They existed to answer "which of these skills do I actually need" when the
+    # description was an unnavigable wall; the canonical section stack answers it directly now,
+    # with the employer's own sentences under Required Qualifications and Preferred
+    # Qualifications, and the template stopped rendering the two chip rows on 2026-09-05.
+    #
+    # IT WAS STILL BEING COMPUTED. A dict comprehension over jd_sections plus two
+    # core.extract_keywords passes with the idf loaded: measured at 5.2 ms of the 8.1 ms this
+    # function cost, on every /job request, for output nothing read.
     # WHY THERE IS NO ANSWER, which the CARD no longer spends a line on. The card carries a
     # figure or nothing at all (the owner's call: on a feed where most rows have no figure, a
     # column of cards explaining what the app does not know is not a feed). That makes THIS the
@@ -3858,7 +3852,6 @@ def _posting_asks(row, jd):
         "verdict": verdict, "unread": unread,
         "exp_req": exp_req, "exp_pref": exp_pref, "exp_inferred": inferred,
         "edu_req": edu_req, "edu_pref": edu_pref,
-        "must": must[:8], "nice": nice[:8],
     }
 
 
@@ -4043,6 +4036,12 @@ def job_page():
         analytics.emit(user, getattr(g, "sid", ""), "job_open", job_url=url,
                        company=company, source=_host(raw or row),
                        score=0 if pending else int(shown_score), pending=pending)
+    # ONE PARSE, THREE ANSWERS. This was render_jd plus jump_sections, which walked the
+    # description twice and would now do the canonical-stack work twice as well. render_split
+    # also lifts the employer's company blurb out of the body so the page can land it in the
+    # About <Company> section at the foot instead of in front of the job.
+    jd_html, jd_about, jd_jumps = jdrender.render_split(
+        jd_clean, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS])
     resp = app.make_response(render_template(
         "job.html", row=row, route=_route_of(row), filed=filed, narrowed=narrowed,
         similar=similar, similar_roles=similar_roles,
@@ -4051,8 +4050,8 @@ def job_page():
         # job descriptions the moment this deploys, with no migration and no re-fetch. It also
         # gives the highlighter its budget back — MAX_HITS_PER_TERM is spent in document order,
         # so on a junk-prefixed posting all three green marks landed in the nav bar.
-        jd_html=jdrender.render_jd(jd_clean, have=have[:_HL_TERMS], missing=missing[:_HL_TERMS]),
-        jd_jumps=jdrender.jump_sections(jd_clean), has_jd=bool(jd_clean.strip()), asks=asks,
+        jd_html=jd_html, jd_jumps=jd_jumps, jd_about=jd_about,
+        has_jd=bool(jd_clean.strip()), asks=asks,
         # NOTHING STORED and STORED BUT UNREADABLE are different facts and the page must not
         # tell the reader the wrong one. clean_jd answers "not-a-posting" for an empty string
         # too -- correctly, it is not a posting -- so the template needs this to tell the two
