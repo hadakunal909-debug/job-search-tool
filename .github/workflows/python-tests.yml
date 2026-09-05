@@ -62,9 +62,9 @@ jobs:
       EV_OFF: '1'                # never write analytics rows from a CI run
       PYTHONIOENCODING: utf-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           # Pinned to 3.12 for the same reason scrape.yml pins it: python-jobspy 1.1.82 requires
           # numpy==1.26.3, which has no wheels past cp312.
@@ -75,7 +75,7 @@ jobs:
       # feed_parity.py, test_card_meta.py and test_filter_memory.py lift the pure functions out of
       # static/app.js BY SOURCE TEXT and evaluate them in node, so a copy cannot drift from what
       # actually ships. That needs node on PATH.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
 

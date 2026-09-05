@@ -114,6 +114,8 @@ SUITES = (
 
     # ---- scripts ----------------------------------------------------------------------------
     Suite("test_add_board_api",     "scripts/test_add_board_api.py",     "scripts", "offline"),
+    # Guards the alerter that only ever runs on an already-red run -- see its docstring.
+    Suite("test_alert_failure",     "scripts/test_alert_failure.py",     "scripts", "offline"),
     Suite("test_companies_page",    "scripts/test_companies_page.py",    "scripts", "offline"),
     Suite("test_contrast",          "scripts/test_contrast.py",          "scripts", "offline"),
     Suite("test_doc_contrast",      "scripts/test_doc_contrast.py",      "scripts", "offline"),

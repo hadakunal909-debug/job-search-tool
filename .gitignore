@@ -75,3 +75,19 @@ JobMatch Scraper/adopted_companies_*.xlsx
 JobMatch Scraper/unscrapeable_boards.xlsx
 # Excel's lock file for an open workbook.
 JobMatch Scraper/~$*.xlsx
+# ONE-OFF ANALYSIS EXPORTS from a discovery or ingest run. Every one is a date-stamped dump a
+# script in scripts/ writes next to the app, and 19.4 MB of them accumulated from the
+# 2026-09-03 JobSpy PM ingest alone -- one is a 12 MB spyjd_jds JSON. The repo tracks exactly
+# one CSV, so these have never belonged in it. Preventive only: none has ever been tracked.
+JobMatch Scraper/*_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].csv
+JobMatch Scraper/*_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].xlsx
+JobMatch Scraper/*_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].json
+# The undated working files from the same runs: a probe ledger, a name list, the sponsor split.
+JobMatch Scraper/blocks.json
+JobMatch Scraper/to_add.json
+JobMatch Scraper/entry_phrases.txt
+JobMatch Scraper/jobright_new_names.txt
+JobMatch Scraper/jobright_valid_roles.json
+JobMatch Scraper/sponsor_final.json
+JobMatch Scraper/sponsor_keep.json
+JobMatch Scraper/sponsor_split.json

@@ -97,7 +97,7 @@ jobs:
       # two is the reason this workflow exists.
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: jobspy-shadow-${{ github.run_id }}
           path: JobMatch Scraper/shadow-report.txt

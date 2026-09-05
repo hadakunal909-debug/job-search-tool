@@ -114,6 +114,84 @@ def test_blank_location_refuses_to_form_a_key():
     assert fdupe(job, idx) is None
 
 
+# --- THE STATE SPELLING, which is the whole reason cross-source matching read zero ---------
+def test_the_same_place_written_two_ways_is_one_key():
+    """Every aggregator writes "CA"; most ATS boards write "California". Keyed raw, the SAME
+    posting hashed two different ways and no cross-source comparison could ever match. Measured
+    2026-09-05: 2 of 56 rows Indeed offered as net-new were already held under the other
+    spelling, and a Tesla overlap that reads 0 on the raw key reads 1 on this one."""
+    for a, b in (("Palo Alto, California", "Palo Alto, CA"),
+                 ("Austin, Texas", "Austin, TX, US"),
+                 ("Brown Deer, WI, United States", "Brown Deer, WI")):
+        ka = core.posting_key("SWE", "Tesla", a, require_location=True)
+        kb = core.posting_key("SWE", "Tesla", b, require_location=True)
+        assert ka == kb, (a, b, ka, kb)
+
+
+def test_normalising_the_state_does_NOT_collapse_the_city():
+    """The guard on the above. posting_key's docstring rejects a state-only key because it
+    merged 4,770 rows that were real inventory -- Amazon genuinely lists 431 Operations Manager
+    roles. The city is still in the key, and "west virginia" must not be read as "virginia"."""
+    for a, b in (("Austin, TX", "Dallas, TX"),
+                 ("Portland, OR", "Portland, ME"),
+                 ("Charleston, West Virginia", "Charleston, Virginia")):
+        ka = core.posting_key("SWE", "Acme", a, require_location=True)
+        kb = core.posting_key("SWE", "Acme", b, require_location=True)
+        assert ka != kb, (a, b, ka)
+
+
+# --- THE TRANSPLANT: a matched duplicate is how a bot-walled host's JD ever arrives ---------
+def test_a_matched_duplicate_hands_its_description_to_the_row_we_hold():
+    """fingerprint_duplicate proves the aggregator row IS a posting we hold, and the aggregator
+    shipped the JD with it. For tesla.com -- 403 AkamaiGHost on every path, including
+    /robots.txt -- this is the only route by which that text ever arrives."""
+    jd = "x" * (core._MIN_JD_CHARS + 50)
+    assert scraper.jd_for_incumbent("https://www.tesla.com/careers/search/job/1", jd,
+                                    {"https://www.tesla.com/careers/search/job/1"}) == jd
+
+
+def test_the_transplant_never_overwrites_a_description_we_already_read():
+    """The employer's own board is the better text by construction. `jd_hungry` holds only the
+    urls with NO description, so an incumbent that has one is simply not in it."""
+    jd = "x" * (core._MIN_JD_CHARS + 50)
+    assert scraper.jd_for_incumbent("https://boards.greenhouse.io/acme/jobs/1", jd,
+                                    {"https://www.tesla.com/1"}) is None
+
+
+def test_the_transplant_honours_the_same_floor_as_every_other_listing_jd():
+    """A truncated teaser stored as a complete description is the 403-char JobDiva trap, and it
+    is worse than no description: a non-empty jd keeps the row OUT of every fetch queue."""
+    hungry = {"https://www.tesla.com/1"}
+    assert scraper.jd_for_incumbent("https://www.tesla.com/1", "too short", hungry) is None
+    assert scraper.jd_for_incumbent(None, "x" * 5000, hungry) is None
+
+
+def test_an_attribution_tail_still_finds_the_row_we_hold():
+    """Indeed hands back job_url_direct as the EMPLOYER's own link with its channel bolted on:
+    ".../job/281649?source=Indeed" for a posting we hold as ".../job/281649". Exact match first,
+    so nothing about today's behaviour changes; the tail is only dropped on a miss, and only
+    against urls we ALREADY hold -- so a hit is proof, not a guess."""
+    held = "https://www.tesla.com/careers/search/job/281649"
+    by_canon = {held: held}
+    assert scraper.incumbent_for_url(held + "?source=Indeed", by_canon) == held
+    assert scraper.incumbent_for_url(held, by_canon) == held
+    assert scraper.incumbent_for_url("https://www.tesla.com/careers/search/job/999?source=Indeed",
+                                     by_canon) is None
+
+
+def test_the_lookup_never_widens_canonical_url():
+    """_ATTRIBUTION_ONLY_PARAMS is a superset of _TRACKING_PARAMS used ONLY for lookup. It must
+    never be what canonical_url drops: that decides what gets STORED, and merging two genuinely
+    different postings there is unrecoverable. A first draft defined a SECOND _TRACKING_PARAMS
+    and shadowed the real one, silently switching off the gh_src / jr_id / lever-source strip
+    corpus-wide -- caught by test_canonical_url and test_paylocity, not by review."""
+    assert scraper._TRACKING_PARAMS < scraper._ATTRIBUTION_ONLY_PARAMS
+    for p in ("gh_src", "jr_id", "lever-source"):
+        assert p in scraper._TRACKING_PARAMS
+    for p in ("source", "ref"):
+        assert p not in scraper._TRACKING_PARAMS, "bare %r must not reach canonical_url" % p
+
+
 def test_missing_title_or_company_refuses_to_form_a_key():
     assert core.posting_key("", "Acme", "Boston") is None
     assert core.posting_key("PM", "", "Boston") is None
