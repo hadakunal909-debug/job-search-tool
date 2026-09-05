@@ -1156,8 +1156,16 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         return
 
     payload, jd_payload = [], []
+    # URLs whose ANALYSIS changed in this batch, which is not the same set as jd_payload: a row
+    # is in that for any JD-derived column, and a moved exp_max_years does not change anybody's
+    # match score. The stored per-user scores in db.user_scores ARE derived from jd_terms, so
+    # exactly these rows are the ones whose stored number is now about an analysis that no
+    # longer exists. Deleting rather than recomputing is deliberate -- this process has no
+    # business loading every user's resume, and web.user_scores already treats a missing row as
+    # "compute it", so the reader degrades to the behaviour it had before the table existed.
+    jd_dirty = []
     stats = {"state": 0, "remote": 0, "salary": 0, "exp": 0, "spon": 0, "terms": 0}
-    jd_write = {"sent": 0, "lost": 0, "hint": True}
+    jd_write = {"sent": 0, "lost": 0, "hint": True, "stale": 0}
 
     def _flush_jd(force=False):
         """Bank the JD columns built so far, then forget them. A batch is what a kill costs.
@@ -1172,10 +1180,19 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         n = len(jd_payload)
         if _send_derived(jd_payload, "JD fields", keys=JD_DERIVED_COLS, hint=jd_write["hint"]):
             jd_write["sent"] += n
+            # ONLY after the analysis itself landed. Dropping the scores first and then failing
+            # to write the terms they were stale against would throw away good numbers and put
+            # nothing in their place.
+            if jd_dirty:
+                try:
+                    jd_write["stale"] += db.clear_scores_for_urls(jd_dirty)
+                except Exception as e:
+                    print("  (stored user scores not cleared: %s)" % str(e)[:80])
         else:
             jd_write["lost"] += n
             jd_write["hint"] = False
         del jd_payload[:]
+        del jd_dirty[:]
         # Progress an operator can act on: these rows are IN the table now, so polling
         # `exp_max_years IS NULL` mid-run finally means something. It did not before -- the whole
         # corpus was analysed in memory and written in one call at the very end, which read as a
@@ -1231,6 +1248,9 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         # steady state is still ~0 writes.
         if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want_jd.items()):
             jd_payload.append(dict(want_jd, url=u))
+            if _norm_cmp("jd_terms", want_jd["jd_terms"]) != _norm_cmp(
+                    "jd_terms", have.get("jd_terms")):
+                jd_dirty.append(u)
             _flush_jd()
 
     # TWO writes, not one combined payload. db._upsert normalizes each chunk to the UNION of
@@ -1257,6 +1277,11 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         print("JD fields: updated %d job(s) — %s." % (jd_write["sent"], jd_summary))
     else:
         print("JD fields already current (%s)." % jd_summary)
+    # Said out loud because it is the number that explains the next feed render: these users'
+    # cards fall back to "Not scored" until scripts/score_users.py fills them in again.
+    if jd_write["stale"]:
+        print("Stored user scores dropped for %d re-analysed job(s) — run "
+              "scripts/score_users.py to refill." % jd_write["stale"])
 
 
 def _send_derived(payload, label, summary=None, keys=None, hint=True):
