@@ -49,7 +49,7 @@ flowchart TB
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
-    S["<b>scraper/__init__.py</b><br/>9,726 lines · 40 ATS adapters<br/>1,221 boards"]
+    S["<b>scraper/__init__.py</b><br/>9,791 lines · 40 ATS adapters<br/>1,221 boards"]
     J["score_jobs.py · 2,459 lines"]
   end
   subgraph CLI["&#9723; browser"]
@@ -109,42 +109,42 @@ flowchart TB
   JD["fill_missing_jds()<br/><i>descriptions bought before the gates</i>"]
   SRC --> JD
   G0{"already known"}
-  D0["already known<br/><i>:9464</i>"]
+  D0["already known<br/><i>:9516</i>"]
   JD --> G0
   G0 -->|dropped| D0
   class D0 trap
   G1{"blocked company"}
-  D1["blocked company<br/><i>:9470</i>"]
+  D1["blocked company<br/><i>:9535</i>"]
   G0 --> G1
   G1 -->|dropped| D1
   class D1 trap
   G2{"off-target function title"}
-  D2["off-target function title<br/><i>:9492</i>"]
+  D2["off-target function title<br/><i>:9557</i>"]
   G1 --> G2
   G2 -->|dropped| D2
   class D2 trap
   G3{"no matching role keyword"}
-  D3["no matching role keyword<br/><i>:9493</i>"]
+  D3["no matching role keyword<br/><i>:9558</i>"]
   G2 --> G3
   G3 -->|dropped| D3
   class D3 trap
   G4{"non-US location"}
-  D4["non-US location<br/><i>:9502</i>"]
+  D4["non-US location<br/><i>:9567</i>"]
   G3 --> G4
   G4 -->|dropped| D4
   class D4 trap
   G5{"posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)"}
-  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:9517</i>"]
+  D5["posted over MAX_AGE_DAYS days ago (AGE_LONG_DAYS for long-lived boards)<br/><i>:9582</i>"]
   G4 --> G5
   G5 -->|dropped| D5
   class D5 trap
   G6{"no federal sponsor record (aggregator)"}
-  D6["no federal sponsor record (aggregator)<br/><i>:9540</i>"]
+  D6["no federal sponsor record (aggregator)<br/><i>:9605</i>"]
   G5 --> G6
   G6 -->|dropped| D6
   class D6 trap
   G7{"aggregator copy of a job we hold"}
-  D7["aggregator copy of a job we hold<br/><i>:9574</i>"]
+  D7["aggregator copy of a job we hold<br/><i>:9639</i>"]
   G6 --> G7
   G7 -->|dropped| D7
   class D7 trap
