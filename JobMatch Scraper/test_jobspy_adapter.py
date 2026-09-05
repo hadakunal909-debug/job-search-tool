@@ -114,6 +114,32 @@ def test_blank_location_refuses_to_form_a_key():
     assert fdupe(job, idx) is None
 
 
+# --- THE STATE SPELLING, which is the whole reason cross-source matching read zero ---------
+def test_the_same_place_written_two_ways_is_one_key():
+    """Every aggregator writes "CA"; most ATS boards write "California". Keyed raw, the SAME
+    posting hashed two different ways and no cross-source comparison could ever match. Measured
+    2026-09-05: 2 of 56 rows Indeed offered as net-new were already held under the other
+    spelling, and a Tesla overlap that reads 0 on the raw key reads 1 on this one."""
+    for a, b in (("Palo Alto, California", "Palo Alto, CA"),
+                 ("Austin, Texas", "Austin, TX, US"),
+                 ("Brown Deer, WI, United States", "Brown Deer, WI")):
+        ka = core.posting_key("SWE", "Tesla", a, require_location=True)
+        kb = core.posting_key("SWE", "Tesla", b, require_location=True)
+        assert ka == kb, (a, b, ka, kb)
+
+
+def test_normalising_the_state_does_NOT_collapse_the_city():
+    """The guard on the above. posting_key's docstring rejects a state-only key because it
+    merged 4,770 rows that were real inventory -- Amazon genuinely lists 431 Operations Manager
+    roles. The city is still in the key, and "west virginia" must not be read as "virginia"."""
+    for a, b in (("Austin, TX", "Dallas, TX"),
+                 ("Portland, OR", "Portland, ME"),
+                 ("Charleston, West Virginia", "Charleston, Virginia")):
+        ka = core.posting_key("SWE", "Acme", a, require_location=True)
+        kb = core.posting_key("SWE", "Acme", b, require_location=True)
+        assert ka != kb, (a, b, ka)
+
+
 def test_missing_title_or_company_refuses_to_form_a_key():
     assert core.posting_key("", "Acme", "Boston") is None
     assert core.posting_key("PM", "", "Boston") is None

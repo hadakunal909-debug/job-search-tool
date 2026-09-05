@@ -3035,6 +3035,37 @@ def sponsor_rank(row):
     return (tier, -(row.get("strength_n") or 0), -(row.get("score") or 0))
 
 
+def _key_location(location):
+    """The location half of posting_key, canonicalised just enough that two sources describing
+    the same place agree.
+
+    THE CITY IS KEPT. This is not the state-only key the docstring below rejects -- collapsing
+    to the state merged 4,770 rows that were real inventory, and nothing here does that:
+    "austin tx" and "dallas tx" stay as far apart as they were. What it fixes is that every
+    aggregator writes "CA" while most ATS boards write "California", so the SAME posting keyed
+    two different ways and every cross-source comparison silently failed:
+
+        'Palo Alto, California' -> ('...', 'tesla', 'palo alto california')
+        'Palo Alto, CA'         -> ('...', 'tesla', 'palo alto ca')
+
+    Measured 2026-09-05 on 60 Indeed rows against the live corpus: 56 counted as net-new on the
+    old key, 54 on this one -- so ~4% of what an aggregator offered as new was a posting already
+    held under the other spelling. It also made every "does the aggregator carry this job"
+    measurement read zero when the honest answer was not zero.
+
+    The trailing country tag goes for the same reason: "Austin, TX, US" and "Austin, TX" are one
+    place, and a US-only feed carries no information in it. Stripped only from the END, so a
+    place whose name contains those letters is untouched.
+    """
+    s = (location or "").lower()
+    # Full name -> code BEFORE slugging, while the word boundaries are still intact. Longest
+    # first is already baked into _STATE_NAMES_RE, so "west virginia" cannot be read as
+    # "virginia".
+    s = _STATE_NAMES_RE.sub(lambda m: _STATES[m.group(1)].lower(), s)
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    return re.sub(r"\s+(?:united states|usa|us)$", "", s).strip()
+
+
 def posting_key(title, company, location, require_location=False):
     """Identity of a POSTING rather than of a URL: title + company + full location.
 
@@ -3052,7 +3083,7 @@ def posting_key(title, company, location, require_location=False):
     c = re.sub(r"[^a-z0-9]+", " ", (company or "").lower()).strip()
     if not (t and c):
         return None
-    loc = re.sub(r"[^a-z0-9]+", " ", (location or "").lower()).strip()
+    loc = _key_location(location)
     if require_location and not loc:
         return None
     return (t, c, loc)
