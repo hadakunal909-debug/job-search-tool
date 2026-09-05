@@ -140,6 +140,32 @@ def test_normalising_the_state_does_NOT_collapse_the_city():
         assert ka != kb, (a, b, ka)
 
 
+# --- THE TRANSPLANT: a matched duplicate is how a bot-walled host's JD ever arrives ---------
+def test_a_matched_duplicate_hands_its_description_to_the_row_we_hold():
+    """fingerprint_duplicate proves the aggregator row IS a posting we hold, and the aggregator
+    shipped the JD with it. For tesla.com -- 403 AkamaiGHost on every path, including
+    /robots.txt -- this is the only route by which that text ever arrives."""
+    jd = "x" * (core._MIN_JD_CHARS + 50)
+    assert scraper.jd_for_incumbent("https://www.tesla.com/careers/search/job/1", jd,
+                                    {"https://www.tesla.com/careers/search/job/1"}) == jd
+
+
+def test_the_transplant_never_overwrites_a_description_we_already_read():
+    """The employer's own board is the better text by construction. `jd_hungry` holds only the
+    urls with NO description, so an incumbent that has one is simply not in it."""
+    jd = "x" * (core._MIN_JD_CHARS + 50)
+    assert scraper.jd_for_incumbent("https://boards.greenhouse.io/acme/jobs/1", jd,
+                                    {"https://www.tesla.com/1"}) is None
+
+
+def test_the_transplant_honours_the_same_floor_as_every_other_listing_jd():
+    """A truncated teaser stored as a complete description is the 403-char JobDiva trap, and it
+    is worse than no description: a non-empty jd keeps the row OUT of every fetch queue."""
+    hungry = {"https://www.tesla.com/1"}
+    assert scraper.jd_for_incumbent("https://www.tesla.com/1", "too short", hungry) is None
+    assert scraper.jd_for_incumbent(None, "x" * 5000, hungry) is None
+
+
 def test_missing_title_or_company_refuses_to_form_a_key():
     assert core.posting_key("", "Acme", "Boston") is None
     assert core.posting_key("PM", "", "Boston") is None

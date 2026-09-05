@@ -8736,6 +8736,27 @@ JOBSPY_FINGERPRINT_ENFORCE = (
     (os.environ.get("JOBSPY_FINGERPRINT_ENFORCE") or "").lower() in ("1", "true", "yes"))
 
 
+def jd_for_incumbent(dupe_of, aggregator_jd, jd_hungry):
+    """The description to write onto a row we ALREADY hold, or None.
+
+    fingerprint_duplicate has just proved this aggregator row is a posting in the corpus, and
+    the aggregator shipped the JD with the listing. For a host that bot-walls every server-side
+    read -- Tesla behind Akamai answers 403 on every path, including /robots.txt -- this is the
+    only route by which that text ever arrives.
+
+    TWO CONDITIONS, and both are refusals rather than permissions:
+
+      * the incumbent must have NO description. An aggregator's copy must never overwrite one
+        read from the employer's own board, which is the better text by construction.
+      * it must clear core._MIN_JD_CHARS, the same floor every other listing JD passes, so a
+        truncated teaser cannot be stored as a complete description.
+    """
+    jd = (aggregator_jd or "").strip()
+    if not dupe_of or dupe_of not in (jd_hungry or ()):
+        return None
+    return jd if len(jd) >= core._MIN_JD_CHARS else None
+
+
 def fingerprint_duplicate(job, fingerprints):
     """The stored URL this posting is an aggregator's copy of, or None.
 
@@ -9221,9 +9242,21 @@ def main():
                                  require_location=True)
             if k:
                 fingerprints.setdefault(k, []).append(r.get("url") or "")
-        print("Dedupe index: %d url(s), %d posting fingerprint(s)." % (len(seen), len(fingerprints)))
+        # WHICH of those incumbents has no description. An aggregator hands the JD back with
+        # the listing, so when its row turns out to be a posting we already hold, the text is
+        # already in memory and the row we hold may have none -- see the transplant below. This
+        # is a url-only select, the same one score_jobs uses to size its backlog.
+        try:
+            jd_hungry = db.urls_missing_jd()
+        except Exception as e:
+            jd_hungry = set()
+            print("  note: could not read the missing-JD set (%s); no transplants this run"
+                  % str(e)[:70])
+        print("Dedupe index: %d url(s), %d posting fingerprint(s), %d of them with no JD."
+              % (len(seen), len(fingerprints), len(jd_hungry)))
     else:
         seen = {canonical_url(u).lower() for u in db.existing_urls()}
+        jd_hungry = set()
 
     # Hand the dedupe index to the adapters that can use it to skip work. Only Greenhouse reads
     # it today, to decide whether a board is worth asking for descriptions; see
@@ -9515,6 +9548,24 @@ def main():
             dupe_of = fingerprint_duplicate(j, fingerprints)
             if dupe_of:
                 fp_seen.append((j["title"], j["url"], dupe_of))
+                # THE DESCRIPTION IS THE POINT OF THE MATCH, not a side effect of it. We have
+                # just proved this aggregator row IS a posting we already hold, and the
+                # aggregator shipped the JD with it while the row we hold may have none -- and
+                # for a host that bot-walls every server-side read (Tesla behind Akamai: 403 on
+                # every path, including /robots.txt) this is the ONLY way that text ever
+                # arrives. Without it the row is dropped and the description goes with it, or
+                # it is kept as a second row and the JD is banked under the AGGREGATOR's url,
+                # which is not the row anyone reads.
+                #
+                # Only when the incumbent has none: an aggregator's copy must never overwrite a
+                # description we already read from the employer's own board. Same _MIN_JD_CHARS
+                # floor as every other listing JD, so a truncated teaser cannot be stored as a
+                # complete one.
+                rescued = jd_for_incumbent(dupe_of, j.get("jd"), jd_hungry)
+                if rescued:
+                    listing_jds[dupe_of] = rescued
+                    jd_hungry.discard(dupe_of)       # one write per url per run
+                    tally["description transplanted onto a row we hold"] += 1
                 if VERBOSE or not JOBSPY_FINGERPRINT_ENFORCE:
                     print("  %s %-44s\n        we already hold %s"
                           % ("dupe " if JOBSPY_FINGERPRINT_ENFORCE else "dupe?",
@@ -9552,16 +9603,19 @@ def main():
         # ...and so do lever / ashby / jibe / pinpoint, from the same response the sweep already
         # read. Merged into one write: both are "the description arrived with the listing", and one
         # db.update_jds call is one round trip instead of two.
+        # NOT gated on `kept`, and that is the transplant's whole delivery path: a slice in which
+        # every aggregator row turns out to be a posting we already hold keeps NOTHING, and the
+        # descriptions it just rescued would be dropped with it.
+        jds = dict(listing_jds)
         if kept:
-            jds = dict(listing_jds)
             jds.update({r["url"]: JOBSPY_JDS[r["url"]]
                         for r in kept if r.get("url") in JOBSPY_JDS})
-            if jds:
-                try:
-                    db.update_jds(jds)
-                    print("Stored %d description(s) that arrived with the listing." % len(jds))
-                except Exception as e:
-                    print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
+        if jds:
+            try:
+                db.update_jds(jds)
+                print("Stored %d description(s) that arrived with the listing." % len(jds))
+            except Exception as e:
+                print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
         del scraped                 # the slice is banked; release it before the next one
         _swept += len(_sl)
         # MEMORY IS THE BUDGET THAT ACTUALLY ENDS THIS RUN, so it is measured every slice
