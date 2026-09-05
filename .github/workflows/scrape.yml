@@ -145,6 +145,31 @@ jobs:
       # Measured 2026-08-19: DB_PROXY_URL set with an empty DB_PROXY_SECRET resolves to
       # "Supabase" and reports success. db._check_backend_intent now refuses that.
       DB_REQUIRE: proxy
+      # THE AGGREGATOR SWEEP, and it lives here rather than in bin/cron_scrape.sh for a reason
+      # that is not preference: the cPanel virtualenv is Python 3.9.23 and python-jobspy has no
+      # distribution for it ("No matching distribution found"), so setting this there would set
+      # an env var the library can never honour. The import is guarded, so it would not crash --
+      # it would print "python-jobspy not installed; jobspy boards skipped" five times a run and
+      # look enabled while doing nothing. This runner is 3.12 and requirements.txt already pins
+      # the library, installed-but-dormant, waiting for exactly this variable.
+      #
+      # INDEED ONLY. scripts/jobspy_shadow.py, 2026-09-05, 5 phrases x 25 results:
+      #
+      #   site            rows  direct  net-new  net/returned   time
+      #   indeed           115    94%       79      68.7%       10.8s
+      #   linkedin         125     0%      111      88.8%       62.9s
+      #   glassdoor          0     --        0        --
+      #   zip_recruiter      0     --        0        --
+      #
+      # LinkedIn is excluded despite the higher net-new: 0% direct means every row is stored
+      # under a linkedin.com url instead of the employer's own ATS link, and it returns no
+      # description at all. An aggregator url with no JD is what made Adzuna 38% of the entire
+      # JD backlog from 6% of the jobs -- see the removal note above SOURCES. Glassdoor and
+      # ZipRecruiter return zero upstream (JobSpy issue #302).
+      #
+      # One slot a day, not three: this is the only scrape path that CAN run it, and an
+      # aggregator does not need the cadence an employer board does.
+      JOBSPY_SITES: indeed
 
     steps:
       # v5/v6 rather than v4/v5: the older majors ship a Node 20 entrypoint, which the

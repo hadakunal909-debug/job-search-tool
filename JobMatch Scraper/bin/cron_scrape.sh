@@ -153,27 +153,6 @@ export JD_KEEP_BUDGET_MIN=45
 export MAX_AGE_DAYS=30
 export PRUNE_DAYS=30
 export DISCOVER_LIMIT=20          # board auto-discovery, small bite per run
-
-# THE AGGREGATOR SWEEP. Indeed ONLY, and the exclusions are the measurement, not caution.
-# scripts/jobspy_shadow.py, 2026-09-05, 5 phrases x 25 results:
-#
-#   site            rows  direct  net-new  net/returned   time
-#   indeed           115    94%       79      68.7%       10.8s
-#   linkedin         125     0%      111      88.8%       62.9s
-#   glassdoor          0     --        0        --
-#   zip_recruiter      0     --        0        --
-#
-# LINKEDIN IS EXCLUDED DESPITE THE HIGHER NET-NEW, and that is the whole lesson of the Adzuna
-# removal repeating itself: 0% direct means every row is stored under a linkedin.com url rather
-# than the employer's own ATS link, and LinkedIn returns no description at all. Rows with an
-# aggregator url and no JD are exactly what made Adzuna 38% of the entire JD backlog from 6% of
-# the jobs -- see the note above SOURCES. Indeed hands back job_url_direct, which merges for free.
-#
-# Glassdoor and ZipRecruiter return zero rows upstream (JobSpy issue #302), so they cost a
-# request and buy nothing.
-#
-# Unset this and the library is never imported and the run is byte-for-byte what it was.
-export JOBSPY_SITES=indeed
 # CLOSED-POSTING RETIREMENT, ON. It defaulted to a dry run and the variable was never set
 # anywhere, so in the whole life of the project it has only ever printed what it would do --
 # leaving 5,178 rows sitting under the miss threshold and 404 postings reading as open. The
