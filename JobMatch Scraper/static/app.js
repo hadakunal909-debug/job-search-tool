@@ -248,7 +248,7 @@
       '<text x="23" y="27" text-anchor="middle" font-size="10" font-weight="700" fill="var(--ring-color)" font-family="Inter,-apple-system,sans-serif">' + s + '%</text>' +
       '</svg>';
   }
-  // The score cell for a card/detail: the % ring, OR a neutral "JD pending" chip when the job's
+  // The score cell for a card/detail: the % ring, OR a neutral "Not scored" chip when the job's
   // description is too short/truncated to score honestly (score_pending from the server).
   function scoreCell(j) {
     // No résumé, no score. This used to fall through to the stored match_score, which is
@@ -267,7 +267,7 @@
     if (j && j.jd_unavailable)
       return '<span class="score-pending" title="No readable description">No JD</span>';
     if (j && j.score_pending)
-      return '<span class="score-pending" title="Not scored yet">JD pending</span>';
+      return '<span class="score-pending" title="Not scored yet - the description has not been analysed">Not scored</span>';
     return scoreRing((j && j.score) || 0);
   }
   function toast(msg, undoFn) {

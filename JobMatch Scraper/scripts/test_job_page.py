@@ -415,16 +415,31 @@ check("job_open reports it as scored, not pending",
 
 # THIN IS NOT THE SAME QUESTION and must keep the pending note: a score derived from a handful
 # of generic terms is the fake ~100% core.analyze_jd's thin flag exists to prevent.
+# FORCED AT core.job_meta, not at web.jd_meta, and the move is the point. Thinness originates
+# there, and TWO readers now depend on it: web.jd_meta, which is how the PAGE analyses a
+# description on demand, and web._live_analysis, which is how the CARD does. Stubbing only the
+# page's door left the card scoring a description the page was refusing to score -- the exact
+# card/page disagreement this file exists to catch, reappearing in the test's own scaffolding.
 web._jdmeta.pop(UNANALYSED, None)
 web._rows_cache.clear()
-_real_meta = web.jd_meta
-web.jd_meta = lambda job, idf: {"analyzed": dict(_real_meta(job, idf)["analyzed"], thin=True)}
+web._live_meta.update(fp=None, by_url={})
+_real_meta = core.job_meta
+
+
+def _thin_meta(jd, idf):
+    m = dict(_real_meta(jd, idf))
+    m["analyzed"] = dict(m["analyzed"], thin=True)
+    return m
+
+
+core.job_meta = _thin_meta
 try:
     body = get(UNANALYSED).data.decode("utf-8", "replace")
 finally:
-    web.jd_meta = _real_meta
+    core.job_meta = _real_meta
     web._jdmeta.pop(UNANALYSED, None)
     web._rows_cache.clear()
+    web._live_meta.update(fp=None, by_url={})
 check("a THIN description still says it is not scored",
       "Not scored yet" in body,
       "an honest 'we have not read this' beats a confident wrong number")

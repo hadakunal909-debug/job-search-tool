@@ -45,22 +45,22 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,598 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,751 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
     S["<b>scraper/__init__.py</b><br/>9,672 lines · 40 ATS adapters<br/>1,221 boards"]
-    J["score_jobs.py · 2,392 lines"]
+    J["score_jobs.py · 2,459 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,430 lines · 36 sections<br/>db.py · 3,060 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,466 lines · 36 sections<br/>db.py · 3,235 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
-  SPINE --> D{"db.py::_LazyHTTP<br/>line 46"}
+  SPINE --> D{"db.py::_LazyHTTP<br/>line 47"}
   D -->|"PG_DSN"| P["pgrest — direct psycopg<br/><i>the cPanel app</i>"]
   D -->|"DB_PROXY_URL + SECRET"| X["dbproxy — HMAC HTTPS<br/><i>Actions, your laptop</i>"]
   D -->|"half a pair"| R["RuntimeError<br/><i>refuses rather than guessing</i>"]
@@ -219,13 +219,13 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2515</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2672</i>"]
   C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 997</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
   C --- GUARD
-  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 3207 — shares the filters, skips \"posted within\"</i>"]
+  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 3243 — shares the filters, skips \"posted within\"</i>"]
   GUARD -.-> D
   classDef web fill:#e0e4fe,stroke:#4f46e5,color:#101319
   classDef client fill:#e4e7ec,stroke:#5f6573,color:#101319

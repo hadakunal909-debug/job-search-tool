@@ -1156,8 +1156,16 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         return
 
     payload, jd_payload = [], []
+    # URLs whose ANALYSIS changed in this batch, which is not the same set as jd_payload: a row
+    # is in that for any JD-derived column, and a moved exp_max_years does not change anybody's
+    # match score. The stored per-user scores in db.user_scores ARE derived from jd_terms, so
+    # exactly these rows are the ones whose stored number is now about an analysis that no
+    # longer exists. Deleting rather than recomputing is deliberate -- this process has no
+    # business loading every user's resume, and web.user_scores already treats a missing row as
+    # "compute it", so the reader degrades to the behaviour it had before the table existed.
+    jd_dirty = []
     stats = {"state": 0, "remote": 0, "salary": 0, "exp": 0, "spon": 0, "terms": 0}
-    jd_write = {"sent": 0, "lost": 0, "hint": True}
+    jd_write = {"sent": 0, "lost": 0, "hint": True, "stale": 0}
 
     def _flush_jd(force=False):
         """Bank the JD columns built so far, then forget them. A batch is what a kill costs.
@@ -1172,10 +1180,19 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         n = len(jd_payload)
         if _send_derived(jd_payload, "JD fields", keys=JD_DERIVED_COLS, hint=jd_write["hint"]):
             jd_write["sent"] += n
+            # ONLY after the analysis itself landed. Dropping the scores first and then failing
+            # to write the terms they were stale against would throw away good numbers and put
+            # nothing in their place.
+            if jd_dirty:
+                try:
+                    jd_write["stale"] += db.clear_scores_for_urls(jd_dirty)
+                except Exception as e:
+                    print("  (stored user scores not cleared: %s)" % str(e)[:80])
         else:
             jd_write["lost"] += n
             jd_write["hint"] = False
         del jd_payload[:]
+        del jd_dirty[:]
         # Progress an operator can act on: these rows are IN the table now, so polling
         # `exp_max_years IS NULL` mid-run finally means something. It did not before -- the whole
         # corpus was analysed in memory and written in one call at the very end, which read as a
@@ -1231,6 +1248,9 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         # steady state is still ~0 writes.
         if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want_jd.items()):
             jd_payload.append(dict(want_jd, url=u))
+            if _norm_cmp("jd_terms", want_jd["jd_terms"]) != _norm_cmp(
+                    "jd_terms", have.get("jd_terms")):
+                jd_dirty.append(u)
             _flush_jd()
 
     # TWO writes, not one combined payload. db._upsert normalizes each chunk to the UNION of
@@ -1257,6 +1277,11 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         print("JD fields: updated %d job(s) — %s." % (jd_write["sent"], jd_summary))
     else:
         print("JD fields already current (%s)." % jd_summary)
+    # Said out loud because it is the number that explains the next feed render: these users'
+    # cards fall back to "Not scored" until scripts/score_users.py fills them in again.
+    if jd_write["stale"]:
+        print("Stored user scores dropped for %d re-analysed job(s) — run "
+              "scripts/score_users.py to refill." % jd_write["stale"])
 
 
 def _send_derived(payload, label, summary=None, keys=None, hint=True):
@@ -2055,6 +2080,17 @@ def main():
             bank = _load_jd_cache()
             bank.update({u: jd for u, jd in fetched.items() if jd})
             _save_jd_cache(bank)
+            # RELEASED IMMEDIATELY, the way the repair path at the top of the run already
+            # does it. This dict is every stored description -- 492 MB peak RSS for 29,991
+            # entries, measured on the cPanel box 2026-09-04 -- and without this `del` it
+            # stayed referenced for the whole ANALYSIS below, which is the most expensive
+            # phase in the process and the one that then gets SIGKILLed by an account-wide
+            # ~1.2 GB LVE budget it shares with the website.
+            #
+            # Merging here is unavoidable: new-only holds only the rows it scored, so the
+            # cache has to be read to avoid writing the corpus away. Holding it afterwards
+            # is not.
+            del bank
     else:
         _save_jd_cache({u: jd for u, jd in row_jd.items() if jd})
 
@@ -2137,13 +2173,44 @@ def main():
     # most of the rest, so only genuinely-unseen rows cost a request.
     if new_only:
         need = [u for u in todo if u not in row_jd]
-        if need:
-            bank = _load_jd_cache()
-            row_jd.update({u: bank[u] for u in need if u in bank})
-            need = [u for u in need if u not in row_jd]
+        # THE DATABASE IS ASKED FIRST, AND THE ORDER IS THE ENTIRE FIX.
+        #
+        # _load_jd_cache() materialises EVERY stored description into one dict. Measured on
+        # the cPanel box 2026-09-04: 8 MB -> 492 MB peak RSS, 29,991 entries, 159 MB of text,
+        # and json.load() over the 35 MB gzip takes all of it in a single step that cannot be
+        # chunked. This block asked for that FIRST, to serve a `need` of a few hundred rows --
+        # the 18:14 run wanted 267.
+        #
+        # 484 MB landing on a fetch pass that already holds the corpus, 22 board maps and its
+        # freshly fetched JDs, against an ACCOUNT-wide ~1.2 GB LVE budget shared with the
+        # website's Passenger workers, is why that pass was SIGKILLed on EVERY run from
+        # 2026-09-02 -- always immediately after the "Picking up N row(s)" lines, which are the
+        # statements directly above this one. rc=137, twice a weekday, straight to cron mail.
+        #
+        # load_jobs_by_urls asks for exactly these urls, batched by query-string length, and
+        # was ALREADY the fallback below. So this reorder introduces no new path -- it runs the
+        # one every run already reaches, before the expensive one instead of after it.
+        #
+        # The cache stays as the fallback rather than being deleted: it is the only place a
+        # description lives when a row reached the corpus but not the table, the case the
+        # reconciliation phase above prints as "Re-persisting N cached JD(s)". It is now read
+        # only when the table genuinely holds no text, so the 484 MB is spent on that repair
+        # instead of on every run.
+        #
+        # Where both hold text the table now wins, which is the right way round: it is the
+        # system of record, the analysis writes back to it, and the cache is a rebuildable
+        # by-product of fetches that already happened.
         if need:
             row_jd.update({r["url"]: (r.get("jd") or "")
                            for r in db.load_jobs_by_urls(need) if r.get("url")})
+            # `not row_jd.get(u)`, not `u not in row_jd`: a row the table answers with an
+            # EMPTY jd has to stay in `need` so the cache can still repair it. Testing
+            # membership would drop it here and analyse a blank description.
+            need = [u for u in need if not row_jd.get(u)]
+        if need:
+            bank = _load_jd_cache()
+            row_jd.update({u: bank[u] for u in need if u in bank})
+            del bank                     # same reason as the merge above
     # THE ANALYSIS IS THE EXPENSIVE PHASE, and until now it was the only unbudgeted one.
     # core.job_meta costs ~206 ms/row against a 622k-term idf (core.score_against is 2.5 ms —
     # the cost is reading the posting, not comparing it to the résumé), so a full pass over

@@ -182,11 +182,11 @@
           {%- endif %}
         </dd>
         <dt>Must have</dt>
-        <dd>{% if asks.must %}{% for k in asks.must %}<span class="tag">{{ k }}</span>{% endfor %}
+        <dd>{% if asks.must %}{% for k in asks.must %}<span class="tag norm">{{ k }}</span>{% endfor %}
           {%- else %}<span class="asks-none">This posting has no separate required-skills
             section</span>{% endif %}</dd>
         <dt>Nice to have</dt>
-        <dd>{% if asks.nice %}{% for k in asks.nice %}<span class="tag">{{ k }}</span>{% endfor %}
+        <dd>{% if asks.nice %}{% for k in asks.nice %}<span class="tag norm">{{ k }}</span>{% endfor %}
           {%- else %}<span class="asks-none">Nothing listed as preferred</span>{% endif %}</dd>
       </dl>
 
