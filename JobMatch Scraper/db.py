@@ -1654,7 +1654,7 @@ def save_user_scores(username, fp, scores, chunk=500, progress=None):
         payload = json.dumps([{"username": username, "url": u, "score": s,
                                "resume_fp": fp, "updated_at": now}
                               for u, s in items[i:i + chunk]])
-        last = ""
+        last, dropped = "", False
         for attempt in range(3):
             try:
                 resp = _http.post(
@@ -1667,6 +1667,17 @@ def save_user_scores(username, fp, scores, chunk=500, progress=None):
                 if any(m in last for m in _MISSING_TABLE):
                     raise RuntimeError("user_scores table is missing -- run "
                                        "MIGRATION_user_scores.sql")
+                # A JOB THAT VANISHED IS NOT AN ERROR, it is the race this table's foreign key
+                # exists to describe: the corpus was read, a prune deleted a posting, and the
+                # score for it arrived afterwards. ON DELETE CASCADE means the row could not
+                # have survived anyway. PostgREST fails the whole BATCH on one bad row and has
+                # no per-row mode, so the batch is dropped rather than retried -- those jobs are
+                # gone, and any that are not reappear as gaps on the next run.
+                if "23503" in last or "foreign key" in last.lower():
+                    print("  (skipped %d score(s) for jobs deleted mid-run)"
+                          % len(items[i:i + chunk]))
+                    dropped = True
+                    break
             except RuntimeError:
                 raise
             except Exception as e:
@@ -1675,6 +1686,8 @@ def save_user_scores(username, fp, scores, chunk=500, progress=None):
                 time.sleep(3 * (attempt + 1))
         else:
             raise RuntimeError("save_user_scores failed after retries: %s" % last)
+        if dropped:
+            continue                         # on purpose, and NOT counted as written
         done += len(items[i:i + chunk])
         if progress:
             progress(done, len(items))
