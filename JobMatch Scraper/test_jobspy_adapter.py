@@ -166,6 +166,32 @@ def test_the_transplant_honours_the_same_floor_as_every_other_listing_jd():
     assert scraper.jd_for_incumbent(None, "x" * 5000, hungry) is None
 
 
+def test_an_attribution_tail_still_finds_the_row_we_hold():
+    """Indeed hands back job_url_direct as the EMPLOYER's own link with its channel bolted on:
+    ".../job/281649?source=Indeed" for a posting we hold as ".../job/281649". Exact match first,
+    so nothing about today's behaviour changes; the tail is only dropped on a miss, and only
+    against urls we ALREADY hold -- so a hit is proof, not a guess."""
+    held = "https://www.tesla.com/careers/search/job/281649"
+    by_canon = {held: held}
+    assert scraper.incumbent_for_url(held + "?source=Indeed", by_canon) == held
+    assert scraper.incumbent_for_url(held, by_canon) == held
+    assert scraper.incumbent_for_url("https://www.tesla.com/careers/search/job/999?source=Indeed",
+                                     by_canon) is None
+
+
+def test_the_lookup_never_widens_canonical_url():
+    """_ATTRIBUTION_ONLY_PARAMS is a superset of _TRACKING_PARAMS used ONLY for lookup. It must
+    never be what canonical_url drops: that decides what gets STORED, and merging two genuinely
+    different postings there is unrecoverable. A first draft defined a SECOND _TRACKING_PARAMS
+    and shadowed the real one, silently switching off the gh_src / jr_id / lever-source strip
+    corpus-wide -- caught by test_canonical_url and test_paylocity, not by review."""
+    assert scraper._TRACKING_PARAMS < scraper._ATTRIBUTION_ONLY_PARAMS
+    for p in ("gh_src", "jr_id", "lever-source"):
+        assert p in scraper._TRACKING_PARAMS
+    for p in ("source", "ref"):
+        assert p not in scraper._TRACKING_PARAMS, "bare %r must not reach canonical_url" % p
+
+
 def test_missing_title_or_company_refuses_to_form_a_key():
     assert core.posting_key("", "Acme", "Boston") is None
     assert core.posting_key("PM", "", "Boston") is None

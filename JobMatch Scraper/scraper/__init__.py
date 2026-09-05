@@ -8736,6 +8736,52 @@ JOBSPY_FINGERPRINT_ENFORCE = (
     (os.environ.get("JOBSPY_FINGERPRINT_ENFORCE") or "").lower() in ("1", "true", "yes"))
 
 
+# The attribution tail an aggregator bolts onto the EMPLOYER's own link when it hands it back:
+# Indeed returns job_url_direct as ".../job/281649?source=Indeed" for a posting we already hold
+# as ".../job/281649".
+#
+# _TRACKING_PARAMS (above, used by canonical_url) already covers the namespaced ones -- gh_src,
+# utm_*, jr_id, lever-source. These are the BARE names it deliberately does not: "source" and
+# "ref" are four letters and could plausibly identify something on some host, which is exactly
+# the bar canonical_url's docstring sets before it will drop a param anywhere.
+#
+# So they are used ONLY to look a url up among rows we ALREADY hold -- see incumbent_for_url --
+# and are NOT added to canonical_url. The difference is the whole safety argument: canonical_url
+# decides what gets STORED, and merging two genuinely different postings there is unrecoverable.
+# A lookup that only ever matches against urls already in the corpus cannot merge anything; the
+# worst case is a miss, which is today's behaviour.
+_ATTRIBUTION_ONLY_PARAMS = _TRACKING_PARAMS | frozenset((
+    "source", "src", "ref", "referrer", "gclid", "fbclid", "trk", "trackingid"))
+
+
+def incumbent_for_url(url, by_canon):
+    """The stored url this scraped one refers to, or None.
+
+    Exact match first, so nothing about today's behaviour changes. Only if that misses is the
+    attribution tail dropped and the lookup retried -- and it is retried against `by_canon`,
+    which holds urls we already have, so a hit is proof the two name one posting rather than a
+    guess that they might.
+    """
+    if not url:
+        return None
+    key = url.lower()
+    hit = by_canon.get(key)
+    if hit:
+        return hit
+    try:
+        s = urlsplit(url)
+    except Exception:
+        return None
+    if not s.query:
+        return None
+    keep = [(k, v) for k, v in parse_qsl(s.query, keep_blank_values=True)
+            if k.lower() not in _ATTRIBUTION_ONLY_PARAMS]
+    if len(keep) == len(parse_qsl(s.query, keep_blank_values=True)):
+        return None                          # nothing was dropped; the exact miss stands
+    rebuilt = urlunsplit((s.scheme, s.netloc, s.path, urlencode(keep), s.fragment))
+    return by_canon.get(canonical_url(rebuilt).lower())
+
+
 def jd_for_incumbent(dupe_of, aggregator_jd, jd_hungry):
     """The description to write onto a row we ALREADY hold, or None.
 
@@ -9242,21 +9288,27 @@ def main():
                                  require_location=True)
             if k:
                 fingerprints.setdefault(k, []).append(r.get("url") or "")
-        # WHICH of those incumbents has no description. An aggregator hands the JD back with
-        # the listing, so when its row turns out to be a posting we already hold, the text is
-        # already in memory and the row we hold may have none -- see the transplant below. This
-        # is a url-only select, the same one score_jobs uses to size its backlog.
-        try:
-            jd_hungry = db.urls_missing_jd()
-        except Exception as e:
-            jd_hungry = set()
-            print("  note: could not read the missing-JD set (%s); no transplants this run"
-                  % str(e)[:70])
-        print("Dedupe index: %d url(s), %d posting fingerprint(s), %d of them with no JD."
-              % (len(seen), len(fingerprints), len(jd_hungry)))
+        print("Dedupe index: %d url(s), %d posting fingerprint(s)."
+              % (len(seen), len(fingerprints)))
     else:
         seen = {canonical_url(u).lower() for u in db.existing_urls()}
+
+    # WHICH rows we hold have NO description. Built for every run, not just a jobspy one: any
+    # source can re-serve a posting we already have, and if it ships the JD with the listing
+    # that is a description we would otherwise pay a detail fetch for -- or, for a host that
+    # bot-walls every server-side read, one we could never get at all. url-only select, the
+    # same one score_jobs uses to size its backlog.
+    try:
+        jd_hungry = db.urls_missing_jd()
+    except Exception as e:
         jd_hungry = set()
+        print("  note: could not read the missing-JD set (%s); no transplants this run"
+              % str(e)[:70])
+    # Keyed the way the loop below asks: canonical + lowercased, mapped back to the stored url,
+    # because that is what db.update_jds must be given.
+    jd_hungry_canon = {canonical_url(u).lower(): u for u in jd_hungry}
+    if jd_hungry:
+        print("Rows holding no description: %d." % len(jd_hungry))
 
     # Hand the dedupe index to the adapters that can use it to skip work. Only Greenhouse reads
     # it today, to decide whether a board is worth asking for descriptions; see
@@ -9462,6 +9514,19 @@ def main():
             j["url"] = canonical_url(j.get("url", ""))
             if j["url"].lower() in seen:
                 tally["already known"] += 1
+                # ...BUT IT MAY BE CARRYING THE DESCRIPTION WE LACK. Indeed hands back
+                # job_url_direct, which for Tesla IS tesla.com/careers/search/job/281649 -- the
+                # very row we hold, arriving with 3,339 characters of text we cannot fetch
+                # ourselves (403 AkamaiGHost on every path, including /robots.txt). Dropping the
+                # row is right; dropping the description with it is the bug. An exact url match
+                # needs no heuristic: this is the same posting by definition.
+                incumbent = incumbent_for_url(j["url"], jd_hungry_canon)
+                rescued = jd_for_incumbent(incumbent,
+                                           j.get("jd") or JOBSPY_JDS.get(j["url"]), jd_hungry)
+                if rescued:
+                    listing_jds[incumbent] = rescued
+                    jd_hungry.discard(incumbent)     # one write per url per run
+                    tally["description rescued for a row we already hold"] += 1
                 continue                       # already in jobs.csv from a past run
             # Right after the dedupe and before any title work: this is the cheapest position, and
             # putting it in the tally makes the drop visible in the run summary. A blocklist you
