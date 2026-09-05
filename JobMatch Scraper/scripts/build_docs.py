@@ -65,6 +65,7 @@ MODULES = (
     ("db.py",                   "Storage. One PostgREST-shaped interface over four backends."),
     ("scraper/__init__.py",     "The sweep and the intake filter, plus every ATS adapter."),
     ("scraper/score_jobs.py",   "Fetches descriptions and scores them against the resume."),
+    ("scraper/score_users.py",  "Stores every user's score for every job, in user_scores."),
     ("resume_score.py",         "The offline resume rubric -- no network, no model."),
     ("resume_keywords.py",      "Which curated skills a track is expected to show."),
     ("resume_bullets.py",       "Per-bullet review: verb, scope, result."),

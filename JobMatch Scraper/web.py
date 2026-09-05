@@ -1306,6 +1306,19 @@ def user_scores(username, resume):
         _score_cache[key] = stored
         return stored
     resume_low = (resume or "").lower()      # lowercase ONCE, not per job (was ×2,500)
+    # THE STORED SCORES, seeded before the loop rather than instead of it. scripts/score_users.py
+    # writes one row per (user, job) and stamps it with the md5 of the profile it was computed
+    # against; db.get_user_scores filters on that hash, so a row scored against a resume the user
+    # has since replaced does not come back and is recomputed below like any other gap. Seeding
+    # rather than REPLACING is what makes this unable to regress: an empty table, an unrun
+    # migration or a proxy that predates it all leave `stored` empty and every score is derived
+    # exactly as it was before. See MIGRATION_user_scores.sql.
+    stored = {}
+    if resume:
+        try:
+            stored = db.get_user_scores(username, db.resume_fp(resume))
+        except Exception:
+            stored = {}                      # never let the store break a feed it only speeds up
     # A real scoring pass is the one thing here that does need the corpus.
     rows = get_jobs()
     fp = _jobs_cache.get("fp") or fp
@@ -1320,6 +1333,11 @@ def user_scores(username, resume):
         # run, or never had a readable JD) falls back to the baseline match_score, which is
         # scored against the repo's resume.txt and is therefore NOT this user's number. That
         # fallback used to be every row on the live site.
+        # The stored answer first: same function, same analysis, same resume, so it is the same
+        # number -- just already paid for, by a run that had no user waiting on it.
+        if resume and u in stored:
+            scores[u] = stored[u]
+            continue
         analyzed = job_analysis(j)
         if resume and analyzed.get("terms"):
             try:

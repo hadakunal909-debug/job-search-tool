@@ -351,6 +351,34 @@ if [ -f "$APP/resume.txt" ]; then
     echo "----- $(date -u +%FT%TZ) analyse start ($mode) -----" >> "$LOG"
     "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
     echo "----- $(date -u +%FT%TZ) analyse end rc=$? -----" >> "$LOG"
+
+    # ---- THE PER-USER SCORES ---------------------------------------------------------------
+    #
+    # AFTER the analysis, always, and that ordering is the whole point: this reads jd_terms, so
+    # running it first would score the previous run's corpus and then be immediately invalidated
+    # by the pass above -- which DELETES the stored score of every job whose analysis it rewrote.
+    #
+    # It writes one row per (user, job) into user_scores, so the feed and the job page serve a
+    # stored number instead of each deriving its own. Only users with a resume are scored; a user
+    # without one gets no number anywhere in the product, and a stored 0 would read as "0% match"
+    # rather than "we cannot answer this".
+    #
+    # There is no --new-only. The script asks the table which rows this user has no CURRENT score
+    # for, which covers new jobs, re-analysed jobs and an edited resume with one query -- see its
+    # docstring. Measured at 0.074 ms/row, so the compute is never the cost here; the reads and
+    # writes are, and in the steady state both are a few hundred rows per user.
+    #
+    # 6 minutes because it shares the slot with everything above it. A run that does not finish
+    # leaves the rest missing, the reader falls back to computing them exactly as it did before
+    # this table existed, and the next run picks them up.
+    #
+    # `-m scraper.score_users`, not scripts/: .cpanel.yml copies scraper/ but NOT scripts/, so
+    # the module form is the only one that exists on this box. Same reason scraper.reposts below
+    # is spelled that way, and it says so too.
+    export DB_REQUIRE=pg
+    echo "----- $(date -u +%FT%TZ) user scores start -----" >> "$LOG"
+    "$PY" -u -m scraper.score_users --budget-min 6 >> "$LOG" 2>&1
+    echo "----- $(date -u +%FT%TZ) user scores end rc=$? -----" >> "$LOG"
 fi
 
 # The repost-cluster map the feed card's "Posted Nx" badge reads. Derived from the corpus, so it
