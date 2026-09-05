@@ -39,3 +39,28 @@ create index if not exists user_scores_user_fp
 -- THE INVALIDATION. The scoring pass deletes by url when a job's analysis changes, across every
 -- user at once. Without this that is a sequential scan of the whole table per re-analysed job.
 create index if not exists user_scores_url on public.user_scores (url);
+
+-- THE ROWS HAVE TO DIE WITH THE JOB. db.delete_urls deletes from `jobs` and nothing else, and
+-- prune_old_jobs runs on a 30-day window -- so without this every pruned posting leaves one dead
+-- row per user behind, for ever, in a table that is already 35% of the database. There is no
+-- cleanup call to forget because there is no cleanup call: the constraint is the mechanism.
+--
+-- The insert side of it is a feature, not a cost. A score for a job that is not in `jobs` is a
+-- claim about nothing, and db.save_user_scores now drops such a batch rather than failing the
+-- run -- that is the corpus-read/prune race, and ON DELETE CASCADE means the row could not have
+-- survived it anyway.
+--
+-- DO block because Postgres has no ADD CONSTRAINT IF NOT EXISTS, and this file must stay
+-- re-runnable. Adding it will FAIL if orphans already exist; delete them first:
+--   delete from public.user_scores s where not exists
+--     (select 1 from public.jobs j where j.url = s.url);
+do $$
+begin
+    if not exists (select 1 from pg_constraint
+                   where conname = 'user_scores_url_fkey'
+                     and conrelid = 'public.user_scores'::regclass) then
+        alter table public.user_scores
+            add constraint user_scores_url_fkey
+            foreign key (url) references public.jobs (url) on delete cascade;
+    end if;
+end $$;

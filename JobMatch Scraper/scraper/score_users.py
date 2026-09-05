@@ -81,6 +81,13 @@ def score_user(name, text, fp, rows, full=False, dry=False, deadline=None):
         url = j.get("url")
         if not url or (url in have and not full):
             continue
+        # CLOSED JOBS ARE NOT STORED. The feed hides them by default, and they were 59,445 of
+        # 239,225 rows -- a quarter of the table, and of every index over it -- for postings
+        # nobody is shown. Nothing is lost by leaving them out: web.user_scores seeds from this
+        # table and computes whatever is missing, so a reader who switches "show closed" on gets
+        # the same number, derived. Measured 149 MB -> ~112 MB.
+        if j.get("is_active") is False or str(j.get("is_active")).lower() == "false":
+            continue
         analyzed = core.unpack_analyzed(j.get("jd_terms")) if j.get("jd_terms") else {}
         if not analyzed.get("terms"):
             # No readable analysis: the feed shows "Not scored" for exactly these, and a stored
@@ -130,7 +137,7 @@ def main():
     print("scoring for: %s" % ", ".join(n for n, _t, _f in users))
 
     t0 = time.time()
-    rows = db.load_jobs(include_jd=False, cols="url,jd_terms")
+    rows = db.load_jobs(include_jd=False, cols="url,jd_terms,is_active")
     print("corpus: %d rows in %.1f s" % (len(rows), time.time() - t0))
 
     deadline = (time.time() + a.budget_min * 60) if a.budget_min else None
