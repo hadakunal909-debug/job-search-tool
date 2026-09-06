@@ -821,17 +821,52 @@ JOB_FACTS_COLS = ("loc_state", "loc_metro", "remote",
 JOB_TERMS_TABLE = "job_terms"
 
 
-def job_terms_ready():
-    """True once backfill_job_terms.py has stamped completion. Same gate as the other two."""
+def _stamp_ready(name, memo):
+    """Has `name` been stamped complete in data_versions? Memoised for _JD_SRC_TTL seconds.
+
+    ONE COPY OF THE GATE. There were three -- job_descriptions, job_facts, job_terms -- nine
+    identical lines apiece differing only in the dataset name and which dict held the memo, and
+    a fourth table would have made it four. The rule this file states everywhere else is that a
+    thing has one definition; three copies of a cache-invalidation rule is exactly the shape
+    that drifts, because a fix goes into the copy you were looking at.
+
+    UNREADABLE COUNTS AS NOT READY, and that is safe in a way _derived_signature's version read
+    is not: falling back means reading `jobs`, which is still the source of truth until the
+    contract step drops it. Falling back is free; falling forward is not.
+    """
     now = time.time()
-    if _terms_src["ready"] is not None and now - _terms_src["at"] < _JD_SRC_TTL:
-        return _terms_src["ready"]
+    if memo["ready"] is not None and now - memo["at"] < _JD_SRC_TTL:
+        return memo["ready"]
     try:
-        ready = bool(get_data_version("job_terms"))
+        ready = bool(get_data_version(name))
     except Exception:
         ready = False
-    _terms_src.update(ready=ready, at=now)
+    memo.update(ready=ready, at=now)
     return ready
+
+
+def _side_rows(table, sel, urls, pick=None):
+    """{url: value} from a side table -- the whole thing, or just these urls.
+
+    ONE COPY OF THE BATCHED READ, for the same reason as the gate above. `pick` says what the
+    value is: a column name for the scalar tables, or None to keep the whole row.
+    """
+    params = {"select": sel}
+    if urls is None:
+        rows = _fetch_all(table, params)
+    else:
+        rows = []
+        for batch in _url_batches(list(urls)):
+            rows.extend(_fetch_all(table, dict(params, url=_in_list(batch))))
+    if pick is None:
+        return {r["url"]: r for r in rows if r.get("url")}
+    return {r["url"]: (r.get(pick) or "") for r in rows if r.get("url")}
+
+
+
+def job_terms_ready():
+    """True once backfill_job_terms.py has stamped completion. Same gate as the other two."""
+    return _stamp_ready("job_terms", _terms_src)
 
 
 def mirror_job_terms(rows, keys=None):
@@ -874,14 +909,7 @@ def mirror_job_terms(rows, keys=None):
 
 def _terms_rows(urls=None):
     """{url: jd_terms} from job_terms -- the whole table, or just these urls."""
-    params = {"select": "url,jd_terms"}
-    if urls is None:
-        rows = _fetch_all(JOB_TERMS_TABLE, params)
-    else:
-        rows = []
-        for batch in _url_batches(list(urls)):
-            rows.extend(_fetch_all(JOB_TERMS_TABLE, dict(params, url=_in_list(batch))))
-    return {r["url"]: (r.get("jd_terms") or "") for r in rows if r.get("url")}
+    return _side_rows(JOB_TERMS_TABLE, "url,jd_terms", urls, "jd_terms")
 
 
 def job_facts_ready():
@@ -892,15 +920,7 @@ def job_facts_ready():
     a partial copy would quietly widen every filter instead of narrowing it, which is the
     exact defect this whole revamp started from.
     """
-    now = time.time()
-    if _facts_src["ready"] is not None and now - _facts_src["at"] < _JD_SRC_TTL:
-        return _facts_src["ready"]
-    try:
-        ready = bool(get_data_version("job_facts"))
-    except Exception:
-        ready = False                    # falling back to `jobs` is always safe
-    _facts_src.update(ready=ready, at=now)
-    return ready
+    return _stamp_ready("job_facts", _facts_src)
 
 
 def mirror_job_facts(rows, keys=None):
@@ -970,40 +990,18 @@ _terms_tbl = {"ok": True}
 
 def _facts_rows(urls=None):
     """{url: {derived columns}} from job_facts -- the whole table, or just these urls."""
-    sel = "url," + ",".join(JOB_FACTS_COLS)
-    if urls is None:
-        rows = _fetch_all(JOB_FACTS_TABLE, {"select": sel})
-    else:
-        rows = []
-        for batch in _url_batches(list(urls)):
-            rows.extend(_fetch_all(JOB_FACTS_TABLE, {"select": sel, "url": _in_list(batch)}))
-    return {r["url"]: r for r in rows if r.get("url")}
+    return _side_rows(JOB_FACTS_TABLE, "url," + ",".join(JOB_FACTS_COLS),
+                      urls)
 
 
 def jd_table_ready():
     """True once the backfill has stamped completion. Cached for _JD_SRC_TTL seconds."""
-    now = time.time()
-    if _jd_src["ready"] is not None and now - _jd_src["at"] < _JD_SRC_TTL:
-        return _jd_src["ready"]
-    try:
-        ready = bool(get_data_version("job_descriptions"))
-    except Exception:
-        ready = False                    # see above: falling back is always safe here
-    _jd_src.update(ready=ready, at=now)
-    return ready
+    return _stamp_ready("job_descriptions", _jd_src)
 
 
 def _jd_rows(urls=None):
     """{url: jd} from job_descriptions -- the whole table, or just these urls."""
-    params = {"select": "url,jd"}
-    if urls is None:
-        rows = _fetch_all(JD_TABLE, params)
-    else:
-        rows = []
-        for batch in _url_batches(list(urls)):
-            params = dict(params, url=_in_list(batch))
-            rows.extend(_fetch_all(JD_TABLE, params))
-    return {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
+    return _side_rows(JD_TABLE, "url,jd", urls, "jd")
 
 
 
