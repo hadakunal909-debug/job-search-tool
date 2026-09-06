@@ -1026,14 +1026,25 @@ class _StubHTTP(object):
 
     def __init__(self):
         self.posts = []
+        self.tables = []
 
     def post(self, url, headers=None, params=None, data=None, timeout=None):
+        # THE TABLE, NOT JUST THE ROWS. update_job_fields writes `jobs` and then
+        # mirrors the derived columns into job_facts, so a recorder that could not
+        # tell them apart reported 450 rows as [200, 200, 50, 200, 200, 50] and the
+        # batching assertion below read that as a wire regression.
         self.posts.append(json.loads(data))
+        self.tables.append(url.rstrip('/').rsplit('/', 1)[-1])
         return self._Resp()
 
 
 def _upsert_posts(rows, keys=None):
-    """The batches db.update_job_fields sends for `rows`, with only the HTTP layer stubbed."""
+    """The batches db.update_job_fields sends to `jobs` for `rows`, HTTP layer stubbed.
+
+    JOBS ONLY. The job_facts mirror rides along on the same call and has its own
+    coverage in test_the_derived_mirror_rides_with_the_write below; folding the two
+    together here would make every assertion about the wire shape ambiguous.
+    """
     saved = (real_db._http, real_db.has_remote_db)
     stub = _StubHTTP()
     try:
@@ -1041,7 +1052,22 @@ def _upsert_posts(rows, keys=None):
         real_db.update_job_fields([dict(r) for r in rows], keys=keys)
     finally:
         real_db._http, real_db.has_remote_db = saved
-    return stub.posts
+    return [p for p, t in zip(stub.posts, stub.tables) if t == real_db.TABLE]
+
+
+def _upsert_posts_by_table(rows, keys=None):
+    """Same, but {table: [batches]} -- for asserting the mirror happened at all."""
+    saved = (real_db._http, real_db.has_remote_db)
+    stub = _StubHTTP()
+    try:
+        real_db._http, real_db.has_remote_db = stub, lambda: True
+        real_db.update_job_fields([dict(r) for r in rows], keys=keys)
+    finally:
+        real_db._http, real_db.has_remote_db = saved
+    out = {}
+    for p, t in zip(stub.posts, stub.tables):
+        out.setdefault(t, []).append(p)
+    return out
 
 
 def test_the_real_upsert_sends_the_column_group_it_was_handed():
@@ -1068,6 +1094,27 @@ def test_the_real_upsert_sends_the_column_group_it_was_handed():
         "a named group sent %r" % (sorted(named[0]),)
     assert all(r["exp_max_years"] is None for r in named), \
         "the column went out without the null that clears a stale floor"
+
+
+def test_the_derived_mirror_rides_with_the_write():
+    """A derived write must reach job_facts too, carrying only that table's own columns.
+
+    The mirror is hooked into update_job_fields rather than into each caller, which is what
+    makes a future writer get it for free -- so this is the test that proves the hook, not
+    any one call site. It also pins the filtering: a payload carrying jd_terms must not push
+    that into a table which has no such column.
+    """
+    rows = [{"url": "https://ex.com/m1", "exp_max_years": 5, "sponsor_jd": "",
+             "sponsor_reason": "", "jd_terms": "x", "facts_fp": "abc"}]
+    by_table = _upsert_posts_by_table(rows, keys=sj.JD_DERIVED_COLS)
+    assert real_db.TABLE in by_table, "the authoritative write did not happen"
+    assert real_db.JOB_FACTS_TABLE in by_table, (
+        "the derived columns never reached job_facts: %r" % (sorted(by_table),))
+    sent = by_table[real_db.JOB_FACTS_TABLE][0][0]
+    assert "jd_terms" not in sent, (
+        "jd_terms was pushed into a table with no such column: %r" % (sorted(sent),))
+    assert sent.get("exp_max_years") == 5 and sent.get("facts_fp") == "abc", (
+        "the mirror dropped a value it was supposed to carry: %r" % (sent,))
 
 
 def test_batching_the_group_did_not_change_the_wire():

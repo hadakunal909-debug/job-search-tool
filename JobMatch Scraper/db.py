@@ -696,19 +696,33 @@ def load_jobs(include_jd=True, cols=None):
                 include_jd = False
         if include_jd:
             _warn_full_jd_read()
-        # WHEN THE TEXT HAS MOVED, `*` no longer carries it -- that is the whole point of
-        # the split -- so it is fetched from its own table and merged back on here. Callers
-        # keep getting one flat dict with a `jd` key, which is what lets ~120 call sites go
-        # untouched while the storage underneath them changes.
-        split = bool(include_jd) and jd_table_ready()
-        if split:
-            # The corpus-wide read. _warn_full_jd_read still fires above:
-            # this is cheaper by nothing at all, it is merely no longer
-            # possible to reach by accident.
-            base = _fetch_all(TABLE, {"select": _FEED_COLS})
-            texts = _jd_rows()
-            for r in base:
-                r["jd"] = texts.get(r.get("url"), "")
+        # THE SPLITS ARE RE-JOINED HERE, so every caller keeps receiving one flat dict per
+        # job whatever the storage looks like underneath. That is what has let ~120 call
+        # sites go untouched across four phases of this: db.py's INTERFACE is the contract,
+        # the table layout is not.
+        #
+        # Each half is gated on its own stamp, so the three states that actually occur --
+        # neither moved, one moved, both moved -- are all reachable and all correct. pgrest
+        # translates no joins, so the merge is here rather than in the query.
+        want_jd = bool(include_jd) and jd_table_ready()
+        want_facts = job_facts_ready()
+        if want_jd or want_facts:
+            # `jobs` alone: _FEED_COLS still NAMES the moved columns, and PostgREST answers
+            # a select for a column that is not there with a 400 rather than a null. So the
+            # moved names are dropped from the select and merged back on below.
+            sel_cols = [c for c in _FEED_COLS.split(",")
+                        if not (want_facts and c in JOB_FACTS_COLS)]
+            base = _fetch_all(TABLE, {"select": ",".join(sel_cols)})
+            if want_facts:
+                by_url = _facts_rows()
+                for r in base:
+                    got = by_url.get(r.get("url")) or {}
+                    for c in JOB_FACTS_COLS:
+                        r[c] = got.get(c)
+            if want_jd:
+                texts = _jd_rows()
+                for r in base:
+                    r["jd"] = texts.get(r.get("url"), "")
             return base
         sel = "*" if include_jd else _FEED_COLS
         try:
@@ -755,6 +769,78 @@ _fp_col = {"ok": True}
 # See MIGRATION_job_descriptions.sql. Short version: Postgres already stores the text out of
 # line, so this saves no disk -- what it buys is that `select=*` on `jobs` cannot return 263 MB
 # by accident, which it has done twice in one afternoon.
+# ================= what we DERIVED about a posting =================================
+#
+# See MIGRATION_job_facts.sql. The nine columns below are what reading a description told
+# us, as opposed to what the employer published (title, company, location) or what we track
+# (first_seen, is_active). db.py::FIELDS has grouped them with comments saying exactly this
+# since long before there was a table to put them in.
+JOB_FACTS_TABLE = "job_facts"
+
+# THE ONE DEFINITION of which columns moved. Every writer, reader, backfill and verify below
+# derives its column list from this tuple rather than repeating it -- because the failure
+# mode of a column that is in one list and not another is not an error, it is
+# _persist_derived diffing against a value it never read, deciding every row changed, and
+# re-upserting the whole corpus on every run for ever. See COLS_SCORE's docstring.
+JOB_FACTS_COLS = ("loc_state", "loc_metro", "remote",
+                  "salary_min", "salary_max", "salary_period",
+                  "exp_max_years", "sponsor_jd", "sponsor_reason",
+                  "facts_fp")
+
+
+def job_facts_ready():
+    """True once backfill_job_facts.py has stamped completion. Same gate as jd_table_ready.
+
+    A half-backfilled facts table is worse than none: a missing row reads as a posting with
+    no experience floor and no pay, and _filter_rows KEEPS a row it has no number for -- so
+    a partial copy would quietly widen every filter instead of narrowing it, which is the
+    exact defect this whole revamp started from.
+    """
+    now = time.time()
+    if _facts_src["ready"] is not None and now - _facts_src["at"] < _JD_SRC_TTL:
+        return _facts_src["ready"]
+    try:
+        ready = bool(get_data_version("job_facts"))
+    except Exception:
+        ready = False                    # falling back to `jobs` is always safe
+    _facts_src.update(ready=ready, at=now)
+    return ready
+
+
+def mirror_job_facts(rows):
+    """Copy the derived columns of these rows into job_facts as well. Never raises.
+
+    Called after the authoritative write to `jobs`, for the same reason _mirror_jds is: a
+    failure here costs the copy and never the reading. Rows are filtered to JOB_FACTS_COLS,
+    so a caller may hand over whatever payload it already built.
+    """
+    if not _facts_tbl["ok"] or not rows:
+        return
+    payload = []
+    for r in rows:
+        if not r.get("url"):
+            continue
+        keep = {k: r[k] for k in JOB_FACTS_COLS if k in r}
+        if keep:
+            payload.append(dict(keep, url=r["url"]))
+    if not payload:
+        return
+    # keys= names the whole group, so a batch in which some column is None on every row still
+    # SENDS that column. Inferred instead, _upsert drops the Nones and the column is never
+    # written -- which would leave a stale reading in place and call it current.
+    cols = ("url",) + JOB_FACTS_COLS
+    try:
+        for i in range(0, len(payload), 200):
+            _upsert(payload[i:i + 200], keys=cols, table=JOB_FACTS_TABLE, pk="url")
+    except Exception as ex:
+        if not _table_missing(ex):
+            print("  (job_facts mirror failed: %s)" % str(ex)[:120])
+            return
+        _facts_tbl["ok"] = False
+        print("  (public.job_facts not migrated yet - derived fields are in jobs only. "
+              "Run MIGRATION_job_facts.sql.)")
+
+
 JD_TABLE = "job_descriptions"
 
 # Is job_descriptions AUTHORITATIVE yet? Not "does the table exist" -- an existing but
@@ -767,6 +853,20 @@ JD_TABLE = "job_descriptions"
 # jobs.jd, which is still the source of truth until the contract step drops it.
 _jd_src = {"ready": None, "at": 0.0}
 _JD_SRC_TTL = 300
+_facts_src = {"ready": None, "at": 0.0}
+_facts_tbl = {"ok": True}
+
+
+def _facts_rows(urls=None):
+    """{url: {derived columns}} from job_facts -- the whole table, or just these urls."""
+    sel = "url," + ",".join(JOB_FACTS_COLS)
+    if urls is None:
+        rows = _fetch_all(JOB_FACTS_TABLE, {"select": sel})
+    else:
+        rows = []
+        for batch in _url_batches(list(urls)):
+            rows.extend(_fetch_all(JOB_FACTS_TABLE, {"select": sel, "url": _in_list(batch)}))
+    return {r["url"]: r for r in rows if r.get("url")}
 
 
 def jd_table_ready():
@@ -1055,6 +1155,14 @@ def update_job_fields(rows, keys=None):
         return
     if has_remote_db():
         _upsert(rows, keys=keys)           # merge-on-url updates only the given columns
+        # MIRRORED HERE RATHER THAN AT EACH CALL SITE. Every derived write reaches the
+        # database through this function -- _send_derived's two payloads, verify_dates,
+        # the extension's location patch, requeue_analysis -- so hooking one place means
+        # a future writer is covered without anyone remembering to add a line.
+        # mirror_job_facts filters to JOB_FACTS_COLS, so a payload holding none of them
+        # (a match_score clear, an is_active close) costs one comprehension and sends
+        # nothing.
+        mirror_job_facts(rows)
         return
     by_url = {r["url"]: r for r in rows}
     out = _read_csv()
