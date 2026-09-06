@@ -93,20 +93,59 @@ def main():
 
     if a.limit:
         todo = todo[:a.limit]
-    t0, done = time.time(), 0
-    for i in range(0, len(todo), BATCH):
-        batch = todo[i:i + BATCH]
-        # Through load_jobs_by_urls so the read goes down the same path everything else uses --
-        # and while unstamped that path reads jobs.jd, which is exactly the source we want.
-        rows = db.load_jobs_by_urls(batch, include_jd=True)
-        jds = {r["url"]: (r.get("jd") or "") for r in rows if r.get("url") and (r.get("jd") or "")}
-        if jds:
-            db._mirror_jds([{"url": u, "jd": t} for u, t in jds.items()])
-        done += len(jds)
-        if (i // BATCH) % 5 == 0:
-            print("  %6d/%d copied (%.0fs)" % (done, len(todo), time.time() - t0))
-    print("\ncopied %d description(s) in %.0fs." % (done, time.time() - t0))
-    print("Re-run until 'remaining' is 0, then --verify, then --stamp.")
+    # READ THROUGH _fetch_all, NOT load_jobs_by_urls, and the difference is the whole reason
+    # the first run of this script lied. load_jobs_by_urls SKIPS a failed batch rather than
+    # raising -- correct for the digest and the scorer, where losing a few baseline scores
+    # beats taking the run down -- so a transient proxy failure silently dropped 200 rows and
+    # the loop carried on. Measured on the first run: 25,376 of 46,903 copied, scattered gaps
+    # after a 19,801-row clean prefix, and the script exited 0 reporting success.
+    #
+    # A backfill has the opposite requirement to a feed: it must notice.
+    def _read(batch):
+        rows = db._fetch_all(db.TABLE, {"select": "url,jd", "url": db._in_list(batch)})
+        return {r["url"]: (r.get("jd") or "") for r in rows
+                if r.get("url") and (r.get("jd") or "")}
+
+    t0 = time.time()
+    total_done = 0
+    # PASSES, because the failures this is guarding against are transient by nature -- the
+    # proxy has been observed answering 200 with HTML. Each pass recomputes what is left, so
+    # a pass that dropped rows is simply followed by one that picks them up. Bounded, and it
+    # stops early when a pass makes no progress: that is a real failure, not a blip, and
+    # spinning on it would just hide it again.
+    for attempt in range(1, 6):
+        moved = 0
+        for i in range(0, len(todo), BATCH):
+            batch = todo[i:i + BATCH]
+            try:
+                jds = _read(batch)
+            except Exception as ex:
+                print("  batch %d failed (%s); will retry in the next pass"
+                      % (i // BATCH, str(ex)[:70]))
+                continue
+            if jds:
+                db._mirror_jds([{"url": u, "jd": t} for u, t in jds.items()])
+                moved += len(jds)
+            if (i // BATCH) % 25 == 0:
+                print("  pass %d: %6d/%d (%.0fs)"
+                      % (attempt, moved, len(todo), time.time() - t0))
+        total_done += moved
+        left, _, _ = _todo()
+        print("  pass %d done: %d copied, %d still missing" % (attempt, moved, len(left)))
+        if not left:
+            break
+        if not moved:
+            print("  a whole pass copied NOTHING -- stopping rather than spinning.")
+            break
+        todo = left
+    left, _, _ = _todo()
+    print("")
+    print("copied %d description(s) in %.0fs; %d still missing."
+          % (total_done, time.time() - t0, len(left)))
+    if left:
+        print("Re-run --apply; it resumes from what is missing.")
+        return 1
+    print("Nothing left. Next: --verify, then --stamp.")
     return 0
 
 
