@@ -91,6 +91,46 @@ def test_adopt_foreign_veto_agrees():
         assert _names_non_us(loc) is want, "%s -> %s (wanted %s)" % (loc, _names_non_us(loc), want)
 
 
+def _check_csb(cases):
+    """scraper._csb_is_us is a SECOND US test, with its own rules, and until 2026-09-06 it had
+    no fixtures here at all -- which is how the bug below survived. It exists because the
+    generic filter cannot be used on a SuccessFactors board: CSB writes an ISO country code in
+    the same slot a US state code goes, so a German "DE" reads as Delaware and an Indian "IN"
+    as Indiana. Both directions matter for the same reason the module docstring gives."""
+    bad = ["%s -> %s (wanted %s)" % (loc, scraper._csb_is_us(loc), want)
+           for loc, want in cases if scraper._csb_is_us(loc) is not want]
+    assert not bad, "\n  ".join([""] + bad)
+
+
+def test_csb_spelled_out_country_is_us():
+    """The bug: CSB tenants do not "always carry an ISO country code", whatever the docstring
+    said. jobs.oregontool.com writes "Oregon, IL, United States" -- and the fallback rule reads
+    ANY two-letter alpha token as a country code, so IL (the state) was taken as the country,
+    "UNITED STATES" matched neither of the two accepted spellings, and the row was dropped as
+    foreign. All 13 postings on that board are in IL/MO/AZ/OR; all 13 were dropped on every run
+    and the board sat in board_health's SILENT list looking like an employer with no openings."""
+    _check_csb([("Oregon, IL, United States", True), ("Kansas City, MO, United States", True),
+                ("Prescott, AZ, United States", True), ("Portland, OR, United States", True),
+                ("Remote, United States", True), ("Dallas, TX, United States of America", True)])
+
+
+def test_csb_iso_code_forms_still_work():
+    """The forms that always worked. A literal US/USA token, and the bare "City, ST" shape."""
+    _check_csb([("Austin, TX, US, 78704", True), ("Lincoln, NE, US", True),
+                ("Boston, MA", True), ("Melbourne, FL, USA", True)])
+
+
+def test_csb_foreign_forms_still_drop():
+    """The regression that matters most. Widening the US side must not touch these -- the two
+    at the top are the Capgemini case that cost 30% of that board's "US" rows: Casablanca and
+    Buenos Aires are byte-for-byte the "City, ST" shape, so they are kept out by the named-city
+    veto and by nothing else. Adding "UNITED STATES" must not have given them another door."""
+    _check_csb([("Casablanca, MA", False), ("Buenos Aires, AR", False),
+                ("Milano, IT, 20139", False), ("Walldorf, DE, 69190", False),
+                ("Bangalore, KA, IN, 562149", False), ("Shanghai, SH, China", False),
+                ("London, United Kingdom", False), ("Hart bei Graz, Steiermark, AT, 8075", False)])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
