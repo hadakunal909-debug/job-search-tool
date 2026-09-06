@@ -4,21 +4,15 @@
 <div class="feedhead">
   <div class="feedrow">
     <h1>Jobs Feed</h1>
-    <div class="feedtools">
-      {# Reload throws away the SHARED caches -- the corpus, and every user's stored scores --
-         so it is admin-only and a POST now. As a GET open to anyone it was one <img src> away
-         from being triggered by any page a signed-in user visited, and each hit costs a full
-         corpus re-read plus a 5-15 s score rebuild for everybody. #}
-      {% if is_admin() %}
-      <form method="post" action="{{ url_for('reload_jobs') }}" class="inline">
-        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-        <button class="btn" type="submit">Reload</button>
-      </form>
-      {% endif %}
-      {# Update jobs lives on /admin ONLY. Every press starts a real GitHub Actions run out of a
-         finite monthly free-minute pool, so it is not a control to hand to everyone who signs
-         in — /scrape is @admin_required to match. #}
-    </div>
+    {# NO OPERATOR CONTROLS ON THIS PAGE, and the empty .feedtools div that used to hold them
+       is gone with them. Reload lived here behind {% if is_admin() %} until 2026-09-06; it is
+       on /admin now, beside Re-Read DB and Update Jobs, at the owner's direction. Being
+       admin-gated was never the same as belonging here — an operator action that throws away
+       the SHARED caches (the corpus, and every user's stored scores, a 5-15 s rebuild each)
+       does not belong on the page people come to read jobs, where the only cost of a misclick
+       is borne by everybody else. Update Jobs was moved for the same reason: every press
+       spends from a finite monthly pool of GitHub Actions minutes.
+       If you are adding an operator control, it goes in admin.html's admin_tools block. #}
   </div>
   {% if not has_resume %}
   <div class="banner">Showing baseline scores. <a href="{{ url_for('brain_home') }}">Build your profile in Resume Brain</a> for personalized matches.</div>

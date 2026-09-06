@@ -18,6 +18,7 @@ which is what lets it cover ALL of them rather than the handful with page tests.
 """
 import glob
 import io
+import re
 import os
 import sys
 
@@ -62,6 +63,39 @@ for path in files:
     except Exception:
         pass                                     # already reported by the parse pass above
 
+# ...and an OPERATOR control may only appear in an OPERATOR template.
+#
+# Added 2026-09-06, when Reload was moved off the feed. It had been on feed.html behind
+# `{% if is_admin() %}` -- correctly gated, and still in the wrong place: an action that drops
+# the corpus and EVERY user's stored score file does not belong on the page people come to read
+# jobs, where the cost of a misclick is borne by somebody else. Update Jobs had been moved for
+# the same reason earlier, and the comment in feed.html saying so did not stop Reload sitting
+# right next to it.
+#
+# SO THE RULE IS NOT "feed.html must not mention reload_jobs". That pins one instance and the
+# next control lands somewhere else. It is: these endpoints may only be referenced from a
+# template that IS an admin page. An is_admin() wrapper buys no exemption -- being allowed to
+# press a thing is a different question from where the thing belongs.
+OPERATOR_ROUTES = ("reload_jobs", "scrape_now")
+URL_FOR = re.compile(r"""url_for\(\s*['"]([A-Za-z_][A-Za-z_0-9]*)['"]""")
+
+
+def is_admin_template(name, src):
+    """An admin page by name or by inheritance -- admin_base.html is what puts a page behind
+    the admin nav, and every current admin template is also named admin*.html."""
+    return name.startswith("admin") or 'extends "admin_base.html"' in src
+
+
+misplaced = []
+for path in files:
+    name = os.path.basename(path)
+    src = io.open(path, encoding="utf-8").read()
+    if is_admin_template(name, src):
+        continue
+    for ep in sorted(set(URL_FOR.findall(src))):
+        if ep in OPERATOR_ROUTES:
+            misplaced.append((name, ep))
+
 print("parsed %d template(s)" % len(files))
 if bad:
     print("\nFAIL - %d template(s) do not parse:" % len(bad))
@@ -71,6 +105,13 @@ if missing:
     print("\nFAIL - %d missing include/extends target(s):" % len(missing))
     for n, ref in missing:
         print("  %-30s references %s" % (n, ref))
-if bad or missing:
+if misplaced:
+    print("")
+    print("FAIL - %d operator control(s) outside an admin template:" % len(misplaced))
+    for n, ep in misplaced:
+        print("  %-28s references url_for('%s') - it belongs in admin.html's admin_tools block"
+              % (n, ep))
+if bad or missing or misplaced:
     sys.exit(1)
-print("ok - every template parses and every include resolves")
+print("ok - every template parses, every include resolves, and the %d operator route(s) are "
+      "referenced only from admin templates" % len(OPERATOR_ROUTES))

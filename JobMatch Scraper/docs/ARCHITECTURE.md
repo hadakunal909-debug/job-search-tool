@@ -45,7 +45,7 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,771 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>9,779 lines · 87 routes / 86 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]

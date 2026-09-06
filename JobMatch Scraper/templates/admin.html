@@ -15,6 +15,18 @@
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <button id="updatejobs" class="btn primary" type="submit">Update Jobs</button>
     </form>
+    {# RELOAD, moved off the feed 2026-09-06. It is the most destructive control on this page
+       and it is deliberately last and unstyled-primary: it drops the corpus, every row file
+       and EVERY user's stored score file, so the next request from every signed-in account
+       pays a full rebuild. Re-Read DB above is the cheaper thing you probably want -- it
+       re-reads the corpus for this page without touching anybody's scores.
+       POST + CSRF, same as Update Jobs: as a GET this was once one <img src> away from being
+       fired by any page a signed-in user happened to visit. #}
+    <form method="post" action="{{ url_for('reload_jobs') }}" class="inline"
+          onsubmit="return confirm('Drop the corpus and EVERY user’s stored scores? The next page load for everyone rebuilds from scratch.');">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="btn" type="submit">Reload Caches</button>
+    </form>
 {% endblock %}
 
 {% block admin %}
