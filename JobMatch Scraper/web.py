@@ -4523,6 +4523,14 @@ def reload_jobs():
     The admin test is INLINE rather than an @admin_required decorator only because that
     decorator is defined further down this file and a decorator is evaluated at import time —
     the module would not load. The check itself is the same one it makes.
+
+    THE BUTTON LIVES ON /admin, AND ONLY THERE, since 2026-09-06. It was on the feed behind
+    `{% if is_admin() %}`, which kept it out of everyone else's hands but still put an action
+    that wipes the SHARED caches on the page people come to read jobs. Moved at the owner's
+    direction, alongside Update Jobs, which had been moved earlier for the same reason. So the
+    success redirect goes back to /admin — the only place it can now be pressed from. The
+    refusal below still goes to the feed, because a non-admin bounced to /admin would just
+    bounce again.
     """
     if not is_admin():
         flash("Reloading the shared job cache is admin only.", "error")
@@ -4547,7 +4555,7 @@ def reload_jobs():
     core._reset_idf_cache()
     norms._reset_cache()      # pick up a rebuilt norms.json
     flash("Jobs reloaded.")
-    return redirect(url_for("feed"))
+    return redirect(url_for("admin"))
 
 
 GH_REPO = os.environ.get("GH_REPO", "hadakunal909-debug/job-search-tool")
