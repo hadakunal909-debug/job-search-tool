@@ -90,21 +90,41 @@ def build(rows_source=None):
     # One row per NORMALISED key. Two spellings can collapse onto one key -- "Acme Inc" and
     # "Acme, Inc." -- and the display name should be the one the corpus uses most, not whichever
     # happened to sort first.
+    # EVERY SPELLING, not just the winner. The display name is the one the corpus uses most,
+    # which is the right thing to SHOW -- and the wrong thing to resolve a logo from. Measured
+    # against the live manifest: keying the logo on the display name alone LOST the logo for
+    # EchoStar and Lonza, because the majority spelling ('EchoStar Corporation') has no slug
+    # while the minority one does. web._logo_slug tries a direct slug and then an alias map,
+    # and which of the two hits depends on the exact string.
+    #
+    # So the row takes the logo from whichever spelling of this employer resolves one. That
+    # also fills 11 gaps in the other direction -- 'Apple Inc', 'Accenture LLP', 'Micron
+    # Technology' (20 postings) all rendered a monogram before, because the suffix defeated
+    # the direct slug and the alias map had no entry.
+    spellings = collections.defaultdict(list)
     best = {}
     for name, n in seen.most_common():
         key = core.norm_company(name)
-        if key and key not in best:
+        if not key:
+            continue
+        spellings[key].append(name)
+        if key not in best:
             best[key] = name
 
     out = []
     for key, name in sorted(best.items()):
+        # display name first, so a tie goes to what the reader sees
+        logo = (None, None, False)
+        for cand in [name] + [s for s in spellings[key] if s != name]:
+            u = web.logo_url(cand)
+            if u:
+                logo = (u, web.logo_ar(cand) or None, bool(web.logo_mono(cand)))
+                break
         strength, scount = core.sponsor_strength(name, counts)
         out.append({
             "name_key": key,
             "display_name": name,
-            "logo_url": web.logo_url(name) or None,
-            "logo_ar": web.logo_ar(name) or None,
-            "logo_mono": bool(web.logo_mono(name)),
+            "logo_url": logo[0], "logo_ar": logo[1], "logo_mono": logo[2],
             "initials": web.initials(name) or None,
             "sector": None,             # /companies still renders companies.json -- see the SQL
             "is_agency": bool(core.is_agency(name)),
