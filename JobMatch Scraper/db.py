@@ -1848,6 +1848,44 @@ def update_jds(jds):
     _dump_json(JDS_FILE, jds)
 
 
+def requeue_analysis(urls):
+    """Mark these rows' stored ANALYSIS as no longer trustworthy, by clearing match_score.
+
+    A description is immutable in the ordinary path -- score_jobs fetches one only when the
+    column is empty -- so the derived columns (jd_terms, exp_max_years, sponsor_jd) are normally
+    a true reading of the text the row holds. The repair paths break that on purpose:
+    refetch_thin_jds replaces a loading shell with the real posting, close_dead_jds writes back
+    a recovered one or blanks a junk one, and the extension fills in a description a browser
+    import arrived without. After any of those the row still carries the OLD text's analysis and
+    nothing notices -- score_jobs queues a fetch on "jd is empty", and this row's is not.
+
+    MEASURED CONSEQUENCE, 2026-09-06: nine postings in the owner's "0 to 2 Years" feed asked for
+    3 to 10 years in their own descriptions. exp_max_years was NULL on all nine because it was
+    derived from a shorter earlier copy that stated no number, and _filter_rows keeps a row it
+    holds no number for. The job page read the CURRENT text and printed the requirement under a
+    card the filter had just admitted.
+
+    match_score is the re-queue signal because score_jobs already reads NULL there as "no run
+    has ever scored this row" (_new_only_targets' `unscored` set), so the next scrape re-analyses
+    it and _persist_derived rewrites every JD-derived column from the text now stored. Nothing
+    else is cleared: blanking jd_terms would make the feed say "JD pending" for a row holding a
+    perfectly good description, whereas a NULL match_score is invisible to the feed -- it ranks
+    on the per-user numbers in user_scores, not on this column.
+
+    The CSV fallback cannot express a clear at all (update_job_fields' local branch copies
+    truthy values only, as its own docstring says), so this is a no-op off a real database.
+    """
+    rows = [{"url": u} for u in dict.fromkeys(urls) if u]
+    if not rows or not has_remote_db():
+        return 0
+    # keys= is REQUIRED here, not tidiness. _upsert drops None values when it merges duplicate
+    # urls and then infers the key union from what survives, so a column that is None on every
+    # row of a batch is not sent at all and the stale value lives on. Naming the group forces
+    # match_score onto every row -- the same trap the comment in _upsert describes.
+    update_job_fields(rows, keys=("url", "match_score"))
+    return len(rows)
+
+
 # ================= custom job boards (added through the app's "Add board" view) ====
 BOARDS_TABLE = "boards"
 BOARDS_FILE = "boards.json"          # local fallback

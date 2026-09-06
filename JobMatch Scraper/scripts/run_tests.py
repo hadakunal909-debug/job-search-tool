@@ -95,6 +95,7 @@ SUITES = (
     # most are one- or two-line fixes in code with no suite of its own; the finding id in each
     # test name is what keeps them traceable. See docs/QA_AUDIT.md.
     Suite("test_qa_audit_fixes",    "test_qa_audit_fixes.py",            "root",   "offline"),
+    Suite("test_requeue_analysis","test_requeue_analysis.py",          "root",   "offline"),
     Suite("test_reposts",           "test_reposts.py",                   "root",   "offline"),
     Suite("test_resume_bullets",    "test_resume_bullets.py",            "root",   "offline"),
     Suite("test_resume_keywords",   "test_resume_keywords.py",           "root",   "offline"),

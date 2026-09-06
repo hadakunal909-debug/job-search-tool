@@ -9793,6 +9793,34 @@ def main():
             try:
                 db.update_jds(jds)
                 print("Stored %d description(s) that arrived with the listing." % len(jds))
+                # ...AND INVALIDATE THE READING OF THE TEXT WE JUST OVERWROTE. This write
+                # is an upsert on url, so for a posting we ALREADY HOLD it REPLACES the
+                # description -- which the comment above says is the whole point of not
+                # gating on `kept`. The row's jd_terms / exp_max_years / sponsor verdict
+                # were derived from the previous text and nothing re-reads them: score_jobs
+                # queues on "jd is empty", and this row's is not, so only the daily full
+                # pass would ever revisit it.
+                #
+                # THIS IS WHERE THE 2026-09-04 BATCH BROKE. 1,783 descriptions were written
+                # here that day (258 is a normal run); afterwards ~2,300 of those rows held
+                # an analysis of a text they no longer stored, 778 had no exp_max_years at
+                # all, and 117 more carried one too HIGH -- so the experience filter both
+                # leaked ten-year jobs into a two-year search and hid genuinely entry-level
+                # ones from it. Measured, not inferred: their stored jd_terms does not
+                # recompute from the description now in the column.
+                #
+                # NARROWED TO ROWS WE ALREADY HELD, and that is what keeps this cheap. A row
+                # added by add_jobs() moments ago has a NULL match_score already, so
+                # re-queueing it buys nothing; and an unconditional call would put every
+                # listing description this sweep touched back through the ~206 ms/row
+                # analysis on EVERY run, whether the text changed or not. What is left is
+                # exactly the replace case.
+                fresh = {r.get("url") for r in kept}      # built once, not per element
+                held = [u for u in jds if u not in fresh]
+                if held:
+                    db.requeue_analysis(held)
+                    print("  re-queued %d of them for analysis (the row already existed, "
+                          "so its stored reading is now of the wrong text)." % len(held))
             except Exception as e:
                 print("  note: JD write failed (%s); score_jobs will refetch" % str(e)[:80])
         del scraped                 # the slice is banked; release it before the next one
