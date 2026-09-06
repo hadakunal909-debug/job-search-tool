@@ -5300,7 +5300,7 @@ _SIZE_HISTORY_MAX = 90          # ~3 months of daily points; the blob stays a fe
 # brain_companies is deliberately absent: it was never migrated to Supabase and lives only in
 # brain_companies_local.json, so counting it always yields None. The health checks say so
 # explicitly rather than leaving a permanent blank row here.
-_COUNTED_TABLES = ("jobs", "users", "user_jobs", "applications", "profiles",
+_COUNTED_TABLES = ("jobs", "job_descriptions", "companies", "users", "user_jobs", "applications", "profiles",
                    "resumes", "resume_files", "tailored_cache", "learned_answers", "boards")
 # Every table keyed by username, for the orphan check. db.delete_user() historically removed
 # only user_jobs + users, so anything else here can hold rows belonging to a deleted account.
@@ -5468,7 +5468,10 @@ def _health_checks():
     total = len(jobs)
     stats = _admin_stats()
 
-    jd = db.table_count("jobs", {"jd": "not.is.null"})
+    # The description moved to its own table; jd_chars answers this without a scan of
+    # the text. Falls back while the backfill has not stamped completion.
+    (db.table_count(db.JD_TABLE, {"jd_chars": "gt.0"}) if db.jd_table_ready()
+     else db.table_count("jobs", {"jd": "not.is.null"}))
     if jd is None:
         out.append(_check("JD coverage", False, "Couldn't read the count.", warn=True))
     else:

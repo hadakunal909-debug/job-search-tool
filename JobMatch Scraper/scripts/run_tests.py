@@ -84,6 +84,7 @@ SUITES = (
     Suite("test_edu_domains",       "test_edu_domains.py",               "root",   "offline"),
     Suite("test_experience_years",  "test_experience_years.py",          "root",   "offline"),
     Suite("test_jd_fingerprints", "test_jd_fingerprints.py",           "root",   "offline"),
+    Suite("test_jd_table_split",  "test_jd_table_split.py",             "root",   "offline"),
     Suite("test_jd_lookup_order",   "test_jd_lookup_order.py",           "root",   "offline"),
     Suite("test_jd_persist",        "test_jd_persist.py",                "root",   "offline"),
     Suite("test_jobspy_adapter",    "test_jobspy_adapter.py",            "root",   "offline"),

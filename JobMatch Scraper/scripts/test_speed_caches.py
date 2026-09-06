@@ -104,6 +104,13 @@ def jd_cache():
     store = {"u/full": "a real description", "u/empty": ""}
 
     def fake_fetch(table, params):
+        # COUNT THE DESCRIPTION READS ONLY. get_job_jd now consults data_versions once per
+        # worker per TTL to learn whether job_descriptions is authoritative yet, and that
+        # probe is a _fetch_all too. Counting it here would make this assertion about the
+        # readiness memo rather than about the JD memo it is named for -- and the readiness
+        # memo has its own coverage below.
+        if table == db.VERSIONS_TABLE:
+            return []
         calls[0] += 1
         u = params["url"].split("eq.", 1)[1]
         return [{"jd": store[u]}] if u in store else []
@@ -116,7 +123,10 @@ def jd_cache():
     wrote = []
     real_fetch, real_supa, real_upsert = db._fetch_all, db.has_remote_db, db._upsert
     db._fetch_all, db.has_remote_db = fake_fetch, lambda: True
-    db._upsert = lambda rows, chunk=200: wrote.extend(rows)
+    # table=/pk= since the description moved to job_descriptions: update_jds writes jobs
+    # and then mirrors, and a stub that cannot accept the mirror's kwargs turns a passing
+    # write into a swallowed 'mirror failed' line rather than a test failure.
+    db._upsert = lambda rows, chunk=200, keys=None, table=None, pk='url': wrote.extend(rows)
     db._jd_cache.clear()
     try:
         want("a JD is read once and remembered",
@@ -132,7 +142,12 @@ def jd_cache():
         db.update_jds({"u/full": "REWRITTEN"})
         want("update_jds evicts what it wrote", db.get_job_jd("u/full") == "REWRITTEN")
         want("...and it really did go through the write path",
-             [r.get("url") for r in wrote] == ["u/full"], repr(wrote[:1]))
+             [r.get("url") for r in wrote] == ["u/full", "u/full"], repr(wrote))
+        # TWO WRITES, NOT ONE: jobs carries the text plus its fingerprint, job_descriptions
+        # carries the text plus its length. The mirror is what the split is FOR, and a test
+        # that asserted one write would go green the day the mirror silently stopped.
+        want("...and the mirror carried the same text",
+             [r.get("jd") for r in wrote] == ["REWRITTEN", "REWRITTEN"], repr(wrote))
 
         def boom(table, params):
             raise RuntimeError("transient")
