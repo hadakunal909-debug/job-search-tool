@@ -1707,7 +1707,12 @@ def _visa_source_present():
     being shipped, and it fuzzy-matches badly enough to score "Northeastern University" 95.65
     against "northwestern university".
     """
-    return bool(visa_index()) or bool(companies_table())
+    # THE TABLE IS ASKED FIRST, and the order is the whole point rather than style.
+    # `or` short-circuits left to right, so putting visa_index() first LOADED the 11.2 MB
+    # file on the very first card -- from inside the function written to stop depending
+    # on it. Measured after the companies table went live: sponsor_counts.json was not
+    # loaded and visa_tags.json still was, which is half the saving silently not landing.
+    return bool(companies_table()) or bool(visa_index())
 
 
 
