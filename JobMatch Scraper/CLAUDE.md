@@ -220,5 +220,19 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   extension contract test sat outside CI for months.
 - **Verify by behaviour, not substring.** Several past sessions reported false failures where the
   code was fine and the assertion was wrong.
+- **Don't store `roles` / `track` / `intern` / `exp_src` on the job row.** It was Phase 4 of the
+  schema revamp and it was dropped on measurement. Warm, `_build_row` is 51.96 us/row and those
+  four cost 8.3 us of it -- 16%, of a build that runs once per corpus and is cached in
+  `row_cache/`. What they would buy in exchange is a new staleness class on **filter inputs**:
+  their vocabularies live in CODE (`core.roles_for_title`, `role_track`, `title_experience_tier`,
+  `_INTERN_RE`), `_derived_signature` hashes files and cannot see a function body, and the role
+  vocabulary has been edited at least three times (the 2026-08-01 title widening, the role-track
+  split, the 2026-08-20 holistic pass). A stale `roles` value does not look broken -- it silently
+  mis-filters, which is the exact defect the whole revamp was a response to. If it is ever worth
+  revisiting, it needs a `_score_rev`-style fingerprint over those specific functions FIRST.
+  What the profile found instead was `company_facts` rebuilding the same dict for 92% of rows
+  (3,545 employers across 47,133 postings); memoising it per employer took the build 77.19 ->
+  51.96 us/row, a 33% cut with no staleness at all because the memo is keyed on the companies
+  table version.
 - **Never load-test production.** Shared cPanel throttles at the account level and no restart
   clears it; the previous account was suspended once.
