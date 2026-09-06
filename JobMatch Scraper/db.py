@@ -259,6 +259,23 @@ JOBS_DERIVED_SQL = (
     "-- main row either way, so the columns above stay cheap to read on their own.\n"
     "alter table public.jobs add column if not exists jd_terms text;\n"
     "\n"
+    "-- PROVENANCE, and the reason this migration exists. jd_fp is the fingerprint of the\n"
+    "-- description this row STORES; facts_fp is the fingerprint of the text its derived\n"
+    "-- columns were READ FROM. Equal means the reading is about the text we hold. Different\n"
+    "-- means it is about a text we replaced and never re-read, which is what happened to\n"
+    "-- ~2,300 rows on 2026-09-04 and took a 200-second corpus scan to find. Now it is:\n"
+    "--     select url from public.jobs where jd_fp is distinct from facts_fp;\n"
+    "--\n"
+    "-- Both NULL is the normal state for a row we hold no description for, and `is distinct\n"
+    "-- from` is the operator that reads that as agreement rather than as a mismatch.\n"
+    "alter table public.jobs add column if not exists jd_fp text;\n"
+    "alter table public.jobs add column if not exists facts_fp text;\n"
+    "-- PARTIAL, because the only query anyone runs against this pair is the disagreement\n"
+    "-- above, and on a healthy corpus that matches almost nothing. A full index on two\n"
+    "-- 32-char columns would cost ~3 MB to answer a question about a handful of rows.\n"
+    "create index if not exists jobs_facts_stale_idx on public.jobs (url)\n"
+    "  where jd_fp is distinct from facts_fp;\n"
+    "\n"
     "-- LAST. Without this PostgREST answers from its cached schema and every column added above\n"
     "-- reads as missing until it happens to reload.\n"
     "notify pgrst, 'reload schema';\n")
@@ -642,14 +659,27 @@ def load_jobs(include_jd=True, cols=None):
     `cols` narrows further for consumers that need only a few fields — see COLS_* above. It is
     best-effort: if that select fails (a column not migrated yet), it falls back to the normal
     include_jd=False path rather than raising, because reading more than necessary is a cost and
-    failing here would take down a scrape.
+    failing here would take down a scrape. That fallback is CAPPED at the include_jd=False
+    set whatever the caller passed: a request for six columns must never widen into a read
+    of the description text.
     """
     if has_remote_db():
         if cols:
             try:
                 return _fetch_all(TABLE, {"select": cols})
             except Exception:
-                pass                     # fall through to the wider, always-supported select
+                # NEVER ESCALATE A NARROW READ TO select=*. include_jd defaults to True, so
+                # falling through with it untouched turned `load_jobs(cols='url,jd_fp')`
+                # into a read of all 25 columns INCLUDING the 263 MB of description text --
+                # the exact ~130 MB hazard _warn_full_jd_read exists to catch, reached by a
+                # caller that had explicitly asked for six columns. The docstring above has
+                # always said this path "falls back to the normal include_jd=False path";
+                # the code did not, and it cost ~300 MB of a 5 GB monthly egress budget
+                # twice in one afternoon before anyone read the two together.
+                #
+                # A caller that named columns cannot want every column. Widening to the
+                # feed set is a fallback; widening to the whole table is a different bug.
+                include_jd = False
         if include_jd:
             _warn_full_jd_read()
         sel = "*" if include_jd else _FEED_COLS
@@ -687,6 +717,11 @@ def load_jobs(include_jd=True, cols=None):
 # Bounded and LRU, sized in ROWS not bytes but with the bytes in mind: descriptions average
 # ~5.6 KB, so 64 entries is a few hundred KB against a worker measured at 240 MB warm. The one
 # writer (update_jds) evicts what it touches, so "immutable" needs no asterisk.
+# Whether jobs.jd_fp exists. Optimistic: a fresh database has it (JOBS_DERIVED_SQL creates
+# it), and the one deployment where it does not is the window between shipping this code and
+# pasting the migration. Flipped at most once per process, by update_jds below.
+_fp_col = {"ok": True}
+
 _JD_CACHE_MAX = 64
 _jd_cache = collections.OrderedDict()
 
@@ -1631,6 +1666,56 @@ def resume_fp(text):
     return hashlib.md5((text or "").encode("utf-8")).hexdigest()
 
 
+# The cap update_jds applies before storing a description. Hoisted out of that function
+# because jd_fingerprint below MUST hash the same bytes the column actually holds: the
+# scoring pass analyses the text it fetched, which can be longer (measured max 8,879 chars),
+# and hashing the uncapped copy at one end and the capped one at the other would mark every
+# freshly fetched row as stale for ever.
+JD_MAX_CHARS = 8000
+
+
+def jd_fingerprint(text):
+    """The identity of a stored DESCRIPTION. None when there is no description at all.
+
+    The same bargain as resume_fp above, pointed at the other half of the problem. A derived
+    column -- exp_max_years, jd_terms, the sponsorship verdict -- is a claim ABOUT A SPECIFIC
+    TEXT, and a plain column has no way to notice when that text is replaced underneath it.
+    On 2026-09-04 a sweep rewrote 1,783 descriptions on rows the table already held; the
+    readings stayed, and for two days the experience filter both admitted ten-year jobs to a
+    two-year search and hid genuinely entry-level ones from it. Storing the fingerprint of
+    the text a reading came from turns that from an audit into a WHERE clause:
+
+        select url from public.jobs where jd_fp is distinct from facts_fp;
+
+    NONE RATHER THAN A HASH OF THE EMPTY STRING, and that is why this is a function rather
+    than a one-liner at each call site. A row we hold no text for has no reading to be stale.
+    If empty hashed to a value, every never-fetched row would sit permanently on the wrong
+    side of that comparison -- a real hash on one side, NULL on the other -- and the query
+    that is meant to mean "these rows are lying" would return the fetch backlog instead.
+    Absence is not a mismatch.
+    """
+    if not (text or "").strip():
+        return None
+    return hashlib.md5((text or "")[:JD_MAX_CHARS].encode("utf-8")).hexdigest()
+
+
+# A missing COLUMN, which is not the same question as a missing table even though Postgres
+# spells both "does not exist". _MISSING_TABLE above matches that phrase, so reusing it here
+# would read a missing table as a missing column and drop a field instead of falling back.
+_MISSING_COL = ('42703', 'undefined_column', 'does not exist')
+
+
+def _column_missing(exc, col):
+    """Did this write fail because `col` has not been migrated yet, rather than for real?
+
+    Deliberately requires the column NAME in the message as well as the shape, because the
+    only safe response to this is to write less data, and doing that on a misread error
+    would silently drop a field for ever.
+    """
+    s = repr(exc)
+    return col in s and any(m in s for m in _MISSING_COL)
+
+
 def _table_missing(exc):
     """Has the migration simply not been run yet? Distinguished from a real failure because the
     two want opposite handling: a missing table means fall back and carry on quietly, anything
@@ -1836,14 +1921,39 @@ def update_jds(jds):
     """{url: jd_text} -> persist each job's description (used for per-user scoring).
     JD text is large, so cap each one and write in small CHUNKS — a single bulk POST
     of all of them is multiple MB and gets the connection reset."""
-    rows = [{"url": u, "jd": (jd or "")[:8000]} for u, jd in jds.items() if u]   # cap: bound DB size
+    # THE FINGERPRINT RIDES WITH THE TEXT, in the same row of the same statement, so there
+    # is no window in which the column and its stamp disagree. Every writer that can replace
+    # a description goes through here -- the sweep's listing JDs, refetch_thin_jds,
+    # close_dead_jds, the extension import -- so this is the only place that has to know.
+    rows = [{"url": u, "jd": (jd or "")[:JD_MAX_CHARS],
+             "jd_fp": jd_fingerprint(jd)} for u, jd in jds.items() if u]
     if not rows:
         return
     for r in rows:
         _jd_cache.pop(r["url"], None)          # the only thing that can falsify _jd_cache
     if has_remote_db():
+        # DEGRADES IF THE MIGRATION HAS NOT BEEN RUN. This function is on the scrape's
+        # critical path -- it is how every fetched description reaches the table -- and
+        # jd_fp is a new column. Deploying the code before pasting
+        # MIGRATION_jd_fingerprints.sql would otherwise fail EVERY description write, which
+        # is a far worse outcome than not having the provenance stamp for a day. So: try
+        # with it, and on a missing-column error drop the stamp, say so once, and carry on.
+        # The flag is process-wide, so the cost is one failed chunk per worker, not one per
+        # batch. Same self-serve shape as JOBS_DERIVED_SQL, which exists for this exact
+        # ordering problem.
         for i in range(0, len(rows), 30):     # ~30 JDs/request keeps the body small
-            _upsert(rows[i:i + 30])
+            chunk = rows[i:i + 30]
+            if not _fp_col["ok"]:
+                chunk = [{k: v for k, v in r.items() if k != "jd_fp"} for r in chunk]
+            try:
+                _upsert(chunk)
+            except Exception as e:
+                if not (_fp_col["ok"] and _column_missing(e, "jd_fp")):
+                    raise
+                _fp_col["ok"] = False
+                print("  (jobs.jd_fp not migrated yet — storing descriptions without the "
+                      "provenance stamp. Run MIGRATION_jd_fingerprints.sql.)")
+                _upsert([{k: v for k, v in r.items() if k != "jd_fp"} for r in chunk])
         return
     _dump_json(JDS_FILE, jds)
 

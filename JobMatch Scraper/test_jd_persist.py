@@ -35,6 +35,19 @@ class _FakeDB(object):
 
     COLS_SCORE = "url,found_date,location,first_seen"
     JOBS_DERIVED_SQL = ""
+    JD_MAX_CHARS = real_db.JD_MAX_CHARS
+
+    # DELEGATED, NOT REIMPLEMENTED. jd_fingerprint is a pure function of the text -- no
+    # database, no network -- and the whole point of it is that the fingerprint the scoring
+    # pass stamps is byte-identical to the one db.update_jds writes. A fake with its own
+    # copy could agree with itself while disagreeing with production, which is the exact
+    # failure this column exists to make impossible.
+    jd_fingerprint = staticmethod(real_db.jd_fingerprint)
+
+    # _send_derived asks this to tell an un-migrated column apart from a real write failure.
+    # Delegated for the same reason as jd_fingerprint above: a fake with its own idea of what
+    # 'that column does not exist' looks like could pass while production dropped a field.
+    _column_missing = staticmethod(real_db._column_missing)
 
     def __init__(self, rows):
         self.rows = {r["url"]: dict(r) for r in rows}

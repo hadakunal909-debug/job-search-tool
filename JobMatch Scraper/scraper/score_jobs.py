@@ -1107,7 +1107,11 @@ def _norm_cmp(key, val):
 # way: a batch in which no row states an experience floor would not send exp_max_years at all,
 # and a stale value the parser no longer agrees with would survive. Naming the group means every
 # batch writes all four columns whatever it happens to hold.
-JD_DERIVED_COLS = ("url", "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms")
+JD_DERIVED_COLS = ("url", "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms",
+                   # WHICH TEXT the four columns before it were read from. Written in the
+                   # same payload deliberately: a stamp that could land without its
+                   # readings, or the reverse, would be worse than no stamp at all.
+                   "facts_fp")
 
 # Rows per JD-fields write. This used to be the whole corpus accumulated in memory and sent in
 # ONE call after the loop, which is exactly where the 2026-09-03 pass died: `Derived fields:
@@ -1221,7 +1225,22 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         # JD-derived, and ONLY for rows we actually hold the description for. A row whose JD
         # we couldn't read this run must keep whatever an earlier run derived — writing an
         # empty verdict over a real one is worse than writing nothing.
+        # THE CACHED READING IS ONLY GOOD FOR THE TEXT IT WAS READ FROM, and in new-only
+        # mode `jdmeta` is loaded FROM DISK (main() line ~2250), so an entry can predate
+        # this run by days. That is not hypothetical: the 2026-09-03 re-derive notes say
+        # "_persist_derived prefers a cached entry over recomputing, so a stale file writes
+        # the OLD parser's answers straight back", and the only remedy on offer was to
+        # remember to move jdmeta.json aside by hand. Comparing fingerprints makes that
+        # structural: an entry whose jd_fp does not match the text we are holding is not a
+        # cache hit, it is a different document, and it gets recomputed.
+        #
+        # Entries written before this column existed carry no jd_fp at all, so they all
+        # miss once and are rebuilt with one. That is a one-off cost of ~206 ms per row
+        # over the few hundred rows a new-only run touches, not over the corpus.
+        fp = db.jd_fingerprint(row_jd.get(u))
         m = (jdmeta or {}).get(u)
+        if m is not None and m.get("jd_fp") != fp:
+            m = None
         if m is None:
             jd = row_jd.get(u) or ""
             if not jd:
@@ -1229,10 +1248,15 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
             # The SAME idf the scoring loop used. Analyzing with idf=None would silently give
             # every term weight 1.0, so this row's score would not be comparable with any other.
             m = core.job_meta(jd, idf)
+            m["jd_fp"] = fp
         exp_y, (sv, sreason) = m.get("exp_years"), (m.get("sponsor_jd") or ("", ""))
         # The keyword weights the FEED scores every résumé against — see core.pack_analyzed.
         terms = core.pack_analyzed(m.get("analyzed") or {})
+        # facts_fp answers "which text is this reading about". Taken from `m` rather than
+        # recomputed here, so it names the document that actually produced the four values
+        # beside it even when they came from the cache.
         want_jd = {"exp_max_years": exp_y, "sponsor_jd": sv, "sponsor_reason": sreason,
+                   "facts_fp": m.get("jd_fp"),
                    "jd_terms": terms or None}
         if exp_y is not None:
             stats["exp"] += 1
@@ -1300,12 +1324,45 @@ def _send_derived(payload, label, summary=None, keys=None, hint=True):
         if summary is not None:
             print("%s already current (%s)." % (label, summary))
         return True
-    try:
-        db.update_job_fields(payload, keys=keys)
-    except Exception as e:
-        print("  (%s write failed: %s)" % (label.lower(), str(e)[:160]))
+    # ONE RETRY, AND ONLY FOR THE PROVENANCE STAMP. facts_fp is the newest column written
+    # here, so the window between deploying this code and pasting
+    # MIGRATION_jd_fingerprints.sql is the one time the whole JD group would fail -- taking
+    # exp_max_years and jd_terms down with it, which is the very data the stamp exists to
+    # protect. Losing the stamp for a day is a cost; losing the readings is a regression.
+    #
+    # Written as a loop over two payloads rather than a nested try, so the failure reporting
+    # below stays the single exit for every kind of failure -- including a retry that also
+    # fails, which an inner except would otherwise swallow into its own message.
+    # ONE RETRY, AND ONLY FOR THE PROVENANCE STAMP. facts_fp is the newest column written
+    # here, so the window between deploying this code and pasting
+    # MIGRATION_jd_fingerprints.sql is the one time the whole JD group would fail -- taking
+    # exp_max_years and jd_terms down with it, which is the very data the stamp exists to
+    # protect. Losing the stamp for a day is a cost; losing the readings is a regression.
+    #
+    # A flag rather than a message re-test bounds the retry BY CONSTRUCTION. Deciding whether
+    # to go round again by re-reading the error would loop for ever if a database ever
+    # answered a stripped payload with a message that still named the column -- and 'that
+    # cannot happen' is not something this file gets to assume on the scrape's critical path.
+    body, cols, retried, err = payload, keys, False, None
+    while True:
+        try:
+            db.update_job_fields(body, keys=cols)
+            err = None
+            break
+        except Exception as e:
+            err = e
+            if retried or not db._column_missing(e, "facts_fp"):
+                break
+            retried = True
+            print("  (jobs.facts_fp not migrated yet — writing the readings without their "
+                  "provenance stamp. Run MIGRATION_jd_fingerprints.sql.)")
+            body = [{k: v for k, v in r.items() if k != "facts_fp"} for r in body]
+            cols = tuple(c for c in (cols or ()) if c != "facts_fp") or None
+    if err is not None:
+        print("  (%s write failed: %s)" % (label.lower(), str(err)[:160]))
         if hint:
-            print("  If that mentions an unknown column, run this once in Supabase -> SQL Editor:\n")
+            print("  If that mentions an unknown column, run this once in the SQL editor:")
+            print("")
             print(db.JOBS_DERIVED_SQL)
         return False
     if summary is not None:
@@ -2351,6 +2408,9 @@ def main():
         if jd is None:
             continue
         m = core.job_meta(jd, idf)
+        # Stamped HERE, where the text is still in hand, so the entry stays self-describing
+        # once it has been written to jdmeta.json and re-read by a later run.
+        m["jd_fp"] = db.jd_fingerprint(jd)
         jdmeta[u] = m
         # A too-thin/truncated JD can't be scored honestly (it's what produced the fake ~100%s):
         # store 0 so it sorts/filters low and the feed shows it as "JD pending" (the web layer
