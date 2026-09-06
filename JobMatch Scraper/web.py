@@ -9638,6 +9638,8 @@ def warm():
         visa_index()      ~2.9 MB of visa routes
         _logo_manifest()  the logo lookup
         _base_rows()      every card row except the score
+        core.load_idf()   the ~29 MB IDF table, one json.load per worker process
+        _live_analysis()  the rows no analyse pass has reached, under a 1.5 s budget
 
     NO LOGIN, and deliberately not on `/`: OPERATIONS.md warns against pointing the cron at the
     feed because that needs a session and does per-user work. This does neither.
@@ -9672,6 +9674,29 @@ def warm():
     # where that becomes visible.
     if isinstance(out.get("base_rows"), dict):
         out["base_rows"]["rebuilt"] = _base_rows_cache.get("fresh")
+    # THE TWO STAGES A COLD WORKER USED TO PAY ON ITS FIRST FEED, added 2026-09-05 after
+    # measuring one: a first `/` render on the 48,372-row corpus was 2,229 ms against 44 ms
+    # warm, and cProfile put 915 ms of it in core.load_idf -- a single json.load of the
+    # ~29 MB idf.json -- with most of the remainder in _live_analysis scoring the rows no
+    # analyse pass has reached yet. Running both here took that same first render to 433 ms.
+    #
+    # NEITHER LEAVES A FILE BEHIND, unlike base_rows and the score files, so both are per
+    # PROCESS: a tick warms whichever worker answered it and the five-minute cron covers the
+    # others over time. That is a weaker guarantee than the stages above and still worth
+    # having, because Passenger keeps a worker for hours -- one was 4h14m old when this was
+    # measured -- so a warmed process goes on to serve a great many requests.
+    #
+    # load_idf gets its OWN stage rather than being left to _live_analysis, which only
+    # reaches for it when it has candidates: on a corpus with nothing pending the stage below
+    # returns in microseconds and the 915 ms would still be sitting in front of the first
+    # visitor -- and in front of /job and the two tailor routes, which load it through their
+    # own call sites. Its `n` is the term count, which is also the cheapest way for a cron
+    # log to show idf.json is present at all: a missing file reads as 0 rather than as an error.
+    _stage("idf", core.load_idf)
+    # _base_rows() and not get_jobs(): it hands back the rows the base_rows stage above has
+    # already built, so this adds no corpus load. The wall-clock budget and the memo are inside
+    # _live_analysis, so it can neither run long nor repeat work on a later tick.
+    _stage("live_analysis", lambda: _live_analysis(_base_rows()))
     # THE PER-USER HALF, and it is the one that was actually hurting. Skippable with &users=0.
     if (request.args.get("users") or "1") != "0":
         a = time.time()
