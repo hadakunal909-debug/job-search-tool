@@ -263,6 +263,81 @@ def test_the_mirror_carries_only_the_columns_that_moved():
            real_db.JOB_FACTS_TABLE in with_facts, repr(with_facts))
 
 
+# ---- the packed analysis --------------------------------------------------------------
+
+def test_the_fingerprint_keeps_counting_the_same_thing():
+    """jobs_fingerprint's third component must survive the analysis changing tables.
+
+    It counts rows carrying an analysis, and web keys its row cache on the result. If the
+    count froze -- because it went on asking `jobs` after the writer moved to job_terms --
+    the fingerprint would stop moving when a scoring run writes, and every worker would go
+    on serving cards whose score_pending flag is a scrape old. That is the exact failure the
+    component was ADDED for, in the other direction.
+    """
+    asked = []
+
+    def counter(table, params=None):
+        asked.append((table, tuple(sorted((params or {}).items()))))
+        return 1
+
+    def fetch(table, params, stamped):
+        if table == real_db.VERSIONS_TABLE:
+            return [{"name": "job_terms", "version": "v1"}] if stamped else []
+        return [{"first_seen": "2026-09-06"}]
+
+    for stamped, want_table in ((False, real_db.TABLE), (True, real_db.JOB_TERMS_TABLE)):
+        saved = (real_db.table_count, real_db._fetch_all, real_db.has_remote_db)
+        real_db.table_count = counter
+        real_db._fetch_all = lambda t, p, s=stamped: fetch(t, p, s)
+        real_db.has_remote_db = lambda: True
+        _reset()
+        real_db._terms_src.update(ready=None, at=0.0)
+        asked[:] = []
+        try:
+            real_db.jobs_fingerprint()
+        finally:
+            real_db.table_count, real_db._fetch_all, real_db.has_remote_db = saved
+        counted = [t for t, p in asked if p]      # the filtered count, not the bare one
+        _check("stamped=%s -> the analysis count reads %s" % (stamped, want_table),
+               counted and counted[0] == want_table, repr(asked))
+
+
+def test_the_terms_mirror_writes_a_length_and_a_null_not_an_empty_string():
+    """n_terms > 0 has to be the same predicate `jd_terms is not null` was on `jobs`.
+
+    jobs_fingerprint and urls_missing_jd_terms both key off that predicate. If the mirror
+    stored '' rather than NULL for a row with no analysis, `n_terms > 0` and
+    `jd_terms is not null` would disagree, and the fingerprint would count rows the scorer
+    still considers unanalysed.
+    """
+    import json
+    posted = []
+
+    def post(url, headers=None, params=None, data=None, timeout=None):
+        if url.rstrip('/').rsplit('/', 1)[-1] == real_db.JOB_TERMS_TABLE:
+            posted.extend(json.loads(data))
+        return _Resp()
+
+    real_http, real_remote = real_db._http, real_db.has_remote_db
+    real_db._http, real_db.has_remote_db = _FakeHTTP(post), lambda: True
+    _reset()
+    real_db._terms_tbl["ok"] = True
+    try:
+        real_db.mirror_job_terms([{"url": "u/1", "jd_terms": "abc"},
+                                  {"url": "u/2", "jd_terms": ""}])
+    finally:
+        real_db._http, real_db.has_remote_db = real_http, real_remote
+        _reset()
+
+    by_url = {r["url"]: r for r in posted}
+    _check("a real analysis carries its length",
+           by_url.get("u/1", {}).get("n_terms") == 3, repr(by_url.get("u/1")))
+    _check("an empty analysis stores NULL, not an empty string",
+           by_url.get("u/2", {}).get("jd_terms") is None, repr(by_url.get("u/2")))
+    _check("...and length 0, so n_terms > 0 excludes it",
+           by_url.get("u/2", {}).get("n_terms") == 0, repr(by_url.get("u/2")))
+
+
 def test_the_migration_and_the_allowlist_agree():
     import dbproxy
     _check("job_descriptions is allowlisted on the proxy",
@@ -290,6 +365,8 @@ def main():
                test_the_mirror_cannot_take_the_real_write_down_with_it,
                test_job_facts_gate_matches_the_description_gate,
                test_the_mirror_carries_only_the_columns_that_moved,
+               test_the_fingerprint_keeps_counting_the_same_thing,
+               test_the_terms_mirror_writes_a_length_and_a_null_not_an_empty_string,
                test_the_migration_and_the_allowlist_agree):
         fn()
     _reset()
