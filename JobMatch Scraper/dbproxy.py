@@ -67,6 +67,8 @@ ALLOWED_TABLES = {
     # from a laptop or from Actions is the ONLY place a missing entry shows up -- as a 403
     # that looks like an auth problem rather than an allowlist one.
     "companies", "data_versions",
+    # The description, split out of jobs. Same reasoning as the two above.
+    "job_descriptions",
 }
 # Stored procedures the admin panels call. Named individually for the same reason as the tables.
 ALLOWED_RPC = {"db_stats", "ev_usage"}

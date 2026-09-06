@@ -119,7 +119,12 @@ def test_update_jds_stamps_the_text_it_writes():
     finally:
         real_db._http, real_db.has_remote_db = real_http, real_remote
 
-    by_url = {r["url"]: r for r in sent}
+    # BOTH TABLES NOW POST. update_jds writes jobs (url, jd, jd_fp) and then mirrors into
+    # job_descriptions (url, jd, jd_chars, updated_at). Keying a single dict on url let the
+    # mirror row overwrite the jobs row, and the assertion below then looked for jd_fp on a
+    # payload that is not supposed to carry it. Take the rows that name the fingerprint column.
+    by_url = {r["url"]: r for r in sent if "jd_fp" in r}
+    mirrored = {r["url"]: r for r in sent if "jd_chars" in r}
     _check("both rows were written", set(by_url) == {"u/1", "u/2"}, repr(sorted(by_url)))
     # THE STAMP RIDES WITH THE TEXT. Two statements would leave a window in which the column and
     # its fingerprint disagree -- and a crash inside that window is indistinguishable from the
@@ -130,6 +135,13 @@ def test_update_jds_stamps_the_text_it_writes():
            repr(by_url.get("u/1")))
     _check("an empty description stamps NULL, not a hash",
            by_url.get("u/2", {}).get("jd_fp") is None, repr(by_url.get("u/2")))
+    # The mirror is a shadow copy until the backfill stamps completion, so it must carry the
+    # same text -- a mirror that lags is the bug this whole revamp is about, one table down.
+    _check("job_descriptions is mirrored with the same text",
+           mirrored.get("u/1", {}).get("jd") == "Seven years of experience.", repr(mirrored))
+    _check("...and with its length, which is what urls_with_jd filters on",
+           mirrored.get("u/1", {}).get("jd_chars") == len("Seven years of experience."),
+           repr(mirrored.get("u/1")))
 
 
 def test_the_scoring_pass_stamps_and_distrusts_a_mismatched_cache():

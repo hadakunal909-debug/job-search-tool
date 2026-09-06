@@ -696,6 +696,20 @@ def load_jobs(include_jd=True, cols=None):
                 include_jd = False
         if include_jd:
             _warn_full_jd_read()
+        # WHEN THE TEXT HAS MOVED, `*` no longer carries it -- that is the whole point of
+        # the split -- so it is fetched from its own table and merged back on here. Callers
+        # keep getting one flat dict with a `jd` key, which is what lets ~120 call sites go
+        # untouched while the storage underneath them changes.
+        split = bool(include_jd) and jd_table_ready()
+        if split:
+            # The corpus-wide read. _warn_full_jd_read still fires above:
+            # this is cheaper by nothing at all, it is merely no longer
+            # possible to reach by accident.
+            base = _fetch_all(TABLE, {"select": _FEED_COLS})
+            texts = _jd_rows()
+            for r in base:
+                r["jd"] = texts.get(r.get("url"), "")
+            return base
         sel = "*" if include_jd else _FEED_COLS
         try:
             return _fetch_all(TABLE, {"select": sel})
@@ -736,6 +750,52 @@ def load_jobs(include_jd=True, cols=None):
 # pasting the migration. Flipped at most once per process, by update_jds below.
 _fp_col = {"ok": True}
 
+# ================= the description, in its own table ================================
+#
+# See MIGRATION_job_descriptions.sql. Short version: Postgres already stores the text out of
+# line, so this saves no disk -- what it buys is that `select=*` on `jobs` cannot return 263 MB
+# by accident, which it has done twice in one afternoon.
+JD_TABLE = "job_descriptions"
+
+# Is job_descriptions AUTHORITATIVE yet? Not "does the table exist" -- an existing but
+# half-backfilled table is the worst possible source, because a missing row is indistinguishable
+# from a job with no description and the scraper would queue a fetch for text we already hold.
+#
+# scripts/backfill_job_descriptions.py stamps data_versions['job_descriptions'] only when every
+# row has landed, so this flips exactly once and never early. UNREADABLE COUNTS AS NOT READY,
+# which is safe in a way the row-cache key's version read is not: falling back means reading
+# jobs.jd, which is still the source of truth until the contract step drops it.
+_jd_src = {"ready": None, "at": 0.0}
+_JD_SRC_TTL = 300
+
+
+def jd_table_ready():
+    """True once the backfill has stamped completion. Cached for _JD_SRC_TTL seconds."""
+    now = time.time()
+    if _jd_src["ready"] is not None and now - _jd_src["at"] < _JD_SRC_TTL:
+        return _jd_src["ready"]
+    try:
+        ready = bool(get_data_version("job_descriptions"))
+    except Exception:
+        ready = False                    # see above: falling back is always safe here
+    _jd_src.update(ready=ready, at=now)
+    return ready
+
+
+def _jd_rows(urls=None):
+    """{url: jd} from job_descriptions -- the whole table, or just these urls."""
+    params = {"select": "url,jd"}
+    if urls is None:
+        rows = _fetch_all(JD_TABLE, params)
+    else:
+        rows = []
+        for batch in _url_batches(list(urls)):
+            params = dict(params, url=_in_list(batch))
+            rows.extend(_fetch_all(JD_TABLE, params))
+    return {r["url"]: (r.get("jd") or "") for r in rows if r.get("url")}
+
+
+
 _JD_CACHE_MAX = 64
 _jd_cache = collections.OrderedDict()
 
@@ -756,7 +816,11 @@ def get_job_jd(url):
         return _jd_cache[url]
     if has_remote_db():
         try:
-            rows = _fetch_all(TABLE, {"url": "eq.%s" % url, "select": "jd"})
+            # The description lives in its own table once the backfill has stamped it.
+            # Until then jobs.jd is the source and that table is a shadow -- see
+            # jd_table_ready() for why a half-backfilled table is worse than neither.
+            src = JD_TABLE if jd_table_ready() else TABLE
+            rows = _fetch_all(src, {"url": "eq.%s" % url, "select": "jd"})
             jd = (rows[0].get("jd") or "") if rows else ""
         except Exception:
             return ""                          # transient: do not remember it
@@ -791,6 +855,11 @@ def load_jobs_by_urls(urls, include_jd=True):
     if not urls:
         return []
     if has_remote_db():
+        # WHEN THE TEXT HAS MOVED, `*` no longer carries it -- that is the whole point of
+        # the split -- so it is fetched from its own table and merged back on here. Callers
+        # keep getting one flat dict with a `jd` key, which is what lets ~120 call sites go
+        # untouched while the storage underneath them changes.
+        split = bool(include_jd) and jd_table_ready()
         sel = "*" if include_jd else _FEED_COLS
         rows = []
         for batch in _url_batches(urls):
@@ -807,6 +876,10 @@ def load_jobs_by_urls(urls, include_jd=True):
                                                    "url": _in_list(batch)}))
                 except Exception:
                     continue
+        if split:
+            texts = _jd_rows([r.get("url") for r in rows if r.get("url")])
+            for r in rows:
+                r["jd"] = texts.get(r.get("url"), "")
         return rows
     want = set(urls)
     rows = [r for r in _read_csv() if r.get("url") in want]
@@ -863,6 +936,26 @@ def urls_missing_jd():
     """
     if has_remote_db():
         try:
+            if jd_table_ready():
+                # AN ANTI-JOIN, and it is the one place this split costs something real. A
+                # job with no description has no ROW in job_descriptions at all, so there is
+                # nothing there to select for -- the backlog is every url in `jobs` minus
+                # the ones that have text, and pgrest.py translates no joins.
+                #
+                # MEASURED 2026-09-06 against the live box: the single-table form answers in
+                # 0.3 s because only 284 rows come back, while urls_with_jd() takes 30 s for
+                # 46,903. Both halves here are url-only selects, so this is ~60 s and a few
+                # MB rather than the 263 MB selecting the text to test it would cost -- but
+                # it is a 100x regression on THIS call, paid once per scrape run against a
+                # run that already takes 20-45 minutes. Accepted, not overlooked.
+                #
+                # If it ever bites: a `has_jd` boolean on `jobs`, written by update_jds in
+                # the same statement as the text, restores the one-query form. It is a
+                # pointer rather than a copy of the text, so it is cheap -- but it is still
+                # a second column that can disagree with the first, which is the failure
+                # this whole revamp exists to remove. Do not add it on suspicion; add it on
+                # a measurement that says the minute matters.
+                return {u for u in existing_urls() if u} - urls_with_jd()
             return {r["url"] for r in _fetch_all(TABLE, {"select": "url",
                                                          "or": "(jd.is.null,jd.eq.)"})
                     if r.get("url")}
@@ -906,6 +999,15 @@ def urls_with_jd():
     For the inverse question prefer urls_missing_jd(), which pages ~5.6x fewer rows."""
     if has_remote_db():
         try:
+            if jd_table_ready():
+                # jd_chars > 0, NOT `jd is not null`. update_jds stores "" for a row whose
+                # description was cleared -- close_dead_jds does exactly that -- and a row
+                # holding an empty string HAS no description. The jobs.jd branch below says
+                # the same thing with an or= group; PostgREST cannot put two filters on one
+                # column in one query string, so the length column answers it in one hop
+                # rather than selecting the text and testing it here, which is 263 MB.
+                return {r["url"] for r in _fetch_all(
+                    JD_TABLE, {"select": "url", "jd_chars": "gt.0"}) if r.get("url")}
             return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "not.is.null"})
                     if r.get("url")}
         except Exception:
@@ -1968,8 +2070,41 @@ def update_jds(jds):
                 print("  (jobs.jd_fp not migrated yet — storing descriptions without the "
                       "provenance stamp. Run MIGRATION_jd_fingerprints.sql.)")
                 _upsert([{k: v for k, v in r.items() if k != "jd_fp"} for r in chunk])
+        _mirror_jds(rows)
         return
     _dump_json(JDS_FILE, jds)
+
+
+# Whether public.job_descriptions exists at all. Same optimistic shape as _fp_col: a fresh
+# database has it, and the one state where it does not is the window between deploying this
+# code and pasting MIGRATION_job_descriptions.sql.
+_jd_tbl = {"ok": True}
+
+
+def _mirror_jds(rows):
+    """Write the descriptions to job_descriptions as well. Never raises.
+
+    A SHADOW COPY UNTIL THE BACKFILL STAMPS COMPLETION, and the ordering is the safety
+    property: jobs.jd is written first and is authoritative, so a failure here loses the
+    mirror and never the text. After the flip both are still written, which is what keeps
+    them in step until the contract step drops the column.
+    """
+    if not _jd_tbl["ok"]:
+        return
+    payload = [{"url": r["url"], "jd": r["jd"], "jd_chars": len(r["jd"] or ""),
+                "updated_at": _now()} for r in rows]
+    try:
+        for i in range(0, len(payload), 30):
+            _upsert(payload[i:i + 30], table=JD_TABLE, pk="url")
+    except Exception as e:
+        if not _table_missing(e):
+            # A real failure is worth surfacing, but not worth failing the scrape over: the
+            # text is already safely in jobs.jd and the backfill re-syncs whatever drifted.
+            print("  (job_descriptions mirror failed: %s)" % str(e)[:120])
+            return
+        _jd_tbl["ok"] = False
+        print("  (public.job_descriptions not migrated yet — descriptions are in jobs.jd "
+              "only. Run MIGRATION_job_descriptions.sql.)")
 
 
 def requeue_analysis(urls):
@@ -2019,6 +2154,8 @@ COMPANIES_TABLE = "companies"
 COMPANIES_FILE = "companies_table_local.json"     # local fallback, same shape
 VERSIONS_TABLE = "data_versions"
 VERSIONS_FILE = "data_versions_local.json"
+_versions = {"map": None, "at": 0.0}
+_VERSIONS_TTL = 300          # seconds; bounds how long a worker misses a rebuild
 
 
 def load_companies():
@@ -2062,29 +2199,46 @@ def save_companies(rows):
     return len(rows)
 
 
+def _versions_map():
+    """{name: version} for every generated dataset. Memoised; RAISES on a real read failure.
+
+    ONE QUERY SERVES EVERY CONSUMER, and that is not premature tidiness. Each reader that wants a
+    version -- web.companies_table, db.jd_table_ready, and whatever Phase 3 adds -- would
+    otherwise probe separately, and get_job_jd is on the /job page's critical path against a box
+    measured at 271 ms round trip. One extra hop per consumer per worker is a real page.
+
+    The table is four rows. Reading it whole costs the same as reading one.
+    """
+    now = time.time()
+    if _versions["map"] is not None and now - _versions["at"] < _VERSIONS_TTL:
+        return _versions["map"]
+    try:
+        rows = _fetch_all(VERSIONS_TABLE, {"select": "name,version"})
+    except Exception as e:
+        if not _table_missing(e):
+            raise                      # see get_data_version: a caller may be keying a cache
+        rows = []                      # un-migrated is a stable answer, not a failure
+    m = {r.get("name"): (r.get("version") or "") for r in rows if r.get("name")}
+    _versions.update(map=m, at=now)
+    return m
+
+
 def get_data_version(name):
     """The current version stamp for a generated dataset. RAISES if it cannot be read.
 
-    THE RAISE IS THE POINT, and it is the opposite of load_companies' behaviour two functions up.
-    This value goes into web._derived_signature, which is half the row_cache key, and that
-    function's docstring states the rule: nothing that can fail silently may be in the key. It
-    has already cost one production incident -- two KV maps whose readers swallowed a failure
-    into {}, so workers computed different keys, each rebuilt 7 s over the other's file, and
-    production showed 63 ms and 8,401 ms in the same second.
+    THE RAISE IS THE POINT, and it is the opposite of load_companies' behaviour. This value goes
+    into web._derived_signature, which is half the row_cache key, and that function's docstring
+    states the rule: nothing that can fail silently may be in the key. It has already cost one
+    production incident -- two KV maps whose readers swallowed a failure into {}, so workers
+    computed different keys, each rebuilt 7 s over the other's file, and production showed 63 ms
+    and 8,401 ms in the same second.
 
-    A worker that cannot read the version must not compute a key at all. An ABSENT row is a
-    different thing from a failed read and returns "" quite happily: it means no builder has ever
-    stamped this dataset, which is a real and stable answer.
+    An ABSENT row is a different thing from a failed read and returns "" quite happily: it means
+    no builder has ever stamped this dataset, which is a real and stable answer.
     """
     if not has_remote_db():
         return (_load_json(VERSIONS_FILE) or {}).get(name, "")
-    try:
-        rows = _fetch_all(VERSIONS_TABLE, {"select": "version", "name": "eq.%s" % name})
-    except Exception as e:
-        if _table_missing(e):
-            return ""              # un-migrated is a stable answer, not a failure
-        raise
-    return (rows[0].get("version") or "") if rows else ""
+    return _versions_map().get(name, "")
 
 
 def set_data_version(name, version):
@@ -2092,6 +2246,9 @@ def set_data_version(name, version):
     if has_remote_db():
         _upsert([{"name": name, "version": version, "updated_at": _now()}],
                 keys=("name", "version", "updated_at"), table=VERSIONS_TABLE, pk="name")
+        # The writer is usually a build script rather than the app, but a stale memo in the
+        # process that just bumped the version is the one case guaranteed to be wrong.
+        _versions.update(map=None, at=0.0)
         return
     d = _load_json(VERSIONS_FILE) or {}
     d[name] = version
