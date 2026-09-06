@@ -109,6 +109,15 @@ fall back to `sha256(SUPABASE_KEY)`; with that gone, the only fallback left is a
 value derived from the hostname and file path, which is guessable — so `web.py` refuses to import
 rather than sign cookies and extension tokens with it.
 
+- **A match score is STORED, and `resume_fp` is why that is safe** (`user_scores`, added
+  2026-09-04). A stored score is a claim about a SPECIFIC résumé, and unlike a cache keyed on
+  that résumé's hash a plain table cannot notice when it stops being true. So the md5 of the
+  profile is stored WITH the score and **every read filters on it** — a row scored against an
+  older résumé simply does not come back, and the reader recomputes. The table may be out of
+  date; it cannot serve a number computed against something else. `web.user_scores` seeds
+  from it and computes the rest, so an empty table or an unrun migration degrades to the old
+  behaviour rather than breaking the feed. The writer deletes a job's rows when it rewrites
+  that job's `jd_terms`, and `ON DELETE CASCADE` removes them when the job is pruned.
 - **`db.load_jobs()` with no `cols` downloads ~130 MB** of descriptions. Four scripts have done
   this; `db._warn_full_jd_read` is the tripwire it added.
 - **`db._fetch_all` overwrites `limit`** with its 1000-row page size, so asking for one row walks
