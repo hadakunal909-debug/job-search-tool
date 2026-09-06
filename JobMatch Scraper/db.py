@@ -459,7 +459,7 @@ def jobs_fingerprint():
         return FP_UNKNOWN
 
 
-def _upsert(rows, chunk=200, keys=None):
+def _upsert(rows, chunk=200, keys=None, table=None, pk="url"):
     """Insert/merge rows on the `url` primary key (PostgREST upsert), in chunks with a soft retry.
     A single huge merge-upsert (a full re-score, or a big backlog of new jobs after the scheduled
     scrape has been down) is one giant statement; splitting it keeps each write small. On top of
@@ -467,7 +467,21 @@ def _upsert(rows, chunk=200, keys=None):
     each chunk gets a couple of extra spaced-out attempts before we give up (and then we surface
     the real response body, not a bare RetryError). PostgREST needs every object in a bulk write
     to share the SAME keys, so we normalize to the union of keys (missing -> None) — or to the
-    group `keys` names, which a caller writing one column group in several batches must pass."""
+    group `keys` names, which a caller writing one column group in several batches must pass.
+
+    `table` and `pk` default to `jobs` / `url`, which is what every caller wanted while jobs
+    was the only table written through here. They are parameters rather than a second
+    function because the retry-with-backoff, the duplicate-key merge and the key-union
+    normalisation are the hard parts and none of them are table-specific -- a second copy
+    would be a second place for the "an all-None column is never sent" trap to be got wrong.
+
+    THE THREE PLACES pk APPEARS ARE NOT INTERCHANGEABLE and all three used to say "url":
+    the ON CONFLICT target, the merge below that collapses duplicate keys within one batch,
+    and the passthrough test. Miss the merge and Postgres raises 21000 ("cannot affect row a
+    second time") on the whole batch; miss the passthrough test and every row of a table
+    with a different primary key is treated as un-mergeable and the duplicates reach the
+    server anyway.
+    """
     if not rows:
         return
     # A single PostgREST upsert can't touch the same `url` twice — Postgres raises 21000
@@ -478,7 +492,7 @@ def _upsert(rows, chunk=200, keys=None):
     order = []
     passthrough = []
     for r in rows:
-        u = r.get("url")
+        u = r.get(pk)
         if u is None:
             passthrough.append(r)
             continue
@@ -499,9 +513,9 @@ def _upsert(rows, chunk=200, keys=None):
         for attempt in range(4):           # ~0 + 3 + 6 + 12s of backoff rides out a transient 500 window
             try:
                 resp = _http.post(
-                    _rest(TABLE),
+                    _rest(table or TABLE),
                     headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
-                    params={"on_conflict": "url"}, data=payload, timeout=60)
+                    params={"on_conflict": pk}, data=payload, timeout=60)
                 if resp.status_code < 400:
                     break
                 last = "%s: %s" % (resp.status_code, (resp.text or "")[:300])
@@ -1994,6 +2008,95 @@ def requeue_analysis(urls):
     # match_score onto every row -- the same trap the comment in _upsert describes.
     update_job_fields(rows, keys=("url", "match_score"))
     return len(rows)
+
+
+# ================= employers, and the version stamp for the caches that read them ====
+#
+# See MIGRATION_companies.sql for why this is a table. Short version: sponsor_counts.json and
+# visa_tags.json cost 23 MB of RAM per worker to answer questions about 3,395 employers, 98.5% of
+# their rows are never asked about, and /reload cannot clear the module globals that hold them.
+COMPANIES_TABLE = "companies"
+COMPANIES_FILE = "companies_table_local.json"     # local fallback, same shape
+VERSIONS_TABLE = "data_versions"
+VERSIONS_FILE = "data_versions_local.json"
+
+
+def load_companies():
+    """{name_key: row} for every employer we hold facts about, or {} if not migrated yet.
+
+    READ WHOLE, deliberately. This is a few thousand narrow rows -- measured 3,395 employers
+    across the live corpus -- against the 129,660-key file it replaces, so paging it by the
+    companies actually on screen would cost more round trips than it saves bytes.
+
+    {} ON ANY FAILURE IS SAFE HERE AND IS NOT SAFE IN _derived_signature -- see get_data_version
+    below for the difference. A caller that gets {} falls back to the JSON files and renders the
+    same cards; a KEY that gets {} silently agrees with a key computed from real data, and two
+    workers then fight over one cache file.
+    """
+    if has_remote_db():
+        try:
+            rows = _fetch_all(COMPANIES_TABLE, {"select": "*"})
+        except Exception as e:
+            if not _table_missing(e):
+                raise
+            return {}
+        return {r["name_key"]: r for r in rows if r.get("name_key")}
+    return _load_json(COMPANIES_FILE) or {}
+
+
+def save_companies(rows):
+    """Upsert employer rows. rows = [{name_key, display_name, ...}]."""
+    rows = [r for r in rows if r.get("name_key")]
+    if not rows:
+        return 0
+    if has_remote_db():
+        # keys= names the group so a column that is None on every row of a chunk is still sent.
+        # Without it a batch in which nobody has a logo would leave stale logos in place -- the
+        # same trap db._upsert's own comment describes, and the one requeue_analysis was built
+        # around.
+        cols = sorted({k for r in rows for k in r})
+        for i in range(0, len(rows), 200):
+            _upsert(rows[i:i + 200], keys=cols, table=COMPANIES_TABLE, pk="name_key")
+        return len(rows)
+    _dump_json(COMPANIES_FILE, {r["name_key"]: r for r in rows})
+    return len(rows)
+
+
+def get_data_version(name):
+    """The current version stamp for a generated dataset. RAISES if it cannot be read.
+
+    THE RAISE IS THE POINT, and it is the opposite of load_companies' behaviour two functions up.
+    This value goes into web._derived_signature, which is half the row_cache key, and that
+    function's docstring states the rule: nothing that can fail silently may be in the key. It
+    has already cost one production incident -- two KV maps whose readers swallowed a failure
+    into {}, so workers computed different keys, each rebuilt 7 s over the other's file, and
+    production showed 63 ms and 8,401 ms in the same second.
+
+    A worker that cannot read the version must not compute a key at all. An ABSENT row is a
+    different thing from a failed read and returns "" quite happily: it means no builder has ever
+    stamped this dataset, which is a real and stable answer.
+    """
+    if not has_remote_db():
+        return (_load_json(VERSIONS_FILE) or {}).get(name, "")
+    try:
+        rows = _fetch_all(VERSIONS_TABLE, {"select": "version", "name": "eq.%s" % name})
+    except Exception as e:
+        if _table_missing(e):
+            return ""              # un-migrated is a stable answer, not a failure
+        raise
+    return (rows[0].get("version") or "") if rows else ""
+
+
+def set_data_version(name, version):
+    """Stamp a dataset. Builders call this after writing; readers key caches on it."""
+    if has_remote_db():
+        _upsert([{"name": name, "version": version, "updated_at": _now()}],
+                keys=("name", "version", "updated_at"), table=VERSIONS_TABLE, pk="name")
+        return
+    d = _load_json(VERSIONS_FILE) or {}
+    d[name] = version
+    _dump_json(VERSIONS_FILE, d)
+
 
 
 # ================= custom job boards (added through the app's "Add board" view) ====
