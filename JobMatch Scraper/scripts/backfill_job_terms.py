@@ -36,13 +36,20 @@ BATCH = 300
 
 
 def _source(urls):
-    """{url: packed} from jobs.jd_terms for these urls."""
+    """{url: {jd_terms, facts_fp}} from `jobs` for these urls.
+
+    THE STAMP COMES WITH IT. Selecting the text alone would have the mirror write
+    facts_fp NULL for the entire corpus -- throwing away, on the one pass whose job is
+    to populate this table, the exact fact the column exists to carry.
+    """
     out = {}
     for batch in db._url_batches(list(urls)):
-        rows = db._fetch_all(db.TABLE, {"select": "url,jd_terms", "url": db._in_list(batch)})
+        rows = db._fetch_all(db.TABLE, {"select": "url,jd_terms,facts_fp",
+                                        "url": db._in_list(batch)})
         for r in rows:
             if r.get("url"):
-                out[r["url"]] = r.get("jd_terms") or ""
+                out[r["url"]] = {"jd_terms": r.get("jd_terms") or "",
+                                 "facts_fp": r.get("facts_fp")}
     return out
 
 
@@ -91,14 +98,14 @@ def main():
         print("\nDRY RUN — nothing written. Re-run with --apply.")
         return 0
 
-    t0 = 0.0
     t0 = time.time()
     for i in range(0, len(todo), BATCH):
         batch = todo[i:i + BATCH]
         src = _source(batch)
         # Through the same mirror the live writers use, so a backfilled row and a freshly
         # written one cannot disagree about shape, keying or the n_terms convention.
-        db.mirror_job_terms([{"url": u, "jd_terms": t} for u, t in src.items()])
+        db.mirror_job_terms([{"url": u, "jd_terms": v["jd_terms"],
+                              "facts_fp": v["facts_fp"]} for u, v in src.items()])
         if (i // BATCH) % 5 == 0:
             print("  %6d/%d copied (%.0fs)" % (min(i + BATCH, len(todo)), len(todo),
                                                time.time() - t0))
@@ -122,7 +129,8 @@ def verify(with_terms=None):
         batch = urls[i:i + BATCH]
         old = _source(batch)
         new = db._terms_rows(batch)
-        for u, packed in old.items():
+        for u, rec in old.items():
+            packed = rec["jd_terms"]
             if not packed:
                 continue
             checked += 1

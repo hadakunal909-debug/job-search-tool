@@ -723,6 +723,16 @@ def load_jobs(include_jd=True, cols=None):
             if want_terms:
                 moved.add("jd_terms")
             sel_cols = [c for c in _FEED_COLS.split(",") if c not in moved]
+            if include_jd and not want_jd:
+                # THE DESCRIPTION IS STILL ON `jobs` AND _FEED_COLS DOES NOT NAME IT.
+                # Reachable whenever job_facts or job_terms is stamped before
+                # job_descriptions -- which the migrations explicitly permit, being
+                # independent of each other. Without this line the merge branch fires,
+                # selects _FEED_COLS, and returns rows with NO jd at all: the scorer
+                # would then build its IDF over empty strings and analyse nothing,
+                # while looking exactly like a corpus that had lost its descriptions.
+                # Found by auditing the gate matrix, not by any test.
+                sel_cols.append("jd")
             base = _fetch_all(TABLE, {"select": ",".join(sel_cols)})
             if want_facts:
                 by_url = _facts_rows()
@@ -824,7 +834,7 @@ def job_terms_ready():
     return ready
 
 
-def mirror_job_terms(rows):
+def mirror_job_terms(rows, keys=None):
     """Copy jd_terms into job_terms as well. Never raises; same bargain as the other mirrors.
 
     n_terms is stored beside the text so that PRESENCE and THINNESS can be answered without
@@ -839,11 +849,17 @@ def mirror_job_terms(rows):
         if not r.get("url") or "jd_terms" not in r:
             continue
         packed = r.get("jd_terms") or ""
-        payload.append({"url": r["url"], "jd_terms": packed or None,
-                        "n_terms": len(packed), "facts_fp": r.get("facts_fp")})
+        row = {"url": r["url"], "jd_terms": packed or None, "n_terms": len(packed)}
+        # Only carry the stamp when the caller actually wrote one. Naming it
+        # unconditionally would clear a real provenance stamp on any write that
+        # touches jd_terms without it -- dedupe_urls carries db.FIELDS on a URL move,
+        # and facts_fp is not in FIELDS.
+        if keys is None or "facts_fp" in set(keys):
+            row["facts_fp"] = r.get("facts_fp")
+        payload.append(row)
     if not payload:
         return
-    cols = ("url", "jd_terms", "n_terms", "facts_fp")
+    cols = tuple(sorted({k for r in payload for k in r}))
     try:
         for i in range(0, len(payload), 60):      # the text is ~730 B/row; keep bodies small
             _upsert(payload[i:i + 60], keys=cols, table=JOB_TERMS_TABLE, pk="url")
@@ -887,7 +903,7 @@ def job_facts_ready():
     return ready
 
 
-def mirror_job_facts(rows):
+def mirror_job_facts(rows, keys=None):
     """Copy the derived columns of these rows into job_facts as well. Never raises.
 
     Called after the authoritative write to `jobs`, for the same reason _mirror_jds is: a
@@ -896,19 +912,32 @@ def mirror_job_facts(rows):
     """
     if not _facts_tbl["ok"] or not rows:
         return
-    payload = []
-    for r in rows:
-        if not r.get("url"):
-            continue
-        keep = {k: r[k] for k in JOB_FACTS_COLS if k in r}
-        if keep:
-            payload.append(dict(keep, url=r["url"]))
+    # THE GROUP THE CALLER WROTE, NOT THE WHOLE COLUMN SET, and this is the difference
+    # between a mirror and a corruption. _persist_derived writes its derived fields in TWO
+    # payloads -- location/pay, then the JD signals -- and naming all ten columns on either
+    # one sends the other five as explicit NULLs. Measured before this was fixed: a single
+    # location/pay write erased exp_max_years, sponsor_jd, sponsor_reason and facts_fp, so
+    # the two groups would have taken turns wiping each other on every scrape. That is the
+    # exact failure this whole separation exists to prevent, introduced by the thing meant
+    # to prevent it.
+    #
+    # `keys` is what update_job_fields was handed, so it names the group precisely. Without
+    # it, fall back to the union actually present -- the same inference _upsert makes, and
+    # for the same reason.
+    if keys:
+        group = [c for c in JOB_FACTS_COLS if c in set(keys)]
+    else:
+        present = {k for r in rows for k in r}
+        group = [c for c in JOB_FACTS_COLS if c in present]
+    if not group:
+        return
+    payload = [{k: r.get(k) for k in group + ["url"]} for r in rows if r.get("url")]
     if not payload:
         return
-    # keys= names the whole group, so a batch in which some column is None on every row still
-    # SENDS that column. Inferred instead, _upsert drops the Nones and the column is never
-    # written -- which would leave a stale reading in place and call it current.
-    cols = ("url",) + JOB_FACTS_COLS
+    # keys= still names the group, so a column that is None on every row of THIS batch is
+    # still sent -- which is how a genuine clear reaches the table. The narrowing above is
+    # about which columns the caller touched, not about which values are null.
+    cols = tuple(group) + ("url",)
     try:
         for i in range(0, len(payload), 200):
             _upsert(payload[i:i + 200], keys=cols, table=JOB_FACTS_TABLE, pk="url")
@@ -1037,12 +1066,25 @@ def load_jobs_by_urls(urls, include_jd=True):
     if not urls:
         return []
     if has_remote_db():
-        # WHEN THE TEXT HAS MOVED, `*` no longer carries it -- that is the whole point of
-        # the split -- so it is fetched from its own table and merged back on here. Callers
-        # keep getting one flat dict with a `jd` key, which is what lets ~120 call sites go
-        # untouched while the storage underneath them changes.
-        split = bool(include_jd) and jd_table_ready()
-        sel = "*" if include_jd else _FEED_COLS
+        # THE SAME THREE SPLITS load_jobs RE-JOINS, and they have to be re-joined the same
+        # way here. These two functions are interchangeable from a caller's point of view --
+        # notify.py's digest reads card fields through this one and the feed reads them
+        # through the other -- so a version that consulted job_facts and one that read the
+        # copies still sitting on `jobs` would quietly answer differently. Identical today,
+        # because the mirrors keep both in step; not identical the moment Phase 5 drops a
+        # column, at which point _FEED_COLS would name something that no longer exists and
+        # this function would 400 on every batch.
+        want_jd = bool(include_jd) and jd_table_ready()
+        want_facts = job_facts_ready()
+        want_terms = job_terms_ready()
+        moved = set(JOB_FACTS_COLS) if want_facts else set()
+        if want_terms:
+            moved.add("jd_terms")
+        if moved:
+            sel = ",".join([c for c in _FEED_COLS.split(",") if c not in moved]
+                           + ([] if want_jd or not include_jd else ["jd"]))
+        else:
+            sel = "*" if include_jd else _FEED_COLS
         rows = []
         for batch in _url_batches(urls):
             try:
@@ -1058,7 +1100,17 @@ def load_jobs_by_urls(urls, include_jd=True):
                                                    "url": _in_list(batch)}))
                 except Exception:
                     continue
-        if split:
+        if want_facts:
+            got = _facts_rows([r.get("url") for r in rows if r.get("url")])
+            for r in rows:
+                f = got.get(r.get("url")) or {}
+                for c in JOB_FACTS_COLS:
+                    r[c] = f.get(c)
+        if want_terms:
+            packed = _terms_rows([r.get("url") for r in rows if r.get("url")])
+            for r in rows:
+                r["jd_terms"] = packed.get(r.get("url"), "")
+        if want_jd:
             texts = _jd_rows([r.get("url") for r in rows if r.get("url")])
             for r in rows:
                 r["jd"] = texts.get(r.get("url"), "")
@@ -1244,8 +1296,8 @@ def update_job_fields(rows, keys=None):
         # mirror_job_facts filters to JOB_FACTS_COLS, so a payload holding none of them
         # (a match_score clear, an is_active close) costs one comprehension and sends
         # nothing.
-        mirror_job_facts(rows)
-        mirror_job_terms(rows)
+        mirror_job_facts(rows, keys)
+        mirror_job_terms(rows, keys)
         return
     by_url = {r["url"]: r for r in rows}
     out = _read_csv()

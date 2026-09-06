@@ -338,6 +338,66 @@ def test_the_terms_mirror_writes_a_length_and_a_null_not_an_empty_string():
            by_url.get("u/2", {}).get("n_terms") == 0, repr(by_url.get("u/2")))
 
 
+def test_a_partial_derived_write_does_not_erase_the_other_half():
+    """THE WORST BUG THIS REVAMP INTRODUCED, found by auditing rather than by a failure.
+
+    _persist_derived writes its derived fields in TWO payloads -- location/pay first, then
+    the JD signals. mirror_job_facts originally named ALL ten job_facts columns on either
+    one, so PostgREST received the other five as explicit NULLs. Measured before the fix: a
+    single location/pay write erased exp_max_years, sponsor_jd, sponsor_reason and facts_fp.
+    The two groups would have taken turns wiping each other on every scrape -- an experience
+    floor silently going NULL, which is precisely the defect the whole revamp answers.
+
+    It was dormant only because job_facts did not exist yet. It would have corrupted the
+    table on the first scrape after the migration.
+    """
+    import json
+    seen = []
+
+    def post(url, headers=None, params=None, data=None, timeout=None):
+        seen.append((url.rstrip('/').rsplit('/', 1)[-1], json.loads(data)))
+        return _Resp()
+
+    def facts_payload():
+        return [r for t, rows in seen if t == real_db.JOB_TERMS_TABLE or
+                t == real_db.JOB_FACTS_TABLE for r in rows
+                if t == real_db.JOB_FACTS_TABLE]
+
+    real_http, real_remote = real_db._http, real_db.has_remote_db
+    real_db._http, real_db.has_remote_db = _FakeHTTP(post), lambda: True
+    _reset()
+    real_db._facts_tbl["ok"] = True
+    try:
+        # the location/pay group, exactly as _persist_derived builds it
+        real_db.update_job_fields([{"url": "u/1", "loc_state": "MA", "loc_metro": "Boston",
+                                    "remote": False, "salary_min": 90000,
+                                    "salary_max": 120000, "salary_period": "year"}])
+        loc_rows = facts_payload()
+        seen[:] = []
+        # ...and the JD group
+        real_db.update_job_fields([{"url": "u/1", "exp_max_years": 5, "sponsor_jd": "",
+                                    "sponsor_reason": "", "jd_terms": "x",
+                                    "facts_fp": "abc"}],
+                                  keys=("url", "exp_max_years", "sponsor_jd",
+                                        "sponsor_reason", "jd_terms", "facts_fp"))
+        jd_rows = facts_payload()
+    finally:
+        real_db._http, real_db.has_remote_db = real_http, real_remote
+        _reset()
+
+    jd_cols = {"exp_max_years", "sponsor_jd", "sponsor_reason", "facts_fp"}
+    loc_cols = {"loc_state", "loc_metro", "remote", "salary_min", "salary_max",
+                "salary_period"}
+    _check("the location/pay write names NO JD-derived column",
+           loc_rows and not (set(loc_rows[0]) & jd_cols), repr(loc_rows))
+    _check("...and does carry its own", loc_rows and loc_cols <= set(loc_rows[0]),
+           repr(loc_rows))
+    _check("the JD write names NO location column",
+           jd_rows and not (set(jd_rows[0]) & loc_cols), repr(jd_rows))
+    _check("...and does carry its own",
+           jd_rows and jd_cols <= set(jd_rows[0]), repr(jd_rows))
+
+
 def test_the_migration_and_the_allowlist_agree():
     import dbproxy
     _check("job_descriptions is allowlisted on the proxy",
@@ -367,6 +427,7 @@ def main():
                test_the_mirror_carries_only_the_columns_that_moved,
                test_the_fingerprint_keeps_counting_the_same_thing,
                test_the_terms_mirror_writes_a_length_and_a_null_not_an_empty_string,
+               test_a_partial_derived_write_does_not_erase_the_other_half,
                test_the_migration_and_the_allowlist_agree):
         fn()
     _reset()
