@@ -9576,6 +9576,14 @@ def ext_jds():
     try:
         if clean:
             db.update_jds(clean)
+            # A description arriving AFTER the row does not update the row's reading of
+            # itself. jd_terms / exp_max_years / the sponsorship verdict were written by
+            # whatever the scoring pass saw at the time -- for a browser import, usually
+            # nothing -- and score_jobs will not revisit the row, because it queues on
+            # "jd is empty" and this one no longer is. Clearing match_score puts it back
+            # in _new_only_targets so the next scrape re-derives all of them from the
+            # text we just stored. See db.requeue_analysis.
+            db.requeue_analysis(clean)
         if patches:
             db.update_job_fields(patches)
         if removed:

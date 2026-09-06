@@ -218,6 +218,10 @@ def main():
         sj._save_jd_cache(bank)
         print("\nwrote %d description(s) the probe recovered, to the database and the cache"
               % len(recovered))
+        # Same reason as refetch_thin_jds: until this row is re-analysed its jd_terms
+        # and exp_max_years still read the junk we have just replaced.
+        print("re-queued %d row(s) for analysis (match_score cleared)."
+              % db.requeue_analysis(recovered))
 
     if clear and not a.no_clear:
         # BOTH stores, in this order. The column first (that is what the site renders), the
@@ -229,6 +233,11 @@ def main():
             bank.pop(u, None)
         sj._save_jd_cache(bank)
         print("\ncleared %d junk description(s) from the database and the disk cache" % len(clear))
+        # A CLEARED description leaves the same inconsistency pointing the other way:
+        # the derived columns still describe text this row no longer holds, and a stale
+        # exp_max_years is worse than none -- the feed filters on it.
+        print("re-queued %d row(s) for analysis (match_score cleared)."
+              % db.requeue_analysis(clear))
 
     if close and not a.no_close:
         db.update_job_fields([{"url": u, "is_active": False} for u in close])

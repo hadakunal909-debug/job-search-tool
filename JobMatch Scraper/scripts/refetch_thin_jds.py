@@ -140,6 +140,16 @@ def main():
         bank.update(fixed)
         _save_jd_cache(bank)
         print("refreshed %d entry/entries in the on-disk JD cache." % len(fixed))
+        # AND RE-QUEUE THE ANALYSIS. Both stores now hold the real posting, and the row's
+        # own reading of itself -- jd_terms, exp_max_years, the sponsorship verdict -- still
+        # describes the shell we just replaced. Nothing else notices: score_jobs queues a
+        # fetch on "jd is empty", which this row's no longer is, so only the daily full pass
+        # would ever revisit it. That used to be an advisory print at the end of this
+        # function, and on 2026-09-04 it was not acted on -- which left nine postings asking
+        # 3 to 10 years sitting in a "0 to 2 Years" feed, because a NULL exp_max_years is a
+        # row the experience filter keeps. See db.requeue_analysis.
+        print("re-queued %d row(s) for analysis (match_score cleared)."
+              % db.requeue_analysis(fixed))
         # A repair by hand has to clear the scorer's per-host backoff, or the OTHER rows on the
         # host it just proved readable sit behind a 64-day timer that this run disproved. Failure
         # count to 0 and next=today marks the host hot, so the next heavy pass drains it.
@@ -157,7 +167,9 @@ def main():
                   % len(hosts))
         except Exception as e:
             print("  (could not update the thin-retry ledger: %s)" % str(e)[:80])
-        print("\nNow run: python -m scraper.score_jobs   (recomputes jd_terms and rescores)")
+        print("\nThe next scrape re-analyses these rows on its own -- their "
+              "match_score was cleared above. To do it now, without waiting: "
+              "python -m scraper.score_jobs")
     return 0
 
 
