@@ -10,7 +10,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 - [`web.py`](#webpy) — 9933 lines, 406 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 4513 lines, 281 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
-- [`db.py`](#dbpy) — 3885 lines, 225 symbols — Storage. One PostgREST-shaped interface over four backends.
+- [`db.py`](#dbpy) — 3896 lines, 225 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 9933 lines, 403 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2519 lines, 85 symbols — Fetches descriptions and scores them against the resume.
 - [`scraper/score_users.py`](#scraperscore_userspy) — 165 lines, 3 symbols — Stores every user's score for every job, in user_scores.
@@ -150,7 +150,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Storage. One PostgREST-shaped interface over four backends.*
 
-3885 lines · 225 top-level symbols · 26 sections
+3896 lines · 225 top-level symbols · 26 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -166,20 +166,20 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [1985–2002](../db.py#L1985) | per-user liked / hidden / applied | 2 |
 | [2003–2277](../db.py#L2003) | the stored per-(user, job) match score | 14 |
 | [2278–2390](../db.py#L2278) | job description text (shared; lets us score any resume against any job) | 3 |
-| [2391–2501](../db.py#L2391) | employers, and the version stamp for the caches that read them | 10 |
-| [2502–2549](../db.py#L2502) | custom job boards (added through the app's "Add board" view) | 5 |
-| [2550–2639](../db.py#L2550) | JobSpy / aggregator findings (SIDECAR — never the feed) | 6 |
-| [2640–2787](../db.py#L2640) | per-user application tracker | 8 |
-| [2788–2855](../db.py#L2788) | saved résumé versions (so you can record WHICH résumé you used per application) | 6 |
-| [2856–2904](../db.py#L2856) | the active resume | 2 |
-| [2905–3092](../db.py#L2905) | uploaded resume FILES (pdf / docx / tex) | 12 |
-| [3093–3256](../db.py#L3093) | Resume Brain knowledge base | 11 |
-| [3257–3366](../db.py#L3257) | user profile (name/email/phone/work-auth) — for the Chrome extension autofill | 8 |
-| [3367–3415](../db.py#L3367) | tailored-résumé cache (avoid re-paying Gemini + LaTeX compile on retriggers) | 4 |
-| [3416–3537](../db.py#L3416) | learned answers ("training" the auto-apply: how this user answers each question) | 7 |
-| [3538–3620](../db.py#L3538) | shared key/value blobs | 7 |
-| [3621–3671](../db.py#L3621) | database size (admin panel) | 1 |
-| [3672–3885](../db.py#L3672) | product analytics events | 13 |
+| [2391–2512](../db.py#L2391) | employers, and the version stamp for the caches that read them | 10 |
+| [2513–2560](../db.py#L2513) | custom job boards (added through the app's "Add board" view) | 5 |
+| [2561–2650](../db.py#L2561) | JobSpy / aggregator findings (SIDECAR — never the feed) | 6 |
+| [2651–2798](../db.py#L2651) | per-user application tracker | 8 |
+| [2799–2866](../db.py#L2799) | saved résumé versions (so you can record WHICH résumé you used per application) | 6 |
+| [2867–2915](../db.py#L2867) | the active resume | 2 |
+| [2916–3103](../db.py#L2916) | uploaded resume FILES (pdf / docx / tex) | 12 |
+| [3104–3267](../db.py#L3104) | Resume Brain knowledge base | 11 |
+| [3268–3377](../db.py#L3268) | user profile (name/email/phone/work-auth) — for the Chrome extension autofill | 8 |
+| [3378–3426](../db.py#L3378) | tailored-résumé cache (avoid re-paying Gemini + LaTeX compile on retriggers) | 4 |
+| [3427–3548](../db.py#L3427) | learned answers ("training" the auto-apply: how this user answers each question) | 7 |
+| [3549–3631](../db.py#L3549) | shared key/value blobs | 7 |
+| [3632–3682](../db.py#L3632) | database size (admin panel) | 1 |
+| [3683–3896](../db.py#L3683) | product analytics events | 13 |
 
 ## `scraper/__init__.py`
 
@@ -1511,100 +1511,100 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `VERSIONS_FILE` | const | [2399](../db.py#L2399) |  |
 | `_VERSIONS_TTL` | const | [2401](../db.py#L2401) |  |
 | `load_companies` | def | [2404](../db.py#L2404) | {name_key: row} for every employer we hold facts about, or {} if not migrated yet. |
-| `save_companies` | def | [2427](../db.py#L2427) | Upsert employer rows. rows = \[{name_key, display_name, ...}\]. |
-| `_versions_map` | def | [2445](../db.py#L2445) | {name: version} for every generated dataset. Memoised; RAISES on a real read failure. |
-| `get_data_version` | def | [2469](../db.py#L2469) | The current version stamp for a generated dataset. RAISES if it cannot be read. |
-| `set_data_version` | def | [2487](../db.py#L2487) | Stamp a dataset. Builders call this after writing; readers key caches on it. |
-| `BOARDS_TABLE` | const | [2503](../db.py#L2503) |  |
-| `BOARDS_FILE` | const | [2504](../db.py#L2504) |  |
-| `list_boards` | def | [2507](../db.py#L2507) | \[{url, ats_type, company, added_by, created_at}\] of user-added boards. |
-| `add_board` | def | [2522](../db.py#L2522) | Insert/replace a custom board (PK = url). Returns (ok, error_message). |
-| `delete_board` | def | [2539](../db.py#L2539) |  |
-| `FINDINGS_TABLE` | const | [2562](../db.py#L2562) |  |
-| `FINDINGS_FILE` | const | [2563](../db.py#L2563) |  |
-| `FINDINGS_FIELDS` | const | [2564](../db.py#L2564) |  |
-| `FINDINGS_SQL` | const | [2569](../db.py#L2569) |  |
-| `list_findings` | def | [2587](../db.py#L2587) | Rows from the findings ledger, newest run first. Defensive: never raises. |
-| `add_findings` | def | [2604](../db.py#L2604) | Upsert findings on url. Returns (written, error_message). |
-| `APPLICATIONS_TABLE` | const | [2643](../db.py#L2643) |  |
-| `APPLICATIONS_FILE` | const | [2644](../db.py#L2644) |  |
-| `APP_FIELDS` | const | [2645](../db.py#L2645) |  |
-| `APPLICATIONS_SQL` | const | [2647](../db.py#L2647) |  |
-| `list_applications` | def | [2717](../db.py#L2717) | This user's applications, newest first. Defensive: missing table / error -&gt; \[\]. |
-| `save_application` | def | [2733](../db.py#L2733) | Insert or update one application (PK=id; id/created_at auto-filled). Columns not |
-| `find_application_by_url` | def | [2768](../db.py#L2768) | This user's application for a given apply-url, or None (de-dupes feed auto-log). |
-| `delete_application` | def | [2775](../db.py#L2775) |  |
-| `RESUMES_TABLE` | const | [2789](../db.py#L2789) |  |
-| `RESUMES_FILE` | const | [2790](../db.py#L2790) |  |
-| `RESUME_FIELDS` | const | [2793](../db.py#L2793) |  |
-| `list_resumes` | def | [2796](../db.py#L2796) | This user's saved résumé versions. Defensive: missing table / error -&gt; \[\]. |
-| `save_resume` | def | [2811](../db.py#L2811) | Insert/update a named résumé version (PK=id). Returns (ok, id_or_error). |
-| `delete_resume` | def | [2843](../db.py#L2843) |  |
-| `get_active_resume` | def | [2862](../db.py#L2862) | The user's live resume row, or None. Falls back to the newest row when nothing is flagged, |
-| `set_active_resume` | def | [2871](../db.py#L2871) | Flag one row active and mirror its text into users.resume. Returns the row, or None. |
-| `RESUME_FILES_TABLE` | const | [2914](../db.py#L2914) |  |
-| `RESUME_FILES_FILE` | const | [2915](../db.py#L2915) |  |
-| `RESUME_FILE_FIELDS` | const | [2916](../db.py#L2916) |  |
-| `RESUME_FILE_META` | const | [2919](../db.py#L2919) |  |
-| `RESUME_FILE_KINDS` | const | [2922](../db.py#L2922) |  |
-| `RESUME_FILES_TTL_DAYS` | const | [2923](../db.py#L2923) |  |
-| `RESUME_FILES_SQL` | const | [2925](../db.py#L2925) |  |
-| `list_resume_files` | def | [2968](../db.py#L2968) | File METADATA for this user (or one resume). Never returns b64 -- see the note above. |
-| `get_resume_file` | def | [2988](../db.py#L2988) | One file WITH its bytes. The only read that pulls a payload. |
-| `save_resume_file` | def | [3005](../db.py#L3005) | Store one uploaded artifact. Returns (ok, id_or_error). |
-| `delete_resume_file` | def | [3045](../db.py#L3045) |  |
-| `prune_resume_files` | def | [3060](../db.py#L3060) | Age out stored artifacts. Returns rows removed (best effort). |
-| `BRAIN_KB_FILE` | const | [3098](../db.py#L3098) |  |
-| `BRAIN_COMPANIES_TABLE` | const | [3099](../db.py#L3099) |  |
-| `BRAIN_COMPANIES_FILE` | const | [3100](../db.py#L3100) |  |
-| `_brain_kb_default` | def | [3103](../db.py#L3103) |  |
-| `get_brain_kb` | def | [3107](../db.py#L3107) | Per-user Resume Brain data: {stories:\[\], lessons:\[\], model:{}}. Reads users.brain_kb |
-| `_save_brain_kb_local` | def | [3140](../db.py#L3140) |  |
-| `save_brain_kb` | def | [3148](../db.py#L3148) | Persist a user's KB. Tries Supabase (users.brain_kb jsonb); on any failure (e.g. the |
-| `get_brain_company` | def | [3162](../db.py#L3162) | Shared company-research record by domain (any user's crawl benefits everyone). |
-| `put_brain_company` | def | [3182](../db.py#L3182) | Upsert shared company research (keyed on domain). Local fallback on DB failure. |
-| `list_brain_companies` | def | [3207](../db.py#L3207) | {domain: record} for all researched companies (shared). |
-| `profile_text` | def | [3229](../db.py#L3229) | The matching profile: the LIVE résumé plus every story. This is what the feed scores |
-| `PROFILES_TABLE` | const | [3258](../db.py#L3258) |  |
-| `PROFILES_FILE` | const | [3259](../db.py#L3259) |  |
-| `PROFILE_FIELDS` | const | [3262](../db.py#L3262) |  |
-| `_PROFILE_JSON_FIELDS` | const | [3289](../db.py#L3289) |  |
-| `PROFILE_OPT_FIELDS` | const | [3292](../db.py#L3292) |  |
-| `_decode_profile` | def | [3296](../db.py#L3296) | Coerce the jsonb columns to dicts (Supabase may hand them back as strings). |
-| `get_profile` | def | [3312](../db.py#L3312) | This user's profile dict (or {} if none / missing table). |
-| `save_profile` | def | [3327](../db.py#L3327) | Upsert the user's profile (PK=username). Returns (ok, message). |
-| `TAILORED_CACHE_TABLE` | const | [3370](../db.py#L3370) |  |
-| `TAILORED_CACHE_FILE` | const | [3371](../db.py#L3371) |  |
-| `get_tailored` | def | [3374](../db.py#L3374) | Return a cached tailor payload for cache_key, or None. |
-| `put_tailored` | def | [3394](../db.py#L3394) | Upsert a tailor payload (keyed on cache_key). Local fallback on DB failure. |
-| `LEARNED_TABLE` | const | [3420](../db.py#L3420) |  |
-| `LEARNED_FILE` | const | [3421](../db.py#L3421) |  |
-| `_normalize_label` | def | [3425](../db.py#L3425) | The three substitutions below, memoized. See normalize_label for why. |
-| `normalize_label` | def | [3434](../db.py#L3434) | Stable key for matching the same question across forms/ATS: lowercased, asterisks/parens |
-| `get_learned` | def | [3451](../db.py#L3451) | Map of {key: {value,type,options,company,count,label}} for the user. {} if none/unavailable. |
-| `save_learned` | def | [3473](../db.py#L3473) | Upsert captured answers. items: \[{label,type,value,options?,company?}\]. Latest value wins; |
-| `delete_learned` | def | [3517](../db.py#L3517) | Remove one learned answer (by normalized key) from the user's bank. Best-effort; returns True |
-| `SCRAPE_STATUS_TABLE` | const | [3544](../db.py#L3544) |  |
-| `SCRAPE_STATUS_FILE` | const | [3545](../db.py#L3545) |  |
-| `_SCRAPE_STATUS_KEY` | const | [3546](../db.py#L3546) |  |
-| `put_kv` | def | [3549](../db.py#L3549) | Persist a JSON blob under `key`. Stamps updated_at (UTC, ISO) into the blob itself as |
-| `get_kv` | def | [3579](../db.py#L3579) | The JSON blob stored under `key`, or `default` ({} unless given). Never raises. |
-| `set_scrape_status` | def | [3611](../db.py#L3611) | Persist the current scrape progress dict (phase/done/total/found/started_at/...). |
-| `get_scrape_status` | def | [3616](../db.py#L3616) | The latest scrape progress dict, or {} if none. |
-| `DB_STATS_SQL` | const | [3626](../db.py#L3626) |  |
-| `EVENTS_TABLE` | const | [3677](../db.py#L3677) |  |
-| `EVENTS_DAILY_TABLE` | const | [3678](../db.py#L3678) |  |
-| `EVENTS_SQL_FILE` | const | [3679](../db.py#L3679) |  |
-| `insert_events` | def | [3682](../db.py#L3682) | Bulk-insert analytics events. Returns True on success. NEVER raises. |
-| `_post_events` | def | [3720](../db.py#L3720) | (ok, reason). Split out so the retry below posts byte-identical bytes. |
-| `_seq_repair_once` | def | [3732](../db.py#L3732) | True if a sequence repair was just performed and the caller should retry. |
-| `_note_event_failure` | def | [3756](../db.py#L3756) | Count it, and say it ONCE. Silence is what made this cost three days. |
-| `newest_event_ts` | def | [3766](../db.py#L3766) | The most recent event's timestamp, or "". |
-| `events_health` | def | [3785](../db.py#L3785) | {failures, last_error, seq_repaired} for /admin/health.json. |
-| `ev_usage` | def | [3791](../db.py#L3791) | Aggregated event stats via the public.ev_usage() RPC. {} if it isn't installed. |
-| `events_daily` | def | [3811](../db.py#L3811) | Pre-aggregated daily counts from `since_day` (ISO date). \[\] if unavailable. |
-| `prune_events` | def | [3824](../db.py#L3824) | Delete raw events older than `before_day` (ISO date). Returns True if it ran. |
-| `db_stats` | def | [3841](../db.py#L3841) | Database and per-table sizes via the public.db_stats() RPC. |
+| `save_companies` | def | [2434](../db.py#L2434) | Upsert employer rows. rows = \[{name_key, display_name, ...}\]. |
+| `_versions_map` | def | [2452](../db.py#L2452) | {name: version} for every generated dataset. Memoised; RAISES on a real read failure. |
+| `get_data_version` | def | [2480](../db.py#L2480) | The current version stamp for a generated dataset. RAISES if it cannot be read. |
+| `set_data_version` | def | [2498](../db.py#L2498) | Stamp a dataset. Builders call this after writing; readers key caches on it. |
+| `BOARDS_TABLE` | const | [2514](../db.py#L2514) |  |
+| `BOARDS_FILE` | const | [2515](../db.py#L2515) |  |
+| `list_boards` | def | [2518](../db.py#L2518) | \[{url, ats_type, company, added_by, created_at}\] of user-added boards. |
+| `add_board` | def | [2533](../db.py#L2533) | Insert/replace a custom board (PK = url). Returns (ok, error_message). |
+| `delete_board` | def | [2550](../db.py#L2550) |  |
+| `FINDINGS_TABLE` | const | [2573](../db.py#L2573) |  |
+| `FINDINGS_FILE` | const | [2574](../db.py#L2574) |  |
+| `FINDINGS_FIELDS` | const | [2575](../db.py#L2575) |  |
+| `FINDINGS_SQL` | const | [2580](../db.py#L2580) |  |
+| `list_findings` | def | [2598](../db.py#L2598) | Rows from the findings ledger, newest run first. Defensive: never raises. |
+| `add_findings` | def | [2615](../db.py#L2615) | Upsert findings on url. Returns (written, error_message). |
+| `APPLICATIONS_TABLE` | const | [2654](../db.py#L2654) |  |
+| `APPLICATIONS_FILE` | const | [2655](../db.py#L2655) |  |
+| `APP_FIELDS` | const | [2656](../db.py#L2656) |  |
+| `APPLICATIONS_SQL` | const | [2658](../db.py#L2658) |  |
+| `list_applications` | def | [2728](../db.py#L2728) | This user's applications, newest first. Defensive: missing table / error -&gt; \[\]. |
+| `save_application` | def | [2744](../db.py#L2744) | Insert or update one application (PK=id; id/created_at auto-filled). Columns not |
+| `find_application_by_url` | def | [2779](../db.py#L2779) | This user's application for a given apply-url, or None (de-dupes feed auto-log). |
+| `delete_application` | def | [2786](../db.py#L2786) |  |
+| `RESUMES_TABLE` | const | [2800](../db.py#L2800) |  |
+| `RESUMES_FILE` | const | [2801](../db.py#L2801) |  |
+| `RESUME_FIELDS` | const | [2804](../db.py#L2804) |  |
+| `list_resumes` | def | [2807](../db.py#L2807) | This user's saved résumé versions. Defensive: missing table / error -&gt; \[\]. |
+| `save_resume` | def | [2822](../db.py#L2822) | Insert/update a named résumé version (PK=id). Returns (ok, id_or_error). |
+| `delete_resume` | def | [2854](../db.py#L2854) |  |
+| `get_active_resume` | def | [2873](../db.py#L2873) | The user's live resume row, or None. Falls back to the newest row when nothing is flagged, |
+| `set_active_resume` | def | [2882](../db.py#L2882) | Flag one row active and mirror its text into users.resume. Returns the row, or None. |
+| `RESUME_FILES_TABLE` | const | [2925](../db.py#L2925) |  |
+| `RESUME_FILES_FILE` | const | [2926](../db.py#L2926) |  |
+| `RESUME_FILE_FIELDS` | const | [2927](../db.py#L2927) |  |
+| `RESUME_FILE_META` | const | [2930](../db.py#L2930) |  |
+| `RESUME_FILE_KINDS` | const | [2933](../db.py#L2933) |  |
+| `RESUME_FILES_TTL_DAYS` | const | [2934](../db.py#L2934) |  |
+| `RESUME_FILES_SQL` | const | [2936](../db.py#L2936) |  |
+| `list_resume_files` | def | [2979](../db.py#L2979) | File METADATA for this user (or one resume). Never returns b64 -- see the note above. |
+| `get_resume_file` | def | [2999](../db.py#L2999) | One file WITH its bytes. The only read that pulls a payload. |
+| `save_resume_file` | def | [3016](../db.py#L3016) | Store one uploaded artifact. Returns (ok, id_or_error). |
+| `delete_resume_file` | def | [3056](../db.py#L3056) |  |
+| `prune_resume_files` | def | [3071](../db.py#L3071) | Age out stored artifacts. Returns rows removed (best effort). |
+| `BRAIN_KB_FILE` | const | [3109](../db.py#L3109) |  |
+| `BRAIN_COMPANIES_TABLE` | const | [3110](../db.py#L3110) |  |
+| `BRAIN_COMPANIES_FILE` | const | [3111](../db.py#L3111) |  |
+| `_brain_kb_default` | def | [3114](../db.py#L3114) |  |
+| `get_brain_kb` | def | [3118](../db.py#L3118) | Per-user Resume Brain data: {stories:\[\], lessons:\[\], model:{}}. Reads users.brain_kb |
+| `_save_brain_kb_local` | def | [3151](../db.py#L3151) |  |
+| `save_brain_kb` | def | [3159](../db.py#L3159) | Persist a user's KB. Tries Supabase (users.brain_kb jsonb); on any failure (e.g. the |
+| `get_brain_company` | def | [3173](../db.py#L3173) | Shared company-research record by domain (any user's crawl benefits everyone). |
+| `put_brain_company` | def | [3193](../db.py#L3193) | Upsert shared company research (keyed on domain). Local fallback on DB failure. |
+| `list_brain_companies` | def | [3218](../db.py#L3218) | {domain: record} for all researched companies (shared). |
+| `profile_text` | def | [3240](../db.py#L3240) | The matching profile: the LIVE résumé plus every story. This is what the feed scores |
+| `PROFILES_TABLE` | const | [3269](../db.py#L3269) |  |
+| `PROFILES_FILE` | const | [3270](../db.py#L3270) |  |
+| `PROFILE_FIELDS` | const | [3273](../db.py#L3273) |  |
+| `_PROFILE_JSON_FIELDS` | const | [3300](../db.py#L3300) |  |
+| `PROFILE_OPT_FIELDS` | const | [3303](../db.py#L3303) |  |
+| `_decode_profile` | def | [3307](../db.py#L3307) | Coerce the jsonb columns to dicts (Supabase may hand them back as strings). |
+| `get_profile` | def | [3323](../db.py#L3323) | This user's profile dict (or {} if none / missing table). |
+| `save_profile` | def | [3338](../db.py#L3338) | Upsert the user's profile (PK=username). Returns (ok, message). |
+| `TAILORED_CACHE_TABLE` | const | [3381](../db.py#L3381) |  |
+| `TAILORED_CACHE_FILE` | const | [3382](../db.py#L3382) |  |
+| `get_tailored` | def | [3385](../db.py#L3385) | Return a cached tailor payload for cache_key, or None. |
+| `put_tailored` | def | [3405](../db.py#L3405) | Upsert a tailor payload (keyed on cache_key). Local fallback on DB failure. |
+| `LEARNED_TABLE` | const | [3431](../db.py#L3431) |  |
+| `LEARNED_FILE` | const | [3432](../db.py#L3432) |  |
+| `_normalize_label` | def | [3436](../db.py#L3436) | The three substitutions below, memoized. See normalize_label for why. |
+| `normalize_label` | def | [3445](../db.py#L3445) | Stable key for matching the same question across forms/ATS: lowercased, asterisks/parens |
+| `get_learned` | def | [3462](../db.py#L3462) | Map of {key: {value,type,options,company,count,label}} for the user. {} if none/unavailable. |
+| `save_learned` | def | [3484](../db.py#L3484) | Upsert captured answers. items: \[{label,type,value,options?,company?}\]. Latest value wins; |
+| `delete_learned` | def | [3528](../db.py#L3528) | Remove one learned answer (by normalized key) from the user's bank. Best-effort; returns True |
+| `SCRAPE_STATUS_TABLE` | const | [3555](../db.py#L3555) |  |
+| `SCRAPE_STATUS_FILE` | const | [3556](../db.py#L3556) |  |
+| `_SCRAPE_STATUS_KEY` | const | [3557](../db.py#L3557) |  |
+| `put_kv` | def | [3560](../db.py#L3560) | Persist a JSON blob under `key`. Stamps updated_at (UTC, ISO) into the blob itself as |
+| `get_kv` | def | [3590](../db.py#L3590) | The JSON blob stored under `key`, or `default` ({} unless given). Never raises. |
+| `set_scrape_status` | def | [3622](../db.py#L3622) | Persist the current scrape progress dict (phase/done/total/found/started_at/...). |
+| `get_scrape_status` | def | [3627](../db.py#L3627) | The latest scrape progress dict, or {} if none. |
+| `DB_STATS_SQL` | const | [3637](../db.py#L3637) |  |
+| `EVENTS_TABLE` | const | [3688](../db.py#L3688) |  |
+| `EVENTS_DAILY_TABLE` | const | [3689](../db.py#L3689) |  |
+| `EVENTS_SQL_FILE` | const | [3690](../db.py#L3690) |  |
+| `insert_events` | def | [3693](../db.py#L3693) | Bulk-insert analytics events. Returns True on success. NEVER raises. |
+| `_post_events` | def | [3731](../db.py#L3731) | (ok, reason). Split out so the retry below posts byte-identical bytes. |
+| `_seq_repair_once` | def | [3743](../db.py#L3743) | True if a sequence repair was just performed and the caller should retry. |
+| `_note_event_failure` | def | [3767](../db.py#L3767) | Count it, and say it ONCE. Silence is what made this cost three days. |
+| `newest_event_ts` | def | [3777](../db.py#L3777) | The most recent event's timestamp, or "". |
+| `events_health` | def | [3796](../db.py#L3796) | {failures, last_error, seq_repaired} for /admin/health.json. |
+| `ev_usage` | def | [3802](../db.py#L3802) | Aggregated event stats via the public.ev_usage() RPC. {} if it isn't installed. |
+| `events_daily` | def | [3822](../db.py#L3822) | Pre-aggregated daily counts from `since_day` (ISO date). \[\] if unavailable. |
+| `prune_events` | def | [3835](../db.py#L3835) | Delete raw events older than `before_day` (ISO date). Returns True if it ran. |
+| `db_stats` | def | [3852](../db.py#L3852) | Database and per-table sizes via the public.db_stats() RPC. |
 
 ## `scraper/__init__.py` — symbols
 

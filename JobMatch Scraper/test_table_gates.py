@@ -151,11 +151,56 @@ def test_the_two_loaders_agree():
     _check("the two loaders return the same values in all 16 combinations", True)
 
 
+def test_tables_not_keyed_on_url_are_ordered_on_their_own_key():
+    """_fetch_all pages with `order=url`; two of these tables have no such column.
+
+    FOUND ON THE LIVE DATABASE, minutes after the migration ran, and it would have made the
+    entire revamp a no-op. `companies` is keyed on name_key and `data_versions` on name, so
+    the default order asks Postgres for a column that is not there. Postgres answers
+    `column "url" does not exist` -- and _table_missing() looks for the substring "does not
+    exist", so load_companies' own except clause read a REAL error as "not migrated yet" and
+    returned {}.
+
+    The consequence was silent and total: every gate permanently not-ready, company_facts
+    falling back for ever, and a symptom that reads as 'the migration ran and nothing
+    changed'. No offline test could have caught it -- the tables had to exist to be queried
+    wrongly.
+    """
+    asked = []
+
+    def fetch(table, params=None):
+        asked.append((table, (params or {}).get("order")))
+        return []
+
+    saved = (real_db._fetch_all, real_db.has_remote_db)
+    real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
+    real_db._versions.update(map=None, at=0.0)
+    try:
+        real_db.load_companies()
+        real_db._versions_map()
+    finally:
+        real_db._fetch_all, real_db.has_remote_db = saved
+        real_db._versions.update(map=None, at=0.0)
+
+    by_table = dict(asked)
+    _check("companies is ordered on name_key, not url",
+           by_table.get(real_db.COMPANIES_TABLE) == "name_key", repr(asked))
+    _check("data_versions is ordered on name, not url",
+           by_table.get(real_db.VERSIONS_TABLE) == "name", repr(asked))
+    # The three url-keyed tables must NOT be given a bespoke order -- the default is right
+    # for them, and overriding it would be a second thing to keep in step.
+    _check("...and nothing was asked for order=url on a table without one",
+           "url" not in [o for t, o in asked
+                        if t in (real_db.COMPANIES_TABLE, real_db.VERSIONS_TABLE)],
+           repr(asked))
+
+
 def main():
     print("table gates")
     for fn in (test_load_jobs_gate_matrix,
                test_load_jobs_by_urls_gate_matrix,
-               test_the_two_loaders_agree):
+               test_the_two_loaders_agree,
+               test_tables_not_keyed_on_url_are_ordered_on_their_own_key):
         fn()
     print("\n%s" % ("FAILED: " + ", ".join(FAILED) if FAILED else "all checks passed"))
     return 1 if FAILED else 0

@@ -2415,7 +2415,14 @@ def load_companies():
     """
     if has_remote_db():
         try:
-            rows = _fetch_all(COMPANIES_TABLE, {"select": "*"})
+            # ORDER EXPLICITLY. _fetch_all pages with `order=url` by default, and this
+            # table is keyed on name_key -- so the default asks for a column that does
+            # not exist here. Postgres answers `column "url" does not exist`, which
+            # contains the substring _table_missing() looks for, so the except below
+            # would read a REAL error as "not migrated yet" and return {} for ever.
+            # The whole employer-facts win would silently never switch on, and the
+            # symptom would be "the migration ran and nothing changed".
+            rows = _fetch_all(COMPANIES_TABLE, {"select": "*", "order": "name_key"})
         except Exception as e:
             if not _table_missing(e):
                 raise
@@ -2456,7 +2463,11 @@ def _versions_map():
     if _versions["map"] is not None and now - _versions["at"] < _VERSIONS_TTL:
         return _versions["map"]
     try:
-        rows = _fetch_all(VERSIONS_TABLE, {"select": "name,version"})
+        # Ordered on this table's own key, for the reason load_companies spells out:
+        # the default `order=url` would 400 here, and that 400 says "does not exist",
+        # which _table_missing cannot tell from an un-run migration. Every gate would
+        # then read not-ready permanently -- job_descriptions, job_facts, job_terms.
+        rows = _fetch_all(VERSIONS_TABLE, {"select": "name,version", "order": "name"})
     except Exception as e:
         if not _table_missing(e):
             raise                      # see get_data_version: a caller may be keying a cache
