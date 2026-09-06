@@ -444,7 +444,15 @@ def jobs_fingerprint():
     n = table_count(TABLE)
     if n is None:
         return FP_UNKNOWN
-    scored = table_count(TABLE, {"jd_terms": "not.is.null"})
+    # THE THIRD COMPONENT counts rows carrying an analysis, and it has to keep counting
+    # the same thing after the analysis moves tables -- otherwise the fingerprint stops
+    # moving when a scoring run writes, and web's row cache serves rows whose
+    # score_pending flag is a scrape old. n_terms > 0 is the same predicate as
+    # `jd_terms is not null` was: mirror_job_terms writes NULL for an empty string.
+    if job_terms_ready():
+        scored = table_count(JOB_TERMS_TABLE, {"n_terms": "gt.0"})
+    else:
+        scored = table_count(TABLE, {"jd_terms": "not.is.null"})
     if scored is None:
         return FP_UNKNOWN
     try:
@@ -706,12 +714,15 @@ def load_jobs(include_jd=True, cols=None):
         # translates no joins, so the merge is here rather than in the query.
         want_jd = bool(include_jd) and jd_table_ready()
         want_facts = job_facts_ready()
-        if want_jd or want_facts:
+        want_terms = job_terms_ready()
+        if want_jd or want_facts or want_terms:
             # `jobs` alone: _FEED_COLS still NAMES the moved columns, and PostgREST answers
             # a select for a column that is not there with a 400 rather than a null. So the
             # moved names are dropped from the select and merged back on below.
-            sel_cols = [c for c in _FEED_COLS.split(",")
-                        if not (want_facts and c in JOB_FACTS_COLS)]
+            moved = set(JOB_FACTS_COLS) if want_facts else set()
+            if want_terms:
+                moved.add("jd_terms")
+            sel_cols = [c for c in _FEED_COLS.split(",") if c not in moved]
             base = _fetch_all(TABLE, {"select": ",".join(sel_cols)})
             if want_facts:
                 by_url = _facts_rows()
@@ -723,6 +734,10 @@ def load_jobs(include_jd=True, cols=None):
                 texts = _jd_rows()
                 for r in base:
                     r["jd"] = texts.get(r.get("url"), "")
+            if want_terms:
+                packed = _terms_rows()
+                for r in base:
+                    r["jd_terms"] = packed.get(r.get("url"), "")
             return base
         sel = "*" if include_jd else _FEED_COLS
         try:
@@ -786,6 +801,71 @@ JOB_FACTS_COLS = ("loc_state", "loc_metro", "remote",
                   "salary_min", "salary_max", "salary_period",
                   "exp_max_years", "sponsor_jd", "sponsor_reason",
                   "facts_fp")
+
+
+# The packed keyword analysis, which is 55% of the corpus read on its own. Measured against
+# the live box 2026-09-06: the feed's select is 69.8 MB / 45.1 s WITH jd_terms and
+# 31.1 MB / 27.2 s without it, over 47,133 rows of which 99.5% carry terms. That 38.7 MB
+# also sits RESIDENT in every Passenger worker, on an account capped at ~1.2 GB in total --
+# which is the argument for moving it, more than the seconds are.
+JOB_TERMS_TABLE = "job_terms"
+
+
+def job_terms_ready():
+    """True once backfill_job_terms.py has stamped completion. Same gate as the other two."""
+    now = time.time()
+    if _terms_src["ready"] is not None and now - _terms_src["at"] < _JD_SRC_TTL:
+        return _terms_src["ready"]
+    try:
+        ready = bool(get_data_version("job_terms"))
+    except Exception:
+        ready = False
+    _terms_src.update(ready=ready, at=now)
+    return ready
+
+
+def mirror_job_terms(rows):
+    """Copy jd_terms into job_terms as well. Never raises; same bargain as the other mirrors.
+
+    n_terms is stored beside the text so that PRESENCE and THINNESS can be answered without
+    reading 38.7 MB. Nothing uses that yet -- web._row_pending still unpacks the string -- and
+    it is here rather than in a later migration because the writer is here: a column added
+    later would be NULL on every existing row and need its own backfill to become useful.
+    """
+    if not _terms_tbl["ok"]:
+        return
+    payload = []
+    for r in rows:
+        if not r.get("url") or "jd_terms" not in r:
+            continue
+        packed = r.get("jd_terms") or ""
+        payload.append({"url": r["url"], "jd_terms": packed or None,
+                        "n_terms": len(packed), "facts_fp": r.get("facts_fp")})
+    if not payload:
+        return
+    cols = ("url", "jd_terms", "n_terms", "facts_fp")
+    try:
+        for i in range(0, len(payload), 60):      # the text is ~730 B/row; keep bodies small
+            _upsert(payload[i:i + 60], keys=cols, table=JOB_TERMS_TABLE, pk="url")
+    except Exception as ex:
+        if not _table_missing(ex):
+            print("  (job_terms mirror failed: %s)" % str(ex)[:120])
+            return
+        _terms_tbl["ok"] = False
+        print("  (public.job_terms not migrated yet - the analysis is in jobs only. "
+              "Run MIGRATION_job_terms.sql.)")
+
+
+def _terms_rows(urls=None):
+    """{url: jd_terms} from job_terms -- the whole table, or just these urls."""
+    params = {"select": "url,jd_terms"}
+    if urls is None:
+        rows = _fetch_all(JOB_TERMS_TABLE, params)
+    else:
+        rows = []
+        for batch in _url_batches(list(urls)):
+            rows.extend(_fetch_all(JOB_TERMS_TABLE, dict(params, url=_in_list(batch))))
+    return {r["url"]: (r.get("jd_terms") or "") for r in rows if r.get("url")}
 
 
 def job_facts_ready():
@@ -855,6 +935,8 @@ _jd_src = {"ready": None, "at": 0.0}
 _JD_SRC_TTL = 300
 _facts_src = {"ready": None, "at": 0.0}
 _facts_tbl = {"ok": True}
+_terms_src = {"ready": None, "at": 0.0}
+_terms_tbl = {"ok": True}
 
 
 def _facts_rows(urls=None):
@@ -1163,6 +1245,7 @@ def update_job_fields(rows, keys=None):
         # (a match_score clear, an is_active close) costs one comprehension and sends
         # nothing.
         mirror_job_facts(rows)
+        mirror_job_terms(rows)
         return
     by_url = {r["url"]: r for r in rows}
     out = _read_csv()
