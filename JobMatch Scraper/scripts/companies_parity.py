@@ -79,45 +79,90 @@ def main():
         from_files = {n: web.company_facts(n) for n in names}
     from_table = {n: web.company_facts(n) for n in names}
 
-    bad = collections.Counter()
+    # A DIFFERENCE IS NOT AUTOMATICALLY A FAILURE, and conflating the two would either block
+    # a real improvement or wave through a real loss.
+    #
+    # Keying employer facts on the NORMALISED name is the point of the table: every spelling
+    # of one employer now gets the same answer. Where the file path resolved nothing for a
+    # spelling carrying a legal suffix -- 'Apple Inc', 'Accenture LLP', 'Micron Technology'
+    # (20 postings) -- the table supplies the logo that employer actually has. That is the
+    # feature, not a discrepancy.
+    #
+    # What is NOT allowed is the table having LESS: a value that used to resolve and now does
+    # not, or a different value where both are present. Measured on the first run: 11 of the
+    # former and 2 of the latter (EchoStar, Lonza), and only those 2 were bugs.
+    gained = collections.Counter()
+    lost = collections.Counter()
+    changed = collections.Counter()
     examples = collections.defaultdict(list)
     missing = 0
     for n in names:
         if core.norm_company(n) not in tbl:
             missing += 1
-            continue                      # a row the builder has not seen yet: falls back, fine
+            continue                      # a row the builder has not seen yet: falls back
         f, t = from_files[n], from_table[n]
         for k in sorted(f):
-            if f[k] != t[k]:
-                bad[k] += 1
-                if len(examples[k]) < 4:
-                    examples[k].append((n, f[k], t[k]))
-    print("\n  employers with no row yet (fall back, not a failure): %d" % missing)
+            if f[k] == t[k]:
+                continue
+            if not f[k] and t[k]:
+                gained[k] += 1
+                bucket = 'gained'
+            elif f[k] and not t[k]:
+                lost[k] += 1
+                bucket = 'LOST'
+            else:
+                changed[k] += 1
+                bucket = 'CHANGED'
+            if len(examples[bucket + ':' + k]) < 4:
+                examples[bucket + ':' + k].append((n, f[k], t[k]))
+    print()
+    print("  employers with no row yet (fall back, not a failure): %d" % missing)
     print("  employers compared                                  : %d" % (len(names) - missing))
-    if bad:
-        print("\n  FIELD MISMATCHES:")
-        for k, c in bad.most_common():
-            print("     %-14s %5d" % (k, c))
-            for n, fv, tv in examples[k]:
-                print("        %-28s files=%r  table=%r" % (n[:28], fv, tv))
-    else:
-        print("  every field agrees.")
+    print()
+    print("  GAINED (table answers where the files did not): %d  %s"
+          % (sum(gained.values()), dict(gained)))
+    print("  LOST   (files answered, table does not)       : %d  %s"
+          % (sum(lost.values()), dict(lost)))
+    print("  CHANGED(both answer, differently)             : %d  %s"
+          % (sum(changed.values()), dict(changed)))
+    for bucket, rows_ in sorted(examples.items()):
+        if bucket.startswith('gained'):
+            continue                      # improvements are counted, not itemised
+        print()
+        print("  %s:" % bucket)
+        for n, fv, tv in rows_:
+            print("     %-28s files=%r  table=%r" % (n[:28], fv, tv))
+    bad = collections.Counter()
+    bad.update(lost)
+    bad.update(changed)
+    if not bad:
+        print()
+        print("  nothing lost and nothing changed.")
 
     # ---- 2. whole rows --------------------------------------------------------------------
     sample = active[:a.rows]
     with _NoTable():
         rows_files = [web._build_row(j, 0) for j in sample]
     rows_table = [web._build_row(j, 0) for j in sample]
+    # Same three-way rule as above. A card that now shows a logo where it showed a monogram
+    # is the improvement this table exists for; a card that LOST one is a regression.
     rowbad = collections.Counter()
+    rowgain = collections.Counter()
     for rf, rt in zip(rows_files, rows_table):
         for k in sorted(rf):
-            if rf.get(k) != rt.get(k):
+            if rf.get(k) == rt.get(k):
+                continue
+            if not rf.get(k) and rt.get(k):
+                rowgain[k] += 1
+            else:
                 rowbad[k] += 1
-    print("\n  full rows compared: %d" % len(sample))
+    print()
+    print("  full rows compared: %d" % len(sample))
+    print("  gained on the card: %d  %s" % (sum(rowgain.values()), dict(rowgain)))
     if rowbad:
-        print("  ROW MISMATCHES:", dict(rowbad))
+        print("  ROW REGRESSIONS  : %d  %s" % (sum(rowbad.values()), dict(rowbad)))
     else:
-        print("  every key of every row agrees.")
+        print("  no row lost or changed a value.")
 
     total = sum(bad.values()) + sum(rowbad.values())
     print("\n%s" % ("PARITY OK" if not total else "PARITY FAILED (%d difference(s))" % total))
