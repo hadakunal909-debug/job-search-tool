@@ -1592,6 +1592,98 @@ def _row_pending(j):
     return bool(core.unpack_analyzed(packed).get("thin"))
 
 
+# ============ EMPLOYER FACTS: one lookup per card, from a table when there is one ============
+#
+# _build_row used to ask eleven separate questions about the employer of every card on every
+# render -- logo, aspect, mono, initials, sponsor strength, sponsor count, visa routes,
+# visa_likely, E-Verify, agency, cap-exempt -- and answer them from files held in each worker.
+# Measured 2026-09-06: sponsor_counts.json is 11.8 MB resident and visa_tags.json 11.2 MB, per
+# worker, to answer questions about 3,395 employers. 98.5% of their rows are never asked about.
+#
+# See MIGRATION_companies.sql and scripts/build_companies_table.py.
+_companies_memo = {"ver": None, "by_key": None, "at": 0.0, "ver_ok": False}
+_COMPANIES_TTL = 300         # seconds; bounds how long a worker can miss a rebuild
+
+
+def companies_table():
+    """{name_key: row} from public.companies. {} when the migration has not been run.
+
+    MEMOISED ON THE STORED VERSION, NOT ON A CLOCK ALONE, and that is the improvement over the
+    globals this replaces. _sponsor_counts_cache, _visa_index_cache, _logo_cache and four others
+    are lazy module globals that /reload does NOT clear -- only a worker restart picks up a
+    rebuilt file. Here the version is re-read at most every _COMPANIES_TTL seconds and a changed
+    version drops the map, so a build reaches every worker on its own.
+
+    {} on a missing table is safe HERE because the caller falls back to the files and renders the
+    same card. It is not safe in _derived_signature; see the note there.
+    """
+    now = time.time()
+    if _companies_memo["by_key"] is not None and now - _companies_memo["at"] < _COMPANIES_TTL:
+        return _companies_memo["by_key"]
+    try:
+        ver = db.get_data_version("companies")
+    except Exception:
+        # A failed version read must not drop a map we already hold: that would re-pull the
+        # table on every request for as long as the database is unhappy.
+        _companies_memo["ver_ok"] = False
+        _companies_memo["at"] = now
+        return _companies_memo["by_key"] or {}
+    if ver and ver == _companies_memo["ver"] and _companies_memo["by_key"] is not None:
+        _companies_memo["ver_ok"] = True
+        _companies_memo["at"] = now
+        return _companies_memo["by_key"]
+    by_key = db.load_companies() or {}
+    _companies_memo.update(ver=ver, by_key=by_key, at=now, ver_ok=True)
+    return by_key
+
+
+def company_facts(name):
+    """Everything one card needs to know about its employer, in a single lookup.
+
+    Returns the same values the eleven separate calls returned, so a card built from the table
+    and a card built from the files are indistinguishable -- scripts/companies_parity.py asserts
+    exactly that over the live corpus before any of this is trusted.
+
+    THE FALLBACK IS THE OLD PATH, UNCHANGED. An employer with no row -- the table not migrated,
+    or a company first scraped since the last build, measured at ~162/day -- is resolved exactly
+    as it was. That is what makes this deployable before the migration and before the builder has
+    ever run.
+    """
+    row = companies_table().get(core.norm_company(name)) if name else None
+    if row is None:
+        strength, scount = core.sponsor_strength(name, sponsor_counts())
+        return {"strength": strength, "strength_n": scount,
+                "visa": core.visa_tags(name, visa_index()),
+                "everify_named": bool(core.is_everify(name, _EVERIFY_INDEX)),
+                "agency": core.is_agency(name), "cap_exempt": core.is_cap_exempt(name),
+                "logo": logo_url(name), "logo_ar": logo_ar(name),
+                "logo_mono": logo_mono(name), "initials": initials(name)}
+    # core.sponsor_strength's tiers are the one definition of what a count MEANS, so the tier is
+    # re-derived from the stored count rather than stored beside it. Two columns that can
+    # disagree is the bug generator this whole revamp is about.
+    n = int(row.get("h1b_count") or 0)
+    strength = "high" if n >= 1000 else "medium" if n >= 100 else "low" if n >= 1 else ""
+    return {"strength": strength, "strength_n": n,
+            "visa": core.visa_tags_from_bits(row.get("visa_bits")),
+            "everify_named": bool(row.get("is_everify")),
+            "agency": bool(row.get("is_agency")), "cap_exempt": bool(row.get("is_cap_exempt")),
+            "logo": row.get("logo_url") or "", "logo_ar": row.get("logo_ar") or 0,
+            "logo_mono": bool(row.get("logo_mono")), "initials": row.get("initials") or ""}
+
+
+def _visa_source_present():
+    """Is there ANY employer visa data, from either source?
+
+    The legacy sponsors_h1b fallback below fires only when there is no index at all -- not when a
+    particular employer is missing from one. With the table in play "no index" has to mean both
+    are empty, or the fallback would start firing for every employer once visa_tags.json stops
+    being shipped, and it fuzzy-matches badly enough to score "Northeastern University" 95.65
+    against "northwestern university".
+    """
+    return bool(visa_index()) or bool(companies_table())
+
+
+
 def _build_row(j, score):
     """One feed card's data (everything EXCEPT the per-user status, which is overlaid at serve
     time). Computes the JD badges from the cron precompute + the logo/sponsor/e-verify fields —
@@ -1607,10 +1699,11 @@ def _build_row(j, score):
     if exp_eff is None:
         exp_eff = core.title_experience_tier(j.get("title") or "")
         exp_src = "inferred" if exp_eff is not None else ""
-    strength, scount = core.sponsor_strength(c, sponsor_counts())
+    cf = company_facts(c)
+    strength, scount = cf["strength"], cf["strength_n"]
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
     # sponsorship must not carry sponsorship badges (see core.visa_tags_for_posting).
-    vtags = core.visa_tags_for_posting(core.visa_tags(c, visa_index()), sv, sreason)
+    vtags = core.visa_tags_for_posting(cf["visa"], sv, sreason)
     # THE DATE, and whether it is a posting date at all.
     #
     # A trusted value is a bare ISO date and stays sliced to 10 chars. An UNTRUSTED one is
@@ -1646,7 +1739,7 @@ def _build_row(j, score):
     # So: only when the index genuinely isn't there, and never over a blocked posting. One
     # field reaches the client and app.js has a single code path.
     vlikely = core.sponsor_likely(vtags)
-    if (not vlikely and not visa_index() and sv != "blocked"
+    if (not vlikely and not _visa_source_present() and sv != "blocked"
             and j.get("sponsors_h1b") == "yes"):
         vlikely = "h1b"
     # A too-thin/truncated JD can't be scored honestly (see core.analyze_jd) — surface it as
@@ -1711,8 +1804,8 @@ def _build_row(j, score):
             "first_seen": str(j.get("first_seen") or "")[:10],
             "score": 0 if pending else score, "score_pending": pending,
             "jd_unavailable": unavailable,
-            "sponsor_jd": sv, "sponsor_reason": sreason, "agency": core.is_agency(c),
-            "cap_exempt": core.is_cap_exempt(c),
+            "sponsor_jd": sv, "sponsor_reason": sreason, "agency": cf["agency"],
+            "cap_exempt": cf["cap_exempt"],
             # How many distinct URLs this same role has had at this location inside the repost
             # window. 0 for the overwhelming majority. A measurement, not a judgement: the card
             # states the count and lets the reader decide whether it smells like a ghost req.
@@ -1737,7 +1830,7 @@ def _build_row(j, score):
             "visa_likely": vlikely,
             # stem_opt IS the E-Verify fact; the everify.txt path stays as a fallback for
             # anyone who built that file (it has never existed in this repo).
-            "everify": ("stem_opt" in vtags) or core.is_everify(c, _EVERIFY_INDEX),
+            "everify": ("stem_opt" in vtags) or cf["everify_named"],
             # THREE FIELDS, BECAUSE "WE COULD NOT TELL" IS NOT "THE EMPLOYER SAID NOTHING
             # MATTERS". exp_years is what the DESCRIPTION states and is unchanged. exp_eff is
             # what the filters compare -- the stated floor, or the one the TITLE implies when
@@ -1760,8 +1853,8 @@ def _build_row(j, score):
             # monogram, and there is no second URL to walk. That is not a simplification, it is
             # the fix -- the old chain handed the client the SAME url twice when no logo.dev key
             # was set, so every failing logo was fetched twice before the img was removed.
-            "logo": logo_url(c), "logo_ar": logo_ar(c), "logo_mono": logo_mono(c),
-            "initials": initials(c)}
+            "logo": cf["logo"], "logo_ar": cf["logo_ar"], "logo_mono": cf["logo_mono"],
+            "initials": cf["initials"]}
 
 
 _AGGREGATOR_HOSTS = core.AGGREGATOR_HOSTS
@@ -1965,7 +2058,29 @@ def _derived_signature():
             stat_key.append((os.path.basename(p), st.st_mtime_ns, st.st_size))
         except Exception:
             stat_key.append((os.path.basename(p), -1, -1))
-    stat_key = tuple(stat_key)
+    # ...AND THE COMPANIES TABLE, once there is one. Two of the three files above are the
+    # ones public.companies replaces, so without this a rebuilt table would leave the key
+    # unmoved and every worker would go on serving cards built from the previous employer
+    # facts -- for ever, because jobs_fingerprint() cannot see a table it does not read.
+    #
+    # IT IS IN THE MEMO KEY, NOT JUST THE HASH. The stat fast-path below returns before any
+    # hashing happens, so a version added only to the digest would be consulted exactly once
+    # per worker and never again while the three files sat still -- which is precisely the
+    # situation this is for.
+    #
+    # RAISES RATHER THAN DEFAULTING, which is this function's own rule stated above: nothing
+    # that can fail silently may be in the key. A worker that cannot say which vintage of
+    # employer facts it holds must not name a key at all -- if it guessed, two workers would
+    # agree on a key while disagreeing about the data, which is the 63 ms / 8,401 ms incident.
+    tbl = companies_table()
+    cver = ""
+    if tbl:
+        if not _companies_memo["ver_ok"]:
+            raise RuntimeError(
+                "companies data_version unreadable -- refusing to key the row cache on "
+                "employer facts of unknown vintage")
+        cver = _companies_memo["ver"] or ""
+    stat_key = tuple(stat_key) + (("companies", cver),)
     memo = _derived_sig_memo
     if memo["stat"] == stat_key and memo["sig"]:
         return memo["sig"]
@@ -1978,6 +2093,7 @@ def _derived_signature():
         except Exception:
             h.update(("absent:" + os.path.basename(p)).encode("utf-8"))
         h.update(b"|")                       # so two files cannot run into one another
+    h.update(("companies:" + cver).encode("utf-8"))
     sig = h.hexdigest()[:32]
     memo.update(stat=stat_key, sig=sig)
     return sig

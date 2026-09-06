@@ -1872,6 +1872,22 @@ def is_everify(company, index):
 # ------------------------------------------------------------
 VISA_TAGS = ("h1b", "green_card", "stem_opt", "e3", "h1b1")     # == render order
 _VISA_BITS = {"h1b": 1, "green_card": 2, "stem_opt": 4, "e3": 8, "h1b1": 16}
+
+
+def visa_tags_from_bits(mask):
+    """A stored bitmask -> the same tuple visa_tags() returns, in VISA_TAGS order.
+
+    public.companies stores the mask rather than the expanded names so that this table stays the
+    only place that knows h1b is bit 1 -- adding a sixth route then needs no data migration, just
+    an entry above. The inverse (`visa_tags`) reads the same map two lines up, so the round trip
+    cannot drift.
+
+    A TUPLE, matching visa_tags: the result is shared across every card for that employer and a
+    mutable return would be an aliasing bug waiting to happen.
+    """
+    mask = int(mask or 0)
+    return tuple(t for t in VISA_TAGS if mask & _VISA_BITS[t]) if mask else ()
+
 # Labelled STEM-OPT, not "E-Verify": E-Verify is the evidence, STEM-OPT is the thing you're
 # actually looking for. Note there is deliberately NO plain "OPT" filter — regular 12-month
 # OPT needs nothing from the employer (you already hold the EAD), so every job would match

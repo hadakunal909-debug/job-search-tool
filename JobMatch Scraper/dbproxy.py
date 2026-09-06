@@ -61,6 +61,12 @@ ALLOWED_TABLES = {
     # base64 PDF through this transport: /api/db is an ordinary Flask route, so the real cap
     # is MAX_CONTENT_LENGTH (6 MB), not MAX_BODY below, and it is untested above a few KB.
     "resume_files",
+    # Employer-level facts, and the version stamp the row cache keys on. See
+    # MIGRATION_companies.sql. Listing them here is not optional and the failure is
+    # asymmetric: the cPanel app talks to Postgres directly and works without it, so a run
+    # from a laptop or from Actions is the ONLY place a missing entry shows up -- as a 403
+    # that looks like an auth problem rather than an allowlist one.
+    "companies", "data_versions",
 }
 # Stored procedures the admin panels call. Named individually for the same reason as the tables.
 ALLOWED_RPC = {"db_stats", "ev_usage"}
