@@ -1637,6 +1637,18 @@ def companies_table():
     return by_key
 
 
+# company_facts' answer, per employer. 47,133 rows across 3,545 employers -- 13.3 rows each,
+# so 92% of calls were rebuilding a dict that already existed. Measured at 11.5 us/row of a
+# 77 us/row build, which made it the single largest item in _build_row after the row literal
+# itself.
+#
+# KEYED ON THE COMPANIES TABLE VERSION, so a rebuilt table drops it. That is the whole
+# difference between this and the seven module globals it sits beside -- _sponsor_counts_cache
+# and friends, which /reload cannot clear and only a worker restart refreshes. A memo with no
+# invalidation is how employer facts go stale for a day at a time.
+_cf_memo = {"ver": None, "by_name": {}}
+
+
 def company_facts(name):
     """Everything one card needs to know about its employer, in a single lookup.
 
@@ -1649,26 +1661,41 @@ def company_facts(name):
     as it was. That is what makes this deployable before the migration and before the builder has
     ever run.
     """
-    row = companies_table().get(core.norm_company(name)) if name else None
+    tbl = companies_table()
+    ver = _companies_memo.get("ver")
+    if _cf_memo["ver"] != ver:
+        _cf_memo.update(ver=ver, by_name={})
+    hit = _cf_memo["by_name"].get(name)
+    if hit is not None:
+        return hit
+    row = tbl.get(core.norm_company(name)) if name else None
     if row is None:
         strength, scount = core.sponsor_strength(name, sponsor_counts())
-        return {"strength": strength, "strength_n": scount,
-                "visa": core.visa_tags(name, visa_index()),
-                "everify_named": bool(core.is_everify(name, _EVERIFY_INDEX)),
-                "agency": core.is_agency(name), "cap_exempt": core.is_cap_exempt(name),
-                "logo": logo_url(name), "logo_ar": logo_ar(name),
-                "logo_mono": logo_mono(name), "initials": initials(name)}
-    # core.sponsor_strength's tiers are the one definition of what a count MEANS, so the tier is
-    # re-derived from the stored count rather than stored beside it. Two columns that can
-    # disagree is the bug generator this whole revamp is about.
-    n = int(row.get("h1b_count") or 0)
-    strength = "high" if n >= 1000 else "medium" if n >= 100 else "low" if n >= 1 else ""
-    return {"strength": strength, "strength_n": n,
-            "visa": core.visa_tags_from_bits(row.get("visa_bits")),
-            "everify_named": bool(row.get("is_everify")),
-            "agency": bool(row.get("is_agency")), "cap_exempt": bool(row.get("is_cap_exempt")),
-            "logo": row.get("logo_url") or "", "logo_ar": row.get("logo_ar") or 0,
-            "logo_mono": bool(row.get("logo_mono")), "initials": row.get("initials") or ""}
+        out = {"strength": strength, "strength_n": scount,
+               "visa": core.visa_tags(name, visa_index()),
+               "everify_named": bool(core.is_everify(name, _EVERIFY_INDEX)),
+               "agency": core.is_agency(name), "cap_exempt": core.is_cap_exempt(name),
+               "logo": logo_url(name), "logo_ar": logo_ar(name),
+               "logo_mono": logo_mono(name), "initials": initials(name)}
+    else:
+        # core.sponsor_strength's tiers are the one definition of what a count MEANS, so the
+        # tier is re-derived from the stored count rather than stored beside it. Two columns
+        # that can disagree is the bug generator this whole revamp is about.
+        n = int(row.get("h1b_count") or 0)
+        strength = "high" if n >= 1000 else "medium" if n >= 100 else "low" if n >= 1 else ""
+        out = {"strength": strength, "strength_n": n,
+               "visa": core.visa_tags_from_bits(row.get("visa_bits")),
+               "everify_named": bool(row.get("is_everify")),
+               "agency": bool(row.get("is_agency")),
+               "cap_exempt": bool(row.get("is_cap_exempt")),
+               "logo": row.get("logo_url") or "", "logo_ar": row.get("logo_ar") or 0,
+               "logo_mono": bool(row.get("logo_mono")),
+               "initials": row.get("initials") or ""}
+    # THE RETURNED DICT IS NOW SHARED between every card for this employer, so a caller that
+    # mutated it would corrupt the others. _build_row only reads out of it. Same bargain
+    # core.visa_tags already makes by returning a tuple, and stated here for the same reason.
+    _cf_memo["by_name"][name] = out
+    return out
 
 
 def _visa_source_present():

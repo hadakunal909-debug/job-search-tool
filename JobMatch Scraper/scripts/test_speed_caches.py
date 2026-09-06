@@ -1362,6 +1362,60 @@ def score_write_visibility():
     return bad
 
 
+def company_facts_memo():
+    """company_facts is memoised per employer, and the memo dies with the table version.
+
+    47,133 rows across 3,545 employers -- 13.3 each -- so 92% of calls were rebuilding a
+    dict that already existed. Measured 11.53 -> 0.56 us/row, taking the whole of _build_row
+    from 77.19 to 51.96 us/row.
+
+    THE INVALIDATION IS THE POINT, not the speed. web.py already carries seven lazy module
+    globals -- _sponsor_counts_cache, _visa_index_cache, _logo_cache and friends -- that
+    /reload cannot clear and only a worker restart refreshes. An eighth of those would trade
+    a measured 33% for employer facts that go stale for a day at a time.
+    """
+    print("=" * 74)
+    print("web.company_facts memo")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    saved_memo = dict(web._companies_memo)
+    saved_cf = dict(web._cf_memo)
+    try:
+        row = {"name_key": "acme", "display_name": "Acme", "h1b_count": 1200,
+               "visa_bits": 1, "is_everify": False, "is_agency": False,
+               "is_cap_exempt": False, "logo_url": "/static/logos/acme.svg",
+               "logo_ar": 1.5, "logo_mono": False, "initials": "A"}
+        web._companies_memo.update(ver="v1", by_key={"acme": row}, at=9e18, ver_ok=True)
+        web._cf_memo.update(ver=None, by_name={})
+
+        a = web.company_facts("Acme")
+        b = web.company_facts("Acme")
+        want("the same employer is not rebuilt", a is b)
+        want("...and the answer is the stored one",
+             a["strength"] == "high" and a["strength_n"] == 1200, repr(a)[:70])
+
+        # the table is rebuilt: same employer, different facts, new version
+        web._companies_memo.update(ver="v2", by_key={"acme": dict(row, h1b_count=5)},
+                                   at=9e18, ver_ok=True)
+        c = web.company_facts("Acme")
+        want("a new table version drops the memo", c is not a)
+        want("...and the new facts are read", c["strength_n"] == 5, repr(c)[:70])
+    finally:
+        web._companies_memo.clear()
+        web._companies_memo.update(saved_memo)
+        web._cf_memo.clear()
+        web._cf_memo.update(saved_cf)
+    print()
+    return bad
+
+
+
 def main():
     fails = check(synthetic(), "synthetic")
 
@@ -1390,6 +1444,7 @@ def main():
     fails += score_files()
     fails += cache_budget()
     fails += base_rows()
+    fails += company_facts_memo()
     fails += score_pct_equivalence()
     fails += warm_user_scores()
     fails += warm_stages()
