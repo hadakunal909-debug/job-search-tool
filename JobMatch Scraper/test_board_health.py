@@ -173,6 +173,105 @@ def test_the_history_window_still_holds_at_eight():
     assert [x["n"] for x in runs] == list(range(5, scraper.BOARD_HEALTH_RUNS + 5)), runs
 
 
+# ---- an unreadable board must not look like an empty one -------------------------------
+#
+# Added 2026-09-06. Everything above pins the SKIPPED-vs-FAILED distinction. This pins the
+# other one that was collapsing: UNREADABLE vs EMPTY. scrape_workday returned [] both when the
+# tenant answered 410 ERR_TENANT_MIGRATED and when it answered 200 with no postings, so _one
+# recorded ok=True, n=0 for a dead board and save_board_health filed it as SILENT -- "returning
+# 0 for 3+ runs", which reads as an employer with no openings and gets triaged accordingly.
+# Measured that day: Comcast (moved wd5 -> wd115), Carnegie Mellon, SSM Health and Takeda were
+# all sitting there. scrape_oracle had the identical shape via `except Exception: break`.
+
+
+class _Resp(object):
+    def __init__(self, status, payload=None):
+        self.status_code = status
+        self._payload = payload if payload is not None else {}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError("HTTP %s" % self.status_code)
+
+
+def _workday_answering(resp):
+    """scrape_workday with SESSION.post stubbed. Returns a restore callable."""
+    real = scraper.SESSION.post
+    scraper.SESSION.post = lambda *a, **k: resp
+    return lambda: setattr(scraper.SESSION, "post", real)
+
+
+def test_workday_migrated_tenant_raises():
+    """410 ERR_TENANT_MIGRATED is the case that hid a 686-posting board for weeks. The error
+    code has to reach the message: it is the difference between "repoint this" and "give up"."""
+    restore = _workday_answering(_Resp(410, {"errorCode": "ERR_TENANT_MIGRATED"}))
+    try:
+        scraper.scrape_workday("https://co.wd5.myworkdayjobs.com/Careers")
+    except Exception as e:
+        assert "unreadable" in str(e), e
+        assert "ERR_TENANT_MIGRATED" in str(e), e
+    else:
+        raise AssertionError("a migrated tenant returned rows instead of raising")
+    finally:
+        restore()
+
+
+def test_workday_422_raises():
+    """The other live shape -- CMU, SSM Health and Takeda all answered 422 with no body."""
+    restore = _workday_answering(_Resp(422, {}))
+    try:
+        scraper.scrape_workday("https://co.wd5.myworkdayjobs.com/Careers")
+    except Exception as e:
+        assert "unreadable" in str(e) and "422" in str(e), e
+    else:
+        raise AssertionError("a 422 tenant returned rows instead of raising")
+    finally:
+        restore()
+
+
+def test_workday_genuinely_empty_board_returns_rows_not_an_error():
+    """The other half, and the reason this cannot just raise on len(rows) == 0. A real empty
+    board answers 200 with total 0 -- HSA Bank is the live example -- and that is a READ."""
+    restore = _workday_answering(_Resp(200, {"total": 0, "jobPostings": []}))
+    try:
+        assert scraper.scrape_workday("https://co.wd5.myworkdayjobs.com/Careers") == []
+    finally:
+        restore()
+
+
+def test_oracle_unreadable_first_page_raises():
+    """scrape_oracle broke out of its loop on any exception, so page 0 failing returned []."""
+    real = scraper._get_json_safe
+    def boom(*a, **k):
+        raise RuntimeError("nope")
+    scraper._get_json_safe = boom
+    try:
+        scraper.scrape_oracle("https://x.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1")
+    except Exception as e:
+        assert "unreadable" in str(e), e
+    else:
+        raise AssertionError("an unreadable Oracle board returned rows instead of raising")
+    finally:
+        scraper._get_json_safe = real
+
+
+def test_oracle_fetch_is_ssrf_guarded():
+    """The host allowlist that used to sit at the top of scrape_oracle was doing double duty:
+    it was also the SSRF control, because plain _get_json has none. Dropping it to admit vanity
+    domains (careersearch.stanford.edu is a CNAME onto Oracle) only stays safe because the
+    fetch itself moved to _safe_get. No network: public_http_url rejects these before a socket."""
+    for bad in ("http://169.254.169.254/hcmRestApi/x", "http://localhost:9/hcmRestApi/x"):
+        try:
+            scraper._get_json_safe(bad)
+        except ValueError as e:
+            assert "blocked non-public URL" in str(e), e
+        else:
+            raise AssertionError("SSRF guard did not fire for %s" % bad)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -158,7 +158,11 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/linkedin",    "greenhouse", "LinkedIn"),
     ("https://jobs.ashbyhq.com/snowflake",           "ashby", "Snowflake"),
     ("https://jobs.smartrecruiters.com/ServiceNow",  "smartrecruiters", "ServiceNow"),
-    ("https://jobs.smartrecruiters.com/Visa",        "smartrecruiters", "Visa"),
+    # Visa MOVED OFF SmartRecruiters, 2026-09-06. jobs.smartrecruiters.com/Visa still answers
+    # HTTP 200 with totalFound=0 -- for every casing of the slug -- so it read as a healthy
+    # board with no openings and never appeared in the FAILED list. corporate.visa.com/en/jobs
+    # 301s straight to the Workday tenant below: 754 postings, probe and adapter agreeing.
+    ("https://visa.wd5.myworkdayjobs.com/Visa",      "workday", "Visa"),
     ("https://jobs.smartrecruiters.com/Uber",        "smartrecruiters", "Uber"),
     ("https://jobs.smartrecruiters.com/ByteDance",   "smartrecruiters", "ByteDance"),
     # --- Added 2026-06-01: find_boards.py probe of the DOL sponsor list (20 hits) ---
@@ -194,6 +198,10 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/HarvardUniversity",      "smartrecruiters", "Harvard University"),
     # --- Added 2026-06-10: probe of the user's H1B LCA list (board names verified) ---
     ("https://job-boards.greenhouse.io/byd",                    "greenhouse", "BYD America"),
+    # Deel: this board is VALID and EMPTY (200, "jobs":[]), not broken -- alternative slugs
+    # 404, so the slug is right. They publish at jobs.deel.com now, a client-rendered shell
+    # no adapter here reads. KEPT deliberately: an empty Ashby board costs one cheap API call
+    # a run, and if they post to it again we pick it up the same day. Verified 2026-09-06.
     ("https://jobs.ashbyhq.com/deel",                           "ashby", "Deel"),
     # --- Added 2026-06-13 via detect_linked_ats on careers.point72.com ---
     ("https://job-boards.greenhouse.io/point72",                "greenhouse", "Point72"),
@@ -378,7 +386,10 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/Konecranes", "smartrecruiters", "Konecranes"),        # ~365
     ("https://careers.swissport.com", "jibe", "Swissport"),                                  # ~365
     ("https://careers.ucb.com", "phenom", "UCB"),                                            # ~362
-    ("https://jobs.gft.com", "successfactors", "GFT"),                                       # ~361
+    # GFT: REMOVED 2026-09-06. The board reads fine -- 397 postings -- and NONE of them are in
+    # the US: Milano, Ho Chi Minh City, Lodz, Alphaville-Barueri. Three runs of zero, and it
+    # was costing a full paged walk plus a 397-URL sitemap crawl each time. Same call, and the
+    # same reasoning, as the Birlasoft rejection recorded in SF_BOARDS.
     ("https://sunrun.wd5.myworkdayjobs.com/Sunrun_Careers", "workday", "Sunrun"),            # ~352
     ("https://job-boards.greenhouse.io/olsson", "greenhouse", "Olsson"),                     # ~334
     ("https://jobs.growmark.com", "successfactors", "GROWMARK"),                             # ~329
@@ -563,7 +574,8 @@ EXTRA_BOARDS = [
     ("https://ehtl.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "oracle", "Resideo"), # ~52
     ("https://job-boards.greenhouse.io/forgen", "greenhouse", "Forgen"),                     # ~51
     ("https://job-boards.greenhouse.io/cargurus", "greenhouse", "CarGurus"),                 # ~50
-    ("https://careers.knapp.com", "successfactors", "Knapp"),                                # ~50
+    # Knapp: REMOVED 2026-09-06. 192 postings, all Austria/Germany (Hart bei Graz, Steiermark,
+    # Heusenstamm) -- an Austrian board. Zero US rows on every run.
     ("https://jobs.power-electronics.com", "successfactors", "POWER ELECTRONICS"),           # ~50
     ("https://jobs.ashbyhq.com/thumbtack", "ashby", "Thumbtack"),                            # ~50
     ("https://jobs.lever.co/acceldata", "lever", "Acceldata"),                               # ~49
@@ -895,7 +907,9 @@ EXTRA_BOARDS = [
     ("https://careers.quest-global.com", "phenom", "Quest Global"),                          # ~1704
     ("https://cnx.wd1.myworkdayjobs.com/external_global", "workday", "Concentrix"),          # ~1665
     ("https://careers.mcdean.com", "jibe", "M.C. Dean, Inc."),                               # ~1626
-    ("https://ssmh.wd5.myworkdayjobs.com/ssmhealth", "workday", "SSM Health"),               # ~1622
+    # SSM Health: ssmh.wd5 answers HTTP 422 to every site name tried, so scrape_workday read
+    # it as empty for weeks. jobs.ssmhealth.com is Phenom and returns 1,684. (2026-09-06)
+    ("https://jobs.ssmhealth.com", "phenom", "SSM Health"),                                  # ~1684
     ("https://jobs.smartrecruiters.com/NorthwesternMedicine", "smartrecruiters", "Northwestern Medicine"), # ~1461
     ("https://rbc.wd3.myworkdayjobs.com/RBCGLOBAL1", "workday", "RBC"),                      # ~1388
     ("https://meijer.wd5.myworkdayjobs.com/Meijer_Stores_Hourly", "workday", "Meijer"),      # ~1385
@@ -1074,7 +1088,8 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/vestwell", "greenhouse", "Vestwell"),                 # ~25
     ("https://job-boards.greenhouse.io/kairospower", "greenhouse", "Kairos Power"),          # ~24
     ("https://job-boards.greenhouse.io/oculartherapeutix", "greenhouse", "Ocular Therapeutix, Inc."), # ~24
-    ("https://careers.ofi.com", "successfactors", "OFI"),                                    # ~24
+    # OFI (olam food ingredients): REMOVED 2026-09-06. 30 postings, all Netherlands, China,
+    # Ghana, India. Zero US rows on every run.
     ("https://job-boards.greenhouse.io/berkadia", "greenhouse", "Berkadia"),                 # ~23
     ("https://jobs.ashbyhq.com/oscilar", "ashby", "Oscilar"),                                # ~23
     ("https://job-boards.greenhouse.io/tebra", "greenhouse", "Tebra"),                       # ~23
@@ -1227,7 +1242,9 @@ WORKDAY_BOARDS = [
     # --- Added 2026-06-13: major sponsors found by detect_linked_ats over their public
     # careers pages (each followed a real "view jobs" link to its Workday board). ---
     ("https://adobe.wd5.myworkdayjobs.com/external_experienced",        "workday", "Adobe"),
-    ("https://comcast.wd5.myworkdayjobs.com/Comcast_Careers",           "workday", "Comcast"),
+    # Comcast moved wd5 -> wd115. The old tenant answers HTTP 410 ERR_TENANT_MIGRATED, which
+    # scrape_workday used to swallow into an empty list -- 686 postings invisible. (2026-09-06)
+    ("https://comcast.wd115.myworkdayjobs.com/Comcast_Careers",         "workday", "Comcast"),
     ("https://expedia.wd108.myworkdayjobs.com/search",                  "workday", "Expedia Group"),
     ("https://citi.wd5.myworkdayjobs.com/2",                            "workday", "Citigroup"),
     ("https://ghr.wd1.myworkdayjobs.com/lateral-us",                    "workday", "Bank of America"),
@@ -1320,13 +1337,23 @@ WORKDAY_BOARDS = [
     ("https://vrtx.wd501.myworkdayjobs.com/Vertex_Careers",             "workday", "Vertex Pharmaceuticals"), # ~279
     ("https://illumina.wd1.myworkdayjobs.com/illumina-careers",         "workday", "Illumina"),             # ~140
     # --- Added 2026-06-18 (LCA FY2026-Q2 web-search wave 2; Carnegie Mellon + VUMC cap-exempt) ---
-    ("https://takeda.wd3.myworkdayjobs.com/External",                   "workday", "Takeda"),               # ~1,623
+    # Takeda: REMOVED 2026-09-06. takeda.wd3 answers HTTP 422 to every site name and has done
+    # for at least three runs; it was reading as a healthy board with zero jobs. Their live
+    # board is jobs.takeda.com, which is Radancy/TalentBrew (/search-jobs/results +
+    # GetSearchRequestGeoLocation) -- no adapter here reads it, and none of jibe, phenom,
+    # jsonld or jsonld_sitemap does either (all measured 0). takeda.avature.net is only a
+    # talent community; all six SearchJobs portal guesses returned 0. Re-add behind a Radancy
+    # adapter, not by guessing another Workday tenant. Was a top-30 pharma sponsor at ~1,623.
     ("https://cardinalhealth.wd1.myworkdayjobs.com/EXT",                "workday", "Cardinal Health"),      # ~757
     ("https://cadence.wd1.myworkdayjobs.com/External_Careers",          "workday", "Cadence Design Systems"), # ~640
     ("https://regeneron.wd1.myworkdayjobs.com/Careers",                 "workday", "Regeneron"),            # ~585
     ("https://transunion.wd5.myworkdayjobs.com/TransUnion",             "workday", "TransUnion"),           # ~244
     ("https://vumc.wd1.myworkdayjobs.com/vumccareers",                  "workday", "Vanderbilt University Medical Center"), # ~683 (cap-exempt)
-    ("https://cmu.wd5.myworkdayjobs.com/CMU",                           "workday", "Carnegie Mellon University"), # ~167 (cap-exempt)
+    # CMU moved wd5 -> wd115 (the old tenant 422s and redirects to Workday's outage page).
+    # SEI is a SECOND site on the same tenant -- the Software Engineering Institute, an FFRDC
+    # with its own postings, not a duplicate of CMU. Both cap-exempt. (2026-09-06)
+    ("https://cmu.wd115.myworkdayjobs.com/CMU",                         "workday", "Carnegie Mellon University"), # ~220 (cap-exempt)
+    ("https://cmu.wd115.myworkdayjobs.com/SEI",                         "workday", "Carnegie Mellon University SEI"), # ~54 (cap-exempt)
     # --- Added 2026-06-18 (LCA FY2026-Q2 web-search wave 3; OSU/PSU/Georgetown cap-exempt) ---
     ("https://psu.wd1.myworkdayjobs.com/PSU_Staff",                     "workday", "Penn State University"), # ~1,412 (cap-exempt)
     ("https://osu.wd1.myworkdayjobs.com/OSUCareers",                    "workday", "Ohio State University"), # ~1,067 (cap-exempt)
@@ -1644,7 +1671,9 @@ JIBE_BOARDS = [
     # --- Added 2026-06-13 (E-Verify major-employer sweep): iCIMS/Jibe feeds w/ inline JDs. ---
     ("https://careers.amd.com",          "jibe", "AMD"),            # ~1041
     ("https://careers.pepsico.com",      "jibe", "PepsiCo"),        # ~2943
-    ("https://careers.generalmills.com", "jibe", "General Mills"),  # ~334
+    # General Mills is WORKDAY, not jibe: careers.generalmills.com is a marketing front that
+    # the jibe adapter reads as empty. The board behind it returns 304. (2026-09-06)
+    ("https://genmills.wd1.myworkdayjobs.com/GMI_External_Careers", "workday", "General Mills"), # ~304
     # --- Added 2026-06-18 (DOL LCA FY2026-Q2 sponsors via find_everify_boards careers-chain) ---
     ("https://careers.keysight.com",     "jibe", "Keysight Technologies"),  # ~548
     ("https://fedexfreight.jibeapply.com", "jibe", "FedEx Freight"),        # ~697
@@ -2482,6 +2511,20 @@ def _get_json(url, params=None):
     return r.json()
 
 
+def _get_json_safe(url, params=None):
+    """_get_json for a URL whose ORIGIN came from a user (an added board), not from us.
+
+    Every other _get_json call site names a hard-coded API host -- api.lever.co,
+    <slug>.bamboohr.com -- so the plain one is safe there by construction, which is what
+    the SSRF note below says. The Oracle arms are the exception: the origin is whatever
+    host the board URL carries. _safe_get is the actual control (public-IP check, no
+    redirect into a private host, 5 MB cap); it is defined below this point in the file,
+    which is fine because this only runs at call time."""
+    r = _safe_get(url, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+
 # ---- SSRF / abuse guards for URLs that come from a USER (added boards, JSON-LD pages) ----
 # The fixed-host scrapers (Greenhouse/Lever/Ashby/SmartRecruiters/Workday/Amazon/Adzuna) hit
 # hard-coded API hosts and don't need this. But the Jibe and JSON-LD scrapers fetch a
@@ -3199,6 +3242,9 @@ def scrape_workday(board_url):
                 if "myworkdaysite.com" in host else "https://%s/%s" % (host, site))
     hdr = dict(HEADERS); hdr["Content-Type"] = "application/json"
     seen, rows = set(), []
+    # Why the last attempt failed, so the raise below can say it. A list because _fetch
+    # closes over it and only ever writes element 0.
+    why = [""]
 
     def _fetch(offset):
         """One page of postings, or None if it could not be read. Fetch only -- the parse and
@@ -3211,8 +3257,18 @@ def scrape_workday(board_url):
                      "searchText": ""}))
                 if r.status_code == 200:
                     return r.json()
-            except Exception:
-                pass
+                why[0] = "HTTP %s" % r.status_code
+                # Workday names the interesting ones in the body: ERR_TENANT_MIGRATED
+                # (410) is the difference between "fix the URL" and "give up".
+                code = ""
+                try:
+                    code = (r.json() or {}).get("errorCode") or ""
+                except Exception:
+                    pass
+                if code:
+                    why[0] += " %s" % code
+            except Exception as e:
+                why[0] = "%s: %s" % (type(e).__name__, str(e)[:80])
             if not attempt:
                 # One retry, for the same reason Avature has one: fetching offsets
                 # independently means a blip drops that page silently instead of ending the
@@ -3252,6 +3308,20 @@ def scrape_workday(board_url):
 
     # Page 0 buys the board total, and the total is what makes every other offset a known URL.
     first = _fetch(0)
+    # RAISE, do not return []. An unreadable board and an empty one are different facts
+    # and this returned the same value for both, so a dead tenant was recorded ok=True
+    # with n=0 and landed in the SILENT list -- "returning 0 for 3+ runs", which reads as
+    # an employer with no openings. Measured 2026-09-06: Comcast (410 ERR_TENANT_MIGRATED
+    # after a wd5 -> wd115 move), Carnegie Mellon, SSM Health and Takeda were all sitting
+    # there, 3,700+ postings between the three that were fixable, and nothing in the run
+    # log or the admin panel said a word. A genuinely empty board still returns [] -- it
+    # answers 200 with {"total": 0, "jobPostings": []}, which is a real read (HSA Bank is
+    # the live example). Raising puts it in board_results as ok=False + err, which is
+    # also what reconcile_closed needs: it must not read a failed fetch as "these
+    # postings are gone". That half was already safe by accident -- RECONCILE_MIN_ROWS=3
+    # skips any board returning under 3 urls -- but by accident is not a guarantee.
+    if first is None:
+        raise RuntimeError("Workday %s/%s unreadable (%s)" % (tenant, site, why[0] or "no response"))
     if not first:
         return rows
     got = _absorb(first)
@@ -4216,17 +4286,31 @@ def scrape_oracle(board_url):
     on Oracle HCM (lots of banks/pharma/industrials) that no other ATS feed covers.
     Bonus: the list response carries the JD text, so score_jobs needs no detail calls."""
     origin, site = _oracle_parts(board_url)
-    if not urlparse(origin).netloc.lower().endswith(".oraclecloud.com"):
-        return []                  # a stored 'oracle' board must really be an Oracle host
+    # This used to be `if not host.endswith(".oraclecloud.com"): return []`, and that was
+    # doing two jobs at once. As an SSRF control it was load-bearing, because _get_json is
+    # unguarded and a board URL comes from a user. As a correctness test it was wrong: a
+    # VANITY DOMAIN is normal on Oracle ORC. careersearch.stanford.edu is a CNAME onto
+    # Oracle and serves the same recruitingCEJobRequisitions API -- probe_board (no such
+    # check) read 478 postings from it while this returned [] without a word, so Stanford
+    # sat in the SILENT list as an employer with no openings. Cap-exempt, and one of the
+    # boards added deliberately for that. The control moves to _get_json_safe below, which
+    # is where it belonged: the danger was never the hostname, it was the unguarded fetch.
     rows, seen, offset, total = [], set(), 0, None
     while offset < ORACLE_MAX_JOBS:
         try:
-            d = _get_json(origin + "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+            d = _get_json_safe(origin + "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
                           params={"onlyData": "true",
                                   "expand": "requisitionList.secondaryLocations",
                                   "finder": "findReqs;siteNumber=%s,limit=%d,offset=%d,sortBy=POSTING_DATES_DESC"
                                             % (site, ORACLE_PAGE, offset)})
-        except Exception:
+        except Exception as e:
+            # Same rule as scrape_workday: page 0 failing means we could not READ the
+            # board, which is a different fact from the board being empty, and returning
+            # [] for both is what put Stanford in the SILENT list. A later page failing is
+            # a partial read of a board we know exists -- keep what we banked and stop.
+            if offset == 0:
+                raise RuntimeError("Oracle %s unreadable (%s: %s)"
+                                   % (site, type(e).__name__, str(e)[:80]))
             break
         items = d.get("items") or []
         reqs = (items[0].get("requisitionList") or []) if items else []
@@ -4410,6 +4494,12 @@ def _csb_date(s):
         return ""
 
 
+# _TOKENS, not _CSB_US_COUNTRY: that name is already taken 50 lines down by the slug regex,
+# and since both are module-level the later one silently won.
+_CSB_US_COUNTRY_TOKENS = {"US", "USA", "U.S.", "U.S.A.", "UNITED STATES",
+                          "UNITED STATES OF AMERICA"}
+
+
 def _csb_is_us(loc):
     """CSB locations always carry an ISO country code: 'Lincoln, NE, US' /
     'Walldorf, DE, 69190' / 'Bangalore, KA, IN, 562149'. A literal US token = US;
@@ -4422,11 +4512,29 @@ def _csb_is_us(loc):
     nothing after the code, which is byte-for-byte the 'City, ST' shape the exception exists to
     keep — so Morocco read as Massachusetts and Argentina as Arkansas, and 157 of that board's
     516 supposedly-US rows (30%) were foreign. A named city outranks an ambiguous code."""
+    toks = [t.strip().upper() for t in (loc or "").split(",") if t.strip()]
+    # THE COUNTRY TOKEN IS CHECKED BEFORE THE VETO, and the order is the point.
+    # is_us_location already learned this ("Melbourne, FL, USA" was dropped because the
+    # foreign-city veto ran first and never got to the USA); _csb_is_us was written with
+    # the veto on top and kept the bug. An explicit country is not an ambiguous code, so
+    # it does not reopen the Capgemini hole the docstring describes: "Casablanca, MA"
+    # names no country, falls through to the veto, and is still foreign.
+    #
+    # SPELLED-OUT country names belong here too, and leaving them out was not harmless.
+    # The docstring above says CSB locations "always carry an ISO country code"; they do
+    # not. jobs.oregontool.com writes "Oregon, IL, United States", and the last line of
+    # this function reads any two-letter alpha token as a country code -- so IL, the
+    # STATE, was taken as the country marker, "UNITED STATES" matched neither US nor USA,
+    # and the row was dropped as foreign. All 13 of that board's postings are in Illinois,
+    # Missouri, Arizona and Oregon; all 13 were dropped, every run, and the board sat in
+    # the SILENT list reading as an employer with nothing open. _NON_US_RE has already
+    # rejected "united kingdom" and the rest before this point, so matching the country
+    # field on its own is safe -- and it is a whole comma-separated token, not a
+    # substring, so a city called United anything cannot trip it.
+    if _CSB_US_COUNTRY_TOKENS.intersection(toks):
+        return True
     if _NON_US_RE.search(_fold(loc)):
         return False
-    toks = [t.strip().upper() for t in (loc or "").split(",") if t.strip()]
-    if "US" in toks or "USA" in toks:
-        return True
     if toks and toks[-1] in US_STATE_ABBR and len(toks[-1]) == 2:
         return True
     return not any(len(t) == 2 and t.isalpha() for t in toks)   # no code at all -> unknown, keep
@@ -7441,7 +7549,7 @@ def probe_board(board_url, ats_type):
             return None
         if ats_type == "oracle":
             origin, site = _oracle_parts(board_url)
-            d = _get_json(origin + "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+            d = _get_json_safe(origin + "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
                           params={"onlyData": "true",
                                   "finder": "findReqs;siteNumber=%s,limit=1,offset=0" % site})
             items = d.get("items") or []
