@@ -91,32 +91,86 @@ transports — the name is historical. `db.backend_name()` is the one that tells
 
 ---
 
-## 3. The schedule — three slots, two runners
+## 3. The schedule — four slots, two runners
 
 | When (ET) | Runner | What it does |
 |---|---|---|
-| **09:00** Mon–Fri | GitHub Actions — `.github/workflows/scrape.yml`, at the **repo root** | The heavy pass: sweep, **full** score, `verify_dates`, analytics rollup, repost detection, digest email |
-| **13:00** Mon–Fri | cPanel cron — `bin/cron_scrape.sh` | sweep, **new-only** score, reposts |
+| **~08:00-09:00** Mon–Fri | GitHub Actions — `.github/workflows/scrape.yml`, at the **repo root** | The heavy pass: sweep, **full** score, `verify_dates`, analytics rollup, repost detection, digest email |
+| **13:00** Mon–Fri | cPanel cron — `bin/cron_scrape.sh` | sweep, **new-only** score, reposts, `scraper.score_users` |
 | **16:00** Mon–Fri | cPanel cron — `bin/cron_scrape.sh` | same |
+| **:30, hourly** Mon–Fri | cPanel cron — `bin/cron_scrape.sh --analyze-only` | analyse only: writes `jd_terms`, then refills the stored user scores |
 
 Nothing runs at the weekend: employers don't post then, and Actions minutes are capped.
 
-**The two cron rows live in cPanel → Cron Jobs and nowhere else.** The repo cannot enforce them,
-which is why they're recorded in the header of `bin/cron_scrape.sh`:
+**Every time in this file is stated in ET and stored in UTC, and that gap has bitten twice.** The
+box's local time IS UTC (`date` and `date -u` print the same thing), so a crontab line is written
+in UTC while this table reads in ET. An earlier version of this section gave the lines as `0 13`
+and `0 16` "in the server's local time" — both halves wrong in the same direction, firing three
+and four hours early. A wrong schedule does not announce itself: the run succeeds, just not when
+anyone expected it.
+
+**The cron rows live in the live crontab and nowhere else.** The repo cannot enforce them, which
+is why they are also recorded in the header of `bin/cron_scrape.sh`. Read the real one:
+
+```bash
+ssh -i ~/.ssh/id_ed25519_cpanel astrocha@stemjobs1.astrochakra.co "crontab -l"
+```
+
+As of **2026-09-05** that returns:
 
 ```
-0 13 * * 1-5   /bin/bash $HOME/stemjobs/bin/cron_scrape.sh
-0 16 * * 1-5   /bin/bash $HOME/stemjobs/bin/cron_scrape.sh
+0 17,20 * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh
+*/5 * * * *       curl -fsS -m 240 -o /dev/null "https://stemjobs1.astrochakra.co/warm?t=..."
 ```
+
+> **PENDING — the hourly analyse slot is documented but NOT yet installed.** The row in the table
+> above is the intended schedule; the live crontab does not contain it yet. Add by hand:
+>
+> ```
+> 30 * * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh --analyze-only
+> ```
+>
+> **Why it matters:** the feed reads `jd_terms`, not `jd`. The sweep writes the description; only
+> the analyse pass writes the packed analysis, and a card with no analysis shows "Not scored"
+> however good the description behind it is. Measured 2026-09-04 at two slots a day: 461 active
+> rows unanalysed, **278 of them holding a perfectly readable description**. A job found at 20:20
+> waited until the next afternoon for a number the job *page* could already compute on demand.
+> The pass costs one corpus + IDF load against a 4-minute budget and takes the same lock as the
+> full run, so it skips rather than stacks.
+
+### Three sidecar workflows, all at the repo root
+
+| Workflow | Schedule | What it is for |
+|---|---|---|
+| `scrape-watchdog.yml` | hourly | Dispatches `scrape.yml` if the scheduled event never arrived |
+| `jobspy-sweep.yml` | `0 16 * * *` daily | The aggregator sidecar; writes a findings spreadsheet as an artifact |
+| `jobspy-shadow.yml` | on demand | Compares an aggregator's results against our own corpus |
+
+**A cron is not a guarantee, and that is measured, not theoretical.** `scrape.yml` asks for
+`47 12 * * 1-5`; the first fire after the requested slot has run +43 min, +9h42, +6h19, +3h56 —
+and on **2026-09-04 it never fired at all**, while push-triggered runs on the same repository
+started normally the same morning. Actions was enabled, the workflow was active, minutes were
+available; only the scheduled event was dropped. Nothing inside `scrape.yml` can fix that,
+because `scrape.yml` never ran — which is the entire reason `scrape-watchdog.yml` exists.
+`workflow_dispatch` is delivered immediately rather than queued.
+
+**Indeed is a live source in Actions only.** `scrape.yml` sets `JOBSPY_SITES: indeed`. It is not
+enabled on the cPanel box because that venv is Python 3.9 and the library ships no build for it.
 
 `cron_scrape.sh` is not just `python -m scraper` — it uses `flock -n` so runs skip rather than
 stack, truncates its own log at 5 MB (`/home` has run 99% full), `cd`s to the app dir so `.env`
 resolves, and uses a gentler worker count and time budget than CI.
 
-> ⚠ **Known broken:** the Actions `DB_PROXY_SECRET` has been wrong since ~2026-08-15, so runs die
-> on `HTTP 401 {"error":"bad signature"}`. `verify_dates`, the analytics rollup and the digest have
-> not run there since. Repost detection is duplicated into `cron_scrape.sh` and that copy works —
-> don't "clean up the duplicate", it's the only path that runs.
+> **Fixed 2026-08-21, kept because the failure mode is worth recognising.** The Actions
+> `DB_PROXY_SECRET` was a different value from the working one and failed every scheduled run
+> with `401 {"error":"bad signature"}` from ~2026-08-15 — so `verify_dates`, the analytics
+> rollup and the digest silently did not run for a week. Re-pasted and verified: 147 rows carry
+> a `posted_verified` date of 2026-09-04, which only the Actions heavy pass writes. If a run
+> fails again, **check the failing STEP before assuming this secret**, and use
+> `scripts/probe_db_proxy.py` to diagnose a 401 rather than guessing.
+>
+> Repost detection is deliberately duplicated into `cron_scrape.sh`. Don't "clean up the
+> duplicate" — both paths are wanted, and during that week the cron copy was the only one running.
 
 ### The "Update jobs" button
 
@@ -144,6 +198,8 @@ and the pool is 2-6 workers. So even on a permanently warm app the first request
 serves for each user paid a full re-score of the corpus — 5-15 seconds, and the cause of a 13.8 s
 LCP reported on the live site. That is fixed by the stored score files (`score_cache/`, see
 `web.user_scores`), not by this cron. Both are wanted; neither replaces the other.
+
+**Superseded in part on 2026-09-04:** the per-(user, job) score now lives in the `user_scores` TABLE, so it survives a restart, a new worker and a different device rather than being re-derived per process. `web.user_scores` SEEDS from that table and computes only what is missing, so the file cache above is still the second tier and this section still describes the cold path correctly — there is just far less of it left.
 
 #### `/warm` — the half that builds something (2026-08-31)
 
