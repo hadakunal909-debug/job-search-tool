@@ -196,6 +196,73 @@ def test_the_mirror_cannot_take_the_real_write_down_with_it():
            repr(posted))
 
 
+# ---- the same gate, for the derived columns ---------------------------------------------
+
+def test_job_facts_gate_matches_the_description_gate():
+    """job_facts uses the identical stamp mechanism, and for a sharper reason.
+
+    A missing row in job_descriptions reads as 'no description' -- wasteful and visible. A
+    missing row in job_facts reads as 'no experience floor, no pay, no sponsorship verdict',
+    and web._filter_rows KEEPS a row it has no number for, deliberately. So a half-copied
+    facts table does not empty the feed, it silently WIDENS every filter -- which is exactly
+    the defect this revamp started from.
+    """
+    def fetch(table, params, stamped):
+        if table == real_db.VERSIONS_TABLE:
+            return [{"name": "job_facts", "version": "v1"}] if stamped else []
+        return []
+
+    for stamped, expect in ((False, False), (True, True)):
+        real_fetch, real_remote = real_db._fetch_all, real_db.has_remote_db
+        real_db._fetch_all = lambda t, p, s=stamped: fetch(t, p, s)
+        real_db.has_remote_db = lambda: True
+        _reset()
+        real_db._facts_src.update(ready=None, at=0.0)
+        try:
+            got = real_db.job_facts_ready()
+        finally:
+            real_db._fetch_all, real_db.has_remote_db = real_fetch, real_remote
+        _check("job_facts ready=%s when stamped=%s" % (expect, stamped), got is expect)
+
+
+def test_the_mirror_carries_only_the_columns_that_moved():
+    """mirror_job_facts filters to JOB_FACTS_COLS, and that is what makes the hook safe.
+
+    It is wired into update_job_fields, through which EVERY write passes -- including
+    requeue_analysis clearing match_score and close_dead_jds setting is_active. Those
+    payloads must send nothing at all rather than a row of nulls, which would blank a real
+    reading on its way past.
+    """
+    import json
+    posted = []
+
+    def post(url, headers=None, params=None, data=None, timeout=None):
+        posted.append((url.rstrip('/').rsplit('/', 1)[-1], json.loads(data)))
+        return _Resp()
+
+    real_http, real_remote = real_db._http, real_db.has_remote_db
+    real_db._http, real_db.has_remote_db = _FakeHTTP(post), lambda: True
+    _reset()
+    real_db._facts_tbl["ok"] = True
+    try:
+        # a payload with NO derived columns -- the requeue_analysis shape
+        real_db.update_job_fields([{"url": "u/1"}], keys=("url", "match_score"))
+        only_jobs = [t for t, _ in posted]
+        posted[:] = []
+        # ...and one that does carry them
+        real_db.update_job_fields([{"url": "u/2", "exp_max_years": 3, "sponsor_jd": ""}],
+                                  keys=("url", "exp_max_years", "sponsor_jd"))
+        with_facts = [t for t, _ in posted]
+    finally:
+        real_db._http, real_db.has_remote_db = real_http, real_remote
+        _reset()
+
+    _check("a match_score clear does NOT touch job_facts",
+           real_db.JOB_FACTS_TABLE not in only_jobs, repr(only_jobs))
+    _check("a derived write DOES reach job_facts",
+           real_db.JOB_FACTS_TABLE in with_facts, repr(with_facts))
+
+
 def test_the_migration_and_the_allowlist_agree():
     import dbproxy
     _check("job_descriptions is allowlisted on the proxy",
@@ -221,6 +288,8 @@ def main():
                test_one_version_read_serves_every_consumer,
                test_get_job_jd_follows_the_gate,
                test_the_mirror_cannot_take_the_real_write_down_with_it,
+               test_job_facts_gate_matches_the_description_gate,
+               test_the_mirror_carries_only_the_columns_that_moved,
                test_the_migration_and_the_allowlist_agree):
         fn()
     _reset()

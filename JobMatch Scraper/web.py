@@ -5300,7 +5300,7 @@ _SIZE_HISTORY_MAX = 90          # ~3 months of daily points; the blob stays a fe
 # brain_companies is deliberately absent: it was never migrated to Supabase and lives only in
 # brain_companies_local.json, so counting it always yields None. The health checks say so
 # explicitly rather than leaving a permanent blank row here.
-_COUNTED_TABLES = ("jobs", "job_descriptions", "companies", "users", "user_jobs", "applications", "profiles",
+_COUNTED_TABLES = ("jobs", "job_descriptions", "job_facts", "companies",
                    "resumes", "resume_files", "tailored_cache", "learned_answers", "boards")
 # Every table keyed by username, for the orphan check. db.delete_user() historically removed
 # only user_jobs + users, so anything else here can hold rows belonging to a deleted account.
