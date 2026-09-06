@@ -420,4 +420,47 @@ if [ "$ANALYZE_ONLY" = 0 ]; then
     echo "----- $(date -u +%FT%TZ) reposts end rc=$? -----" >> "$LOG"
 fi
 
+# ---- WARM THE APP'S CACHES, LAST ---------------------------------------------------------
+#
+# EVERYTHING ABOVE THIS LINE MOVES jobs_fingerprint(), and every cache the website keeps is
+# keyed on it: row_cache/*.rows.gz, score_cache/*.json.gz, and the per-process IDF table and
+# live analysis that /warm's last two stages fill. The moment this script finishes they are
+# all dead, and until something rebuilds them the next visitor pays the whole rebuild --
+# measured 2026-09-05 straight out of the live page_view events: 13,648 ms at 09-05T04:15 and
+# 17,216 ms at 09-06T00:53, against a steady-state feed render of 80-170 ms. A warm /warm
+# answers in ~370 ms; a cold one is ~12 s, and this is the process that should pay it.
+#
+# THE 5-MINUTE KEEP-WARM CRON ALREADY CALLS /warm, and that is why this window exists rather
+# than a reason this is redundant: that line fires on a clock that knows nothing about when a
+# scrape finished, so it closes the hole up to five minutes late and whoever arrives first in
+# those five minutes eats the rebuild. This closes it at the only moment that is not a guess.
+#
+# --analyze-only RUNS IT TOO. That mode adds no rows, but it writes jd_terms, and since
+# cdcc0c9 jobs_fingerprint() is (row count, max first_seen, rows with jd_terms) -- so the
+# hourly slot invalidates every cache exactly as thoroughly as a full sweep does.
+#
+# NEVER FATAL. This is a warm-up; the site serves correct pages without it, just slowly. The
+# rc goes in the log the same way every step above does -- captured immediately, because a
+# `$?` read after the blank-line echo would report the echo.
+WARM_URL="${WARM_URL:-https://stemjobs1.astrochakra.co/warm}"
+# From .env rather than the environment: cron gets almost none of the latter, which is the
+# same reason the cd above exists. sed -n s///p over `grep | cut` so a value containing '='
+# survives, and tr because a .env edited on Windows would otherwise put a CR in the URL.
+WARM_TOKEN_VALUE="$(sed -n 's/^WARM_TOKEN=//p' .env 2>/dev/null | head -1 | tr -d '[:space:]"')"
+if [ -n "$WARM_TOKEN_VALUE" ]; then
+    echo "----- $(date -u +%FT%TZ) warm start -----" >> "$LOG"
+    # -m 300: a from-scratch /warm was 12 s when measured, and this is the one call that is
+    # guaranteed to hit the cold case. The per-stage JSON lands in the log on purpose -- it is
+    # what tells you WHICH stage went slow, and base_rows.rebuilt tells you the incremental
+    # path still works.
+    curl -fsS -m 300 "$WARM_URL?t=$WARM_TOKEN_VALUE" >> "$LOG" 2>&1
+    wrc=$?
+    echo "" >> "$LOG"
+    echo "----- $(date -u +%FT%TZ) warm end rc=$wrc -----" >> "$LOG"
+else
+    # Loud, in the same shape as the missing-resume.txt warning above: a silently unwarmed app
+    # looks exactly like a working one until somebody opens the feed at the wrong moment.
+    echo "$(date -u +%FT%TZ) WARNING: no WARM_TOKEN in .env - caches left cold after this" \n         "run; the next visitor pays the full rebuild. Set WARM_TOKEN in $APP/.env." >> "$LOG"
+fi
+
 exit 0

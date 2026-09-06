@@ -8,7 +8,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## Contents
 
-- [`web.py`](#webpy) — 9746 lines, 402 symbols — The Flask app: every route, every request hook, the feed.
+- [`web.py`](#webpy) — 9771 lines, 402 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 4497 lines, 280 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 3234 lines, 196 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 9797 lines, 401 symbols — The sweep and the intake filter, plus every ATS adapter.
@@ -65,7 +65,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The Flask app: every route, every request hook, the feed.*
 
-9746 lines · 402 top-level symbols · 30 sections
+9771 lines · 402 top-level symbols · 30 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
@@ -98,7 +98,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | [7870–7925](../web.py#L7870) | CSRF on cookie-authenticated writes | 2 |
 | [7926–8031](../web.py#L7926) | extension API rate limiting | 6 |
 | [8032–8199](../web.py#L8032) | feed API rate limiting | 7 |
-| [8200–9746](../web.py#L8200) | ONBOARDING | 45 |
+| [8200–9771](../web.py#L8200) | ONBOARDING | 45 |
 
 ## `core.py`
 
@@ -1079,8 +1079,8 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `react_harness` | def | [9597](../web.py#L9597) | `/__react` Phase 2 pipeline probe. Admin-only, and deleted in Phase 3 with its entry. |
 | `healthz` | def | [9613](../web.py#L9613) | `/healthz` Public liveness probe — no auth, no DB, no work. An uptime pinger hits this every few |
 | `warm` | def | [9627](../web.py#L9627) | `/warm` Build the caches that are the SAME for everybody, so the first real visitor doesn't. |
-| `_WARM_USER_MAX` | const | [9686](../web.py#L9686) |  |
-| `_warm_user_scores` | def | [9689](../web.py#L9689) | Write every live account's score file, so no user's first render pays the scoring pass. |
+| `_WARM_USER_MAX` | const | [9711](../web.py#L9711) |  |
+| `_warm_user_scores` | def | [9714](../web.py#L9714) | Write every live account's score file, so no user's first render pays the scoring pass. |
 
 ## `core.py` — symbols
 

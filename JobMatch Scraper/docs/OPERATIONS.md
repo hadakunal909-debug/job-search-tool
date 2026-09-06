@@ -30,6 +30,24 @@ Writes `../stemjobs1_deploy.zip` (pass a path to override). Then:
 1. cPanel → **File Manager** → the directory holding `passenger_wsgi.py` (`$HOME/stemjobs`)
 2. **Upload** the zip → **Extract**
 3. `touch tmp/restart.txt`
+4. **Warm it**, before you open the feed:
+
+```bash
+curl -fsS -m 300 "https://stemjobs1.astrochakra.co/warm?t=$WARM_TOKEN"
+```
+
+Step 4 is not optional politeness. A restart empties every *per-process* cache the app has —
+the ~29 MB IDF table, the live-analysis memo, `_score_cache`, `_base_rows_cache` — and the first
+person to open the feed rebuilds all of it on their own request.
+
+**And a deploy is not the only thing that spawns a cold worker.** `stderr.log` on the box is a
+list of `killed by signal: 9` — Passenger children hitting the account's LVE memory cap and
+being replaced. Measured 2026-09-06: worker `3884533` started at 00:49:51 UTC and the first feed
+render it served, at 00:53:11, took **17,216 ms** against a steady state of 80–170 ms. Nobody had
+deployed for three and a half hours. So step 4 closes the deploy case, the five-minute cron
+closes the recycle case, and neither is redundant. `/warm` pays it, off everybody's path. See
+[`/warm`](#warm--the-half-that-builds-something-2026-08-31); the token is `WARM_TOKEN` in the
+server's `.env`, the same value as the `?t=` in the keep-warm crontab line.
 
 The archive is **flat** — entries sit at its root, so extracting inside the app directory lands
 every file where Passenger expects it. It packs exactly the file list `.cpanel.yml` deploys, and
@@ -215,7 +233,20 @@ fill everything that is the same for everybody:
 | `visa_index()` | 79 ms (2.9 MB) |
 | `_logo_manifest()` | 4 ms |
 | `_base_rows()` | **~1,400 ms at 21,960 rows** |
+| `core.load_idf()` | **~915 ms** — one `json.load` of the ~29 MB `idf.json` |
+| `_live_analysis()` | up to 1.5 s (its own wall-clock budget) |
 | every account's score file | ~2.2 s per user with a résumé (see below) |
+
+**The last two stages were added 2026-09-05 and behave differently from the rest.** Everything
+else here leaves a file behind (`row_cache/`, `score_cache/`) that any worker can read, so one
+call warms them all. `load_idf` and `_live_analysis` are held in module globals with no file, so
+they warm **only the worker that answered the call** — the five-minute cron is what reaches the
+others. Weaker, and still worth having: Passenger keeps a worker for hours, and without them a
+cold worker's first `/` measured **2,229 ms against 44 ms warm**, of which `cProfile` put 915 ms
+in `load_idf` alone. With them the same first render is **433 ms**. `load_idf` is listed
+separately because `_live_analysis` only reaches for it when it has rows to analyse, so on a
+quiet corpus it would otherwise stay unpaid until a real visitor arrived — and `/job` and the
+tailor routes load it through their own call sites too.
 
 **It warms the PER-USER half too, and that is the half that was hurting.** The stored score
 files are keyed on (user, résumé) with the corpus fingerprint inside, so **every scrape
@@ -312,11 +343,16 @@ Getting that wrong is not theoretical: making requests never persist meant each 
 rebuilt independently after a restart, and a real LCP measured **7.36 s**, worse than before the
 cache existed.
 
-**THE FIRST LOAD AFTER A DEPLOY IS ALWAYS A FULL BUILD, and that is correct rather than a bug.**
-Extracting the zip replaces `static/` wholesale, which moves `static/logos/index.json`'s mtime,
-which is in the signature -- so the cache invalidates because the logos genuinely might have
-changed. Budget one ~7 s build per deploy and spend it deliberately: hit `/warm` yourself after
-`touch tmp/restart.txt` and before opening the feed, rather than letting a page load pay it.
+**A DEPLOY NO LONGER ALWAYS FORCES A FULL ROW REBUILD -- but it always empties the per-process
+caches.** This paragraph used to say the first load after a deploy is always a full build,
+because extracting the zip moves `static/logos/index.json`'s **mtime**. `_derived_signature()`
+hashes file **content** now, memoised on the stat, so a release that changes only code and
+templates leaves `row_cache/` valid: verified on the 2026-09-05 release, no rebuild window at
+all. What a restart *does* invalidate unconditionally is everything held in a module global --
+the IDF table, the live-analysis memo, `_score_cache` -- and that is still a first visitor
+paying ~2 s, or ~12 s when the fingerprint moved as well. So the advice is unchanged and the
+reason is narrower: hit `/warm` after `touch tmp/restart.txt` and before opening the feed
+(step 4 of the deploy recipe), rather than letting a page load pay it.
 
 A plain restart with no deploy does NOT invalidate it: the file mtimes are unchanged, so a cold
 worker reads the file instead of rebuilding.

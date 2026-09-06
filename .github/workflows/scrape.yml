@@ -670,6 +670,42 @@ jobs:
           ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
         run: python -m scraper.notify
 
+      # WARM THE APP BEFORE ANYONE ELSE HAS TO. Everything above moves jobs_fingerprint(),
+      # which is the key every cache the website keeps is stored under -- row_cache/,
+      # score_cache/, and the per-process IDF table and live analysis that /warm's last two
+      # stages fill. Until something rebuilds them the next visitor pays the whole rebuild:
+      # measured 2026-09-05 out of the live page_view events, 13,648 ms at 09-05T04:15 and
+      # 17,216 ms at 09-06T00:53 against a steady-state feed render of 80-170 ms.
+      #
+      # NOT GATED ON steps.scrape.outcome, for the same reason the score step below it is not:
+      # SCRAPE_SLICE banks every slice as it goes, so a sweep that died at slice 3 of 21 has
+      # ALREADY moved the fingerprint. Refusing to warm after a failed run leaves the caches
+      # cold precisely when they are most likely to be.
+      #
+      # heavy is not required either -- a light run still writes rows.
+      #
+      # NO SECRET, NO STEP. WARM_TOKEN is not a secret this repo has ever needed before; until
+      # it is added this prints what to do and exits 0 rather than failing a green run. Use the
+      # same value as the `?t=` in the five-minute keep-warm crontab line on the box.
+      - name: Warm the app's caches (closes the post-scrape rebuild window)
+        if: steps.gate.outputs.run == 'yes' && !cancelled()
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          WARM_TOKEN: ${{ secrets.WARM_TOKEN }}
+          WARM_URL: https://stemjobs1.astrochakra.co/warm
+        run: |
+          if [ -z "${WARM_TOKEN:-}" ]; then
+            echo "No WARM_TOKEN secret set, so the caches this run just invalidated stay cold"
+            echo "until the box's five-minute keep-warm cron gets there. Add the repository"
+            echo "secret WARM_TOKEN with the same value as the ?t= in that crontab line."
+            exit 0
+          fi
+          # -f so an HTTP error is an error; the per-stage JSON is the point of the output.
+          # 404 here means the token is wrong -- the route answers 404 rather than 403 so that
+          # an unconfigured deployment does not advertise that it exists.
+          curl -fsS -m 300 "$WARM_URL?t=$WARM_TOKEN" && echo
+
       # SAY SOMETHING WHEN IT BREAKS. The 2026-09-03 run failed at 16:49 UTC and went unnoticed
       # until the next day, because a red tick on the Actions tab is only a notification to
       # somebody who is looking at the Actions tab. A stale feed is invisible from the app —

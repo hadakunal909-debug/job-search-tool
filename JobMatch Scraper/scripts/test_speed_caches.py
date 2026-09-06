@@ -799,6 +799,75 @@ def live_analysis():
     return bad
 
 
+def warm_stages():
+    """/warm must fill the two caches that have no FILE behind them, or a cold worker pays them.
+
+    Measured 2026-09-05: a cold worker's first `/` was 2,229 ms against 44 ms warm, and cProfile
+    put 915 ms of that in core.load_idf and most of the rest in _live_analysis. Both live in
+    module globals -- there is no row_cache/ or score_cache/ equivalent -- so nothing else in
+    this file would notice if the stages were dropped, and the site would look completely
+    healthy while every fresh worker charged its first visitor two seconds.
+
+    ASSERTED AS "COLD BEFORE, WARM AFTER" rather than by reading the response. A stage that
+    reports an `ms` and warms nothing passes a shape check and still fails the reader.
+    """
+    print("=" * 74)
+    print("/warm: the two stages with no file behind them")
+    print("=" * 74)
+    bad = []
+
+    def want(name, cond, extra=""):
+        print("  %s %-46s %s" % ("ok " if cond else "FAIL", name, extra))
+        if not cond:
+            bad.append(name)
+
+    saved = (dict(web._jobs_cache), dict(web._base_rows_cache), dict(core._idf_cache),
+             dict(web._live_meta), os.environ.get("WARM_TOKEN"))
+    try:
+        rows = [{"url": "ws%d" % i, "title": "Data Engineer %d" % i, "company": "Acme",
+                 "location": "Boston, MA", "found_date": "2026-08-15",
+                 "jd_terms": '{"w":{"python":3,"sql":2},"n":0}', "match_score": 0}
+                for i in range(30)]
+        web._jobs_cache.update(rows=rows, at=10 ** 12, fp=(len(rows), "warmstages"))
+        web._base_rows_cache.update(fp=None, rows=None)
+        core._idf_cache.update(idf=None, loaded=False)
+        web._live_meta.update(fp=None, by_url={})
+        os.environ["WARM_TOKEN"] = "test-warm-token"
+
+        # THE TRIP. Without it the two "after" assertions would pass against a cache left warm
+        # by an earlier check in this same process -- the shape of a test that cannot fail.
+        want("idf cache starts cold", core._idf_cache.get("loaded") is False)
+        want("live-analysis memo starts cold", web._live_meta.get("fp") is None)
+
+        c = web.app.test_client()
+        r = c.get("/warm?t=test-warm-token&users=0")
+        out = r.get_json() or {}
+        want("/warm answers 200", r.status_code == 200, "got %s" % r.status_code)
+        want("reports an `idf` stage", isinstance(out.get("idf"), dict) and "ms" in out["idf"],
+             repr(out.get("idf")))
+        want("reports a `live_analysis` stage",
+             isinstance(out.get("live_analysis"), dict) and "ms" in out["live_analysis"],
+             repr(out.get("live_analysis")))
+
+        # ...and that they warmed something, which is the whole point of having them.
+        want("idf cache is loaded afterwards", core._idf_cache.get("loaded") is True)
+        want("live-analysis memo is keyed afterwards", web._live_meta.get("fp") is not None,
+             repr(web._live_meta.get("fp")))
+
+        # The stages must not have opened the route up on the way past.
+        want("a wrong token is still 404", c.get("/warm?t=nope").status_code == 404)
+    finally:
+        web._jobs_cache.clear(); web._jobs_cache.update(saved[0])
+        web._base_rows_cache.clear(); web._base_rows_cache.update(saved[1])
+        core._idf_cache.clear(); core._idf_cache.update(saved[2])
+        web._live_meta.clear(); web._live_meta.update(saved[3])
+        if saved[4] is None:
+            os.environ.pop("WARM_TOKEN", None)
+        else:
+            os.environ["WARM_TOKEN"] = saved[4]
+    return bad
+
+
 def row_files():
     """The shared row file must be byte-faithful, and its key must cover every input.
 
@@ -1308,6 +1377,7 @@ def main():
     fails += base_rows()
     fails += score_pct_equivalence()
     fails += warm_user_scores()
+    fails += warm_stages()
     fails += row_files()
     fails += live_analysis()
     fails += corpus_fp()
