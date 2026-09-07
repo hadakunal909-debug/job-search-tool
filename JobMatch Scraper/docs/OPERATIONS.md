@@ -138,8 +138,34 @@ As of **2026-09-07** that returns:
 
 ```
 0 17,20 * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh
-*/5 * * * *       for i in 1 2 3 4; do curl -fsS -m 240 -o /dev/null \
-                    "https://stemjobs1.astrochakra.co/warm?t=..."; done
+30 * * * 1-5      /home/astrocha/stemjobs/bin/cron_scrape.sh --analyze-only
+*/5 * * * *       flock -n .../tmp/cron_scrape.lock true && \
+                    for i in 1 2 3 4; do curl -fsS -m 240 -o /dev/null \
+                      "https://stemjobs1.astrochakra.co/warm?t=..."; done
+```
+
+**THE rc=137 WAS NEVER THE SWEEP LEAKING.** Measured 2026-09-07: before a sweep starts the
+account is already carrying **921 MB** -- 595 MB of warm `lswsgi` workers holding the corpus,
+IDF and row cache, plus 326 MB of a sibling app that is not ours to touch. A complete sweep
+peaks at 617 MB. 921 + 617 = 1,538 against a ~1.2 GB CloudLinux LVE cap, so it dies: eleven
+sweep kills and seven score kills in twelve days, and they are the ONLY failures in the log.
+
+A restarted worker is under 20 MB, which makes that sum 963 and fits. So `cron_scrape.sh`
+touches `tmp/restart.txt` before the sweep and lets its own warm step rebuild afterwards.
+`--analyze-only` deliberately does not: it runs hourly and needs little memory, and
+restarting hourly would keep the site permanently cold.
+
+The `flock` guard is the other half. Four warm calls every five minutes is right when nothing
+else is running -- one call warms one worker, and there are two. During a 60-minute sweep it
+is twelve rounds of re-fattening the workers the recycle just emptied. `flock -n <lock> true`
+tests the scrape's own lock and releases immediately; it must NOT hold the lock across the
+warm, because `cron_scrape.sh` uses `flock -n` too and would then skip its entire slot.
+
+**Do not go looking for this in ulimits.** `_release_memory()`'s note records that `ulimit
+-v`/`-m` both report unlimited and /proc/lve is unreadable, and that cutting SCRAPE_SLICE
+from 150 to 100 died at the same ceiling. The cap is per-account and invisible from inside it.
+
+```
 ```
 
 **THE LOOP IS NOT REDUNDANCY -- one call warms one WORKER.** The app runs two `lswsgi` workers
