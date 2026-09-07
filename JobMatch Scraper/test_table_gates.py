@@ -239,9 +239,89 @@ def test_has_a_description_and_missing_one_are_complements():
            any(k.startswith("(jd.is.null") for k in seen), repr(sorted(seen)))
 
 
+def test_page_size_is_chosen_from_row_width():
+    """_fetch_all's page size is ours to pick, and picking it wrong costs either way.
+
+    The docstring used to call 1000 "the server's per-request row cap (default 1000)". That was
+    true of PostgREST and has not been true since: pgrest.py translates the request and psycopg
+    runs it, and neither clamps `limit` -- it goes straight into the SQL. So every corpus-wide
+    read was paying 47 round trips to a box measured 271 ms away for no reason at all.
+
+    Measured against the live corpus, identical row sets both ways: job_terms 19.2s -> 4.7s,
+    jobs 31.2s -> 8.3s, job_facts 24.1s -> 6.7s, and the feed's whole corpus load 69.2s -> 21.2s.
+
+    The rule is ROW WIDTH, keeping a response near 3 MB, and it has a cliff on each side. Too
+    small and a narrow read pays for round trips; too large and a description read materialises
+    a 24 MB response as JSON on a box whose account cap is ~1.2 GB shared with the workers
+    serving the site. Hence a test on both edges rather than on the numbers.
+    """
+    wide = ("*", "url,jd", "url,title,jd", "url,jd,jd_terms")
+    for sel in wide:
+        _check("a description read stays small: %r" % sel[:24],
+               real_db._page_for(sel) <= real_db.PAGE_JD, "got %d" % real_db._page_for(sel))
+    _check("url alone gets the widest page",
+           real_db._page_for("url") == real_db.PAGE_NARROW)
+    # Two columns, but one of them is the packed analysis: ~730 B a row, not ~100.
+    _check("url,jd_terms is NOT treated as a narrow read",
+           real_db._page_for("url,jd_terms") < real_db.PAGE_NARROW)
+    _check("the feed column set gets the middle page",
+           real_db._page_for(real_db._FEED_COLS) == real_db.PAGE_ROW)
+    # FIELDS is the `jobs` write set and does NOT name jd -- the description has never
+    # been one of the columns the scraper upserts. So it is a middle read, not a wide one.
+    _check("FIELDS is a middle read, because it does not name jd",
+           real_db._page_for(",".join(real_db.FIELDS)) == real_db.PAGE_ROW,
+           "got %d" % real_db._page_for(",".join(real_db.FIELDS)))
+
+
+def test_fetch_all_walks_every_page_whatever_the_size():
+    """The page size must not change WHICH rows come back -- only how many trips it takes.
+
+    This is the failure that would be silent and total: _fetch_all stops when a batch comes back
+    shorter than the page it asked for, so a transport that quietly capped the limit would make
+    the first page look like the last and the corpus would simply end at 1000 rows. There is no
+    such cap in pgrest.limit_offset today -- `limit` goes straight into the SQL -- and this is
+    what says so if one ever appears.
+    """
+    TOTAL = 4507                       # deliberately not a multiple of any page size
+
+    class _Resp(object):
+        def __init__(self, params):
+            lo = int(params.get("offset") or 0)
+            hi = min(lo + int(params.get("limit")), TOTAL)
+            self._rows = [{"url": "u/%d" % i} for i in range(lo, hi)]
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._rows
+
+    class _Http(object):
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, headers=None, params=None, timeout=None):
+            self.calls.append(dict(params))
+            return _Resp(params)
+
+    for page in (7, 1000, 4000, 8000, TOTAL, TOTAL + 1):
+        stub, saved = _Http(), real_db._http
+        real_db._http = stub
+        try:
+            rows = real_db._fetch_all("t", {"select": "url"}, page=page)
+        finally:
+            real_db._http = saved
+        _check("page=%-5d returns all %d rows (in %d request(s))"
+               % (page, TOTAL, len(stub.calls)),
+               len(rows) == TOTAL and rows[-1]["url"] == "u/%d" % (TOTAL - 1),
+               "got %d rows" % len(rows))
+
+
 def main():
     print("table gates")
-    for fn in (test_load_jobs_gate_matrix,
+    for fn in (test_page_size_is_chosen_from_row_width,
+               test_fetch_all_walks_every_page_whatever_the_size,
+               test_load_jobs_gate_matrix,
                test_load_jobs_by_urls_gate_matrix,
                test_the_two_loaders_agree,
                test_tables_not_keyed_on_url_are_ordered_on_their_own_key,
