@@ -341,12 +341,58 @@ def _headers(extra=None):
     return h
 
 
-def _fetch_all(table, params):
-    """GET every row from a PostgREST table, paging past the server's per-request row
-    cap (default 1000). Without this, a table that grows beyond the cap silently
-    truncates — the feed and scorer would just never see the newest rows. Ordered by
-    a stable column so pages don't shift mid-walk."""
-    rows, offset, page = [], 0, 1000
+# Rows per request for a corpus-wide read. CHOSEN FROM ROW WIDTH, not from taste -- see
+# _fetch_all for the measurement. A page is materialised whole as JSON on a box that shares a
+# ~1.2 GB cap with the workers serving the site, so the target is a response near 3 MB.
+PAGE_JD = 1000            # a description averages 5.6 KB
+PAGE_ROW = 4000           # feed columns, or the packed analysis (~400-900 B)
+PAGE_NARROW = 8000        # url, or url plus one short scalar
+
+
+def _page_for(sel):
+    """How many rows to ask for at once, given the columns being asked for.
+
+    ONE RULE IN ONE PLACE rather than a page= at forty call sites, because the thing that
+    decides is the select list and every caller already passes one. A caller that widens its
+    columns gets the smaller page automatically; there is nothing to keep in step.
+
+    `select=*` is treated as a description read. It usually is one -- `jobs` has `jd` on it --
+    and being wrong in that direction costs a few extra round trips, while being wrong in the
+    other direction is a 24 MB response.
+    """
+    cols = [c.strip() for c in (sel or "*").split(",")]
+    if "*" in cols or "jd" in cols:
+        return PAGE_JD
+    # jd_terms is the packed analysis: two columns, but ~730 B of them.
+    if len(cols) <= 2 and "jd_terms" not in cols:
+        return PAGE_NARROW
+    return PAGE_ROW
+
+
+def _fetch_all(table, params, page=None):
+    """GET every row from a table, paging so a growing table cannot silently truncate.
+
+    THE 1000 WAS NEVER A SERVER LIMIT. This said "the server's per-request row cap (default
+    1000)", which was true of PostgREST and has not been true since: a request is translated
+    by pgrest.py and run through psycopg, so the LIMIT is whatever we ask for. The page size
+    is ours to choose, and it is the biggest cost in every corpus-wide read -- these are
+    ROUND-TRIP bound against a box measured 271 ms away, not bandwidth bound.
+
+    Measured on job_terms, 46,889 rows, back to back: page=1000 is 47 requests and 31-40 s;
+    page=4000 is 12 requests and 11-18 s, for the identical 34.2 MB. Two to three times
+    faster for one parameter.
+
+    CHOOSE IT FROM THE ROW WIDTH, not by taste. A page is materialised whole -- as JSON on
+    the box, which shares a ~1.2 GB account cap with the Passenger workers serving the site,
+    and again in this process. The rule here is to keep a response near 3 MB: descriptions
+    average 5.6 KB a row so they stay at 1000, the packed analysis is ~730 B so it goes to
+    4000, and narrow column sets go higher. A blanket increase would turn a `select=*` read
+    of `jobs` into a 24 MB response.
+
+    Ordered by a stable column so pages cannot shift mid-walk.
+    """
+    page = page or _page_for(params.get("select"))
+    rows, offset = [], 0
     while True:
         p = dict(params)
         p.setdefault("order", "url")
