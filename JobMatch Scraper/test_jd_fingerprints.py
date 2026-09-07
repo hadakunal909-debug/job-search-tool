@@ -242,9 +242,13 @@ class _MissingColumn(Exception):
 def test_update_jds_survives_an_unmigrated_column():
     calls = []
 
-    def upsert(rows, chunk=200, keys=None):
-        calls.append(rows)
-        if any("jd_fp" in r for r in rows):
+    # table=/pk= are part of db._upsert's signature since the schema split, and _mirror_jds
+    # passes them. A stub without them raises TypeError -- which, now that the description
+    # write is authoritative and RAISES, would fail update_jds for a reason that has nothing
+    # to do with what this test is about.
+    def upsert(rows, chunk=200, keys=None, table=None, pk="url"):
+        calls.append((table or real_db.TABLE, rows))
+        if (table or real_db.TABLE) == real_db.TABLE and any("jd_fp" in r for r in rows):
             raise _MissingColumn("jd_fp")
 
     real_upsert, real_remote = real_db._upsert, real_db.has_remote_db
@@ -262,15 +266,18 @@ def test_update_jds_survives_an_unmigrated_column():
         real_db._fp_col["ok"] = True
 
     _check("a missing jd_fp column does not fail the description write", ok)
+    # THE DESCRIPTION NOW LANDS IN job_descriptions, not on `jobs` -- the contract step moved
+    # it, and update_jds writes it there FIRST so a failure cannot leave jobs.jd_fp claiming
+    # provenance for text nobody stored. What `jobs` still gets is the fingerprint alone.
     _check("...and the description itself still went through",
-           any("jd" in r and "jd_fp" not in r for c in calls for r in c),
+           any(t == real_db.JD_TABLE and any("jd" in r for r in rs) for t, rs in calls),
            repr(calls))
 
 
 def test_update_jds_still_raises_on_a_real_failure():
     # The retry must be narrow. If any exception dropped the column and carried on, a genuine
     # write failure would look like success and descriptions would go missing silently.
-    def upsert(rows, chunk=200, keys=None):
+    def upsert(rows, chunk=200, keys=None, table=None, pk="url"):
         raise RuntimeError("connection reset by peer")
 
     real_upsert, real_remote = real_db._upsert, real_db.has_remote_db

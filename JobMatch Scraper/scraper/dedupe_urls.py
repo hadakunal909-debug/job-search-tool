@@ -110,14 +110,24 @@ def main(argv):
     apply = "--apply" in argv
     assume_yes = "--yes" in argv
 
-    # Unlike db.load_jobs() this names every column, so it 400s on a database where the newest
-    # migration hasn't been run. Retry without first_seen rather than dying on the un-migrated
-    # case — the merge below simply won't have a date to carry forward.
+    # READ THROUGH load_jobs, NOT _fetch_all, and since the contract step that is the whole
+    # correctness of this script. A merge RENAMES a job: it writes the survivor at the
+    # canonical url and then deletes the old row. Every side table hangs off jobs.url with ON
+    # DELETE CASCADE, so that delete takes the old row's job_facts, job_terms and
+    # job_descriptions with it -- and if the rename did not carry those values across, the
+    # analysis and every derived fact are simply gone. The description already had explicit
+    # handling below; the derived columns used to ride along because FIELDS named them, and
+    # FIELDS no longer does.
+    #
+    # db.load_jobs(cols=...) routes each column to whichever table owns it and merges, which
+    # is exactly what this needs. `jd` is deliberately excluded -- 263 MB, and step 1 below
+    # carries it one row at a time.
+    _carry = [c for c in sorted(db.MOVED_OFF_JOBS) if c != "jd"]
     try:
-        fetched = db._fetch_all(db.TABLE, {"select": ",".join(db.FIELDS)})
+        fetched = db.load_jobs(cols=",".join(list(db.FIELDS) + _carry))
     except Exception:
-        cols = [c for c in db.FIELDS if c != "first_seen"]
-        fetched = db._fetch_all(db.TABLE, {"select": ",".join(cols)})
+        cols = [c for c in list(db.FIELDS) + _carry if c != "first_seen"]
+        fetched = db.load_jobs(cols=",".join(cols))
     rows = [r for r in fetched if r.get("url")]
     with_jd = db.urls_with_jd()
     statuses = _user_job_rows()
@@ -217,7 +227,11 @@ def main(argv):
             #    so this patches an existing row or creates the renamed one.
             row = {"url": target}
             if target != keeper["url"]:              # recreating the row: carry everything
-                for f in db.FIELDS:
+                # ...INCLUDING the columns that live in job_facts and job_terms now.
+                # update_job_fields routes them: db._upsert strips them from the `jobs`
+                # write and the mirrors put them in their own tables under the NEW url,
+                # before step 4 deletes the old row and CASCADE removes its copies.
+                for f in list(db.FIELDS) + _carry:
                     if f != "url" and keeper.get(f) not in (None, ""):
                         row[f] = keeper[f]
             row.update(patch)

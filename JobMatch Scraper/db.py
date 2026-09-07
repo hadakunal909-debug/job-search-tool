@@ -179,12 +179,12 @@ TABLE = "jobs"
 FIELDS = ["found_date", "title", "company", "location", "url",
           "sponsors_h1b", "match_score", "status",
           "posted_verified", "posted_confidence",
-          # --- derived by scraper/score_jobs.py so the feed can filter on them ---
-          "loc_state", "loc_metro", "remote",
-          "salary_min", "salary_max", "salary_period",
           "last_seen", "is_active", "miss_count",
-          # --- derived from the JD, same reason: see JOBS_DERIVED_SQL below ---
-          "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms",
+          # THE DERIVED COLUMNS ARE NOT HERE ANY MORE. loc_*, salary_*, remote,
+          # exp_max_years, the sponsor verdict and jd_terms moved to job_facts and
+          # job_terms in the contract step. FIELDS is not merely a write list --
+          # dedupe_urls SELECTS it verbatim on a URL move -- so a stale name here is
+          # a 400 on a read, not a silently skipped column.
           # Written by the DATABASE (default + triggers), never by us — see add_jobs(). Listed
           # here so the CSV path round-trips it and dedupe_urls carries it across a URL move.
           "first_seen"]
@@ -192,14 +192,13 @@ FIELDS = ["found_date", "title", "company", "location", "url",
 # One-time SQL for the derived columns above. Surfaced in the app (and printed by
 # score_jobs) when a write fails because they don't exist yet — same self-serve pattern
 # as APPLICATIONS_SQL. All `if not exists`, so it's safe to re-run.
+# CONTRACTED. This used to create the ten derived columns; they now live in job_facts and
+# job_terms, and MIGRATION_contract.sql DROPS them from `jobs`. Leaving the ALTERs here
+# would have handed an operator a paste-this block that silently re-creates exactly the
+# duplicate columns the contract step exists to remove -- and this text is rendered on the
+# admin page and printed by score_jobs, so it would have been followed.
 JOBS_DERIVED_SQL = (
     "-- Location + pay + liveness, derived from data already stored on each job.\n"
-    "alter table public.jobs add column if not exists loc_state text;\n"
-    "alter table public.jobs add column if not exists loc_metro text;\n"
-    "alter table public.jobs add column if not exists remote boolean;\n"
-    "alter table public.jobs add column if not exists salary_min integer;\n"
-    "alter table public.jobs add column if not exists salary_max integer;\n"
-    "alter table public.jobs add column if not exists salary_period text;\n"
     "alter table public.jobs add column if not exists last_seen date;\n"
     "alter table public.jobs add column if not exists is_active boolean default true;\n"
     "-- consecutive successful fetches of its own board a job has been absent from\n"
@@ -234,13 +233,10 @@ JOBS_DERIVED_SQL = (
     "-- engineering experience; 2 years of SQL preferred' is an 8-year job, and reading the floor\n"
     "-- let a senior req hide behind its most junior line item. NULL means the JD states no\n"
     "-- number at all, which the filter must KEEP.\n"
-    "alter table public.jobs add column if not exists exp_max_years integer;\n"
     "-- '' = no signal, 'blocked' = the JD rules a visa candidate out, 'open' = it sponsors.\n"
-    "alter table public.jobs add column if not exists sponsor_jd text;\n"
     "-- LOAD-BEARING, not display copy: core.visa_tags_for_posting substring-matches this against\n"
     "-- core._BLOCKS_EVERYONE to decide whether a blocked posting keeps STEM-OPT or loses every\n"
     "-- route. The user-visible wording is fixed in static/app.js; this stays machine-readable.\n"
-    "alter table public.jobs add column if not exists sponsor_reason text;\n"
     "-- No index on any of these: the feed loads the corpus and filters it in Python, which\n"
     "-- is also why jobs_loc_state_idx above goes unused.\n"
     "\n"
@@ -257,7 +253,6 @@ JOBS_DERIVED_SQL = (
     "-- ties between equal-weight terms in the panel's skill lists. Nothing ever queries inside\n"
     "-- this column, so jsonb buys nothing to pay for that with. Postgres TOASTs it out of the\n"
     "-- main row either way, so the columns above stay cheap to read on their own.\n"
-    "alter table public.jobs add column if not exists jd_terms text;\n"
     "\n"
     "-- PROVENANCE, and the reason this migration exists. jd_fp is the fingerprint of the\n"
     "-- description this row STORES; facts_fp is the fingerprint of the text its derived\n"
@@ -538,6 +533,32 @@ def _upsert(rows, chunk=200, keys=None, table=None, pk="url"):
     """
     if not rows:
         return
+    # STRIPPED HERE RATHER THAN AT EACH WRITER, because three of them reach `jobs` by
+    # different routes -- add_jobs (bounded by FIELDS), update_jds (jd + jd_fp) and
+    # update_job_fields (anything a caller hands it) -- plus dedupe_urls, which carries all
+    # of FIELDS on a URL move. A moved column that slips through is not a dropped value, it
+    # is PostgREST 400ing the whole batch: the scrape's description write, or the score
+    # pass's derived write, failing entirely.
+    #
+    # Safe before the DDL as well as after. The side tables have been authoritative since
+    # they were stamped, so ceasing to write the `jobs` copies only stops maintaining a copy
+    # nothing reads -- which is what makes deploying this BEFORE the drop the right order.
+    if (table or TABLE) == TABLE:
+        rows = [{k: v for k, v in r.items() if k not in MOVED_OFF_JOBS} for r in rows]
+        if keys:
+            keys = [k for k in keys if k not in MOVED_OFF_JOBS]
+            if not [k for k in keys if k != pk]:
+                return          # the caller wrote only moved columns; the mirrors have them
+        else:
+            # ONLY WHEN THE COLUMNS ARE INFERRED. With keys= the payload is defined by the
+            # NAMED group, not by what these rows happen to carry -- requeue_analysis sends
+            # rows of nothing but a url precisely so match_score goes as an explicit null,
+            # and dropping them here silently turned a score CLEAR into a no-op. Caught by
+            # test_requeue_analysis, which counts writes as well as inspecting the body.
+            rows = [r for r in rows if [k for k in r if k != pk]]
+            if not rows:
+                return
+
     # A single PostgREST upsert can't touch the same `url` twice — Postgres raises 21000
     # ("ON CONFLICT DO UPDATE command cannot affect row a second time") and 500s the whole
     # batch. Two different boards can legitimately return the same job URL in one run, so
@@ -616,24 +637,11 @@ def _save_actions(a):
 # migrations, so a select naming them 400s until those have been run — load_jobs falls back
 # to CORE in that case, which is what keeps the feed alive on an un-migrated database.
 _FEED_COLS_CORE = "url,found_date,title,company,location,sponsors_h1b,match_score,status"
-_FEED_COLS_OPT = ("posted_verified", "loc_state", "loc_metro", "remote",
-                  "salary_min", "salary_max", "salary_period",
-                  "is_active", "last_seen", "miss_count", "first_seen",
-                  # The feed never shows this one; verify_dates reads it through
-                  # load_jobs() to skip URLs the dating service already gave up on.
-                  # Losing it only costs that skip (the step re-asks), so it was the
-                  # safest column to add here.
-                  "posted_confidence",
-                  # JD-derived, added last on purpose: the fallback below pops from the
-                  # END, so an un-migrated database drops exactly these and keeps
-                  # posted_confidence. Put them any earlier and the fallback would give up
-                  # a column verify_dates needs before it reached the real problem.
-                  #
-                  # jd_terms is last of all, and it is the one real payload here (~600 B/row
-                  # against ~600 B for every other column combined). It is also the most
-                  # degradable: without it the feed still renders, it just falls back to the
-                  # baseline match_score instead of scoring against the viewer's own profile.
-                  "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_terms")
+# The moved columns are gone from here too: load_jobs now merges them from job_facts and
+# job_terms, so naming them in the `jobs` select would 400. The degrade-to-CORE fallback
+# that used to pop from the end of this tuple went with them -- see load_jobs.
+_FEED_COLS_OPT = ("posted_verified", "is_active", "last_seen", "miss_count",
+                  "first_seen", "posted_confidence")
 _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
@@ -718,6 +726,32 @@ def _warn_full_jd_read():
           file=sys.stderr)
 
 
+def _route_cols(cols):
+    """Split a caller's column list by which table now owns each column.
+
+    THE REASON THIS EXISTS IS COLS_SCORE. It names nine derived columns, all of which moved
+    to job_facts, and score_jobs reads it to diff stored-vs-computed and decide whether to
+    write. Let one of those columns come back missing and _persist_derived marks EVERY row
+    changed on EVERY run and re-upserts the whole corpus for ever -- a failure that looks
+    like 'the scrape got slower', not like a bug. db.py's contract has always been that a
+    caller names the columns it wants and gets them; where they are stored is not the
+    caller's problem, and that is what has let ~120 call sites go untouched through six
+    phases of this.
+
+    Returns (jobs_cols, facts_cols, want_terms, want_jd). `url` is appended to jobs_cols
+    only when a merge actually needs a key, so a caller asking for two columns is not
+    silently handed three.
+    """
+    want = [c.strip() for c in (cols or "").split(",") if c.strip()]
+    facts = [c for c in want if c in _FACTS_SET]
+    terms = "jd_terms" in want
+    jd = "jd" in want
+    base = [c for c in want if c not in MOVED_OFF_JOBS]
+    if (facts or terms or jd) and "url" not in base:
+        base.append("url")
+    return base, facts, terms, jd
+
+
 def load_jobs(include_jd=True, cols=None):
     """All jobs. The web FEED passes include_jd=False to skip the large `jd` text column — the
     feed never shows it; the detail panel fetches one JD on demand via get_job_jd(). Measured at
@@ -733,8 +767,25 @@ def load_jobs(include_jd=True, cols=None):
     """
     if has_remote_db():
         if cols:
+            base_cols, facts_cols, want_terms_c, want_jd_c = _route_cols(cols)
             try:
-                return _fetch_all(TABLE, {"select": cols})
+                rows = _fetch_all(TABLE, {"select": ",".join(base_cols)})
+                if facts_cols:
+                    got = _side_rows(JOB_FACTS_TABLE,
+                                     ",".join(["url"] + facts_cols), None)
+                    for r in rows:
+                        f = got.get(r.get("url")) or {}
+                        for c in facts_cols:
+                            r[c] = f.get(c)
+                if want_terms_c:
+                    packed = _terms_rows()
+                    for r in rows:
+                        r["jd_terms"] = packed.get(r.get("url"), "")
+                if want_jd_c:
+                    texts = _jd_rows()
+                    for r in rows:
+                        r["jd"] = texts.get(r.get("url"), "")
+                return rows
             except Exception:
                 # NEVER ESCALATE A NARROW READ TO select=*. include_jd defaults to True, so
                 # falling through with it untouched turned `load_jobs(cols='url,jd_fp')`
@@ -795,25 +846,12 @@ def load_jobs(include_jd=True, cols=None):
                 for r in base:
                     r["jd_terms"] = packed.get(r.get("url"), "")
             return base
-        sel = "*" if include_jd else _FEED_COLS
-        try:
-            return _fetch_all(TABLE, {"select": sel})
-        except Exception:
-            # An optional column isn't migrated yet -> retry with only the core set, so the
-            # feed keeps working until the ALTERs are run. Drop them one at a time so a
-            # partially-migrated database still gets everything it does have. (include_jd=True
-            # uses "*", which never names a column, so only this path needs the fallback.)
-            if include_jd:
-                raise
-            opt = list(_FEED_COLS_OPT)
-            while opt:
-                opt.pop()                      # newest/most-optional first
-                sel = _FEED_COLS_CORE + ("," + ",".join(opt) if opt else "")
-                try:
-                    return _fetch_all(TABLE, {"select": sel})
-                except Exception:
-                    continue
-            raise
+        # NO NON-MERGE PATH ANY MORE. The branch above fires on jd_table_ready() /
+        # job_facts_ready() / job_terms_ready(), and since the contract step all three
+        # are constants -- so this was unreachable, and what it used to do (select
+        # _FEED_COLS straight off `jobs`, then degrade by popping optional columns) now
+        # names columns that no longer exist. Dead code that reads a dropped column is a
+        # trap for whoever meets it next, so it is gone rather than commented out.
     rows = _read_csv()
     actions = _load_actions()
     for r in rows:                       # fold like/hide/applied in for the app
@@ -857,6 +895,18 @@ JOB_FACTS_COLS = ("loc_state", "loc_metro", "remote",
                   "salary_min", "salary_max", "salary_period",
                   "exp_max_years", "sponsor_jd", "sponsor_reason",
                   "facts_fp")
+
+# COLUMNS THAT NO LONGER EXIST ON `jobs`. The contract step of the schema separation
+# (MIGRATION_contract.sql) drops them, because until it runs every one of these values is
+# stored TWICE -- once on `jobs` and once in the table that now owns it -- and two columns
+# that can disagree is the bug generator this whole separation was a response to.
+#
+# facts_fp is NOT here and that is deliberate: it stays on `jobs` alongside jd_fp, because
+# the staleness query is `where jd_fp is distinct from facts_fp` and pgrest translates no
+# joins. It is written to BOTH tables. Everything else moved.
+_FACTS_SET = frozenset(JOB_FACTS_COLS)
+
+MOVED_OFF_JOBS = frozenset(set(JOB_FACTS_COLS) - {"facts_fp"} | {"jd_terms", "jd"})
 
 
 # The packed keyword analysis, which is 55% of the corpus read on its own. Measured against
@@ -912,7 +962,7 @@ def _side_rows(table, sel, urls, pick=None):
 
 def job_terms_ready():
     """True once backfill_job_terms.py has stamped completion. Same gate as the other two."""
-    return _stamp_ready("job_terms", _terms_src)
+    return True
 
 
 def mirror_job_terms(rows, keys=None):
@@ -923,8 +973,6 @@ def mirror_job_terms(rows, keys=None):
     it is here rather than in a later migration because the writer is here: a column added
     later would be NULL on every existing row and need its own backfill to become useful.
     """
-    if not _terms_tbl["ok"]:
-        return
     payload = []
     for r in rows:
         if not r.get("url") or "jd_terms" not in r:
@@ -945,12 +993,11 @@ def mirror_job_terms(rows, keys=None):
         for i in range(0, len(payload), 60):      # the text is ~730 B/row; keep bodies small
             _upsert(payload[i:i + 60], keys=cols, table=JOB_TERMS_TABLE, pk="url")
     except Exception as ex:
-        if not _table_missing(ex):
-            print("  (job_terms mirror failed: %s)" % str(ex)[:120])
-            return
-        _terms_tbl["ok"] = False
-        print("  (public.job_terms not migrated yet - the analysis is in jobs only. "
-              "Run MIGRATION_job_terms.sql.)")
+        # Same reasoning as job_facts. jd_terms is also the third component of
+        # jobs_fingerprint, so losing a write here does not merely lose an analysis -- it
+        # stops the fingerprint moving, and every worker goes on serving a cached corpus.
+        print("  (writing job_terms FAILED: %s)" % str(ex)[:120])
+        raise
 
 
 def _terms_rows(urls=None):
@@ -965,8 +1012,19 @@ def job_facts_ready():
     no experience floor and no pay, and _filter_rows KEEPS a row it has no number for -- so
     a partial copy would quietly widen every filter instead of narrowing it, which is the
     exact defect this whole revamp started from.
+    CONTRACTED: THIS IS NOW A CONSTANT, and the constant is the point of the contract step.
+
+    While `jobs` still carried its own copy, an unreadable stamp meaning NOT READY was the
+    safe answer -- falling back just read the older source. MIGRATION_contract.sql drops
+    those columns, so there is no longer anything to fall back TO: the same fallback would
+    now select a column that does not exist and PostgREST would 400 the read. A gate whose
+    negative branch is a guaranteed error is not a gate, it is a hazard, so it is retired
+    rather than left looking live.
+
+    data_versions still records the stamp -- it is what proves the backfill completed, and
+    scripts/ read it -- but nothing BRANCHES on it any more.
     """
-    return _stamp_ready("job_facts", _facts_src)
+    return True
 
 
 def mirror_job_facts(rows, keys=None):
@@ -976,7 +1034,7 @@ def mirror_job_facts(rows, keys=None):
     failure here costs the copy and never the reading. Rows are filtered to JOB_FACTS_COLS,
     so a caller may hand over whatever payload it already built.
     """
-    if not _facts_tbl["ok"] or not rows:
+    if not rows:
         return
     # THE GROUP THE CALLER WROTE, NOT THE WHOLE COLUMN SET, and this is the difference
     # between a mirror and a corruption. _persist_derived writes its derived fields in TWO
@@ -1008,12 +1066,13 @@ def mirror_job_facts(rows, keys=None):
         for i in range(0, len(payload), 200):
             _upsert(payload[i:i + 200], keys=cols, table=JOB_FACTS_TABLE, pk="url")
     except Exception as ex:
-        if not _table_missing(ex):
-            print("  (job_facts mirror failed: %s)" % str(ex)[:120])
-            return
-        _facts_tbl["ok"] = False
-        print("  (public.job_facts not migrated yet - derived fields are in jobs only. "
-              "Run MIGRATION_job_facts.sql.)")
+        # Authoritative since the contract step: `jobs` no longer has these columns, so a
+        # swallowed failure here is not a stale mirror, it is the derived fields for this
+        # batch going missing -- and a row with no exp_max_years is one _filter_rows KEEPS,
+        # which widens every filter rather than narrowing it. That is the defect this whole
+        # separation was a response to, so it must not be reachable by ignoring an error.
+        print("  (writing job_facts FAILED: %s)" % str(ex)[:120])
+        raise
 
 
 JD_TABLE = "job_descriptions"
@@ -1042,7 +1101,7 @@ def _facts_rows(urls=None):
 
 def jd_table_ready():
     """True once the backfill has stamped completion. Cached for _JD_SRC_TTL seconds."""
-    return _stamp_ready("job_descriptions", _jd_src)
+    return True
 
 
 def _jd_rows(urls=None):
@@ -1214,29 +1273,25 @@ def urls_missing_jd():
     """
     if has_remote_db():
         try:
-            if jd_table_ready():
-                # AN ANTI-JOIN, and it is the one place this split costs something real. A
-                # job with no description has no ROW in job_descriptions at all, so there is
-                # nothing there to select for -- the backlog is every url in `jobs` minus
-                # the ones that have text, and pgrest.py translates no joins.
-                #
-                # MEASURED 2026-09-06 against the live box: the single-table form answers in
-                # 0.3 s because only 284 rows come back, while urls_with_jd() takes 30 s for
-                # 46,903. Both halves here are url-only selects, so this is ~60 s and a few
-                # MB rather than the 263 MB selecting the text to test it would cost -- but
-                # it is a 100x regression on THIS call, paid once per scrape run against a
-                # run that already takes 20-45 minutes. Accepted, not overlooked.
-                #
-                # If it ever bites: a `has_jd` boolean on `jobs`, written by update_jds in
-                # the same statement as the text, restores the one-query form. It is a
-                # pointer rather than a copy of the text, so it is cheap -- but it is still
-                # a second column that can disagree with the first, which is the failure
-                # this whole revamp exists to remove. Do not add it on suspicion; add it on
-                # a measurement that says the minute matters.
-                return {u for u in existing_urls() if u} - urls_with_jd()
-            return {r["url"] for r in _fetch_all(TABLE, {"select": "url",
-                                                         "or": "(jd.is.null,jd.eq.)"})
-                    if r.get("url")}
+            # AN ANTI-JOIN, and it is the one place this split costs something real. A
+            # job with no description has no ROW in job_descriptions at all, so there is
+            # nothing there to select for -- the backlog is every url in `jobs` minus
+            # the ones that have text, and pgrest.py translates no joins.
+            #
+            # MEASURED 2026-09-06 against the live box: the single-table form answers in
+            # 0.3 s because only 284 rows come back, while urls_with_jd() takes 30 s for
+            # 46,903. Both halves here are url-only selects, so this is ~60 s and a few
+            # MB rather than the 263 MB selecting the text to test it would cost -- but
+            # it is a 100x regression on THIS call, paid once per scrape run against a
+            # run that already takes 20-45 minutes. Accepted, not overlooked.
+            #
+            # If it ever bites: a `has_jd` boolean on `jobs`, written by update_jds in
+            # the same statement as the text, restores the one-query form. It is a
+            # pointer rather than a copy of the text, so it is cheap -- but it is still
+            # a second column that can disagree with the first, which is the failure
+            # this whole revamp exists to remove. Do not add it on suspicion; add it on
+            # a measurement that says the minute matters.
+            return {u for u in existing_urls() if u} - urls_with_jd()
         except Exception:
             return set()
     return {r["url"] for r in _read_csv() if not (r.get("jd") or "").strip()}
@@ -1277,28 +1332,18 @@ def urls_with_jd():
     For the inverse question prefer urls_missing_jd(), which pages ~5.6x fewer rows."""
     if has_remote_db():
         try:
-            if jd_table_ready():
-                # jd_chars > 0, NOT `jd is not null`. update_jds stores "" for a row whose
-                # description was cleared -- close_dead_jds does exactly that -- and a row
-                # holding an empty string HAS no description. The jobs.jd branch below says
-                # the same thing with an or= group; PostgREST cannot put two filters on one
-                # column in one query string, so the length column answers it in one hop
-                # rather than selecting the text and testing it here, which is 263 MB.
-                return {r["url"] for r in _fetch_all(
-                    JD_TABLE, {"select": "url", "jd_chars": "gt.0"}) if r.get("url")}
-            # `jd <> ''`, NOT `jd is not null`. In SQL a NULL fails <> as well, so this
-            # one filter means exactly "has TEXT" -- which is what the caller asks and
-            # what the job_descriptions branch above answers with jd_chars > 0.
+            # jd_chars > 0, NOT "a row exists". update_jds stores "" for a row whose
+            # description was cleared -- close_dead_jds does exactly that -- and a row
+            # holding an empty string HAS no description. The length column answers that in
+            # one hop, rather than selecting the text and testing it here, which is 263 MB.
             #
-            # not.is.null counted an EMPTY STRING as having a description, so the same 54
-            # rows were in BOTH this set and urls_missing_jd() -- whose or= group counts
-            # an empty string as missing. Two functions documented as complements that
-            # overlapped. close_dead_jds writes '' to clear a junk description, which is
-            # how rows get into that state, and this inflated coverage by exactly those.
-            # Found because the backfill could not finish: those 54 were permanently in
-            # its todo list and permanently unfetchable.
-            return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "neq."})
-                    if r.get("url")}
+            # THE PARTITION WITH urls_missing_jd IS THE CONTRACT, and it was broken once:
+            # the old jobs.jd branch matched `jd is not null`, which counts an empty string
+            # as having text, while urls_missing_jd's or= group counted it as missing. 54
+            # rows were in BOTH sets. Found because the backfill could not finish -- those
+            # 54 were permanently in its todo list and permanently unfetchable.
+            return {r["url"] for r in _fetch_all(
+                JD_TABLE, {"select": "url", "jd_chars": "gt.0"}) if r.get("url")}
         except Exception:
             return set()
     return {r["url"] for r in _read_csv() if (r.get("jd") or "").strip()}
@@ -2346,6 +2391,11 @@ def update_jds(jds):
     for r in rows:
         _jd_cache.pop(r["url"], None)          # the only thing that can falsify _jd_cache
     if has_remote_db():
+        # THE TEXT IS STORED FIRST, THEN THE STAMP THAT SAYS WE HOLD IT. Reversed, a failure
+        # to write job_descriptions would leave jobs.jd_fp fingerprinting a description that
+        # was never stored -- the row would claim provenance for text nobody can read. Since
+        # _mirror_jds raises now, doing it first means a failure costs both or neither.
+        _mirror_jds(rows)
         # DEGRADES IF THE MIGRATION HAS NOT BEEN RUN. This function is on the scrape's
         # critical path -- it is how every fetched description reaches the table -- and
         # jd_fp is a new column. Deploying the code before pasting
@@ -2368,7 +2418,6 @@ def update_jds(jds):
                 print("  (jobs.jd_fp not migrated yet — storing descriptions without the "
                       "provenance stamp. Run MIGRATION_jd_fingerprints.sql.)")
                 _upsert([{k: v for k, v in r.items() if k != "jd_fp"} for r in chunk])
-        _mirror_jds(rows)
         return
     _dump_json(JDS_FILE, jds)
 
@@ -2380,29 +2429,30 @@ _jd_tbl = {"ok": True}
 
 
 def _mirror_jds(rows):
-    """Write the descriptions to job_descriptions as well. Never raises.
+    """Store the descriptions. NO LONGER A MIRROR, and no longer allowed to fail quietly.
 
-    A SHADOW COPY UNTIL THE BACKFILL STAMPS COMPLETION, and the ordering is the safety
-    property: jobs.jd is written first and is authoritative, so a failure here loses the
-    mirror and never the text. After the flip both are still written, which is what keeps
-    them in step until the contract step drops the column.
+    It was a shadow copy, and it swallowed every failure on an explicit argument: "the text
+    is already safely in jobs.jd". MIGRATION_contract.sql drops that column, so the argument
+    is void -- this is the ONLY place a description is written, and a swallowed failure here
+    is a description silently lost, on the scrape's critical path, with jd_fp already stamped
+    to say we hold it.
+
+    So it raises. A caller that cannot store a description should hear about it: update_jds
+    is called in chunks and a failed chunk leaves those urls in urls_missing_jd, which is
+    exactly the state that makes the next run re-fetch them.
     """
-    if not _jd_tbl["ok"]:
-        return
     payload = [{"url": r["url"], "jd": r["jd"], "jd_chars": len(r["jd"] or ""),
                 "updated_at": _now()} for r in rows]
     try:
         for i in range(0, len(payload), 30):
             _upsert(payload[i:i + 30], table=JD_TABLE, pk="url")
     except Exception as e:
-        if not _table_missing(e):
-            # A real failure is worth surfacing, but not worth failing the scrape over: the
-            # text is already safely in jobs.jd and the backfill re-syncs whatever drifted.
-            print("  (job_descriptions mirror failed: %s)" % str(e)[:120])
-            return
-        _jd_tbl["ok"] = False
-        print("  (public.job_descriptions not migrated yet — descriptions are in jobs.jd "
-              "only. Run MIGRATION_job_descriptions.sql.)")
+        # A MISSING TABLE IS FATAL NOW, where it used to be a degrade. There is no jobs.jd to
+        # fall back to, so "carry on without it" would mean running a scrape that stores no
+        # descriptions at all and reports success -- the failure shape this project has been
+        # bitten by more than once.
+        print("  (writing job_descriptions FAILED: %s)" % str(e)[:120])
+        raise
 
 
 def requeue_analysis(urls):

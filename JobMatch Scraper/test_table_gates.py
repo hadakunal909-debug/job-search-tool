@@ -212,17 +212,14 @@ def test_has_a_description_and_missing_one_are_complements():
     so it excludes both, and it matches what the job_descriptions branch answers with
     jd_chars > 0.
     """
-    seen = {}
+    seen = []
 
-    def fetch(table, params=None):
-        p = params or {}
-        seen[p.get("or") or p.get("jd") or "?"] = table
+    def fetch(table, params=None, page=None):
+        seen.append((table, dict(params or {})))
         return []
 
     saved = (real_db._fetch_all, real_db.has_remote_db)
     real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
-    for m in (real_db._jd_src, real_db._facts_src, real_db._terms_src):
-        m.update(ready=False, at=9e18)          # unstamped: the `jobs` branch
     try:
         real_db.urls_with_jd()
         real_db.urls_missing_jd()
@@ -231,12 +228,16 @@ def test_has_a_description_and_missing_one_are_complements():
         for m in (real_db._jd_src, real_db._facts_src, real_db._terms_src):
             m.update(ready=None, at=0.0)
 
-    _check("urls_with_jd asks for jd <> '', not merely not-null",
-           "neq." in seen, repr(sorted(seen)))
-    _check("...and NOT the not.is.null form that counts an empty string as text",
-           "not.is.null" not in seen, repr(sorted(seen)))
-    _check("urls_missing_jd still matches NULL or empty",
-           any(k.startswith("(jd.is.null") for k in seen), repr(sorted(seen)))
+    _check("urls_with_jd asks job_descriptions for jd_chars > 0",
+           any(t == real_db.JD_TABLE and p.get("jd_chars") == "gt.0"
+               for t, p in seen), repr(seen))
+    # `jobs` is still read -- the anti-join needs existing_urls() -- but never for a
+    # column that no longer exists. This is the assertion that would catch a reader
+    # left behind by the contract step.
+    _check("...and no query filters or selects the dropped jd column",
+           not [1 for t, p in seen
+                if "jd" in p or "jd" in str(p.get("select", "")).split(",")
+                or "jd.is.null" in str(p.get("or", ""))], repr(seen))
 
 
 def test_page_size_is_chosen_from_row_width():
