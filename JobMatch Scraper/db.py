@@ -1240,7 +1240,18 @@ def urls_with_jd():
                 # rather than selecting the text and testing it here, which is 263 MB.
                 return {r["url"] for r in _fetch_all(
                     JD_TABLE, {"select": "url", "jd_chars": "gt.0"}) if r.get("url")}
-            return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "not.is.null"})
+            # `jd <> ''`, NOT `jd is not null`. In SQL a NULL fails <> as well, so this
+            # one filter means exactly "has TEXT" -- which is what the caller asks and
+            # what the job_descriptions branch above answers with jd_chars > 0.
+            #
+            # not.is.null counted an EMPTY STRING as having a description, so the same 54
+            # rows were in BOTH this set and urls_missing_jd() -- whose or= group counts
+            # an empty string as missing. Two functions documented as complements that
+            # overlapped. close_dead_jds writes '' to clear a junk description, which is
+            # how rows get into that state, and this inflated coverage by exactly those.
+            # Found because the backfill could not finish: those 54 were permanently in
+            # its todo list and permanently unfetchable.
+            return {r["url"] for r in _fetch_all(TABLE, {"select": "url", "jd": "neq."})
                     if r.get("url")}
         except Exception:
             return set()
