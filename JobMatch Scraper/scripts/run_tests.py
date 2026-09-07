@@ -112,6 +112,7 @@ SUITES = (
     Suite("test_templates_parse",   "test_templates_parse.py",           "root",   "offline"),
     Suite("test_table_gates",      "test_table_gates.py",               "root",   "offline"),
     Suite("test_wishlist",         "test_wishlist.py",                  "root",   "offline"),
+    Suite("test_ext_api",          "test_ext_api.py",                   "root",   "offline"),
     Suite("test_title_filter",      "test_title_filter.py",              "root",   "offline"),
     Suite("test_us_location",       "test_us_location.py",               "root",   "offline"),
     Suite("test_verify_queue",      "test_verify_queue.py",              "root",   "offline"),
