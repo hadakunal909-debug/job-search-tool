@@ -7673,9 +7673,23 @@ def add_board():
                 # build_careers_md.py's coverage check. db.list_boards() selects * and still
                 # returns it, which is what /companies reads.
                 if not name:
-                    result = ("err", "That isn't a readable job board, so it can only be "
-                              "listed as apply-direct — which needs a company name. Add one "
-                              "and submit again.")
+                    # A WISH, NOT A DEAD END. This used to stop here and ask for a company
+                    # name so the site could be filed apply-direct. That is a fine outcome
+                    # when the user has a name to give, and a discarded intent when they do
+                    # not -- they found an employer they want followed, we could not read it,
+                    # and nothing recorded that anyone had asked. db.add_wish counts repeats,
+                    # so the backlog ends up ordered by how many people actually wanted a
+                    # site rather than by who asked first.
+                    wished = db.add_wish(url, reason="no readable job board",
+                                         source="addboard", user=session["user"])
+                    result = ("info" if wished else "err",
+                              ("We can't read a job board on that page, so the scraper can't "
+                               "follow it yet — saved to the wish list for review. If you "
+                               "have the company name, add it and submit again to list it as "
+                               "apply-direct instead.") if wished else
+                              ("That isn't a readable job board, so it can only be listed as "
+                               "apply-direct — which needs a company name. Add one and "
+                               "submit again."))
                 else:
                     # Same normalization every detect_* branch already returns, so an
                     # apply-direct row is stored in the one shape the rest of the app expects
@@ -7695,7 +7709,11 @@ def add_board():
                 burl, ats, guess = det
                 n = scraper.probe_board(burl, ats)
                 if n is None:
-                    result = ("err", "Detected a %s board but couldn't read any postings." % ats)
+                    db.add_wish(url, name, reason="detected %s but read 0 postings" % ats,
+                                source="addboard", user=session["user"])
+                    result = ("info", "That looks like a %s board but we couldn't read any "
+                              "postings from it — saved to the wish list so it can be looked "
+                              "at rather than lost." % ats)
                 else:
                     # NEVER store detect_board's third value unchallenged. It is _name_from on
                     # the URL slug -- a suggestion for this form, not a fact -- and nine
@@ -7729,7 +7747,38 @@ def add_board():
         boards = db.list_boards()
     except Exception:
         boards = []
-    return render_template("addboard.html", result=result, boards=boards, sql=BOARDS_SQL)
+    # list_wishes swallows its own failures and returns [], so an unmigrated wishlist table
+    # renders the page exactly as before rather than 500ing the one route that adds boards.
+    return render_template("addboard.html", result=result, boards=boards, sql=BOARDS_SQL,
+                           wishes=db.list_wishes("open"))
+
+
+@app.route("/wish/status", methods=["POST"])
+@login_required
+def wish_status():
+    """Triage one wish: adopted, rejected, or back to open. ADMIN ONLY.
+
+    `wishlist` is a SHARED table, exactly like `boards` -- one row is a request everybody can
+    see, so letting any account close somebody else's would be the same defect board_delete had
+    to be fixed for. The check is inline rather than a decorator for the same reason the one in
+    reload_jobs is: @admin_required is defined further down this file and a decorator is
+    evaluated at import time.
+
+    A reviewed row is NOT deleted. A rejected wish is the record that stops the same site being
+    investigated a third time, which is most of the value of keeping this list at all.
+    """
+    if not is_admin():
+        flash("Reviewing the wish list is admin only.", "error")
+        return redirect(url_for("add_board"))
+    url = (request.form.get("url") or "").strip()
+    status = (request.form.get("status") or "").strip()
+    if not url or status not in ("open", "adopted", "rejected"):
+        flash("Nothing to review.", "error")
+    elif db.set_wish_status(url, status):
+        flash("Wish marked %s." % status)
+    else:
+        flash("Could not update that wish.", "error")
+    return redirect(url_for("add_board"))
 
 
 @app.route("/board/delete", methods=["POST"])
@@ -8921,7 +8970,7 @@ def _ext_profile_fields(user, p=None):
 # whenever a change to the /api/ext/* contract makes an older build wrong; the popup compares it
 # against its own manifest version and says so. Deliberately not a hard block -- an extension
 # that refuses to work because a number moved is worse than one that fills a form imperfectly.
-EXT_MIN_VERSION = "1.36.0"
+EXT_MIN_VERSION = "1.37.0"
 
 # A build identifier the extension can show, so "which copy of the app am I talking to" is
 # answerable without a deploy log. web.py's own mtime is the cheapest honest answer: the deploy
@@ -9623,8 +9672,22 @@ def ext_detect_board():
             if det:
                 break
     if not det:
-        return _cors(jsonify({"ok": True, "found": False,
-                              "error": "No scrapeable board behind this site."}))
+        # THE EXTENSION HALF OF THE SAME DEAD END. "No scrapeable board behind this
+        # site" was the whole answer, and the popup then offered nothing to do with it,
+        # so a user who had gone to the trouble of finding an employer got a shrug. It
+        # now offers a wish, and reports whether the wish landed so the popup can say
+        # which of the two happened rather than guessing.
+        wished = False
+        if want_add:
+            wished = db.add_wish(page, typed, reason="no readable job board",
+                                 source="extension", user=user)
+        return _cors(jsonify({
+            "ok": True, "found": False, "can_wish": True, "wished": wished,
+            "error": ("Saved to your wish list — we can't read a job board here yet."
+                      if wished else
+                      "We can't read a job board on this site. Add it to the wish list "
+                      "and it will be reviewed."),
+        }))
     burl, ats, guess = det
     if burl in {u for u, _, _ in scraper.SOURCES}:
         return _cors(jsonify({"ok": True, "found": True, "ats": ats, "name": guess,

@@ -45,7 +45,7 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>9,938 lines · 87 routes / 86 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>10,001 lines · 88 routes / 87 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
@@ -56,7 +56,7 @@ flowchart TB
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,513 lines · 36 sections<br/>db.py · 4,001 lines · four backends"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 4,513 lines · 36 sections<br/>db.py · 4,091 lines · four backends"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
