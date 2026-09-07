@@ -69,6 +69,11 @@ ALLOWED_TABLES = {
     "companies", "data_versions",
     # The description, split out of jobs. Same reasoning as the two above.
     "job_descriptions", "job_facts", "job_terms",
+    # Employers someone asked for that we could NOT read a board from. See
+    # MIGRATION_wishlist.sql. Listed for the same asymmetric reason as companies above:
+    # the cPanel app reaches Postgres directly and would work without this line, so a
+    # missing entry only ever shows up off-box, as a 403 that reads like an auth failure.
+    "wishlist",
 }
 # Stored procedures the admin panels call. Named individually for the same reason as the tables.
 ALLOWED_RPC = {"db_stats", "ev_usage"}

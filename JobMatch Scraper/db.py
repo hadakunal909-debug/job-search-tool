@@ -916,6 +916,96 @@ MOVED_OFF_JOBS = frozenset(set(JOB_FACTS_COLS) - {"facts_fp"} | {"jd_terms", "jd
 # which is the argument for moving it, more than the seconds are.
 JOB_TERMS_TABLE = "job_terms"
 
+WISHLIST_TABLE = "wishlist"
+
+
+def add_wish(url, company="", reason="", source="", user="", note=""):
+    """Record an employer we could not take, so the intent is not thrown away.
+
+    BOTH ADD-A-BOARD PATHS USED TO DEAD-END. The web page told the user to supply a name so it
+    could be filed apply-direct; the extension fell through to "try the + Add board page". Either
+    way somebody had found an employer they wanted followed, we could not read its board, and
+    that was the end of it -- so nobody ever learned which employers people keep asking for.
+
+    A REPEAT WISH MERGES AND COUNTS, it does not duplicate. `requests` is the only ranking signal
+    worth having here: it orders the backlog by how many people actually wanted a site rather
+    than by who happened to ask first. That needs the existing row's count, so this reads before
+    it writes -- one extra round trip on a path a human just clicked, which is nothing.
+
+    NEVER RAISES. It is called from the failure branch of two routes; a wishlist that is not
+    migrated yet, or a transient proxy blip, must not turn "we could not add your board" into a
+    500. Returns True when it landed, False when it did not, and the callers word themselves
+    accordingly.
+    """
+    url = (url or "").strip()
+    if not url or not has_remote_db():
+        return False
+    row = {"url": url[:500], "company": (company or "").strip()[:200] or None,
+           "reason": (reason or "").strip()[:300] or None,
+           "source": (source or "").strip()[:32] or None,
+           "added_by": (user or "").strip()[:100] or None,
+           "note": (note or "").strip()[:500] or None}
+    try:
+        prev = _fetch_all(WISHLIST_TABLE, {"select": "url,requests,status",
+                                           "url": "eq.%s" % url})
+    except Exception:
+        prev = []
+    if prev:
+        row["requests"] = int(prev[0].get("requests") or 1) + 1
+        # A wish that was REJECTED and is asked for again goes back on the pile -- the second
+        # request is new information, and leaving it closed would silently swallow it.
+        if (prev[0].get("status") or "") == "rejected":
+            row["status"] = "open"
+        # A REPEAT WISH MUST NOT BLANK WHAT THE FIRST ONE SUPPLIED. _upsert sends the
+        # union of keys, so a None here overwrites a real value with NULL -- somebody
+        # clicking the button without typing a company would erase the name the first
+        # requester took the trouble to enter. Dropping the empty keys leaves those
+        # columns untouched by the merge.
+        for k in ("company", "reason", "source", "added_by", "note"):
+            if row.get(k) is None:
+                row.pop(k, None)
+    try:
+        _upsert([row], table=WISHLIST_TABLE, pk="url")
+        return True
+    except Exception as e:
+        print("  (wishlist write failed: %s)" % str(e)[:120])
+        return False
+
+
+def list_wishes(status=""):
+    """The wish list, most-requested first. [] when the table is not migrated."""
+    if not has_remote_db():
+        return []
+    params = {"select": "*", "order": "requests.desc"}
+    if status:
+        params["status"] = "eq.%s" % status
+    try:
+        return _fetch_all(WISHLIST_TABLE, params)
+    except Exception as e:
+        if not _table_missing(e):
+            print("  (wishlist read failed: %s)" % str(e)[:120])
+        return []
+
+
+def set_wish_status(url, status, note=None):
+    """Triage one wish: open | adopted | rejected.
+
+    A reviewed row STAYS. A rejected wish is the record that stops the same site being
+    investigated a third time, which is most of what this list is for.
+    """
+    if not url or status not in ("open", "adopted", "rejected") or not has_remote_db():
+        return False
+    row = {"url": url, "status": status, "reviewed_at": _now()}
+    if note is not None:
+        row["note"] = str(note)[:500]
+    try:
+        _upsert([row], keys=tuple(row), table=WISHLIST_TABLE, pk="url")
+        return True
+    except Exception as e:
+        print("  (wishlist status write failed: %s)" % str(e)[:120])
+        return False
+
+
 
 def _stamp_ready(name, memo):
     """Has `name` been stamped complete in data_versions? Memoised for _JD_SRC_TTL seconds.

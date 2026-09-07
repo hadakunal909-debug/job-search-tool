@@ -566,9 +566,37 @@ async function refreshAutoStat() {
 // found — and every failure it has, including that one, printed the same "try the ➕ Add
 // board page". The server now names the reason; this reports the reason it names.
 let boardFound = null;
+// SET WHEN THE SERVER SAYS IT CANNOT READ A BOARD HERE. The check then has a second click
+// like the success path does, except it records a WISH instead of a board -- so "we can't
+// scrape this" stops being the end of the conversation. Kept separate from boardFound
+// because the two second-clicks post different things and conflating them is how the add
+// click would end up filing a wish for a board that was found perfectly well.
+let wishPending = null;
 $("boardcheck").onclick = async () => {
   const tab = await activeTab();
   $("boardmsg").style.color = "#0b7a52";
+  if (wishPending) {                               // second click = file the wish
+    $("boardmsg").textContent = "Saving to your wish list…";
+    try {
+      const r = await fetch(cfg.apibase + "/api/ext/detect_board", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: cfg.token, url: wishPending.pageUrl,
+                               candidates: wishPending.candidates, add: true,
+                               name: $("boardname").value.trim() }),
+      });
+      const j = await r.json();
+      if (j.ok && j.wished) {
+        $("boardmsg").textContent = "✓ Saved to the wish list. It'll be reviewed — you can see it on the Add a Company page.";
+        $("boardcheck").style.display = "none";
+        $("boardnamewrap").style.display = "none";
+      } else {
+        $("boardmsg").style.color = "#c0392b";
+        $("boardmsg").textContent = j.error || "Couldn't save that to the wish list.";
+      }
+    } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error."; }
+    wishPending = null;
+    return;
+  }
   if (boardFound) {                                // second click = add it
     const typed = $("boardname").value.trim();
     if (boardFound.needName && !typed) {
@@ -612,13 +640,30 @@ $("boardcheck").onclick = async () => {
     });
     const j = await r.json();
     if (!j.ok) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = j.error || "Check failed."; return; }
-    if (!j.found) { $("boardmsg").textContent = "No scrapeable board behind this site. Use the import button above instead."; return; }
+    if (!j.found) {
+      // WAS: "No scrapeable board behind this site. Use the import button above instead."
+      // -- true, and a dead end. The user had just gone looking for an employer they wanted
+      // followed; nothing recorded that anyone had asked. The server offers a wish now.
+      if (j.can_wish) {
+        wishPending = { pageUrl: tab.url, candidates: candidates };
+        $("boardnamewrap").style.display = "";
+        $("boardmsg").textContent = "We can't read a job board here yet. Add the company name if you know it, then click again to put it on the wish list.";
+        $("boardcheck").textContent = "☆ Add to wish list";
+      } else {
+        $("boardmsg").textContent = "No scrapeable board behind this site. Use the import button above instead.";
+      }
+      return;
+    }
     if (j.builtin) { $("boardmsg").textContent = "✓ Already scraped daily (" + (j.name || j.ats) + ")."; return; }
     // count === null means the probe could not read the board, and the server refuses to add
     // one it cannot read. Say that HERE rather than inviting a click that can never succeed.
     if (j.count == null) {
-      $("boardmsg").style.color = "#c0392b";
-      $("boardmsg").textContent = "Found a " + j.ats + " board but couldn't read any postings from it, so it isn't scrapeable. Use the import button above instead.";
+      // Detected but unreadable. The server refuses to add a board it cannot read, so this
+      // is the same dead end wearing a different hat -- and the same answer applies.
+      wishPending = { pageUrl: tab.url, candidates: candidates };
+      $("boardnamewrap").style.display = "";
+      $("boardmsg").textContent = "Found a " + j.ats + " board but couldn't read any postings from it. Click again to put it on the wish list.";
+      $("boardcheck").textContent = "☆ Add to wish list";
       return;
     }
     boardFound = { pageUrl: tab.url, candidates: candidates, boardUrl: j.board_url,

@@ -34,4 +34,33 @@
 {% else %}
 <p class="muted">No companies added yet. The built-in sources are always scraped.</p>
 {% endif %}
+
+{# THE WISH LIST. Sites somebody wanted followed and we could not read a board from. It lives
+   here rather than on its own page because this is where wishes are made -- seeing the pile
+   next to the form is what stops the same site being pasted in a fourth time. Ordered by
+   `requests`, so the ones people keep asking for are at the top. #}
+{% if wishes %}
+<h3>Wish list <span class="muted">— we can't scrape these yet</span></h3>
+<p class="sub">Companies you or someone else asked for that don't expose a readable job board.
+  They're kept so they can be looked at, not lost.</p>
+{% for w in wishes %}
+<div class="brow">
+  <div>
+    <b>{{ w.company or w.url }}</b>
+    {% if w.requests and w.requests > 1 %}<span class="muted"> · asked {{ w.requests }}×</span>{% endif %}
+    <br><span class="muted">{{ w.url }}</span>
+    {% if w.reason %}<br><span class="muted">{{ w.reason }}</span>{% endif %}
+  </div>
+  <span class="muted">{{ w.status }}</span>
+  {% if is_admin() %}
+  <form method="post" action="{{ url_for('wish_status') }}" class="inline">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="url" value="{{ w.url }}">
+    <button class="btn" type="submit" name="status" value="adopted">Adopted</button>
+    <button class="btn" type="submit" name="status" value="rejected">Won't do</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
 {% endblock %}
