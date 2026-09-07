@@ -162,6 +162,49 @@ def test_the_scoring_pass_stamps_and_distrusts_a_mismatched_cache():
            'm["jd_fp"] = db.jd_fingerprint(jd)' in src)
 
 
+def test_the_backfill_agrees_with_the_python_fingerprint():
+    """A column added by DDL and written by Python has two authors, and they can disagree.
+
+    MIGRATION_jd_fingerprints.sql adds jd_fp and leaves it to db.update_jds, "on the next write
+    of that row's description". A description is IMMUTABLE in normal operation -- score_jobs
+    queues a fetch only when the column is empty -- so for the 46,849 rows already fetched there
+    was no next write and the column stayed NULL for ever.
+
+    The consequence was not an empty column, it was a LYING TOOL. check_derived.py reads a NULL
+    jd_fp as "no description at all" and reported 100% of the corpus that way, on a database
+    where 99.4% of rows have a description. This file's own docstring already warns that a tool
+    whose failure mode is a reassuring number is worse than one that crashes; that warning was
+    written about an earlier version of the same mistake.
+
+    MIGRATION_jd_fp_backfill.sql computes it in SQL instead -- the input is already in the
+    database, and the Python form would read 263 MB over the proxy to hand back 32 characters a
+    row. Which means the hash now has two authors, and this pins the three ways they can drift.
+    """
+    mig = open(os.path.join(APP, "MIGRATION_jd_fp_backfill.sql"), encoding="utf-8").read()
+
+    # 1. THE CAP. 158 stored descriptions are longer than JD_MAX_CHARS. Hash the untruncated
+    #    text here and Python's capped text there, and those 158 read stale for ever.
+    _check("the backfill truncates to JD_MAX_CHARS (%d)" % real_db.JD_MAX_CHARS,
+           "left(d.jd, %d)" % real_db.JD_MAX_CHARS in mig,
+           "constant moved and the SQL did not")
+
+    # 2. IT MUST NEVER WRITE facts_fp. We know what text a row STORES; we do not know what text
+    #    its exp_max_years was read from. Setting facts_fp = jd_fp would assert every derived
+    #    column in the corpus is current -- the exact claim the pair exists to test, and the
+    #    exact claim that was false on 2026-09-04.
+    _check("it never stamps facts_fp",
+           "facts_fp" not in mig.split("update public.jobs")[1].split(";")[0])
+
+    # 3. IT ONLY FILLS NULLS, so re-running it cannot overwrite a stamp a real write made.
+    _check("it only touches rows with no fingerprint yet", "j.jd_fp is null" in mig)
+
+    # ...and the empty case still has to be absent, not a hash, on both sides.
+    blank = chr(0xa0) + " " + chr(9) + chr(10)      # NBSP, space, tab, newline
+    _check("Python still refuses to fingerprint whitespace",
+           real_db.jd_fingerprint(blank) is None)
+    _check("the SQL excludes whitespace-only text too", "btrim(d.jd" in mig)
+
+
 def test_the_ddl_and_its_migration_agree():
     sql = real_db.JOBS_DERIVED_SQL
     mig = open(os.path.join(APP, "MIGRATION_jd_fingerprints.sql"), encoding="utf-8").read()
@@ -304,6 +347,7 @@ def test_a_narrow_read_never_widens_into_the_description_text():
 def main():
     print("jd fingerprints")
     for fn in (test_absence_is_not_a_fingerprint,
+               test_the_backfill_agrees_with_the_python_fingerprint,
                test_it_hashes_what_the_column_will_actually_hold,
                test_different_text_different_fingerprint,
                test_classify_separates_unknown_from_stale,
