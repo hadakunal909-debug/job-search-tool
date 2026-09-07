@@ -39,6 +39,10 @@ row_cache/
 # pass doesn't re-download ~128 MB from the database every day. Rebuilt from the DB on a miss.
 jd_cache.json.gz
 jd_cache.json.gz.tmp
+# ...and any hand-made backup of it. scripts that repair the cache write a .bak beside
+# it, and `git add -A` swept a 53 MB one into the repo on 2026-09-07.
+jd_cache.json.gz.bak
+*.json.gz.bak
 brain_kb_local.json
 brain_companies_local.json
 resumes_local.json
