@@ -370,19 +370,19 @@ $("reset").onclick = async () => { await set({ token: "" }); cfg.token = ""; ini
 // Manage learned answers: list + delete. (Edit = delete here, then re-capture the corrected value
 // with "Save my answers from this page".)
 $("learnedload").onclick = async () => {
-  $("learnedmsg").style.color = "#0b7a52"; $("learnedmsg").textContent = "Loading…";
+  $("learnedmsg").style.color = "var(--ok)"; $("learnedmsg").textContent = "Loading…";
   try {
     const j = await (await fetch(cfg.apibase + "/api/ext/learned?token=" + encodeURIComponent(cfg.token))).json();
-    if (!j.ok) { $("learnedmsg").style.color = "#c0392b"; $("learnedmsg").textContent = "Error: " + (j.error || "failed"); return; }
+    if (!j.ok) { $("learnedmsg").style.color = "var(--bad)"; $("learnedmsg").textContent = "Error: " + (j.error || "failed"); return; }
     const items = j.items || [];
     $("learnedmsg").textContent = items.length + " saved answer(s).";
     $("learnedlist").innerHTML = items.map((it) => {
       const k = (it.key || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
       return "<div style='padding:3px 0;border-bottom:1px solid #f0f2f6'><b>" +
         (it.label || it.key || "").replace(/</g, "&lt;") + "</b>: " + String(it.value || "").replace(/</g, "&lt;") +
-        " <a href='#' data-jmdel='" + k + "' style='color:#c0392b'>✕</a></div>";
+        " <a href='#' data-jmdel='" + k + "' style='color:var(--bad)'>✕</a></div>";
     }).join("") || "<div style='color:#888'>No saved answers yet. Use “Save my answers from this page”.</div>";
-  } catch (e) { $("learnedmsg").style.color = "#c0392b"; $("learnedmsg").textContent = "Network error."; }
+  } catch (e) { $("learnedmsg").style.color = "var(--bad)"; $("learnedmsg").textContent = "Network error."; }
 };
 $("learnedlist").addEventListener("click", async (e) => {
   const a = e.target.closest("[data-jmdel]"); if (!a) return;
@@ -398,7 +398,7 @@ $("learnedlist").addEventListener("click", async (e) => {
 
 $("save").onclick = async () => {
   const tab = await activeTab();
-  $("msg").style.color = "#0b7a52"; $("msg").textContent = "Saving…";
+  $("msg").style.color = "var(--ok)"; $("msg").textContent = "Saving…";
   try {
     const r = await fetch(cfg.apibase + "/api/ext/save", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -408,9 +408,9 @@ $("save").onclick = async () => {
     });
     const j = await r.json();
     if (j.ok) { $("msg").textContent = j.dup ? "Already in your tracker ✓" : "Saved to JobMatch ✓"; }
-    else { $("msg").style.color = "#c0392b"; $("msg").textContent = "Error: " + (j.error || "failed"); }
+    else { $("msg").style.color = "var(--bad)"; $("msg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
-    $("msg").style.color = "#c0392b"; $("msg").textContent = "Network error. Check the App URL.";
+    $("msg").style.color = "var(--bad)"; $("msg").textContent = "Network error. Check the App URL.";
   }
 };
 
@@ -451,10 +451,10 @@ function applyAts(url) {
 $("tailorfill").onclick = async () => {
   const tab = await activeTab();
   const tm = $("tailormsg");
-  tm.style.color = "#0b7a52"; tm.textContent = "Filling the form…";
+  tm.style.color = "var(--ok)"; tm.textContent = "Filling the form…";
   try {
     const ctx = await (await fetch(cfg.apibase + "/api/ext/profile_fields?token=" + encodeURIComponent(cfg.token))).json();
-    if (!ctx || !ctx.fields) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't load your profile. Check the App URL and token."; return; }
+    if (!ctx || !ctx.fields) { tm.style.color = "var(--bad)"; tm.textContent = "Couldn't load your profile. Check the App URL and token."; return; }
     const payload = { fields: ctx.fields, defaults: ctx.defaults || {} };   // no file: you upload the résumé
     async function fill() {
       const out = await chrome.scripting.executeScript({
@@ -471,7 +471,7 @@ $("tailorfill").onclick = async () => {
         chooser = (cc || []).some((o) => o && o.result);
       } catch (e) {}
       if (chooser) {
-        tm.style.color = "#c0392b";
+        tm.style.color = "var(--bad)";
         tm.textContent = "Pick an option in the application dialog first (e.g. “Apply Manually” / sign in), then click Fill again.";
         return;
       }
@@ -491,7 +491,7 @@ $("tailorfill").onclick = async () => {
       res = await fill();
     }
     if (!res.found) {
-      tm.style.color = "#c0392b";
+      tm.style.color = "var(--bad)";
       tm.textContent = "No application form found. Click Apply or I'm interested on the page, then try again.";
       return;
     }
@@ -516,7 +516,7 @@ $("tailorfill").onclick = async () => {
     tm.textContent = "Filled " + res.filled + "/" + res.total + ". Upload your résumé and submit on the page" + left + ".";
     setTimeout(() => window.close(), 1100);          // let the user upload + submit on the page
   } catch (e) {
-    tm.style.color = "#c0392b"; tm.textContent = "Error: " + e.message;
+    tm.style.color = "var(--bad)"; tm.textContent = "Error: " + e.message;
   }
 };
 
@@ -525,22 +525,22 @@ $("tailorfill").onclick = async () => {
 $("learnpage").onclick = async () => {
   const tab = await activeTab();
   const tm = $("tailormsg");
-  tm.style.color = "#0b7a52"; tm.textContent = "Reading your answers on this page…";
+  tm.style.color = "var(--ok)"; tm.textContent = "Reading your answers on this page…";
   try {
     const out = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true }, world: "MAIN", func: jmCaptureFilled });
     let fields = [];
     (out || []).forEach((o) => { if (o && Array.isArray(o.result)) fields = fields.concat(o.result); });
-    if (!fields.length) { tm.style.color = "#c0392b"; tm.textContent = "No filled fields found here. Fill the form first, then save."; return; }
+    if (!fields.length) { tm.style.color = "var(--bad)"; tm.textContent = "No filled fields found here. Fill the form first, then save."; return; }
     const r = await fetch(cfg.apibase + "/api/ext/learn", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: cfg.token, company: $("company").value.trim(), fields })
     });
     const j = await r.json();
-    if (!j.ok) { tm.style.color = "#c0392b"; tm.textContent = "Couldn't save: " + (j.error || "failed"); return; }
-    tm.style.color = "#0b7a52";
+    if (!j.ok) { tm.style.color = "var(--bad)"; tm.textContent = "Couldn't save: " + (j.error || "failed"); return; }
+    tm.style.color = "var(--ok)";
     tm.textContent = "✅ Learned " + (j.saved || 0) + " answer(s). Future fills will use them.";
-  } catch (e) { tm.style.color = "#c0392b"; tm.textContent = "Error: " + e.message; }
+  } catch (e) { tm.style.color = "var(--bad)"; tm.textContent = "Error: " + e.message; }
 };
 
 function autoStatLine(last) {
@@ -574,7 +574,7 @@ let boardFound = null;
 let wishPending = null;
 $("boardcheck").onclick = async () => {
   const tab = await activeTab();
-  $("boardmsg").style.color = "#0b7a52";
+  $("boardmsg").style.color = "var(--ok)";
   if (wishPending) {                               // second click = file the wish
     $("boardmsg").textContent = "Saving to your wish list…";
     try {
@@ -590,17 +590,17 @@ $("boardcheck").onclick = async () => {
         $("boardcheck").style.display = "none";
         $("boardnamewrap").style.display = "none";
       } else {
-        $("boardmsg").style.color = "#c0392b";
+        $("boardmsg").style.color = "var(--bad)";
         $("boardmsg").textContent = j.error || "Couldn't save that to the wish list.";
       }
-    } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error."; }
+    } catch (e) { $("boardmsg").style.color = "var(--bad)"; $("boardmsg").textContent = "Network error."; }
     wishPending = null;
     return;
   }
   if (boardFound) {                                // second click = add it
     const typed = $("boardname").value.trim();
     if (boardFound.needName && !typed) {
-      $("boardmsg").style.color = "#c0392b";
+      $("boardmsg").style.color = "var(--bad)";
       $("boardmsg").textContent = "Type the company name first — this board doesn't publish one.";
       $("boardname").focus();
       return;
@@ -620,11 +620,11 @@ $("boardcheck").onclick = async () => {
         $("boardcheck").style.display = "none";
         $("boardnamewrap").style.display = "none";
       } else {
-        $("boardmsg").style.color = "#c0392b";
+        $("boardmsg").style.color = "var(--bad)";
         $("boardmsg").textContent = "Couldn't add: " + (j.error || "try the ➕ Add board page.");
         if (j.need_name) { boardFound.needName = true; $("boardnamewrap").style.display = ""; $("boardname").focus(); }
       }
-    } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error."; }
+    } catch (e) { $("boardmsg").style.color = "var(--bad)"; $("boardmsg").textContent = "Network error."; }
     return;
   }
   $("boardmsg").textContent = "Checking (page + embedded boards)…";
@@ -639,7 +639,7 @@ $("boardcheck").onclick = async () => {
       body: JSON.stringify({ token: cfg.token, url: tab.url, candidates: candidates }),
     });
     const j = await r.json();
-    if (!j.ok) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = j.error || "Check failed."; return; }
+    if (!j.ok) { $("boardmsg").style.color = "var(--bad)"; $("boardmsg").textContent = j.error || "Check failed."; return; }
     if (!j.found) {
       // WAS: "No scrapeable board behind this site. Use the import button above instead."
       // -- true, and a dead end. The user had just gone looking for an employer they wanted
@@ -679,27 +679,27 @@ $("boardcheck").onclick = async () => {
       $("boardmsg").textContent = "✓ Found: " + (j.name || "?") + ", " + j.ats + " board, ~" + j.count + " postings. Click again to add it to the daily scraper.";
       $("boardcheck").textContent = "➕ Add " + (j.name || "this board") + " to the daily scraper";
     }
-  } catch (e) { $("boardmsg").style.color = "#c0392b"; $("boardmsg").textContent = "Network error. Check the App URL."; }
+  } catch (e) { $("boardmsg").style.color = "var(--bad)"; $("boardmsg").textContent = "Network error. Check the App URL."; }
 };
 
 $("teslanow").onclick = () => {
-  $("teslamsg").style.color = "#0b7a52";
+  $("teslamsg").style.color = "var(--ok)";
   $("teslamsg").textContent = "Importing Tesla jobs… (~30s with descriptions)";
   chrome.runtime.sendMessage({ type: "run-tesla-now" }, (res) => {
     if (chrome.runtime.lastError || !res) {
-      $("teslamsg").style.color = "#c0392b";
+      $("teslamsg").style.color = "var(--bad)";
       $("teslamsg").textContent = "Background import didn't respond. Try again from a tesla.com/careers tab.";
       return;
     }
     if (res.ok) { $("teslamsg").textContent = "Done. " + (res.note || ("+" + (res.added || 0) + " new, " + (res.jds || 0) + " descriptions.")); }
-    else { $("teslamsg").style.color = "#c0392b"; $("teslamsg").textContent = res.note || "Import failed."; }
+    else { $("teslamsg").style.color = "var(--bad)"; $("teslamsg").textContent = res.note || "Import failed."; }
     refreshAutoStat();
   });
 };
 
 $("bulk").onclick = async () => {
   const tab = await activeTab();
-  $("bulkmsg").style.color = "#0b7a52"; $("bulkmsg").textContent = "Reading jobs on the page…";
+  $("bulkmsg").style.color = "var(--ok)"; $("bulkmsg").textContent = "Reading jobs on the page…";
   let res;
   try {
     // allFrames: pick up boards rendered inside iframes too (classic iCIMS, embeds);
@@ -719,13 +719,13 @@ $("bulk").onclick = async () => {
     }
     res = merged.length ? { jobs: merged, how: how, sample: sample } : { error: err || "No jobs found on this page." };
   } catch (e) {
-    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Couldn't read the page: " + e.message; return;
+    $("bulkmsg").style.color = "var(--bad)"; $("bulkmsg").textContent = "Couldn't read the page: " + e.message; return;
   }
   if (!res || res.error) {
-    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = (res && res.error) || "No jobs found on this page."; return;
+    $("bulkmsg").style.color = "var(--bad)"; $("bulkmsg").textContent = (res && res.error) || "No jobs found on this page."; return;
   }
   const jobs = res.jobs || [];
-  if (!jobs.length) { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "No jobs found on this page."; return; }
+  if (!jobs.length) { $("bulkmsg").style.color = "var(--bad)"; $("bulkmsg").textContent = "No jobs found on this page."; return; }
   const co = $("company").value.trim();             // generic DOM links carry no company —
   jobs.forEach((j) => { if (!j.company && co) j.company = co; });   // use the detected one
   $("bulkmsg").textContent = "Found " + jobs.length + (res.how ? " via " + res.how : "") + ", importing…";
@@ -771,9 +771,9 @@ $("bulk").onclick = async () => {
         $("bulkmsg").textContent = m;
       }
     }
-    else { $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Error: " + (j.error || "failed"); }
+    else { $("bulkmsg").style.color = "var(--bad)"; $("bulkmsg").textContent = "Error: " + (j.error || "failed"); }
   } catch (e) {
-    $("bulkmsg").style.color = "#c0392b"; $("bulkmsg").textContent = "Network error. Check the App URL.";
+    $("bulkmsg").style.color = "var(--bad)"; $("bulkmsg").textContent = "Network error. Check the App URL.";
   }
 };
 
@@ -797,7 +797,7 @@ function renderQueueList(jobs) {
   const el = $("qlist");
   if (!jobs.length) { el.innerHTML = ""; return; }
   el.innerHTML = jobs.map((j) => {
-    const pct = j.score ? "<b style='color:#0e8a5f'>" + j.score + "%</b> " : "";
+    const pct = j.score ? "<b style='color:var(--brand)'>" + j.score + "%</b> " : "";
     const badges = (j.visa || []).map((t) => VISA_LABEL[t] || t)
       .concat(j.track === "dev" ? ["Dev"] : (j.track === "mgmt" ? ["Mgmt"] : []))
       .concat(j.remote ? ["Remote"] : []).concat(j.agency ? ["Agency"] : [])
@@ -812,22 +812,22 @@ function renderQueueList(jobs) {
 }
 
 async function fetchQueue() {
-  $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Finding your best matched jobs…";
+  $("qmsg").style.color = "var(--ok)"; $("qmsg").textContent = "Finding your best matched jobs…";
   const wide = $("qwide").checked ? "&all=1" : "";
   try {
     const j = await (await fetch(cfg.apibase + "/api/ext/apply_queue?token=" +
       encodeURIComponent(cfg.token) + wide)).json();
-    if (!j.ok) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Error: " + (j.error || "failed"); return; }
+    if (!j.ok) { $("qmsg").style.color = "var(--bad)"; $("qmsg").textContent = "Error: " + (j.error || "failed"); return; }
     const jobs = j.jobs || [];
     qJobs = {};
     jobs.forEach((job) => { qJobs[job.url] = { title: job.title, company: job.company }; });
     $("qurls").value = jobs.map((job) => job.url).join("\n");
     renderQueueList(jobs);
-    if (!jobs.length) $("qmsg").style.color = "#c0392b";
+    if (!jobs.length) $("qmsg").style.color = "var(--bad)";
     $("qmsg").textContent = jobs.length
       ? "Loaded " + jobs.length + " job(s) matching your saved search. Press Start."
       : "Nothing matched your saved search. Widen the filters on JobMatch, or tick the box above.";
-  } catch (e) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Network error."; }
+  } catch (e) { $("qmsg").style.color = "var(--bad)"; $("qmsg").textContent = "Network error."; }
 }
 $("qfetch").onclick = fetchQueue;
 $("qwide").onchange = fetchQueue;
@@ -839,23 +839,23 @@ function parseQueueItems() {
 
 $("qstart").onclick = async () => {
   const items = parseQueueItems();
-  if (!items.length) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
+  if (!items.length) { $("qmsg").style.color = "var(--bad)"; $("qmsg").textContent = "Add a job URL (or click Fetch)."; return; }
   const delayMs = Math.max(3, Math.min(20, parseInt($("qdelay").value, 10) || 6)) * 1000;
   // Grant broad site access so pages on any company careers domain can be filled (idempotent once granted).
   // Per-origin breaks when an apply page redirects to another host, so we ask for https://*/*.
   const granted = await new Promise((res) =>
     chrome.permissions.request({ origins: ["https://*/*"] }, (r) => { void chrome.runtime.lastError; res(r); }));
-  if (!granted) { $("qmsg").style.color = "#c0392b"; $("qmsg").textContent = "Site access denied. It is needed to fill the pages."; return; }
+  if (!granted) { $("qmsg").style.color = "var(--bad)"; $("qmsg").textContent = "Site access denied. It is needed to fill the pages."; return; }
   // callback form (+ read lastError) so a closed popup doesn't surface an "uncaught (in promise)"
   chrome.runtime.sendMessage({ type: "jm_queue_start", items, apibase: cfg.apibase, token: cfg.token, delayMs }, function () { void chrome.runtime.lastError; });
-  $("qmsg").style.color = "#0b7a52";
+  $("qmsg").style.color = "var(--ok)";
   $("qmsg").textContent = "Filling " + items.length + " job(s). Each opens in a tab for you to upload your résumé and submit.";
   pollQueue();
 };
 
 $("qstop").onclick = () => {
   chrome.runtime.sendMessage({ type: "jm_queue_stop" }, function () { void chrome.runtime.lastError; });
-  $("qmsg").style.color = "#c0392b";
+  $("qmsg").style.color = "var(--bad)";
   $("qmsg").textContent = "⏹ Stopped. Halting the current job now.";
 };
 
@@ -871,7 +871,7 @@ function pollQueue() {
       const url = a.getAttribute("data-jmretry"); if (!url) return;
       const it = { url, title: (qJobs[url] || {}).title || "", company: (qJobs[url] || {}).company || "" };
       chrome.runtime.sendMessage({ type: "jm_queue_start", items: [it], apibase: cfg.apibase, token: cfg.token, delayMs: 4000 }, function () { void chrome.runtime.lastError; });
-      $("qmsg").style.color = "#0b7a52"; $("qmsg").textContent = "Retrying 1 job…"; pollQueue();
+      $("qmsg").style.color = "var(--ok)"; $("qmsg").textContent = "Retrying 1 job…"; pollQueue();
     });
   }
   const tick = () => chrome.storage.local.get(["jm_queue"], (st) => {
@@ -880,7 +880,7 @@ function pollQueue() {
     const c = {};
     (q.items || []).forEach((it) => { c[it.status] = (c[it.status] || 0) + 1; });
     const done = (q.items || []).filter((it) => it.status !== "queued" && it.status !== "running").length;
-    $("qmsg").style.color = "#0b7a52";
+    $("qmsg").style.color = "var(--ok)";
     $("qmsg").textContent = (q.running ? "Filling " : "Done ") + done + "/" + q.total +
       " · 🟢" + (c.ready || 0) + " ⏸️" + (c.needs_you || 0) + " ⏭️" + (c.skipped || 0) + " ⚠️" + (c.error || 0);
     $("qresults").innerHTML = (q.items || []).map((it) => {
