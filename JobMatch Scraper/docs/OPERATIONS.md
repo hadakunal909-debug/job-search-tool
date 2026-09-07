@@ -168,8 +168,8 @@ Take that backup first, every time. Then make the edit with a Python script uplo
 if the input was empty, if the scrape entry is missing from the result, or if the line count
 changed. No shell quoting, and three guards.
 
-> **PENDING — the hourly analyse slot is documented but NOT yet installed.** The row in the table
-> above is the intended schedule; the live crontab does not contain it yet. Add by hand:
+> **INSTALLED 2026-09-07.** It ran unadded for three days after being documented, which is why
+> the analyse pass kept reporting PARTIAL. The line is:
 >
 > ```
 > 30 * * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh --analyze-only
