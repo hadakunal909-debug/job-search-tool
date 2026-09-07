@@ -179,6 +179,20 @@ if [ "$ANALYZE_ONLY" = 1 ]; then
     # every later message spells the mode out, so a bare rc does not have to carry it.
     rc=0
 else
+    # RECYCLE THE WEB WORKERS FIRST, and this is what stops the rc=137. The kill was never
+    # the sweep leaking -- measured 2026-09-07, the account is already carrying 921 MB before
+    # the scraper starts: 595 MB of warm lswsgi workers holding the corpus, IDF and row cache,
+    # plus 326 MB of a sibling app that is not ours to touch. A complete sweep peaks at 617 MB.
+    # 921 + 617 = 1,538 against a ~1.2 GB CloudLinux LVE cap, so it dies. A restarted worker is
+    # under 20 MB, which turns the sum into 963 and fits.
+    #
+    # Nothing is lost by doing this: the warm step at the END of this script rebuilds exactly
+    # what the restart dropped, and a restart costs the next visitor ~600 ms of worker boot.
+    # ANALYZE_ONLY deliberately does NOT do this -- it runs hourly, and restarting hourly would
+    # keep the site permanently cold for a pass that needs 4 minutes and little memory.
+    echo "$(date -u +%FT%TZ) recycling web workers to free memory for the sweep" >> "$LOG"
+    touch "$APP/tmp/restart.txt"
+    sleep 5
     echo "===== $(date -u +%FT%TZ) scrape start =====" >> "$LOG"
     "$PY" -u -m scraper >> "$LOG" 2>&1
     rc=$?
