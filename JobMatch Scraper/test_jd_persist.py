@@ -1085,15 +1085,30 @@ def test_the_real_upsert_sends_the_column_group_it_was_handed():
             {"url": "https://ex.com/u2", "exp_max_years": None, "sponsor_jd": "",
              "sponsor_reason": "", "jd_terms": '{"w":{"budget":1.1},"n":0}'}]
 
-    inferred = _upsert_posts(rows)[0]
-    named = _upsert_posts(rows, keys=sj.JD_DERIVED_COLS)[0]
+    # SINCE THE CONTRACT STEP THIS IS A QUESTION ABOUT job_facts, not about `jobs`. Every
+    # column here moved, so db._upsert strips them from the `jobs` write and sends nothing --
+    # which is the correct new answer and is asserted below rather than assumed.
+    by_table = _upsert_posts_by_table(rows)
+    named_by_table = _upsert_posts_by_table(rows, keys=sj.JD_DERIVED_COLS)
+    assert not by_table.get(real_db.TABLE), \
+        "a moved column reached `jobs`: %r" % (by_table.get(real_db.TABLE),)
 
-    assert "exp_max_years" not in inferred[0], \
-        "the inferred union already carried exp_max_years, so this test proves nothing"
-    assert sorted(named[0]) == sorted(sj.JD_DERIVED_COLS), \
-        "a named group sent %r" % (sorted(named[0]),)
-    assert all(r["exp_max_years"] is None for r in named), \
+    inferred = by_table[real_db.JOB_FACTS_TABLE][0]
+    named = named_by_table[real_db.JOB_FACTS_TABLE][0]
+
+    # The hazard this test was written for is GONE at the new address, and that is worth
+    # pinning rather than deleting. On `jobs` the union was inferred AFTER _upsert dropped
+    # every None while merging duplicates, so a column that was None on every row of a batch
+    # was never sent and a stale floor survived. mirror_job_facts infers from key PRESENCE,
+    # before any of that -- so the null now goes out either way.
+    assert "exp_max_years" in inferred[0], \
+        "the inferred group dropped a column that was None on every row: %r" % (inferred[0],)
+    assert all(r["exp_max_years"] is None for r in inferred), \
         "the column went out without the null that clears a stale floor"
+    assert all(r["exp_max_years"] is None for r in named), \
+        "a named group lost the null"
+    assert "jd_terms" not in inferred[0], \
+        "jd_terms belongs to job_terms, not job_facts: %r" % (inferred[0],)
 
 
 def test_the_derived_mirror_rides_with_the_write():

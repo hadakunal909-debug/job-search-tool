@@ -56,59 +56,37 @@ def _reset():
 
 # ---- the readiness gate ---------------------------------------------------------------------
 
-def test_readiness_is_a_stamp_not_the_table_existing():
-    seen = []
+def test_the_gates_are_constants_since_the_contract():
+    """All three readiness gates must answer True NO MATTER WHAT data_versions says.
 
-    def fetch(table, params):
-        seen.append(table)
-        if table == real_db.VERSIONS_TABLE:
-            return []                                   # table exists, nothing stamped
-        return []
+    This replaces three tests that pinned the opposite, and the reversal is the whole contract
+    step. While `jobs` still carried its own copy, "unstamped or unreadable -> NOT ready" was
+    the safe answer: falling back read an older source that was still correct.
+    MIGRATION_contract.sql drops those columns, so the same fallback would now select a column
+    that does not exist and PostgREST would 400 the read -- for the FEED, on a transient
+    failure to read one small table.
 
-    real_fetch, real_remote = real_db._fetch_all, real_db.has_remote_db
-    real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
-    _reset()
-    try:
-        ready = real_db.jd_table_ready()
-    finally:
-        real_db._fetch_all, real_db.has_remote_db = real_fetch, real_remote
-    # An EMPTY data_versions means the backfill has not declared completion. The table may well
-    # exist and be half full; that is precisely the state that must not be read from.
-    _check("an unstamped table is NOT ready", ready is False)
-
-
-def test_a_stamp_makes_it_ready():
-    def fetch(table, params):
-        if table == real_db.VERSIONS_TABLE:
-            return [{"name": "job_descriptions", "version": "backfilled-20260906"}]
-        return []
-
-    real_fetch, real_remote = real_db._fetch_all, real_db.has_remote_db
-    real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
-    _reset()
-    try:
-        _check("a stamped table is ready", real_db.jd_table_ready() is True)
-    finally:
-        real_db._fetch_all, real_db.has_remote_db = real_fetch, real_remote
-
-
-def test_an_unreadable_stamp_counts_as_not_ready():
-    def fetch(table, params):
+    The unreadable case is the one that matters, so it is tested explicitly: a gate that
+    consulted the network could take the site down every time that read blipped, and this
+    project has already measured the proxy answering 200 with HTML.
+    """
+    def blow_up(table, params=None):
         raise RuntimeError("connection reset by peer")
 
-    real_fetch, real_remote = real_db._fetch_all, real_db.has_remote_db
-    real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
-    _reset()
-    try:
-        ready = real_db.jd_table_ready()
-    finally:
-        real_db._fetch_all, real_db.has_remote_db = real_fetch, real_remote
-    # DELIBERATELY THE OPPOSITE OF _derived_signature, which RAISES when it cannot read a
-    # version. There, guessing means two workers agree on a cache key while disagreeing about
-    # the data. Here, guessing wrong in this direction just means reading jobs.jd -- which is
-    # still the source of truth until the contract step drops the column. Falling back is free;
-    # falling forward is not.
-    _check("an unreadable stamp falls back rather than guessing", ready is False)
+    def empty(table, params=None):
+        return []                                    # table exists, nothing stamped
+
+    for label, fetch in (("unreadable", blow_up), ("unstamped", empty)):
+        saved = (real_db._fetch_all, real_db.has_remote_db)
+        real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
+        _reset()
+        try:
+            got = (real_db.jd_table_ready(), real_db.job_facts_ready(),
+                   real_db.job_terms_ready())
+        finally:
+            real_db._fetch_all, real_db.has_remote_db = saved
+        _check("%s stamps still read READY (no dropped column is ever selected)" % label,
+               got == (True, True, True), repr(got))
 
 
 def test_one_version_read_serves_every_consumer():
@@ -155,16 +133,132 @@ def _capture_reads(ready):
     return [t for t in seen if t != real_db.VERSIONS_TABLE]
 
 
-def test_get_job_jd_follows_the_gate():
-    _check("unstamped -> reads jobs", _capture_reads(False) == [real_db.TABLE],
-           repr(_capture_reads(False)))
-    _check("stamped -> reads job_descriptions", _capture_reads(True) == [real_db.JD_TABLE],
-           repr(_capture_reads(True)))
+def test_every_read_goes_to_the_table_that_owns_the_column():
+    _check("the description is read from job_descriptions, always",
+           _capture_reads(True) == [real_db.JD_TABLE], repr(_capture_reads(True)))
+    _check("...including when nothing is stamped (this used to read `jobs`)",
+           _capture_reads(False) == [real_db.JD_TABLE], repr(_capture_reads(False)))
 
 
-# ---- the mirror ------------------------------------------------------------------------------
+def test_jobs_no_longer_owns_the_moved_columns():
+    """The constants that name columns, and the one that hands out DDL.
 
-def test_the_mirror_cannot_take_the_real_write_down_with_it():
+    FIELDS is not merely a write list -- scraper/dedupe_urls.py SELECTS it verbatim on a URL
+    move -- so a name left here after the drop is a 400 on a read, not a skipped column.
+    JOBS_DERIVED_SQL is worse: it is rendered on the admin page and printed by score_jobs as a
+    paste-this block, so leaving the ALTERs in would hand an operator a script that silently
+    re-creates the very duplicate columns the contract step exists to remove.
+    """
+    moved = real_db.MOVED_OFF_JOBS
+    _check("11 columns moved off jobs", len(moved) == 11, repr(sorted(moved)))
+    _check("facts_fp did NOT move (the staleness query needs it beside jd_fp in one table)",
+           "facts_fp" not in moved)
+    for name in ("FIELDS", "_FEED_COLS", "_FEED_COLS_OPT"):
+        v = getattr(real_db, name)
+        cols = v if isinstance(v, (list, tuple)) else str(v).split(",")
+        bad = sorted({c.strip() for c in cols} & moved)
+        _check("%s names no moved column" % name, not bad, repr(bad))
+    readd = [c for c in moved
+             if ("not exists " + c + " ") in real_db.JOBS_DERIVED_SQL]
+    _check("JOBS_DERIVED_SQL does not re-create them", not readd, repr(readd))
+
+
+def test_a_write_to_jobs_cannot_carry_a_moved_column():
+    """The choke point, tested at _upsert rather than at each of the four writers.
+
+    A moved column reaching `jobs` is not a dropped value, it is PostgREST 400ing the whole
+    batch -- the scrape's description write, or the score pass's derived write, failing
+    entirely. And it must NOT strip when the target is a side table, or the mirrors would
+    write nothing at all.
+    """
+    sent = {}
+
+    def post(url, headers=None, params=None, data=None, timeout=None):
+        sent.setdefault(url, []).append(json.loads(data))
+
+        class R(object):
+            status_code = 200
+            text = ""
+        return R()
+
+    row = {"url": "u/1", "title": "T", "exp_max_years": 5, "jd_terms": "x", "jd": "text",
+           "loc_state": "MA", "facts_fp": "fp"}
+    saved = (real_db._http, real_db.has_remote_db)
+    real_db._http = type("H", (object,), {"post": staticmethod(post)})()
+    real_db.has_remote_db = lambda: True
+    try:
+        real_db._upsert([dict(row)])
+        real_db._upsert([dict(row)], table=real_db.JOB_FACTS_TABLE, pk="url")
+    finally:
+        real_db._http, real_db.has_remote_db = saved
+
+    jobs_body = [b for u, bs in sent.items() if u.endswith(real_db.TABLE) for b in bs]
+    side_body = [b for u, bs in sent.items()
+                 if u.endswith(real_db.JOB_FACTS_TABLE) for b in bs]
+    got = sorted(jobs_body[0][0]) if jobs_body else []
+    _check("the jobs write carries no moved column",
+           bool(got) and not (set(got) & real_db.MOVED_OFF_JOBS), repr(got))
+    _check("...but still carries facts_fp and the real jobs columns",
+           "facts_fp" in got and "title" in got, repr(got))
+    side = sorted(side_body[0][0]) if side_body else []
+    _check("a side-table write is NOT stripped",
+           "exp_max_years" in side and "loc_state" in side, repr(side))
+
+
+def test_a_narrow_read_still_returns_columns_that_moved():
+    """load_jobs(cols=COLS_SCORE) must keep working, and this is the sharpest case.
+
+    COLS_SCORE names nine columns that all moved to job_facts, and score_jobs diffs
+    stored-vs-computed on them to decide whether to write. Let one come back missing and
+    _persist_derived marks EVERY row changed on EVERY run and re-upserts the whole corpus for
+    ever -- a failure that reads as "the scrape got slower", not as a bug.
+    """
+    asked = []
+
+    def fetch(table, params=None, page=None):
+        asked.append(table)
+        if table == real_db.JOB_FACTS_TABLE:
+            return [{"url": "u/1", "exp_max_years": 5, "loc_state": "MA", "remote": False,
+                     "loc_metro": "Boston", "salary_min": 1, "salary_max": 2,
+                     "salary_period": "year", "sponsor_jd": "", "sponsor_reason": ""}]
+        # Honour the select, so a column the router forgot to ask `jobs` for is genuinely
+        # absent from the result rather than supplied by a generous stub.
+        sel = [c.strip() for c in (params or {}).get("select", "").split(",") if c.strip()]
+        row = {"url": "u/1", "match_score": 7}
+        return [{c: row.get(c, "v") for c in sel}]
+
+    saved = (real_db._fetch_all, real_db.has_remote_db)
+    real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
+    _reset()
+    try:
+        rows = real_db.load_jobs(cols=real_db.COLS_SCORE)
+    finally:
+        real_db._fetch_all, real_db.has_remote_db = saved
+    got = rows[0] if rows else {}
+    missing = [c.strip() for c in real_db.COLS_SCORE.split(",")
+               if c.strip() and c.strip() not in got]
+    _check("every column COLS_SCORE asks for comes back", not missing, repr(missing))
+    _check("...and exp_max_years came from job_facts, with its value",
+           got.get("exp_max_years") == 5, repr(got))
+    _check("job_facts was actually consulted", real_db.JOB_FACTS_TABLE in asked, repr(asked))
+
+
+def test_a_failed_description_write_is_now_fatal():
+    """The inversion the contract step forces, and it is the sharpest consequence of Phase 5.
+
+    This test used to assert the opposite -- that a missing job_descriptions could not fail
+    the write -- and the reasoning was sound at the time: jobs.jd was written first and was
+    authoritative, so losing the mirror cost a copy and never the text.
+
+    MIGRATION_contract.sql drops jobs.jd. There is now exactly ONE place a description is
+    stored, so a swallowed failure is a description lost, on the scrape's critical path,
+    while jobs.jd_fp has already been stamped to say we hold it. A scrape that stores no
+    descriptions and reports success is precisely the shape of failure this project has
+    already been bitten by.
+
+    Raising leaves those urls in urls_missing_jd, which is what makes the next run re-fetch
+    them. update_jds is chunked, so the blast radius is a chunk.
+    """
     posted = []
 
     def post(url, headers=None, params=None, data=None, timeout=None):
@@ -188,42 +282,15 @@ def test_the_mirror_cannot_take_the_real_write_down_with_it():
         real_db._http, real_db.has_remote_db = real_http, real_remote
         _reset()
 
-    _check("a missing mirror table does not fail the write", ok)
-    # THE ORDER IS THE SAFETY PROPERTY. jobs.jd is written first and is authoritative, so a
-    # mirror that fails costs the copy and never the text.
-    _check("...and the authoritative row still landed",
-           any(r.get("url") == "u/1" and r.get("jd") == "a description" for r in posted),
-           repr(posted))
+    _check("a failed job_descriptions write RAISES rather than reporting success", not ok)
+    # AND THE ORDER IS STILL A SAFETY PROPERTY, only reversed: the text is stored first, so a
+    # failure costs both the text and its fingerprint rather than leaving jobs.jd_fp claiming
+    # provenance for a description nobody can read.
+    _check("...and no jd_fp was stamped for text that was never stored",
+           not any(r.get("jd_fp") for r in posted), repr(posted))
 
 
 # ---- the same gate, for the derived columns ---------------------------------------------
-
-def test_job_facts_gate_matches_the_description_gate():
-    """job_facts uses the identical stamp mechanism, and for a sharper reason.
-
-    A missing row in job_descriptions reads as 'no description' -- wasteful and visible. A
-    missing row in job_facts reads as 'no experience floor, no pay, no sponsorship verdict',
-    and web._filter_rows KEEPS a row it has no number for, deliberately. So a half-copied
-    facts table does not empty the feed, it silently WIDENS every filter -- which is exactly
-    the defect this revamp started from.
-    """
-    def fetch(table, params, stamped):
-        if table == real_db.VERSIONS_TABLE:
-            return [{"name": "job_facts", "version": "v1"}] if stamped else []
-        return []
-
-    for stamped, expect in ((False, False), (True, True)):
-        real_fetch, real_remote = real_db._fetch_all, real_db.has_remote_db
-        real_db._fetch_all = lambda t, p, s=stamped: fetch(t, p, s)
-        real_db.has_remote_db = lambda: True
-        _reset()
-        real_db._facts_src.update(ready=None, at=0.0)
-        try:
-            got = real_db.job_facts_ready()
-        finally:
-            real_db._fetch_all, real_db.has_remote_db = real_fetch, real_remote
-        _check("job_facts ready=%s when stamped=%s" % (expect, stamped), got is expect)
-
 
 def test_the_mirror_carries_only_the_columns_that_moved():
     """mirror_job_facts filters to JOB_FACTS_COLS, and that is what makes the hook safe.
@@ -265,14 +332,12 @@ def test_the_mirror_carries_only_the_columns_that_moved():
 
 # ---- the packed analysis --------------------------------------------------------------
 
-def test_the_fingerprint_keeps_counting_the_same_thing():
-    """jobs_fingerprint's third component must survive the analysis changing tables.
-
-    It counts rows carrying an analysis, and web keys its row cache on the result. If the
-    count froze -- because it went on asking `jobs` after the writer moved to job_terms --
-    the fingerprint would stop moving when a scoring run writes, and every worker would go
-    on serving cards whose score_pending flag is a scrape old. That is the exact failure the
-    component was ADDED for, in the other direction.
+def test_the_fingerprint_counts_the_table_that_holds_the_analysis():
+    """Its third component counts rows carrying an analysis, and web keys its row cache on the
+    result. Since the contract step `jobs` has no jd_terms to count, so this must read
+    job_terms unconditionally -- asking `jobs` would now be a 400, and before the drop it
+    would simply have frozen, leaving every worker serving cards whose score_pending flag is
+    a scrape old.
     """
     asked = []
 
@@ -280,26 +345,19 @@ def test_the_fingerprint_keeps_counting_the_same_thing():
         asked.append((table, tuple(sorted((params or {}).items()))))
         return 1
 
-    def fetch(table, params, stamped):
-        if table == real_db.VERSIONS_TABLE:
-            return [{"name": "job_terms", "version": "v1"}] if stamped else []
-        return [{"first_seen": "2026-09-06"}]
-
-    for stamped, want_table in ((False, real_db.TABLE), (True, real_db.JOB_TERMS_TABLE)):
-        saved = (real_db.table_count, real_db._fetch_all, real_db.has_remote_db)
-        real_db.table_count = counter
-        real_db._fetch_all = lambda t, p, s=stamped: fetch(t, p, s)
-        real_db.has_remote_db = lambda: True
-        _reset()
-        real_db._terms_src.update(ready=None, at=0.0)
-        asked[:] = []
-        try:
-            real_db.jobs_fingerprint()
-        finally:
-            real_db.table_count, real_db._fetch_all, real_db.has_remote_db = saved
-        counted = [t for t, p in asked if p]      # the filtered count, not the bare one
-        _check("stamped=%s -> the analysis count reads %s" % (stamped, want_table),
-               counted and counted[0] == want_table, repr(asked))
+    saved = (real_db.table_count, real_db._fetch_all, real_db.has_remote_db)
+    real_db.table_count = counter
+    real_db._fetch_all = lambda t, p=None, page=None: []      # nothing stamped anywhere
+    real_db.has_remote_db = lambda: True
+    _reset()
+    real_db._terms_src.update(ready=None, at=0.0)
+    try:
+        real_db.jobs_fingerprint()
+    finally:
+        real_db.table_count, real_db._fetch_all, real_db.has_remote_db = saved
+    counted = [t for t, p in asked if p]
+    _check("the analysis count reads job_terms even with nothing stamped",
+           bool(counted) and counted[0] == real_db.JOB_TERMS_TABLE, repr(asked))
 
 
 def test_the_terms_mirror_writes_a_length_and_a_null_not_an_empty_string():
@@ -417,15 +475,15 @@ def test_the_migration_and_the_allowlist_agree():
 
 def main():
     print("jd table split")
-    for fn in (test_readiness_is_a_stamp_not_the_table_existing,
-               test_a_stamp_makes_it_ready,
-               test_an_unreadable_stamp_counts_as_not_ready,
+    for fn in (test_the_gates_are_constants_since_the_contract,
+               test_jobs_no_longer_owns_the_moved_columns,
+               test_a_write_to_jobs_cannot_carry_a_moved_column,
                test_one_version_read_serves_every_consumer,
-               test_get_job_jd_follows_the_gate,
-               test_the_mirror_cannot_take_the_real_write_down_with_it,
-               test_job_facts_gate_matches_the_description_gate,
+               test_every_read_goes_to_the_table_that_owns_the_column,
+               test_a_failed_description_write_is_now_fatal,
+               test_a_narrow_read_still_returns_columns_that_moved,
                test_the_mirror_carries_only_the_columns_that_moved,
-               test_the_fingerprint_keeps_counting_the_same_thing,
+               test_the_fingerprint_counts_the_table_that_holds_the_analysis,
                test_the_terms_mirror_writes_a_length_and_a_null_not_an_empty_string,
                test_a_partial_derived_write_does_not_erase_the_other_half,
                test_the_migration_and_the_allowlist_agree):
