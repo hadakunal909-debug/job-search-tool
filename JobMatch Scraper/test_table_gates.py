@@ -195,12 +195,57 @@ def test_tables_not_keyed_on_url_are_ordered_on_their_own_key():
            repr(asked))
 
 
+def test_has_a_description_and_missing_one_are_complements():
+    """urls_with_jd and urls_missing_jd must partition the corpus. They did not.
+
+    urls_missing_jd matches NULL *or* empty string, and its docstring explains why: a row can
+    hold '' rather than NULL, and filtering on NULL alone would drop those from the fetch
+    queue for ever. urls_with_jd matched `jd is not null` -- which counts an empty string as
+    HAVING a description. So the same rows sat in both sets.
+
+    Measured on the live corpus: 54 such rows. close_dead_jds writes '' to clear a junk
+    description, which is how they get there. It surfaced because the backfill could not
+    finish -- those 54 were permanently in its todo list and permanently unfetchable, so a
+    pass copied nothing and the script stopped, correctly, rather than looping.
+
+    `jd=neq.` is the one filter that means what the caller asks: in SQL a NULL fails <> too,
+    so it excludes both, and it matches what the job_descriptions branch answers with
+    jd_chars > 0.
+    """
+    seen = {}
+
+    def fetch(table, params=None):
+        p = params or {}
+        seen[p.get("or") or p.get("jd") or "?"] = table
+        return []
+
+    saved = (real_db._fetch_all, real_db.has_remote_db)
+    real_db._fetch_all, real_db.has_remote_db = fetch, lambda: True
+    for m in (real_db._jd_src, real_db._facts_src, real_db._terms_src):
+        m.update(ready=False, at=9e18)          # unstamped: the `jobs` branch
+    try:
+        real_db.urls_with_jd()
+        real_db.urls_missing_jd()
+    finally:
+        real_db._fetch_all, real_db.has_remote_db = saved
+        for m in (real_db._jd_src, real_db._facts_src, real_db._terms_src):
+            m.update(ready=None, at=0.0)
+
+    _check("urls_with_jd asks for jd <> '', not merely not-null",
+           "neq." in seen, repr(sorted(seen)))
+    _check("...and NOT the not.is.null form that counts an empty string as text",
+           "not.is.null" not in seen, repr(sorted(seen)))
+    _check("urls_missing_jd still matches NULL or empty",
+           any(k.startswith("(jd.is.null") for k in seen), repr(sorted(seen)))
+
+
 def main():
     print("table gates")
     for fn in (test_load_jobs_gate_matrix,
                test_load_jobs_by_urls_gate_matrix,
                test_the_two_loaders_agree,
-               test_tables_not_keyed_on_url_are_ordered_on_their_own_key):
+               test_tables_not_keyed_on_url_are_ordered_on_their_own_key,
+               test_has_a_description_and_missing_one_are_complements):
         fn()
     print("\n%s" % ("FAILED: " + ", ".join(FAILED) if FAILED else "all checks passed"))
     return 1 if FAILED else 0
