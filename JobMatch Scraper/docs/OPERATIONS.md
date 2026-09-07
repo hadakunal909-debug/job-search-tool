@@ -134,12 +134,39 @@ is why they are also recorded in the header of `bin/cron_scrape.sh`. Read the re
 ssh -i ~/.ssh/id_ed25519_cpanel astrocha@stemjobs1.astrochakra.co "crontab -l"
 ```
 
-As of **2026-09-05** that returns:
+As of **2026-09-07** that returns:
 
 ```
 0 17,20 * * 1-5   /home/astrocha/stemjobs/bin/cron_scrape.sh
-*/5 * * * *       curl -fsS -m 240 -o /dev/null "https://stemjobs1.astrochakra.co/warm?t=..."
+*/5 * * * *       for i in 1 2 3 4; do curl -fsS -m 240 -o /dev/null \
+                    "https://stemjobs1.astrochakra.co/warm?t=..."; done
 ```
+
+**THE LOOP IS NOT REDUNDANCY -- one call warms one WORKER.** The app runs two `lswsgi` workers
+and LiteSpeed recycles them freely, so a single ping left a standing chance that a visitor
+landed on a cold one -- and a cold worker rebuilds the corpus, the IDF and the live analysis
+before it can render, which is ~4 s. Measured 2026-09-07: 1 of 8 consecutive `/warm` calls took
+4,111 ms while the other 7 took ~375 ms. After looping it four times, 10 consecutive checks all
+returned 361-504 ms with `jobs.ms = 0`.
+
+Which is also how to READ a `/warm` response: a low `total_ms` only proves the worker that
+answered is warm. `jobs.ms = 0` means that worker holds the corpus; a few hundred ms means it
+just fetched it.
+
+**BACK THE CRONTAB UP BEFORE EDITING IT, AND DO NOT EDIT IT WITH `sed` OVER SSH.** On
+2026-09-07 `crontab -l | sed "s|...\\(curl .*\\)$|...\\1...|" | crontab -` wrote an **empty
+crontab**: the backslash backreferences did not survive the SSH transit, and both the scrape job
+and the warm ping vanished silently -- `crontab -l` simply returned nothing. Recovered only
+because the step before it was:
+
+```bash
+crontab -l > ~/crontab.backup.$(date +%Y%m%d_%H%M)
+```
+
+Take that backup first, every time. Then make the edit with a Python script uploaded to the box
+(read via `crontab -l`, transform in Python, write via `crontab -`) and have it refuse to write
+if the input was empty, if the scrape entry is missing from the result, or if the line count
+changed. No shell quoting, and three guards.
 
 > **PENDING — the hourly analyse slot is documented but NOT yet installed.** The row in the table
 > above is the intended schedule; the live crontab does not contain it yet. Add by hand:
@@ -269,8 +296,12 @@ string and put the same value in the cron. Point the cron at `/warm`, not `/heal
 the process alive *and* fills the caches, so `/healthz` becomes redundant for this purpose.
 
 ```bash
-*/5 * * * * curl -fsS -m 60 -o /dev/null "https://stemjobs1.astrochakra.co/warm?t=YOUR_WARM_TOKEN"
+*/5 * * * * for i in 1 2 3 4; do curl -fsS -m 60 -o /dev/null \
+              "https://stemjobs1.astrochakra.co/warm?t=YOUR_WARM_TOKEN"; done
 ```
+
+Four calls, not one, because one call warms one worker -- see the crontab section above for the
+measurement. Once they are warm the extra calls cost ~375 ms each.
 
 Note `-m 60`, not `-m 20`: the very first call after a restart does the whole build and a 20 s
 timeout would kill it partway. It answers JSON with per-stage milliseconds, so `-o /dev/null` can
