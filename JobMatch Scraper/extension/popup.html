@@ -3,19 +3,48 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: Inter, system-ui, Arial, sans-serif; width: 308px; margin: 0; padding: 14px; color: #111; }
+    /* THE APP'S TOKENS, not a second palette. static/style.css has been one blue since
+       2026-08-31 (--accent:#1d4ed8 / --accent-bg:#eaf1fe) and CLAUDE.md states the rule as
+       "One hue, and ONE CHIP". This popup was #0e8a5f green, so the surface a user looks at
+       WHILE filling an application belonged to a different product from the one that sent
+       them there. Values are copied rather than imported: an extension page cannot read the
+       app's stylesheet, so the only alternative to duplicating them is drifting from them.
+       If the app's accent moves, move these four. */
+    :root {
+      --brand: #1d4ed8; --brand-d: #1a44bd; --brand-soft: #eaf1fe;
+      --ink: #111; --muted: #667085; --line: #cbd5e1; --line-soft: #e7ecf3;
+      --surface: #fff; --sunken: #f6f8fb; --ok: #1a44bd; --bad: #c0392b;
+    }
+    /* Dark mode, which the popup simply did not have -- on a dark OS it was a white slab.
+       The app's own dark tokens, same source. */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --brand: #2563eb; --brand-d: #3b76ef; --brand-soft: #16233f;
+        --ink: #e6e8ef; --muted: #98a2b3; --line: #2c3045; --line-soft: #232738;
+        --surface: #161822; --sunken: #10121a; --ok: #a8c5fb;
+      }
+    }
+    body { font-family: Inter, system-ui, Arial, sans-serif; width: 308px; margin: 0;
+           padding: 14px; color: var(--ink); background: var(--surface); }
     h3 { margin: 0 0 2px; font-size: 15px; }
-    .tag { font-size: 11px; color: #888; margin: 0 0 10px; }
-    input { width: 100%; box-sizing: border-box; padding: 7px 9px; margin: 3px 0; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 13px; }
-    button { width: 100%; padding: 9px; margin: 5px 0; border: 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-    .primary { background: #0e8a5f; color: #fff; }
-    .ghost { background: #eef2f7; color: #222; }
-    .msg { font-size: 12px; margin: 6px 0 0; min-height: 15px; color: #0b7a52; }
-    .lbl { font-size: 11px; color: #666; margin-top: 8px; }
-    .panel { margin-top: 4px; padding: 9px; background: #f6f8fb; border: 1px solid #e7ecf3; border-radius: 9px; }
+    .tag { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: 7px 9px; margin: 3px 0;
+           border: 1px solid var(--line); border-radius: 7px; font-size: 13px;
+           background: var(--surface); color: var(--ink); }
+    button { width: 100%; padding: 9px; margin: 5px 0; border: 0; border-radius: 8px;
+             font-size: 14px; font-weight: 600; cursor: pointer;
+             background: var(--sunken); color: var(--ink); }
+    button:hover { filter: brightness(0.97); }
+    .primary { background: var(--brand); color: #fff; }
+    .primary:hover { background: var(--brand-d); filter: none; }
+    .ghost { background: var(--brand-soft); color: var(--brand-d); }
+    .msg { font-size: 12px; margin: 6px 0 0; min-height: 15px; color: var(--ok); }
+    .lbl { font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .panel { margin-top: 4px; padding: 9px; background: var(--sunken);
+             border: 1px solid var(--line-soft); border-radius: 9px; }
     details { margin-top: 10px; }
-    summary { font-size: 12px; cursor: pointer; color: #5b6675; padding: 3px 0; }
-    a { color: #0e8a5f; }
+    summary { font-size: 12px; cursor: pointer; color: var(--muted); padding: 3px 0; }
+    a { color: var(--brand); }
   </style>
 </head>
 <body>
@@ -25,7 +54,7 @@
   <!-- Shown only when the app reports this build is behind. Chrome cannot update a side-loaded
        extension, so the least this can do is not be silent about being stale. -->
   <div id="stalewrap" style="display:none; margin:6px 0; padding:7px 9px; border-radius:7px;
-       background:#fef3c7; border:1px solid #fcd34d; font-size:11px; line-height:1.45">
+       background:var(--brand-soft); border:1px solid var(--brand); font-size:11px; line-height:1.45">
     <b>Update available.</b> <span id="stalemsg"></span>
   </div>
 
@@ -55,7 +84,7 @@
       <div class="lbl">Delay between jobs (sec) <input id="qdelay" type="number" value="6" min="3" max="20" style="width:56px; margin-left:4px"></div>
       <div style="display:flex; gap:6px">
         <button class="primary" id="qstart" style="flex:1">Start</button>
-        <button id="qstop" style="flex:1; background:#c0392b; color:#fff">⏹ Stop</button>
+        <button id="qstop" style="flex:1; background:var(--bad); color:#fff">⏹ Stop</button>
       </div>
       <div class="msg" id="qmsg"></div>
       <div id="qresults" style="font-size:11px; max-height:170px; overflow:auto; margin-top:6px"></div>
