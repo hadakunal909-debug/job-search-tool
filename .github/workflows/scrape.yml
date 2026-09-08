@@ -501,7 +501,7 @@ jobs:
       - name: Score jobs
         id: score
         if: steps.gate.outputs.run == 'yes' && !cancelled()
-        timeout-minutes: 15
+        timeout-minutes: 26
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -569,11 +569,33 @@ jobs:
           # functions or resume.txt resets the cursor to the newest row, so a recalibration
           # starts over rather than leaving the tail on the old scale.
           #
-          # 9 (fetch) + 4 (analysis) is why timeout-minutes below is 15 rather than 14: the two
-          # budgets plus the corpus read and the derived-field writes have to fit under it, or
-          # the timeout starts cutting off the very phase these budgets exist to make survivable.
-          # Raising the analysis slice means raising that timeout AND the job's 45-minute cap
-          # together — the cap is the binding constraint, not this number.
+          # 9 (fetch) + 4 (analysis) = 13 minutes of BUDGET, and timeout-minutes below is 26
+          # because a step timeout must be a backstop and never a participant.
+          #
+          # It was 15, i.e. 13 of budget and 2 of slack for "the corpus read and the
+          # derived-field writes". MEASURED 2026-09-08 against the live database:
+          # db.load_jobs(include_jd=True) -- what this pass does, because it builds IDF over
+          # every description -- is 48,567 rows and 264 MB in 122.1 s. The READ ALONE is 2.04
+          # min, so it consumed the entire slack and the writes got none.
+          #
+          # And the writes are not a fixed cost: _persist_derived diffs each row's stored
+          # jd_terms against the one it just built, so an ordinary run writes a few hundred
+          # rows while a run after a VOCABULARY change writes all of them. 97cdadc changed
+          # ATS_KEYWORDS, which is exactly that case.
+          #
+          # WHY A SIGKILL IS WORSE THAN A SLOW RUN: the budgets exist so the pass exits on its
+          # OWN clock and banks its resume cursor. A step timeout lands wherever it lands --
+          # including on top of the cursor write -- so the pass stops progressing ACROSS runs
+          # rather than walking the corpus a slice at a time. That is a repeated failure, not
+          # one bad run.
+          #
+          # The job's cap is timeout-minutes: 180, not the 45 this comment used to name, so
+          # the cap has not been the binding constraint and that sentence sent people to the
+          # wrong number.
+          #
+          # A change that has to land across the corpus NOW is STILL not this step's job --
+          # see the note below. Raising this stops the step dying; it does not re-derive
+          # 48,567 rows nine minutes at a time.
           #
           # A change that has to land across the corpus NOW is not this step's job: run it
           # unbudgeted and off the clock (`python -m scraper.score_jobs` with no budget set,
