@@ -321,6 +321,75 @@ s, src = B._sector("Zzz Unclassifiable Qqq", "zzz unclassifiable qqq", False, Fa
 check("an unmatched name is Unsorted, not force-fitted",
       (s, src) == (B.UNSORTED, "unsorted"), "%s / %s" % (s, src))
 
+print("=" * 92)
+print("BOARD HEALTH ON /company  (the signal that used to be admin-only)")
+print("=" * 92)
+
+# The employer must exist in the stubbed corpus, or /company redirects before rendering.
+BH_CO = JOBS[0]["company"]
+_real_get_kv = db.get_kv
+
+
+def _kv(state):
+    """A board_health blob for BH_CO in one of the four states."""
+    runs = {
+        # ok with n=0, three times over: nothing wrong with the fetch, nothing in the answer.
+        "silent":  [{"n": 0, "ok": True}] * 3,
+        # board_run_failed needs `err` OR `secs` as well as not-ok -- see the 566/569 note.
+        "failing": [{"n": 0, "ok": True}, {"n": 0, "ok": False, "err": "403 Forbidden"}],
+        "healthy": [{"n": 12, "ok": True}] * 3,
+        # STARVED: skipped by the budget, so there is no run record at all.
+        "starved": [],
+    }[state]
+    return lambda k: ({"boards": {"https://b.test/x": {
+        "company": BH_CO, "ats": "greenhouse", "runs": runs,
+        "skips": 4 if state == "starved" else 0}}}
+        if k == "board_health" else _real_get_kv(k))
+
+
+CAVEAT = "We may not be seeing everything here"
+FAILED_CAVEAT = "could not read this employer"
+try:
+    db.get_kv = _kv("silent")
+    check("board_state_for reads SILENT off three successful empty runs",
+          web.board_state_for(BH_CO)[0] == "silent", str(web.board_state_for(BH_CO)))
+    body = get("/company?c=" + BH_CO).data.decode("utf-8", "replace")
+    check("a SILENT board renders the caveat on /company", CAVEAT in body)
+
+    db.get_kv = _kv("failing")
+    check("board_state_for reads FAILING off a run with an err",
+          web.board_state_for(BH_CO)[0] == "failing", str(web.board_state_for(BH_CO)))
+    body = get("/company?c=" + BH_CO).data.decode("utf-8", "replace")
+    check("a FAILING board renders its own, different caveat", FAILED_CAVEAT in body)
+    check("...and not the silent one, which claims something else", CAVEAT not in body)
+
+    # The two that must stay SILENT-as-in-say-nothing. A false caveat is worse than no
+    # feature: it tells a reader to distrust a page that is fine.
+    db.get_kv = _kv("healthy")
+    check("a HEALTHY board says nothing", web.board_state_for(BH_CO) == ("", ""),
+          str(web.board_state_for(BH_CO)))
+    body = get("/company?c=" + BH_CO).data.decode("utf-8", "replace")
+    check("...and renders no caveat at all",
+          CAVEAT not in body and FAILED_CAVEAT not in body)
+
+    db.get_kv = _kv("starved")
+    check("a STARVED board says nothing -- that is our scheduling, not the employer",
+          web.board_state_for(BH_CO) == ("", ""), str(web.board_state_for(BH_CO)))
+    body = get("/company?c=" + BH_CO).data.decode("utf-8", "replace")
+    check("...and renders no caveat either",
+          CAVEAT not in body and FAILED_CAVEAT not in body)
+
+    # An unreadable blob must cost the sentence, never the page -- the same contract
+    # core.load_sponsor_counts has.
+    def _boom(_k):
+        raise RuntimeError("kv is down")
+    db.get_kv = _boom
+    check("an unreadable board_health blob costs the caveat, not the page",
+          web.board_state_for(BH_CO) == ("", ""))
+    check("...and /company still renders", get("/company?c=" + BH_CO).status_code == 200)
+finally:
+    db.get_kv = _real_get_kv
+
 print()
 if FAILS:
     print("FAILURES (%d):" % len(FAILS))

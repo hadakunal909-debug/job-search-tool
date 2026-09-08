@@ -180,7 +180,9 @@ There is no pytest — every suite is a plain script (`python test_title_filter.
   columns of row-styled cards and nothing warned); `contain-intrinsic-size` sizes the CONTENT
   box, so set it from a measurement with `content-visibility` forced off or on-screen and
   off-screen cards report two different heights and only one is real; and the fact cells are
-  ordered by COVERAGE (location 98%, years 91%, pay 41%, remote 17%), not by importance, so the
+  ordered by COVERAGE (location 99%, years 72%, pay 37%, remote 8% — re-measured 2026-09-08 over
+  the 35,754 active rows; written here as 98/91/41/17. The ORDER is unchanged, which is what the
+  fixed tracks depend on — only the magnitudes drifted, years and remote most), not by importance, so the
   52% of cards carrying exactly two facts fill line one instead of sitting diagonally opposite.
 - **A card field that isn't the score belongs to the POSTING, not to the reader.**
   `_build_row` emits 41 keys and exactly one, `score`, depends on who is asking. `_base_rows()`

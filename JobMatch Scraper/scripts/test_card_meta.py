@@ -427,6 +427,42 @@ check("the chip cap survived the redesign",
       "one hedged sponsorship verdict, still, plus Closed")
 
 print()
+print("A SENIOR TITLE VETOES AN ENTRY LEVEL -- found by using the feed, 2026-09-08")
+# Filtering the real feed for "Entry Level / Associate" with the Product Manager chip on
+# returned 716 rows and 86 of them (12.0%) were senior-TITLED. _build_row derived the level
+# from the YEARS band, so a Senior Product Manager whose description says "2+ years" became
+# "entry" and the title was never consulted. After the veto: 623 rows, 2 senior-titled (0.3%),
+# and both of those are the "Senior ... Associate" coin flip title_level declines to judge.
+#
+# ONE RULE IN CORE, because there were two derivations of this field: /job called
+# core.level_for (description text) while the card and the filter used the years band, and
+# level_for's docstring claims to be "the one definition every surface reads".
+for _t, _y, _want in (("Senior Product Manager, Web Application Platform", 2, "senior"),
+                      ("Director, Product Operations", 3, "senior"),
+                      ("Product Manager II", 2, "senior"),
+                      ("Staff Product Manager", 1, "senior"),
+                      # the veto only ever moves a level UP, so these are untouched
+                      ("Associate Product Manager", 2, "entry"),
+                      ("Product Manager", 1, "entry"),
+                      ("Product Manager Intern", None, "entry")):
+    _got, _src = core.level_from_exp(_y, "stated" if _y is not None else "", _t)
+    check("level_from_exp(%r, %s) -> %s" % (_t[:34], _y, _want), _got == _want, _got)
+
+# The coin flip stays a coin flip: at Capital One and the banks "Senior Associate" IS the
+# early-career rung, so title_level returns "" and the years are left to decide.
+check("Senior Associate is NOT vetoed -- it is a genuine coin flip",
+      core.level_from_exp(1, "stated", "Senior Associate, Product Manager - Credit Management")[0]
+      == "entry")
+check("the veto never invents an entry role, only ever raises to senior",
+      core.senior_title_veto("", "Senior Product Manager") == ""
+      and core.senior_title_veto("senior", "Associate Product Manager") == "senior")
+
+# level_for -- the /job path -- must apply the SAME veto, or the two surfaces disagree again.
+check("level_for applies the veto too",
+      core.level_for("We are looking for someone with 2+ years of experience building products.",
+                     "Senior Product Manager")[0] == "senior")
+
+print()
 if FAILS:
     print("FAILURES (%d): %s" % (len(FAILS), "; ".join(FAILS)))
     raise SystemExit(1)

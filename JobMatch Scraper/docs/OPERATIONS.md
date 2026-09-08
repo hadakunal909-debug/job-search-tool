@@ -472,9 +472,14 @@ UltiPro, JobDiva, Avature, Recruitee, Breezy, BambooHR, Pinpoint, Rippling, Work
 JSON-LD), probes it for real postings, and only then writes a `boards` row. New boards are picked
 up by the *next* scrape.
 
-Built-in boards live in `SOURCES` in `scraper/__init__.py` — 1,192 entries as of writing,
-composed from 19 named lists. App-added boards come from the `boards` table and are merged on top;
-that table holds 915 as of 2026-09-02, so the effective source count is ~2,107, not 1,192.
+Built-in boards live in `SOURCES` in `scraper/__init__.py` — **1,218** entries, composed from 19
+named lists. App-added boards come from the `boards` table and are merged on top; that table holds
+**991**, so the effective source count is **~2,209**, not 1,218.
+
+Both numbers are measured, 2026-09-08 (`len(scraper.SOURCES)` and `db.table_count("boards")`).
+They were 1,192 and 915 here and had drifted without anyone noticing, which is the reason to say
+how to re-read them rather than to restate them: a count in prose is stale the next time a board
+is adopted, and a stale number that reads like hard-won knowledge costs more than no number.
 
 ### When an employer has no board
 

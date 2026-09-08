@@ -2025,6 +2025,14 @@ INCLUDE = (
     # "Prog Mgr", Disney "Sr Tech Project Mgr". Exactly the "software dev engineer" case, where
     # one missing abbreviation was dropping 178 postings on a single board.
     "tpm", "project mgr", "program mgr", "prog mgr", "proj mgr", "proj manager", "pgm mgr",
+    # PRODUCT was missing from that list and project/program were not: measured 2026-09-08,
+    # title_verdict("Product Mgr") returned (False, "no PM/coordinator/analyst/software
+    # keyword") while "Project Mgr" and "Prog Mgr" were both kept. An employer that
+    # abbreviates -- Disney posts "Mgr-Digital Product Mgmt" and "Dir, Global Product Mgmt" --
+    # therefore contributed ZERO product postings, permanently, because a title dropped here
+    # is never stored and can never be recovered. Deliberately NOT bare "apm": that was
+    # measured and rejected below as Application Performance Monitoring.
+    "product mgr", "prod mgr", "product mgmt",
     "epmo", "project management office", "release train",
     # British spelling, and the plural coordinator forms. Nearly zero rows in this dump, kept
     # anyway on the same reasoning as the low-volume programme markers below: they cost nothing
@@ -2217,6 +2225,26 @@ EXCLUDE = (
     "front end entry level", "front end clerk", "front end associate", "front end retail",
     "front end service", "front end supervisor", "front end team member", "front end checker",
     "courtesy clerk", "grocery", "deli", "bakery", "cake decorator",
+    # RETAIL SHOP-FLOOR TITLES WEARING A PRODUCT WORD. Measured 2026-09-08: of 145 active
+    # rows titled "product operations", 81 were lululemon STORE jobs -- 55 "Product Operations
+    # Lead | <mall>" and 26 "Product Operations Educator | <mall>" -- against 64 real ones
+    # elsewhere (39 Manager/Director, 20 Analyst/Specialist, 4 bare, 1 Lead). They were 22% of
+    # everything the Product Manager role chip showed an entry-level reader.
+    #
+    # "educator" is lululemon's word for a sales associate and costs NOTHING: all 26
+    # occurrences in the whole corpus are theirs, and not one is a real role.
+    #
+    # "product operations lead" costs exactly ONE genuine row, Equifax's. 55:1 against the
+    # retail rows, and EXCLUDE cannot say "except at Equifax". Stated rather than buried,
+    # because the next person to measure this will find that row missing and wonder.
+    #
+    # HERE AND NOT IN ROLE_FAMILIES, which is where I first put it and it was the wrong layer:
+    # EXCLUDE is the unconditional veto that runs BEFORE INCLUDE, so these never enter the
+    # corpus rather than being hidden from one chip -- and the family keeps the broad
+    # "product operations", so test_every_include_phrase_is_claimed_by_a_family still holds.
+    # Same move as test_retail_operations_associate_is_gone, where "operations associate" was
+    # 306 rows and 73% Sephora. lululemon's own corporate product roles are untouched.
+    "educator", "product operations lead",
     "produce", "meat", "seafood", "stocker", "bagger", "checker", "store associate",
     "retail associate", "sales associate", "sales representative", "merchandiser",
     # Employment-type markers, which catch retail-floor postings whatever the title says —
@@ -8221,6 +8249,42 @@ NON_US = {"india", "united kingdom", "uk", "canada", "ireland", "germany", "fran
     "rajasthan", "goa"}
 
 _STATE_ABBR_RE = re.compile(r",\s*([A-Za-z]{2})\b")
+# A COMMA IS NOT REQUIRED, and assuming one is the most expensive line in this file: the
+# 2026-09-06 sweep logged 33,704 postings dropped as "non-US location", and every US posting
+# written without a comma before its state code was inside that number. Measured shapes the old
+# rule refused: "Boston MA", "Chicago IL", "Austin TX" (trailing bare code), "Seattle WA 98101"
+# (code before a ZIP), and "WI - Appleton" / "MA - Boston" (state FIRST with a dash, which is
+# standard on several tenants).
+#
+# core.parse_location has read all three since long before this -- its _TRAIL_CODE_RE says so in
+# its own comment, "some boards write the code last with no comma at all". Two functions answered
+# "is there a US state code here" and only the RENDER-time one was right, while the INGEST-time
+# one is the destructive half: a drop here is permanent, is never retried, and dump_reject is a
+# no-op unless DUMP_REJECTS is set, so nothing recorded what was lost.
+#
+# UPPERCASE for the trailing form, matching core._TRAIL_CODE_RE, because that shape has no
+# separator to lean on -- case-insensitive it fires on any string ending in a two-letter word
+# ("based in" -> IN). The comma and dash forms keep [A-Za-z]: a separator is structure.
+_STATE_TRAIL_RE = re.compile(r"\b([A-Z]{2})\s*$")
+_STATE_ZIP_RE = re.compile(r"\b([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b")
+_STATE_LEAD_RE = re.compile(r"^\s*([A-Za-z]{2})\s*[-\u2013\u2014]")
+# NOT A PLACE: the work ARRANGEMENT, written into the location field. core.parse_location already
+# enumerates these as tokens meaning "not a place" (its `skip` set); reading them as a foreign
+# signal lost every posting from a board that fills the field that way.
+_NOT_A_PLACE = frozenset((
+    "hybrid", "onsite", "on-site", "on site", "anywhere", "various", "flexible",
+    "multiple", "multiple locations", "nationwide", "field", "field based", "tbd",
+    "n/a", "na", "none", "north america", "work from home", "wfh", "virtual",
+    "unspecified", "not specified", "to be determined",))
+
+
+def _us_state_in(loc):
+    """The US state code this string names, or "". Four shapes; the comma is optional."""
+    for rx in (_STATE_ABBR_RE, _STATE_LEAD_RE, _STATE_ZIP_RE, _STATE_TRAIL_RE):
+        m = rx.search(loc)
+        if m and m.group(1).upper() in US_STATE_ABBR:
+            return m.group(1).upper()
+    return ""
 
 # Whole-word matcher for the NON_US list. Substring matching burned us: 'india' is
 # inside 'Indianapolis', so every Indianapolis job was silently dropped (found
@@ -8301,9 +8365,14 @@ def _us_namesake_only(low, loc):
 
 def is_us_location(loc):
     """Heuristic: True if the location looks US-based. Unknown/blank -> kept."""
-    if not loc:
-        return True
+    if not loc or not loc.strip():
+        return True                                 # blank -- WHITESPACE INCLUDED. "   " is
+                                                    # truthy, so it used to fall through every
+                                                    # branch and drop, while "" was kept: the
+                                                    # same information, the opposite verdict.
     low = _fold(loc)                                # accent-folded: see _fold's docstring
+    if low.strip().strip(".") in _NOT_A_PLACE:      # an arrangement, not a place -> unknown
+        return True
     if re.search(r"\b\d+\s+locations?\b|multiple locations?", low):
         return True                                 # bare 'N Locations' count -> unknown, keep
     if "united states" in low or "usa" in low or "u.s." in low:
@@ -8312,8 +8381,7 @@ def is_us_location(loc):
         return False                                # explicit non-US signal -> drop
     if re.search(r"\bus\b", low):                   # bare "US": "Quincy MA US", "City, US, 90221"
         return True
-    m = _STATE_ABBR_RE.search(loc)                  # e.g. "Boston, MA"
-    if m and m.group(1).upper() in US_STATE_ABBR:
+    if _us_state_in(loc):                           # "Boston, MA", "Boston MA", "WI - Appleton"
         return True
     if any(name in low for name in US_STATE_NAMES):
         return True

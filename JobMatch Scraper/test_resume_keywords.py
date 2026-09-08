@@ -1,9 +1,9 @@
 """
-test_resume_keywords.py — guards the Skills category, which is the one Resume Worded scores and
+test_rk.py — guards the Skills category, which is the one Resume Worded scores and
 resume_score.py had no equivalent for.
 
 No external test deps: run it directly
-    python test_resume_keywords.py
+    python test_rk.py
 or via pytest if you have it (functions are named test_*).
 
 Covers the three things that were wrong on the way here, each of which made the check worse than
@@ -18,6 +18,7 @@ having no check at all:
     the same as one earned in an accomplishment
 """
 import core
+import os
 import resume_keywords as rk
 
 DEV = """Ada Dev
@@ -128,6 +129,49 @@ def test_a_missing_data_file_degrades_to_curation_not_to_nothing():
     finally:
         rk._cache.clear()
         rk._cache.update(saved)
+
+
+def test_ties_go_to_mgmt_as_the_docstring_promises():
+    """This was ALREADY FALSE with two tracks, which is how it survived: `best` is seeded to
+    "mgmt" with best_n -1, so the first track in TRACKS clears `n > best_n` on a zero score and
+    overwrites the seed before "mgmt" is ever compared. Measured 2026-09-08, infer_track("")
+    returned "dev". A third track would have made it worse; it did not create it."""
+    assert rk.infer_track("") == "mgmt"
+    assert rk.infer_track("   ") == "mgmt"
+    assert rk.infer_track(None) == "mgmt"
+
+
+def test_product_is_a_track():
+    """The whole point of the 2026-09-08 change. A resume graded against `mgmt` was told to add
+    git and SAFe."""
+    assert "product" in rk.TRACKS
+    # mgmt must stay in the tuple and stay the tie-break winner -- infer_track walks it in order.
+    assert "mgmt" in rk.TRACKS
+
+
+def test_a_file_missing_a_track_degrades_to_curation_rather_than_merging():
+    """THE QUIET FAILURE this guards. load_expectations builds {t: [] for t in TRACKS}, so a
+    widened TRACKS against an OLD two-track file leaves data["product"] empty while
+    any(data.values()) is still true. Without the guard the cache is set, expected_terms falls
+    through to the MERGED dev+mgmt branch, and a product resume is graded against the union of
+    the two tracks it is not -- with `source` still reporting "corpus", which is the part that
+    makes it dangerous rather than merely wrong."""
+    import json
+    import tempfile
+    two_track = {"dev": [["python", 0.4]], "mgmt": [["excel", 0.5]]}
+    fh = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    json.dump(two_track, fh)
+    fh.close()
+    try:
+        rk._reset_cache()
+        assert rk.load_expectations(fh.name) is None, (
+            "a file missing a track must read as stale, not as three tracks one of which is empty")
+        terms, source = rk.expected_terms("product")
+        assert source == "curated", source
+        assert terms, "the curated fallback must still produce expectations"
+    finally:
+        rk._reset_cache()
+        os.unlink(fh.name)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ The Flask app is in `JobMatch Scraper/`. Live at **stemjobs1.astrochakra.co** on
 | | measured 2026-09-01 |
 |---|---|
 | live `jobs` rows | **38,805** (max `first_seen` 2026-09-01) |
-| boards swept | **1,192** across **38** ATS adapters (`len(SCRAPERS)`; 28 of them currently have a board) |
+| boards swept | **1,218** across **40** ATS adapters (`len(scraper.SOURCES)` / `len(scraper.SCRAPERS)`, measured 2026-09-08; was 1,192/38 here) |
 | routes | **87** (86 handlers), no blueprints |
 | `web.py` | 8,786 lines · `core.py` 3,272 · `db.py` 2,951 |
 | `scraper/__init__.py` | 9,051 lines · `scraper/score_jobs.py` 2,094 |

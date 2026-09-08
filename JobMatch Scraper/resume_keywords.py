@@ -34,7 +34,12 @@ import os
 import core
 
 KEYWORDS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resume_keywords.json")
-TRACKS = ("dev", "mgmt")
+# A PRODUCT TRACK, added 2026-09-08. There were two, so a product resume was graded against
+# `mgmt` -- whose committed top 40 holds no product term at all and does hold `safe`, `sla`,
+# `git` and `life`, which are the pre-2026-09-02 matcher's own phantoms (safe from "safety",
+# sla from "translate", git from "digital"). The file was built from the jd_terms THAT matcher
+# produced, so the panel was telling a product applicant to learn git.
+TRACKS = ("dev", "mgmt", "product")
 # How many expected terms a track is judged on. Enough to be a real bar, small enough that the
 # missing list stays a to-do rather than a wall.
 TOP_N = 40
@@ -102,6 +107,15 @@ def load_expectations(path=KEYWORDS_PATH):
             with open(path, encoding="utf-8") as fh:
                 blob = json.load(fh)
             data = {t: [(str(k), float(w)) for k, w in (blob.get(t) or [])] for t in TRACKS}
+            # A MISSING TRACK IS A STALE FILE, not an empty expectation set. With TRACKS
+            # widened and the old two-track JSON still on disk, data["product"] is [] while
+            # any(data.values()) is still true -- so the cache would be set, expected_terms
+            # would fall to the merged dev+mgmt branch, and a product resume would be graded
+            # against the union of the two tracks it is NOT, with source still reporting
+            # "corpus". Degrading to _curated() is honest, and it is the contract
+            # test_a_missing_data_file_degrades_to_curation_not_to_nothing already encodes.
+            if not all(data.get(t) for t in TRACKS):
+                data = None
             _cache["data"] = data if any(data.values()) else None
             # Optional provenance. The panel used to state "25,036 real jobs" as a literal in the
             # template, which stopped being true the first time the corpus grew. Read it if the
@@ -161,13 +175,18 @@ def infer_track(resume_text):
         return "mgmt"
     low = (resume_text or "").lower()
     words = core._resume_wordset(low)
-    best, best_n = "mgmt", -1
+    # AN EXPLICIT TIE-BREAK KEY, because the docstring above was ALREADY FALSE with two
+    # tracks. Measured 2026-09-08: infer_track("") returned "dev", not "mgmt". `best` is
+    # seeded to "mgmt" with best_n -1, so the first track in TRACKS clears `n > best_n` on a
+    # zero score and the seed is overwritten before "mgmt" is ever compared. A third track
+    # would have made it worse; it did not create it.
+    scored = []
     for t in TRACKS:
         terms = [term for term, _w in (data.get(t) or [])[:TOP_N]]
         n = sum(1 for term in terms if _present(term, low, words))
-        if n > best_n:
-            best, best_n = t, n
-    return best
+        scored.append((n, t == "mgmt", t))
+    scored.sort(reverse=True)
+    return scored[0][2]
 
 
 def evaluate(resume_text, track=None, evidence_text=None):

@@ -61,6 +61,29 @@
       {% if info.n == 0 %}
       <p class="fnote">Nothing open in the feed. The links above are the way in.</p>
       {% endif %}
+
+      {# BOARD HEALTH, AND IT IS A CAVEAT ABOUT OUR READING, NOT A VERDICT ON THE JOB.
+
+         Everything derived from board_health used to live behind @admin_required, so an
+         employer whose board had been walled off or empty for a week looked IDENTICAL here to
+         one with nothing open -- their rows kept rendering with normal ages, and for the half
+         of active rows reconcile_closed has never confirmed, the inventory just decayed over
+         the 30-day prune window with nothing saying so.
+
+         Not a chip and not a hue: CLAUDE.md's rule is one hue and one chip, and a chip is a
+         verdict about the POSTING. This is neither, so it is ink in a callout -- the same
+         shape /welcome uses for its own note. web.board_state_for says nothing at all for a
+         STARVED board, because that is a fact about our scheduling, not about the employer. #}
+      {% if board_state and board_state[0] == "silent" %}
+      <div class="callout"><strong>We may not be seeing everything here.</strong> This
+        employer's board has answered our last three checks successfully and returned no
+        postings each time, so anything below was found earlier and we cannot currently
+        confirm it is still open. Use the links above to check on their own site.</div>
+      {% elif board_state and board_state[0] == "failing" %}
+      <div class="callout"><strong>We could not read this employer's board on the last
+        run.</strong> What is below was found earlier and may be out of date. Use the links
+        above to check on their own site.</div>
+      {% endif %}
     </div>
   </div>
 

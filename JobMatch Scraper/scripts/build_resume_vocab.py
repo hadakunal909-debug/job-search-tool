@@ -80,11 +80,19 @@ def _rows():
 def build_keywords(show=0):
     """Document frequency per (track, term), from the packed jd_terms the scraper already wrote."""
     rows = _rows()
-    df = {"dev": Counter(), "mgmt": Counter()}
+    df = {t: Counter() for t in resume_keywords.TRACKS}
     n = Counter()
     skipped = 0
     for r in rows:
-        track = core.role_track(r.get("title") or "")
+        # PRODUCT IS ITS OWN TRACK as of 2026-09-08. core.role_track only ever answers dev or
+        # mgmt, so this refines it: a title the product family claims is product work, and
+        # everything else falls through to the old two-way answer. roles_for_title is memoised
+        # (core._role_cache) so this costs nothing over a whole-snapshot pass.
+        #
+        # Note "Product Owner" moves out of mgmt and into product, because the product family
+        # lists it. That is intended -- it is the same job.
+        title = r.get("title") or ""
+        track = "product" if "product" in core.roles_for_title(title) else core.role_track(title)
         n[track] += 1
         packed = r.get("jd_terms") or ""
         if not packed:
@@ -115,14 +123,17 @@ def build_keywords(show=0):
     #
     # Curated terms bypass this: "excel" is genuinely asked for at similar rates everywhere, and it
     # is unambiguously a skill because a human already said so.
+    # GENERALISED to len(TRACKS) on 2026-09-08, and _MIN_DISCRIMINATION had to be re-measured
+    # rather than carried over: a third bucket makes `lo` smaller for most terms, so the SAME
+    # ratio becomes MORE permissive exactly where it needs to be tighter. The number below is
+    # what the --show sweep admits and rejects at three tracks, chosen the same way the 1.4 was.
     def discrimination(t):
-        a = df["dev"][t] / float(max(1, n["dev"]))
-        b = df["mgmt"][t] / float(max(1, n["mgmt"]))
-        hi, lo = max(a, b), min(a, b)
+        rates = [df[k][t] / float(max(1, n[k])) for k in resume_keywords.TRACKS]
+        hi, lo = max(rates), min(rates)
         return hi / lo if lo > 0 else float("inf")
 
     out = {}
-    for track in ("dev", "mgmt"):
+    for track in resume_keywords.TRACKS:
         total = max(1, n[track])
         keep = []
         for term, c in df[track].items():
@@ -152,7 +163,7 @@ def build_keywords(show=0):
         # _meta carries the corpus size so the Keywords panel can state it instead of hard-coding
         # a figure in the template, where it went stale the first time the feed grew. Namespaced
         # with a leading underscore so it can never collide with a track name.
-        json.dump(dict(out, _meta={"jobs": int(n["dev"] + n["mgmt"])}), fh,
+        json.dump(dict(out, _meta={"jobs": int(sum(n.values()))}), fh,
                   ensure_ascii=False, separators=(",", ":"))
     print("  wrote %s (%.0f KB)" % (KEYWORDS_OUT, os.path.getsize(KEYWORDS_OUT) / 1024.0))
     return out

@@ -102,6 +102,14 @@
           {%- elif asks.exp_req is not none %}{{ asks.exp_req }}+ years
           {%- elif asks.exp_pref %}{{ asks.exp_pref }}+ years preferred
           {%- elif asks.exp_inferred %}<span class="asks-guess" title="Read from the title, not from the description. 96% of postings titled this way ask for three years or more.">Senior</span>
+          {#- THE LEVEL, when no year count could be read at all. "Entry level" above fires
+             only on a literal zero-year floor, which is a narrow trigger: measured on 2,575
+             product descriptions, 431 state no number anywhere and this cell showed a dash.
+             core.level_for reads the words too ("this is an entry-level role", "recent
+             graduates welcome") and falls back to the title, and level_src says which -- so
+             a guess is labelled a guess, the same bargain .asks-guess already makes. #}
+          {%- elif asks.level == "entry" %}{% if asks.level_src == "stated" %}Entry level{% else %}<span class="asks-guess" title="Read from the title, not from the description.">Entry level</span>{% endif %}
+          {%- elif asks.level == "senior" %}<span class="asks-guess" title="Read from the title, not from the description.">Senior</span>
           {%- else %}<span class="nil">&mdash;</span>{% endif %}</dd></div>
         <div><dt>Education</dt>
           <dd>

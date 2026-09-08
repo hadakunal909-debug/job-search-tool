@@ -427,6 +427,10 @@ def _cache_max():
 # server-side search/paging (/api/feed), so the payload + browser parse stay small at any corpus
 # size. Below it, the original all-inline client-filtered path is used unchanged. Env-tunable.
 _FEED_INLINE_MAX = int(os.environ.get("FEED_INLINE_MAX", "4000"))
+# Below this many results, the empty-state machinery offers to relax a filter even though
+# there ARE results. Half a page (PAGE is 60 in app.js): few enough that the reader is
+# plainly short of options, high enough that a normal narrow search does not nag.
+_RELAX_WHEN_UNDER = 30
 # How many rows to inline as PAGE ONE when paged. 60 because that is app.js's PAGE size, so the
 # bootstrap is exactly the page /api/feed would have returned for offset=0. It was 400, which was
 # both too many (the browser discarded them) and the wrong rows (unfiltered).
@@ -1418,8 +1422,12 @@ def user_scores(username, resume):
 # Internship / co-op detection from the title (for the "Internship" badge + the Intern/Co-op
 # filter). Whole-word so it won't fire on "international"/"internal". Matches intern(s|ship|ships),
 # co-op / coop / co op (+ plurals), and the finance-internship "summer analyst/associate".
-_INTERN_RE = re.compile(
-    r"\b(?:intern(?:s|ship|ships)?|co[-\s]?ops?|summer analyst|summer associate)\b", re.I)
+# ALIASED to core.INTERN_RE 2026-09-08. The pattern used to live here and core.digest_row
+# had a narrower copy, so the feed and the email disagreed about which postings were
+# internships -- the reasoning is on core.INTERN_RE. Kept as a module-level name because
+# _build_row reads it on every row of the corpus and the attribute lookup is not free at
+# that volume.
+_INTERN_RE = core.INTERN_RE
 
 
 _JD_VERDICT_KEY = "jd_host_verdicts"
@@ -1731,6 +1739,23 @@ def _build_row(j, score):
     if exp_eff is None:
         exp_eff = core.title_experience_tier(j.get("title") or "")
         exp_src = "inferred" if exp_eff is not None else ""
+    # THE LEVEL, and it is not the years. Same two-source shape as exp_eff above -- the
+    # employer's own number first, the title only where there is none -- but it answers "how
+    # senior is this job" rather than "how many years does it state", and those come apart:
+    # 1,098 of 1,106 product titles get None from title_experience_tier because bare
+    # "associate" is only 64.1% predictive of a year COUNT, while it is a perfectly good
+    # claim about a LEVEL. core.title_level carries the vocabulary the years tier must not.
+    #
+    # WHY IT IS WORTH DRAWING. Of the 417 rows "0 to 2 Years" returns on the product family,
+    # 241 have no readable year count, so the card printed nothing and the reader fell back
+    # to the title -- which on those cards is wrong 95 times.
+    # ONE RULE, IN CORE. This was open-coded here and drifted from core.level_for, whose
+    # docstring claims to be "the one definition every surface reads" -- /job used that,
+    # while this derived the level from the YEARS band. Two derivations of one field,
+    # disagreeing: 716 rows against 373 for the same entry-level product query. And because
+    # a year count is not a level, a Senior Product Manager stating '2+ years' read as
+    # entry -- 86 of those 716 rows were senior-titled, 12.0%, measured on the live feed.
+    level, level_src = core.level_from_exp(exp_eff, exp_src, j.get("title") or "")
     cf = company_facts(c)
     strength, scount = cf["strength"], cf["strength_n"]
     # Employer-level routes, then narrowed by what THIS posting says: a JD that rules out
@@ -1875,6 +1900,11 @@ def _build_row(j, score):
             # twins still compare one number, exactly as they did before.
             "exp_years": exp_y if exp_y is not None else "", "exp_level": exp_lvl,
             "exp_eff": exp_eff if exp_eff is not None else "", "exp_src": exp_src,
+            # "entry" | "mid" | "senior" | "" -- see the note where it is computed. The
+            # card draws it in the SAME .cexp slot that already prints "senior role", so
+            # this adds no chip, no hue and no column: it fills a track that was blank on
+            # the majority of the rows an entry-level reader is looking at.
+            "level": level, "level_src": level_src,
             "strength": strength, "strength_n": scount,
             "intern": bool(_INTERN_RE.search(j.get("title") or "")),
             # 'dev' (software/data/infra) vs 'mgmt' (project/product/ops) — the feed's one-click
@@ -1999,9 +2029,19 @@ def _apply_dedupe_plan(base, plan, overlay):
 
 
 def _role_counts_for(rows):
-    """{role_key: how many postings} over raw job dicts -- a corpus fact, so built with them."""
+    """{role_key: how many LIVE postings} over raw job dicts -- a corpus fact, built with them.
+
+    ACTIVE ONLY, since 2026-09-08. It counted every row it was handed, closed ones included, so
+    the picker said "Product Manager 2,579" while the feed showed 25 -- a hundredfold gap with
+    no explanation, on the first number the reader sees. The date window and the match floor
+    are still not applied and should not be: this answers "how much of this work exists here",
+    which is the question being asked at the moment somebody picks a role. Counting jobs that
+    have already closed answers nothing at all.
+    """
     counts = {k: 0 for k in core.ROLE_KEYS}
     for j in rows:
+        if j.get("is_active") in (False, "false", 0):
+            continue
         for k in core.roles_for_title(j.get("title")):
             counts[k] += 1
     return counts
@@ -2877,7 +2917,11 @@ def _filter_rows(rows, statuses, p):
         # stays a single expression per line so the app.js twin still reads as a mirror.
         if want_roles and not core.roles_match(r.get("roles"), want_roles, r.get("jd_admit")):
             continue
-        if want_visa and not core.visa_tags_match(r.get("visa"), want_visa):
+        # The third argument is the POSTING's own verdict: an empty tag set means
+        # "no filing record" (keep -- absence is not a refusal) unless this JD says
+        # no, in which case the employer has answered and `hidenospon` owns it.
+        if want_visa and not core.visa_tags_match(
+                r.get("visa"), want_visa, r.get("sponsor_jd") == "blocked"):
             continue
         if loc and not _loc_hit(r, loc):
             continue
@@ -2899,7 +2943,13 @@ def _filter_rows(rows, statuses, p):
             continue
         if intern == "no" and r.get("intern"):
             continue
-        if track != "any" and r.get("track") != track:
+        # FALL BACK TO THE TITLE, which core.prefs_match already did. This compared the
+        # stored field with no fallback while the digest twin computed it, so a row that
+        # arrived without one was DROPPED by the feed and KEPT by the email. Rows normally
+        # carry it from _build_row; the ones that do not are exactly what a row cache
+        # written before the field existed hands back, which is silent and survives a deploy.
+        if track != "any" and (
+                r.get("track") or core.role_track(r.get("title") or "")) != track:
             continue
         # "Only postings whose experience we could read." OFF by default. It now drops the rows
         # with NO answer at all (exp_src ""), so a posting whose seniority was read off its title
@@ -2908,24 +2958,44 @@ def _filter_rows(rows, statuses, p):
         if exp_stated and not r.get("exp_src"):
             continue
         if exp != "any":
-            # exp_eff, NOT exp_years: the highest year count the DESCRIPTION states, or the floor
-            # the TITLE implies when it states none. "8+ years required; 2 years of SQL
-            # preferred" is an 8-year job and "<=2 yrs" drops it. A posting with NEITHER signal
-            # is still always kept — many genuine entry-level posts state no number — and the
-            # card says "years not stated" so the two populations are distinguishable.
+            # THREE ANSWERS, and they are different questions.
+            #
+            # The numeric values are a CEILING on what the employer demands, which answers
+            # "could I be considered". exp_eff is the highest year count the DESCRIPTION states,
+            # or the floor the TITLE implies when it states none -- so "8+ years required; 2
+            # years of SQL preferred" is an 8-year job and "<=2 yrs" drops it. A posting with
+            # NEITHER signal is always kept; many genuine entry-level posts state no number.
+            #
+            # "entry" is a LEVEL and cannot be expressed as a ceiling. Measured 2026-09-08:
+            # "0 to 2 Years" returns 417 product rows and only 176 are entry-level by their own
+            # description -- the other 241 have no readable number and are kept, which is
+            # correct and is exactly why the ceiling cannot answer the level question.
+            #
+            # And an INTERNSHIP is exempt from the ceiling entirely: 4 of the 43
+            # internship-titled product rows were dropped by "0 to 2 Years" because their text
+            # names 3 years somewhere (Amex "Campus Graduate Masters Summer Internship
+            # Program", Amazon's "2027 Leadership Accelerator"). An internship IS the entry
+            # rung, whatever number appears further down.
+            #
             # Mirrored in app.js matches() and core.prefs_match().
-            ev = r.get("exp_eff")
-            if ev != "" and ev is not None:
-                try:
-                    yrs = int(ev)
-                except Exception:
-                    yrs = None
-                if yrs is not None:
-                    if exp == "senior":
-                        if yrs >= 6:
+            if exp == "entry":
+                if (r.get("level") or "") not in ("", "entry"):
+                    continue
+            elif r.get("intern"):
+                pass
+            else:
+                ev = r.get("exp_eff")
+                if ev != "" and ev is not None:
+                    try:
+                        yrs = int(ev)
+                    except Exception:
+                        yrs = None
+                    if yrs is not None:
+                        if exp == "senior":
+                            if yrs >= 6:
+                                continue
+                        elif yrs > (int(exp) if str(exp).isdigit() else 99):
                             continue
-                    elif yrs > (int(exp) if str(exp).isdigit() else 99):
-                        continue
         out.append((r, st))
     sort = p.get("sort") or "score"
     if sort == "newest":
@@ -3787,6 +3857,9 @@ def company():
     analytics.emit(user, getattr(g, "sid", ""), "page_view", page="company",
                    company=display, n=len(open_rows))
     return render_template("company.html", info=info, company_arg=display,
+                           # One sentence, and only when there is something true to say.
+                           # See board_state_for: STARVED deliberately says nothing.
+                           board_state=board_state_for(display),
                            about=_company_profile(display, key, rows, open_rows),
                            # Same ladder /companies renders from, so a card and the page it
                            # opens can never disagree about where somebody applies.
@@ -3973,6 +4046,12 @@ def _posting_asks(row, jd):
     # The title tier only ever fills a gap, exactly as in _build_row -- and it is named as an
     # inference in the copy, because a guess presented as a fact is worse than no answer.
     inferred = core.title_experience_tier(row.get("title") or "") if exp_req is None else None
+    # THE LEVEL, read from the description with the title as a fallback -- core.level_for.
+    # /job gets the FULL reading because it has the text: the words-only channel
+    # ("this is an entry-level role", "recent graduates welcome") needs the description and
+    # is therefore unavailable to the card, which only has the stored number. Measured on
+    # 2,575 product descriptions that channel is 14 rows -- small, and this is where it lands.
+    level, level_src = core.level_for(clean, row.get("title") or "")
     # MUST-HAVE VERSUS NICE-TO-HAVE, from the sections jdrender now tells apart. Display only:
     # the match percentage is computed over the whole description exactly as before, so nothing
     # here moves a score. It answers "which of these do I actually need", which a single flat
@@ -3999,6 +4078,7 @@ def _posting_asks(row, jd):
     return {
         "verdict": verdict, "unread": unread,
         "exp_req": exp_req, "exp_pref": exp_pref, "exp_inferred": inferred,
+        "level": level, "level_src": level_src,
         "edu_req": edu_req, "edu_pref": edu_pref,
     }
 
@@ -4459,7 +4539,17 @@ def api_feed():
     _ev_feed_view(user, request.args, out_rows, len(matched), offset)
     out = {"rows": out_rows, "total": len(matched),
            "has_more": offset + limit < len(matched)}
-    if not matched:
+    # RELAX ON A SMALL RESULT, NOT ONLY AN EMPTY ONE. This used to be `if not matched`, so
+    # the panel appeared only when a filter had removed absolutely everything -- which means
+    # the most consequential control in the app was silent in the case that actually happens.
+    # Measured: the default match floor left 34 of 328 entry-level product rows, and the
+    # reader was told nothing about the other 294.
+    #
+    # The cost argument in _relax_suggestions' docstring still holds. It re-runs the filter
+    # once per non-default control, and it now does that on the renders where the reader is
+    # short of results rather than only where they are stuck -- still a handful of passes, on
+    # a page that is by definition returning almost nothing to build.
+    if len(matched) < _RELAX_WHEN_UNDER:
         out["relax"] = _relax_suggestions(rows, statuses, request.args)
     return out
 
@@ -4690,6 +4780,16 @@ def reload_jobs():
     _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
                             persisted=None, meta=None)   # the shared half of _rows_cache
     _rows_clear()                                              # ...and its on-disk copy
+    # THE PICKER COUNT, missed until it was caught by USING the app. /reload says "throw away
+    # every cache, globally" and did not touch this one, so role_counts() kept serving its
+    # 600-second copy straight through an explicit reload. Proved 2026-09-08: _role_counts_for
+    # was already correct (2,969 active product rows) while the picker went on printing 3,846 --
+    # the ALL-rows figure, including 877 CLOSED postings -- after a reload.
+    #
+    # It matters more than a stale count usually would, because it is the FIRST number the
+    # reader sees and the gap it opens is the one this area was fixed to close: a picker saying
+    # 3,846 over a feed showing 720.
+    _role_counts_cache.update(v=None, at=0)
     _profile_cache.clear()
     _resume_cache.clear()
     _status_cache.clear()
@@ -5653,6 +5753,51 @@ _admin_boards_cache = {"data": None, "at": 0.0}
 # uses for the line it prints to the run log, because two different answers to "is this board
 # dead" would be worse than either.
 _BOARD_SILENT_RUNS = 3
+
+
+# BOARD HEALTH FOR ONE EMPLOYER, for /company. The blob is keyed by board URL, not by company,
+# so this is a scan -- bounded by the number of boards (~1,200) and cached with _admin_boards'
+# own TTL because it reads the same blob.
+#
+# WHY A READER SEES THIS AT ALL. Everything derived from board_health lived behind
+# @admin_required, so "we have not been able to read this employer's board for a week" was
+# invisible to the person deciding whether to apply. Their rows keep rendering with normal ages,
+# and for the 50.1% of active rows reconcile_closed has never confirmed, the inventory just
+# decays over the 30-day prune window with nothing saying so.
+#
+# ONE SHARED PREDICATE with the admin panel: scraper.board_run_failed, imported lazily through
+# the same `sc` module /admin/data uses, so the log, the panel and this sentence cannot disagree
+# about what counts as a failure.
+def board_state_for(company):
+    """("", "") | ("silent", n_runs) | ("failing", err) for one employer's board(s).
+
+    STARVED IS NOT REPORTED. A board the sweep's budget never started has no run record at all,
+    which is a fact about our scheduling and not about the employer -- saying "we cannot read
+    this board" of a board we never asked would be the same class of lie this fixes.
+    """
+    key = (company or "").strip().lower()
+    if not key:
+        return "", ""
+    try:
+        blob = db.get_kv("board_health") or {}
+    except Exception:
+        return "", ""
+    try:
+        from scraper import board_run_failed
+    except Exception:
+        return "", ""
+    worst = ("", "")
+    for _url, r in (blob.get("boards") or {}).items():
+        if (r.get("company") or "").strip().lower() != key:
+            continue
+        runs = r.get("runs") or []
+        if not runs:
+            continue
+        if board_run_failed(runs[-1]):
+            return "failing", str(runs[-1].get("err") or "")[:120]
+        if len(runs) >= 3 and all(x.get("n") == 0 and x.get("ok") for x in runs[-3:]):
+            worst = ("silent", len(runs))
+    return worst
 
 
 def _admin_boards(force=False):

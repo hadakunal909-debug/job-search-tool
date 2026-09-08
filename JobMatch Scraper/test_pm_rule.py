@@ -268,6 +268,146 @@ def test_the_jd_lookup_pass_stops_when_its_clock_runs_out():
     assert sum(1 for j in scraped if j.get("jd")) == got
 
 
+# ---------------------------------------------------------------------------------------------
+# THE SOFT VETO, added 2026-09-08. The rule could not admit a PRODUCT posting at all.
+#
+# Measured before the change: the APM_JD below scored 3 anchors and 11 points -- clearing both
+# gates -- and reads_like_pm returned False on four vetoes (figma, go-to-market, user research,
+# wireframes). The veto is tested first and short-circuits, so no amount of product vocabulary
+# could argue back. A delivery role wearing a useless title got a second chance; a product role
+# never did.
+
+# A real Associate PM posting. Every phrase here is ordinary in that job.
+APM_JD = (  # One string per sentence, not a triple-quoted block: a wrapped line can split a
+  # phrase across a newline and the anchor regexes match a literal space. Real stored
+  # descriptions have a median of ZERO newlines, so this is a fixture hazard, not a
+  # corpus one -- measured on 300 of them, none splits "product manager".
+    "Own the product roadmap end to end and report to a Senior Product Manager. "
+    "Run user research and customer discovery, write PRDs and product requirements documents. "
+    "Partner with design on wireframes in Figma, define OKRs, and groom the product backlog. "
+    "Prioritize features, run A/B tests in Amplitude, and work with go-to-market partners on launch. "
+    "You will coordinate cross-functional teams, track milestones and deliverables, and manage stakeholder expectations across the business. "
+    "0-2 years of experience. Bachelor's degree required. This is an entry-level role and we welcome recent graduates.")
+
+# The flood the design block was written for -- and note it is a DIFFERENT posting from
+# "Product Designer", which never reaches this rule at all: scraper.EXCLUDE drops that on
+# "designer" and admits_on_description's caller owns the no-EXCLUDE-hit precondition. What
+# reaches here is the title dropped for want of a keyword, so that is what is fixtured.
+DESIGN_MGR_JD = (  # One string per sentence, not a triple-quoted block: a wrapped line can split a
+  # phrase across a newline and the anchor regexes match a literal space. Real stored
+  # descriptions have a median of ZERO newlines, so this is a fixture hazard, not a
+  # corpus one -- measured on 300 of them, none splits "product manager".
+    "You will own the visual design and evolve our design system. "
+    "Lead ux design and interaction design for core flows, run design reviews, and build wireframes in Figma. "
+    "Partner with product managers on the product roadmap and product vision. "
+    "Conduct user research and usability testing. "
+    "You will coordinate cross-functional stakeholders, track milestones and deliverables against the roadmap, and manage the design backlog. "
+    "8 years of design experience required.")
+
+PRODUCT_MKTG_JD = (  # One string per sentence, not a triple-quoted block: a wrapped line can split a
+  # phrase across a newline and the anchor regexes match a literal space. Real stored
+  # descriptions have a median of ZERO newlines, so this is a fixture hazard, not a
+  # corpus one -- measured on 300 of them, none splits "product manager".
+    "Drive product marketing for our platform and own messaging and positioning. "
+    "Build go-to-market plans with the product managers and support the sales pipeline. "
+    "Run demand generation and content marketing campaigns. "
+    "Partner on the product roadmap and product launch. "
+    "You will coordinate cross-functional stakeholders, own the project plan, track milestones and deliverables, and report status to leadership on time and within budget.")
+
+
+def test_a_product_posting_is_refused_on_the_design_words_and_that_is_the_trade():
+    """THE OWNER'S CALL, 2026-09-08: "figma, wireframes, user research these were good, add
+    them back." This fixture is kept precisely BECAUSE it now fails to be admitted -- it is
+    the clearest statement of what the hard veto costs, and the next person to consider
+    loosening it should meet the trade before the vocabulary.
+
+    The posting is a genuine Associate PM role. It clears both thresholds on its own
+    vocabulary -- three anchors, eleven points -- and is refused purely on the veto, which
+    reads_like_pm tests FIRST and short-circuits. So no amount of product-ownership language
+    can talk the rule into it.
+
+    WHY THAT IS ACCEPTABLE, which is the half worth writing down: this path only ever sees
+    titles that matched NO include keyword. Every ordinary product title now matches one --
+    "product manager", "associate product manager", "product analyst", "product coordinator",
+    "product operations manager", "product mgr" -- so the roles the reader is actually
+    searching for are admitted on their titles and never reach this rule. What is given up
+    is the product role wearing a useless title ("Coordinator II"), in exchange for keeping
+    out the design flood, whose postings are made of these same three words.
+    """
+    # It is the veto doing this, not a shortage of product vocabulary.
+    a, s, v = core.pm_signal(APM_JD)
+    assert a >= core.PM_MIN_ANCHORS, a
+    assert core.pm_points(a, s) >= core.PM_MIN_POINTS, (a, s)
+    assert v >= core.PM_MAX_VETO, v
+    assert not core.reads_like_pm(APM_JD)
+    assert not core.admits_on_description("Coordinator II", APM_JD)
+
+
+def test_the_three_restored_words_are_hard_and_still_scored():
+    """ADMISSION AND SCORING ARE DIFFERENT QUESTIONS, and this is the pair that proves it.
+
+    PM_VETO decides whether a posting whose title matched nothing may enter the corpus.
+    ATS_KEYWORDS decides what a description is SCORED on. Moving these three back to the hard
+    veto must not have cost them their hard-skill weight in analyze_jd, or the reader's match
+    percentage would have quietly dropped on every real product posting."""
+    for w in ("figma", "wireframes", "user research"):
+        assert w in core.PM_VETO, "%s must be a hard veto" % w
+        assert w not in core.PM_VETO_SOFT, "%s must not be in both tiers" % w
+        assert w in core.ATS_KEYWORDS, "%s must still be a scored hard skill" % w
+    assert core.PM_VETO_SOFT == ("design reviews", "go-to-market"), core.PM_VETO_SOFT
+
+
+def test_the_soft_veto_needs_product_anchors_to_be_overturned():
+    """It is an override, not a deletion. Strip the product-ownership phrases and the same soft
+    words bite again -- otherwise this is just a shorter PM_VETO."""
+    assert core.pm_product_anchors(APM_JD) >= core.PM_PRODUCT_MIN
+    # ONLY THE WORDS STILL IN THE SOFT TIER. This fixture used to name user research,
+    # wireframes and Figma as well, and once those went hard it kept passing -- on three HARD
+    # vetoes, not on the soft rule it claims to test. A test that passes for the wrong reason
+    # is worse than one that fails.
+    thin = ("We run design reviews with go-to-market partners. "
+            "You will own the project plan, chair the steering committee, maintain the risk "
+            "register, track milestones and deliverables, and manage stakeholder expectations "
+            "across the business on time and within budget. Jira and Confluence.")
+    assert core.pm_product_anchors(thin) < core.PM_PRODUCT_MIN
+    _a, _s, v = core.pm_signal(thin)
+    assert v >= core.PM_MAX_VETO, "with no product anchors the soft words must still count"
+
+
+def test_the_words_a_designer_owns_stay_hard():
+    """visual design / design system / ux design / interaction design are NOT in the soft tier,
+    which is what keeps the design flood out even though the posting names two product anchors."""
+    for p in ("visual design", "design system", "ux design", "interaction design",
+              "product marketing"):
+        assert p in core.PM_VETO, "%s must stay a hard veto" % p
+        assert p not in core.PM_VETO_SOFT
+    assert core.pm_product_anchors(DESIGN_MGR_JD) >= core.PM_PRODUCT_MIN, (
+        "the fixture has to reach the override for this test to mean anything")
+    assert not core.reads_like_pm(DESIGN_MGR_JD)
+    assert not core.admits_on_description("Product Design Manager", DESIGN_MGR_JD)
+    assert not core.admits_on_description("Director, Product Design", DESIGN_MGR_JD)
+
+
+def test_product_marketing_stays_refused():
+    """A PM posting mentions the function in passing; a product-marketing posting is made of it."""
+    assert not core.reads_like_pm(PRODUCT_MKTG_JD)
+    assert not core.admits_on_description("Product Marketing Manager", PRODUCT_MKTG_JD)
+    assert not core.admits_on_description("Senior Product Marketing Manager", PRODUCT_MKTG_JD)
+
+
+def test_the_soft_and_hard_veto_lists_do_not_overlap():
+    """Same property as PM_ANCHORS/PM_SUPPORT: a phrase in both would be counted twice."""
+    dupes = set(core.PM_VETO) & set(core.PM_VETO_SOFT)
+    assert not dupes, "in both PM_VETO and PM_VETO_SOFT: %s" % sorted(dupes)
+
+
+def test_every_product_anchor_is_a_real_anchor():
+    """PM_PRODUCT_ANCHORS names a SUBSET of PM_ANCHORS. An entry that is not also an anchor
+    would let a posting earn the override without ever scoring on it."""
+    missing = sorted(set(core.PM_PRODUCT_ANCHORS) - set(core.PM_ANCHORS))
+    assert not missing, "in PM_PRODUCT_ANCHORS but not PM_ANCHORS: %s" % missing
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

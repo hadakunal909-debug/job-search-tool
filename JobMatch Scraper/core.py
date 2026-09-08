@@ -411,6 +411,11 @@ ATS_TOOLS = {
     # naming them here fixes it with no tokenizer change and no idf rebuild.
     # "go" is deliberately absent: as a bare token it is ordinary English, not the language.
     "c++", "c#", "ci/cd", ".net",
+    # Product-side tooling. Only the ones under _RARE_W_CAP: amplitude (7.92), mixpanel
+    # (8.53), pendo (9.05), productboard (8.81) and optimizely (10.37) are all ABOVE it, and
+    # wt() applies its x2.5 with no ceiling, so each would outweigh every term the curated
+    # set has ever held. They wait for a ceiling on wt(). figma measured 6.378.
+    "figma",
     # methods / frameworks
     "agile", "scrum", "kanban", "safe", "lean", "six sigma", "lean six sigma", "waterfall",
     "sdlc", "devops", "kaizen", "pmbok", "prince2", "itil", "okr", "okrs", "kpi", "kpis",
@@ -419,8 +424,16 @@ ATS_TOOLS = {
     "pmp", "capm", "csm", "psm", "cspo", "cbap", "green belt", "black belt",
 }
 
-# The domain half: real skills, but the vocabulary employer boilerplate also uses.
-ATS_DOMAIN = {
+# The domain half, split in two on 2026-09-08. Both are real skills written in the vocabulary
+# employer boilerplate also uses; they are separated because they answer different questions
+# about a posting, and because the PRODUCT half did not exist at all until now -- measured,
+# all 40 core product-management terms were absent from the curated set while `jira`,
+# `excel` and `project management` each collected the x2.5 hard-skill boost. In a Product
+# Manager description the most role-defining phrases were scored as ordinary prose.
+#
+# ATS_DOMAIN STAYS THE UNION so every existing reader is unaffected, exactly as
+# ATS_KEYWORDS did for the tools/domain split above. scripts/test_norms.py asserts it.
+ATS_PROJECT_DOMAIN = {
     # PM / analyst / ops domain
     "project management", "program management", "project manager", "program manager",
     "project coordinator", "stakeholder management", "stakeholder", "risk management",
@@ -430,6 +443,28 @@ ATS_DOMAIN = {
     "dashboards", "forecasting", "vendor management", "procurement", "milestones",
     "deliverables", "cross-functional", "roadmap", "status reporting", "project plan",
     "business analysis", "operations", "implementation", "onboarding", "sla", "metrics",}
+
+# THE PRODUCT HALF. Every entry cleared three independent checks -- sub-word hiding, stem
+# collision and sense -- and the ones that did not are named in the commit that added this, with
+# the reason each was rejected. The rule is measurement, not completeness: `discovery`,
+# `retention`, `pricing`, `segmentation`, `cohort`, `usability`, `personas`, `north star`, `rice`
+# and `moscow` are all REFUSED, and the specific form is used instead where one exists
+# (product discovery, customer discovery, pricing strategy, usability testing).
+ATS_PRODUCT_DOMAIN = {
+    # the work itself
+    "product management", "product strategy", "product roadmap", "product lifecycle",
+    "product backlog", "product launch", "product operations", "product discovery",
+    "product analytics", "product marketing",
+    # discovery and evidence
+    "user research", "customer discovery", "customer journey", "market research",
+    "competitive analysis", "design thinking", "wireframes",
+    # measurement and outcomes
+    "experimentation", "monetization", "pricing strategy", "churn", "nps", "mvp",
+    # launch
+    "go-to-market", "gtm",
+}
+
+ATS_DOMAIN = ATS_PROJECT_DOMAIN | ATS_PRODUCT_DOMAIN
 
 ATS_KEYWORDS = ATS_TOOLS | ATS_DOMAIN
 
@@ -1098,8 +1133,43 @@ def _term_in(t, text_low, words, phrase_exact=False):
     if " " in t or any(ch in t for ch in "+#./-"):
         if t in text_low:
             return True
-        if any(f != t and f in text_low for f in _alias_forms(t)):
-            return True
+        # AN ALIAS IS JUDGED THE WAY THE SINGLE-WORD BRANCH BELOW JUDGES ONE, and until
+        # 2026-09-08 it was not: this was a bare `f in text_low`, a substring test with no
+        # boundary, over an alias table that holds TWO-CHARACTER entries. Exactly two
+        # ATS_KEYWORDS members are phrases with such an alias, and both are the heaviest
+        # terms in a delivery posting:
+        #
+        #   business analysis   alias "ba"  fired on 99.7% of product-role postings
+        #                                   against a 6.7% literal presence
+        #                                   (based, Bachelor, backlog, feedback, global)
+        #   project management  alias "pm"  fired on 82.9% against 12.6%
+        #                                   (development, equipment, jpmorganchase)
+        #
+        # BOTH SIDES WERE POISONED. _term_present routes through here too, so a resume
+        # reading "Based in Boston. Bachelor of Science. Led development" answered YES to
+        # both -- a phantom matched against a phantom, each collecting the x2.5 hard-skill
+        # weight. That is why "business analysis" was a core term in 118 of 120 real PM
+        # descriptions and the heaviest scored term on 398 of 700 of them.
+        #
+        # It is the SAME bug class the 2026-09-02 repair removed for single words. It
+        # survived here because scripts/measure_jd_reading.py builds its phantom list from
+        # single unpunctuated words only (deliberately), so the instrument that gated that
+        # repair is structurally blind to this branch -- and test_scoring.py pins the
+        # phrase rule with `business requirements`, which has no short alias.
+        #
+        # A PHRASE alias keeps the substring test, because a substring test IS a phrase
+        # test. A WORD alias has to be a whole token, which is what the branch at the end
+        # of this function has always required. WORD_RE keeps "ba/bs" as one token, so the
+        # bachelor-degree form does not fire either; a standalone "ba" occurs in 0.50% of
+        # postings and "pm" in 3.85%, which is the real signal and it survives.
+        for f in _alias_forms(t):
+            if f == t:
+                continue
+            if " " in f or any(ch in f for ch in "+#./-"):
+                if f in text_low:
+                    return True
+            elif f in toks:
+                return True
         if phrase_exact:
             # ASKING A DIFFERENT QUESTION. Below, "every word of the phrase is present as a
             # stem" is the right rule for a RESUME -- "project management" should be answered by
@@ -2042,15 +2112,36 @@ def parse_visa_pref(s):
     return tuple(t for t in VISA_TAGS if t in want)
 
 
-def visa_tags_match(row_tags, wanted):
+def visa_tags_match(row_tags, wanted, blocked=False):
     """OR semantics: a row passes if it carries ANY wanted tag. No wanted tags == no filter.
 
-    OR rather than AND on purpose — five AND-ed checkboxes return almost nothing, and the
+    OR rather than AND on purpose -- five AND-ed checkboxes return almost nothing, and the
     question a user is asking is "H-1B *or* green card", not "both at once".
+
+    ABSENCE IS NOT A REFUSAL, and until 2026-09-08 this returned False for it. An empty tag set
+    means one of two completely different things:
+
+      * we hold no federal filing record for this employer -- SILENCE. 3,596 active rows
+        (10.4%), and 26 of them are CAP-EXEMPT employers, which is the sharpest case there is:
+        a university files no H-1B petitions because it does not need to (no lottery), so "no
+        record" there means the best route available. Ticking H-1B deleted exactly those.
+      * this posting's own text rules sponsorship out, so visa_tags_for_posting stripped every
+        tag (see _BLOCKS_EVERYONE). 8,244 rows (23.8%). That is the EMPLOYER answering the
+        question, it stays removed, and `hidenospon` is the control built for it.
+
+    Conflating the two is what made the old rule look defensible. Measured: ticking H-1B removed
+    13,133 rows (37.9%) and now removes 9,537 (27.5%). core.py's sponsor_rank note argues the
+    same thing for ranking; templates/_filterbar.html has been printing "No route shown means no
+    record, not a refusal" directly above the checkboxes that did the opposite.
+
+    `blocked` is the posting's sponsor_jd verdict. Callers that cannot see it get the safe,
+    inclusive answer, which is the direction this whole change is in.
     """
     if not wanted:
         return True
-    return bool(set(wanted) & set(row_tags or ()))
+    if set(wanted) & set(row_tags or ()):
+        return True
+    return not (row_tags or blocked)
 
 
 # ------------------------------------------------------------
@@ -2077,6 +2168,18 @@ _AGENCY_NAMES = (
     "eteam", "judge group", "beacon hill", "signature consultants", "experis", "yoh",
     "system one", "mastech", "diverse lynx", "compunnel", "artech", "cybercoders",
     "on-board", "us tech solutions", "pyramid consulting", "nesco resource", "roljobs",
+    # MEASURED 2026-09-08 and it was the biggest single omission here: Michael Page is 453
+    # active rows and 3.6% of the whole delivery-family feed -- the SECOND-largest employer in
+    # it after Amazon -- and none of them were badged. PageGroup is a global recruitment firm,
+    # so every one of those cards is a middleman listing. Nothing in _AGENCY_RE could catch it:
+    # the name carries no staffing word at all, which is exactly why a named list exists
+    # alongside the shape regex.
+    #
+    # Deliberately NOT added at the same time: "hays" (2 rows, and the bare substring would
+    # fire on any name containing it), and the IT-services giants Cognizant/Infosys/HCL/TCS/
+    # Wipro/Accenture/Deloitte, which BODYSHOP_RE's note above already rules out on purpose --
+    # they hire directly and a wrong Agency badge costs more trust than a missing one.
+    "michael page",
 )
 
 
@@ -2502,6 +2605,12 @@ ROLE_GROUPS = [("deliver", "Product, Program & Delivery"),
                ("data", "Data & AI"),
                ("biz", "Business & Operations")]
 ROLE_FAMILIES = [
+    # 2026-09-08: the 109 INCLUDE phrases below were admitted by the scraper and claimed by
+    # no family, so a title matching only one of them came back from roles_for_title as ()
+    # and was deleted by ANY role selection. Grouped by the family each was admitted for;
+    # test_title_filter.test_every_include_phrase_is_claimed_by_a_family now enforces the
+    # invariant over the whole list, with only the 15 LEVEL words ("intern", "new grad")
+    # allowed to belong to no family -- those describe a rung, not a job.
     # 2026-08-20: each family below gained the phrases the title filter gained on the same day,
     # because these two vocabularies are read by different halves of the app and a title the
     # scraper now KEEPS but no family CLAIMS is invisible to anyone who ticks a role chip --
@@ -2512,25 +2621,44 @@ ROLE_FAMILIES = [
      ("project manager", "project management", "construction project manager",
       "technical project manager", "project lead", "project controls",
       "project mgr", "proj mgr", "pmo", "epmo", "project management office",
-      "project analyst", "project specialist", "project support", "project administrator")),
+      "project analyst", "project specialist", "project support", "project administrator",
+      "project associate", "project portfolio", "project control", "project control analyst",
+      "controls analyst", "cost controls", "cost control", "cost analyst", "scheduler",
+      "project scheduler", "master scheduler", "planner scheduler", "project planner",
+      "planning analyst", "resource planner", "proj manager", "portfolio manager")),
     ("program",    "Program Manager",       "deliver",   # 518 + 347 + 50
      ("program manager", "technical program manager", "program management", "tpm",
       "program mgr", "prog mgr", "pgm mgr", "program analyst", "program administrator",
       # British spelling, and the one misspelling that measured non-zero (3 Amazon postings).
-      "programme manager", "programme management", "program manger")),
+      "programme manager", "programme management", "program manger",
+      "program specialist", "program lead")),
+    # 2026-09-08: was five phrases against pm's fifteen, and the five titles below were all
+    # in scraper.INCLUDE -- STORED, and claimed by no family. Measured on the live corpus,
+    # 465 product-titled rows came back from roles_for_title as (), and roles_match only
+    # ignores that when nothing is selected: ticking this very chip deleted every one of them
+    # from the feed AND from the email digest. The comment at the head of ROLE_FAMILIES
+    # predicted exactly this, and the property test in test_title_filter.py now enforces it
+    # over the whole INCLUDE list rather than by example.
     ("product",    "Product Manager",       "deliver",   # 905 + 57 + 52
      ("product manager", "technical product manager", "product owner",
-      "associate product manager", "product management")),
+      "associate product manager", "product management", "product managers",
+      "product owners", "associate product owner", "product lead",
+      # In INCLUDE since the product block was written; in no family until now.
+      "product analyst", "product coordinator", "product operations",
+      "product strategist", "product strategy", "product mgr", "prod mgr",
+      "product mgmt")),
     ("coordinator", "Project / Program Coordinator", "deliver",   # 126 + 50
      ("project coordinator", "program coordinator", "operations coordinator",
       "project administrator", "projects coordinator", "programs coordinator",
       "programme coordinator")),
     ("scrum",      "Scrum Master / Agile",  "deliver",
      ("scrum master", "agile coach", "release train engineer", "agile delivery",
-      "product owner")),
+      "product owner",
+      "release train")),
     ("consultant", "Implementation / Solutions Consultant", "deliver",
      ("implementation consultant", "implementation specialist", "implementation manager",
-      "solutions consultant", "solutions architect", "technical consultant")),
+      "solutions consultant", "solutions architect", "technical consultant",
+      "implementation")),
     # NEW 2026-08-20. Delivery and change work was reaching the corpus with no family to answer
     # to: "Product Delivery Manager" at JPMorgan, "Service Delivery Manager" at NetApp and
     # "Finance Manager - Transformation (PMO)" at Swissport all turned up in the description
@@ -2549,13 +2677,29 @@ ROLE_FAMILIES = [
       "software dev engineer", "sde", "full stack developer", "fullstack developer",
       "backend engineer", "back end engineer", "frontend engineer", "front end engineer",
       "embedded software engineer", "platform software engineer", "application developer",
-      "web developer")),
+      "web developer",
+      "software engineering", "software development", "software dev", "swe", "programmer",
+      "programmer analyst", "applications developer", "computer science", "web development",
+      "web engineer", "front-end engineer", "front end developer", "front-end developer",
+      "frontend developer", "front end software", "frontend software", "back-end engineer",
+      "back end developer", "back-end developer", "backend developer", "backend software",
+      "back end software", "back-end software", "full stack", "full-stack", "fullstack",
+      "ui engineer", "ui developer", "javascript developer", "react developer",
+      "mobile engineer", "mobile developer", "mobile software", "ios engineer", "ios developer",
+      "android engineer", "android developer", "game developer", "embedded software",
+      "java developer", "python developer", "net developer", "dotnet developer", "c# developer",
+      "salesforce developer", "sql developer", "rpa developer", "api engineer",
+      "integration engineer", "system development", "application development",
+      "systems development", "systems development engineer")),
     ("devops",     "DevOps / SRE",          "eng",       # 114 + 129 + 41 + 41
      ("devops engineer", "site reliability engineer", "sre", "platform engineer",
-      "infrastructure engineer", "cloud engineer", "devsecops engineer")),
+      "infrastructure engineer", "cloud engineer", "devsecops engineer",
+      "devops", "dev ops", "devsecops", "site reliability", "cloud developer",
+      "cloud support engineer", "kubernetes", "release engineer", "build engineer")),
     ("qa",         "QA / Test Engineer",    "eng",       # 130 + 88
      ("qa engineer", "test engineer", "quality assurance engineer", "automation engineer",
-      "test automation engineer", "sdet")),
+      "test automation engineer", "sdet",
+      "test automation", "qa analyst", "software test", "software quality")),
     ("security",   "Security Engineer",     "eng",       # 78
      ("security engineer", "application security", "information security analyst",
       "cybersecurity analyst", "security analyst")),
@@ -2570,27 +2714,36 @@ ROLE_FAMILIES = [
       "technical lead", "tech lead")),
 
     ("dataeng",    "Data Engineer",         "data",      # 282
-     ("data engineer", "analytics engineer", "etl developer", "data platform engineer")),
+     ("data engineer", "analytics engineer", "etl developer", "data platform engineer",
+      "data engineering", "big data", "etl engineer", "database administrator", "dba",
+      "database engineer", "database developer")),
     ("datasci",    "Data Scientist",        "data",      # 238 + 101
-     ("data scientist", "applied scientist", "research scientist", "data science")),
+     ("data scientist", "applied scientist", "research scientist", "data science",
+      "machine learning scientist")),
     ("dataanalyst", "Data Analyst",         "data",      # 86
      ("data analyst", "analytics analyst", "reporting analyst", "bi analyst",
-      "business intelligence analyst")),
+      "business intelligence analyst",
+      "bi developer", "business intelligence")),
     ("ml",         "Machine Learning / AI", "data",      # 169 + 73 + 60
      ("machine learning engineer", "ml engineer", "ai engineer", "deep learning engineer",
       "computer vision engineer", "nlp engineer", "mlops engineer",
-      "artificial intelligence engineer")),
+      "artificial intelligence engineer",
+      "machine learning", "mlops", "ai developer", "artificial intelligence", "deep learning",
+      "computer vision", "prompt engineer")),
 
     ("ba",         "Business Analyst",      "biz",       # 198
-     ("business analyst", "business systems analyst", "business process analyst")),
+     ("business analyst", "business systems analyst", "business process analyst",
+      "requirements analyst")),
     ("ops",        "Operations Manager",    "biz",       # 381 + 70
      ("operations manager", "operations lead", "branch operations", "business operations",
-      "operations supervisor")),
+      "operations supervisor",
+      "operations analyst", "operations specialist", "operations management")),
     ("finance",    "Financial Analyst",     "biz",       # 328
      ("financial analyst", "finance analyst", "fp&a analyst", "budget analyst")),
     ("supply",     "Supply Chain / Logistics", "biz",    # 54
      ("supply chain manager", "supply chain analyst", "logistics manager",
-      "procurement analyst", "supply chain")),
+      "procurement analyst", "supply chain",
+      "logistics analyst")),
 ]
 ROLE_KEYS = tuple(k for k, _l, _g, _p in ROLE_FAMILIES)
 ROLE_LABELS = {k: lab for k, lab, _g, _p in ROLE_FAMILIES}
@@ -2771,10 +2924,24 @@ PM_VETO = (
     # marketing
     "demand generation", "lead generation", "brand awareness", "marketing campaign",
     "marketing campaigns", "content marketing", "product marketing", "field marketing",
-    "go-to-market", "messaging and positioning", "seo", "paid media", "brand strategy",
+    "messaging and positioning", "seo", "paid media", "brand strategy",
     # design
-    "figma", "wireframes", "user research", "visual design", "design system", "ux design",
-    "interaction design", "design reviews",
+    # BACK IN THE HARD TIER at the owner's direction, 2026-09-08: "figma, wireframes, user
+    # research these were good, add them back." They spent part of a day in PM_VETO_SOFT on
+    # the argument that a product manager COLLABORATES on all three rather than owning them.
+    # The call is that precision beats that recall here, and the reason holds up: these are
+    # the three words a Product DESIGNER posting is made of, and the design flood is what
+    # this block was written for in the first place.
+    #
+    # The cost, so nobody has to rediscover it: the description-rescue path can no longer
+    # admit a product posting naming two of them, so a real product role wearing a title that
+    # matched no keyword is dropped again. Bounded -- the rescue path only sees titles that
+    # matched NOTHING, and every ordinary product title now matches an INCLUDE keyword.
+    #
+    # NOT a scoring change. figma is in ATS_TOOLS and user research / wireframes are in
+    # ATS_PRODUCT_DOMAIN; this list governs ADMISSION only, so no match percentage moves.
+    "figma", "wireframes", "user research",
+    "visual design", "design system", "ux design", "interaction design",
     # accounting / tax. Second measured pass: with sales and marketing shut out, "Senior Tax
     # Manager, Mergers & Acquisitions" and "Tax Technology Automation Manager" were the clearest
     # remaining misses -- their JDs are full of engagements, deliverables and milestones.
@@ -2852,6 +3019,56 @@ _PM_VETO_RE = re.compile(r"\b(?:%s)\b" % "|".join(
 # the threshold -- the TITLE now has to hint at delivery before the description gets a vote at
 # all (PM_TITLE_HINTS below). A description rule with no title gate is not reading a posting, it
 # is scanning the whole board for vocabulary, and "EHS Manager" will always contain some.
+# A FOURTH TIER, AND IT IS WHAT MADE THIS RULE USABLE FOR PRODUCT WORK. Added 2026-09-08.
+#
+# Measured: an ordinary Associate Product Manager description scored 3 anchors and 11 points --
+# clearing PM_MIN_ANCHORS and PM_MIN_POINTS -- and reads_like_pm returned False anyway, on four
+# vetoes: figma, go-to-market, user research, wireframes. The veto is tested first and
+# short-circuits, so no amount of product vocabulary could argue back. A DELIVERY role wearing a
+# useless title got a second chance; a PRODUCT role never did.
+#
+# These five phrases are not evidence of a different profession. They are what a product manager
+# COLLABORATES on, and every real PM posting names them: you run user research, you review
+# wireframes in Figma, you work with go-to-market partners on launch.
+#
+# The words a designer OWNS stay in PM_VETO and stay hard -- visual design, design system, ux
+# design, interaction design. That is the pair this split turns on, and it is why the Ramp and
+# Greenhouse floods the veto was built for do not come back: "Product Designer" is already
+# dropped upstream on an EXCLUDE hit and never reaches this rule at all, while "Product Design
+# Manager" and "Director, Product Design" -- which DO reach it, for want of a keyword -- are
+# refused on the owned words. "product marketing" also stays hard: a PM posting mentions the
+# function in passing, a product-marketing posting is made of it.
+PM_VETO_SOFT = (
+    # THREE OF THE ORIGINAL FIVE WENT BACK TO THE HARD TIER on 2026-09-08 -- see the note
+    # there. These two stay because they are the weakest of the set: a product posting says
+    # "go-to-market partners" in passing constantly, and where marketing really is the
+    # subject "product marketing" already catches it as a hard veto.
+    "design reviews", "go-to-market",
+)
+# The product-ownership phrases that overturn a soft veto. All of them are already in PM_ANCHORS;
+# this names the subset that says "product management" rather than "project delivery".
+PM_PRODUCT_ANCHORS = (
+    "product manager", "product managers", "product owner", "product owners",
+    "product roadmap", "product requirements document", "product discovery",
+    "product lifecycle", "product vision", "feature prioritization", "product backlog",
+    "backlog prioritization", "backlog management",
+)
+# How many distinct product anchors it takes to earn the override. Two, for the same reason
+# PM_MAX_VETO is two: one phrase in passing is not a posting's subject.
+PM_PRODUCT_MIN = 2
+_PM_VETO_SOFT_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_VETO_SOFT, key=len, reverse=True)), re.I)
+_PM_PRODUCT_RE = re.compile(r"\b(?:%s)\b" % "|".join(
+    re.escape(p) for p in sorted(PM_PRODUCT_ANCHORS, key=len, reverse=True)), re.I)
+
+
+def pm_product_anchors(text):
+    """How many DISTINCT product-ownership phrases this text names."""
+    if not text:
+        return 0
+    return len({m.group(0).lower() for m in _PM_PRODUCT_RE.finditer(text)})
+
+
 PM_MIN_ANCHORS = 3
 PM_MIN_POINTS = 8
 PM_ANCHOR_WEIGHT = 2
@@ -2861,12 +3078,20 @@ PM_MAX_VETO = 2
 
 
 def pm_signal(text):
-    """(distinct anchors, distinct support, distinct veto phrases) in a posting's text."""
+    """(distinct anchors, distinct support, distinct veto phrases) in a posting's text.
+
+    The veto count folds in PM_VETO_SOFT only when the text does not carry enough
+    PM_PRODUCT_ANCHORS to overturn it -- see the note above PM_VETO_SOFT. Returning one
+    number keeps every caller and every test that reads the third element unchanged.
+    """
     if not text:
         return 0, 0, 0
     return (len({m.group(0).lower() for m in _PM_ANCHOR_RE.finditer(text)}),
             len({m.group(0).lower() for m in _PM_SUPPORT_RE.finditer(text)}),
-            len({m.group(0).lower() for m in _PM_VETO_RE.finditer(text)}))
+            len({m.group(0).lower() for m in _PM_VETO_RE.finditer(text)})
+            + (0 if pm_product_anchors(text) >= PM_PRODUCT_MIN
+               else len({m.group(0).lower()
+                         for m in _PM_VETO_SOFT_RE.finditer(text)})))
 
 
 def pm_points(anchors, support):
@@ -3146,13 +3371,40 @@ def posting_key(title, company, location, require_location=False):
 # 29.2%, so a stored floor of 50 admits ~60% more rows than it did when it was chosen. That is
 # a change of KIND, not of degree -- the filter silently stops filtering -- which is exactly
 # what normalize_prefs' scale migration below exists for.
-MIN_SCALE = 4
+# 5: the 2026-09-08 ALIAS-PHANTOM repair (core._term_in). A two-character alias was being
+#    substring-matched with no word boundary, so `business analysis` (alias "ba") fired on
+#    99.7% of product-role postings against a 6.7% literal presence, and `project
+#    management` (alias "pm") on 82.9% against 12.6%. Both sides were poisoned -- the
+#    resume matcher routes through the same function -- so each was a free full-weight hit
+#    on both halves of the comparison.
+#
+#    Measured on the owner's real resume.txt over 700 real product descriptions:
+#        p50 35 -> 27 ;  share >= 50  11.4% -> 5.9% ;  share >= 30  ~60% -> 44.0%
+#    The filter now filters roughly twice as hard at any given floor, which is a change of
+#    KIND in exactly the sense v4 describes -- in the opposite direction. So the scale
+#    moves, and every stored floor resets to DEFAULT_PREFS["min"], which is now 0. That is
+#    the reason this bump is cheap where v4's would have been disruptive: resetting to a
+#    NO-FLOOR default cannot silently over-filter anybody.
+MIN_SCALE = 5
 
 DEFAULT_PREFS = {
-    # "I have at least half the skills this job emphasises." On the v3 scale that admits about
-    # a quarter of the corpus, against 5.7% for the old 45 — so the feed is far wider than it
-    # was without the number ever flattering anyone.
-    "min": 50,            # minimum match %
+    # ZERO, at the owner's direction 2026-09-08: "it's okay, don't hide anything."
+    #
+    # It was 50, and the comment here said that "admits about a quarter of the corpus".
+    # Measured on the live corpus it admits 9.3%, and on the population this reader is
+    # actually looking for it is far worse: of the 328 entry-level product postings inside
+    # the default date window, a floor of 50 removes 294 of them -- 90%. The sensitivity is
+    # a cliff, not a slope (45 leaves 84, 30 leaves 274, 0 leaves 328), so there was no
+    # value of this number that both filtered and kept the supply.
+    #
+    # NOTHING IS LOST FROM THE TOP OF THE FEED, which is why this is safe: `sort` defaults
+    # to "score", so the best matches are still the first cards. The floor only ever
+    # deleted the tail. And the slider is still there at max=75 for anyone who wants one.
+    #
+    # A STORED floor is untouched -- normalize_prefs only resets one when MIN_SCALE moves,
+    # and MIN_SCALE means "the score changed meaning". Bumping it for a default change
+    # would spend that version number on the wrong thing.
+    "min": 0,             # minimum match %; 0 = no floor
     "min_scale": MIN_SCALE,
     "loc": "",            # metro / city / 2-letter state / "remote"
     "remote": False,
@@ -3172,7 +3424,7 @@ DEFAULT_PREFS = {
     # csv subset of ROLE_KEYS — "what kind of job do you want", the thing `track` only ever
     # answered two ways. Empty = every role, so an untouched account sees the whole corpus.
     "roles": "",
-    "exp": "any",         # any | 2 | 5 | senior
+    "exp": "any",         # any | entry | 2 | 5   ("senior" is legacy)
     # Drop postings whose description states NO year count. Off by default, deliberately: the
     # keep-on-unknown rule below exists because many genuine entry-level posts state no number,
     # and dropping them silently would hide real jobs.
@@ -3198,12 +3450,31 @@ DEFAULT_PREFS = {
     # score | newest | sponsor. "sponsor" ranks by how sponsorable a posting is (see
     # web._row_sponsor_rank) rather than filtering on it — filtering would hide employers the
     # federal files simply don't list, e.g. cap-exempt universities.
+    # THE SEARCH BOX IS A PREFERENCE NOW. It was not in this dict, so normalize_prefs -- which
+    # builds from DEFAULT_PREFS and validates every key against it -- dropped it, and a typed
+    # search evaporated on reload, could not be saved as a default and could not drive the
+    # email digest. For a reader whose real search is a PHRASE ("associate product manager")
+    # that was the one expression of intent the app could not keep.
+    #
+    # It matters more than it looks: web._filter_rows reads
+    # `if not (searching or r["score"] >= minv)`, so an active search BYPASSES the match
+    # floor. The one control that made this app work for a narrow search was also the only
+    # one that could not be persisted.
+    "q": "",              # free-text title/company/location search
     "sort": "score",
     "alerts": "off",      # off | daily  — email digest of new matches
     "alert_min": 0,       # extra match floor for the email only; 0 = use `min`
 }
 _PREF_CHOICES = {
-    "exp": ("any", "2", "5", "senior"),
+    # "entry" filters on the LEVEL (core.level_for), not on a year ceiling: the numeric
+    # values answer "could I be considered", which is a different question from "is this
+    # an entry-level job". Measured -- "0 to 2 Years" returns 417 product rows and 176 of
+    # them are entry by description; the rest have no readable number and are kept, which
+    # is right and is also why the ceiling cannot answer the level question.
+    #
+    # "senior" is LEGACY, kept so a saved search still round-trips. It filtered identically
+    # to "5" -- both keep yrs <= 5 -- and no option has ever rendered it.
+    "exp": ("any", "entry", "2", "5", "senior"),
     "intern": ("any", "only", "no"),
     "track": ("any", "dev", "mgmt"),
     "date": ("any", "1", "7", "30", "90"),
@@ -3302,7 +3573,8 @@ def prefs_match(row, prefs):
         return False
     if p.get("hidenospon") and row.get("sponsor_jd") == "blocked":
         return False
-    if not visa_tags_match(row.get("visa"), parse_visa_pref(p.get("visatags"))):
+    if not visa_tags_match(row.get("visa"), parse_visa_pref(p.get("visatags")),
+                           row.get("sponsor_jd") == "blocked"):
         return False
     # Unlike verifiedonly, this one DOES belong in the digest: "I want Project Manager jobs" is
     # exactly as true of an email as of the feed, and a new posting's role is known the moment
@@ -3333,6 +3605,17 @@ def prefs_match(row, prefs):
     if track != "any" and (row.get("track") or role_track(row.get("title"))) != track:
         return False
     exp = p.get("exp") or "any"
+    r_intern = bool(row.get("intern"))
+    if exp == "entry":
+        # THE LEVEL, not a ceiling -- see DEFAULT_PREFS. Kept when we could not tell, the
+        # same keep-on-unknown contract the numeric values have. Falls back to reading the
+        # title so a digest row cached before `level` existed still filters.
+        lv = row.get("level")
+        if lv is None:
+            lv = title_level(row.get("title") or "")
+        if (lv or "") not in ("", "entry"):
+            return False
+        return True
     if exp != "any":
         # exp_eff: the highest year count the DESCRIPTION states, or the floor the TITLE implies
         # when it states none. A posting with neither is always kept — same rule as
@@ -3345,7 +3628,9 @@ def prefs_match(row, prefs):
             except (TypeError, ValueError):
                 yrs = None
             if yrs is not None:
-                if exp == "senior":
+                if r_intern:
+                    pass                       # see web._filter_rows: an internship IS entry
+                elif exp == "senior":
                     if yrs >= 6:
                         return False
                 elif yrs > (int(exp) if str(exp).isdigit() else 99):
@@ -3377,6 +3662,25 @@ def location_matches(row, needle):
     hay = ((row.get("loc_metro") or "") + " " + (row.get("loc_state") or "") + " " +
            (row.get("location") or "")).lower()
     return needle in hay
+
+
+# INTERNSHIP / CO-OP DETECTION FROM THE TITLE. THE ONE DEFINITION, moved here 2026-09-08.
+#
+# There were two and they disagreed. This pattern lived in web.py; digest_row carried its own
+# narrower inline copy with no plurals, no "summer analyst" and no "summer associate". So
+# "Product Manager Summer Associate" and "Product Management Co-ops" were internships in the
+# FEED and ordinary jobs in the EMAIL, which made the intern filter mean two different things
+# depending on which surface you were reading -- in the one field whose entire purpose is to
+# separate the level this reader is applying at from the rest of the corpus.
+#
+# Whole-word, so it never fires on "international" or "internal". The finance spellings
+# "summer analyst" / "summer associate" are in because banks title APM-adjacent internships
+# that way and nothing else in the app would catch them.
+#
+# web.py aliases this rather than importing it into a local name of its own -- see the note
+# there. There is no client twin: `intern` is computed server-side and shipped as a bool.
+INTERN_RE = re.compile(
+    r"\b(?:intern(?:s|ship|ships)?|co[-\s]?ops?|summer analyst|summer associate)\b", re.I)
 
 
 def digest_row(job, score, everify_index=None, visa_index=None, counts_index=None):
@@ -3436,7 +3740,7 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
         # exp_eff / exp_src are web._build_row's twins, and prefs_match compares exp_eff — so
         # leaving them out would silently make the email a laxer filter than the feed.
         "exp_eff": _exp_eff if _exp_eff is not None else "", "exp_src": _exp_src,
-        "intern": bool(re.search(r"\b(intern|internship|co-?op)\b", job.get("title") or "", re.I)),
+        "intern": bool(INTERN_RE.search(job.get("title") or "")),
         "closed": active is False or str(active).strip().lower() == "false",
     }
 
@@ -4017,7 +4321,15 @@ def experience_level(text):
 # consulted when there is no stated floor at all. See web._build_row's exp_eff / exp_src.
 _TITLE_SENIOR_RE = re.compile(
     r"\b(?:senior|sr|staff|principal|distinguished|fellow|architect|director|lead|"
-    r"vp|svp|evp|vice\s+president|head\s+of|chief|c[tefoi]o)\b"
+    r"vp|svp|evp|vice\s+president|head\s+of|chief)\b"
+    # c[tefoi]o USED TO SIT IN THE LINE ABOVE and it matched an ORG NAME, not a level.
+    # Measured 2026-09-08: "Associate Product Manager, CFO Technology" came back 6,
+    # likewise "Technical Product Manager - CTO Office", "Product Manager, CIO
+    # Organization" and "Product Manager - COO Office" -- so those rows were hidden
+    # from BOTH "0 to 2 Years" and "3 to 5 Years" and badged "senior role" on the card.
+    # Six of the eight senior-inferred rows in the real product corpus were this bug.
+    # A c-suite TITLE is the person; a c-suite ORG is where the work sits.
+    r"|\bc[tefoi]o\b(?!\s*(?:office|organi[sz]ation|org|team|group|technology))"
     r"|\bassociate\s+(?:director|vice\s+president|vp|partner|principal)\b", re.I)
 # A junior word VETOES a senior one, because the pair means the junior rung of a senior ladder:
 # "Junior Architect", "Associate Director Intern", "Early Career Leadership Program".
@@ -4097,6 +4409,198 @@ def experience_floors(text):
     if pref is not None and req is not None and pref <= req:
         pref = None
     return req, pref
+
+
+# ------------------------------------------------------------
+# LEVEL -- "how senior is this job", which is NOT "how many years does it state"
+#
+# Read from the DESCRIPTION first and the title only as a fallback, the same way the years are
+# (experience_years, then title_experience_tier, which is documented "Never overrides a
+# description"). A level is a claim about the job, so it comes from where the employer described
+# the job.
+#
+# WHY THIS IS A SEPARATE FUNCTION FROM title_experience_tier. That one answers "what YEARS does
+# this title imply" and test_experience_years.py records the measurement that keeps it honest:
+# bare "associate" is only 64.1% predictive of a low year count, and "Associate Director" is
+# median 8 years, so inventing a years FLOOR from it would cut an entry-level project feed in
+# half. A LEVEL carries no number and needs no such bar -- "Associate Product Manager" is an
+# associate-level posting whatever years its text turns out to state, and where the two disagree
+# the text wins because the text is what the employer wrote about THIS req.
+#
+# MEASURED, 2026-09-08, over 2,575 stored product-role descriptions:
+#   * 2,130 state a year count, and exp_level_for already turns that into a level.
+#   * 14 more say it only in WORDS, with no number anywhere. Small -- 0.5% -- and correct.
+#   * 431 say nothing either way and stay "".
+# The value is not the 14 rows. It is that the level then exists as a thing the CARD can draw:
+# of the 417 rows the "0 to 2 Years" filter correctly returns, 241 print no level word at all,
+# so the reader falls back to the title -- and on those cards the title is wrong 95 times
+# ("Product Manager II", "Product Owner I", four Capital One "Senior Associate, Product Manager"
+# reqs, where that grade IS the early-career rung).
+_JD_ENTRY_RE = re.compile(
+    r"\b(?:entry[-\s]?level|new\s+grad(?:uate)?s?|recent\s+grad(?:uate)?s?|"
+    r"students?\s+graduating|graduating\s+(?:seniors?|students?)|campus\s+hire|"
+    r"no\s+(?:prior\s+)?(?:work\s+)?experience\s+(?:is\s+)?"
+    r"(?:necessary|required|needed|expected)|"
+    r"early\s+in\s+(?:your|their)\s+career|rotational?\s+program(?:me)?)\b", re.I)
+# A LEVEL CLAIM ABOUT SOMEBODY ELSE IS NOT A LEVEL CLAIM ABOUT THIS REQ. Same guard shape as
+# _jd_says_remote's _REMOTE_NEG_RE: "you will mentor recent graduates" and "partner with our
+# new grad cohort" describe who the hire works WITH.
+_JD_ENTRY_NEG_RE = re.compile(
+    r"\b(?:mentor(?:ing|s)?|manage|managing|lead(?:ing|s)?|coach(?:ing|es)?|supervis\w+|"
+    r"partner\s+with|support(?:ing|s)?|onboard(?:ing|s)?|train(?:ing|s)?|hire|hiring|"
+    r"recruit\w*|our|a\s+cohort\s+of)\s+(?:\w+\s+){0,3}$", re.I)
+_JD_ENTRY_LOOKBACK = 60
+
+
+def jd_level(text):
+    """"entry" | "mid" | "senior" | "" for a DESCRIPTION.
+
+    The number first, because 83% of stored descriptions state one and exp_level_for is already
+    the tested way to bucket it. The words only where there is no number at all -- a posting that
+    says "0-2 years" and also says "recent graduates welcome" is answered by its number either
+    way, and letting the words override it would be the mistake experience_years' docstring
+    warns about in the other direction.
+    """
+    if not text:
+        return ""
+    y = experience_years(text)
+    if y is not None:
+        return exp_level_for(y)
+    for m in _JD_ENTRY_RE.finditer(text):
+        before = text[max(0, m.start() - _JD_ENTRY_LOOKBACK):m.start()]
+        if not _JD_ENTRY_NEG_RE.search(before):
+            return "entry"
+    return ""
+
+
+# The TITLE fallback. Bare "associate" and the numeral rung live here and NOT in
+# title_experience_tier -- see the note above.
+_TITLE_ENTRY_RE = re.compile(
+    r"\b(?:associate|assoc|assistant|apm|junior|jr|entry[-\s]?level|new\s+grad(?:uate)?|"
+    r"university\s+grad(?:uate)?|graduate|intern|interns|internship|co-?op|apprentice|"
+    r"trainee|campus|early\s+career|rotational?)\b"
+    r"|\b(?:i|1)\b\s*$|\(\s*(?:l|level)\s*1\s*\)", re.I)
+# ...and the leak the senior regex never closed. Measured: "Group Product Manager", "Product
+# Manager II/III/IV", "Manager II, Product Management", "Product Manager (L5)" and "Advanced
+# Product Manager" all returned tier None and appeared under "0 to 2 Years". These are LEVEL
+# claims, not year counts, which is exactly why they belong here rather than in
+# title_experience_tier -- 1,098 of 1,106 product titles get None from that function and only 8
+# get a number, so a level is the only honest place to put them.
+_TITLE_SENIOR_LEVEL_RE = re.compile(
+    r"\b(?:group|advanced|expert|master)\s+(?:\w+\s+){0,2}"
+    r"(?:manager|management|owner|analyst|engineer|lead)\b"
+    r"|\b(?:ii|iii|iv|v|vi)\b|\(\s*(?:l|level)\s*[3-9]\d*\s*\)"
+    # ...and the same words written AFTER the noun: "Product Manager - Expert".
+    r"|\b(?:manager|management|analyst|engineer|lead|owner)\b[\s,\-]*(?:expert|advanced|master)\b"
+    r"|\b(?:l|level)\s*[3-9]\d*\b"
+    r"|\b(?:l|level)\s*[3-9]\d*\b", re.I)
+
+
+# "ASSOCIATE" IS TWO DIFFERENT WORDS and this is where they are separated.
+#
+# "Associate Director" / "Associate VP" / "Associate Partner" is the junior rung of a SENIOR
+# ladder -- title_experience_tier already answers 6 for it, and test_experience_years.py freezes
+# that with the measurement behind it (median 8 years). Bare "associate" firing first read
+# "Associate Director PMO" as entry, which is the opposite of true.
+_TITLE_SENIOR_ASSOC_RE = re.compile(
+    r"\bassociate\s+(?:director|vice \s*president|vp|svp|partner|principal|"
+    r"general \s*counsel|dean|provost)\b", re.I)
+# ...and "Senior Associate" cannot be settled from a title at all. At Capital One that grade IS
+# the early-career rung -- four such reqs in the measured product corpus read entry from their
+# own descriptions -- and in consulting and banking it is mid-level. So the title says nothing
+# and jd_level decides, which is the point of reading the description first.
+_TITLE_AMBIG_ASSOC_RE = re.compile(r"\b(?:senior|sr)\.?\s+assoc(?:iate)?\b", re.I)
+
+
+def title_level(title):
+    """"entry" | "senior" | "" from a TITLE alone. Only consulted where jd_level returned "".
+
+    PRECEDENCE IS THE WHOLE FUNCTION, in this order:
+      1. an unambiguous junior word wins outright, even inside a senior ladder -- the rule
+         _TITLE_JUNIOR_RE already encodes ("Associate Director Intern", "Junior Architect");
+      2. then the senior-associate forms, so bare "associate" cannot claim them;
+      3. then "Senior Associate", which is a genuine coin flip and answers nothing;
+      4. then the entry vocabulary, which is where bare "associate" and the numeral rung live;
+      5. then seniority, by word or by level number.
+    """
+    t = title or ""
+    if not t:
+        return ""
+    if _TITLE_JUNIOR_RE.search(t):
+        return "entry"
+    if _TITLE_SENIOR_ASSOC_RE.search(t):
+        return "senior"
+    if _TITLE_AMBIG_ASSOC_RE.search(t):
+        return ""
+    if _TITLE_ENTRY_RE.search(t):
+        return "entry"
+    if _TITLE_SENIOR_RE.search(t) or _TITLE_SENIOR_LEVEL_RE.search(t):
+        return "senior"
+    return ""
+    if _TITLE_ENTRY_RE.search(t):
+        return "entry"
+    if _TITLE_SENIOR_RE.search(t) or _TITLE_SENIOR_LEVEL_RE.search(t):
+        return "senior"
+    return ""
+
+
+def senior_title_veto(level, title):
+    """A senior TITLE overrules an entry/mid level. THE one rule, shared by both level paths.
+
+    Years and level are different claims. "2+ years" is the FLOOR an employer will accept;
+    "Senior" is the employer's own name for the rung, and for a LEVEL question that is the more
+    direct evidence. Without this, a Senior Product Manager whose description happens to state
+    "2+ years" reads as entry -- measured on the live feed 2026-09-08, 86 of the 716 rows an
+    "Entry Level / Associate" filter returned were senior-titled, 12.0%.
+
+    Same precedence title_level already applies internally, where a junior word beats a senior
+    ladder. It only ever moves a level UP to senior, so it cannot manufacture an entry role.
+
+    "Senior Associate" is deliberately unaffected: title_level returns "" for it, because at
+    Capital One and the banks that grade IS the early-career rung and the phrase is a genuine
+    coin flip.
+    """
+    if level and level != "senior" and title_level(title) == "senior":
+        return "senior"
+    return level
+
+
+def level_from_exp(exp_eff, exp_src, title):
+    """(level, source) for a surface that has the YEARS but not the description.
+
+    The feed is exactly that surface: get_jobs skips the jd column on purpose, so the card and
+    the filter cannot call level_for. This keeps the derivation in one place with the veto
+    applied, instead of open-coded in web._build_row where it drifted away from level_for.
+
+    Coarser than level_for BY CONSTRUCTION -- a year band is not a level -- which is why the
+    veto matters more here, not less.
+    """
+    level = exp_level_for(exp_eff) if exp_eff is not None else ""
+    src = "stated" if (level and exp_src == "stated") else ("inferred" if level else "")
+    if not level:
+        level = title_level(title)
+        src = "inferred" if level else ""
+    vetoed = senior_title_veto(level, title)
+    if vetoed != level:
+        return vetoed, "inferred"          # the TITLE settled it, whatever the years said
+    return level, src
+
+
+def level_for(jd_text, title):
+    """The one definition every surface reads: (level, source).
+
+    source is "stated" when the description settled it, "inferred" when the title did, and ""
+    when neither could -- the same three-way distinction exp_eff/exp_src already draws, so the
+    card can print a word and /job can say where it came from.
+    """
+    lv = jd_level(jd_text)
+    if lv:
+        # THE SAME VETO the card path gets. A description that says '2+ years' inside a
+        # Senior Product Manager posting is stating a floor, not a level.
+        vetoed = senior_title_veto(lv, title)
+        return (vetoed, "inferred") if vetoed != lv else (lv, "stated")
+    lv = title_level(title)
+    return (lv, "inferred") if lv else ("", "")
 
 
 def title_experience_tier(title):

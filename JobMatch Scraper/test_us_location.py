@@ -131,6 +131,71 @@ def test_csb_foreign_forms_still_drop():
                 ("London, United Kingdom", False), ("Hart bei Graz, Steiermark, AT, 8075", False)])
 
 
+def test_a_state_code_needs_no_comma():
+    """THE 2026-09-08 FIX, and the reason this file's own header understates the stakes.
+
+    _STATE_ABBR_RE required a comma before the code, so every US posting written any other way
+    was dropped at ingest -- permanently, never retried, and unrecorded because dump_reject is a
+    no-op unless DUMP_REJECTS is set. The 2026-09-06 sweep logged 33,704 rows in the "non-US
+    location" bucket and these shapes were inside it. core.parse_location has read all of them
+    since long before, which is what makes this a disagreement between two functions rather than
+    a hard problem.
+    """
+    _check([("Boston MA", True), ("Chicago IL", True), ("Austin TX", True),
+            ("New York NY", True), ("Seattle WA 98101", True), ("Denver CO 80202", True),
+            # State FIRST with a dash. Standard on several tenants, and the shape docs/INDEX.md
+            # named as the example loss ("WI - Appleton") without anyone fixing it.
+            ("WI - Appleton", True), ("MA - Boston", True), ("TX - Dallas", True),
+            ("CA - San Jose", True),
+            # A bare code is a location. "MA" is Massachusetts, not an unknown.
+            ("MA", True)])
+
+
+def test_the_trailing_form_is_case_sensitive_on_purpose():
+    """The one shape with no separator to lean on, so it gets the strictest rule -- the same one
+    core._TRAIL_CODE_RE uses. Case-insensitive it fires on any string ending in a two-letter
+    word, and "based in" would resolve to Indiana."""
+    assert scraper._us_state_in("Boston MA") == "MA"
+    assert scraper._us_state_in("boston ma") == ""
+    assert scraper._us_state_in("we are based in") == ""
+    # ...while a separator IS structure, so those two forms stay case-insensitive.
+    assert scraper._us_state_in("boston, ma") == "MA"
+    assert scraper._us_state_in("wi - appleton") == "WI"
+
+
+def test_an_arrangement_in_the_location_field_is_not_a_foreign_country():
+    """A board that writes the work arrangement where the place goes used to lose every row:
+    none of these matched a state, a state name, "remote" or the country, so they fell through
+    to the final `return False`. core.parse_location already lists them as tokens meaning "not a
+    place"; unknown means KEEP, which is this function's own documented contract."""
+    _check([("Hybrid", True), ("Onsite", True), ("On-Site", True), ("Anywhere", True),
+            ("Various", True), ("Flexible", True), ("Nationwide", True), ("Virtual", True),
+            ("Work From Home", True), ("TBD", True), ("N/A", True), ("Unspecified", True)])
+
+
+def test_whitespace_only_is_blank():
+    """"" was kept and "   " was dropped -- the same information, the opposite verdict,
+    because `if not loc` is False for a truthy blank string."""
+    _check([("", True), ("   ", True), ("\t", True), ("\n  ", True)])
+
+
+def test_the_looser_state_test_is_still_behind_the_foreign_veto():
+    """The whole safety argument for dropping the comma. _NON_US_RE runs FIRST and unchanged, so
+    a foreign string whose last two letters happen to be a US state code still drops: "Berlin DE"
+    resolves DE (Delaware) and is refused on "berlin". Measured over 33 foreign spellings, the
+    only admission is "Ontario CA" -- and Ontario, California is a real city of 175,000 with its
+    own international airport, so that one is an answer and not a leak. "Ontario, Canada" drops.
+    """
+    assert scraper._us_state_in("Berlin DE") == "DE", "the state test does resolve it"
+    _check([("Berlin DE", False), ("London UK", False), ("Mumbai MH", False),
+            ("Manila PH", False), ("Sao Paulo BR", False), ("Mexico City MX", False),
+            ("Tel Aviv IL", False), ("Amsterdam NL", False), ("Krakow PL", False),
+            ("Bengaluru, KA", False), ("Toronto, ON", False), ("Vancouver, BC", False),
+            ("Ontario, Canada", False)])
+    # Deliberate: the US city, not the Canadian province.
+    _check([("Ontario CA", True)])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
