@@ -1563,8 +1563,25 @@ def _score_rev(resume):
             except Exception:
                 pass
         # The tunables live at module scope, so a weight change is invisible to getsource above.
+        #
+        # ...AND SO IS THE VOCABULARY, which is why ATS_KEYWORDS joined this tuple on
+        # 2026-09-08. getsource(analyze_jd) contains the IDENTIFIER and not the value, so
+        # adding a term left this rev unchanged, _load_cursor returned the stored cursor,
+        # and the resumable pass carried on from where it stopped -- head of the corpus on
+        # the new vocabulary, tail on the old, for the ~22 heavy runs a cursor takes to
+        # lap. jd_fp/facts_fp hash the description TEXT, which a vocabulary edit does not
+        # touch, so scripts/check_derived.py would have reported the corpus healthy
+        # throughout. Same failure the note above records for clean_jd and
+        # experience_years, one level further out.
+        #
+        # sorted() IS LOAD-BEARING: repr() of a SET is order-randomised per process by
+        # PYTHONHASHSEED (see core.analyze_jd's note on pack_analyzed), so the unsorted
+        # spelling would differ on every run, discard the cursor every run, and starve
+        # the tail exactly as if there were no cursor at all -- the precise failure the
+        # except branch below exists to avoid.
         src += repr((getattr(core, "CORE_WEIGHT_FRACTION", ""), getattr(core, "MIN_SCALE", ""),
-                     getattr(core, "_MIN_JD_CHARS", ""))).encode("utf-8")
+                     getattr(core, "_MIN_JD_CHARS", ""),
+                     sorted(getattr(core, "ATS_KEYWORDS", ())))).encode("utf-8")
         src += (resume or "").encode("utf-8", "replace")
         return hashlib.sha1(src).hexdigest()[:12]
     except Exception:

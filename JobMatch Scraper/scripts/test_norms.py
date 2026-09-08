@@ -191,6 +191,53 @@ def _corpus_checks():
     return meta
 
 
+def test_the_domain_half_is_itself_split_and_the_union_is_unchanged():
+    """The 2026-09-08 product split, held to the same contract the tools/domain split made:
+    ATS_DOMAIN stays the union, so every existing reader is unaffected and only code that WANTS
+    one half names one. norms.distinctive reads ATS_TOOLS only and is untouched by this."""
+    assert core.ATS_PROJECT_DOMAIN | core.ATS_PRODUCT_DOMAIN == core.ATS_DOMAIN
+    assert not (core.ATS_PROJECT_DOMAIN & core.ATS_PRODUCT_DOMAIN), (
+        "the domain halves must be disjoint, or a term is counted twice: %s"
+        % sorted(core.ATS_PROJECT_DOMAIN & core.ATS_PRODUCT_DOMAIN))
+    assert core.ATS_TOOLS | core.ATS_DOMAIN == core.ATS_KEYWORDS
+    for t in ("product management", "product roadmap", "user research", "go-to-market",
+              "experimentation", "competitive analysis"):
+        assert t in core.ATS_PRODUCT_DOMAIN, t
+    for t in ("project management", "stakeholder", "status reporting", "project plan"):
+        assert t in core.ATS_PROJECT_DOMAIN, t
+
+
+def test_the_terms_measured_and_refused_stay_out():
+    """Each of these was screened three ways -- sub-word hiding, stem collision, sense -- and
+    rejected for a reason recorded beside ATS_PRODUCT_DOMAIN. A future pass that adds one back
+    has to re-run that screening, not just like the word.
+
+    `rice` is the load-bearing case: it trips scripts/measure_jd_reading.py --check on its own
+    (1.97% against a 1.0% gate) because it hides inside price/priced/matrices. `ux` is the
+    other: it is a two-character alias and core._term_in's note explains what that costs."""
+    for t in ("discovery", "retention", "pricing", "segmentation", "cohort", "usability",
+              "north star", "personas", "rice", "moscow", "ux", "user experience",
+              "product vision", "voice of customer", "growth"):
+        assert t not in core.ATS_KEYWORDS, (
+            "%s was measured and refused -- see the note above ATS_PRODUCT_DOMAIN" % t)
+
+
+def test_the_over_cap_tools_are_still_out():
+    """Held back on WEIGHT, not precision. wt() applies its x2.5 with no ceiling while
+    everything else clamps at _RARE_W_CAP, so a term rarer than the cap becomes the heaviest
+    thing in any posting naming it -- "rarity is not importance", by a new door. Measured idf:
+    amplitude 7.92, mixpanel 8.53, productboard 8.81, pendo 9.05, optimizely 10.37, against a
+    cap of 7.5. figma is 6.378 and IS in."""
+    idf = core.load_idf() or {}
+    for t in ("amplitude", "mixpanel", "pendo", "productboard", "optimizely"):
+        assert t not in core.ATS_KEYWORDS, "%s is above _RARE_W_CAP; it needs a ceiling first" % t
+        if t in idf:
+            assert idf[t] > core._RARE_W_CAP, (t, idf[t])
+    assert "figma" in core.ATS_TOOLS
+    if "figma" in idf:
+        assert idf["figma"] < core._RARE_W_CAP, idf["figma"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

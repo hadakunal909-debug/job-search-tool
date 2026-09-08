@@ -354,6 +354,15 @@ def build_cases():
         ("track: management", {"track": "mgmt", "min": "0", "date": "any"}),
         ("exp <=2 yrs", {"exp": "2"}),
         ("exp hide senior", {"exp": "senior"}),
+        # The 2026-09-08 additions. "entry" filters on the LEVEL rather than on a year
+        # ceiling, and an internship is exempt from the ceiling -- both had to land in all
+        # three twins at once, which is exactly what this script is for.
+        ("exp entry level", {"exp": "entry"}),
+        ("exp entry + no min", {"exp": "entry", "min": "0"}),
+        ("exp entry + interns only", {"exp": "entry", "intern": "only", "min": "0"}),
+        ("exp <=2 keeps interns", {"exp": "2", "intern": "only", "min": "0"}),
+        ("exp <=2 + no interns", {"exp": "2", "intern": "no", "min": "0"}),
+        ("exp entry + roles product", {"exp": "entry", "roles": "product", "min": "0"}),
         ("show closed", {"showclosed": "1"}),
         ("show agencies", {"hideagency": ""}),
         ("sort newest", {"sort": "newest"}),

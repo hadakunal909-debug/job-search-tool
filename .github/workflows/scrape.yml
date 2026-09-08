@@ -670,6 +670,63 @@ jobs:
           ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
         run: python -m scraper.notify
 
+      # ---- THE TWO PASSES THAT WERE CORRECT AND UNSCHEDULED ---------------------------
+      #
+      # Both of these were in docs/OPERATIONS.md's tools table and in NO schedule slot, so they
+      # ran only when someone remembered. Both feed something the UI states as a fact, which is
+      # what makes "nothing runs it" a correctness problem rather than a housekeeping one.
+      #
+      # THEY LIVE HERE AND NOT IN bin/cron_scrape.sh, and not by preference: `.cpanel.yml`
+      # copies the modules, scraper/, resume_brain/, templates/, static/ and bin/cron_scrape.sh,
+      # and NOTHING from scripts/ -- build_deploy_zip.py states the policy outright ("scripts/
+      # verification tools, not runtime"). Neither file exists on the box, so a crontab line
+      # there would fail on every run. This runner has the whole repo checked out.
+      #
+      # BOTH RUN BEFORE THE WARM BELOW, which is last because everything above it moves
+      # jobs_fingerprint() and the warm rebuilds the caches keyed on it. close_dead_jds writes
+      # is_active and jd_host_verdicts; build_companies_table bumps the companies version that
+      # web._cf_memo and _derived_signature key on. Either one after the warm would invalidate
+      # the caches the warm had just filled.
+      - name: Close dead postings and clear junk descriptions
+        if: >-
+          steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+          && !cancelled()
+        timeout-minutes: 12
+        continue-on-error: true
+        env:
+          EV_OFF: "1"
+        # The ONLY thing that can find a posting which now 404s, and the writer of the
+        # jd_host_verdicts row web.py reads to decide whether to promise a reader "it'll get a
+        # match score once the full job description is fetched". Unscheduled, that promise decays
+        # toward false on its own. Measured before this landed: 50.1% of active rows had never
+        # been confirmed against their own board by any pass.
+        #
+        # --per-host and --workers are the bounded form. Its own docstring warns that a count cap
+        # does not bound the CLOCK (a dead URL still costs a full timeout), which is why the step
+        # carries timeout-minutes as well.
+        run: |
+          python scripts/close_dead_jds.py --apply --per-host 60 --workers 10
+
+      - name: Rebuild the employer facts table
+        if: >-
+          steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
+          && !cancelled()
+        timeout-minutes: 8
+        continue-on-error: true
+        env:
+          EV_OFF: "1"
+        # web.company_facts PREFERS this table over sponsor_counts.json / visa_tags.json and only
+        # falls back to the files for an employer with no row (~162 new employers a day). So with
+        # nothing rebuilding it, refreshing the sponsor JSONs did not move the chip or the star
+        # for any employer that already had a row -- two vintages of the same claim rendering
+        # side by side, with nothing on the card to tell them apart.
+        #
+        # --check first so the log says whether it was actually stale, then --apply. --check
+        # exits 1 when stale, which is the normal case here, so it must not fail the step.
+        run: |
+          python scripts/build_companies_table.py --check || echo "(stale or missing, rebuilding)"
+          python scripts/build_companies_table.py --apply
+
       # WARM THE APP BEFORE ANYONE ELSE HAS TO. Everything above moves jobs_fingerprint(),
       # which is the key every cache the website keeps is stored under -- row_cache/,
       # score_cache/, and the per-process IDF table and live analysis that /warm's last two

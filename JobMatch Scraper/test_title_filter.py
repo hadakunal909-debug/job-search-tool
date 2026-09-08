@@ -10,6 +10,7 @@ No database and no network — just the compiled matchers.
 """
 import sys
 
+import core
 import scraper
 
 INC = scraper._INCLUDE_RE
@@ -211,6 +212,103 @@ def test_the_rail_titles_that_guard_was_for_are_still_blocked():
     # Bare "Train Engineer" needs no exclude of its own: it matches no INCLUDE phrase, so it
     # falls out on the keep rule instead. Pinned so nobody "restores" the broad term for it.
     assert verdict("Train Engineer") == "drop-no-include"
+
+
+# ---------------------------------------------------------------------------------------------
+# THE INVARIANT, not an example list. Added 2026-09-08.
+#
+# A title the scraper KEEPS and no role family CLAIMS is invisible to anyone who ticks a role
+# chip: roles_for_title returns () and core.roles_match only ignores that when nothing at all is
+# selected. ROLE_FAMILIES' own header has warned about this since the Release-Train-Engineer
+# incident, and it was still true of 124 of the 237 INCLUDE phrases -- 465 stored product-titled
+# rows among them, every one deleted by ticking the Product Manager chip.
+#
+# Asserted as a property over the whole list so the next keyword added cannot reintroduce it.
+LEVEL_ONLY = frozenset((
+    # These describe a RUNG, not a job, and legitimately belong to no family. They are in
+    # INCLUDE so that "2027 New Grad Rotational Program" is admitted at all.
+    "new grad", "early career", "rotation program", "rotational program",
+    "intern", "interns", "internship", "internships",
+    "co-op", "co-ops", "coop", "coops", "co op", "summer analyst", "summer associate",
+))
+
+
+def test_every_include_phrase_is_claimed_by_a_family():
+    """Every INCLUDE phrase resolves to at least one role family, LEVEL_ONLY excepted."""
+    orphans = sorted(p for p in scraper.INCLUDE
+                     if p not in LEVEL_ONLY and not core.roles_for_title(p))
+    assert not orphans, ("in scraper.INCLUDE but claimed by no core.ROLE_FAMILIES entry, so "
+                         "invisible to every role chip:\n  " + "\n  ".join(orphans))
+
+
+def test_level_only_really_is_level_only():
+    """The escape hatch must stay small and must stay honest -- a role phrase parked in
+    LEVEL_ONLY would defeat the test above silently."""
+    for p in LEVEL_ONLY:
+        assert p in scraper.INCLUDE, "%s is not even an INCLUDE keyword" % p
+        assert not core.roles_for_title(p), (
+            "%s now resolves to %s -- take it out of LEVEL_ONLY" % (p, core.roles_for_title(p)))
+
+
+def test_the_lululemon_retail_flood_is_refused_at_the_GATE():
+    """Measured 2026-09-08: of 145 active rows titled "product operations", 81 were lululemon
+    SHOP-FLOOR jobs -- 55 "Product Operations Lead | <mall>" and 26 "Product Operations Educator
+    | <mall>" -- and they were 22% of everything the Product Manager chip showed an entry-level
+    reader. Same class as test_retail_operations_associate_is_gone above (306 rows, 73% Sephora).
+
+    Refused at the SCRAPE GATE and not in ROLE_FAMILIES, which is where this was first fixed and
+    was the wrong layer: narrowing the family hid the rows from one chip while leaving them in
+    the corpus, AND left bare "product operations" unclaimed, which is precisely the invisible-row
+    defect test_every_include_phrase_is_claimed_by_a_family exists to catch."""
+    for t in ("Product Operations Educator | Sawgrass Mills Outlet",
+              "Contract Product Operations Lead | Staten Island Mall Pop-Up",
+              "Overnight Product Operations Educator | Sawgrass Mills Outlet",
+              "Product Operations Educator '26 | Mall at Millenia",
+              "Product Operations Lead", "Full-Time Product Operations Educator"):
+        assert verdict(t) == "drop-exclude", t
+
+
+def test_the_real_product_operations_roles_survive_that_exclude():
+    """The other 64 rows -- 39 Manager/Director, 20 Analyst/Specialist, 4 bare. An exclude that
+    took these too would be a worse bug than the flood it fixed.
+
+    NOT here, and deliberately: Equifax's single genuine "Product Operations Lead". It is the one
+    measured cost of the phrase above, 55:1 against the retail rows, and EXCLUDE cannot express
+    "except at Equifax"."""
+    for t in ("Product Operations Manager, Model Quality", "Product Operations",
+              "Product Operations Analyst, World Wide Revenue Operations",
+              "Product Operations Specialist | Generalist", "Director, Product Operations",
+              "Product Operations Associate", "Senior Product Operations Manager"):
+        assert verdict(t) == "keep", t
+
+
+def test_lululemons_own_corporate_product_roles_are_untouched():
+    """The employer is not blocklisted -- only two title shapes are. Its three real product
+    postings must still come through, or the fix cost more than the flood."""
+    for t in ("Senior Product Manager - Search & Elevation",
+              "Senior Product Manager - Omni Channel Fulfillment"):
+        assert verdict(t) == "keep", t
+
+def test_the_product_family_claims_what_include_admits():
+    """The 2026-09-08 additions, named individually because each was a measured loss."""
+    for t in ("Product Analyst", "Senior Product Analyst", "Product Coordinator",
+              "Product Operations", "Product Operations Analyst", "Product Strategy Analyst",
+              "Product Strategist", "Technology Product Analyst", "Product Lead",
+              "Associate Product Owner", "Product Mgr", "Assoc Product Mgr"):
+        assert "product" in core.roles_for_title(t), (t, core.roles_for_title(t))
+
+
+def test_a_family_addition_can_only_widen():
+    """Every phrase added on 2026-09-08 goes INTO a family, so a title can only gain families.
+    The titles the feed already showed must keep every family they had."""
+    frozen = {
+        "Project Manager": "pm", "Program Manager": "program", "Product Manager": "product",
+        "Scrum Master": "scrum", "Business Analyst": "ba", "Operations Manager": "ops",
+        "Software Engineer": "swe", "Data Analyst": "dataanalyst", "Data Engineer": "dataeng",
+        "DevOps Engineer": "devops", "QA Engineer": "qa", "Financial Analyst": "finance",
+    }
+    for title, key in frozen.items():
+        assert key in core.roles_for_title(title), (title, key, core.roles_for_title(title))
 
 
 if __name__ == "__main__":

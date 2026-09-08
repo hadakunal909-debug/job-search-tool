@@ -502,8 +502,19 @@
     // string test broke the instant relTime could answer "3h ago" for a same-day row — which is
     // now the common case for the 41% of dated rows that carry a clock — and it would have
     // broken SILENTLY, taking the badge off every fresh card.
+    //
+    // ...AND IT HAS TO HONOUR date_trusted, added 2026-09-08. Every other date surface on
+    // this card hedges properly -- formatDates gives three distinct tooltips for verified,
+    // derived and arrival-only -- and this one did not. On the 16.8% of active rows whose
+    // date is OUR SCRAPE STAMP rather than a publisher date, a posting that had been open
+    // on a dateless board for months wore a bare "New" on the day we first saw it, with no
+    // tooltip, as the highest-contrast element in the row.
+    //
+    // The comment above already says "New means newly POSTED, and for a job with no
+    // publisher date we do not know that" -- j.date just was not the right test for it.
+    // core.is_trusted_date is the one definition and the server ships its answer.
     var d0 = daysAgo(j.date);
-    var newFlag = (d0 !== null && d0 <= 0) ? '<span class="newflag">New</span>' : '';
+    var newFlag = (j.date_trusted && d0 !== null && d0 <= 0) ? '<span class="newflag">New</span>' : '';
     // ONE CHIP, AND IT IS THE ONLY ONE.
     //
     // A card could render eleven at once -- internship, visa route, no-lottery, agency, years,
@@ -625,17 +636,31 @@
       // experience filter is acting on when it hides this row. Silence here would mean a job
       // vanishing from "0 to 2 Years" with nothing on the card to say why.
       expTxt = 'senior role';
+    } else if (j.level === 'entry') {
+      // ENTRY, added 2026-09-08, and it is the reason this cell exists at all now.
+      // Measured on 2,575 stored product descriptions: of the 417 rows '0 to 2 Years'
+      // correctly returns, 241 have no readable year count and this cell printed NOTHING,
+      // so the reader fell back to the title -- which on those cards is wrong 95 times.
+      // 'Product Manager II', 'Product Owner I' and four Capital One 'Senior Associate,
+      // Product Manager' reqs are all entry-level by their own description.
+      //
+      // Same slot, same class, no tooltip -- the words say it. A verdict goes in
+      // .cardverdict and a FACT gets a column (CLAUDE.md); the level a posting asks for is
+      // the employer's, so it is ink here and adds no chip and no hue.
+      expTxt = 'entry level';
     }
     // cexp-*, not exp-*: .exp-lo/.exp-mid/.exp-hi are the /job page's CHIP and carry a
     // background and a route colour. Reusing those names here would put a chip back on the card
     // by stylesheet accident, which is the thing this must not do.
     //
-    // NO SEPARATE SENIORITY CELL, though exp_level has ridden on the row all along and nothing
-    // has ever drawn it. It is core.exp_level_for(exp_years) -- the same number this cell
-    // already prints, bucketed. A column reading "Entry Level" beside one reading "0+ yrs" is a
-    // restatement, not a second fact, and it would spend a track that has nothing to put in it.
+    // NO SEPARATE SENIORITY CELL, and that call still stands -- what changed on 2026-09-08 is
+    // what goes IN this one. The reasoning below was right about the case it considered and
+    // silent about the case that matters: "a column reading Entry Level beside one reading
+    // 0+ yrs is a restatement" is true when the years are KNOWN, and 57.8% of the rows an
+    // entry-level reader is shown have no year count at all. There is nothing to restate,
+    // and the cell was blank. One cell, one answer, in whichever words it has.
     var expIn = expTxt
-      ? '<span class="cexp cexp-' + j.exp_src + '">' + esc(expTxt) + '</span>'
+      ? '<span class="cexp cexp-' + (j.exp_src || j.level_src || 'inferred') + '">' + esc(expTxt) + '</span>'
       : '';
     var applyHref = /^https?:\/\//i.test(j.apply_url || "") ? j.apply_url : "#";
     var cls = "card" + (j.closed ? " is-closed" : "");
@@ -860,12 +885,17 @@
     return out;
   }
   // Mirror of core.visa_tags_match(): OR, and no ticked routes means no filter.
+  // TWIN of core.visa_tags_match -- scripts/feed_parity.py diffs the two row for row.
+  // ABSENCE IS NOT A REFUSAL: an empty tag set is either "no federal filing record"
+  // (silence, 10.4% of active rows and 26 of them cap-exempt employers, which are the
+  // best H-1B route there is) or "this JD rules sponsorship out" (the employer
+  // answering, 23.8%, and hidenospon is the control for it). Only the second is a no.
   function visaHit(j, wanted) {
     if (!wanted || !wanted.length) return true;
     var have = j.visa || [];
     for (var i = 0; i < wanted.length; i++)
       if (have.indexOf(wanted[i]) !== -1) return true;
-    return false;
+    return !(have.length || j.sponsor_jd === "blocked");
   }
   // ---- search: typo-tolerant matching + relevance ----
   // TWIN ALERT: web.py has byte-for-byte equivalents (searchHit / searchRank / _within), and
@@ -1044,19 +1074,32 @@
     // off by default. Drops rows with NO answer (exp_src ""), so a seniority read off the title
     // survives it. See core.DEFAULT_PREFS.expstated.
     if (ok && expStated && expStated.checked && !j.exp_src) ok = false;
-    // Experience filter. exp_eff is the highest year count the DESCRIPTION states, or the floor
-    // the TITLE implies when it states none — so "8+ years required; 2 years of SQL preferred"
-    // is an 8-year job and "<=2 yrs" drops it, and so is a "Senior Operations Manager" whose
-    // description names no number. A job with NEITHER signal (exp_eff "") is ALWAYS kept.
+    // THREE ANSWERS, and they are different questions. Mirrors web._filter_rows exactly --
+    // scripts/feed_parity.py diffs the two row for row.
+    //
+    // The numeric values are a CEILING on what the employer demands ("could I be
+    // considered"). exp_eff is the highest year count the DESCRIPTION states, or the floor the
+    // TITLE implies when it states none, so "8+ years required; 2 years of SQL preferred" is
+    // an 8-year job. A job with NEITHER signal is ALWAYS kept.
+    //
+    // "entry" is a LEVEL and cannot be written as a ceiling: measured, "0 to 2 Years" returns
+    // 417 product rows and only 176 are entry-level by their own description.
+    //
+    // An INTERNSHIP is exempt from the ceiling outright -- 4 of 43 internship-titled product
+    // rows were dropped by "0 to 2 Years" because their text names 3 years somewhere.
+    //
     // The inference itself is server-side in web._build_row, so this stays one comparison.
-    // Mirrors web._filter_rows — scripts/feed_parity.py diffs the two.
     if (ok && expSel && expSel.value !== "any") {
-      var ev = j.exp_eff;
-      if (ev !== "" && ev != null) {
-        var yrs = parseInt(ev, 10);
-        if (!isNaN(yrs)) {
-          if (expSel.value === "senior") { if (yrs >= 6) ok = false; }
-          else if (yrs > (parseInt(expSel.value, 10) || 99)) ok = false;
+      if (expSel.value === "entry") {
+        if ((j.level || "") !== "" && (j.level || "") !== "entry") ok = false;
+      } else if (!j.intern) {
+        var ev = j.exp_eff;
+        if (ev !== "" && ev != null) {
+          var yrs = parseInt(ev, 10);
+          if (!isNaN(yrs)) {
+            if (expSel.value === "senior") { if (yrs >= 6) ok = false; }
+            else if (yrs > (parseInt(expSel.value, 10) || 99)) ok = false;
+          }
         }
       }
     }
@@ -1127,7 +1170,12 @@
     formatDates();
     setCount(matched.length);
     if (!matched.length) renderEmpty(null);
-    setShown(emptyEl, !matched.length);
+    // Only when the reader is short of results -- the same threshold the server
+    // uses (web._RELAX_WHEN_UNDER). Above it the panel would be nagging.
+    if (matched.length && matched.length < RELAX_WHEN_UNDER)
+      renderRelaxNote(localRelax(DATA, 2), matched.length);
+    else if (matched.length) setShown(emptyEl, false);
+    else setShown(emptyEl, !matched.length);
     if (moreBtn) {
       setShown(moreBtn, matched.length > limit);
       if (matched.length > limit) moreBtn.textContent = "Load more (" + (matched.length - limit) + " more)";
@@ -1352,6 +1400,109 @@
     hidden: ["You haven't hidden any job.",
              "Hiding one takes it out of Recommended and parks it here."]
   };
+  // The relax sentence and its buttons, built once. renderEmpty uses it for the zero case
+  // and renderRelaxNote for the short-of-results case; two copies of this markup would be
+  // two places for the data-relax contract to drift from the click handler below.
+  function relaxBody(relax, lead) {
+    var h = '<p class="empty-h">' + esc(lead) + '</p><p>';
+    for (var i = 0; i < relax.length; i++)
+      h += (i ? ' ' : '') + 'Removing ' + esc(relax[i].label) + ' would show ' +
+           relax[i].n.toLocaleString() + ' job' + (relax[i].n === 1 ? '' : 's') + '.';
+    h += '</p><div class="empty-acts">';
+    for (var k = 0; k < relax.length; k++)
+      h += '<button type="button" class="btn sm" data-relax="' + esc(relax[k].key) +
+           '">Remove ' + esc(relax[k].label) + '</button>';
+    return h + '<button type="button" class="btn sm ghost" data-relax="*">' +
+           'Clear all filters</button></div>';
+  }
+  // SHORT OF RESULTS IS NOT THE SAME AS HAVING NONE, and the app only ever handled the
+  // second. Measured 2026-09-08: the default match floor left 34 of 328 entry-level
+  // product postings and the reader was told nothing about the other 294 -- the most
+  // consequential control in the app was silent in the case that actually happens.
+  //
+  // #empty is a sibling of #feed, so this renders UNDER the cards rather than instead of
+  // them. That is the difference between a dead end and an offer.
+  function renderRelaxNote(relax, shown) {
+    if (!emptyEl) return;
+    if (!relax || !relax.length) { setShown(emptyEl, false); return; }
+    emptyEl.innerHTML = relaxBody(
+      relax, 'Only ' + shown.toLocaleString() + ' job' + (shown === 1 ? '' : 's') +
+      ' match these filters.');
+    setShown(emptyEl, true);
+  }
+  // renderLocal filters in the browser and has no server response to read, so it reuses
+  // whatever relax set the last /api/feed answer carried. Null on the inline path, which
+  // is correct: below _FEED_INLINE_MAX the browser has the whole corpus and the note would
+  // be guessing.
+  // Kept in step with web._RELAX_WHEN_UNDER by scripts/feed_parity.py, which lifts this
+  // file by source text.
+  var RELAX_WHEN_UNDER = 30;
+  // WHAT EACH CONTROL IS CALLED when we offer to drop it. Mirrors the third element of
+  // web._RELAX so the server-rendered and client-rendered panels read identically; the
+  // label describes the VALUE, not the control, because "Removing Past 30 days" is
+  // actionable where "Removing the date filter" makes the reader go and look.
+  var RELAX_LABEL = {
+    min: function (v) { return v + '% match minimum'; },
+    date: function (v) {
+      return ({ "1": "Past 24 hours", "7": "Past 7 days", "30": "Past 30 days",
+                "90": "Past 90 days" })[v] || v;
+    },
+    minsal: function () { return "the pay minimum"; },
+    exp: function () { return "the experience filter"; },
+    expstated: function () { return "Hide postings with no experience answer"; },
+    intern: function () { return "the internship filter"; },
+    visatags: function () { return "the visa route filter"; },
+    hidenospon: function () { return "Hide no-sponsorship"; },
+    verifiedonly: function () { return "Confirmed posting date"; },
+    hideagency: function () { return "Hide staffing agencies"; },
+    roles: function () { return "the role filter"; },
+    track: function () { return "the career track"; },
+    q: function (v) { return '\u201c' + v + '\u201d'; }
+  };
+  // The DOM control behind each key, and what its default value looks like, so we can tell
+  // "set" from "untouched" without a second source of truth for the defaults.
+  function relaxState() {
+    return {
+      min: [minR, minR && minR.value, "0"],
+      date: [dateSel, dateSel && dateSel.value, "any"],
+      minsal: [minSalSel, minSalSel && minSalSel.value, ""],
+      exp: [expSel, expSel && expSel.value, "any"],
+      intern: [internSel, internSel && internSel.value, "any"],
+      track: [trackSel, trackSel && trackSel.value, "any"],
+      roles: [rolesSel, rolesSel && rolesSel.value, ""],
+      visatags: [visaSel, visaSel && visaSel.value, ""],
+      q: [q, q && q.value.trim(), ""],
+      expstated: [expStated, expStated && expStated.checked ? "1" : "", ""],
+      hidenospon: [hideNo, hideNo && hideNo.checked ? "1" : "", ""],
+      verifiedonly: [verifiedOnly, verifiedOnly && verifiedOnly.checked ? "1" : "", ""],
+      hideagency: [hideAgency, hideAgency && hideAgency.checked ? "1" : "", ""]
+    };
+  }
+  // Which single control, dropped, brings back the most jobs. Same method as
+  // web._relax_suggestions: revert one, re-run the real filter, count. Only controls that
+  // are actually set are tried, so a typical short search costs two or three passes.
+  //
+  // It mutates the control, counts, and puts it back. Synchronous throughout -- no render
+  // happens in between -- which is what makes that safe and what keeps this from needing a
+  // parallel copy of every filter's semantics.
+  function localRelax(rows, top) {
+    var st = relaxState(), out = [], key;
+    for (key in st) {
+      if (!Object.prototype.hasOwnProperty.call(st, key)) continue;
+      var el = st[key][0], cur = st[key][1], def = st[key][2];
+      if (!el || cur === def || cur == null || cur === "") continue;
+      var isCheck = el.type === "checkbox", had = isCheck ? el.checked : el.value;
+      if (isCheck) el.checked = false; else el.value = def;
+      // dateCutoff() is re-read AFTER the revert: reverting `date` is one of the things we
+      // try, and matches() takes the cutoff as an argument rather than recomputing it.
+      var n = 0, cut2 = dateCutoff();
+      for (var i = 0; i < rows.length; i++) if (matches(rows[i], cut2)) n++;
+      if (isCheck) el.checked = had; else el.value = had;
+      out.push({ key: key, n: n, label: (RELAX_LABEL[key] || function (v) { return v; })(cur) });
+    }
+    out.sort(function (a, b) { return b.n - a.n; });
+    return out.slice(0, top || 2);
+  }
   function renderEmpty(relax) {
     if (!emptyEl) return;
     var own = TAB_EMPTY[tab];
@@ -1361,19 +1512,13 @@
         '<button type="button" class="btn sm" data-gotab="recommended">Browse Recommended</button></div>';
       return;
     }
-    var h = '<p class="empty-h">No jobs match these filters.</p>';
+    var h;
     if (relax && relax.length) {
-      h += "<p>";
-      for (var i = 0; i < relax.length; i++)
-        h += (i ? " " : "") + "Removing " + esc(relax[i].label) + " would show " +
-             relax[i].n.toLocaleString() + " job" + (relax[i].n === 1 ? "" : "s") + ".";
-      h += "</p><div class=\"empty-acts\">";
-      for (var k = 0; k < relax.length; k++)
-        h += '<button type="button" class="btn sm" data-relax="' + esc(relax[k].key) + '">Remove ' +
-             esc(relax[k].label) + "</button>";
-      h += '<button type="button" class="btn sm ghost" data-relax="*">Clear all filters</button></div>';
+      h = relaxBody(relax, 'No jobs match these filters.');
     } else {
-      h += '<div class="empty-acts"><button type="button" class="btn sm ghost" data-relax="*">Clear all filters</button></div>';
+      h = '<p class="empty-h">No jobs match these filters.</p>' +
+          '<div class="empty-acts"><button type="button" class="btn sm ghost"' +
+          ' data-relax="*">Clear all filters</button></div>';
     }
     emptyEl.innerHTML = h;
   }
@@ -1589,7 +1734,11 @@
       var jobs = (d && d.total) || 0;
       setCount(jobs);
       if (!jobs) renderEmpty(d && d.relax);
-      setShown(emptyEl, !jobs);
+      // d.total, NOT the page-load TOTAL: that one is the whole corpus and never moves,
+      // so the note read "Only 29,971 jobs match these filters" over two cards. jobs IS
+      // d.total and is already computed two lines up.
+      else if (jobs < RELAX_WHEN_UNDER) renderRelaxNote(d && d.relax, jobs);
+      else setShown(emptyEl, false);
       if (moreBtn) { var more = !!(d && d.has_more); setShown(moreBtn, more); if (more) moreBtn.textContent = "Load more (" + (jobs - shown) + " more)"; }
     }).catch(function () {
       moreLoading(false);       // or a failed page leaves the button spinning for ever
