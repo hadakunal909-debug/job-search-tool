@@ -201,7 +201,9 @@ def test_the_domain_half_is_itself_split_and_the_union_is_unchanged():
         % sorted(core.ATS_PROJECT_DOMAIN & core.ATS_PRODUCT_DOMAIN))
     assert core.ATS_TOOLS | core.ATS_DOMAIN == core.ATS_KEYWORDS
     for t in ("product management", "product roadmap", "user research", "go-to-market",
-              "experimentation", "competitive analysis"):
+              "experimentation", "competitive analysis",
+              # added 2026-09-08, screened on coverage AND on weight -- see the note in core.py
+              "a/b test", "product requirements document"):
         assert t in core.ATS_PRODUCT_DOMAIN, t
     for t in ("project management", "stakeholder", "status reporting", "project plan"):
         assert t in core.ATS_PROJECT_DOMAIN, t
@@ -233,6 +235,18 @@ def test_the_over_cap_tools_are_still_out():
         assert t not in core.ATS_KEYWORDS, "%s is above _RARE_W_CAP; it needs a ceiling first" % t
         if t in idf:
             assert idf[t] > core._RARE_W_CAP, (t, idf[t])
+    # prd IS THE SAME CLASS and was explicitly asked for on 2026-09-08. idf 7.9462 against a
+    # cap of 7.5, so it goes out for the same reason the five above do, not on precision: it
+    # fires on 104 of 2,575 real product descriptions (4.0%) and every hit is genuine. The
+    # spelled-out "product requirements document" carries the signal at a safe weight and IS
+    # in. All six become available the moment wt() gains a ceiling.
+    assert "prd" not in core.ATS_KEYWORDS, "prd idf 7.9462 > _RARE_W_CAP; it needs a ceiling"
+    if "prd" in idf:
+        assert idf["prd"] > core._RARE_W_CAP, idf["prd"]
+    # ...and the two that WERE added must stay under it, or this whole rule is decoration.
+    for t in ("a/b test", "product requirements document"):
+        assert t in core.ATS_KEYWORDS, t
+        assert idf.get(t, core._UNSEEN_W) < core._RARE_W_CAP, (t, idf.get(t))
     assert "figma" in core.ATS_TOOLS
     if "figma" in idf:
         assert idf["figma"] < core._RARE_W_CAP, idf["figma"]
