@@ -468,6 +468,8 @@ _HOSPITAL_RE = re.compile(
 # it stays Unsorted and the page says so. `--check` is what holds this line.
 _CURATED_LISTS = {
     "Software & Internet": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        "C3 AI", "Tyler Technologies",
         # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
         # run put 269 new employers into the universe.
         "84.51", "Box",
@@ -501,6 +503,11 @@ _CURATED_LISTS = {
         "Y Combinator's Work at a Startup",
     ],
     "IT Services & Consulting": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        # "swift" here is SWIFT TECHNOLOGIES INC, an IT staffing firm -- NOT the interbank
+        # messaging network and not Swift Transportation. norm_company strips "TECHNOLOGIES",
+        # so all three collapse to one key; measured, this is the only one in the corpus.
+        "Intellectt Inc", "SWIFT TECHNOLOGIES INC",
         # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
         # run put 269 new employers into the universe.
         "APLOMB Technologies", "Circana", "Forge Group",
@@ -512,6 +519,8 @@ _CURATED_LISTS = {
         "Saturn Tech LLC", "Saxon Global", "Softpath System LLC", "Sriven Systems Inc",
     ],
     "Semiconductors & Hardware": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        "Cerebras Systems", "Super Micro Computer, Inc.",
         "Nvidia", "Intel", "Dell", "Dell EMC", "HP", "Hewlett Packard Enterprise", "Lenovo",
         "Samsung", "Amat", "EMC", "Qualcomm", "Broadcom",
         "Teradyne", "Jabil", "Celestica", "FormFactor, Inc.", "Keysight Technologies",
@@ -529,6 +538,11 @@ _CURATED_LISTS = {
         "Block", "Milliman", "Plymouth Rock",
     ],
     "Healthcare, Pharma & Biotech": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        # A CLINICAL REFERENCE LAB, unrelated to Arup the engineering consultancy under
+        # Engineering below -- one letter-case apart, distinct normalised keys, so exact-match
+        # CURATED holds both correctly where a widened keyword could not.
+        "ARUP Laboratories",
         # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
         # run put 269 new employers into the universe.
         "Align Technology",
@@ -550,6 +564,8 @@ _CURATED_LISTS = {
         "Providence", "OhioHealth", "UPMC",
     ],
     "Aerospace, Defense & Industrial": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        "Stanley Black & Decker, Inc.", "Mohawk Industries", "Pella Corporation",
         "General Electric", "Siemens", "Johnson Controls", "3M", "Corning", "Honeywell",
         "Carrier", "Hubbell", "AMETEK", "ANDRITZ", "Wabtec", "Flowserve", "Ecolab",
         "EnerSys", "Franklin Electric", "Regal Rexnord Corporation", "Timken", "Victaulic",
@@ -564,6 +580,8 @@ _CURATED_LISTS = {
         "Itron",
     ],
     "Engineering, Construction & Real Estate": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        "Arup", "Bowman", "Introba",
         "Sundt", "M.C. Dean, Inc.", "Group PMX", "Thornton Tomasetti", "WillScot",
         "CubeSmart", "Public Storage", "Safelite", "ECS Limited",
         "Stv",
@@ -575,6 +593,10 @@ _CURATED_LISTS = {
         "Coupang", "Chewy", "Wayfair",
     ],
     "Retail, Consumer & Hospitality": [
+        # --check named these prominent-and-Unsorted on 2026-09-08; the rebuild is gated on it.
+        # "compass" is Compass Group, food service -- NOT Compass the real-estate brokerage,
+        # which normalises to the same key. Measured: only one spelling in the corpus today.
+        "Compass Group", "Shipt", "The TJX Companies, Inc.",
         # --check named these prominent-and-Unsorted after the 2026-09-02 adoption
         # run put 269 new employers into the universe.
         "Williams-Sonoma",
