@@ -456,6 +456,26 @@ ATS_PRODUCT_DOMAIN = {
     "product backlog", "product launch", "product operations", "product discovery",
     "product analytics", "product marketing",
     # discovery and evidence
+    # ADDED 2026-09-08 at the owner's request, both screened first. MEASURED on 2,575 real
+    # product descriptions with core._names_term, the same predicate analyze_jd uses:
+    #
+    #   a/b test                        89 (3.5%)   idf unseen -> _UNSEEN_W 4.91
+    #   product requirements document   41 (1.6%)   idf unseen -> _UNSEEN_W 4.91
+    #
+    # "a/b test" and NOT "a/b testing": _term_in stems, so the singular is a strict SUPERSET
+    # (89 against 65) and catches "A/B tests" and "A/B test" as well. Bare "a/b" was measured
+    # at 146 (5.7%) and refused -- it is two letters and a slash, and it hides in prose.
+    # The slash is fine: _term_in matches a punctuated term as a phrase, the same way c++ and
+    # ci/cd already do, and the 89 hits are the proof rather than the hope.
+    #
+    # "prd" IS NOT HERE and was asked for. Its idf is 7.9462, ABOVE _RARE_W_CAP (7.5), so
+    # wt()'s x2.5 -- which has no ceiling -- would make it 19.87 and the heaviest term in any
+    # posting that names it, while every non-ATS term clamps at 7.5. That is "rarity is not
+    # importance" coming in by the same door amplitude/mixpanel/pendo/productboard/optimizely
+    # are already held at. The spelled-out form above carries the same signal at 1.6% coverage
+    # and a safe weight; prd becomes available the moment wt() gains a ceiling, and that one
+    # change would unlock all six together.
+    "a/b test", "product requirements document",
     "user research", "customer discovery", "customer journey", "market research",
     "competitive analysis", "design thinking", "wireframes",
     # measurement and outcomes
