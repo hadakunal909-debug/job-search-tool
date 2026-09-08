@@ -57,7 +57,23 @@ KEYWORDS_OUT = os.path.join(APP, "resume_keywords.json")
 # ---- spelling vocabulary ----
 # A word has to appear in this many DISTINCT postings to be trusted. Document frequency, not raw
 # count: one posting that repeats a typo forty times must not teach us the typo.
-VOCAB_MIN_DF = 5
+# THE SPELLING FLOOR IS RELATIVE, because as an absolute it rots. 5 was calibrated against
+# 22,997 postings; at 48,353 the SAME absolute floor admits proportionally more noise, and
+# three misspellings cleared it -- managment (df 8), enviroment (df 5) and responsibilites
+# (df 22) became "known words", so resume_score._nearest could no longer offer a correction for
+# them. test_resume_score caught managment; the other two it did not ask about.
+#
+# MEASURED 2026-09-08 over 48,353 cached descriptions: df>=10 drops managment and enviroment
+# and costs NO real vocabulary (jaggaer, the rarest genuine term checked, first disappears at
+# 12). 5/22,997 is 0.0217%, which at 48,353 is 10.5 -- so 10 is not a new judgement, it is the
+# original one restated so it survives the corpus growing again.
+#
+# responsibilites (df 22) STILL SURVIVES and is stated rather than hidden: it needs df>=25,
+# which is where real words start going. A frequency floor cannot separate a common typo from
+# a rare word; that needs a dictionary, which this module deliberately does not have (see the
+# note on _nearest -- absence is weak evidence in a 22k-word corpus).
+VOCAB_MIN_DF_PER_POSTING = 5 / 22997.0
+VOCAB_MIN_DF_FLOOR = 5              # never looser than the original, however small a corpus
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]{2,}")
 
 # ---- keyword expectations ----
@@ -184,12 +200,15 @@ def build_vocab():
         for w in set(m.group(0).lower().strip("'-") for m in _WORD_RE.finditer(text)):
             if len(w) >= 3:
                 df[w] += 1
-    words = sorted(w for w, c in df.items() if c >= VOCAB_MIN_DF)
+    # Derived from the corpus actually scanned, not a constant -- see the note on
+    # VOCAB_MIN_DF_PER_POSTING.
+    min_df = max(VOCAB_MIN_DF_FLOOR, int(round(n * VOCAB_MIN_DF_PER_POSTING)))
+    words = sorted(w for w, c in df.items() if c >= min_df)
     with open(VOCAB_OUT, "w", encoding="utf-8") as fh:
-        json.dump({"min_df": VOCAB_MIN_DF, "postings": n, "words": words}, fh,
+        json.dump({"min_df": min_df, "postings": n, "words": words}, fh,
                   ensure_ascii=False, separators=(",", ":"))
     print("  %d postings, %d distinct words, %d kept at df>=%d"
-          % (n, len(df), len(words), VOCAB_MIN_DF))
+          % (n, len(df), len(words), min_df))
     print("  wrote %s (%.0f KB)" % (VOCAB_OUT, os.path.getsize(VOCAB_OUT) / 1024.0))
     return words
 
