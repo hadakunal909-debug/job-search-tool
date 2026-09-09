@@ -3200,6 +3200,88 @@ def _workday_parts(board_url):
 # cheaper is to stop fetching its pages one at a time.
 WORKDAY_PAGE_LIMIT = 20
 WORKDAY_MAX_JOBS = 3000
+
+# Workday's CXS API reports `total: 2000` for ANY tenant with more than 2000 openings, and it
+# clamps `offset` to match -- offset=2000, 3000, 4000 and 8000 all return the SAME page, first
+# row and all. So the walk in scrape_workday cannot read past it, and nothing about the board
+# looks wrong: it reports ok, a full 2000 rows, and no error. That is the whole failure mode.
+# Measured 2026-09-08 across all 246 Workday boards: 15 are pinned at exactly 2000 and they
+# hide 121,803 postings between them. Booz Allen reads 2,000 of 2,310; Walmart 2,000 of
+# 21,279; Accenture 2,000 of 85,009. The `~2000` comments scattered through WORKDAY_BOARDS are
+# this bug's fingerprint -- someone measured the clamp and wrote it down as the size of the
+# board.
+#
+# THE FACETS ARE THE WAY OUT AND THEY COST NOTHING: page 0 already carries them. A facet
+# value's `count` is exact and unclamped, so a group whose counts sum past `total` both PROVES
+# the clamp and names the board's true size, and asking for one value at a time keeps every
+# slice under the ceiling.
+WORKDAY_TOTAL_CLAMP = 2000
+
+# Which facet to slice on when more than one group qualifies. A job-family grouping is
+# preferred over an equally complete geographic one because the budget usually runs out before
+# a giant tenant does: losing a whole low-relevance FAMILY (Target's "Stores", 11,847 of its
+# 12,356) costs nothing the title filter would have kept, whereas truncating a list of STATES
+# drops every role type inside them. Tenants spell the same facet three ways.
+_WORKDAY_FACET_PREFER = ("jobFamilyGroup", "Job_Family_Group", "jobFamily")
+
+
+def _workday_facet_plan(body, total, clamp=None):
+    """(facet_param, [(value_id, count), ...], true_total) for a board whose `total` is
+    clamped -- or None when there is no evidence of a clamp, or no usable partition.
+
+    Two rules pick the group, and each one is a way this could silently under-read:
+
+    A group is only EVIDENCE OF A CLAMP if its counts sum past `total`. A group summing to
+    `total` or less says nothing, and without this test `distance` (five values of 1) or a
+    hierarchical `locationMainGroup` (three values of 0) would read as a partition of the
+    board and replace a 2000-row walk with a 5-row one.
+
+    Among those, the sum must be within 1% of the best any group reports, because a facet
+    list can be TRUNCATED to its top N values and slicing on a truncated list silently drops
+    the tail -- Walmart's `Job_Profiles` offers 55 values summing to 15,962 against a true
+    21,279. A tolerance rather than equality is what lets the preferred job-family group win
+    when it disagrees with a geographic one by a rounding error: Target reports 12,343 by
+    family and 12,356 by state, and 13 postings should not decide which axis we slice on.
+
+    Arms come back SMALLEST FIRST. The caller stops at WORKDAY_MAX_JOBS, so this maximises how
+    many arms are read COMPLETELY and spends whatever truncation is left on the single largest
+    family -- which on every clamped retail tenant measured is the one the title filter
+    discards anyway.
+
+    THE ONE CASE THIS STILL UNDER-READS, AND IT DOES SO SILENTLY: Workday appears to cap a
+    facet value LIST at 55 entries. Accenture (workerSubType), Abbott (Location_Country),
+    Jabil (Location_Region_State_Province) and Walmart (Job_Profiles) all report exactly 55,
+    which is not a coincidence about their org charts. When EVERY group is capped, the 1% test
+    above has nothing complete to compare against, `true_total` is itself a lower bound, and
+    the arms cannot cover the board: Jabil reads 2,012 of a reported 2,194 with no arm left to
+    ask. That is still better than the flat 2,000 and it is reported as truncation rather than
+    hidden, but a group of exactly 55 values should be READ AS SUSPECT. Getting the rest needs
+    a second facet crossed into the selection, which no board has yet been worth it for --
+    Jabil's residual 182 postings yielded 0 rows past the title filter.
+    """
+    clamp = WORKDAY_TOTAL_CLAMP if clamp is None else clamp
+    if (total or 0) < clamp:
+        return None
+    groups = []
+    for g in ((body or {}).get("facets") or []):
+        vals = [v for v in (g.get("values") or [])
+                if v.get("id") and (v.get("count") or 0) > 0]
+        if len(vals) < 2:
+            continue
+        s = sum(v.get("count") or 0 for v in vals)
+        if s > total:
+            groups.append(((g.get("facetParameter") or ""), s, vals))
+    cands = [g for g in groups if g[0] and g[1] >= max(x[1] for x in groups) * 0.99]
+    if not cands:
+        return None
+    pick = next((g for g in cands if g[0] in _WORKDAY_FACET_PREFER), None)
+    if pick is None:
+        pick = max(cands, key=lambda g: g[1])
+    param, true_total, vals = pick
+    arms = sorted(((v["id"], v.get("count") or 0) for v in vals), key=lambda a: a[1])
+    return param, arms, true_total
+
+
 def _workday_page_workers():
     """Concurrent pages per Workday board, DERIVED from how wide the sweep already is.
 
@@ -3274,15 +3356,18 @@ def scrape_workday(board_url):
     # closes over it and only ever writes element 0.
     why = [""]
 
-    def _fetch(offset):
+    def _fetch(offset, facets=None):
         """One page of postings, or None if it could not be read. Fetch only -- the parse and
         every mutation of `seen`/`rows` happens on the calling thread, which is what makes the
-        concurrent branch below need no locking."""
+        concurrent branch below need no locking.
+
+        `facets` selects one slice of the board (see _workday_facet_plan); {} is the whole
+        board, which is what every caller wanted before the 2000-clamp fix."""
         for attempt in (0, 1):
             try:
                 r = SESSION.post(cxs, headers=hdr, timeout=25, data=json.dumps(
-                    {"appliedFacets": {}, "limit": WORKDAY_PAGE_LIMIT, "offset": offset,
-                     "searchText": ""}))
+                    {"appliedFacets": facets or {}, "limit": WORKDAY_PAGE_LIMIT,
+                     "offset": offset, "searchText": ""}))
                 if r.status_code == 200:
                     return r.json()
                 why[0] = "HTTP %s" % r.status_code
@@ -3368,6 +3453,42 @@ def scrape_workday(board_url):
         return rows
 
     if total > got:
+        # THE 2000 IS WORKDAY'S CEILING, NOT THE EMPLOYER'S COUNT. When `total` is pinned at
+        # the clamp the walk below can only ever read an arbitrary 2000-posting slice, so
+        # slice by a facet instead: every arm is under the ceiling and their union is the
+        # whole board. No clamp, or no usable partition, falls through to the plain walk.
+        plan = _workday_facet_plan(first, total)
+        if plan:
+            param, arms, true_total = plan
+            for fid, count in arms:
+                if len(rows) >= WORKDAY_MAX_JOBS:
+                    break
+                sel = {param: [fid]}
+                head = _fetch(0, sel)
+                if head is None:
+                    continue        # one unreadable arm is not a dead board -- keep the rest
+                _absorb(head)
+                # An ARM is subject to the same clamp as the board, so never ask past it; an
+                # arm that is itself clamped needs a second facet crossed in, which no board
+                # measured has needed. The +PAGE_LIMIT is because page 0 is already absorbed.
+                stop = min(head.get("total") or count or 0, WORKDAY_TOTAL_CLAMP,
+                           WORKDAY_MAX_JOBS - len(rows) + WORKDAY_PAGE_LIMIT)
+                offs = list(range(WORKDAY_PAGE_LIMIT, stop, WORKDAY_PAGE_LIMIT))
+                if offs:
+                    with concurrent.futures.ThreadPoolExecutor(
+                            max_workers=min(_workday_page_workers(), len(offs))) as ex:
+                        for body in ex.map(lambda o, s=sel: _fetch(o, s), offs):
+                            if body:
+                                _absorb(body)
+                time.sleep(random.uniform(0.1, 0.25))
+            if len(rows) < true_total:
+                # Covers all three ways this stays short -- the job budget ran out, an arm was
+                # itself clamped, or a posting carries no value in this facet at all -- and
+                # `total` in the report is now the TRUE size rather than Workday's 2000.
+                note_truncation(board_url, len(rows), WORKDAY_MAX_JOBS, true_total,
+                                detail="faceted on %s" % param)
+            return rows
+
         # CONCURRENT, like scrape_avature: offset is stateless -- no cursor, no session -- so
         # once the total is known the remaining pages are independent GETs of known URLs. This
         # is the whole reason Workday was two thirds of the sweep: 20 postings a page is the
@@ -3504,9 +3625,23 @@ def _amazon_row(j, seen):
 # country=USA: offset 0 is today, 1000 is 8 days back, 3000 is ~23 days and 100% inside
 # MAX_AGE_DAYS=30, 5000 is ~41 days and only 36% inside, 9900 is ~3 months. A full run returned
 # 4,261 postings in 57s, every one with a real posting date, 1,266 of them past the title and US
-# filters. `hits` reports a flat 10000, which is an Elasticsearch result-window cap rather than
-# Amazon's true US headcount, so there is nothing to read past it. result_limit maxes at 100 (200
-# and 500 both return zero rows).
+# filters. result_limit maxes at 100 (200 and 500 both return zero rows).
+#
+# `hits` REPORTS A FLAT 10000 AND THAT IS A CAP, NOT A COUNT. This used to conclude "so there is
+# nothing to read past it", which is the right call for the wrong reason -- and it is precisely
+# the mistake scrape_workday made with its own 2000 (see WORKDAY_TOTAL_CLAMP, where believing a
+# clamped total hid 121,803 postings). A capped total CAN be read past: slice the query until
+# each slice reports under the cap. Verified 2026-09-08 that the axis exists here too --
+# `category[]=software-development` answers 1,668 and `normalized_location[]=Seattle, Washington,
+# USA` answers 3,589, both well under 10000, so a union of slices would reach further.
+#
+# WHAT MAKES IT NOT WORTH DOING IS THE DATE DEPTH, re-measured the same day: offset 3000 is
+# August 20 and offset 9900 is May 29, so the cap sits about three MONTHS deep while
+# MAX_AGE_DAYS is 30. The whole freshness window is reached by roughly offset 4,500 -- 2x
+# headroom under the cap -- and everything the cap hides, main()'s age gate would drop anyway.
+# So this is a ceiling we are genuinely not touching, which is a different fact from a ceiling
+# that does not exist. Revisit if offset 9900 ever comes back INSIDE MAX_AGE_DAYS: that single
+# measurement is what would turn this into the Workday bug.
 #
 # In practice it reads to the cap, and that is the right answer: Amazon's recency sort is NOT
 # monotonic — a re-posted role carries its new date, so fresh rows keep appearing past offset
