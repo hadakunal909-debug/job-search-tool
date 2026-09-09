@@ -56,6 +56,12 @@ NEEDS_ARGS = {"/job", "/company", "/job/research", "/application/resume", "/brai
 
 # Side-effectful even on GET — never called by this script.
 SKIP = {"/logout", "/reload", "/scrape", "/admin/user/delete"}
+# /warm answers 404 BY DESIGN when WARM_TOKEN is unset -- web.py refuses to advertise a
+# route it cannot authenticate -- and the token is a GitHub secret, so it is absent on a
+# laptop. Reporting that as FAIL not found made a correct refusal look like a broken route.
+# Checked when the token is present, skipped when it is not.
+if not (os.environ.get("WARM_TOKEN") or "").strip():
+    SKIP = SKIP | {"/warm"}
 
 
 def _excerpt(body, n=220):

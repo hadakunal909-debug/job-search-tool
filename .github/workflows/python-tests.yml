@@ -23,6 +23,14 @@ name: python tests
 # database, and skips only the response-shape section that genuinely does.
 
 on:
+  # THE DB TIER'S CADENCE. Weekly rather than per-push, and the reason is not thrift:
+  # CLAUDE.md forbids load-testing production, the box is shared cPanel that throttles at
+  # the account level, and smoke_app walks every GET route. Once a week keeps those three
+  # suites honest -- all three were found broken on 2026-09-08 after months unrun -- without
+  # pointing a test runner at the live app on every commit.
+  schedule:
+    - cron: "23 6 * * 1"       # Mondays, well clear of the 12:47 scrape
+  workflow_dispatch:
   push:
     paths:
       - 'JobMatch Scraper/**.py'
@@ -55,6 +63,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # THE THREE SUITES THAT NEED A LIVE DATABASE, and the only thing standing between
+  # core.prefs_match and silent divergence from the feed.
+  #
+  # Separate job, not a step in `tests`: it must not gate a push or a pull request, and it has
+  # no business running on a fork where the secrets do not exist. `tests` stays the fast,
+  # offline, always-on gate; this is the slower honesty check.
+  db-tier:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EV_OFF: '1'                # never write analytics rows from a CI run
+      PYTHONIOENCODING: utf-8
+      # Read at the JOB level so the step's `if` can see it -- a step-level `if` cannot read
+      # that step's own env. Empty on a fork, which is exactly when this must not run.
+      DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
+      DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}
+      # STATE THE BACKEND. Without it a half-set pair or an empty secret can resolve somewhere
+      # else entirely and report success -- the failure mode db._check_backend_intent exists for.
+      DB_REQUIRE: proxy
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: install
+        working-directory: 'JobMatch Scraper'
+        run: pip install -r requirements.txt
+
+      # `--db` returns 2 rather than faking a pass when it finds no credentials, so this is
+      # guarded rather than allowed to fail: a contributor who edits a comment on a fork should
+      # not see a red build for a secret they cannot have.
+      #
+      # APP_SECRET is deliberately absent: run_tests.py injects its own fixed, obviously-fake
+      # key for these suites, because web.py refuses to import against a real database without
+      # one. One place to look, and stable so a cookie signed in one process reads in another.
+      # `--db` selects EVERY suite, not just the three -- _select replaces the picked list
+      # rather than adding to it -- so this is the whole 73, run serially. That is the right
+      # thing weekly: the offline suites are cheap and the strongest signal is all of them
+      # against a real database at once. Measured 149 s locally.
+      - name: all 73 suites, including the three that need a live database
+        if: env.DB_PROXY_SECRET != ''
+        working-directory: 'JobMatch Scraper'
+        run: python scripts/run_tests.py --db --ci
+
+      - name: say why it was skipped
+        if: env.DB_PROXY_SECRET == ''
+        run: |
+          echo "No DB_PROXY_SECRET in this context, so the db tier did not run."
+          echo "That is correct on a fork. On this repo it means the secret was removed."
+
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 12          # hard cap so a hung suite cannot drain the Actions budget
