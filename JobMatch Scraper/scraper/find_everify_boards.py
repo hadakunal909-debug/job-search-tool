@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import concurrent.futures
+from urllib.parse import urlparse
 
 import requests
 import scraper
@@ -51,6 +52,34 @@ def _reachable(url, timeout=5):
         return r.status_code < 500
     except Exception:
         return False
+
+
+def _resolve_origin(url, timeout=5):
+    """(reachable, the origin worth probing) -- the redirect TARGET, not what we guessed.
+
+    _reachable() already follows redirects and then throws the answer away, and that discard
+    was the single biggest class of missed board here: a guessed careers host very often 301s
+    to the real one on a DIFFERENT hostname. Measured 2026-09-09 -- jobs.lowes.com 301s to
+    talent.lowes.com, and detect_phenom on the target returns Lowe's real Workday board with
+    4,239 postings, while the same call against jobs.lowes.com gets a Cloudflare 301, is not
+    200, and reads as "no ATS lives here". 1,506 H-1B filings behind that one redirect.
+
+    The ORIGIN, deliberately, not the final URL: every detector appends its own path
+    (/widgets, /api/...) to scheme+host, so carrying a redirect's path through would aim them
+    at the wrong place.
+    """
+    try:
+        r = scraper.SESSION.get(url, headers=_H, timeout=timeout,
+                                allow_redirects=True, stream=True)
+        r.close()
+        if r.status_code >= 500:
+            return False, url
+        p = urlparse(r.url or url)
+        if not p.scheme or not p.netloc:
+            return True, url
+        return True, "%s://%s" % (p.scheme, p.netloc)
+    except Exception:
+        return False, url
 
 # Large US employers / federal contractors NOT already in SOURCES and overwhelmingly
 # E-Verify enrolled. The tool dedupes against SOURCES, so harmless overlap is fine.
@@ -95,12 +124,37 @@ CURATED_MAJORS = (
 _H = {"User-Agent": scraper.HEADERS["User-Agent"], "Accept": "application/json"}
 
 
+# Trailing legal/generic words, ANCHORED and word-bounded. Both properties are load-bearing and
+# the previous version had neither: it did `b.replace(" co", "")` on the whole string, so any
+# name containing " co" as a SUBSTRING was corrupted -- "Johnson Controls" became
+# "johnsonntrols", "Lowe's Companies, Inc." became "lowesmpanies" and "Verizon Communications"
+# became "verizonmmunications". Measured 2026-09-09: those three and their class are part of why
+# 646 of 771 probed employers resolved no careers page at all. A corrupted slug cannot resolve,
+# so the failure looked like "this company has no board" rather than like a bug.
+_TRAILING_GENERIC = re.compile(
+    r"[\s,.&-]*\b(?:inc|incorporated|corp|corporation|co|company|companies|group|holding|"
+    r"holdings|technologies|technology|solutions|systems|enterprises|industries|plc|llc|l\.l\.c|"
+    r"llp|pllc|ltd|limited|sa|nv|ag|gmbh|usa|us)\b[\s,.]*$")
+
+
 def _nospace(name):
-    b = name.lower()
-    for s in (" inc", " corporation", " corp", " group", " technologies", " company",
-              " holdings", " co", " plc", " sa", " the "):
-        b = b.replace(s, "")
-    return re.sub(r"[^a-z0-9]", "", b)
+    """A domain-shaped slug: lowercase, trailing legal/generic words removed, punctuation gone.
+
+    Stripped REPEATEDLY, because the tail is often two words deep and the short form is usually
+    the domain: "Lowe's Companies, Inc." -> inc -> companies -> **lowes**, which is the real
+    careers.lowes.com. One pass would have stopped at "lowescompanies" and resolved nothing.
+
+    Only the END is touched, so a generic word that is part of the actual name survives --
+    "Johnson Controls" keeps controls, "Verizon Communications" keeps communications. That is
+    the whole difference between this and what it replaced.
+    """
+    b = (name or "").lower().replace("’", "").replace("'", "")
+    b = re.sub(r"^the\s+", "", b)
+    prev = None
+    while prev != b and b:
+        prev = b
+        b = _TRAILING_GENERIC.sub("", b)
+    return re.sub(r"[^a-z0-9]", "", b or (name or "").lower())
 
 
 def _pascal(name):
@@ -349,9 +403,16 @@ def _careers_candidates(company):
     # Only the LIGHT ATS-style subdomains (careers./jobs.). We deliberately DROP
     # www.<co>.com/careers -- big-company marketing roots sit behind bot-walls that hang.
     slug = _nospace(company)
+    # The suffix-KEEPING form too, because both shapes are real domains and which one an
+    # employer uses is not predictable: careers.lowes.com needs the stripped slug, while a
+    # company whose generic word IS part of its domain needs this one. _strict_norm_name is
+    # the cautious stripper (inc/llc/corp only), reused rather than hand-rolled -- see the
+    # note beside it about why the aggressive one must not be pointed at arbitrary names.
+    # Stripped first: it is the likelier of the two, and _reachable() stops at the first hit.
+    kept = scraper._strict_norm_name(company).replace(" ", "")
     hyph = re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
     out = []
-    for s in dict.fromkeys([slug, hyph]):
+    for s in dict.fromkeys([slug, kept, hyph]):
         if s:
             out += ["https://careers.%s.com" % s, "https://jobs.%s.com" % s]
 
@@ -380,9 +441,15 @@ def discover(company):
         return (company, hit[0], hit[1], hit[2], "low")
     # 2) careers-page detect chain on the company's OWN domain — HIGH confidence.
     #    Precheck reachability so a dead/hanging guessed host isn't fetched 4x.
+    # Deduped on the RESOLVED origin, not on the guessed URL: the extra slug variants mean
+    # several candidates now land on the same host, and running five detectors against it
+    # twice is pure network time. This is what pays for the wider candidate list.
+    seen_origins = set()
     for url in _careers_candidates(company):
-        if not _reachable(url):
+        ok, url = _resolve_origin(url)
+        if not ok or url in seen_origins:
             continue
+        seen_origins.add(url)
         # detect_eightfold is last: it is the only one that can be true for a host no other
         # detector claims, and Eightfold gates most tenants, so it fails often and cheaply.
         for fn in (scraper.detect_linked_ats, scraper.detect_phenom,
