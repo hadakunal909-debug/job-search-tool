@@ -117,6 +117,7 @@ SUITES = (
     Suite("test_us_location",       "test_us_location.py",               "root",   "offline"),
     Suite("test_verify_queue",      "test_verify_queue.py",              "root",   "offline"),
     Suite("test_workday_date",      "test_workday_date.py",              "root",   "offline"),
+    Suite("test_workday_facets",    "test_workday_facets.py",            "root",   "offline"),
 
     # ---- scripts ----------------------------------------------------------------------------
     Suite("test_add_board_api",     "scripts/test_add_board_api.py",     "scripts", "offline"),
