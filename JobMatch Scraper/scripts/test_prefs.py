@@ -37,13 +37,19 @@ for raw, label in cases:
     p = core.normalize_prefs(raw)
     ok = (set(p) == set(core.DEFAULT_PREFS)
           and isinstance(p["min"], int) and 0 <= p["min"] <= 100
-          and p["exp"] in ("any", "2", "5", "senior")
+          and p["exp"] in core._PREF_CHOICES["exp"]
           and p["alerts"] in ("off", "daily")
           and isinstance(p["hideagency"], bool) and len(p["loc"]) <= 80)
     check("normalize(%s)" % label, ok, "min=%r exp=%r alerts=%r" % (p["min"], p["exp"], p["alerts"]))
-check("json string parsed", core.normalize_prefs('{"min": 60, "loc": "Boston"}')["min"] == 60)
+# THE SCALE IS DECLARED IN BOTH FIXTURES BELOW. normalize_prefs treats a `min` above zero with
+# no min_scale as a PRE-MIGRATION value and sends it to DEFAULT_PREFS["min"], which is the
+# 2026-09-08 scale bump doing its job. These two are about JSON parsing and clamping, so they
+# have to opt out of the migration or they only ever test the migration.
+check("json string parsed",
+      core.normalize_prefs('{"min": 60, "loc": "Boston", "min_scale": %d}' % core.MIN_SCALE)["min"] == 60)
 check("invalid choice falls back", core.normalize_prefs({"exp": "nonsense"})["exp"] == "any")
-check("absurd min clamped", core.normalize_prefs({"min": 9999})["min"] == 100)
+check("absurd min clamped",
+      core.normalize_prefs({"min": 9999, "min_scale": core.MIN_SCALE})["min"] == 100)
 check("hideagency 'off' -> False", core.normalize_prefs({"hideagency": "off"})["hideagency"] is False)
 
 print()
@@ -139,10 +145,14 @@ print("=" * 78)
 # Any row will do — every check below overrides score= explicitly. Don't require a scored one:
 # that made this line raise StopIteration the moment scores could legitimately all be zero.
 sample = next((r for r in rows if r.get("score")), rows[0])
-p = core.normalize_prefs({"min": 10, "alert_min": 90})
+# min_scale DECLARED, because without it the scale migration fires and resets both values
+# before the override can be observed -- normalize_prefs treats a `min` with no scale as
+# pre-migration and sends it to DEFAULT_PREFS["min"]. This fixture is about alert_min
+# beating min, not about the migration, so it says which scale it is written against.
+p = core.normalize_prefs({"min": 10, "alert_min": 90, "min_scale": core.MIN_SCALE})
 check("alert_min overrides min for email",
       core.prefs_match(dict(sample, score=50), p) is False)
-p2 = core.normalize_prefs({"min": 10})
+p2 = core.normalize_prefs({"min": 10, "min_scale": core.MIN_SCALE})
 check("min applies when alert_min is 0",
       core.prefs_match(dict(sample, score=50), p2) is True)
 check("closed rows never emailed",
@@ -158,8 +168,21 @@ import db
 # (~130 MB) and discarded all but one, on a suite that runs several times an hour and — because
 # it needs live credentials — only ever on a developer's machine, where nothing meters it.
 # order=url makes the sample stable, so this test picks the same job tomorrow.
-_pool = db.sample_jobs(50, cols="*", jd="not.is.null")
-raw = next((j for j in _pool if (j.get("jd") or "").strip() and j.get("location")), None)
+# NO FILTER ON `jd`: the column is not on `jobs` any more. The schema revamp moved the
+# description to db.JD_TABLE ("job_descriptions"), so `jd="not.is.null"` here answered
+# HTTP 400 column "jd" does not exist -- and because this suite is db-tier and nothing runs
+# it on a schedule, it stayed broken silently. Sample on the row table, then fetch the one
+# description through the reader that knows where it lives, which keeps the small-request
+# intent the sample_jobs docstring argues for.
+_pool = db.sample_jobs(50, cols="url,title,company,location,found_date,is_active")
+raw = None
+for _j in _pool:
+    if not (_j.get("location") or "").strip():
+        continue
+    _jd = db.get_job_jd(_j.get("url")) or ""
+    if _jd.strip():
+        raw = dict(_j, jd=_jd)
+        break
 if raw is None:
     print("  FAIL  no sampled row had both a description and a location")
     sys.exit(1)

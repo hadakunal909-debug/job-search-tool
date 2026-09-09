@@ -50,7 +50,13 @@ print("=" * 78)
 print("with no saved prefs the feed ships the documented defaults")
 print("=" * 78)
 body = client().get("/").data.decode("utf-8", "replace")
-check("min slider at 45", 'id="min"' in body and 'value="45"' in body)
+# DERIVED, not hardcoded. This said value="45" while DEFAULT_PREFS["min"] was 50, so it
+# cannot have passed for some time -- the suite is db-tier and nothing runs it. A test that
+# freezes a calibration constant fails the next time the constant is calibrated, which is
+# exactly what it should NOT be sensitive to. The default is 0 as of 2026-09-08.
+_want_min = str(core.DEFAULT_PREFS["min"])
+check("min slider at the documented default (%s)" % _want_min,
+      'id="min"' in body and ('value="%s"' % _want_min) in body)
 check("30-day window selected", '<option value="30" selected>Past 30 Days' in body)
 check("agencies hidden by default", 'id="hideagency" checked' in body)
 check("Save-as-default button present", 'id="saveprefs"' in body)
@@ -147,7 +153,11 @@ print("=" * 78)
 print("saving a profile must not clobber an existing saved search")
 print("=" * 78)
 STORE.clear()
-STORE["search_prefs"] = {"alerts": "daily", "min": 33, "loc": "boston"}
+# min_scale DECLARED: without it this reads as a pre-migration profile and the scale bump
+# resets min to the default before the check can see whether a profile save preserved it.
+# The thing under test is the profile save, not the migration.
+STORE["search_prefs"] = {"alerts": "daily", "min": 33, "loc": "boston",
+                         "min_scale": core.MIN_SCALE}
 client().post("/profile", data={"_csrf": CSRF, "alerts": "daily", "email": "me@example.test"})
 sp = core.normalize_prefs(STORE.get("search_prefs"))
 check("loc survived a profile save", sp.get("loc") == "boston", repr(sp.get("loc")))
