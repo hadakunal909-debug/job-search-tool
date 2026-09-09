@@ -74,6 +74,13 @@ ALLOWED_TABLES = {
     # the cPanel app reaches Postgres directly and would work without this line, so a
     # missing entry only ever shows up off-box, as a 403 that reads like an auth failure.
     "wishlist",
+    # The daily aggregator sweep's sidecar ledger (db.FINDINGS_SQL). Same asymmetric
+    # reason as the three entries above, and it already bit: the sweep runs in Actions
+    # and from a laptop, which reach Postgres ONLY through here, so without this line
+    # every --apply run answered `403 table not allowed` -- indistinguishable from an
+    # auth failure -- while the on-box app would have written it fine. Nothing in the
+    # feed path reads it; see scripts/jobspy_sweep.py.
+    "jobspy_findings",
 }
 # Stored procedures the admin panels call. Named individually for the same reason as the tables.
 ALLOWED_RPC = {"db_stats", "ev_usage"}
