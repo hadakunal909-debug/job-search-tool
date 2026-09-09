@@ -180,6 +180,159 @@ def test_non_institutions_generate_nothing():
     assert feb._EDU_WORDS.search("University of Michigan")
 
 
+# --------------------------------------------------------------------------------------
+# The corporate slug, which is the .edu lookup's opposite number and had the same defect:
+# a name that cannot produce its real domain reads as "this employer has no board".
+# --------------------------------------------------------------------------------------
+
+# name -> the slug that IS the employer's careers domain. Each of these resolved to nothing
+# before 2026-09-09 because _nospace did `b.replace(" co", "")` on the whole string.
+SLUGS = {
+    "Lowe's Companies, Inc.": "lowes",           # was "lowesmpanies" -- " co" inside " companies"
+    "Johnson Controls": "johnsoncontrols",       # was "johnsonntrols" -- " co" inside " controls"
+    "Verizon Communications": "verizoncommunications",   # was "verizonmmunications"
+    "Kiewit Corporation": "kiewit",
+    "Tata Technologies": "tata",
+    "CHS Inc.": "chs",
+    "The Ohio State University": "ohiostateuniversity",  # leading article dropped
+}
+
+# Names whose slug must come through UNTOUCHED. Every one of these ends in a string the
+# stripper would eat without a word boundary -- this is the regression that anchoring
+# prevents, and it is the more dangerous direction: it breaks employers that used to work.
+UNTOUCHED = ("Cisco", "Costco", "Broadcom", "Wells Fargo", "US Foods", "Sysco", "Nabisco")
+
+
+def test_the_slug_survives_a_generic_word_inside_the_name():
+    for name, want in SLUGS.items():
+        assert feb._nospace(name) == want, (name, feb._nospace(name), want)
+
+
+def test_a_name_ending_in_a_suffix_substring_is_left_alone():
+    for name in UNTOUCHED:
+        want = name.lower().replace(" ", "")
+        assert feb._nospace(name) == want, (name, feb._nospace(name), want)
+
+
+def test_the_trailing_strip_repeats_so_a_two_word_tail_is_removed():
+    # One pass stops at "lowescompanies" and resolves nothing; the domain is lowes.com.
+    assert feb._nospace("Lowe's Companies, Inc.") == "lowes"
+    assert feb._nospace("Acme Solutions Group LLC") == "acme"
+
+
+def test_a_slug_is_never_empty():
+    # A name made ENTIRELY of generic words would strip to nothing, and an empty slug builds
+    # the URL "https://careers..com" -- a request worth not making.
+    for name in ("Inc", "The Group", "Holdings Ltd", "Co"):
+        assert feb._nospace(name), name
+
+
+def test_both_the_stripped_and_the_kept_slug_are_offered():
+    """Which shape an employer uses is not predictable, so both are candidates -- and the
+    stripped one must come FIRST, because _reachable() stops at the first host that answers."""
+    cands = feb._careers_candidates("Lowe's Companies, Inc.")
+    assert cands[0] == "https://careers.lowes.com", cands
+    assert "https://careers.lowescompanies.com" in cands, cands
+
+
+def test_no_candidate_url_is_malformed():
+    for name in list(SLUGS) + list(UNTOUCHED):
+        for url in feb._careers_candidates(name):
+            assert url.startswith("https://"), (name, url)
+            assert ".." not in url and "//." not in url[8:], (name, url)
+            assert " " not in url, (name, url)
+
+
+# --------------------------------------------------------------------------------------
+# Following the redirect. A guessed careers host very often 301s to the real one on a
+# DIFFERENT hostname, and probing what we guessed instead of where it sent us was the
+# largest single class of missed board: jobs.lowes.com -> talent.lowes.com, behind which
+# detect_phenom finds Lowe's Workday board (12,542 postings, 1,506 H-1B filings).
+# Offline -- scraper.SESSION is stubbed, so this asserts the LOGIC, not the network.
+# --------------------------------------------------------------------------------------
+
+class _FakeResp(object):
+    def __init__(self, status, url):
+        self.status_code = status
+        self.url = url
+
+    def close(self):
+        pass
+
+
+class _FakeSession(object):
+    """get() answers from a {requested: (status, final_url)} map; unknown URLs 200 in place."""
+
+    def __init__(self, mapping):
+        self.mapping = mapping
+        self.asked = []
+
+    def get(self, url, **kw):
+        self.asked.append(url)
+        status, final = self.mapping.get(url, (200, url))
+        return _FakeResp(status, final)
+
+
+def _with_session(mapping, fn):
+    orig = feb.scraper.SESSION
+    feb.scraper.SESSION = _FakeSession(mapping)
+    try:
+        return fn(feb.scraper.SESSION)
+    finally:
+        feb.scraper.SESSION = orig
+
+
+def test_a_redirect_to_another_host_is_followed_to_that_host():
+    def run(_s):
+        return feb._resolve_origin("https://jobs.lowes.com")
+    ok, origin = _with_session(
+        {"https://jobs.lowes.com": (200, "https://talent.lowes.com/")}, run)
+    assert ok is True
+    assert origin == "https://talent.lowes.com", origin
+
+
+def test_the_origin_is_returned_without_the_redirect_path():
+    """Every detector appends its own path to scheme+host, so a carried-through path would
+    aim them somewhere that cannot answer."""
+    def run(_s):
+        return feb._resolve_origin("https://jobs.example.com")
+    ok, origin = _with_session(
+        {"https://jobs.example.com": (200, "https://careers.example.com/us/en/search")}, run)
+    assert ok is True
+    assert origin == "https://careers.example.com", origin
+
+
+def test_a_server_error_is_unreachable_and_a_404_is_not():
+    """< 500 stays reachable on purpose: a careers root that 404s at / still very often
+    answers an ATS probe on its own path."""
+    def five(_s):
+        return feb._resolve_origin("https://dead.example.com")
+    ok, _ = _with_session({"https://dead.example.com": (503, "https://dead.example.com")}, five)
+    assert ok is False
+
+    def four(_s):
+        return feb._resolve_origin("https://empty.example.com")
+    ok2, origin2 = _with_session(
+        {"https://empty.example.com": (404, "https://empty.example.com")}, four)
+    assert ok2 is True
+    assert origin2 == "https://empty.example.com", origin2
+
+
+def test_an_unresolvable_host_reports_unreachable_rather_than_raising():
+    class Boom(object):
+        def get(self, url, **kw):
+            raise IOError("name resolution failed")
+
+    orig = feb.scraper.SESSION
+    feb.scraper.SESSION = Boom()
+    try:
+        ok, origin = feb._resolve_origin("https://nope.example.com")
+    finally:
+        feb.scraper.SESSION = orig
+    assert ok is False
+    assert origin == "https://nope.example.com", origin
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
