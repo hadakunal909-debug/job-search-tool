@@ -20,7 +20,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`jdrender.py`](#jdrenderpy) — 1682 lines, 92 symbols — Job description -> HTML. Kept out of web.py and core.py.
 - [`norms.py`](#normspy) — 288 lines, 17 symbols — What the corpus knows about a ROLE and an EMPLOYER. Kept out of core.py for the reason jdrender is: the scraper and the digest import core and need neither.
 - [`pgrest.py`](#pgrestpy) — 561 lines, 20 symbols — Transport 1: PostgREST verbs reimplemented over psycopg.
-- [`dbproxy.py`](#dbproxypy) — 347 lines, 11 symbols — Transport 2: HMAC-signed HTTPS, how off-host code reaches the DB.
+- [`dbproxy.py`](#dbproxypy) — 354 lines, 11 symbols — Transport 2: HMAC-signed HTTPS, how off-host code reaches the DB.
 - [`analytics.py`](#analyticspy) — 289 lines, 24 symbols — Event capture. Reads EV_OFF once, at import.
 - [`auth.py`](#authpy) — 58 lines, 6 symbols — Password hashing and the login rule.
 - [`cpanelapi.py`](#cpanelapipy) — 135 lines, 7 symbols — cPanel UAPI calls for the admin disk/usage panel.
@@ -325,7 +325,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Transport 2: HMAC-signed HTTPS, how off-host code reaches the DB.*
 
-347 lines · 11 top-level symbols · 0 sections
+354 lines · 11 top-level symbols · 0 sections
 
 *No banner comments in this file.*
 
@@ -2484,16 +2484,16 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | Symbol | Kind | Line | What |
 |---|---|---|---|
 | `ALLOWED_TABLES` | const | [53](../dbproxy.py#L53) |  |
-| `ALLOWED_RPC` | const | [79](../dbproxy.py#L79) |  |
-| `MAX_SKEW` | const | [81](../dbproxy.py#L81) |  |
-| `MAX_BODY` | const | [82](../dbproxy.py#L82) |  |
-| `sign` | def | [85](../dbproxy.py#L85) | Hex HMAC-SHA256 over the timestamp and the exact request bytes. |
-| `verify` | def | [95](../dbproxy.py#L95) | (ok, reason). Signature first, then freshness: a valid-looking timestamp on an unsigned |
-| `_check_target` | def | [111](../dbproxy.py#L111) | The table or rpc this envelope names, or a reason to refuse it. |
-| `handle` | def | [118](../dbproxy.py#L118) | Server side. Returns (http_status, response_dict). |
-| `_repeatable` | def | [194](../dbproxy.py#L194) | May this request be sent again when we never learned whether the first one landed? |
-| `Session` | class | [215](../dbproxy.py#L215) | Client side: the five verbs, over HTTPS, for db._http to use. |
-| `client_from_env` | def | [342](../dbproxy.py#L342) | A Session if both DB_PROXY_* are set, else None. |
+| `ALLOWED_RPC` | const | [86](../dbproxy.py#L86) |  |
+| `MAX_SKEW` | const | [88](../dbproxy.py#L88) |  |
+| `MAX_BODY` | const | [89](../dbproxy.py#L89) |  |
+| `sign` | def | [92](../dbproxy.py#L92) | Hex HMAC-SHA256 over the timestamp and the exact request bytes. |
+| `verify` | def | [102](../dbproxy.py#L102) | (ok, reason). Signature first, then freshness: a valid-looking timestamp on an unsigned |
+| `_check_target` | def | [118](../dbproxy.py#L118) | The table or rpc this envelope names, or a reason to refuse it. |
+| `handle` | def | [125](../dbproxy.py#L125) | Server side. Returns (http_status, response_dict). |
+| `_repeatable` | def | [201](../dbproxy.py#L201) | May this request be sent again when we never learned whether the first one landed? |
+| `Session` | class | [222](../dbproxy.py#L222) | Client side: the five verbs, over HTTPS, for db._http to use. |
+| `client_from_env` | def | [349](../dbproxy.py#L349) | A Session if both DB_PROXY_* are set, else None. |
 
 ## `analytics.py` — symbols
 

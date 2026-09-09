@@ -1,6 +1,6 @@
 name: Daily aggregator sweep (sidecar)
 
-# Asks LinkedIn/Indeed (and jobright, when it will answer) what is being posted, and records it
+# Asks Indeed + LinkedIn + jobright what is being posted, and records it
 # in ONE place: the `jobspy_findings` table, plus a spreadsheet artifact per run.
 #
 # THIS IS A SIDECAR AND MUST STAY ONE. It does not write `jobs`, it does not write `boards`, it
@@ -34,7 +34,7 @@ on:
       sites:
         description: "JobSpy sites (comma-separated)"
         required: true
-        default: "indeed"
+        default: "indeed,linkedin"
       phrases:
         description: "'entry', 'all', or pipe-separated phrases"
         required: true
@@ -46,7 +46,7 @@ on:
       jobright:
         description: "also try jobright (usually Cloudflare-blocked from a runner)"
         type: boolean
-        default: false
+        default: true
       apply:
         description: "write to the jobspy_findings table"
         type: boolean
@@ -96,10 +96,16 @@ jobs:
           # ${{ }} expansion is substituted as raw text BEFORE the shell parses the line, so a
           # phrase containing a quote or semicolon would execute. Read as "$VAR" it is only
           # ever data. Same mitigation as jobspy-shadow.yml.
-          IN_SITES: ${{ inputs.sites || 'indeed' }}
+          IN_SITES: ${{ inputs.sites || 'indeed,linkedin' }}
           IN_PHRASES: ${{ inputs.phrases || 'entry' }}
           IN_HOURS: ${{ inputs.hours || '24' }}
-          IN_JOBRIGHT: ${{ inputs.jobright && '--jobright' || '' }}
+          # On by default on the SCHEDULE, same shape as IN_APPLY below. Expect it to
+          # contribute ~nothing from here: jobright sits behind Cloudflare and answers a
+          # datacenter IP with a 200 carrying a challenge page, which the sweep reports
+          # as "returned nothing" and treats as normal. It is wired because it costs one
+          # cheap failure per role and pays off the day that changes; the route that
+          # actually reads jobright is a laptop run.
+          IN_JOBRIGHT: ${{ (github.event_name == 'schedule' || inputs.jobright) && '--jobright' || '' }}
           # Defaults to writing on the SCHEDULE (inputs are empty there), which is the point of
           # the job; a manual run can turn it off.
           IN_APPLY: ${{ (github.event_name == 'schedule' || inputs.apply) && '--apply' || '' }}

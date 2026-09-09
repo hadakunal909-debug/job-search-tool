@@ -125,12 +125,23 @@ def harvest_jobright(roles, city, verbose):
 
 
 def enrich(company, visa_index, sponsor_counts):
+    """(visa_routes, strength_tier, filing_count) for a company.
+
+    The COUNT is returned, not just the tier, because it is what a human reviewing the sheet
+    actually reads: "sponsors" is a verdict, 2,069 certified filings is the evidence, and the
+    two answer different questions about a company nobody here has heard of. sponsor_strength
+    already computes both -- discarding the number was pure loss. It lands in `h1b_filings`,
+    which was hardcoded None on every row until 2026-09-09.
+
+    `visa_routes` carries stem_opt when the employer is E-Verify enrolled, which is the actual
+    STEM-OPT prerequisite -- see core.VISA_TAG_LABELS.
+    """
     tags = core.visa_tags(company, visa_index) or []
     try:
-        strength, _ = core.sponsor_strength(company, sponsor_counts)
+        strength, count = core.sponsor_strength(company, sponsor_counts)
     except Exception:
-        strength = ""
-    return ", ".join(tags), strength
+        strength, count = "", 0
+    return ", ".join(tags), strength, int(count or 0)
 
 
 def probe(company):
@@ -202,14 +213,14 @@ def main():
         is_new = _norm(company) not in known
         if is_new and company not in new_names:
             new_names.append(company)
-        routes, strength = enrich(company, visa_index, sponsor_counts)
+        routes, strength, filings = enrich(company, visa_index, sponsor_counts)
         findings.append({
             "url": url, "title": (r.get("title") or "").strip(), "company": company,
             "posted_date": (r.get("posted") or "")[:10] or None,
             "location": (r.get("location") or "").strip(),
             "source": r.get("channel") or "", "career_page": "", "board_url": "", "ats_type": "",
             "seniority": "", "salary": "",
-            "h1b_filings": None, "visa_routes": routes,
+            "h1b_filings": filings or None, "visa_routes": routes,
             "company_is_new": is_new, "run_date": run_date, "created_at": None,
             "_strength": strength,
         })
@@ -256,7 +267,8 @@ def main():
 def write_report(findings, path):
     """One row per posting. .xlsx when openpyxl is present and the name asks for it, else .csv."""
     cols = ["run_date", "posted_date", "company", "company_is_new", "title", "location",
-            "source", "career_page", "board_url", "ats_type", "visa_routes", "_strength", "url"]
+            "source", "career_page", "board_url", "ats_type", "visa_routes",
+            "h1b_filings", "_strength", "url"]
     rows = sorted(findings, key=lambda f: (not f["company_is_new"], f["company"].lower()))
     if path.lower().endswith(".xlsx"):
         try:

@@ -109,6 +109,27 @@ def unusable_name(name):
 
 # ---------------------------------------------------------------------------------- harvest
 
+def _site_term(site, phrase):
+    """The search term as THAT site's query language wants it.
+
+    Indeed ORs a bare multi-word term across the words, so `associate project manager` returns
+    Warehouse Manager and Administrative Secretary II; `title:("associate project manager")`
+    fixes the whole query class. LinkedIn has no such operator and passing one searches for the
+    literal string, so this must stay site-conditional -- it is not a general improvement.
+
+    It matters more on a harvest than on a scrape: main() gates stored rows through
+    scraper.title_verdict, so a loose query there only wastes budget, but the sweep records the
+    EMPLOYER off every row it sees and applies no title filter, so the noise lands in the sheet
+    a human then has to read.
+
+    The wrapped term still carries no "|", which is what keeps it safe inside the
+    "jobspy:<site>|<phrase>|<location>" selector scrape_jobspy splits on.
+    """
+    if site == "indeed" and " " in phrase.strip() and "title:" not in phrase:
+        return 'title:("%s")' % phrase.strip()
+    return phrase
+
+
 def harvest_jobspy(sites, phrases, location, hours, results, verbose=False):
     """One record per posting, via the adapter the scraper already ships.
 
@@ -139,7 +160,7 @@ def harvest_jobspy(sites, phrases, location, hours, results, verbose=False):
     out = []
     for site in sites:
         for phrase in phrases:
-            selector = "jobspy:%s|%s|%s" % (site, phrase, location)
+            selector = "jobspy:%s|%s|%s" % (site, _site_term(site, phrase), location)
             try:
                 rows = scraper.scrape_jobspy(selector)
             except Exception as e:
