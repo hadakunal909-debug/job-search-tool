@@ -165,6 +165,36 @@ def test_sort_order_is_unchanged():
     assert [r["company"] for r in rows] == ["Alpha Inc", "Zeta Inc"], rows
 
 
+def test_a_multi_word_indeed_term_is_wrapped_in_the_title_operator():
+    # Indeed ORs a bare multi-word term across the words, which is how "associate project
+    # manager" returned Warehouse Manager. The wrap is the fix for the whole query class.
+    assert dc._site_term("indeed", "associate project manager") == \
+        'title:("associate project manager")'
+
+
+def test_linkedin_is_never_wrapped_because_it_has_no_such_operator():
+    # LinkedIn would search for the literal string, so this must stay site-conditional. This is
+    # the check that fails if someone "simplifies" the helper into an unconditional wrap.
+    for phrase in ("associate project manager", "project coordinator", "engineer"):
+        assert dc._site_term("linkedin", phrase) == phrase, phrase
+
+
+def test_a_single_word_term_and_an_already_wrapped_one_are_left_alone():
+    # Nothing to disambiguate in one word, and double-wrapping would search for the operator.
+    assert dc._site_term("indeed", "engineer") == "engineer"
+    already = 'title:("project coordinator")'
+    assert dc._site_term("indeed", already) == already
+
+
+def test_the_wrapped_term_still_fits_the_selector_scrape_jobspy_splits():
+    # scrape_jobspy splits "jobspy:<site>|<phrase>|<location>" on "|", so a phrase that grew a
+    # pipe would silently become a different location. The wrap adds none -- prove it.
+    term = dc._site_term("indeed", "associate project manager")
+    assert "|" not in term, term
+    selector = "jobspy:%s|%s|%s" % ("indeed", term, "United States")
+    assert len(selector.split(":", 1)[1].split("|")) == 3, selector
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
