@@ -84,7 +84,48 @@ _MIN_TERM_LEN = 3
 # How much more often one track must ask for a term than the other before it counts as a
 # skill rather than filler. 1.4 was chosen by looking at what it admits and rejects, not
 # analytically -- see the discrimination note in build_keywords.
-_MIN_DISCRIMINATION = 1.4
+# RE-MEASURED FOR THREE TRACKS, 2026-09-08. It was 1.4, chosen by eye at TWO tracks, and the
+# note in build_keywords already said a third bucket makes `lo` smaller for most terms so the
+# same ratio gets MORE permissive. It did, and the comment claimed the re-measurement had
+# happened when it had not -- caught by reading the shipped panel, which offered "business",
+# "teams", "customers", "management", "development", "technology" and "technical" as skills a
+# product-track posting asks for. 13 of the 14 boilerplate words in the top 40 were admitted
+# HERE, not by curation.
+#
+# MEASURED discrimination at three tracks: business 2.29, teams 2.09, customers 2.04,
+# development 2.12, technology 2.30, management 2.67, technical 2.84 -- against curated real
+# skills that BYPASS this test entirely (product strategy 48.8, a/b test 28.6, product roadmap
+# 25.5, go-to-market 20.0, experimentation 14.9, backlog 13.3, user stories 12.7).
+#
+# 3.0 is therefore close to free: every genuine skill in that list is curated and immune, so
+# this only ever culls terms that earned their place on a ratio.
+_MIN_DISCRIMINATION = 3.0
+
+# WHAT DISCRIMINATION CANNOT FIX, and the reason it cannot.
+#
+# Raising the ratio to 3.0 culled ten boilerplate words. These survived it because they really
+# ARE distinctive of one track -- and that is precisely the problem: being distinctive is not
+# being a skill. Measured at three tracks: product 4.25, products 8.32, market 17.23,
+# define 16.91, customer 4.15.
+#
+# "product" and "products" are TAUTOLOGICAL. The product track is defined by
+# core.roles_for_title containing "product", so the word firing hardest inside it says nothing
+# about which skill a posting wants. No ratio can see that; only knowing how the bucket was
+# built can.
+#
+# NOT ADDED TO core.JD_BOILERPLATE, deliberately: _candidate_terms shares that set and builds
+# idf.json from it, so a display fix there would silently re-weight the entire scoring
+# vocabulary -- the same trap analyze_jd's extra_skip note describes. This list is local to the
+# panel it fixes.
+#
+# Curated terms are NOT exempted from this one. "operations" is in ATS_DOMAIN and is still
+# employer boilerplate when offered to a reader as a skill to demonstrate.
+_NOT_A_SKILL = frozenset((
+    "product", "products",                      # tautological: the track is named after them
+    "market", "define", "needs", "user", "users", "capabilities", "customer", "customers",
+    "solutions", "strategy", "platform", "delivery", "operations", "business", "teams",
+    "technology", "technical", "development", "management", "engineering", "data", "through",
+))
 
 
 def _rows():
@@ -163,6 +204,9 @@ def build_keywords(show=0):
             if all(p in stop for p in t.split()):
                 continue
             if not any(ch.isalpha() for ch in t):
+                continue
+            # Bare boilerplate goes regardless of curation -- see _NOT_A_SKILL.
+            if t in _NOT_A_SKILL:
                 continue
             if t not in curated and discrimination(t) < _MIN_DISCRIMINATION:
                 continue
