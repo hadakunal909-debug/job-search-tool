@@ -67,7 +67,10 @@ concurrency:
 jobs:
   sweep:
     runs-on: ubuntu-latest        # Linux = 1x minute billing, same as the scrape job
-    timeout-minutes: 30
+    # 30 -> 36, to stay above the step cap below plus install and artifact upload. A job cap
+    # that sits only 4 minutes above its longest step turns a slow pip resolve into a second,
+    # differently-worded timeout.
+    timeout-minutes: 36
     steps:
       - uses: actions/checkout@v5
 
@@ -87,7 +90,21 @@ jobs:
           pip install openpyxl        # the .xlsx report; requirements.txt only suggests it
 
       - name: Sweep
-        timeout-minutes: 20
+        # 20 -> 26. THE 20 WAS UNDER THE MEASURED COST OF THE SCHEDULED CONFIGURATION, so the
+        # schedule could not pass: 2026-09-07, -09 and -10 all died on this cap at 20m44s-20m53s
+        # of wall clock, and the only run that ever went green was a manual `indeed`-only one
+        # that finished in 19m27s -- 33 seconds of slack. The schedule runs indeed AND linkedin
+        # AND jobright, which is strictly more work than the one configuration that fit.
+        #
+        # This costs almost nothing to raise, which is the point: a timed-out run already burns
+        # the full 20 minutes and then throws away every harvested row, because the sweep writes
+        # the ledger once at the end. The choice is 20 wasted minutes or ~22 useful ones.
+        #
+        # BUDGET, because it is tight: this account is at ~1,709 of 2,000 free minutes a month
+        # (measured 2026-09-10 over the preceding 30 days), and `Scrape jobs` is 1,331 of that.
+        # If the cap is ever reached, cut the CADENCE of this sidecar -- it writes no job rows
+        # and adopts nothing -- before touching the scrape.
+        timeout-minutes: 26
         env:
           DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
           DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}

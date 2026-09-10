@@ -619,7 +619,13 @@ jobs:
         if: >-
           steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
           && !cancelled()
-        timeout-minutes: 10
+        # 10 -> 12, and this is FREE: VERIFY_BUDGET_MIN below bounds the work at 8 minutes, so
+        # the cap only has to cover that budget plus the corpus load either side of it. It does
+        # not: the step measured 9m31s on 2026-09-10 and 8m28s on 09-09 against a 10-minute cap,
+        # and it actually hit the cap on 2026-09-07. Raising the cap cannot make the step run
+        # longer -- only the budget can do that -- it just stops the fixed overhead from being
+        # charged against the budget's headroom.
+        timeout-minutes: 12
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
