@@ -9007,7 +9007,11 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
                     "skipped": rows is None and err is None,
                     "err": err,
                     "secs": bsecs,
-                    "urls": {r.get("url") for r in (rows or []) if r.get("url")}})
+                    # ONE STRING PER BOARD, NOT A SET OF STRINGS -- see _pack_urls. This is the
+                    # half of the slice budget that was never enforced: SCRAPE_SLICE bounds the
+                    # postings held WITHIN a slice, and the [mem] line below has said all along
+                    # that this list is "bounded by the whole board list, not by the slice".
+                    **_pack_urls(r.get("url") for r in (rows or []))})
             if progress:
                 try:
                     progress(done, total, len(all_jobs))
@@ -9207,6 +9211,54 @@ def _norm_url(u):
     return re.sub(r"^[a-z]+://", "", (u or ""), flags=re.I)
 
 
+def _pack_urls(urls):
+    """Freeze a board's URLs into {"n": count, "urlblob": one string} for board_results.
+
+    WHY A STRING AND NOT THE SET IT REPLACED, which is the obvious objection: nothing holds a
+    board's URLs for the reason a set exists. reconcile_closed rebuilds the set for ONE board,
+    uses it inside one loop iteration, and drops it; save_board_health wants a count. What the
+    old shape actually did was keep every URL of every board live for the whole run -- 518,504
+    of them across 2,213 boards on 2026-09-09 -- because board_results is the one accumulator
+    SCRAPE_SLICE never bounded.
+
+    MEASURED ON THE BOX, 2026-09-10, at exactly that size: a set of raw URL strings per board
+    costs 97 MB; scheme-stripped and joined, 51 MB. A set pays a 49-byte object header and a
+    hash-table slot per string and this pays neither. The 46 MB matters because of what the
+    margin is: the account carries 320 MB of a sibling app that is not ours to touch, ~40 MB of
+    freshly recycled web workers, and a sweep that peaked at 818 MB on 09-09 against a ~1.2 GB
+    CloudLinux LVE cap. That is ~20 MB of headroom, which is why the same run banks fine one day
+    and comes back rc=137 the next -- 09-10 died in slice 20 of 23 having done nothing unusual.
+
+    Not a smaller SCRAPE_SLICE: _release_memory's note records that 150 and 100 died at the same
+    ceiling, and says not to cut it again expecting a different answer. This is the other lever.
+
+    STORED SCHEME-STRIPPED because every reader wanted them that way already -- reconcile_closed
+    opened with `{_norm_url(u) for u in br["urls"]}` and _url_prefix strips the scheme itself, so
+    normalising here removes a rebuild rather than adding one. One consequence worth naming: `n`
+    now counts scheme-UNIQUE URLs, so a board serving the same posting over both http and https
+    reports one where it used to report two. reconcile_closed already counted it that way; only
+    the board-health ledger changes, and toward the number reconcile has always used.
+
+    THE KEY IS `urlblob`, NOT `urls`, ON PURPOSE. len() of the old value was a URL count and
+    len() of this one is a character count, so a consumer that got missed in this change would
+    not raise -- it would quietly file a five-figure number in the board-health ledger. Renaming
+    turns that silent wrong answer into a KeyError. `n` carries the count so no reader has to
+    parse the blob to get one.
+
+    A raw newline cannot appear in a URL (it is percent-encoded), so it is safe as the
+    separator; anything carrying one is dropped rather than trusted to split cleanly.
+    """
+    seen = {_norm_url(u) for u in urls
+            if u and "\n" not in u and "\r" not in u}
+    return {"n": len(seen), "urlblob": "\n".join(sorted(seen))}
+
+
+def _unpack_urls(br):
+    """The set back out of a board_results entry, for the one caller that needs it at a time."""
+    blob = br.get("urlblob") or ""
+    return set(blob.split("\n")) if blob else set()
+
+
 BOARD_HEALTH_KEY = "board_health"
 BOARD_HEALTH_RUNS = 8            # how many runs of history to keep per board
 
@@ -9333,7 +9385,7 @@ def save_board_health(board_results):
         url = (entry[0] if len(entry) > 0 else "") or ""
         ats = (entry[1] if len(entry) > 1 else "") or ""
         company = br.get("company") or ""
-        n = len(br.get("urls") or ())
+        n = int(br.get("n") or 0)          # carried alongside the blob; see _pack_urls
         rec = boards.get(url) or {"company": company, "ats": ats, "runs": []}
         rec["company"], rec["ats"] = company, ats
         # `secs` joins the record because nothing in the repo has ever measured what a board
@@ -9458,10 +9510,13 @@ def reconcile_closed(board_results, apply=False):
         ats = (br["entry"][1] or "").lower()
         if ats in RECONCILE_SKIP_ATS:
             continue
-        urls = {_norm_url(u) for u in br["urls"]}
+        # Already scheme-stripped by _pack_urls, so this is the rebuild that used to happen
+        # here, not a second one -- and it is scoped to this iteration, which is the whole
+        # reason the run no longer has to hold every board's URLs at once.
+        urls = _unpack_urls(br)
         if len(urls) < RECONCILE_MIN_ROWS:
             continue
-        prefix = _url_prefix(br["urls"])
+        prefix = _url_prefix(urls)
         if not prefix or "/" not in prefix:
             # Too broad to scope safely (a bare host would span every company on it).
             continue
@@ -10041,7 +10096,7 @@ def main():
         # line per slice makes the next rc=137 diagnosable from the log alone: whether RSS
         # is flat (something outside the sweep grew) or climbing, and whether what is held
         # is board_results (bounded by the whole board list, not by the slice) or the rows.
-        _urls_held = sum(len(br.get("urls") or ()) for br in board_results)
+        _urls_held = sum(int(br.get("n") or 0) for br in board_results)
         _release_memory()
         print("  [mem] rss %6.0f MB after slice %d/%d -- holding %d board result(s),"
               " %d url(s), %d kept row(s)"

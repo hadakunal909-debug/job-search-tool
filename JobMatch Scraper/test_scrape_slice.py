@@ -47,7 +47,7 @@ def run(slice_size, budget=0):
             if board_results is not None:
                 board_results.append({"entry": e, "company": e[2], "ok": True,
                                       "skipped": False, "err": None, "secs": 0.1,
-                                      "urls": {r["url"] for r in rows}})
+                                      **scraper._pack_urls(r["url"] for r in rows)})
             if progress:
                 progress(len(board_results or []), len(sources), len(out))
         return out
@@ -187,6 +187,38 @@ if len(many_arms) != 1:
                  % len(many_arms))
 if len(one_arms) != 1:
     fails.append("an unsliced run armed the JD budget %d time(s)" % len(one_arms))
+
+# --- board_results is the accumulator SLICING NEVER BOUNDED -------------------------------
+# SCRAPE_SLICE bounds the postings held WITHIN a slice; board_results spans the whole run, so
+# whatever it keeps per URL is multiplied by every URL on every board -- 518,504 of them across
+# 2,213 boards on the 2026-09-09 cron run. Keeping a set of strings there cost 97 MB against a
+# margin of roughly 20 MB, which is why the same sweep banked fine on 09-09 and came back
+# rc=137 on 09-10. It holds ONE joined string per board now (measured: 51 MB), and this is the
+# guard on that -- the shape is easy to revert to a set by accident, and nothing else would say.
+_probe = ["https://boards.test/co/job/%d" % i for i in range(500)]
+_packed = scraper._pack_urls(_probe)
+
+if set(_packed) != {"n", "urlblob"}:
+    fails.append("_pack_urls returned keys %r; board_results entries must carry exactly "
+                 "n + urlblob" % (sorted(_packed),))
+if not isinstance(_packed.get("urlblob"), str):
+    fails.append("urlblob is %s, not a string -- the per-URL object overhead is back"
+                 % type(_packed.get("urlblob")).__name__)
+if _packed.get("n") != len(_probe):
+    fails.append("n is %r for %d urls" % (_packed.get("n"), len(_probe)))
+
+# Round trip: reconcile_closed rebuilds the set from this and must get back exactly what the
+# board returned, scheme-stripped -- that normalisation is what reconcile always applied itself.
+_want = {scraper._norm_url(u) for u in _probe}
+_got = scraper._unpack_urls(_packed)
+if _got != _want:
+    fails.append("_unpack_urls lost %d and invented %d url(s)"
+                 % (len(_want - _got), len(_got - _want)))
+if scraper._unpack_urls({"urlblob": ""}) or scraper._unpack_urls({}):
+    fails.append("an empty board must unpack to an empty set, not {''}")
+
+# The REAL producer's shape is guarded in test_board_health.py, which drives scrape_all itself.
+# Asserting it against fake_scrape_all here would only assert that this file calls _pack_urls.
 
 print("unsliced: %d write(s), %d row(s)" % (len(one), len(urls(one))))
 print("sliced:   %d write(s), %d row(s)" % (len(many), len(urls(many))))

@@ -45,7 +45,7 @@ def _store():
 def _result(company, ok=True, skipped=False, err=None, secs=1.0, n=3, ats="greenhouse"):
     return {"entry": ("u/" + company, ats, company), "company": company, "ok": ok,
             "skipped": skipped, "err": err, "secs": secs,
-            "urls": {"%s-%d" % (company, i) for i in range(n)}}
+            **scraper._pack_urls("%s-%d" % (company, i) for i in range(n))}
 
 
 def _boards(kv):
@@ -67,6 +67,44 @@ def test_scrape_all_marks_an_unreached_board_skipped_not_failed():
         assert br["err"] is None, br
         assert br["ok"] is False, br          # unchanged: reconcile_closed depends on this
         assert br["secs"] is None, br
+
+
+def test_scrape_all_holds_one_string_per_board_not_one_object_per_url():
+    """board_results is the accumulator SCRAPE_SLICE never bounded, so its shape is load-bearing.
+
+    A slice bounds the postings held WITHIN it; board_results spans the whole run, so whatever
+    it keeps per URL is paid once for every URL on every board -- 518,504 of them across 2,213
+    boards on the 2026-09-09 cron run. As a set of strings that measured 97 MB on the box
+    against a margin of about 20 MB, which is why the identical sweep banked on 09-09 and came
+    back rc=137 on 09-10. One joined string per board measured 51 MB.
+
+    Reverting this is a one-word edit that breaks nothing visible -- every consumer still works,
+    the run just starts dying again a few weeks later -- so it is asserted rather than trusted.
+    """
+    def rows(url):
+        return [{"url": "https://brd.test/co/job/%d" % i, "title": "T%d" % i} for i in range(25)]
+    scraper.SCRAPERS["_test_shape"] = rows
+    try:
+        got = []
+        _quiet(scraper.scrape_all, [("u/s", "_test_shape", "S")], workers=1,
+               board_results=got, budget_min=5)
+        assert len(got) == 1, got
+        br = got[0]
+        assert "urls" not in br, (
+            "scrape_all is writing a `urls` key again -- board_results is back to one object "
+            "per URL, which is the rc=137: %r" % (sorted(br),))
+        assert isinstance(br["urlblob"], str), type(br["urlblob"])
+        assert br["n"] == 25, br["n"]
+        assert scraper._unpack_urls(br) == {"brd.test/co/job/%d" % i for i in range(25)}, br
+    finally:
+        scraper.SCRAPERS.pop("_test_shape", None)
+
+
+def test_board_health_counts_urls_not_characters():
+    """save_board_health must read `n`. Reading len(urlblob) would file a five-figure count."""
+    kv = _store()
+    _quiet(scraper.save_board_health, [_result("Board", n=7)])
+    assert _boards(kv)["u/Board"]["runs"][-1]["n"] == 7, _boards(kv)
 
 
 def test_scrape_all_marks_a_raising_board_failed_not_skipped():
