@@ -493,7 +493,11 @@ def base_rows():
 
         ref = [web._build_row(j, scores.get(j.get("url"), 0)) for j in rows if j.get("url")]
         ref = web._dedupe_rows(ref)
-        ref.sort(key=lambda r: r["score"], reverse=True)
+        # web._sort_key, not a bare score: since 2026-09-10 ranked_rows breaks a score tie on
+        # core.ROLE_PRIORITY and then on date. Spelling the old key here would fail every row
+        # for the right reason and read like a product regression -- the same trap the seed_key
+        # comment above records.
+        ref.sort(key=lambda r: web._sort_key(r, "score"))
 
         want("row COUNT matches", len(got) == len(ref), "%d vs %d" % (len(got), len(ref)))
         want("row ORDER matches",

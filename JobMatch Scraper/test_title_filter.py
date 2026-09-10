@@ -311,6 +311,126 @@ def test_a_family_addition_can_only_widen():
         assert key in core.roles_for_title(title), (title, key, core.roles_for_title(title))
 
 
+# ---------------------------------------------------------------------------------------------
+# ABBREVIATED TITLES (core.normalize_title, added 2026-09-10)
+#
+# Reported by Kunal from a live Applied Materials posting the app had never held. Numbers below
+# are from a dump_titles sweep of 47,348 real postings (34,895 US) taken the same day.
+
+
+def test_the_applied_materials_family_that_started_this():
+    # Four "Tech Proj/Prg Mgmt" were live on their Workday board, plus the Non-Tech and the
+    # "Prog Manager IV" spellings. All three failed INCLUDE *and* pm_title_gate, and a title
+    # that fails both is never fetched and so can never be rescued on its description.
+    for t in ("Tech Proj/Prg Mgmt", "Non-Tech Proj/Prg Mgmt", "Tech Proj/Prog Manager IV"):
+        assert verdict(t) == "keep", t
+        assert core.pm_title_gate(t), t
+
+
+def test_the_shorthand_class_generally():
+    for t in ("Program Mgmt", "Project Mgmt", "Prog Mgmt Analyst", "Tech Prgm Mgr",
+              "Sr Bus Sys Analyst", "Prod Mgmt Spec", "Proj Coord II", "Project Admin",
+              "Business Process Anlst 4", "Supply Chain Mgr III"):
+        assert verdict(t) == "keep", t
+
+
+def test_expansion_does_not_open_the_gate_on_everything():
+    # The measured cost of the change, and the reason tech->technical is NOT in _TITLE_ABBR:
+    # it admitted nothing across 34,895 US postings while opening pm_title_gate for 294 rows
+    # that were overwhelmingly "Tech" as a NOUN. Each of those is a description fetch.
+    for t in ("Mechatronics & Robotics Tech", "QC Tech", "DCO Tech", "PCT (Patient Care Tech)",
+              "Data Center Controls Tech"):
+        assert verdict(t) != "keep", t
+        assert not core.pm_title_gate(t), t
+
+
+def test_normalisation_never_re_admits_what_EXCLUDE_turned_away():
+    # EXCLUDE reads the shadow title too, so expansion cannot smuggle a title past a veto.
+    for t in ("Mechanical Engineer", "Registered Nurse", "Sr Mechanical Eng",
+              "Proj Mgr - Chemical Plant", "Project Coordinator - Part Time"):
+        assert verdict(t) == "drop-exclude", (t, scraper.title_verdict(t))
+
+
+def test_the_off_target_titles_stay_off_target():
+    # From the same sweep: everything normalisation was ASKED to leave alone, it left alone.
+    for t in ("Senior Procurement Manager", "Supplier Account Technologist (E5)",
+              "Facilities Manager (Semiconductor Lab)", "Senior NPI Supply Chain Expert - B5",
+              "Global Category Manager"):
+        assert verdict(t) != "keep", t
+
+
+def test_dev_ops_survives_being_pulled_apart():
+    # "dev ops" is ITSELF an INCLUDE phrase, so dev->developer and ops->operations between them
+    # turned "Dev Ops Engineer" into "developer operations Engineer" and matched nothing. Those
+    # four rows were the only regression across 25,973 distinct live titles; _TITLE_COMPOUND
+    # joins the pair before anything is expanded.
+    for t in ("Dev Ops Engineer", "HPC Dev Ops Engineer", "Senior Dev Ops Engineer",
+              "Dev Sec Ops Engineer"):
+        assert verdict(t) == "keep", t
+
+
+def test_a_tab_inside_a_title_no_longer_hides_a_keyword():
+    # scraper._dump_field's docstring has said "job titles really do contain tabs and newlines"
+    # all along; nothing collapsed them before matching. Real Amazon posting.
+    assert verdict("Manufacturing System\tDevelopment Engineer, Cloud AI/ML/storage") == "keep"
+    assert verdict("Senior  Project\nManager") == "keep"
+
+
+def test_the_comma_survives_normalisation():
+    # _REVERSED_RE is anchored on the comma, so it must NOT become a separator -- and leaving
+    # it alone is also what lets the reversed form pick up the expansion.
+    assert verdict("Manager, Projects") == "keep"
+    assert verdict("Dir, Programs") == "keep"
+
+
+def test_the_hyphen_is_not_a_separator():
+    # co-op / full-stack / part-time / roll-out are each a single vocabulary entry.
+    assert verdict("Co-op Software Engineer") == "keep"
+    assert verdict("Full-Stack Developer") == "keep"
+    assert verdict("Project Coordinator - Part-Time") == "drop-exclude"
+
+
+def test_the_shadow_title_is_never_the_stored_one():
+    # The card still shows what the employer called the job.
+    assert core.normalize_title("Tech Proj/Prg Mgmt") != "Tech Proj/Prg Mgmt"
+    assert core.normalize_title("Senior Project Manager") == "Senior Project Manager"
+
+
+def test_an_admitted_abbreviation_lands_in_a_ROLE_FAMILY():
+    # Admitting a posting and then answering () from roles_for_title would bury it twice: ()
+    # is deleted by any role selection and sorts last under ROLE_PRIORITY. It must behave
+    # exactly like the spelled-out title it abbreviates.
+    assert core.roles_for_title("Tech Proj/Prg Mgmt") == \
+        core.roles_for_title("Technical Project/Program Manager")
+    assert core.roles_for_title("Tech Proj/Prg Mgmt"), "abbreviated title has no role family"
+    assert core.role_rank(core.roles_for_title("Sr Proj Mgr")) == \
+        core.role_rank(("pm",))
+
+
+# ---------------------------------------------------------------------------------------------
+# ROLE PRIORITY (core.ROLE_PRIORITY, added 2026-09-10)
+
+
+def test_role_priority_is_the_owners_order():
+    # Given 2026-09-10: project, then product, then program, then the rest.
+    order = [core.ROLE_PRIORITY.index(k) for k in ("pm", "product", "program")]
+    assert order == sorted(order), core.ROLE_PRIORITY[:4]
+    assert core.role_rank(("pm",)) < core.role_rank(("product",)) < core.role_rank(("program",))
+
+
+def test_no_role_sorts_last_and_the_best_role_wins():
+    assert core.role_rank(()) == core.ROLE_RANK_NONE
+    assert core.role_rank(None) == core.ROLE_RANK_NONE
+    assert core.role_rank(("swe", "pm")) == core.role_rank(("pm",))
+    assert core.role_rank(("nonsense",)) == core.ROLE_RANK_NONE
+
+
+def test_every_family_has_a_rank():
+    # core.py asserts this at import; repeated here so the failure names the file to edit.
+    missing = [k for k in core.ROLE_KEYS if k not in core.ROLE_PRIORITY]
+    assert not missing, "add these to core.ROLE_PRIORITY (and app.js's twin): %s" % missing
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -16,6 +16,11 @@
   // equal core.VISA_TAGS / core.VISA_TAG_LABELS — otherwise the card, the email digest and the
   // server filter could drift apart silently.
   var VISA_TAGS = ["h1b", "green_card", "stem_opt", "e3", "h1b1"];
+  // The lowest year count each level implies — the inverse of core.exp_level_for's bands, and
+  // what lets the experience ceiling answer for a row whose description states no number.
+  // Same strict-JSON rule as the visa tables above, and feed_parity asserts it equals
+  // core.LEVEL_MIN_YEARS.
+  var LEVEL_MIN_YEARS = {"entry": 0, "mid": 3, "senior": 6};
   var VISA_LABELS = {"h1b": "H-1B", "green_card": "Green Card", "stem_opt": "STEM-OPT",
                      "e3": "E-3", "h1b1": "H-1B1"};
   var VISA_TIPS = {
@@ -850,17 +855,88 @@
     else tier = 3;
     return [tier, -(j.strength_n || 0), -(j.score || 0)];
   }
+  // ROLE PRIORITY — the twin of core.ROLE_PRIORITY, in the owner's order: project, then
+  // product, then program, then the rest. scripts/feed_parity.py asserts the two lists are
+  // identical rather than trusting anyone to keep them so.
+  var ROLE_PRIORITY = ["pm", "product", "program", "coordinator", "scrum", "delivery",
+    "transform", "consultant", "ba", "ops", "dataanalyst", "supply", "finance",
+    "datasci", "dataeng", "ml",
+    "swe", "engmgr", "devops", "qa", "systems", "apps", "network", "security"];
+  var ROLE_RANK = {};
+  for (var _ri = 0; _ri < ROLE_PRIORITY.length; _ri++) ROLE_RANK[ROLE_PRIORITY[_ri]] = _ri;
+  var ROLE_RANK_NONE = ROLE_PRIORITY.length;
+  // Mirror of core.role_rank(): a row's BEST role, and last when it matched none.
+  function roleRank(roles) {
+    var best = ROLE_RANK_NONE;
+    for (var i = 0; i < (roles || []).length; i++) {
+      var r = ROLE_RANK[roles[i]];
+      if (r !== undefined && r < best) best = r;
+    }
+    return best;
+  }
+  // Mirror of web.py _row_date_num(). localeCompare on the string would order identically on
+  // its own, but the comparator now needs date as ONE TERM among three.
+  function rowDateNum(j) {
+    var s = rowDate(j);
+    if (s.length >= 10 && s.charAt(4) === "-" && s.charAt(7) === "-") {
+      var n = parseInt(s.slice(0, 4) + s.slice(5, 7) + s.slice(8, 10), 10);
+      return isNaN(n) ? 0 : n;
+    }
+    return 0;
+  }
   // The one comparator, so the server twin has exactly one thing to match. Lifted by name into
   // scripts/feed_parity.py (JS_FUNCS) rather than re-typed there — a hand-copied third version
-  // is how these drift.
+  // is how these drift. Mirror of web.py _sort_key(): role rank ranks WITHIN the chosen sort,
+  // never over it, so "Newest" still means newest and a 90% match still beats an 80% one.
   function sortCmp(a, b, sortBy) {
-    if (sortBy === "newest") return rowDate(b).localeCompare(rowDate(a));
+    if (sortBy === "newest") {
+      var d = rowDateNum(b) - rowDateNum(a);
+      if (d) return d;
+      var rn = roleRank(a.roles) - roleRank(b.roles);
+      return rn || ((b.score || 0) - (a.score || 0));
+    }
     if (sortBy === "sponsor") {
       var ra = sponsorRank(a), rb = sponsorRank(b);
       for (var i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
       return 0;
     }
-    return (b.score || 0) - (a.score || 0);
+    var s = (b.score || 0) - (a.score || 0);
+    if (s) return s;
+    var rr = roleRank(a.roles) - roleRank(b.roles);
+    return rr || (rowDateNum(b) - rowDateNum(a));
+  }
+  // Mirror of web.py _break_employer_runs(). Both constants are read out of this file by
+  // scripts/feed_parity.py and compared with web.py's, because a cap that disagrees across the
+  // 4,000-row inline/paged boundary would reorder the feed the moment the corpus grew.
+  var EMPLOYER_RUN_MAX = 2;
+  var EMPLOYER_RUN_LOOKAHEAD = 200;
+  function breakEmployerRuns(rows, cap, lookahead) {
+    cap = cap === undefined ? EMPLOYER_RUN_MAX : cap;
+    lookahead = lookahead === undefined ? EMPLOYER_RUN_LOOKAHEAD : lookahead;
+    var n = rows.length;
+    if (cap <= 0 || n < cap + 2) return rows;
+    var used = new Uint8Array(n), out = [], last = null, run = 0, i = 0;
+    while (out.length < n) {
+      while (i < n && used[i]) i++;
+      if (i >= n) break;
+      var pick = i;
+      if (run >= cap && (rows[i].company || "") === last) {
+        var j = i + 1, seen = 0;
+        while (j < n && seen < lookahead && (j - i) <= lookahead) {
+          if (!used[j]) {
+            seen++;
+            if ((rows[j].company || "") !== last) { pick = j; break; }
+          }
+          j++;
+        }
+      }
+      used[pick] = 1;
+      var emp = rows[pick].company || "";
+      run = emp === last ? run + 1 : 1;
+      last = emp;
+      out.push(rows[pick]);
+    }
+    return out;
   }
   var HOURS_PER_YEAR = 2080;      // keep in step with web.py _HOURS_PER_YEAR
   function annualize(amount, period) {
@@ -1100,6 +1176,13 @@
             if (expSel.value === "senior") { if (yrs >= 6) ok = false; }
             else if (yrs > (parseInt(expSel.value, 10) || 99)) ok = false;
           }
+        } else {
+          // No year count anywhere, so the LEVEL answers the ceiling — the same thing the
+          // "entry" branch above does with the same field. Twin of web._filter_rows and
+          // core.prefs_match; the long note at the server copy has the measurement.
+          var floor = LEVEL_MIN_YEARS[j.level || ""];
+          var ceil = expSel.value === "senior" ? 5 : (parseInt(expSel.value, 10) || 99);
+          if (floor !== undefined && floor > ceil) ok = false;
         }
       }
     }
@@ -1157,6 +1240,10 @@
     // is stable (ES2019), which is what makes the two-pass form equal to a compound key.
     var qs = q && q.value.trim().toLowerCase();
     if (qs) matched.sort(function (a, b) { return searchRank(b, qs) - searchRank(a, qs); });
+    // LAST, after every sort including the relevance pass — the only rule here about the shape
+    // of the list rather than the merit of a row. The server applies it at the end of
+    // _filter_rows for the paged feed; this is the same rule for the inline one.
+    matched = breakEmployerRuns(matched);
     // One row = one card, so `limit` paginates jobs directly.
     var slice = matched.slice(0, limit), html = "";
     for (var k = 0; k < slice.length; k++) html += cardHTML(slice[k]);

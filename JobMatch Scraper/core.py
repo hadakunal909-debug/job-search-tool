@@ -2604,6 +2604,93 @@ _DEV_TITLE_RE = re.compile(r"""\b(?:
 
 
 # ------------------------------------------------------------
+# TITLES ARE WRITTEN IN SHORTHAND AND EVERY MATCHER HERE READS THEM LITERALLY.
+#
+# Applied Materials posts "Tech Proj/Prg Mgmt" -- four of them live on 2026-09-10, beside
+# "Non-Tech Proj/Prg Mgmt" and "Tech Proj/Prog Manager IV". Every title matcher in this project
+# is whole-phrase and re.escape'd, so "proj" is not "project", "prg" is not "program" and "mgmt"
+# is not "management". That posting failed INCLUDE and then failed pm_title_gate -- and a title
+# that fails BOTH is never fetched and never reconsidered, because fill_missing_jds only buys a
+# description for titles the gate lets through. Measured over the 80 distinct US titles in that
+# employer's OWN "Project/Program Management" job family: 17 dropped, 10 of them gate-blocked.
+#
+# THIS IS A SHADOW COPY, USED ONLY FOR MATCHING. The stored and displayed title is never
+# touched -- a card still reads "Tech Proj/Prg Mgmt", which is what the employer called it.
+#
+# TWO RULES, AND WHICH ONE DOES THE WORK MATTERS. Punctuation-as-separator was measured on its
+# own on 2026-08-20 and REFUSED: +8 rows, all junk (the note above scraper._REVERSED_RE). It is
+# safe here only because it is not what earns the match -- the EXPANSION is, and the separator
+# merely exposes the token. "Proj/Prg" has to become two words before either half can be
+# recognised, and neither half matches anything on its own.
+#
+# THE COMMA IS NOT A SEPARATOR, deliberately. scraper._REVERSED_RE is anchored on it ("Manager,
+# Projects"), so turning it into a space would delete the one structural pattern the title
+# filter has. Leaving it alone also hands the reversed form the expansion for free: "Dir,
+# Programs" normalises to "director, Programs" and matches where it never used to. The ASCII
+# hyphen is left alone for a similar reason -- "co-op", "full-stack", "part-time" and "roll-out"
+# are each a single INCLUDE / EXCLUDE / hint entry and splitting them would lose all four.
+#
+# WHAT IS DELIBERATELY ABSENT: discipline words. mech->mechanical, elec->electrical and
+# chem->chemical would each make EXCLUDE fire MORE, since all three are bare EXCLUDE entries.
+# That is a different change with the opposite risk, and this one is about jobs we are missing.
+_TITLE_ABBR = {
+    "proj": "project", "prj": "project", "projs": "projects",
+    "prg": "program", "prgm": "program", "prog": "program", "pgm": "program",
+    "progs": "programs",
+    "mgmt": "management", "mgt": "management", "mgr": "manager", "mgrs": "managers",
+    "coord": "coordinator", "coords": "coordinators", "spec": "specialist",
+    "admin": "administrator", "asst": "assistant", "dir": "director",
+    "sr": "senior", "jr": "junior", "assoc": "associate",
+    "eng": "engineer", "engr": "engineer", "dev": "developer", "devs": "developers",
+    "anlyst": "analyst", "anlst": "analyst", "bus": "business", "sys": "systems",
+    "ops": "operations", "prod": "product",
+}
+# tech->technical WAS HERE AND WAS MEASURED OUT. On the 34,895 US postings of the 2026-09-10
+# sweep it admitted nothing at all -- "Tech Proj/Prg Mgmt" matches on "program management", not
+# on the word Tech -- while opening pm_title_gate for 294 rows that are almost entirely
+# "Tech" AS A NOUN: 43 "Mechatronics & Robotics Tech", 21 "IT Support Associate II", plus DCO
+# Tech, QC Tech, Controls Tech and "PCT (Patient Care Tech)". Those are technicians, EXCLUDE
+# already names that word, and each one would have cost a description fetch out of a budget
+# with better candidates in it. An expansion has to earn a match, not just widen a gate.
+# The two dashes are the ones employers reach for as a comma substitute: "Director - Program
+# Management" arrives with U+2013 about as often as with an ASCII hyphen.
+# str.translate rather than a per-character generator: this runs over every distinct title in
+# the corpus on a cold row build, and the table form measured 8.0 us/title against 10.8.
+_TITLE_SEPS = frozenset("/&+|" + chr(92) + "\u2013\u2014")
+_TITLE_SEP_MAP = {ord(c): " " for c in _TITLE_SEPS}
+_TITLE_WORD_RE = re.compile(r"[A-Za-z]+")
+_TITLE_WS_RE = re.compile(r"\s+")
+# SHORTHAND THAT IS REALLY ONE WORD WITH A SPACE IN IT. Joined BEFORE expansion, because
+# expanding either half destroys it: "dev ops" is itself an INCLUDE phrase, and dev->developer
+# together with ops->operations turned "Dev Ops Engineer" into "developer operations Engineer",
+# which matches nothing at all. Measured over the 25,973 distinct live titles, those were the
+# ONLY four rows normalisation cost -- everything else it changed, it changed for the better.
+_TITLE_COMPOUND = ((re.compile(r"\bdev\s+sec\s+ops\b", re.I), "devsecops"),
+                   (re.compile(r"\bdev\s+ops\b", re.I), "devops"))
+
+
+@lru_cache(maxsize=60000)
+def normalize_title(title):
+    """A title rewritten FOR MATCHING ONLY: separators split, known shorthand expanded.
+
+    Bounded like _role_cache and for the same reason -- titles repeat heavily across a corpus,
+    and this runs on every row of a feed render by way of roles_for_title.
+    """
+    if not title:
+        return ""
+    # WHITESPACE FIRST, and it is not cosmetic. scraper._dump_field's docstring already says
+    # "job titles really do contain tabs and newlines"; nothing collapsed them before matching,
+    # so a phrase list built with literal single spaces could not see across one. Found from a
+    # real Amazon posting -- "Manufacturing System<TAB>Development Engineer" was dropped as
+    # having no keyword while "system development" sat in INCLUDE the whole time.
+    s = _TITLE_WS_RE.sub(" ", title.translate(_TITLE_SEP_MAP)).strip()
+    for rx, whole in _TITLE_COMPOUND:
+        s = rx.sub(whole, s)
+    return _TITLE_WORD_RE.sub(
+        lambda m: _TITLE_ABBR.get(m.group(0).lower(), m.group(0)), s)
+
+
+# ------------------------------------------------------------
 # ROLE FAMILIES — "what kind of job do you want", answerable
 #
 # role_track sorts every posting into dev or mgmt, which is two buckets for the 4,296 distinct
@@ -2767,6 +2854,71 @@ ROLE_FAMILIES = [
 ]
 ROLE_KEYS = tuple(k for k, _l, _g, _p in ROLE_FAMILIES)
 ROLE_LABELS = {k: lab for k, lab, _g, _p in ROLE_FAMILIES}
+
+# ------------------------------------------------------------
+# WHICH ROLE COMES FIRST WHEN TWO POSTINGS ARE OTHERWISE EQUAL.
+#
+# The feed sorted on ONE integer: `score` is int(pct), so ~39,000 active rows fell into at most
+# 101 buckets -- about 400 rows a bucket -- and Python's sort is stable, so inside a bucket the
+# input order survived untouched. That input order is db._fetch_all's `order=url` default, one
+# employer is one ATS host, and URL order is therefore EMPLOYER order. That, and not any
+# grouping rule, is why the feed showed walls of one company. "Newest" piled the same way for a
+# different reason: a board is scraped in one pass, so dozens of rows share a date and the tie
+# falls through to the same place.
+#
+# This is the tie-break that was missing. It is the owner's order, given 2026-09-10: project,
+# then product, then program, then everything else, grouped the way ROLE_GROUPS already groups
+# them. It ranks WITHIN the chosen sort and never over it -- "Newest" still means newest, and a
+# 90% match still outranks an 80% one. See web._sort_key.
+#
+# A row matching several families takes its BEST rank: roles_for_title returns every family a
+# title belongs to, and a "Technical Program Manager" is genuinely both.
+ROLE_PRIORITY = (
+    "pm", "product", "program", "coordinator", "scrum", "delivery", "transform", "consultant",
+    "ba", "ops", "dataanalyst", "supply", "finance",
+    "datasci", "dataeng", "ml",
+    "swe", "engmgr", "devops", "qa", "systems", "apps", "network", "security",
+)
+# A family added to ROLE_FAMILIES and forgotten here would silently sort last for everyone,
+# which looks like a ranking opinion rather than an omission. Same standard norms.py holds
+# _meta.role_keys to: editing the vocabulary FAILS rather than quietly re-ranking the feed.
+assert set(ROLE_PRIORITY) == set(ROLE_KEYS), (
+    "ROLE_PRIORITY must name every ROLE_FAMILIES key exactly once: missing %s, unknown %s"
+    % (sorted(set(ROLE_KEYS) - set(ROLE_PRIORITY)), sorted(set(ROLE_PRIORITY) - set(ROLE_KEYS))))
+_ROLE_RANK = {k: i for i, k in enumerate(ROLE_PRIORITY)}
+# One past the end, so "we could not tell what this is" sorts after everything we could.
+# 16.0% of live titles are here, measured 2026-09-10 over 25,973 distinct active titles.
+ROLE_RANK_NONE = len(ROLE_PRIORITY)
+
+
+# Memoised on the role tuple, not stored on the row -- and that is a deliberate choice, not an
+# oversight. row_cache/ is keyed on (jobs_fingerprint, _derived_signature) and _derived_signature
+# hashes THREE DATA FILES, not this module, so a rank baked into a built row would survive an
+# edit to ROLE_PRIORITY until the next scrape moved the corpus. That is the same staleness class
+# CLAUDE.md refuses for `roles` and `track`. Measured over 39,000 rows there was nothing to buy
+# anyway: the memo sorts in 25.9 ms against 24.9 ms for a pre-baked integer, because a corpus
+# holds only a handful of distinct role tuples (8 in the live one).
+_role_rank_memo = {}
+
+
+def role_rank(roles):
+    """Where a row's best role sits in ROLE_PRIORITY. Lower is earlier; no role sorts last.
+
+    Takes the ROLES ALREADY ON THE ROW (_build_row emits them) rather than a title, so nothing
+    on the sort path has to look at text.
+    """
+    key = tuple(roles or ())
+    hit = _role_rank_memo.get(key)
+    if hit is not None:
+        return hit
+    best = ROLE_RANK_NONE
+    for k in key:
+        r = _ROLE_RANK.get(k)
+        if r is not None and r < best:
+            best = r
+    if len(_role_rank_memo) < 4096:        # bounded like _role_cache, same reason
+        _role_rank_memo[key] = best
+    return best
 # One whole-phrase regex per family, alternatives longest-first so the most specific wins the
 # match position. Built once: this runs over every row of the corpus on a feed render.
 _ROLE_RES = {k: re.compile(r"\b(?:%s)\b" % "|".join(
@@ -2788,7 +2940,12 @@ def roles_for_title(title):
         return ()
     hit = _role_cache.get(t)
     if hit is None:
-        hit = tuple(k for k in ROLE_KEYS if _ROLE_RES[k].search(t))
+        # THE SHADOW TITLE, so "Tech Proj/Prg Mgmt" lands in pm/program exactly like the
+        # spelled-out form does. Admitting a posting the scraper now keeps and then answering ()
+        # here would bury it twice over: () is deleted by any role selection, and it sorts last
+        # under the role-priority key. The cache stays keyed on the RAW title, which is what
+        # every caller holds.
+        hit = tuple(k for k in ROLE_KEYS if _ROLE_RES[k].search(normalize_title(t)))
         if len(_role_cache) < 60000:          # bounded: titles repeat heavily across the corpus
             _role_cache[t] = hit
     return hit
@@ -2839,7 +2996,7 @@ def role_track(title):
     Never returns empty — every job lands in exactly one bucket, so the feed's two
     one-click filters partition the corpus instead of hiding the leftovers.
     """
-    t = title or ""
+    t = normalize_title(title or "")
     if _MGMT_TITLE_RE.search(t):
         return "mgmt"
     return "dev" if _DEV_TITLE_RE.search(t) else "mgmt"
@@ -3180,12 +3337,21 @@ _PM_REFUSE_RE = re.compile(r"\b(?:%s)\b" % "|".join(
 
 
 def pm_title_gate(title):
-    """May this title's DESCRIPTION be read as a second opinion? Cheap, and text-free."""
+    """May this title's DESCRIPTION be read as a second opinion? Cheap, and text-free.
+
+    Reads the SHADOW title, because of everything this gate touches it is the one that costs the
+    most to get wrong: scraper.fill_missing_jds only buys a description for titles it lets
+    through, so a title refused HERE is never fetched and can never be judged on its work. The
+    two errors are not symmetric -- a false positive costs one HTTP request, a false negative
+    costs the posting permanently. "Tech Proj/Prg Mgmt" was refused here before it was refused
+    anywhere else.
+    """
     if not title:
         return False
-    if _PM_REFUSE_RE.search(title):
+    t = normalize_title(title)
+    if _PM_REFUSE_RE.search(t):
         return False
-    return bool(_PM_HINT_RE.search(title))
+    return bool(_PM_HINT_RE.search(t))
 
 
 def admits_on_description(title, text, min_anchors=None, min_points=None):
@@ -3578,6 +3744,14 @@ def normalize_prefs(raw):
     return out
 
 
+def _level_of(row):
+    """A row's level, falling back to its title for a row built before `level` existed."""
+    lv = row.get("level")
+    if lv is None:
+        lv = title_level(row.get("title") or "")
+    return lv or ""
+
+
 def prefs_match(row, prefs):
     """Does this job match the user's saved search?
 
@@ -3655,6 +3829,12 @@ def prefs_match(row, prefs):
                         return False
                 elif yrs > (int(exp) if str(exp).isdigit() else 99):
                     return False
+        elif not r_intern:
+            # No year count anywhere, so the LEVEL answers the ceiling. See web._filter_rows.
+            floor = LEVEL_MIN_YEARS.get(_level_of(row))
+            if floor is not None and floor > (5 if exp == "senior"
+                                              else (int(exp) if str(exp).isdigit() else 99)):
+                return False
     return True
 
 
@@ -4509,11 +4689,27 @@ _TITLE_ENTRY_RE = re.compile(
 _TITLE_SENIOR_LEVEL_RE = re.compile(
     r"\b(?:group|advanced|expert|master)\s+(?:\w+\s+){0,2}"
     r"(?:manager|management|owner|analyst|engineer|lead)\b"
-    r"|\b(?:ii|iii|iv|v|vi)\b|\(\s*(?:l|level)\s*[3-9]\d*\s*\)"
+    r"|\b(?:iii|iv|v|vi)\b|\(\s*(?:l|level)\s*[3-9]\d*\s*\)"
     # ...and the same words written AFTER the noun: "Product Manager - Expert".
     r"|\b(?:manager|management|analyst|engineer|lead|owner)\b[\s,\-]*(?:expert|advanced|master)\b"
-    r"|\b(?:l|level)\s*[3-9]\d*\b"
     r"|\b(?:l|level)\s*[3-9]\d*\b", re.I)
+# ...AND THE SECOND RUNG IS NOT THE SIXTH. "ii" sat in the line above with iii-vi until
+# 2026-09-10, which made "Software Engineer II" (70 live rows), "Project Manager II" and
+# "Coordinator II" read as SENIOR. It is the weakest numeral in the set -- 71.5% against 81.1%
+# for iii, the number the comment above _TITLE_SENIOR_RE already records -- and it is not what
+# the word means: II is the rung above entry. Measured on the live corpus, 1,183 active rows
+# (3.0%) were senior for no reason but a bare "ii", and they are the on-target ones: Project
+# Manager II, Program Manager II, Product Manager II, Technical Program Manager II.
+#
+# "mid" is not a new vocabulary -- exp_level_for has returned it for 3-5 years all along, and
+# web._build_row already documents `level` as "entry" | "mid" | "senior" | "". This just lets a
+# TITLE reach the band a year count could already reach.
+_TITLE_MID_LEVEL_RE = re.compile(r"\bii\b|\(\s*(?:l|level)\s*2\s*\)|\b(?:l|level)\s*2\b", re.I)
+# The lowest year count each level implies, and the exact inverse of exp_level_for's bands
+# (entry <= 2, mid 3-5, senior 6+). The experience filter is a CEILING on what an employer
+# asks, so a level answers it whenever no year count can: drop the row when the floor its
+# level implies is above the ceiling the reader chose. "" means we could not tell and is kept.
+LEVEL_MIN_YEARS = {"entry": 0, "mid": 3, "senior": 6}
 
 
 # "ASSOCIATE" IS TWO DIFFERENT WORDS and this is where they are separated.
@@ -4541,7 +4737,9 @@ def title_level(title):
       2. then the senior-associate forms, so bare "associate" cannot claim them;
       3. then "Senior Associate", which is a genuine coin flip and answers nothing;
       4. then the entry vocabulary, which is where bare "associate" and the numeral rung live;
-      5. then seniority, by word or by level number.
+      5. then seniority, by word or by level number;
+      6. then the MIDDLE rung, last of all, so "Senior Engineer II" is senior and a bare
+         "Engineer II" is mid.
     """
     t = title or ""
     if not t:
@@ -4556,16 +4754,24 @@ def title_level(title):
         return "entry"
     if _TITLE_SENIOR_RE.search(t) or _TITLE_SENIOR_LEVEL_RE.search(t):
         return "senior"
+    if _TITLE_MID_LEVEL_RE.search(t):
+        return "mid"                       # the second rung -- see _TITLE_MID_LEVEL_RE
     return ""
-    if _TITLE_ENTRY_RE.search(t):
-        return "entry"
-    if _TITLE_SENIOR_RE.search(t) or _TITLE_SENIOR_LEVEL_RE.search(t):
-        return "senior"
-    return ""
+
+
+# The order of the rungs, lowest first, so a veto can ask "is the title's claim HIGHER".
+_LEVEL_ORDER = {"": -1, "entry": 0, "mid": 1, "senior": 2}
 
 
 def senior_title_veto(level, title):
-    """A senior TITLE overrules an entry/mid level. THE one rule, shared by both level paths.
+    """A higher TITLE rung overrules a lower level. THE one rule, shared by both level paths.
+
+    It only compared against "senior" until 2026-09-10, which was all it could do while
+    title_level's only rungs were entry and senior. Now that a bare "II" answers "mid" -- see
+    _TITLE_MID_LEVEL_RE -- "Product Manager II" stating two years would have fallen all the way
+    back to entry, because the veto could not see a claim it had no word for. The rule was
+    never about the word "senior"; it is that for a LEVEL question the employer's own name for
+    the rung beats a year count. So it compares rungs.
 
     Years and level are different claims. "2+ years" is the FLOOR an employer will accept;
     "Senior" is the employer's own name for the rung, and for a LEVEL question that is the more
@@ -4580,8 +4786,11 @@ def senior_title_veto(level, title):
     Capital One and the banks that grade IS the early-career rung and the phrase is a genuine
     coin flip.
     """
-    if level and level != "senior" and title_level(title) == "senior":
-        return "senior"
+    if not level:
+        return level
+    tl = title_level(title)
+    if _LEVEL_ORDER.get(tl, -1) > _LEVEL_ORDER.get(level, -1):
+        return tl                          # only ever UP, so it cannot manufacture an entry role
     return level
 
 

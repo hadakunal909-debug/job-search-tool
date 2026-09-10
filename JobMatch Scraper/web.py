@@ -2468,7 +2468,10 @@ def ranked_rows(username, resume):
         rows = _apply_dedupe_plan(base, plan, overlay)
     else:                                    # no plan (older file, or an unusable key): as before
         rows = _dedupe_rows([overlay(r) for r in base])
-    rows.sort(key=lambda r: r["score"], reverse=True)
+    # Score first, then core.ROLE_PRIORITY, then date -- see _sort_key. The score bucket is an
+    # integer, so this decides the order of roughly 400 rows at a time; before it, that order
+    # was whatever the corpus read gave us, which is `order=url` and therefore employer order.
+    rows.sort(key=lambda r: _sort_key(r, "score"))
     # _rows_cache is the expensive one — it is what _ROW_CACHE_BYTES_PER_ROW was measured
     # against — so it gets the same derived limit rather than a second constant to keep in step.
     if ckey is not None:                     # "don't know" is not a key -- see the note above
@@ -2663,6 +2666,126 @@ _loc_hit = core.location_matches
 # app.js mirrors this as rowDate(); scripts/feed_parity.py checks the mirror.
 def _row_date(r):
     return r.get("date") or r.get("first_seen") or ""
+
+
+# Memoised on the DATE STRING, which is a tiny key space -- a 30-day corpus holds 57 distinct
+# values across 39,000 rows. Same bargain as core.role_rank: it makes the sort key as cheap as
+# a column baked into the row without adding one, and a column would have to be invalidated by
+# something. Bounded so a malformed corpus cannot grow it without limit.
+_row_date_memo = {"": 0}
+
+
+def _row_date_num(r):
+    """_row_date as an int, so a DESCENDING date can sit inside an ASCENDING tuple key.
+
+    A date string cannot be negated, and the alternative -- one stable sort pass per field --
+    costs three passes over ~39,000 rows on a per-user path. "2026-09-10" -> 20260910; anything
+    unparseable is 0, which sorts a dateless row last exactly as the empty string used to.
+    """
+    s = _row_date(r)
+    hit = _row_date_memo.get(s)
+    if hit is not None:
+        return hit
+    n = 0
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        try:
+            n = int(s[:4] + s[5:7] + s[8:10])
+        except ValueError:
+            n = 0
+    if len(_row_date_memo) < 4096:
+        _row_date_memo[s] = n
+    return n
+
+
+# THE TIE-BREAK THE FEED NEVER HAD. See core.ROLE_PRIORITY for why: one integer score over
+# ~39,000 rows is ~400 rows a bucket, Python's sort is stable, and the surviving order inside a
+# bucket was the corpus's own `order=url` -- which is employer order. Role rank ranks WITHIN the
+# chosen sort, never over it.
+#
+# Mirrored in static/app.js as sortCmp(); scripts/feed_parity.py lifts that mirror rather than
+# re-typing it, and compares the two orders row for row.
+def _sort_key(r, sort):
+    """The full ordering for one row under `sort`. Ascending tuple: negate to descend."""
+    role = core.role_rank(r.get("roles"))
+    if sort == "newest":
+        return (-_row_date_num(r), role, -(r.get("score") or 0))
+    return (-(r.get("score") or 0), role, -_row_date_num(r))
+
+
+# How many cards in a row may come from one employer. Role rank alone does not fix the walls,
+# it MOVES them: one employer can own a whole role band, and Applied Materials by itself has 63
+# titles the filter keeps in project/programme delivery.
+_EMPLOYER_RUN_MAX = int(os.environ.get("FEED_EMPLOYER_RUN_MAX", "2") or 0)
+# How far ahead to look for a different employer, and it is a MEASURED number rather than a
+# round one. Over the 48,242-row snapshot in "Newest" order, the longest employer run and the
+# number of places a run got past the cap, counted over the first 12,000 cards:
+#
+#     lookahead    runs over the cap    worst run    time
+#          40              13              110        76 ms
+#         100               2               50        88 ms
+#         200               0                2       103 ms      <- here
+#         400               0                2       160 ms
+#
+# 400 buys nothing and costs 55%; it also makes the WHOLE-feed worst case worse (319 against
+# 220), because pulling a card from further away just creates the adjacency somewhere else.
+_EMPLOYER_RUN_LOOKAHEAD = 200
+# ...and how deep to bother. 12,000 cards is 200 pages of the feed. The pass is a forward scan
+# whose output at position k depends only on inputs up to k + lookahead, so stopping here is
+# not an approximation of the visible feed -- it is EXACTLY the same answer for every card
+# anyone reaches, at a quarter of the cost. What is left untouched below it is the oldest,
+# score-0 tail, which on the live snapshot is 4,131 Amazon rows and where a variety rule was
+# never the thing making it useful. The inline feed can never reach this: _FEED_INLINE_MAX is
+# 4,000, so the client twin sees the identical answer without needing the horizon at all.
+_EMPLOYER_RUN_HORIZON = 12000
+
+
+def _break_employer_runs(pairs, cap=None, lookahead=_EMPLOYER_RUN_LOOKAHEAD):
+    """Stop one employer owning a screen. DEFERRAL, never removal -- every row still ships.
+
+    A card that would extend a run past `cap` swaps places with the nearest row from a
+    different employer; the one it displaced is offered again immediately, so nothing drifts
+    further than it has to and the sort's own order survives everywhere else. When no other
+    employer is within `lookahead` the run is ACCEPTED rather than the list reshuffled -- a
+    feed filtered down to one company must not be reordered into nonsense to satisfy a rule
+    about variety.
+
+    Runs LAST, after every sort including the relevance pass, because it is the only rule here
+    about the shape of the list rather than the merit of a row.
+
+    Mirrored in static/app.js as breakEmployerRuns(); scripts/feed_parity.py lifts that mirror.
+    """
+    cap = _EMPLOYER_RUN_MAX if cap is None else cap
+    n = len(pairs)
+    if cap <= 0 or n < cap + 2:
+        return pairs
+    tail = []
+    if n > _EMPLOYER_RUN_HORIZON:
+        pairs, tail = pairs[:_EMPLOYER_RUN_HORIZON], pairs[_EMPLOYER_RUN_HORIZON:]
+        n = len(pairs)
+    used = bytearray(n)
+    out = []
+    last, run, i = None, 0, 0
+    while len(out) < n:
+        while i < n and used[i]:
+            i += 1
+        if i >= n:
+            break
+        pick = i
+        if run >= cap and (pairs[i][0].get("company") or "") == last:
+            j, seen = i + 1, 0
+            while j < n and seen < lookahead and (j - i) <= lookahead:
+                if not used[j]:
+                    seen += 1
+                    if (pairs[j][0].get("company") or "") != last:
+                        pick = j
+                        break
+                j += 1
+        used[pick] = 1
+        emp = (pairs[pick][0].get("company") or "")
+        run = run + 1 if emp == last else 1
+        last = emp
+        out.append(pairs[pick])
+    return out + tail
 
 
 # Ordering for sort=sponsor. core.sponsor_rank is the single definition — the email digest applies
@@ -2996,10 +3119,38 @@ def _filter_rows(rows, statuses, p):
                                 continue
                         elif yrs > (int(exp) if str(exp).isdigit() else 99):
                             continue
+                # NO YEAR COUNT ANYWHERE -- SO ASK THE LEVEL, which is the same thing the
+                # "entry" branch six lines above already does. A ceiling cannot be satisfied by
+                # a job we have decided is senior, and every option here IS a ceiling ("0 to 2
+                # Years", "3 to 5 Years", and the stored legacy "senior" that renders as the
+                # second one). Without this the card printed "Senior" while the row sat inside
+                # "0 to 2 Years": measured 2026-09-10 over 38,826 active rows, `level` says
+                # senior on 15,300 of them and title_experience_tier answers None on 2,172 --
+                # the roman numerals and the Group/Advanced/Expert forms, which live in
+                # core._TITLE_SENIOR_LEVEL_RE and which the years tier deliberately refuses
+                # because a LEVEL is not a year COUNT. It is still not a year count. It is
+                # simply enough to answer a ceiling.
+                #
+                # exp_eff STILL WINS wherever it exists: a description that states two years is
+                # the employer's own number and beats anything read off the title.
+                #
+                # THE COMPARISON IS BAND AGAINST CEILING, not a senior/not-senior flag, because
+                # "Software Engineer II" is the rung ABOVE entry and not the top one: mid
+                # implies 3 years, so it fails "0 to 2 Years" and passes "3 to 5 Years", which
+                # is exactly what exp_level_for would have said from a year count.
+                else:
+                    floor = core.LEVEL_MIN_YEARS.get(r.get("level") or "")
+                    if floor is not None and floor > (
+                            5 if exp == "senior"
+                            else (int(exp) if str(exp).isdigit() else 99)):
+                        continue
         out.append((r, st))
     sort = p.get("sort") or "score"
     if sort == "newest":
-        out.sort(key=lambda rs: _row_date(rs[0]), reverse=True)
+        # Date, then core.ROLE_PRIORITY, then score. A board is scraped in one pass, so dozens
+        # of rows share a date -- that tie used to fall through to employer order, which is why
+        # "Newest" piled by company just as hard as "Best match" did.
+        out.sort(key=lambda rs: _sort_key(rs[0], "newest"))
     elif sort == "sponsor":
         out.sort(key=lambda rs: _row_sponsor_rank(rs[0]))
     # RELEVANCE FIRST while a search is active, the chosen sort within each band. A separate
@@ -3007,7 +3158,10 @@ def _filter_rows(rows, statuses, p):
     # order inside a band and this adds nothing at all when the box is empty.
     if searching:
         out.sort(key=lambda rs: -searchRank(rs[0], q))
-    return out                                  # else already in score order (rows pre-sorted)
+    # LAST, and after the relevance pass: this is the only rule here about the shape of the
+    # list rather than the merit of a row. score order arrives pre-sorted from ranked_rows and
+    # still needs it -- the walls are in that order too.
+    return _break_employer_runs(out)
 
 
 def _signed_out_response(reason):

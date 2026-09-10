@@ -7975,16 +7975,24 @@ def apply_resume_terms():
 def title_verdict(title):
     """Judge a posting by its TITLE alone. Returns (keep, reason) so a VERBOSE run
     shows exactly why each title survived or was dropped — makes tuning easy."""
-    bad = _EXCLUDE_RE.search(title)
+    # EVERY TEST BELOW READS THE SHADOW TITLE, not the one we store and show. core.normalize_title
+    # splits separators and expands known shorthand, so "Tech Proj/Prg Mgmt" is judged as
+    # "technical project program management" -- see the long note at that function for why the
+    # comma and the ASCII hyphen are left alone. EXCLUDE reads it too, on purpose: the veto has
+    # to see the same words the include list does, or expanding a title could sneak something
+    # past a rule that would have caught the spelled-out form.
+    t = core.normalize_title(title)
+    bad = _EXCLUDE_RE.search(t)
     if bad:
         return False, "off-target function ('%s')" % bad.group(0)
-    good = _INCLUDE_RE.search(title)
+    good = _INCLUDE_RE.search(t)
     if good:
         return True, "matched '%s'" % good.group(0)
     # The reversed "Manager, Projects" form. Checked AFTER the forward list so the reason string
     # keeps naming the forward phrase whenever one matched, and after EXCLUDE so it can never
-    # re-admit something the exclude list turned away.
-    rev = _REVERSED_RE.search(title)
+    # re-admit something the exclude list turned away. The comma it anchors on survives
+    # normalisation, which is the whole reason normalize_title leaves commas alone.
+    rev = _REVERSED_RE.search(t)
     if rev:
         return True, "matched reversed '%s'" % rev.group(0)
     return False, "no PM/coordinator/analyst/software keyword"

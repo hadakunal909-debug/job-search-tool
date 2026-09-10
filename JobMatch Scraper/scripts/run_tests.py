@@ -149,6 +149,10 @@ SUITES = (
     # against the committed norms.json, which is where a builder regression shows up --
     # geography or an eligibility gate back inside "what this role asks for" passes every
     # synthetic test.
+    # The ORDER of the feed, as opposed to its membership: core.ROLE_PRIORITY as a tie-break
+    # and web._break_employer_runs as the pass after it. feed_parity proves the client agrees;
+    # this proves what they agree ON, which parity alone would not notice.
+    Suite("test_feed_order",        "scripts/test_feed_order.py",        "scripts", "offline"),
     Suite("test_norms",             "scripts/test_norms.py",             "scripts", "offline"),
     Suite("test_onboarding",        "scripts/test_onboarding.py",        "scripts", "offline"),
     Suite("test_paylocity",         "scripts/test_paylocity.py",         "scripts", "offline"),
