@@ -439,8 +439,17 @@ print("A SENIOR TITLE VETOES AN ENTRY LEVEL -- found by using the feed, 2026-09-
 # level_for's docstring claims to be "the one definition every surface reads".
 for _t, _y, _want in (("Senior Product Manager, Web Application Platform", 2, "senior"),
                       ("Director, Product Operations", 3, "senior"),
-                      ("Product Manager II", 2, "senior"),
                       ("Staff Product Manager", 1, "senior"),
+                      # WAS "senior" UNTIL 2026-09-10, and only because title_level had no word
+                      # for the middle rung: "ii" sat in _TITLE_SENIOR_LEVEL_RE with iii-vi. It
+                      # is the weakest numeral in that set (71.5% against 81.1%) and 1,183
+                      # active rows -- 3.0% of the corpus -- were senior for no other reason,
+                      # Project Manager II and Program Manager II among them. What this row was
+                      # protecting is intact: mid implies 3 years, so the posting still fails a
+                      # "0 to 2 Years" ceiling. It now passes "3 to 5 Years", which it should.
+                      ("Product Manager II", 2, "mid"),
+                      # ...and the years still win when they are HIGHER than the rung.
+                      ("Product Manager II", 8, "senior"),
                       # the veto only ever moves a level UP, so these are untouched
                       ("Associate Product Manager", 2, "entry"),
                       ("Product Manager", 1, "entry"),

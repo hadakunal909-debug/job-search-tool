@@ -59,7 +59,10 @@ JS_FUNCS = ["locHit", "annualize", "rowDate", "rolesWanted", "roleHit", "visaWan
             # The sort comparator, lifted rather than re-typed. It used to be hand-copied into
             # DRIVER_MAIN below, which meant a third implementation nobody remembered to update
             # — exactly the drift this harness exists to catch, sitting inside the harness.
-            "sponsorRank", "sortCmp"]
+            # The ordering twins added 2026-09-10. roleRank and rowDateNum are the two terms
+            # sortCmp gained; breakEmployerRuns is the pass that runs after every sort. All
+            # three are lifted for the same reason sortCmp is.
+            "sponsorRank", "roleRank", "rowDateNum", "sortCmp", "breakEmployerRuns"]
 
 # _row() must emit exactly these. A field that _build_row produces but _row() forgets makes
 # the parity run pass VACUOUSLY — the server sees None, JS sees undefined, both filter the
@@ -70,6 +73,9 @@ ROW_KEYS = {
     "score_pending", "date", "date_verified", "date_trusted", "first_seen", "sponsor_jd",
     "sponsors_h1b", "everify", "visa", "roles", "agency", "cap_exempt", "intern", "track",
     "exp_years", "exp_level",
+    # The three the experience filter COMPARES. exp_years and exp_level above are read by the
+    # card, not by matches() -- listing only those is what made every exp case vacuous.
+    "exp_eff", "exp_src", "level",
     # Rows kept on their DESCRIPTION rather than their title. roles_match/roleHit give these a
     # pass on any all-delivery selection, and that branch is unreachable -- so passes
     # vacuously -- unless the corpus below actually carries some.
@@ -102,6 +108,15 @@ def _visa_for(n, sponsor_jd="", reason=""):
 
 def _row(rng, n, title, company, state, **over):
     """One feed row in the exact shape _build_row emits (only the fields the filters read)."""
+    # The experience trio, derived the way _build_row derives it: the DESCRIPTION's number
+    # first, the title's implied floor only where there is none, then one level from both.
+    exp_y = rng.choice(["", "", 1, 3, 5, 7])
+    exp_eff = exp_y if exp_y != "" else None
+    exp_src = "stated" if exp_eff is not None else ""
+    if exp_eff is None:
+        exp_eff = web.core.title_experience_tier(title)
+        exp_src = "inferred" if exp_eff is not None else ""
+    level, _lsrc = web.core.level_from_exp(exp_eff, exp_src, title)
     r = {
         "title": title, "company": company,
         "location": CITIES.get(state, "United States"),
@@ -135,7 +150,15 @@ def _row(rng, n, title, company, state, **over):
         # Classified from the title exactly as _build_row does, so the track filter is
         # exercised against the real partition rather than a hand-written label.
         "track": web.core.role_track(title),
-        "exp_years": rng.choice(["", "", 1, 3, 5, 7]), "exp_level": "",
+        "exp_years": exp_y, "exp_level": "",
+        # THE THREE FIELDS THE EXPERIENCE FILTER ACTUALLY COMPARES, and none of them was here.
+        # _filter_rows and matches() read exp_eff, exp_src and level; ROW_KEYS listed only
+        # exp_years and exp_level, which nothing filters on. So the server read None, JS read
+        # undefined, both kept every row, and all four exp cases passed VACUOUSLY -- precisely
+        # the hole check_not_vacuous() exists to close, sitting inside the fixture it checks.
+        # Derived with the real functions, like `track` above, so the spread is _build_row's.
+        "exp_eff": exp_eff if exp_eff is not None else "", "exp_src": exp_src,
+        "level": level,
     }
     # sponsor_jd and visa are COUPLED in _build_row (a JD that rules out sponsorship strips
     # the sponsorship routes), so derive them together here rather than independently — an
@@ -235,6 +258,12 @@ def build_corpus():
         "Implementation Consultant", "Solutions Architect", "Supply Chain Analyst",
         "Financial Analyst", "Operations Manager", "Project Coordinator",
         "Applications Engineer",
+        # A LEVEL rather than a year count, and the reason this cohort is here: core.title_level
+        # reads the roman numeral and the Group/Advanced form as senior while
+        # title_experience_tier deliberately does not, so these rows carry level="senior" with
+        # no exp_eff at all -- the exact shape that used to pass a "0 to 2 Years" ceiling.
+        "Program Manager V", "Project Manager III", "Group Product Manager",
+        "Manager II, Operations Management",
         # Deliberately in NO family: a role filter must exclude these, and "any pick hides
         # them" is as much a part of the contract as "the right pick shows the rest".
         "Registered Nurse", "Warehouse Associate", "Barista", "Line Cook",
@@ -301,8 +330,11 @@ def build_corpus():
     for i in range(60):                        # long tail of genuine one-offs
         add("Specialist %d" % i, "Company %d" % i, STATES[i % len(STATES)])
 
-    # ranked_rows hands the filters a score-sorted list; both sides must start from the same order.
-    rows.sort(key=lambda r: r["score"], reverse=True)
+    # ranked_rows hands the filters a score-sorted list; both sides must start from the same
+    # order -- and since 2026-09-10 that order is web._sort_key, not the bare score. Leaving
+    # this as a score sort would not FAIL the run, it would make the role tie-break untested:
+    # both sides would inherit the same arbitrary order and agree about it.
+    rows.sort(key=lambda r: web._sort_key(r, "score"))
     return rows
 
 
@@ -551,6 +583,17 @@ var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any
     // identifier is a ReferenceError that would read as a parity failure in every case.
     hideAgency = chk(false), expStated = chk(false), showClosed = chk(false);
 var VISA_TAGS = %(visa_tags)s;
+// The ordering vocabulary. Lifted from app.js like everything else here rather than retyped —
+// roleRank and breakEmployerRuns close over these, and js_function only carries the function
+// bodies. The values are read out of app.js above and already asserted equal to core.py's, so
+// injecting them here still tests the CLIENT's numbers.
+var LEVEL_MIN_YEARS = %(level_min_years)s;
+var ROLE_PRIORITY = %(role_priority)s;
+var ROLE_RANK = {};
+for (var _ri = 0; _ri < ROLE_PRIORITY.length; _ri++) ROLE_RANK[ROLE_PRIORITY[_ri]] = _ri;
+var ROLE_RANK_NONE = ROLE_PRIORITY.length;
+var EMPLOYER_RUN_MAX = %(run_max)d;
+var EMPLOYER_RUN_LOOKAHEAD = %(run_lookahead)d;
 """
 
 DRIVER_MAIN = """
@@ -589,6 +632,8 @@ IN.cases.forEach(function (cs) {
   // one and report a divergence that only exists inside the harness.
   var qs = (p.q || "").trim().toLowerCase();
   if (qs) matched.sort(function (a, b) { return searchRank(b, qs) - searchRank(a, qs); });
+  // Last, exactly where renderLocal() and _filter_rows() both put it.
+  matched = breakEmployerRuns(matched);
   out.push({ name: cs.name, urls: matched.map(function (j) { return j.url; }) });
 });
 process.stdout.write(JSON.stringify(out));
@@ -612,6 +657,30 @@ def run_js(rows, cases, cuts, scratch):
     if js_labels != dict(web.core.VISA_TAG_LABELS):
         raise SystemExit("feed_parity: VISA_LABELS differs between app.js and core.py:\n  js=%r\n  py=%r"
                          % (js_labels, dict(web.core.VISA_TAG_LABELS)))
+    # THE ORDER ITSELF IS A VOCABULARY. A row-level diff would catch a reordered ROLE_PRIORITY
+    # only where the fixture happens to hold two rows whose roles straddle the change, so
+    # compare the lists directly -- same standard as VISA_TAGS above.
+    js_lvl = js_json(src, "LEVEL_MIN_YEARS")
+    if js_lvl != dict(web.core.LEVEL_MIN_YEARS):
+        raise SystemExit("feed_parity: LEVEL_MIN_YEARS differs between app.js and core.py:\n"
+                         "  js=%r\n  py=%r" % (js_lvl, dict(web.core.LEVEL_MIN_YEARS)))
+    js_prio = js_json(src, "ROLE_PRIORITY")
+    if tuple(js_prio) != tuple(web.core.ROLE_PRIORITY):
+        raise SystemExit("feed_parity: ROLE_PRIORITY differs between app.js and core.py:\n"
+                         "  js=%r\n  py=%r" % (js_prio, list(web.core.ROLE_PRIORITY)))
+    for name, py in (("EMPLOYER_RUN_MAX", web._EMPLOYER_RUN_MAX),
+                     ("EMPLOYER_RUN_LOOKAHEAD", web._EMPLOYER_RUN_LOOKAHEAD)):
+        js = js_const(src, name)
+        if js != py:
+            raise SystemExit("feed_parity: %s is %d in app.js but %d in web.py" % (name, js, py))
+    # The server stops breaking runs past _EMPLOYER_RUN_HORIZON and the client has no horizon
+    # at all, which is only safe while the inline feed cannot reach it. Raise _FEED_INLINE_MAX
+    # past the horizon and the two would disagree on any corpus in between -- and this harness
+    # could not see it, because it compares one fixture at one size.
+    if web._FEED_INLINE_MAX > web._EMPLOYER_RUN_HORIZON:
+        raise SystemExit("feed_parity: _FEED_INLINE_MAX (%d) is past _EMPLOYER_RUN_HORIZON (%d), "
+                         "so the inline feed would break runs the paged feed does not."
+                         % (web._FEED_INLINE_MAX, web._EMPLOYER_RUN_HORIZON))
     # THE CARD NAMES NO ROUTE, so there is no client-side label table left to compare.
     #
     # What stood here asserted app.js's SPONSOR_LIKELY_LABELS equalled core's, because the key
@@ -633,7 +702,11 @@ def run_js(rows, cases, cuts, scratch):
             raise SystemExit("feed_parity: core.sponsor_likely(%r) returned %r, not a string. "
                              "cardHTML branches on truthiness and needs '' for 'no record'."
                              % (_tags, _k))
-    driver = DRIVER_PREAMBLE % {"hours": hours, "visa_tags": json.dumps(js_tags)}
+    driver = DRIVER_PREAMBLE % {"hours": hours, "visa_tags": json.dumps(js_tags),
+                                "role_priority": json.dumps(js_prio),
+                                "level_min_years": json.dumps(js_lvl),
+                                "run_max": js_const(src, "EMPLOYER_RUN_MAX"),
+                                "run_lookahead": js_const(src, "EMPLOYER_RUN_LOOKAHEAD")}
     for fn in JS_FUNCS:
         driver += "\n" + js_function(src, fn) + "\n"
     driver += DRIVER_MAIN
