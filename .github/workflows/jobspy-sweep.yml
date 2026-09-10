@@ -19,16 +19,30 @@ name: Daily aggregator sweep (sidecar)
 # is the same trade scrape.yml already makes (13:00 UTC = 9am ET, 8am under EST); the day is:
 #
 #   09:00 ET  scrape.yml        heavy pass — verify_dates, analytics rollup, digest email
-#   12:00 ET  THIS workflow     aggregator sweep -> jobspy_findings (writes no job rows)
+#   12:00 ET  THIS workflow     aggregator sweep -> jobspy_findings (Tue + Thu; writes no job rows)
 #   13:00 ET  cPanel cron       scrape + new-only score
 #   17:00 ET  cPanel cron       scrape + new-only score
 #
-# BUDGET. Actions minutes hit the free cap once already (2026-07-26, hourly -> 4x/day). This is
-# one Linux job a day at 1x billing, capped at 30 minutes, and --probe-limit bounds the only
-# unbounded part of it (one careers-site probe per NEW company).
+# BUDGET. Actions minutes hit the free cap once already (2026-07-26, hourly -> 4x/day), and
+# nearly again on 2026-09-10 -- see the schedule note below, which is why this is two Linux
+# jobs a WEEK at 1x billing rather than seven, capped at 36 minutes. --probe-limit bounds the
+# only otherwise-unbounded part of it (one careers-site probe per NEW company).
 on:
   schedule:
-    - cron: "0 16 * * *"        # 12:00 noon EDT daily (11:00 ET once EST starts)
+    # TUESDAY AND THURSDAY, NOT DAILY, AND THE REASON IS THE ACTIONS BILL rather than anything
+    # about the sweep. Measured 2026-09-10: September stood at 939 of the 2,000 free minutes on
+    # day 10, and the remaining schedule projected past the cap around the 22nd. When a private
+    # repo caps, EVERY workflow stops -- the scrape, the watchdog and CI, not just this one.
+    #
+    # This is the right thing to cut first because it is the only scheduled job whose output
+    # nothing depends on: it writes no job rows, adopts no boards, and its deliverable is a list
+    # of employers to review. That list does not need daily resolution. `Scrape jobs` costs
+    # ~83 minutes a run against this one's ~22 and feeds the actual feed, so it stays.
+    #
+    # It ran SEVEN days a week before this, not five -- `* * *` includes the weekend, which the
+    # 12:00-noon-EDT note below never said and the schedule table in the header does not show.
+    # At ~22 minutes that was ~440 minutes of the month; twice a week is ~132.
+    - cron: "0 16 * * 2,4"      # 12:00 noon EDT Tue + Thu (11:00 ET once EST starts)
   workflow_dispatch:
     inputs:
       sites:
@@ -115,7 +129,14 @@ jobs:
           # ever data. Same mitigation as jobspy-shadow.yml.
           IN_SITES: ${{ inputs.sites || 'indeed,linkedin' }}
           IN_PHRASES: ${{ inputs.phrases || 'entry' }}
-          IN_HOURS: ${{ inputs.hours || '24' }}
+          # 24 -> 120 ON THE SCHEDULE ONLY, because the cadence above changed underneath it.
+          # A 24-hour window asked twice a week sees two days in seven; the gap this has to
+          # cover is Thursday to Tuesday, which is 120 hours. It costs no extra Actions time --
+          # the query count is the same and --results 50 still caps what comes back per phrase,
+          # so a wider window returns the same volume drawn from a longer period. A manual run
+          # keeps the 24-hour default declared above: that path is for smoke-testing, where a
+          # tight window is the point.
+          IN_HOURS: ${{ inputs.hours || '120' }}
           # On by default on the SCHEDULE, same shape as IN_APPLY below. Expect it to
           # contribute ~nothing from here: jobright sits behind Cloudflare and answers a
           # datacenter IP with a 200 carrying a challenge page, which the sweep reports

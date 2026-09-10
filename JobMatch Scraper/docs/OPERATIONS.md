@@ -214,7 +214,7 @@ changed. No shell quoting, and three guards.
 | Workflow | Schedule | What it is for |
 |---|---|---|
 | `scrape-watchdog.yml` | hourly | Dispatches `scrape.yml` if the scheduled event never arrived |
-| `jobspy-sweep.yml` | `0 16 * * *` daily | The aggregator sidecar; writes a findings spreadsheet as an artifact |
+| `jobspy-sweep.yml` | `0 16 * * 2,4` Tue + Thu | The aggregator sidecar; writes a findings spreadsheet as an artifact. **Was daily (all seven days) until 2026-09-10** — cut to twice a week because September stood at 939 of the 2,000 free Actions minutes on day 10 and the rest of the month projected past the cap, which stops *every* workflow. Its window widened 24h → 120h on the schedule to cover the Thu→Tue gap. |
 | `jobspy-shadow.yml` | on demand | Compares an aggregator's results against our own corpus |
 
 **A cron is not a guarantee, and that is measured, not theoretical.** `scrape.yml` asks for
