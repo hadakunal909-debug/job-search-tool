@@ -245,6 +245,38 @@ def never_written_by_a_read():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def memo_bound():
+    print("=" * 74)
+    print("the lookup memo is bounded, and clearing it changes no answer")
+    print("=" * 74)
+    tmp = tempfile.mkdtemp(prefix="idfidx_")
+    saved = core._IDX_MEMO_MAX
+    try:
+        idf = _synthetic(n=6000, seed=17)
+        p = _write(tmp, idf)
+        core.build_idf_index(p)
+        core._reset_idf_cache()
+        idx = core.load_idf(p)
+        # Forced low so the branch actually fires. At the shipped 200,000 it would not, and
+        # an assertion that cannot trip is decoration -- the same rule _cache_max's
+        # "cold == loaded" check needed.
+        core._IDX_MEMO_MAX = 100
+        bad = [k for k, v in idf.items() if idx.get(k) != v]
+        want("the cap fires and no answer changes", not bad, "%d wrong" % len(bad))
+        want("the memo stayed under the cap", len(idx._memo) <= 100, str(len(idx._memo)))
+        # It must survive being asked for the same key on both sides of a clear.
+        k = "python"
+        first = idx.get(k)
+        for i in range(300):
+            idx.get("filler_%d" % i)
+        want("a value is identical after the memo is cleared", idx.get(k) == first == idf[k])
+        idx.close()
+    finally:
+        core._IDX_MEMO_MAX = saved
+        core._reset_idf_cache()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def shown_to_trip():
     print("=" * 74)
     print("the round-trip check can actually fail (a table with a key removed)")
@@ -303,7 +335,7 @@ def real_file():
 
 def main():
     for fn in (round_trip, cross_process, staleness, never_written_by_a_read,
-               shown_to_trip, real_file):
+               memo_bound, shown_to_trip, real_file):
         fn()
         print("")
     print("=" * 74)
