@@ -11,6 +11,12 @@ import os
 import re
 import json
 import math
+import sys
+import mmap
+import zlib
+import array
+import struct
+import hashlib
 import datetime
 from io import BytesIO
 from collections import Counter
@@ -309,6 +315,12 @@ _idf_cache = {"idf": None, "loaded": False}
 
 
 def _reset_idf_cache():
+    # CLOSES an open index rather than just dropping the reference. The mmap would
+    # otherwise live until the garbage collector got to it, which on Windows is enough
+    # to make build_idf_index's os.replace fail on a file "in use by another process".
+    cur = _idf_cache.get("idf")
+    if isinstance(cur, _IdfIndex):
+        cur.close()
     _idf_cache["idf"] = None
     _idf_cache["loaded"] = False
 
@@ -330,12 +342,19 @@ def save_idf(idf, path=_IDF_PATH):
         pass
 
 
-def load_idf(path=_IDF_PATH):
+def load_idf(path=_IDF_PATH, eager=False):
+    """The idf table: the mmap'd index below, a plain dict, or None if there is no file.
+
+    `eager=True` forces the dict for a caller that wants one. Nothing in the app does, and
+    the lazy map is both faster to open and smaller to hold -- see the note under it.
+    """
     # Only the default path is memoized; an explicit path always re-reads.
     if path == _IDF_PATH and _idf_cache["loaded"]:
-        return _idf_cache["idf"]
-    idf = None
-    if os.path.exists(path):
+        cached = _idf_cache["idf"]
+        if not (eager and isinstance(cached, _IdfIndex)):
+            return cached
+    idf = None if eager else _open_idf_index(path)
+    if idf is None and os.path.exists(path):
         try:
             idf = json.load(open(path, encoding="utf-8"))
         except Exception:
@@ -344,6 +363,316 @@ def load_idf(path=_IDF_PATH):
         _idf_cache["idf"] = idf
         _idf_cache["loaded"] = True
     return idf
+
+
+# --------------------------------------------------------------------------------------
+# WHY THERE IS A BINARY SIDECAR NEXT TO idf.json
+#
+# idf.json is a flat {term: float} map and it is now 1,015,658 terms / 29.4 MB. Every
+# consumer only ever asks `idf.get(term, default)` -- there is not one call site in the app
+# that iterates it -- and yet `json.load` built the whole 1M-entry dict in every Passenger
+# worker, on that worker's FIRST feed render. Measured on the real file:
+#
+#     json.load                     1,130 ms    +113 MB resident, 174 MB peak
+#     open the .idx sidecar            14 ms    ~0 (file-backed, shared via the page cache)
+#     verify its stamp                 66 ms    one blake2b pass over the 29.4 MB
+#
+# THE 113 MB MATTERS MORE THAN THE SECOND. Production workers sit at ~797 MB against a
+# ~1.2 GB account cap and stderr.log is a list of "Child process ... killed by signal: 9";
+# every kill produces a fresh worker, whose first visitor pays the 1,130 ms again. The dict
+# was feeding the cycle that kept making cold workers.
+#
+# A FASTER FORMAT WAS NOT THE ANSWER: the cost is building a million Python objects, not
+# parsing. Measured on the same data, marshal.load is 1,570-1,704 ms -- SLOWER than json --
+# and pickle.load is 574 ms. Anything that materialises the dict pays for the dict. So this
+# does not materialise it. The sidecar is an open-addressed hash table, mmap'd, and a lookup
+# is one probe into it (0.47 extra probes per key at the load factor below).
+#
+# THE STAMP IS OVER CONTENT, NOT mtime, and a mismatch is REFUSED rather than repaired --
+# the two rules web.py's row_cache learned the hard way, because a deploy is a zip extract,
+# so every file is rewritten and not a byte changes. A refused sidecar falls straight back
+# to json.load, which is exactly today's behaviour: the worst case here is the status quo.
+#
+# NOTHING ON A REQUEST PATH WRITES IT. build_idf_index() is called by /warm and by scripts,
+# never by load_idf() -- the same rule as the row file and for the same reason: the build is
+# ~2.7 s, and charging it to whoever loads the feed next is the regression this removes.
+# --------------------------------------------------------------------------------------
+_IDX_MAGIC = b"IDFIDX02"
+_IDX_HDR = struct.Struct("<IIII")      # nslots, nterms, blob bytes, stamp length
+_IDX_U32 = struct.Struct("<I")
+_IDX_U16 = struct.Struct("<H")
+_IDX_F64 = struct.Struct("<d")
+_IDX_KEY_MAX = 0xFFFF                  # the key-length field; a longer term cannot be stored
+_MISSING = object()
+
+
+def _idx_path(path):
+    """idf.json -> idf.json.idx. Named off the SOURCE file, like jobs_snapshot.json.gz.fp.json,
+    so an explicit non-default path gets its own sidecar instead of poisoning the shared one."""
+    return path + ".idx"
+
+
+def _idf_stamp(path):
+    """blake2b-128 of the file's bytes + its size. Content, not mtime -- see the note above."""
+    h = hashlib.blake2b(digest_size=16)
+    size = 0
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+            size += len(chunk)
+    return h.digest() + struct.pack("<Q", size)
+
+
+def _idx_slot(kb):
+    """A DETERMINISTIC hash of a key's bytes.
+
+    NOT Python's hash(): for str it is randomised per process by PYTHONHASHSEED, so a table
+    built in one worker would read as empty in the next -- silently, and only for some keys.
+    That is the same hazard save_idf's `sort_keys=True` note describes one screen up.
+    """
+    h = zlib.crc32(kb) & 0xFFFFFFFF
+    h ^= h >> 15
+    h = (h * 0x2545F491) & 0xFFFFFFFF
+    return h ^ (h >> 13)
+
+
+class _IdfIndex(object):
+    """A read-only {term: float} map backed by an mmap'd open-addressed hash table.
+
+    Implements the whole Mapping surface the app uses -- get / [] / in / len / bool -- plus
+    iteration, which nothing here needs but which a future caller would otherwise get a
+    silently EMPTY answer from rather than an error.
+
+    A HASH COLLISION CANNOT RETURN A WRONG VALUE: the key's bytes are stored beside its value
+    and compared on every probe. That is what makes a 32-bit hash safe here.
+
+    Looked-up terms are memoised in a plain dict, so the second ask for a term costs 0.27 us
+    against the mmap's 5.0 us -- faster, as it happens, than .get on the 1M-entry dict this
+    replaces (0.39 us), because the memo stays small and cache-resident. The memo is also why
+    a corpus-wide consumer does not need `eager=True`: it converges on the terms that are
+    actually asked for instead of paying for a million that are not.
+    """
+    __slots__ = ("_fh", "_mm", "_n", "_slots", "_mask", "_blob_at", "_end",
+                 "_memo", "_memo_get", "stamp")
+
+    def __init__(self, path):
+        self._fh = open(path, "rb")
+        try:
+            self._mm = mmap.mmap(self._fh.fileno(), 0, access=mmap.ACCESS_READ)
+        except Exception:
+            self._fh.close()
+            raise
+        if self._mm[:8] != _IDX_MAGIC:
+            self.close()
+            raise ValueError("not an idf index")
+        nslots, self._n, blob_len, stamp_len = _IDX_HDR.unpack_from(self._mm, 8)
+        hdr = 8 + _IDX_HDR.size
+        self.stamp = bytes(self._mm[hdr:hdr + stamp_len])
+        self._slots = hdr + stamp_len
+        self._mask = nslots - 1
+        self._blob_at = self._slots + nslots * 4
+        # THE LENGTH IS PART OF THE CONTRACT. Without this a TRUNCATED sidecar opened
+        # cleanly -- magic intact, header parses, stamp matches -- and every lookup then
+        # probed a slot table that stopped early. Python clamps an out-of-range slice, so
+        # it did not raise; terms simply went missing. Caught by scripts/test_idf_index.py
+        # writing half a file, which is why that check exists.
+        if nslots < 1 or (nslots & self._mask) or len(self._mm) != self._blob_at + blob_len:
+            self.close()
+            raise ValueError("idf index is truncated or damaged")
+        self._end = self._blob_at + blob_len - 10        # the last offset an entry can start at
+        self._memo = {}
+        self._memo_get = self._memo.get
+
+    def get(self, key, default=None):
+        v = self._memo_get(key, _MISSING)
+        if v is not _MISSING:
+            return default if v is None else v
+        try:
+            kb = key.encode("utf-8")
+        except AttributeError:
+            return default
+        mm, base, mask = self._mm, self._slots, self._mask
+        i = _idx_slot(kb) & mask
+        while True:
+            off = _IDX_U32.unpack_from(mm, base + (i << 2))[0]
+            if not off or off < self._blob_at or off > self._end:
+                # An empty slot ends the probe chain. An out-of-range one cannot happen
+                # after the length check in __init__ and is treated the same way anyway:
+                # a damaged table must degrade to "not found", never to a wrong weight.
+                self._memo[key] = None
+                return default
+            kl = _IDX_U16.unpack_from(mm, off)[0]
+            if mm[off + 2:off + 2 + kl] == kb:
+                v = _IDX_F64.unpack_from(mm, off + 2 + kl)[0]
+                self._memo[key] = v
+                return v
+            i = (i + 1) & mask
+
+    def __getitem__(self, key):
+        v = self.get(key, _MISSING)
+        if v is _MISSING:
+            raise KeyError(key)
+        return v
+
+    def __contains__(self, key):
+        return self.get(key, _MISSING) is not _MISSING
+
+    def __len__(self):
+        return self._n
+
+    def __bool__(self):
+        return self._n > 0
+
+    __nonzero__ = __bool__
+
+    def items(self):
+        """A full walk of the blob. Nothing in the app calls this; it exists so that a caller
+        who does gets the right answer instead of an empty one."""
+        mm, pos, end = self._mm, self._blob_at, len(self._mm)
+        while pos < end:
+            kl = _IDX_U16.unpack_from(mm, pos)[0]
+            yield (mm[pos + 2:pos + 2 + kl].decode("utf-8"),
+                   _IDX_F64.unpack_from(mm, pos + 2 + kl)[0])
+            pos += 2 + kl + 8
+
+    def keys(self):
+        return (k for k, _ in self.items())
+
+    def values(self):
+        return (v for _, v in self.items())
+
+    def __iter__(self):
+        return self.keys()
+
+    def close(self):
+        try:
+            self._mm.close()
+        except Exception:
+            pass
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+
+def _open_idf_index(path):
+    """`path`'s sidecar, or None if it is absent, unreadable, or stale."""
+    idx_path = _idx_path(path)
+    if not (os.path.exists(idx_path) and os.path.exists(path)):
+        return None
+    idx = None
+    try:
+        idx = _IdfIndex(idx_path)
+        if idx.stamp != _idf_stamp(path):        # refused, never repaired
+            idx.close()
+            return None
+        return idx
+    except Exception:
+        if idx is not None:
+            idx.close()
+        return None
+
+
+def build_idf_index(path=_IDF_PATH, force=False):
+    """Write `path`'s sidecar. True if it wrote one, False if it was already current.
+
+    CALLED BY /warm AND BY SCRIPTS, NEVER BY A REQUEST -- see the note above _IDX_MAGIC.
+
+    WRITTEN IN ONE STREAMING PASS, and that is a memory decision, not a tidiness one. The
+    obvious shape -- accumulate every packed entry in a list, join it, build a list of
+    nslots offsets, `struct.pack("<%dI" % nslots, *slots)` -- peaks around 250 MB on top of
+    the parsed dict, because a 2M-element Python list of offsets is ~74 MB and the splat
+    builds a 2M-element tuple as well. This runs inside a Passenger worker that is already
+    near the account's LVE cap; a build that trips the cap would create exactly the cold
+    worker this whole change exists to prevent. So the slot table is an array("I") (4 bytes
+    an entry, 8 MB) written as raw bytes, and the blob is streamed straight to the file:
+    peak is the parsed dict plus ~10 MB, which is less than the json.load it replaces.
+
+    Two-pass over the file rather than in memory: the slot table sits BEFORE the blob, so
+    a placeholder goes down first and is overwritten once the offsets are known.
+
+    Written to a temp name and os.replace'd, because two /warm ticks can overlap and a
+    reader must never see a half-written table. The replace does not disturb a reader that
+    already has the old file mmap'd: the inode outlives the name.
+    """
+    if not os.path.exists(path):
+        return False
+    if not force:
+        cur = _open_idf_index(path)
+        if cur is not None:
+            cur.close()
+            return False
+    try:
+        idf = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(idf, dict) or not idf:
+        return False
+    stamp = _idf_stamp(path)
+
+    # Load factor 0.5. Linear probing degrades sharply past ~0.7, and the slot table costs
+    # disk rather than anything scarce -- measured 0.47 extra probes per key, worst chain 37.
+    nslots = 1
+    while nslots < len(idf) * 2:
+        nslots <<= 1
+    mask = nslots - 1
+    hdr_len = len(_IDX_MAGIC) + _IDX_HDR.size + len(stamp)
+    blob_at = hdr_len + nslots * 4
+
+    slots = array.array("I", bytes(nslots * 4))       # 0 == empty, and zeroed is the ground state
+    tmp = "%s.%d.tmp" % (_idx_path(path), os.getpid())
+    n = 0
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(_IDX_MAGIC)
+            fh.write(_IDX_HDR.pack(nslots, 0, 0, len(stamp)))   # nterms/blob_len patched below
+            fh.write(stamp)
+            fh.seek(blob_at)                                    # leave the slot table as a hole
+            pos = 0
+            pack_len, pack_val = _IDX_U16.pack, _IDX_F64.pack
+            for term, weight in idf.items():
+                kb = term.encode("utf-8")
+                if len(kb) > _IDX_KEY_MAX:       # no real term is 64 KB; skip, never truncate
+                    continue
+                try:
+                    packed_val = pack_val(float(weight))
+                except (TypeError, ValueError):
+                    continue
+                i = _idx_slot(kb) & mask
+                while slots[i]:
+                    i = (i + 1) & mask
+                slots[i] = blob_at + pos
+                fh.write(pack_len(len(kb)))
+                fh.write(kb)
+                fh.write(packed_val)
+                pos += 2 + len(kb) + 8
+                n += 1
+            if sys.byteorder == "big":           # the reader is little-endian by contract
+                slots.byteswap()
+            fh.seek(hdr_len)
+            fh.write(slots.tobytes())
+            fh.seek(len(_IDX_MAGIC))
+            fh.write(_IDX_HDR.pack(nslots, n, pos, len(stamp)))
+        os.replace(tmp, _idx_path(path))
+    except Exception:
+        try:
+            os.remove(tmp)                       # never leave the residue the OOMs left behind
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def warm_idf(path=_IDF_PATH):
+    """/warm's idf stage: build the sidecar if it is missing or stale, then load through it.
+
+    The build is the expensive half and it happens once per idf.json -- in practice once per
+    deploy, since the scrape does not rewrite the file. Every worker after that opens it in
+    ~14 ms instead of parsing for ~1,130 ms.
+    """
+    if build_idf_index(path):
+        _reset_idf_cache()
+    return load_idf(path)
 
 
 _REQ_HEADERS = ("minimum qualifications", "basic qualifications", "preferred qualifications",

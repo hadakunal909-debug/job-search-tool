@@ -114,3 +114,9 @@ company_domains_audit.csv
 # distinctive_tokens column, because a one-word employer name is the case a page cannot
 # disambiguate -- Alphabet corroborates perfectly against BMW's alphabet.com.
 company_domains_discovered.csv
+
+# The mmap'd lookup table core.py::build_idf_index writes beside idf.json (and the temp
+# name it is replaced from). Derived from a tracked file, ~35 MB, and rebuilt on the box
+# by /warm whenever idf.json's content hash stops matching the one stamped inside it.
+idf.json.idx
+*.idx.*.tmp

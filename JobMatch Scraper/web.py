@@ -10221,7 +10221,12 @@ def warm():
     # visitor -- and in front of /job and the two tailor routes, which load it through their
     # own call sites. Its `n` is the term count, which is also the cheapest way for a cron
     # log to show idf.json is present at all: a missing file reads as 0 rather than as an error.
-    _stage("idf", core.load_idf)
+    # warm_idf, not load_idf: it BUILDS the mmap'd sidecar (core.py::build_idf_index)
+    # when idf.json has no current one, and that is the only place allowed to. A
+    # request must never pay the ~2.7 s build -- the same rule as the row file above.
+    # With the sidecar present a fresh worker opens the table in ~14 ms instead of
+    # parsing 29.4 MB for ~1,130 ms, and carries 113 MB less resident heap for it.
+    _stage("idf", core.warm_idf)
     # _base_rows() and not get_jobs(): it hands back the rows the base_rows stage above has
     # already built, so this adds no corpus load. The wall-clock budget and the memo are inside
     # _live_analysis, so it can neither run long nor repeat work on a later tick.

@@ -158,6 +158,10 @@ SUITES = (
     Suite("test_paylocity",         "scripts/test_paylocity.py",         "scripts", "offline"),
     Suite("test_peoplesoft",        "scripts/test_peoplesoft.py",        "scripts", "offline"),
     Suite("test_pgrest",            "scripts/test_pgrest.py",            "scripts", "offline"),
+    # core.load_idf() answers out of an mmap'd hash table now instead of a 1M-entry dict.
+    # Offline: the contract checks build synthetic tables in a temp dir, and the real
+    # idf.json is swept as well when the machine has one.
+    Suite("test_idf_index",         "scripts/test_idf_index.py",         "scripts", "offline"),
     Suite("test_search_and_similar","scripts/test_search_and_similar.py","scripts", "offline"),
     # Offline by construction: the JD-memo half stubs db._fetch_all, and the _row_pending
     # half reads the LOCAL snapshot when there is one and falls back to synthetic shapes
@@ -191,6 +195,8 @@ SUITES = (
 # Non-import dependencies, for --changed. A suite's first-party imports are derived from its
 # source (see _touches), so this covers only what a suite reads by PATH rather than by import.
 EXTRA_TOUCHES = {
+    # Read by path, not imported, so the AST walk below cannot find it.
+    "test_idf_index":          ("idf.json",),
     "test_contrast":           ("static/style.css",),
     # Neither of these is an import, so neither is discoverable from the AST: the suite reads
     # style.css and templates/ as DATA, and the woff2 files are what it asserts exist.
