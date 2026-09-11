@@ -93,6 +93,70 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# How much of the CloudLinux LVE budget this account is holding RIGHT NOW, in MB.
+#
+# Summed over the account's own processes, which is the unit the budget is metered in: this
+# app's Passenger workers, the two unrelated sibling apps, and whatever a cron left running.
+# Measured 2026-09-11 at 18:26 UTC, nine minutes after a sweep was SIGKILLed: 834 + 507 + 196
+# + 31 MB of stemjobs lswsgi workers and 293 + 135 MB of the siblings -- ~2.0 GB, none of it
+# the scraper. That is the number a sweep's ~620 MB peak has to fit alongside.
+#
+# ps rather than /proc/meminfo or free: the box has 128 GB and reports it, so the machine-wide
+# figures say nothing at all about the limit that actually kills these runs.
+_account_mb() {
+    ps -eo rss -u "$(id -un)" --no-headers 2>/dev/null \
+        | awk '{s += $1} END {printf "%d", s / 1024}'
+}
+
+# Wait for the account's memory to STOP FALLING before starting something large.
+#
+# RELATIVE, NOT A THRESHOLD, and that is the whole design. The obvious spelling is "wait until
+# the account is under N MB", and the first version of this said 900. Measured the same hour,
+# on an idle box with no scraper running at all: 1,183 MB -- 728 of one stemjobs lswsgi worker,
+# 294 + 135 of the two sibling apps that are not ours to restart, 31 of a second worker. So an
+# absolute target is either never reached (and the wait is just a sleep wearing a costume) or
+# it is set so high it is always satisfied. The number it would have to encode also moves every
+# time the siblings are deployed.
+#
+# What is actually being waited for is the RECLAIM of whatever just exited: the pages of a
+# SIGKILLed sweep come back over seconds, not instantly. "Has the reading stopped dropping"
+# asks that directly and needs no constant -- it self-calibrates to whatever the account's
+# baseline happens to be that day.
+#
+# Bounded by construction -- at most _SETTLE_TRIES x _SETTLE_STEP seconds -- because a cron
+# that can block indefinitely is worse than one that runs into a ceiling. It returns after the
+# wait either way and never fails: this buys the next process a better chance, it does not gate
+# it. Both call sites want the same thing and neither can do anything useful with a refusal.
+_SETTLE_TRIES=${SETTLE_TRIES:-6}
+_SETTLE_STEP=${SETTLE_STEP:-15}
+_SETTLE_QUIET_MB=${SETTLE_QUIET_MB:-40}
+_settle_memory() {
+    local why="${1:-}" i mb prev drop
+    prev=$(_account_mb)
+    for ((i = 1; i <= _SETTLE_TRIES; i++)); do
+        sleep "$_SETTLE_STEP"
+        mb=$(_account_mb)
+        # An unreadable ps is not a reason to stall the run.
+        if [ -z "$mb" ] || [ -z "$prev" ]; then
+            echo "$(date -u +%FT%TZ) could not read account memory after ${why} — proceeding" \
+                >> "$LOG"
+            return 0
+        fi
+        drop=$((prev - mb))
+        if [ "$drop" -lt "$_SETTLE_QUIET_MB" ]; then
+            echo "$(date -u +%FT%TZ) account settled at ${mb}MB after ${why}" \
+                 "(${i}x${_SETTLE_STEP}s, last step ${drop}MB) — proceeding" >> "$LOG"
+            return 0
+        fi
+        prev=$mb
+    done
+    # Said out loud rather than swallowed. Still falling when the budget runs out means
+    # something large is only part-way gone, and that is worth seeing above the next rc=137.
+    echo "$(date -u +%FT%TZ) account still falling (${mb}MB) after ${why} and" \
+         "$((_SETTLE_TRIES * _SETTLE_STEP))s — going ahead anyway" >> "$LOG"
+    return 0
+}
+
 export SCRAPE_WORKERS=6
 # 12 -> 0. NO DEADLINE: scrape_all reads 0 as 'no cut' and dispatches every board. The 12
 # minutes was sized against ~1,265 boards; the list is now 1,802, so it starved most of them
@@ -192,7 +256,12 @@ else
     # keep the site permanently cold for a pass that needs 4 minutes and little memory.
     echo "$(date -u +%FT%TZ) recycling web workers to free memory for the sweep" >> "$LOG"
     touch "$APP/tmp/restart.txt"
-    sleep 5
+    # WAS `sleep 5`, WHICH MEASURED NOTHING. touch does not free anything by itself -- LiteSpeed
+    # retires the old lswsgi process and the replacement only appears when a request arrives,
+    # and the */5 warm pinger is locked out by the flock this script is holding. So the five
+    # seconds were spent hoping. _settle_memory waits for the account's RSS to actually come
+    # down and says what it saw, which is also the number that explains the next rc=137.
+    _settle_memory "recycled the web workers"
     echo "===== $(date -u +%FT%TZ) scrape start =====" >> "$LOG"
     "$PY" -u -m scraper >> "$LOG" 2>&1
     rc=$?
@@ -270,6 +339,30 @@ if [ -f "$APP/resume.txt" ]; then
         # slot skips it entirely and analyses what the two full runs already banked.
         src=0
     else
+        # A SIGKILLED SWEEP MUST NOT HAND ITS SUCCESSOR THE SAME CEILING IT JUST HIT.
+        #
+        # The LVE budget is metered per ACCOUNT and it does not free the instant the kernel
+        # kills something -- the pages are still being reclaimed, and the siblings and the
+        # Passenger workers are still holding whatever they held. So starting the next
+        # several-hundred-megabyte process one second later asks for the same kill.
+        #
+        # MEASURED 2026-09-11, all three timestamps from one run's log:
+        #
+        #   18:17:56  scrape end rc=137          the sweep is SIGKILLed at slice 22/23
+        #   18:17:56  score start                started the same second
+        #   18:18:13  score end rc=137           killed 17 s in, having printed one line
+        #   18:19:00  analyse end rc=0           the NEXT pass, 47 s later, ran to completion
+        #
+        # Nothing was wrong with the score pass. It was started 1 s after a memory kill and
+        # the pass that waited was fine, which is the whole diagnosis: this is a settling
+        # problem, not a scoring one. Waiting costs at most two minutes of a slot that has
+        # three hours until the next one; not waiting costs the entire fetch pass, and with it
+        # every description the sweep just banked rows for.
+        #
+        # Only on 137. Any other non-zero rc is a real fault and gets no delay.
+        if [ "$rc" = 137 ]; then
+            _settle_memory "the sweep was SIGKILLed"
+        fi
         echo "----- $(date -u +%FT%TZ) score start (sweep rc=$rc) -----" >> "$LOG"
         "$PY" -u -m scraper.score_jobs >> "$LOG" 2>&1
         src=$?
