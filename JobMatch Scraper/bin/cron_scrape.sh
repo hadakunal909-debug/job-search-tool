@@ -179,6 +179,22 @@ _settle_memory() {
 # and the test could not see it.
 #
 # Six arenas x 64 MB is ~384 MB of the peak against 19 MB of actual data. Two is ~128 MB.
+#
+# VERIFIED, 2026-09-11 20:25-21:44 UTC, against the 17:00 run of the SAME code on the SAME day
+# with only this variable differing. Per-slice RSS, and the shape matters more than the peak:
+#
+#   slice        1    2    6    8   12   13   14   17   18   21   22   23
+#   baseline   155  458  389  453  504  501  531  585  623  605  SIGKILLED
+#   arena_max=2 146  370  305  321  357  356  366  375  417  440  435  435
+#
+# Peak 440 MB against 623 MB (-183 MB, -29%), all 23 slices done, `scrape end rc=0` -- where
+# the baseline was SIGKILLed at slice 22 of 23. Mid-sweep the process held exactly TWO arenas
+# (64 + 72 MB) against the six it held without the cap.
+#
+# The baseline climbs monotonically from slice 13 (501) to 18 (623); this run is FLAT from
+# slice 9 to 17 (373 -> 375) and only edges up at the end. Flat is the bounded allocator; the
+# climb was arenas never coming back.
+#
 # Nothing about the program changes: this is an allocator tunable, read by glibc at startup.
 # The cost is lock contention between threads on fewer arenas, which is the right trade for
 # six threads that spend their time waiting on other people's web servers rather than in
