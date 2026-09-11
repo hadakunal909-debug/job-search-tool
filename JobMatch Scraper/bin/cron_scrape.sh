@@ -157,6 +157,37 @@ _settle_memory() {
     return 0
 }
 
+# THE rc=137 IS MOSTLY GLIBC ARENAS, NOT THE SWEEP HOLDING ANYTHING.
+#
+# Measured 2026-09-11 with SCRAPE_MEMPROF=1 against a real sweep -- the first time that
+# diagnostic had ever been run. At slice 7 of 23 the process showed:
+#
+#   VmRSS                                    648 MB
+#   live Python objects (tracemalloc)          19 MB
+#   anonymous rw mappings >= 32 MB              6, each ~64 MB, each 64 MB-ALIGNED
+#
+# 64 MB aligned to 64 MB is glibc's HEAP_MAX_SIZE: those six mappings are SECONDARY MALLOC
+# ARENAS. Python's own obmalloc arenas are 1 MB, and a thread stack is 8 MB, so nothing else
+# in the process has that shape. This box is glibc 2.34 on 32 cores, and the default arena
+# cap is 8 x ncores = 256, so all 7 threads got one and glibc never gives them back.
+#
+# AND THIS IS WHY _release_memory() "RULED ARENAS OUT" AND WAS WRONG TO. malloc_trim() only
+# trims the top of the MAIN arena; it cannot return non-contiguous free chunks sitting in a
+# secondary one. So the [mem] line kept reporting a number that survived a gc.collect() and a
+# trim, which reads as "these are live objects" and is not what it means. _memprof_report's
+# own docstring records the earlier arena theory as "worth testing and wrong" -- it was right,
+# and the test could not see it.
+#
+# Six arenas x 64 MB is ~384 MB of the peak against 19 MB of actual data. Two is ~128 MB.
+# Nothing about the program changes: this is an allocator tunable, read by glibc at startup.
+# The cost is lock contention between threads on fewer arenas, which is the right trade for
+# six threads that spend their time waiting on other people's web servers rather than in
+# malloc. Set on the SWEEP and the SCORE pass both -- both are threaded and both get killed.
+#
+# Deliberately not in .github/workflows/scrape.yml: that runner has 7 GB and was never dying
+# of memory, it was dying of a 26-minute step cap for an unrelated reason.
+export MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2}
+
 export SCRAPE_WORKERS=6
 # 12 -> 0. NO DEADLINE: scrape_all reads 0 as 'no cut' and dispatches every board. The 12
 # minutes was sized against ~1,265 boards; the list is now 1,802, so it starved most of them
