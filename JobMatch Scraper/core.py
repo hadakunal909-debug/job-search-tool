@@ -403,6 +403,7 @@ _IDX_U32 = struct.Struct("<I")
 _IDX_U16 = struct.Struct("<H")
 _IDX_F64 = struct.Struct("<d")
 _IDX_KEY_MAX = 0xFFFF                  # the key-length field; a longer term cannot be stored
+_IDX_MEMO_MAX = 200000                 # ~20 MB; see _IdfIndex._remember
 _MISSING = object()
 
 
@@ -499,14 +500,30 @@ class _IdfIndex(object):
                 # An empty slot ends the probe chain. An out-of-range one cannot happen
                 # after the length check in __init__ and is treated the same way anyway:
                 # a damaged table must degrade to "not found", never to a wrong weight.
-                self._memo[key] = None
+                self._remember(key, None)
                 return default
             kl = _IDX_U16.unpack_from(mm, off)[0]
             if mm[off + 2:off + 2 + kl] == kb:
                 v = _IDX_F64.unpack_from(mm, off + 2 + kl)[0]
-                self._memo[key] = v
+                self._remember(key, v)
                 return v
             i = (i + 1) & mask
+
+    def _remember(self, key, value):
+        """Cache a resolved term, BOUNDED.
+
+        Unbounded, a worker that analyses enough descriptions would memoise its way
+        back to the 113 MB dict this replaced -- slowly, so it would read as a leak
+        rather than as a cache, on the box where a worker at the LVE cap is killed
+        with signal 9. Clearing outright rather than evicting one entry: this is a
+        pure cache, a miss costs 5 us, and the cap is far above any real working set
+        (a JD contributes tens of distinct terms, not thousands), so the branch below
+        is not expected to fire at all in a web worker. It is here so that if it ever
+        does, the ceiling is ~20 MB and not the whole table.
+        """
+        if len(self._memo) >= _IDX_MEMO_MAX:
+            self._memo.clear()
+        self._memo[key] = value
 
     def __getitem__(self, key):
         v = self.get(key, _MISSING)
