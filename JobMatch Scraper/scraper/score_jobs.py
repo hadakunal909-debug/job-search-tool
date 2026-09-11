@@ -2444,6 +2444,27 @@ def main():
     if truncated:
         print("  analysis budget reached — %d row(s) left for next run (they keep their stored "
               "score)." % unscored_left)
+    # DID THIS RUN ANALYSE THE WHOLE CORPUS? There are TWO ways it can fail to and `truncated`
+    # only asks about one of them, which is the bug this flag exists to close.
+    #
+    # A pass is partial when the clock cut it off (`truncated`) OR when it started from a
+    # cursor -- because then `todo_order` was never the corpus in the first place, it was the
+    # slice below where the last run stopped. Finish that slice inside the budget and
+    # `truncated` is False while 43,570 of 53,247 rows have not been looked at.
+    #
+    # MEASURED, because this failed in production on alternating days and read as flaky:
+    #
+    #   Sep  8  cursor slice 12,736  finished in budget  -> derived write over all 47,825  TIMEOUT (15m)
+    #   Sep  9  no cursor, 51,585    budget cut at 19,742 -> derived write over 19,742      ok (20.9m)
+    #   Sep 10  cursor slice 30,333  budget cut at 19,521 -> derived write over 19,521      ok (20.3m)
+    #   Sep 11  cursor slice  9,677  finished in budget  -> derived write over all 53,247  TIMEOUT (26m)
+    #
+    # So the run that did the LEAST analysis did the MOST writing, and the step cap was raised
+    # 14 -> 15 -> 26 chasing it. The two consumers below are the ones that asked the wrong
+    # question; `_save_cursor` is NOT, and still keys off `truncated` -- "I ran out of clock,
+    # resume here" is exactly what a cursor means, and a finished slice must still clear it so
+    # the next cycle starts from the newest row.
+    partial = truncated or bool(cursor)
     # New-only never touches the cursor: it is not walking the corpus, and its own leftovers are
     # already picked up by the NULL-score path in _new_only_targets.
     if not new_only:
@@ -2458,7 +2479,13 @@ def main():
     # core.job_meta for any row missing from this map, at the same ~206 ms each, so a partial
     # map would hand the whole cost we just budgeted straight to the derived-fields phase.
     # Carry the previous entries for rows still in the corpus; dead urls are still dropped.
-    if truncated and not new_only:
+    #
+    # `partial`, NOT `truncated`: a cursor-resumed pass that finishes its slice holds a map of
+    # just that slice -- 9,677 entries against a 53,247-row corpus on 2026-09-11 -- and this
+    # merge was skipped for it, so save_jdmeta below replaced the whole file with the slice.
+    # Every one of the other 43,570 rows then read as "no cached analysis": blanked for the web
+    # app, and recomputed at ~206 ms each by _persist_derived immediately below.
+    if partial and not new_only:
         prior = core.load_jdmeta() or {}
         for _u in all_urls:
             if _u not in jdmeta and _u in prior:
@@ -2480,15 +2507,23 @@ def main():
     #    Narrowed to the same set in new-only mode: these are parsed from a row's own location
     #    and JD, so a row nobody touched this run can only re-derive to what it already holds.
     #
-    #    A budget-truncated pass narrows for the same reason PLUS a sharper one: this function
+    #    A PARTIAL pass narrows for the same reason PLUS a sharper one: this function
     #    recomputes core.job_meta for any row absent from `jdmeta`, at the ~206 ms/row we just
     #    spent a budget bounding. The merge above keeps that from biting while jdmeta.json is
     #    warm, but on a cold cache (fresh checkout, a CI runner) every unreached row would be
     #    re-analyzed here — handing the derived phase the whole cost the budget just refused.
     #    Walked rows only, so the clock cannot escape through the back door.
+    #
+    #    AND `partial` IS WHAT CLOSES THAT BACK DOOR, because `truncated` left it open on every
+    #    cursor-resumed run that finished its slice: this fell through to `row_loc`, the whole
+    #    corpus, and the phase has no budget of its own. Measured on the 2026-09-11 run -- the
+    #    write goes at ~2,000 rows per 80 s through the proxy, so 53,247 rows is ~35 minutes
+    #    behind a 26-minute cap. It banked 26,000 and was killed. The walked-rows branch is
+    #    ~19,700 rows at worst (what a 4-minute analysis budget reaches), which is the ~11
+    #    minutes the runs that passed actually spent here.
     if new_only:
         _derive_src = {u: row_loc[u] for u in todo if u in row_loc}
-    elif truncated:
+    elif partial:
         _derive_src = {u: row_loc[u] for u in todo_order[:stopped_at] if u in row_loc}
     else:
         _derive_src = row_loc
