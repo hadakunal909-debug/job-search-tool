@@ -663,6 +663,49 @@ def test_the_next_run_resumes_below_the_cursor_instead_of_restarting():
         "skip the newest rows"
 
 
+def test_a_finished_cursor_slice_still_derives_only_what_it_walked():
+    """A pass can be PARTIAL without being budget-truncated, and that is the expensive case.
+
+    Run two below resumes at the cursor, so `todo_order` is the slice d..f rather than the
+    corpus -- and three rows fit inside the budget, so the loop ends on its own and
+    `unscored_left` is 0. `truncated` is therefore False while half the corpus has not been
+    looked at, and the derived-fields phase used to read that as "this pass covered
+    everything" and fall through to the whole of `row_loc`.
+
+    That phase has no budget of its own and writes at ~2,000 rows per 80 s through the proxy.
+    Measured in production: the 2026-09-11 run finished a 9,677-row slice, handed the derived
+    write all 53,247 rows, banked 26,000 of them and was SIGKILLed by the step cap at 26
+    minutes -- while the runs either side of it, which the budget DID truncate, narrowed to
+    ~19,700 rows and finished in ~21. So the run that analysed the least wrote the most, and
+    the cap had already been raised 14 -> 15 -> 26 chasing it.
+    """
+    first, _ = _run_budget()
+    second, _ = _run_budget(rows=_budget_rows(), kv=first.kv)
+    walked = {_url(ch) for ch in "def"}
+    touched = {u for call in second.field_calls for u in call["urls"]}
+    assert touched and touched <= walked, \
+        "the derived write covered %r; it must cover only the rows this run walked (%r), or a " \
+        "pass that finished its cursor slice pays for the whole corpus with no budget on it" \
+        % (sorted(touched), sorted(walked))
+
+
+def test_a_finished_cursor_slice_does_not_blank_the_jdmeta_cache():
+    """The same wrong predicate, second consumer. jdmeta is the web app's map for the WHOLE
+    corpus and save_jdmeta REPLACES the file, so a pass holding only its slice must merge the
+    previous entries back in first. Gated on `truncated`, that merge was skipped for exactly
+    the run above: 9,677 entries were written over a 53,247-row map, blanking the rest for the
+    web app and putting them back through core.job_meta at request time."""
+    prior = {_url(ch): {"analyzed": {"keywords": {}}, "exp_years": None} for ch in _BUDGET_ROWS}
+    first, _ = _run_budget(prior_meta=prior)
+    _, metas = _run_budget(rows=_budget_rows(), kv=first.kv, prior_meta=prior)
+    assert metas, "save_jdmeta was never called"
+    saved = metas[-1]
+    for ch in "abc":
+        assert _url(ch) in saved, \
+            "row %s vanished from jdmeta; a pass that resumed at a cursor never looked at it, " \
+            "so its stored analysis must be carried over rather than replaced" % ch
+
+
 def test_a_completed_pass_stores_no_cursor():
     # No budget at all -- the manual-backfill path every existing caller gets.
     fake, _ = _run_budget(budget=None)
