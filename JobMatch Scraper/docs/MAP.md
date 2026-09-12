@@ -9,7 +9,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 ## Contents
 
 - [`web.py`](#webpy) — 10305 lines, 415 symbols — The Flask app: every route, every request hook, the feed.
-- [`core.py`](#corepy) — 5592 lines, 332 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
+- [`core.py`](#corepy) — 5608 lines, 332 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
 - [`db.py`](#dbpy) — 4091 lines, 238 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 10199 lines, 413 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2571 lines, 85 symbols — Fetches descriptions and scores them against the resume.
@@ -105,50 +105,50 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.*
 
-5592 lines · 332 top-level symbols · 40 sections
+5608 lines · 332 top-level symbols · 40 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
 | [70–92](../core.py#L70) | Jobs | 2 |
 | [93–205](../core.py#L93) | Keyword extraction + resume&lt;-&gt;JD matching | 8 |
 | [206–367](../core.py#L206) | Skill-based (semantic-ish) matching — more meaningful than raw word overlap. | 10 |
-| [368–918](../core.py#L368) | WHY THERE IS A BINARY SIDECAR NEXT TO idf.json | 32 |
-| [919–1320](../core.py#L919) | READING A STORED DESCRIPTION: the one door | 22 |
-| [1321–1565](../core.py#L1321) | matching the way a screening system does, not the way strcmp does | 11 |
-| [1566–1827](../core.py#L1566) | which terms are worth SHOWING a reader | 9 |
-| [1828–1873](../core.py#L1828) | precomputed per-job metadata (jdmeta.json) | 4 |
-| [1874–1929](../core.py#L1874) | the wire form of analyze_jd(), for the jobs.jd_terms column | 3 |
-| [1930–1934](../core.py#L1930) | Sponsorship signal — the single biggest time-saver for an international student. | 0 |
-| [1935–1997](../core.py#L1935) | Each entry carries the cheap substring "gate(s)" that MUST be present for its (expensive) | 3 |
-| [1998–2023](../core.py#L1998) | H-1B cap-exempt employers (universities, nonprofit hospitals, research institutes). | 3 |
-| [2024–2239](../core.py#L2024) | Sponsor STRENGTH — turn the yes/no flag into a confidence tier using DOL filing | 13 |
-| [2240–2294](../core.py#L2240) | E-VERIFY — flag employers enrolled in E-Verify. This is the signal an F-1 student | 2 |
-| [2295–2512](../core.py#L2295) | VISA TAGS — which immigration routes has this employer actually filed for? | 16 |
-| [2513–2518](../core.py#L2513) | STAFFING / CONSULTANCY ("agency") flag — mark body-shop / staffing-firm employers so the user | 0 |
-| [2519–2578](../core.py#L2519) | Real IT-services GIANTS (Infosys, Cognizant, HCL, TCS, Wipro, Accenture, Deloitte…) do NOT | 4 |
-| [2579–2818](../core.py#L2579) | LOCATION parsing — the boards spell the same place ~5 different ways ("Seattle, WA" / | 19 |
-| [2819–2821](../core.py#L2819) | SALARY parsing — no board hands us a pay field we keep, but US pay-transparency laws | 0 |
-| [2822–2897](../core.py#L2822) | A money amount we trust: comma-grouped ($120,000) or K-suffixed ($120K / $120.5k). | 7 |
-| [2898–2951](../core.py#L2898) | ROLE TRACK — "is this a builder job or a manager job?" | 2 |
-| [2952–3038](../core.py#L2952) | TITLES ARE WRITTEN IN SHORTHAND AND EVERY MATCHER HERE READS THEM LITERALLY. | 7 |
-| [3039–3203](../core.py#L3039) | ROLE FAMILIES — "what kind of job do you want", answerable | 4 |
-| [3204–3350](../core.py#L3204) | WHICH ROLE COMES FIRST WHEN TWO POSTINGS ARE OTHERWISE EQUAL. | 11 |
-| [3351–3643](../core.py#L3351) | "IS THIS A PROJECT-MANAGEMENT JOB?" -- answered from the DESCRIPTION, not the title. | 19 |
-| [3644–3719](../core.py#L3644) | THE TITLE GATE ON THE DESCRIPTION RULE. | 6 |
-| [3720–3864](../core.py#L3720) | POSTING IDENTITY | 9 |
-| [3865–3871](../core.py#L3865) | SAVED SEARCH PREFERENCES | 0 |
-| [3872–4293](../core.py#L3872) | THE SCALE VERSION of the `min` floor below, bumped whenever the score's MEANING moves — | 13 |
-| [4294–4303](../core.py#L4294) | WORK-AUTHORIZATION TIMELINE | 0 |
-| [4304–4458](../core.py#L4304) | Post-completion OPT allows 90 days of unemployment; the 24-month STEM extension raises the | 10 |
-| [4459–4841](../core.py#L4459) | Experience requirement parsing (to keep only entry-level roles) | 29 |
-| [4842–4893](../core.py#L4842) | THE TITLE AS A FLOOR OF LAST RESORT | 3 |
-| [4894–4959](../core.py#L4894) | THE OTHER NUMBER EVERY POSTING STATES: the degree | 4 |
-| [4960–5194](../core.py#L4960) | LEVEL -- "how senior is this job", which is NOT "how many years does it state" | 16 |
-| [5195–5247](../core.py#L5195) | Fetch a job description page (best-effort; paste fallback in the UI) | 4 |
-| [5248–5421](../core.py#L5248) | Read an UPLOADED resume back into plain text | 14 |
-| [5422–5443](../core.py#L5422) | Export the (edited) resume to .docx | 1 |
-| [5444–5486](../core.py#L5444) | Optional: tailor the resume to a JD with Claude | 2 |
-| [5487–5592](../core.py#L5487) | Gemini (Google AI Studio) via REST — no SDK needed, just `requests` | 6 |
+| [368–934](../core.py#L368) | WHY THERE IS A BINARY SIDECAR NEXT TO idf.json | 32 |
+| [935–1336](../core.py#L935) | READING A STORED DESCRIPTION: the one door | 22 |
+| [1337–1581](../core.py#L1337) | matching the way a screening system does, not the way strcmp does | 11 |
+| [1582–1843](../core.py#L1582) | which terms are worth SHOWING a reader | 9 |
+| [1844–1889](../core.py#L1844) | precomputed per-job metadata (jdmeta.json) | 4 |
+| [1890–1945](../core.py#L1890) | the wire form of analyze_jd(), for the jobs.jd_terms column | 3 |
+| [1946–1950](../core.py#L1946) | Sponsorship signal — the single biggest time-saver for an international student. | 0 |
+| [1951–2013](../core.py#L1951) | Each entry carries the cheap substring "gate(s)" that MUST be present for its (expensive) | 3 |
+| [2014–2039](../core.py#L2014) | H-1B cap-exempt employers (universities, nonprofit hospitals, research institutes). | 3 |
+| [2040–2255](../core.py#L2040) | Sponsor STRENGTH — turn the yes/no flag into a confidence tier using DOL filing | 13 |
+| [2256–2310](../core.py#L2256) | E-VERIFY — flag employers enrolled in E-Verify. This is the signal an F-1 student | 2 |
+| [2311–2528](../core.py#L2311) | VISA TAGS — which immigration routes has this employer actually filed for? | 16 |
+| [2529–2534](../core.py#L2529) | STAFFING / CONSULTANCY ("agency") flag — mark body-shop / staffing-firm employers so the user | 0 |
+| [2535–2594](../core.py#L2535) | Real IT-services GIANTS (Infosys, Cognizant, HCL, TCS, Wipro, Accenture, Deloitte…) do NOT | 4 |
+| [2595–2834](../core.py#L2595) | LOCATION parsing — the boards spell the same place ~5 different ways ("Seattle, WA" / | 19 |
+| [2835–2837](../core.py#L2835) | SALARY parsing — no board hands us a pay field we keep, but US pay-transparency laws | 0 |
+| [2838–2913](../core.py#L2838) | A money amount we trust: comma-grouped ($120,000) or K-suffixed ($120K / $120.5k). | 7 |
+| [2914–2967](../core.py#L2914) | ROLE TRACK — "is this a builder job or a manager job?" | 2 |
+| [2968–3054](../core.py#L2968) | TITLES ARE WRITTEN IN SHORTHAND AND EVERY MATCHER HERE READS THEM LITERALLY. | 7 |
+| [3055–3219](../core.py#L3055) | ROLE FAMILIES — "what kind of job do you want", answerable | 4 |
+| [3220–3366](../core.py#L3220) | WHICH ROLE COMES FIRST WHEN TWO POSTINGS ARE OTHERWISE EQUAL. | 11 |
+| [3367–3659](../core.py#L3367) | "IS THIS A PROJECT-MANAGEMENT JOB?" -- answered from the DESCRIPTION, not the title. | 19 |
+| [3660–3735](../core.py#L3660) | THE TITLE GATE ON THE DESCRIPTION RULE. | 6 |
+| [3736–3880](../core.py#L3736) | POSTING IDENTITY | 9 |
+| [3881–3887](../core.py#L3881) | SAVED SEARCH PREFERENCES | 0 |
+| [3888–4309](../core.py#L3888) | THE SCALE VERSION of the `min` floor below, bumped whenever the score's MEANING moves — | 13 |
+| [4310–4319](../core.py#L4310) | WORK-AUTHORIZATION TIMELINE | 0 |
+| [4320–4474](../core.py#L4320) | Post-completion OPT allows 90 days of unemployment; the 24-month STEM extension raises the | 10 |
+| [4475–4857](../core.py#L4475) | Experience requirement parsing (to keep only entry-level roles) | 29 |
+| [4858–4909](../core.py#L4858) | THE TITLE AS A FLOOR OF LAST RESORT | 3 |
+| [4910–4975](../core.py#L4910) | THE OTHER NUMBER EVERY POSTING STATES: the degree | 4 |
+| [4976–5210](../core.py#L4976) | LEVEL -- "how senior is this job", which is NOT "how many years does it state" | 16 |
+| [5211–5263](../core.py#L5211) | Fetch a job description page (best-effort; paste fallback in the UI) | 4 |
+| [5264–5437](../core.py#L5264) | Read an UPLOADED resume back into plain text | 14 |
+| [5438–5459](../core.py#L5438) | Export the (edited) resume to .docx | 1 |
+| [5460–5502](../core.py#L5460) | Optional: tailor the resume to a JD with Claude | 2 |
+| [5503–5608](../core.py#L5503) | Gemini (Google AI Studio) via REST — no SDK needed, just `requests` | 6 |
 
 ## `db.py`
 
@@ -1147,299 +1147,299 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_open_idf_index` | def | [575](../core.py#L575) | `path`'s sidecar, or None if it is absent, unreadable, or stale. |
 | `build_idf_index` | def | [593](../core.py#L593) | Write `path`'s sidecar. True if it wrote one, False if it was already current. |
 | `warm_idf` | def | [683](../core.py#L683) | /warm's idf stage: build the sidecar if it is missing or stale, then load through it. |
-| `_REQ_HEADERS` | const | [695](../core.py#L695) |  |
-| `_requirements_text` | def | [700](../core.py#L700) | The part of a JD from its first 'requirements/qualifications/responsibilities' |
-| `_RARE_W_CAP` | const | [711](../core.py#L711) |  |
-| `_UNSEEN_W` | const | [730](../core.py#L730) |  |
-| `ATS_TOOLS` | const | [742](../core.py#L742) |  |
-| `ATS_PROJECT_DOMAIN` | const | [782](../core.py#L782) |  |
-| `ATS_PRODUCT_DOMAIN` | const | [799](../core.py#L799) |  |
-| `ATS_DOMAIN` | const | [833](../core.py#L833) |  |
-| `ATS_KEYWORDS` | const | [835](../core.py#L835) |  |
-| `_MIN_JD_CHARS` | const | [842](../core.py#L842) |  |
-| `_MIN_JD_TERMS` | const | [843](../core.py#L843) |  |
-| `_BLOCK_TAGS` | const | [847](../core.py#L847) |  |
-| `_CUT` | const | [852](../core.py#L852) |  |
-| `_LI_CUT` | const | [862](../core.py#L862) |  |
-| `_CUT_RUN` | const | [863](../core.py#L863) |  |
-| `_soup_text` | def | [866](../core.py#L866) | Structured plain text from a parsed tree: block boundaries become newlines. |
-| `html_to_text` | def | [901](../core.py#L901) | HTML (or already-plain) text -&gt; clean text, with block boundaries kept as newlines. |
-| `_CHROME_PARTS` | const | [939](../core.py#L939) |  |
-| `_CHROME_RX` | const | [960](../core.py#L960) |  |
-| `_CHROME_LITERALS` | const | [977](../core.py#L977) |  |
-| `_DEAD_SHELL_RX` | const | [998](../core.py#L998) |  |
-| `_DEAD_SHELL_HEAD` | const | [1003](../core.py#L1003) |  |
-| `_LISTING_RX` | const | [1013](../core.py#L1013) |  |
-| `_LISTING_MIN` | const | [1014](../core.py#L1014) |  |
-| `_POSTING_START` | const | [1019](../core.py#L1019) |  |
-| `_CHROME_HEAD_CHARS` | const | [1035](../core.py#L1035) |  |
-| `_CHROME_RUN_GAP` | const | [1042](../core.py#L1042) |  |
-| `_SNAP_CHARS` | const | [1048](../core.py#L1048) |  |
-| `_SENTENCE_END` | const | [1050](../core.py#L1050) |  |
-| `_SENTENCE_LOOK` | const | [1051](../core.py#L1051) |  |
-| `_CHROME_LEAD_WINDOW` | const | [1058](../core.py#L1058) |  |
-| `_MD_ESCAPE` | const | [1085](../core.py#L1085) |  |
-| `_furniture_spans` | def | [1088](../core.py#L1088) | Sorted \[(start, end)\] of every piece of site furniture in `text`. |
-| `_strip_chrome` | def | [1108](../core.py#L1108) | (body, cut) -- site navigation removed from the front, or the text unchanged and cut 0. |
-| `clean_jd` | def | [1143](../core.py#L1143) | (cleaned, verdict) -- a stored description, read the one way everything reads it. |
-| `PLACE_TERMS` | const | [1185](../core.py#L1185) |  |
-| `_ATS_CASED` | const | [1208](../core.py#L1208) |  |
-| `_names_term` | def | [1214](../core.py#L1214) | Does this text NAME this term? Case-sensitive for the acronyms above, else _term_in. |
-| `analyze_jd` | def | [1222](../core.py#L1222) | The résumé-INDEPENDENT half of the ATS match: the JD's important keywords and each |
-| `_SUFFIXES` | const | [1330](../core.py#L1330) |  |
-| `_NO_STEM` | const | [1333](../core.py#L1333) |  |
-| `_stem` | def | [1351](../core.py#L1351) | A conservative stem for matching. Deliberately NOT a full Porter stemmer: this only has |
-| `SKILL_ALIASES` | const | [1391](../core.py#L1391) |  |
-| `_ALIAS_REVERSE` | const | [1407](../core.py#L1407) |  |
-| `_canon_phrase` | def | [1412](../core.py#L1412) | Alias -&gt; canonical skill, unstemmed. The stemming happens per word at comparison time, |
-| `_alias_forms` | def | [1421](../core.py#L1421) | Every spelling of a skill: the term, its canonical form, and every alias of that. |
-| `_wordset` | def | [1435](../core.py#L1435) | (whole word-tokens, their stems) for any lowercased text. |
-| `_resume_wordset` | def | [1446](../core.py#L1446) | (whole word-tokens, their stems) for a lowercased résumé, memoized so user_scores can |
-| `_term_present` | def | [1467](../core.py#L1467) | Whether a JD term is answered by the resume, the way a screening system would judge it. |
-| `_term_in` | def | [1489](../core.py#L1489) | _term_present without the memo: is this term present in this text, ATS-style? |
-| `KEYWORD_STOP` | const | [1581](../core.py#L1581) |  |
-| `SKILL_STOP` | const | [1591](../core.py#L1591) |  |
-| `ELIGIBILITY_TERMS` | const | [1608](../core.py#L1608) |  |
-| `display_terms` | def | [1616](../core.py#L1616) | Keywords worth showing a reader, weight order preserved. |
-| `CORE_WEIGHT_FRACTION` | const | [1687](../core.py#L1687) |  |
-| `core_terms` | def | [1690](../core.py#L1690) | The keywords carrying the top half of a JD's weight — the ones the role leans on. |
-| `score_against` | def | [1730](../core.py#L1730) | The résumé-DEPENDENT half: how much of what this JD EMPHASISES the résumé contains. |
-| `score_pct` | def | [1779](../core.py#L1779) | EXACTLY `score_against(resume_low, analyzed)\[0\]`, without building the two lists that |
-| `skill_match` | def | [1818](../core.py#L1818) | ATS-style match: score = weighted % of the JD's important keywords present in the |
-| `JDMETA_PATH` | const | [1834](../core.py#L1834) |  |
-| `job_meta` | def | [1837](../core.py#L1837) | One job's résumé-INDEPENDENT, JSON-serializable metadata. Used BOTH by the cron scorer |
-| `load_jdmeta` | def | [1856](../core.py#L1856) | {url: job_meta} from disk, or {} if missing/unreadable (the web app then computes each |
-| `save_jdmeta` | def | [1867](../core.py#L1867) |  |
-| `_ANALYZED_ROUND` | const | [1886](../core.py#L1886) |  |
-| `pack_analyzed` | def | [1889](../core.py#L1889) | analyze_jd() output -&gt; the compact JSON STRING stored in jobs.jd_terms, or "" when there |
-| `unpack_analyzed` | def | [1901](../core.py#L1901) | The inverse, rebuilding `terms` and `total`. Shaped exactly like analyze_jd's return so |
-| `_SPONSOR_BLOCK` | const | [1941](../core.py#L1941) |  |
-| `_SPONSOR_OPEN` | const | [1965](../core.py#L1965) |  |
-| `sponsorship_from_jd` | def | [1974](../core.py#L1974) | Read a JD for an explicit sponsorship signal. Returns (verdict, reason): |
-| `_CAP_EXEMPT_RE` | const | [2002](../core.py#L2002) |  |
-| `_CAP_EXEMPT_NAMES` | const | [2008](../core.py#L2008) |  |
-| `is_cap_exempt` | def | [2013](../core.py#L2013) | Heuristic: True if the employer is LIKELY H-1B cap-exempt (universities, nonprofit |
-| `_SPONSOR_META` | const | [2029](../core.py#L2029) |  |
-| `_load_sponsor_json` | def | [2032](../core.py#L2032) | Load one of the sponsor indexes, lifting its "#meta" block out of the mapping. |
-| `sponsor_meta` | def | [2062](../core.py#L2062) | The provenance block: which fiscal years the shipped counts actually cover. |
-| `sponsor_window` | def | [2074](../core.py#L2074) | The tier window as a label, e.g. "FY2021-2025". "" when the data predates #meta. |
-| `load_sponsor_counts` | def | [2082](../core.py#L2082) | Optional {normalized_company: H1B_approval_count} built from the USCIS Data Hub. |
-| `load_sponsor_years` | def | [2088](../core.py#L2088) | Optional {normalized_company: {fiscal_year: approvals}} — the per-year H-1B history |
-| `_sponsor_key` | def | [2100](../core.py#L2100) | The lookup key both sponsor_counts.json and sponsor_years.json are written under. |
-| `sponsor_history` | def | [2109](../core.py#L2109) | \[(fiscal_year, approvals), ...\] ascending, or \[\] when we have no history. |
-| `_MONO_SKIP` | const | [2138](../core.py#L2138) |  |
-| `initials` | def | [2141](../core.py#L2141) | Two letters for a company's monogram tile, e.g. "AS" for "Amazon.com Services LLC". |
-| `PLATFORM_HOSTS` | const | [2177](../core.py#L2177) |  |
-| `norm_company` | def | [2187](../core.py#L2187) | scraper._norm_name(company), memoized. |
-| `sponsor_strength` | def | [2213](../core.py#L2213) | Tier a sponsor by filing VOLUME. Returns ('high'\|'medium'\|'low'\|'', count). |
-| `load_everify` | def | [2247](../core.py#L2247) | Build a normalized index of E-Verify-enrolled company names from everify.txt |
-| `is_everify` | def | [2270](../core.py#L2270) | True if `company` is in the E-Verify enrolled-employer index. Normalized exact |
-| `VISA_TAGS` | const | [2309](../core.py#L2309) |  |
-| `_VISA_BITS` | const | [2310](../core.py#L2310) |  |
-| `visa_tags_from_bits` | def | [2313](../core.py#L2313) | A stored bitmask -&gt; the same tuple visa_tags() returns, in VISA_TAGS order. |
-| `VISA_TAG_LABELS` | const | [2332](../core.py#L2332) |  |
-| `VISA_TAG_TIPS` | const | [2334](../core.py#L2334) |  |
-| `VISA_ABSENCE_NOTE` | const | [2349](../core.py#L2349) |  |
-| `SPONSOR_LIKELY_LABELS` | const | [2353](../core.py#L2353) |  |
-| `_SPONSOR_LIKELY_OTHER` | const | [2359](../core.py#L2359) |  |
-| `load_visa_tags` | def | [2362](../core.py#L2362) | {normalized name: bitmask} from visa_tags.json. {} when the file is absent, so every |
-| `visa_tags` | def | [2381](../core.py#L2381) | Tuple of tag keys for `company`, in VISA_TAGS order. () when unknown. |
-| `visa_tag_labels` | def | [2403](../core.py#L2403) | \['H-1B', 'Green Card'\] for display in the email digest and the card. |
-| `_BLOCKS_EVERYONE` | const | [2410](../core.py#L2410) |  |
-| `visa_tags_for_posting` | def | [2413](../core.py#L2413) | Narrow an EMPLOYER's visa tags down to what THIS posting actually allows. |
-| `sponsor_likely` | def | [2438](../core.py#L2438) | The ONE hedged claim a card makes about sponsorship. Returns a key, or "". |
-| `parse_visa_pref` | def | [2471](../core.py#L2471) | 'h1b,junk,e3' -&gt; ('h1b','e3'). Canonical order, junk dropped, duplicates collapsed. |
-| `visa_tags_match` | def | [2481](../core.py#L2481) | OR semantics: a row passes if it carries ANY wanted tag. No wanted tags == no filter. |
-| `BODYSHOP_RE` | const | [2522](../core.py#L2522) |  |
-| `_AGENCY_NAMES` | const | [2531](../core.py#L2531) |  |
-| `_AGENCY_RE` | const | [2558](../core.py#L2558) |  |
-| `is_agency` | def | [2566](../core.py#L2566) | Heuristic: True if `company` looks like a staffing agency / IT body-shop / bench |
-| `_STATES` | const | [2584](../core.py#L2584) |  |
-| `_STATE_CODES` | const | [2598](../core.py#L2598) |  |
-| `_STATE_NAMES_RE` | const | [2600](../core.py#L2600) |  |
-| `_LOC_SPLIT_RE` | const | [2604](../core.py#L2604) |  |
-| `_LEAD_CODE_RE` | const | [2606](../core.py#L2606) |  |
-| `_TRAIL_CODE_RE` | const | [2608](../core.py#L2608) |  |
-| `_DC_RE` | const | [2611](../core.py#L2611) |  |
-| `_METROS` | const | [2615](../core.py#L2615) |  |
-| `_CITY_TO_METRO` | const | [2667](../core.py#L2667) |  |
-| `_METRO_EXTRA_STATES` | const | [2672](../core.py#L2672) |  |
-| `_METRO_STATES` | const | [2685](../core.py#L2685) |  |
-| `_REMOTE_POS_RE` | const | [2689](../core.py#L2689) |  |
-| `_REMOTE_NEG_RE` | const | [2695](../core.py#L2695) |  |
-| `_metro_for` | def | [2700](../core.py#L2700) | Match the most specific city token to a metro. Tries '&lt;city&gt;, &lt;st&gt;' first so the |
-| `_LOC_TIDY_COMMA` | const | [2718](../core.py#L2718) |  |
-| `_LOC_TIDY_SPACE` | const | [2719](../core.py#L2719) |  |
-| `tidy_location` | def | [2722](../core.py#L2722) | A job's location string, punctuated the way the rest of the feed punctuates it. |
-| `parse_location` | def | [2742](../core.py#L2742) | Normalize a job's free-text location into {city, state, metro, remote}. |
-| `_jd_says_remote` | def | [2806](../core.py#L2806) | True when the JD unambiguously offers remote work. Every candidate phrase is |
-| `_MONEY` | const | [2824](../core.py#L2824) |  |
-| `_SALARY_RANGE_RE` | const | [2825](../core.py#L2825) |  |
-| `_HOURLY_RANGE_RE` | const | [2826](../core.py#L2826) |  |
-| `_HOURLY_HINT_RE` | const | [2829](../core.py#L2829) |  |
-| `_money_to_int` | def | [2837](../core.py#L2837) | '$120,000' -&gt; 120000 · '$120K' -&gt; 120000 · '$120.5k' -&gt; 120500. |
-| `parse_salary` | def | [2848](../core.py#L2848) | Pull a pay range out of a job description. |
-| `salary_label` | def | [2884](../core.py#L2884) | Card-ready text for a pay range: '$120k–$150k' or '$25–$35/hr'. '' when unknown. |
-| `_MGMT_TITLE_RE` | const | [2917](../core.py#L2917) |  |
-| `_DEV_TITLE_RE` | const | [2930](../core.py#L2930) |  |
-| `_TITLE_ABBR` | const | [2982](../core.py#L2982) |  |
-| `_TITLE_SEPS` | const | [3005](../core.py#L3005) |  |
-| `_TITLE_SEP_MAP` | const | [3006](../core.py#L3006) |  |
-| `_TITLE_WORD_RE` | const | [3007](../core.py#L3007) |  |
-| `_TITLE_WS_RE` | const | [3008](../core.py#L3008) |  |
-| `_TITLE_COMPOUND` | const | [3014](../core.py#L3014) |  |
-| `normalize_title` | def | [3019](../core.py#L3019) | A title rewritten FOR MATCHING ONLY: separators split, known shorthand expanded. |
-| `ROLE_GROUPS` | const | [3056](../core.py#L3056) |  |
-| `ROLE_FAMILIES` | const | [3060](../core.py#L3060) |  |
-| `ROLE_KEYS` | const | [3201](../core.py#L3201) |  |
-| `ROLE_LABELS` | const | [3202](../core.py#L3202) |  |
-| `ROLE_PRIORITY` | const | [3222](../core.py#L3222) |  |
-| `_ROLE_RANK` | const | [3234](../core.py#L3234) |  |
-| `ROLE_RANK_NONE` | const | [3237](../core.py#L3237) |  |
-| `role_rank` | def | [3250](../core.py#L3250) | Where a row's best role sits in ROLE_PRIORITY. Lower is earlier; no role sorts last. |
-| `_ROLE_RES` | const | [3270](../core.py#L3270) |  |
-| `role_families_grouped` | def | [3276](../core.py#L3276) | \[(group_key, group_label, \[(key, label, phrases), ...\]), ...\] in render order. |
-| `roles_for_title` | def | [3282](../core.py#L3282) | Every role family this title belongs to, as a tuple of keys ('' -&gt; ()). |
-| `parse_roles_pref` | def | [3300](../core.py#L3300) | A stored/posted roles value -&gt; a validated, canonically ordered tuple of keys. |
-| `DELIVER_ROLE_KEYS` | const | [3314](../core.py#L3314) |  |
-| `roles_match` | def | [3317](../core.py#L3317) | Does this posting belong to any family the user picked? Empty selection matches all. |
-| `role_track` | def | [3338](../core.py#L3338) | Which career track a posting belongs to: 'dev' (software/data/infra IC work) or |
-| `PM_ANCHORS` | const | [3371](../core.py#L3371) |  |
-| `PM_SUPPORT` | const | [3417](../core.py#L3417) |  |
-| `PM_VETO` | const | [3440](../core.py#L3440) |  |
-| `_PM_ANCHOR_RE` | const | [3496](../core.py#L3496) |  |
-| `_PM_SUPPORT_RE` | const | [3498](../core.py#L3498) |  |
-| `_PM_VETO_RE` | const | [3500](../core.py#L3500) |  |
-| `PM_VETO_SOFT` | const | [3564](../core.py#L3564) |  |
-| `PM_PRODUCT_ANCHORS` | const | [3573](../core.py#L3573) |  |
-| `PM_PRODUCT_MIN` | const | [3581](../core.py#L3581) |  |
-| `_PM_VETO_SOFT_RE` | const | [3582](../core.py#L3582) |  |
-| `_PM_PRODUCT_RE` | const | [3584](../core.py#L3584) |  |
-| `pm_product_anchors` | def | [3588](../core.py#L3588) | How many DISTINCT product-ownership phrases this text names. |
-| `PM_MIN_ANCHORS` | const | [3595](../core.py#L3595) |  |
-| `PM_MIN_POINTS` | const | [3596](../core.py#L3596) |  |
-| `PM_ANCHOR_WEIGHT` | const | [3597](../core.py#L3597) |  |
-| `PM_MAX_VETO` | const | [3600](../core.py#L3600) |  |
-| `pm_signal` | def | [3603](../core.py#L3603) | (distinct anchors, distinct support, distinct veto phrases) in a posting's text. |
-| `pm_points` | def | [3620](../core.py#L3620) | The single number the threshold is applied to. Anchors count double. |
-| `reads_like_pm` | def | [3625](../core.py#L3625) | Does this description describe project/programme/product delivery work? |
-| `PM_TITLE_HINTS` | const | [3661](../core.py#L3661) |  |
-| `PM_TITLE_REFUSE` | const | [3678](../core.py#L3678) |  |
-| `_PM_HINT_RE` | const | [3679](../core.py#L3679) |  |
-| `_PM_REFUSE_RE` | const | [3681](../core.py#L3681) |  |
-| `pm_title_gate` | def | [3685](../core.py#L3685) | May this title's DESCRIPTION be read as a second opinion? Cheap, and text-free. |
-| `admits_on_description` | def | [3703](../core.py#L3703) | The whole rule: may this posting be kept on its DESCRIPTION alone? |
-| `AGGREGATOR_HOSTS` | const | [3732](../core.py#L3732) |  |
-| `_HOST_RE` | const | [3739](../core.py#L3739) |  |
-| `url_host` | def | [3742](../core.py#L3742) | Host of a URL, lowercased, or "" — cheap and never raises, unlike urlparse on junk. |
-| `is_aggregator_url` | def | [3748](../core.py#L3748) | True when the URL belongs to a job board rather than to the employer that is hiring. |
-| `_BARE_ISO_RE` | const | [3754](../core.py#L3754) |  |
-| `is_trusted_date` | def | [3757](../core.py#L3757) | Did anyone actually STATE this posting's date, or did we guess it? |
-| `sponsor_rank` | def | [3779](../core.py#L3779) | Ordering for sort=sponsor, LOWEST FIRST — "show me the jobs I can actually take". |
-| `_key_location` | def | [3811](../core.py#L3811) | The location half of posting_key, canonicalised just enough that two sources describing |
-| `posting_key` | def | [3842](../core.py#L3842) | Identity of a POSTING rather than of a URL: title + company + full location. |
-| `MIN_SCALE` | const | [3920](../core.py#L3920) |  |
-| `DEFAULT_PREFS` | const | [3922](../core.py#L3922) |  |
-| `_PREF_CHOICES` | const | [4000](../core.py#L4000) |  |
-| `_PREF_CSV` | const | [4018](../core.py#L4018) |  |
-| `_pref_bool` | def | [4021](../core.py#L4021) |  |
-| `normalize_prefs` | def | [4025](../core.py#L4025) | Coerce anything (a form post, a jsonb column, None) into a complete valid prefs dict. |
-| `_level_of` | def | [4093](../core.py#L4093) | A row's level, falling back to its title for a row built before `level` existed. |
-| `prefs_match` | def | [4101](../core.py#L4101) | Does this job match the user's saved search? |
-| `HOURS_PER_YEAR` | const | [4187](../core.py#L4187) |  |
-| `annualize_pay` | def | [4190](../core.py#L4190) | Put hourly and salaried pay on one scale so a single minimum works for both. |
-| `location_matches` | def | [4199](../core.py#L4199) | Does a row match a typed location? Metro, 2-letter state code, or the raw string. |
-| `INTERN_RE` | const | [4228](../core.py#L4228) |  |
-| `digest_row` | def | [4232](../core.py#L4232) | The row shape prefs_match wants, built from a RAW db job row. |
-| `UNEMPLOYMENT_LIMIT_OPT` | const | [4307](../core.py#L4307) |  |
-| `UNEMPLOYMENT_LIMIT_STEM` | const | [4308](../core.py#L4308) |  |
-| `STEM_FILE_WINDOW_DAYS` | const | [4311](../core.py#L4311) |  |
-| `H1B_REGISTRATION_MONTH` | const | [4314](../core.py#L4314) |  |
-| `H1B_REGISTRATION_DAY` | const | [4315](../core.py#L4315) |  |
-| `_as_date` | def | [4318](../core.py#L4318) | Parse a YYYY-MM-DD-ish string (or pass a date through). None when unusable — these |
-| `_severity` | def | [4332](../core.py#L4332) | How loudly to render a deadline: past/urgent/soon/ok. |
-| `next_h1b_registration` | def | [4345](../core.py#L4345) | The next early-March H-1B registration anchor on or after `today`. |
-| `visa_timeline` | def | [4353](../core.py#L4353) | Turn the visa dates on a user's profile into dated reminders. |
-| `visa_alert` | def | [4432](../core.py#L4432) | The single most pressing item, for the slim feed strip — or None to show nothing. |
-| `_EXP_YEARS_RE` | const | [4466](../core.py#L4466) |  |
-| `_WORD_NUM` | const | [4477](../core.py#L4477) |  |
-| `_EXP_WORD_YEARS_RE` | const | [4480](../core.py#L4480) |  |
-| `_EXP_RANGE_RE` | const | [4492](../core.py#L4492) |  |
-| `_EXP_MONTHS_RE` | const | [4500](../core.py#L4500) |  |
-| `_EXP_DURATION_RE` | const | [4506](../core.py#L4506) |  |
-| `_EXP_EDU_YEARS_RE` | const | [4518](../core.py#L4518) |  |
-| `_EXP_CTX_RE` | const | [4528](../core.py#L4528) |  |
-| `_EXP_CTX_GENERIC_RE` | const | [4546](../core.py#L4546) |  |
-| `_EXP_TENURE_RE` | const | [4550](../core.py#L4550) |  |
-| `_EXP_TENURE_BEFORE` | const | [4558](../core.py#L4558) |  |
-| `_EXP_MIN_RE` | const | [4559](../core.py#L4559) |  |
-| `_EXP_SOFT_RE` | const | [4565](../core.py#L4565) |  |
-| `_EXP_HARD_RE` | const | [4572](../core.py#L4572) |  |
-| `_CLAUSE_SPLIT_RE` | const | [4582](../core.py#L4582) |  |
-| `_DEGREE_RE` | const | [4598](../core.py#L4598) |  |
-| `_ALTERNATIVE_RE` | const | [4600](../core.py#L4600) |  |
-| `_clause_after` | def | [4603](../core.py#L4603) | `s` up to the first clause boundary. |
-| `_clause_before` | def | [4608](../core.py#L4608) | `s` back to the last clause boundary. |
-| `_reads_as_preferred` | def | [4613](../core.py#L4613) | Is this year count one the employer merely PREFERS, rather than insists on? |
-| `_experience_floors_split` | def | [4641](../core.py#L4641) | (hard, soft) — the floors the employer insists on, and the ones it merely prefers. |
-| `_LADDER_GAP` | const | [4714](../core.py#L4714) |  |
-| `_collapse_ladders` | def | [4717](../core.py#L4717) | \[(start, end, years, had_context)\] -&gt; \[years\], each run of rungs reduced to its lowest. |
-| `_experience_floors` | def | [4776](../core.py#L4776) | Every stated floor, hard or soft. Kept as the flat list experience_min_years reads. |
-| `experience_years` | def | [4782](../core.py#L4782) | The HIGHEST experience requirement the text states, or None when it states none. |
-| `required_years` | def | [4803](../core.py#L4803) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
-| `experience_min_years` | def | [4809](../core.py#L4809) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
-| `exp_level_for` | def | [4818](../core.py#L4818) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
-| `experience_level` | def | [4834](../core.py#L4834) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
-| `_TITLE_SENIOR_RE` | const | [4868](../core.py#L4868) |  |
-| `_TITLE_JUNIOR_RE` | const | [4882](../core.py#L4882) |  |
-| `_TITLE_SENIOR_YEARS` | const | [4889](../core.py#L4889) |  |
-| `_DEGREE_LEVELS` | const | [4903](../core.py#L4903) |  |
-| `_DEGREE_RXS` | const | [4910](../core.py#L4910) |  |
-| `education_floors` | def | [4913](../core.py#L4913) | (required, preferred) degree names, either of which may be None. |
-| `experience_floors` | def | [4940](../core.py#L4940) | (required, preferred) year counts, either of which may be None. |
-| `_JD_ENTRY_RE` | const | [4985](../core.py#L4985) |  |
-| `_JD_ENTRY_NEG_RE` | const | [4994](../core.py#L4994) |  |
-| `_JD_ENTRY_LOOKBACK` | const | [4998](../core.py#L4998) |  |
-| `jd_level` | def | [5001](../core.py#L5001) | "entry" \| "mid" \| "senior" \| "" for a DESCRIPTION. |
-| `_TITLE_ENTRY_RE` | const | [5024](../core.py#L5024) |  |
-| `_TITLE_SENIOR_LEVEL_RE` | const | [5035](../core.py#L5035) |  |
-| `_TITLE_MID_LEVEL_RE` | const | [5053](../core.py#L5053) |  |
-| `LEVEL_MIN_YEARS` | const | [5058](../core.py#L5058) |  |
-| `_TITLE_SENIOR_ASSOC_RE` | const | [5067](../core.py#L5067) |  |
-| `_TITLE_AMBIG_ASSOC_RE` | const | [5074](../core.py#L5074) |  |
-| `title_level` | def | [5077](../core.py#L5077) | "entry" \| "senior" \| "" from a TITLE alone. Only consulted where jd_level returned "". |
-| `_LEVEL_ORDER` | const | [5109](../core.py#L5109) |  |
-| `senior_title_veto` | def | [5112](../core.py#L5112) | A higher TITLE rung overrules a lower level. THE one rule, shared by both level paths. |
-| `level_from_exp` | def | [5143](../core.py#L5143) | (level, source) for a surface that has the YEARS but not the description. |
-| `level_for` | def | [5164](../core.py#L5164) | The one definition every surface reads: (level, source). |
-| `title_experience_tier` | def | [5181](../core.py#L5181) | The years a TITLE implies, or None when it implies nothing. Never overrides a description. |
-| `_MAIN_SELECTORS` | const | [5198](../core.py#L5198) |  |
-| `_MAIN_MIN_CHARS` | const | [5203](../core.py#L5203) |  |
-| `_main_region` | def | [5206](../core.py#L5206) | The element holding the posting, or None to mean "use the whole document". |
-| `fetch_jd` | def | [5218](../core.py#L5218) | Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API. |
-| `RESUME_UPLOAD_MAX_BYTES` | const | [5256](../core.py#L5256) |  |
-| `_RESUME_PDF_MAX_PAGES` | const | [5257](../core.py#L5257) |  |
-| `RESUME_UPLOAD_EXTS` | const | [5258](../core.py#L5258) |  |
-| `_readable_formats_phrase` | def | [5261](../core.py#L5261) | Which upload formats this host can ACTUALLY read, named in a sentence. |
-| `_docx_to_text` | def | [5294](../core.py#L5294) |  |
-| `_PDF_SPLIT_HYPHEN_RE` | const | [5306](../core.py#L5306) |  |
-| `_fix_pdf_artifacts` | def | [5309](../core.py#L5309) | Undo the spacing damage PDF text extraction does. |
-| `_pdf_to_text` | def | [5322](../core.py#L5322) |  |
-| `_TEX_ITEM_RE` | const | [5334](../core.py#L5334) |  |
-| `_TEX_CMD_ARG_RE` | const | [5335](../core.py#L5335) |  |
-| `_TEX_CMD_RE` | const | [5337](../core.py#L5337) |  |
-| `_TEX_COMMENT_RE` | const | [5338](../core.py#L5338) |  |
-| `tex_to_text` | def | [5341](../core.py#L5341) | LaTeX source -&gt; the prose inside it. |
-| `resume_text_from_upload` | def | [5372](../core.py#L5372) | (text, error) from an uploaded resume. Never raises, never touches disk. |
-| `resume_to_docx_bytes` | def | [5423](../core.py#L5423) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
-| `ai_available` | def | [5448](../core.py#L5448) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
-| `_tailor_prompt` | def | [5453](../core.py#L5453) | The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice, |
-| `GEMINI_DEFAULT_MODEL` | const | [5490](../core.py#L5490) |  |
-| `_gemini_list_models` | def | [5493](../core.py#L5493) | Model short-names that support generateContent (e.g. 'gemini-3.5-flash'). |
-| `_gemini_discover` | def | [5502](../core.py#L5502) | Best available stable Flash (then Pro) model — used only if the preferred id 404s. |
-| `tailor_with_gemini` | def | [5517](../core.py#L5517) | Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword |
-| `tailor_with_ai` | def | [5557](../core.py#L5557) | Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests` |
-| `tailor` | def | [5584](../core.py#L5584) | Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or |
+| `_REQ_HEADERS` | const | [711](../core.py#L711) |  |
+| `_requirements_text` | def | [716](../core.py#L716) | The part of a JD from its first 'requirements/qualifications/responsibilities' |
+| `_RARE_W_CAP` | const | [727](../core.py#L727) |  |
+| `_UNSEEN_W` | const | [746](../core.py#L746) |  |
+| `ATS_TOOLS` | const | [758](../core.py#L758) |  |
+| `ATS_PROJECT_DOMAIN` | const | [798](../core.py#L798) |  |
+| `ATS_PRODUCT_DOMAIN` | const | [815](../core.py#L815) |  |
+| `ATS_DOMAIN` | const | [849](../core.py#L849) |  |
+| `ATS_KEYWORDS` | const | [851](../core.py#L851) |  |
+| `_MIN_JD_CHARS` | const | [858](../core.py#L858) |  |
+| `_MIN_JD_TERMS` | const | [859](../core.py#L859) |  |
+| `_BLOCK_TAGS` | const | [863](../core.py#L863) |  |
+| `_CUT` | const | [868](../core.py#L868) |  |
+| `_LI_CUT` | const | [878](../core.py#L878) |  |
+| `_CUT_RUN` | const | [879](../core.py#L879) |  |
+| `_soup_text` | def | [882](../core.py#L882) | Structured plain text from a parsed tree: block boundaries become newlines. |
+| `html_to_text` | def | [917](../core.py#L917) | HTML (or already-plain) text -&gt; clean text, with block boundaries kept as newlines. |
+| `_CHROME_PARTS` | const | [955](../core.py#L955) |  |
+| `_CHROME_RX` | const | [976](../core.py#L976) |  |
+| `_CHROME_LITERALS` | const | [993](../core.py#L993) |  |
+| `_DEAD_SHELL_RX` | const | [1014](../core.py#L1014) |  |
+| `_DEAD_SHELL_HEAD` | const | [1019](../core.py#L1019) |  |
+| `_LISTING_RX` | const | [1029](../core.py#L1029) |  |
+| `_LISTING_MIN` | const | [1030](../core.py#L1030) |  |
+| `_POSTING_START` | const | [1035](../core.py#L1035) |  |
+| `_CHROME_HEAD_CHARS` | const | [1051](../core.py#L1051) |  |
+| `_CHROME_RUN_GAP` | const | [1058](../core.py#L1058) |  |
+| `_SNAP_CHARS` | const | [1064](../core.py#L1064) |  |
+| `_SENTENCE_END` | const | [1066](../core.py#L1066) |  |
+| `_SENTENCE_LOOK` | const | [1067](../core.py#L1067) |  |
+| `_CHROME_LEAD_WINDOW` | const | [1074](../core.py#L1074) |  |
+| `_MD_ESCAPE` | const | [1101](../core.py#L1101) |  |
+| `_furniture_spans` | def | [1104](../core.py#L1104) | Sorted \[(start, end)\] of every piece of site furniture in `text`. |
+| `_strip_chrome` | def | [1124](../core.py#L1124) | (body, cut) -- site navigation removed from the front, or the text unchanged and cut 0. |
+| `clean_jd` | def | [1159](../core.py#L1159) | (cleaned, verdict) -- a stored description, read the one way everything reads it. |
+| `PLACE_TERMS` | const | [1201](../core.py#L1201) |  |
+| `_ATS_CASED` | const | [1224](../core.py#L1224) |  |
+| `_names_term` | def | [1230](../core.py#L1230) | Does this text NAME this term? Case-sensitive for the acronyms above, else _term_in. |
+| `analyze_jd` | def | [1238](../core.py#L1238) | The résumé-INDEPENDENT half of the ATS match: the JD's important keywords and each |
+| `_SUFFIXES` | const | [1346](../core.py#L1346) |  |
+| `_NO_STEM` | const | [1349](../core.py#L1349) |  |
+| `_stem` | def | [1367](../core.py#L1367) | A conservative stem for matching. Deliberately NOT a full Porter stemmer: this only has |
+| `SKILL_ALIASES` | const | [1407](../core.py#L1407) |  |
+| `_ALIAS_REVERSE` | const | [1423](../core.py#L1423) |  |
+| `_canon_phrase` | def | [1428](../core.py#L1428) | Alias -&gt; canonical skill, unstemmed. The stemming happens per word at comparison time, |
+| `_alias_forms` | def | [1437](../core.py#L1437) | Every spelling of a skill: the term, its canonical form, and every alias of that. |
+| `_wordset` | def | [1451](../core.py#L1451) | (whole word-tokens, their stems) for any lowercased text. |
+| `_resume_wordset` | def | [1462](../core.py#L1462) | (whole word-tokens, their stems) for a lowercased résumé, memoized so user_scores can |
+| `_term_present` | def | [1483](../core.py#L1483) | Whether a JD term is answered by the resume, the way a screening system would judge it. |
+| `_term_in` | def | [1505](../core.py#L1505) | _term_present without the memo: is this term present in this text, ATS-style? |
+| `KEYWORD_STOP` | const | [1597](../core.py#L1597) |  |
+| `SKILL_STOP` | const | [1607](../core.py#L1607) |  |
+| `ELIGIBILITY_TERMS` | const | [1624](../core.py#L1624) |  |
+| `display_terms` | def | [1632](../core.py#L1632) | Keywords worth showing a reader, weight order preserved. |
+| `CORE_WEIGHT_FRACTION` | const | [1703](../core.py#L1703) |  |
+| `core_terms` | def | [1706](../core.py#L1706) | The keywords carrying the top half of a JD's weight — the ones the role leans on. |
+| `score_against` | def | [1746](../core.py#L1746) | The résumé-DEPENDENT half: how much of what this JD EMPHASISES the résumé contains. |
+| `score_pct` | def | [1795](../core.py#L1795) | EXACTLY `score_against(resume_low, analyzed)\[0\]`, without building the two lists that |
+| `skill_match` | def | [1834](../core.py#L1834) | ATS-style match: score = weighted % of the JD's important keywords present in the |
+| `JDMETA_PATH` | const | [1850](../core.py#L1850) |  |
+| `job_meta` | def | [1853](../core.py#L1853) | One job's résumé-INDEPENDENT, JSON-serializable metadata. Used BOTH by the cron scorer |
+| `load_jdmeta` | def | [1872](../core.py#L1872) | {url: job_meta} from disk, or {} if missing/unreadable (the web app then computes each |
+| `save_jdmeta` | def | [1883](../core.py#L1883) |  |
+| `_ANALYZED_ROUND` | const | [1902](../core.py#L1902) |  |
+| `pack_analyzed` | def | [1905](../core.py#L1905) | analyze_jd() output -&gt; the compact JSON STRING stored in jobs.jd_terms, or "" when there |
+| `unpack_analyzed` | def | [1917](../core.py#L1917) | The inverse, rebuilding `terms` and `total`. Shaped exactly like analyze_jd's return so |
+| `_SPONSOR_BLOCK` | const | [1957](../core.py#L1957) |  |
+| `_SPONSOR_OPEN` | const | [1981](../core.py#L1981) |  |
+| `sponsorship_from_jd` | def | [1990](../core.py#L1990) | Read a JD for an explicit sponsorship signal. Returns (verdict, reason): |
+| `_CAP_EXEMPT_RE` | const | [2018](../core.py#L2018) |  |
+| `_CAP_EXEMPT_NAMES` | const | [2024](../core.py#L2024) |  |
+| `is_cap_exempt` | def | [2029](../core.py#L2029) | Heuristic: True if the employer is LIKELY H-1B cap-exempt (universities, nonprofit |
+| `_SPONSOR_META` | const | [2045](../core.py#L2045) |  |
+| `_load_sponsor_json` | def | [2048](../core.py#L2048) | Load one of the sponsor indexes, lifting its "#meta" block out of the mapping. |
+| `sponsor_meta` | def | [2078](../core.py#L2078) | The provenance block: which fiscal years the shipped counts actually cover. |
+| `sponsor_window` | def | [2090](../core.py#L2090) | The tier window as a label, e.g. "FY2021-2025". "" when the data predates #meta. |
+| `load_sponsor_counts` | def | [2098](../core.py#L2098) | Optional {normalized_company: H1B_approval_count} built from the USCIS Data Hub. |
+| `load_sponsor_years` | def | [2104](../core.py#L2104) | Optional {normalized_company: {fiscal_year: approvals}} — the per-year H-1B history |
+| `_sponsor_key` | def | [2116](../core.py#L2116) | The lookup key both sponsor_counts.json and sponsor_years.json are written under. |
+| `sponsor_history` | def | [2125](../core.py#L2125) | \[(fiscal_year, approvals), ...\] ascending, or \[\] when we have no history. |
+| `_MONO_SKIP` | const | [2154](../core.py#L2154) |  |
+| `initials` | def | [2157](../core.py#L2157) | Two letters for a company's monogram tile, e.g. "AS" for "Amazon.com Services LLC". |
+| `PLATFORM_HOSTS` | const | [2193](../core.py#L2193) |  |
+| `norm_company` | def | [2203](../core.py#L2203) | scraper._norm_name(company), memoized. |
+| `sponsor_strength` | def | [2229](../core.py#L2229) | Tier a sponsor by filing VOLUME. Returns ('high'\|'medium'\|'low'\|'', count). |
+| `load_everify` | def | [2263](../core.py#L2263) | Build a normalized index of E-Verify-enrolled company names from everify.txt |
+| `is_everify` | def | [2286](../core.py#L2286) | True if `company` is in the E-Verify enrolled-employer index. Normalized exact |
+| `VISA_TAGS` | const | [2325](../core.py#L2325) |  |
+| `_VISA_BITS` | const | [2326](../core.py#L2326) |  |
+| `visa_tags_from_bits` | def | [2329](../core.py#L2329) | A stored bitmask -&gt; the same tuple visa_tags() returns, in VISA_TAGS order. |
+| `VISA_TAG_LABELS` | const | [2348](../core.py#L2348) |  |
+| `VISA_TAG_TIPS` | const | [2350](../core.py#L2350) |  |
+| `VISA_ABSENCE_NOTE` | const | [2365](../core.py#L2365) |  |
+| `SPONSOR_LIKELY_LABELS` | const | [2369](../core.py#L2369) |  |
+| `_SPONSOR_LIKELY_OTHER` | const | [2375](../core.py#L2375) |  |
+| `load_visa_tags` | def | [2378](../core.py#L2378) | {normalized name: bitmask} from visa_tags.json. {} when the file is absent, so every |
+| `visa_tags` | def | [2397](../core.py#L2397) | Tuple of tag keys for `company`, in VISA_TAGS order. () when unknown. |
+| `visa_tag_labels` | def | [2419](../core.py#L2419) | \['H-1B', 'Green Card'\] for display in the email digest and the card. |
+| `_BLOCKS_EVERYONE` | const | [2426](../core.py#L2426) |  |
+| `visa_tags_for_posting` | def | [2429](../core.py#L2429) | Narrow an EMPLOYER's visa tags down to what THIS posting actually allows. |
+| `sponsor_likely` | def | [2454](../core.py#L2454) | The ONE hedged claim a card makes about sponsorship. Returns a key, or "". |
+| `parse_visa_pref` | def | [2487](../core.py#L2487) | 'h1b,junk,e3' -&gt; ('h1b','e3'). Canonical order, junk dropped, duplicates collapsed. |
+| `visa_tags_match` | def | [2497](../core.py#L2497) | OR semantics: a row passes if it carries ANY wanted tag. No wanted tags == no filter. |
+| `BODYSHOP_RE` | const | [2538](../core.py#L2538) |  |
+| `_AGENCY_NAMES` | const | [2547](../core.py#L2547) |  |
+| `_AGENCY_RE` | const | [2574](../core.py#L2574) |  |
+| `is_agency` | def | [2582](../core.py#L2582) | Heuristic: True if `company` looks like a staffing agency / IT body-shop / bench |
+| `_STATES` | const | [2600](../core.py#L2600) |  |
+| `_STATE_CODES` | const | [2614](../core.py#L2614) |  |
+| `_STATE_NAMES_RE` | const | [2616](../core.py#L2616) |  |
+| `_LOC_SPLIT_RE` | const | [2620](../core.py#L2620) |  |
+| `_LEAD_CODE_RE` | const | [2622](../core.py#L2622) |  |
+| `_TRAIL_CODE_RE` | const | [2624](../core.py#L2624) |  |
+| `_DC_RE` | const | [2627](../core.py#L2627) |  |
+| `_METROS` | const | [2631](../core.py#L2631) |  |
+| `_CITY_TO_METRO` | const | [2683](../core.py#L2683) |  |
+| `_METRO_EXTRA_STATES` | const | [2688](../core.py#L2688) |  |
+| `_METRO_STATES` | const | [2701](../core.py#L2701) |  |
+| `_REMOTE_POS_RE` | const | [2705](../core.py#L2705) |  |
+| `_REMOTE_NEG_RE` | const | [2711](../core.py#L2711) |  |
+| `_metro_for` | def | [2716](../core.py#L2716) | Match the most specific city token to a metro. Tries '&lt;city&gt;, &lt;st&gt;' first so the |
+| `_LOC_TIDY_COMMA` | const | [2734](../core.py#L2734) |  |
+| `_LOC_TIDY_SPACE` | const | [2735](../core.py#L2735) |  |
+| `tidy_location` | def | [2738](../core.py#L2738) | A job's location string, punctuated the way the rest of the feed punctuates it. |
+| `parse_location` | def | [2758](../core.py#L2758) | Normalize a job's free-text location into {city, state, metro, remote}. |
+| `_jd_says_remote` | def | [2822](../core.py#L2822) | True when the JD unambiguously offers remote work. Every candidate phrase is |
+| `_MONEY` | const | [2840](../core.py#L2840) |  |
+| `_SALARY_RANGE_RE` | const | [2841](../core.py#L2841) |  |
+| `_HOURLY_RANGE_RE` | const | [2842](../core.py#L2842) |  |
+| `_HOURLY_HINT_RE` | const | [2845](../core.py#L2845) |  |
+| `_money_to_int` | def | [2853](../core.py#L2853) | '$120,000' -&gt; 120000 · '$120K' -&gt; 120000 · '$120.5k' -&gt; 120500. |
+| `parse_salary` | def | [2864](../core.py#L2864) | Pull a pay range out of a job description. |
+| `salary_label` | def | [2900](../core.py#L2900) | Card-ready text for a pay range: '$120k–$150k' or '$25–$35/hr'. '' when unknown. |
+| `_MGMT_TITLE_RE` | const | [2933](../core.py#L2933) |  |
+| `_DEV_TITLE_RE` | const | [2946](../core.py#L2946) |  |
+| `_TITLE_ABBR` | const | [2998](../core.py#L2998) |  |
+| `_TITLE_SEPS` | const | [3021](../core.py#L3021) |  |
+| `_TITLE_SEP_MAP` | const | [3022](../core.py#L3022) |  |
+| `_TITLE_WORD_RE` | const | [3023](../core.py#L3023) |  |
+| `_TITLE_WS_RE` | const | [3024](../core.py#L3024) |  |
+| `_TITLE_COMPOUND` | const | [3030](../core.py#L3030) |  |
+| `normalize_title` | def | [3035](../core.py#L3035) | A title rewritten FOR MATCHING ONLY: separators split, known shorthand expanded. |
+| `ROLE_GROUPS` | const | [3072](../core.py#L3072) |  |
+| `ROLE_FAMILIES` | const | [3076](../core.py#L3076) |  |
+| `ROLE_KEYS` | const | [3217](../core.py#L3217) |  |
+| `ROLE_LABELS` | const | [3218](../core.py#L3218) |  |
+| `ROLE_PRIORITY` | const | [3238](../core.py#L3238) |  |
+| `_ROLE_RANK` | const | [3250](../core.py#L3250) |  |
+| `ROLE_RANK_NONE` | const | [3253](../core.py#L3253) |  |
+| `role_rank` | def | [3266](../core.py#L3266) | Where a row's best role sits in ROLE_PRIORITY. Lower is earlier; no role sorts last. |
+| `_ROLE_RES` | const | [3286](../core.py#L3286) |  |
+| `role_families_grouped` | def | [3292](../core.py#L3292) | \[(group_key, group_label, \[(key, label, phrases), ...\]), ...\] in render order. |
+| `roles_for_title` | def | [3298](../core.py#L3298) | Every role family this title belongs to, as a tuple of keys ('' -&gt; ()). |
+| `parse_roles_pref` | def | [3316](../core.py#L3316) | A stored/posted roles value -&gt; a validated, canonically ordered tuple of keys. |
+| `DELIVER_ROLE_KEYS` | const | [3330](../core.py#L3330) |  |
+| `roles_match` | def | [3333](../core.py#L3333) | Does this posting belong to any family the user picked? Empty selection matches all. |
+| `role_track` | def | [3354](../core.py#L3354) | Which career track a posting belongs to: 'dev' (software/data/infra IC work) or |
+| `PM_ANCHORS` | const | [3387](../core.py#L3387) |  |
+| `PM_SUPPORT` | const | [3433](../core.py#L3433) |  |
+| `PM_VETO` | const | [3456](../core.py#L3456) |  |
+| `_PM_ANCHOR_RE` | const | [3512](../core.py#L3512) |  |
+| `_PM_SUPPORT_RE` | const | [3514](../core.py#L3514) |  |
+| `_PM_VETO_RE` | const | [3516](../core.py#L3516) |  |
+| `PM_VETO_SOFT` | const | [3580](../core.py#L3580) |  |
+| `PM_PRODUCT_ANCHORS` | const | [3589](../core.py#L3589) |  |
+| `PM_PRODUCT_MIN` | const | [3597](../core.py#L3597) |  |
+| `_PM_VETO_SOFT_RE` | const | [3598](../core.py#L3598) |  |
+| `_PM_PRODUCT_RE` | const | [3600](../core.py#L3600) |  |
+| `pm_product_anchors` | def | [3604](../core.py#L3604) | How many DISTINCT product-ownership phrases this text names. |
+| `PM_MIN_ANCHORS` | const | [3611](../core.py#L3611) |  |
+| `PM_MIN_POINTS` | const | [3612](../core.py#L3612) |  |
+| `PM_ANCHOR_WEIGHT` | const | [3613](../core.py#L3613) |  |
+| `PM_MAX_VETO` | const | [3616](../core.py#L3616) |  |
+| `pm_signal` | def | [3619](../core.py#L3619) | (distinct anchors, distinct support, distinct veto phrases) in a posting's text. |
+| `pm_points` | def | [3636](../core.py#L3636) | The single number the threshold is applied to. Anchors count double. |
+| `reads_like_pm` | def | [3641](../core.py#L3641) | Does this description describe project/programme/product delivery work? |
+| `PM_TITLE_HINTS` | const | [3677](../core.py#L3677) |  |
+| `PM_TITLE_REFUSE` | const | [3694](../core.py#L3694) |  |
+| `_PM_HINT_RE` | const | [3695](../core.py#L3695) |  |
+| `_PM_REFUSE_RE` | const | [3697](../core.py#L3697) |  |
+| `pm_title_gate` | def | [3701](../core.py#L3701) | May this title's DESCRIPTION be read as a second opinion? Cheap, and text-free. |
+| `admits_on_description` | def | [3719](../core.py#L3719) | The whole rule: may this posting be kept on its DESCRIPTION alone? |
+| `AGGREGATOR_HOSTS` | const | [3748](../core.py#L3748) |  |
+| `_HOST_RE` | const | [3755](../core.py#L3755) |  |
+| `url_host` | def | [3758](../core.py#L3758) | Host of a URL, lowercased, or "" — cheap and never raises, unlike urlparse on junk. |
+| `is_aggregator_url` | def | [3764](../core.py#L3764) | True when the URL belongs to a job board rather than to the employer that is hiring. |
+| `_BARE_ISO_RE` | const | [3770](../core.py#L3770) |  |
+| `is_trusted_date` | def | [3773](../core.py#L3773) | Did anyone actually STATE this posting's date, or did we guess it? |
+| `sponsor_rank` | def | [3795](../core.py#L3795) | Ordering for sort=sponsor, LOWEST FIRST — "show me the jobs I can actually take". |
+| `_key_location` | def | [3827](../core.py#L3827) | The location half of posting_key, canonicalised just enough that two sources describing |
+| `posting_key` | def | [3858](../core.py#L3858) | Identity of a POSTING rather than of a URL: title + company + full location. |
+| `MIN_SCALE` | const | [3936](../core.py#L3936) |  |
+| `DEFAULT_PREFS` | const | [3938](../core.py#L3938) |  |
+| `_PREF_CHOICES` | const | [4016](../core.py#L4016) |  |
+| `_PREF_CSV` | const | [4034](../core.py#L4034) |  |
+| `_pref_bool` | def | [4037](../core.py#L4037) |  |
+| `normalize_prefs` | def | [4041](../core.py#L4041) | Coerce anything (a form post, a jsonb column, None) into a complete valid prefs dict. |
+| `_level_of` | def | [4109](../core.py#L4109) | A row's level, falling back to its title for a row built before `level` existed. |
+| `prefs_match` | def | [4117](../core.py#L4117) | Does this job match the user's saved search? |
+| `HOURS_PER_YEAR` | const | [4203](../core.py#L4203) |  |
+| `annualize_pay` | def | [4206](../core.py#L4206) | Put hourly and salaried pay on one scale so a single minimum works for both. |
+| `location_matches` | def | [4215](../core.py#L4215) | Does a row match a typed location? Metro, 2-letter state code, or the raw string. |
+| `INTERN_RE` | const | [4244](../core.py#L4244) |  |
+| `digest_row` | def | [4248](../core.py#L4248) | The row shape prefs_match wants, built from a RAW db job row. |
+| `UNEMPLOYMENT_LIMIT_OPT` | const | [4323](../core.py#L4323) |  |
+| `UNEMPLOYMENT_LIMIT_STEM` | const | [4324](../core.py#L4324) |  |
+| `STEM_FILE_WINDOW_DAYS` | const | [4327](../core.py#L4327) |  |
+| `H1B_REGISTRATION_MONTH` | const | [4330](../core.py#L4330) |  |
+| `H1B_REGISTRATION_DAY` | const | [4331](../core.py#L4331) |  |
+| `_as_date` | def | [4334](../core.py#L4334) | Parse a YYYY-MM-DD-ish string (or pass a date through). None when unusable — these |
+| `_severity` | def | [4348](../core.py#L4348) | How loudly to render a deadline: past/urgent/soon/ok. |
+| `next_h1b_registration` | def | [4361](../core.py#L4361) | The next early-March H-1B registration anchor on or after `today`. |
+| `visa_timeline` | def | [4369](../core.py#L4369) | Turn the visa dates on a user's profile into dated reminders. |
+| `visa_alert` | def | [4448](../core.py#L4448) | The single most pressing item, for the slim feed strip — or None to show nothing. |
+| `_EXP_YEARS_RE` | const | [4482](../core.py#L4482) |  |
+| `_WORD_NUM` | const | [4493](../core.py#L4493) |  |
+| `_EXP_WORD_YEARS_RE` | const | [4496](../core.py#L4496) |  |
+| `_EXP_RANGE_RE` | const | [4508](../core.py#L4508) |  |
+| `_EXP_MONTHS_RE` | const | [4516](../core.py#L4516) |  |
+| `_EXP_DURATION_RE` | const | [4522](../core.py#L4522) |  |
+| `_EXP_EDU_YEARS_RE` | const | [4534](../core.py#L4534) |  |
+| `_EXP_CTX_RE` | const | [4544](../core.py#L4544) |  |
+| `_EXP_CTX_GENERIC_RE` | const | [4562](../core.py#L4562) |  |
+| `_EXP_TENURE_RE` | const | [4566](../core.py#L4566) |  |
+| `_EXP_TENURE_BEFORE` | const | [4574](../core.py#L4574) |  |
+| `_EXP_MIN_RE` | const | [4575](../core.py#L4575) |  |
+| `_EXP_SOFT_RE` | const | [4581](../core.py#L4581) |  |
+| `_EXP_HARD_RE` | const | [4588](../core.py#L4588) |  |
+| `_CLAUSE_SPLIT_RE` | const | [4598](../core.py#L4598) |  |
+| `_DEGREE_RE` | const | [4614](../core.py#L4614) |  |
+| `_ALTERNATIVE_RE` | const | [4616](../core.py#L4616) |  |
+| `_clause_after` | def | [4619](../core.py#L4619) | `s` up to the first clause boundary. |
+| `_clause_before` | def | [4624](../core.py#L4624) | `s` back to the last clause boundary. |
+| `_reads_as_preferred` | def | [4629](../core.py#L4629) | Is this year count one the employer merely PREFERS, rather than insists on? |
+| `_experience_floors_split` | def | [4657](../core.py#L4657) | (hard, soft) — the floors the employer insists on, and the ones it merely prefers. |
+| `_LADDER_GAP` | const | [4730](../core.py#L4730) |  |
+| `_collapse_ladders` | def | [4733](../core.py#L4733) | \[(start, end, years, had_context)\] -&gt; \[years\], each run of rungs reduced to its lowest. |
+| `_experience_floors` | def | [4792](../core.py#L4792) | Every stated floor, hard or soft. Kept as the flat list experience_min_years reads. |
+| `experience_years` | def | [4798](../core.py#L4798) | The HIGHEST experience requirement the text states, or None when it states none. |
+| `required_years` | def | [4819](../core.py#L4819) | The HIGHEST experience requirement mentioned (0 if none). Used by the scraper to |
+| `experience_min_years` | def | [4825](../core.py#L4825) | The LOWEST experience requirement stated — i.e. the years you need to QUALIFY |
+| `exp_level_for` | def | [4834](../core.py#L4834) | Coarse bucket from a year COUNT rather than from text, so web._build_row can label a |
+| `experience_level` | def | [4850](../core.py#L4850) | Coarse bucket for the feed filter: 'entry' (&lt;=2 yrs), 'mid' (3-5), 'senior' (6+), |
+| `_TITLE_SENIOR_RE` | const | [4884](../core.py#L4884) |  |
+| `_TITLE_JUNIOR_RE` | const | [4898](../core.py#L4898) |  |
+| `_TITLE_SENIOR_YEARS` | const | [4905](../core.py#L4905) |  |
+| `_DEGREE_LEVELS` | const | [4919](../core.py#L4919) |  |
+| `_DEGREE_RXS` | const | [4926](../core.py#L4926) |  |
+| `education_floors` | def | [4929](../core.py#L4929) | (required, preferred) degree names, either of which may be None. |
+| `experience_floors` | def | [4956](../core.py#L4956) | (required, preferred) year counts, either of which may be None. |
+| `_JD_ENTRY_RE` | const | [5001](../core.py#L5001) |  |
+| `_JD_ENTRY_NEG_RE` | const | [5010](../core.py#L5010) |  |
+| `_JD_ENTRY_LOOKBACK` | const | [5014](../core.py#L5014) |  |
+| `jd_level` | def | [5017](../core.py#L5017) | "entry" \| "mid" \| "senior" \| "" for a DESCRIPTION. |
+| `_TITLE_ENTRY_RE` | const | [5040](../core.py#L5040) |  |
+| `_TITLE_SENIOR_LEVEL_RE` | const | [5051](../core.py#L5051) |  |
+| `_TITLE_MID_LEVEL_RE` | const | [5069](../core.py#L5069) |  |
+| `LEVEL_MIN_YEARS` | const | [5074](../core.py#L5074) |  |
+| `_TITLE_SENIOR_ASSOC_RE` | const | [5083](../core.py#L5083) |  |
+| `_TITLE_AMBIG_ASSOC_RE` | const | [5090](../core.py#L5090) |  |
+| `title_level` | def | [5093](../core.py#L5093) | "entry" \| "senior" \| "" from a TITLE alone. Only consulted where jd_level returned "". |
+| `_LEVEL_ORDER` | const | [5125](../core.py#L5125) |  |
+| `senior_title_veto` | def | [5128](../core.py#L5128) | A higher TITLE rung overrules a lower level. THE one rule, shared by both level paths. |
+| `level_from_exp` | def | [5159](../core.py#L5159) | (level, source) for a surface that has the YEARS but not the description. |
+| `level_for` | def | [5180](../core.py#L5180) | The one definition every surface reads: (level, source). |
+| `title_experience_tier` | def | [5197](../core.py#L5197) | The years a TITLE implies, or None when it implies nothing. Never overrides a description. |
+| `_MAIN_SELECTORS` | const | [5214](../core.py#L5214) |  |
+| `_MAIN_MIN_CHARS` | const | [5219](../core.py#L5219) |  |
+| `_main_region` | def | [5222](../core.py#L5222) | The element holding the posting, or None to mean "use the whole document". |
+| `fetch_jd` | def | [5234](../core.py#L5234) | Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API. |
+| `RESUME_UPLOAD_MAX_BYTES` | const | [5272](../core.py#L5272) |  |
+| `_RESUME_PDF_MAX_PAGES` | const | [5273](../core.py#L5273) |  |
+| `RESUME_UPLOAD_EXTS` | const | [5274](../core.py#L5274) |  |
+| `_readable_formats_phrase` | def | [5277](../core.py#L5277) | Which upload formats this host can ACTUALLY read, named in a sentence. |
+| `_docx_to_text` | def | [5310](../core.py#L5310) |  |
+| `_PDF_SPLIT_HYPHEN_RE` | const | [5322](../core.py#L5322) |  |
+| `_fix_pdf_artifacts` | def | [5325](../core.py#L5325) | Undo the spacing damage PDF text extraction does. |
+| `_pdf_to_text` | def | [5338](../core.py#L5338) |  |
+| `_TEX_ITEM_RE` | const | [5350](../core.py#L5350) |  |
+| `_TEX_CMD_ARG_RE` | const | [5351](../core.py#L5351) |  |
+| `_TEX_CMD_RE` | const | [5353](../core.py#L5353) |  |
+| `_TEX_COMMENT_RE` | const | [5354](../core.py#L5354) |  |
+| `tex_to_text` | def | [5357](../core.py#L5357) | LaTeX source -&gt; the prose inside it. |
+| `resume_text_from_upload` | def | [5388](../core.py#L5388) | (text, error) from an uploaded resume. Never raises, never touches disk. |
+| `resume_to_docx_bytes` | def | [5439](../core.py#L5439) | Turn plain-text resume into a simple .docx. ALL-CAPS short lines become |
+| `ai_available` | def | [5464](../core.py#L5464) | True if an AI key is configured server-side (Gemini preferred, Anthropic optional). |
+| `_tailor_prompt` | def | [5469](../core.py#L5469) | The /tailor + /api/tailor + extension prompt. Style rules come from resume_brain.voice, |
+| `GEMINI_DEFAULT_MODEL` | const | [5506](../core.py#L5506) |  |
+| `_gemini_list_models` | def | [5509](../core.py#L5509) | Model short-names that support generateContent (e.g. 'gemini-3.5-flash'). |
+| `_gemini_discover` | def | [5518](../core.py#L5518) | Best available stable Flash (then Pro) model — used only if the preferred id 404s. |
+| `tailor_with_gemini` | def | [5533](../core.py#L5533) | Rewrite the résumé for a JD with Google's Gemini API (REST). Truthful reorder/reword |
+| `tailor_with_ai` | def | [5573](../core.py#L5573) | Anthropic/Claude variant of tailor_with_gemini. Calls the Messages REST API with `requests` |
+| `tailor` | def | [5600](../core.py#L5600) | Tailor with whichever provider the key implies: Claude for an `sk-ant-…` key (or |
 
 ## `db.py` — symbols
 

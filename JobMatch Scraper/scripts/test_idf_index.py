@@ -245,6 +245,47 @@ def never_written_by_a_read():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def warm_is_idempotent():
+    print("=" * 74)
+    print("warm_idf on an already-open index re-reads nothing")
+    print("=" * 74)
+    tmp = tempfile.mkdtemp(prefix="idfidx_")
+    saved_path, saved_stamp = core._IDF_PATH, core._idf_stamp
+    calls = []
+    try:
+        idf = _synthetic(n=800, seed=23)
+        p = _write(tmp, idf)
+        # warm_idf's early return only applies to the DEFAULT path, so point it here.
+        core._IDF_PATH = p
+        core._reset_idf_cache()
+
+        def counting_stamp(path):
+            calls.append(path)
+            return saved_stamp(path)
+        core._idf_stamp = counting_stamp
+
+        first = core.warm_idf(p)
+        want("the first call builds and opens", type(first).__name__ == "_IdfIndex",
+             type(first).__name__)
+        after_first = len(calls)
+        want("...and it hashed idf.json", after_first >= 1, "%d hash(es)" % after_first)
+
+        # COUNTED, not timed. The bug this guards read 29.4 MB on every keep-warm tick and
+        # was invisible except as a stage that never reported 0.
+        for _ in range(4):
+            core.warm_idf(p)
+        want("four more calls hash the file zero more times",
+             len(calls) == after_first, "%d extra" % (len(calls) - after_first))
+        want("...and still return the same object", core.warm_idf(p) is first)
+        want("...holding the right values",
+             all(core.warm_idf(p).get(k) == v for k, v in list(idf.items())[:200]))
+    finally:
+        core._idf_stamp = saved_stamp
+        core._IDF_PATH = saved_path
+        core._reset_idf_cache()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def memo_bound():
     print("=" * 74)
     print("the lookup memo is bounded, and clearing it changes no answer")
@@ -335,7 +376,7 @@ def real_file():
 
 def main():
     for fn in (round_trip, cross_process, staleness, never_written_by_a_read,
-               memo_bound, shown_to_trip, real_file):
+               memo_bound, warm_is_idempotent, shown_to_trip, real_file):
         fn()
         print("")
     print("=" * 74)
