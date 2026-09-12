@@ -686,7 +686,23 @@ def warm_idf(path=_IDF_PATH):
     The build is the expensive half and it happens once per idf.json -- in practice once per
     deploy, since the scrape does not rewrite the file. Every worker after that opens it in
     ~14 ms instead of parsing for ~1,130 ms.
+
+    RETURNS EARLY WHEN THIS PROCESS ALREADY HAS THE INDEX OPEN, and that is not just a
+    saving. build_idf_index's "is it current?" test re-hashes all 29.4 MB of idf.json, so
+    without this the keep-warm cron re-read the file 1,152 times a day -- on a box where
+    disk is the contended resource -- and, worse, the idf stage reported ~36 ms on every
+    tick instead of 0. That number is documented above as the cheapest way to see whether
+    a worker was cold; a stage that always reports the same thing has stopped being a
+    signal. Measured on the box: four warm ticks in a row all said 36-43 ms while
+    base_rows said 0, which is what gave it away.
+
+    A worker that holds an open index does not notice idf.json being replaced under it.
+    That is exactly what load_idf's memo already did with the parsed dict, /reload still
+    calls _reset_idf_cache(), and the file only changes on a deploy, which restarts every
+    worker anyway.
     """
+    if path == _IDF_PATH and _idf_cache["loaded"] and isinstance(_idf_cache["idf"], _IdfIndex):
+        return _idf_cache["idf"]
     if build_idf_index(path):
         _reset_idf_cache()
     return load_idf(path)
