@@ -2,9 +2,14 @@
 
 **What we are, what we do, and how it is built.**
 
-*Live at [stemjobs1.astrochakra.co](https://stemjobs1.astrochakra.co). Every figure in this
-document is measured. Live database counts were read on **2026-09-12** through the HMAC proxy;
-code counts come from `HEAD` the same day.*
+*Live at [stemjobs1.astrochakra.co](https://stemjobs1.astrochakra.co). Every figure in this document
+is measured, and each one says where it came from. Live database counts were read on **2026-09-12**
+through the HMAC proxy; code counts come from `HEAD` the same day; and **§7 was read off the
+production box over SSH on 2026-09-13 03:48–03:52 UTC** — the deployed commit, the crontab, the
+worker memory, the real database size.*
+
+*Where a figure is quoted from `OPERATIONS.md` or a past measurement rather than re-taken, it is
+dated in place. §7 is the only section that describes the server as it is right now.*
 
 ---
 
@@ -87,7 +92,10 @@ exist in total — the extra eleven serve platforms that only arrived through ap
 | Tracked files | 2,364 |
 | Commits, 2026-05-31 → 2026-09-12 | **606** |
 
-### Performance (measured on the live box)
+### Performance
+
+*These are recorded measurements from the 2026-09 speed work, not re-taken here. For numbers read
+off the server today — a live `/warm` cycle, `/login` timings, worker memory — see §7.*
 
 | | Cold | Warm |
 |---|---|---|
@@ -96,7 +104,7 @@ exist in total — the extra eleven serve platforms that only arrived through ap
 | Feed render, steady state | — | **80–170 ms** |
 | Built rows for the whole corpus | 7,101 ms (full build) | **55 ms** (incremental) |
 | `_base_rows` on a cold worker | 4,126 ms | **305 ms** (reads a 1.4 MB gzip) |
-| `core.load_idf` — the 31 MB IDF table | 582 ms / 261 MB peak | **38 ms / 17 MB** |
+| `core.load_idf` — the 29.4 MB IDF table | 582 ms / 261 MB peak | **38 ms / 17 MB** |
 | Per-user row overlay at 21,960 rows | 1,941 ms | **198 ms** |
 | `_build_row`, per row, warm | 77.19 µs | **51.96 µs** |
 
@@ -298,8 +306,8 @@ posting emphasises does this résumé contain?**
   tops out at 16, three at 50, six or more is uncapped. A thin posting can still rank; it just
   cannot claim to be a strong match.
 - Term weights come from an **IDF table built over every description in the corpus** — `idf.json`,
-  31 MB, ~1M terms. It is **source-of-truth, not a cache**: a partial rebuild silently re-weights
-  every score in the corpus.
+  29.4 MB, **1,015,658 terms** (counted by the live `/warm` response). It is **source-of-truth, not
+  a cache**: a partial rebuild silently re-weights every score in the corpus.
 
 **A score is STORED, and `resume_fp` is why that is safe.** A stored score is a claim about a
 *specific* résumé, and unlike a cache keyed on that résumé's hash a plain table cannot notice when
@@ -389,9 +397,12 @@ into a loud failure — historically the most confusing class of bug in this pro
 
 **Schema, after the 2026-09-07 revamp:** five tables where there was one. `jobs` holds what the
 employer stated; `job_descriptions` holds the text; `job_terms` holds the packed analysis;
-`job_facts` holds what we derived; `user_scores` holds per-(user, job) match numbers. Result: `jobs`
-**316 MB → 27 MB**, the whole database **740 MB → 437 MB**, and the packed analysis stopped being
-38.7 MB resident in every worker.
+`job_facts` holds what we derived; `user_scores` holds per-(user, job) match numbers. The revamp took
+`jobs` **316 MB → 27 MB** and the whole database **740 MB → 437 MB**, and stopped the packed analysis
+being 38.7 MB resident in every worker.
+
+**Both have grown back since, and the live figures are in §7.** Those are the *outcome* of the
+revamp on 2026-09-07, not the current size.
 
 ### The scrape
 
@@ -490,7 +501,8 @@ is what production uses.
 
 | File | Size | What | Provenance |
 |---|---|---|---|
-| `idf.json` | 31 MB | Term weights over every description | Written by the **full** scoring pass only |
+| `idf.json` | 29.4 MB | Term weights over every description — 1,015,658 terms | Written by the **full** scoring pass only |
+| `idf.json.idx` | 35.1 MB | The mmap'd open-addressed hash table the app actually reads. **Not committed** — built on the box, and larger than the JSON it indexes | Built by `/warm`, rebuilt when stale |
 | `sponsor_counts.json` | 3.3 MB | 129,661 employer keys, FY2021–2025 | USCIS H-1B Employer Data Hub |
 | `visa_tags.json` | 2.9 MB | 123,473 keys; a bitfield over h1b / h1b1 / e3 / stem_opt / green_card | DOL LCA + PERM (FY2026 Q3) + the E-Verify employer list |
 | `norms.json` | 0.8 MB | Role norms + per-employer tool leanings, over 48,339 postings | Built from `job_terms` after a scoring pass |
@@ -510,7 +522,102 @@ threads measured 84% MISS against 96% paced, and a throttled fetch gets recorded
 
 ---
 
-## 7. The things that are actually unusual
+## 7. The deployed side, verified on the box
+
+*Read over SSH on **2026-09-13 03:48–03:52 UTC**. Everything in this section was measured on the
+server itself, not inferred from the repo or from `OPERATIONS.md`.*
+
+### What is actually running
+
+| | |
+|---|---|
+| Host | `s15175.bom1.stableserver.net` — **bom1 = Mumbai**, 32 cores, x86_64 |
+| Interpreter | **Python 3.9.23** (`~/virtualenv/stemjobs/3.9/`) |
+| App directory | `~/stemjobs`, **181 MB**; filesystem 95% used, 202 G free |
+| Deployed bundle | `deploy_manifest.json` `built_at` **2026-09-12T01:30:23Z**, 2,106 entries |
+| Files actually on disk | **2,198** — so **92 stale extras**, which is expected: extraction cannot delete |
+| Workers | **two `lswsgi`** — one at **574 MB** RSS (2 h 25 m up), the master at 29 MB (9 h 47 m) |
+| `/login` | **200 in 0.71 / 0.75 / 0.80 s**, three consecutive |
+| `/static/app.js` | 200, **137,669 bytes** — byte-identical to the file on disk |
+
+### The deployed commit
+
+The manifest carries no SHA, so it has to be established by hashing. `web.py` and `core.py` on the
+box match **`5875fd0`** (committed 2026-09-11 21:29 ET — one minute before the manifest's
+`built_at`). `companies.json` matches **`579d51c`**, which is newer.
+
+That looks like drift and is not: **`579d51c` changed `companies.json` and nothing else**, so
+shipping that one file is a complete deployment of it. **The box is functionally at `HEAD`.**
+
+### Environment (names only — no values read into this document)
+
+`PG_DSN` · `APP_SECRET` · `DB_PROXY_SECRET` · `GH_TOKEN` · `WARM_TOKEN` · `ADMIN_USERS` ·
+`SESSION_COOKIE_SECURE`
+
+No `SMTP_*` on the box, which is correct — the digest runs in Actions. **`WARM_TOKEN` is set**,
+closing an item `docs/SESSION_HANDOFF_PROMPT.md` still lists as outstanding.
+
+### The crontab, read live
+
+All three slots are present and match `OPERATIONS.md` exactly — including the hourly
+`--analyze-only` line that the handoff notes record as documented-but-never-installed. It is
+installed.
+
+```
+0 17,20 * * 1-5   bin/cron_scrape.sh
+30 *     * * 1-5  bin/cron_scrape.sh --analyze-only
+*/5 *    * * *    flock -n tmp/cron_scrape.lock true && 4 × curl /warm
+```
+
+The cron log's last entry is 2026-09-11 23:31 UTC. That is **not** a stalled scheduler — the box
+is on Sunday and those lines are weekday-only.
+
+### A real `/warm` cycle, from the log
+
+The last one, 2026-09-11T23:31:09Z, **total 2,793 ms**:
+
+| stage | ms | n |
+|---|---|---|
+| `jobs` | 863 | 54,229 |
+| `base_rows` | 705 | 54,229 (**rebuilt 0**) |
+| `idf` | 601 | **1,015,658** terms |
+| `users` | 447 | 9 accounts — 5 already warm, 4 with no résumé, **0 computed** |
+| `sponsor_counts` | 45 | 129,660 |
+| `visa_index` | 40 | 123,472 |
+| `live_analysis` | 86 | 1 |
+| `logo_manifest` | 2 | 2,030 |
+
+`rebuilt 0` and `computed 0` are the two numbers that say the incremental path and the stored
+score files are both working.
+
+### The database, as Postgres describes itself
+
+`db_stats()` runs server-side with full catalog access, so it sees past the proxy's table
+allowlist. **623 MB across 24 tables** (2026-09-13 03:50 UTC):
+
+| Table | Total | Of which index |
+|---|---|---|
+| `job_descriptions` | **257 MB** | 22 MB (229 MB is TOAST) |
+| `user_scores` | **197 MB** | **165 MB** — 4× the 42 MB of data |
+| `job_terms` | 79 MB | 26 MB |
+| `jobs` | 40 MB | 21 MB |
+| `job_facts` | 28 MB | 15 MB |
+| everything else | < 6 MB each | |
+
+Two things worth saying plainly. **The database is 623 MB, not the 437 MB the revamp left it at** —
+it has grown 186 MB in six days, and `job_descriptions` is most of it. And **`user_scores` is
+mostly index**: 165 MB of index against 42 MB of rows, which is the price of the `resume_fp` filter
+being on every read.
+
+### Still happening
+
+`stderr.log` holds **23 `killed by signal: 9`** entries, the file last written 2026-09-13 01:24
+UTC. Passenger workers are still hitting the account memory cap and being replaced. This is the
+condition `/warm` exists to paper over, and it has not gone away.
+
+---
+
+## 8. The things that are actually unusual
 
 Most of this list exists because the obvious alternative was tried first, and measured.
 
@@ -547,7 +654,7 @@ Most of this list exists because the obvious alternative was tried first, and me
 
 ---
 
-## 8. Timeline
+## 9. Timeline
 
 ### Phase 1 — it exists (2026-05-31 → 2026-06)
 
@@ -611,7 +718,7 @@ properly.
 
 ---
 
-## 9. Honest limits
+## 10. Honest limits
 
 - **Scale is measured, and it is small.** ~50 accounts (the warm-user cap and the five-minute warm
   window) and ~10–30 concurrent readers. This runs on shared hosting under a ~1.2 GB per-account
@@ -631,7 +738,7 @@ properly.
 
 ---
 
-## 10. Where to read next
+## 11. Where to read next
 
 | File | Answers |
 |---|---|
