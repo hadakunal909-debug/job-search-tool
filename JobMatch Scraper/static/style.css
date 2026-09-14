@@ -1904,7 +1904,12 @@ pre{background:#11131a;color:#cdd3e1;padding:12px;border-radius:var(--r);overflo
 .rb{max-width:920px;margin:0 auto}
 .rb h1{font-size:var(--text-xl);margin:0 0 4px}
 .rb h2{font-size:var(--text-md);margin:0}
-.rb .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px;margin:0 0 16px}
+/* flex-direction:column for the reason .cocard carries it: .card's base rule is the
+   FEED card's layout and these are document cards. Above the feed's 1760 breakpoint
+   an <h2> and its paragraph sat SIDE BY SIDE with the heading crushed to its own
+   text width (measured 77px against 870). Column, not block: flex margins do not
+   collapse, and these children are spaced by their own margins. */
+.rb .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px;margin:0 0 16px;flex-direction:column}
 .rb .card.ai{border-left:3px solid var(--accent)}
 .rb .muted{color:var(--muted)}
 .rb .small{font-size:var(--text-xs)}
@@ -3272,7 +3277,18 @@ textarea[aria-invalid="true"]:focus{border-color:var(--status-danger-border);
    contain-intrinsic-size of 186, which is a live 10px scrollbar jump as tiles
    are realised. A grid already stretches every item in a row to the tallest, so
    evenness comes from reserving the chip band and the link band instead. */
-.cocard{contain-intrinsic-size:auto 224px;text-decoration:none;color:inherit}
+/* flex-direction AND padding are this tile opting OUT of the feed card's insides,
+   not decoration. .card is a SHARED surface -- the feed uses it, so does .rb, so
+   does this -- but f992caf gave the base class the FEED card's layout: row, so
+   .cardverdict can hold the trailing edge, and padding:0, so that column reaches
+   the border. A company tile is a column and owns its own inset. The feed's own
+   @media (max-width:1760px) sets flex-direction:column and HID this for ten days:
+   above 1760 the tile laid logo, name, count, chips and links out in a row and the
+   name collapsed to 35px, so 'Amazon' read 'Ama' with 2,827 beside it. Measured at
+   1759 vs 1761. display:flex still comes from .card and is REQUIRED -- .kw's
+   margin-top:auto is what pins the link band to the bottom of every tile. */
+.cocard{contain-intrinsic-size:auto 224px;text-decoration:none;color:inherit;
+  flex-direction:column;padding:18px}
 .cocard:hover{text-decoration:none}
 
 /* THE LOGO LOCKUP. The invariant is a PLATE of fixed HEIGHT and variable width,
