@@ -4510,6 +4510,11 @@ def _workable_slug(board_url):
     segs = [s for s in p.path.split("/") if s]
     if host.endswith(".workable.com") and host not in ("apply.workable.com", "www.workable.com"):
         return host.split(".")[0]                     # {slug}.workable.com vanity host
+    # apply.workable.com/j/<shortcode> is a per-JOB short link -- the account is nowhere in the
+    # URL, so segs[0] is the literal "j". Eleven rows of one aggregator harvest resolved to a
+    # board called "j" before this.
+    if segs and segs[0] == "j":
+        return ""
     return segs[0] if segs else ""                    # apply.workable.com/{slug}
 
 
@@ -7327,7 +7332,10 @@ def detect_board(url):
         if base:
             return (base, "ultipro", _name_from(urlparse(base).path.split("/")[1]))
 
-    if host == JOBVITE_HOST or host.endswith(".jobvite.com"):
+    # app.jobvite.com/CompanyJobs/Job.aspx?j=<token> is the LEGACY portal: "CompanyJobs" is a
+    # fixed path shared by every tenant and the tenant itself is inside the opaque token, so
+    # there is nothing to extract. Taking segs[0] there yields a board called "CompanyJobs".
+    if (host == JOBVITE_HOST or host.endswith(".jobvite.com")) and host != "app.jobvite.com":
         # /<slug>/jobs, /<slug>/job/<id>, /<slug>/job/<id>/apply and /careers/<slug>/jobs all
         # normalize to the tenant root. "careers" is a path PREFIX on some tenants, not a slug.
         rest = segs[1:] if (segs and segs[0] == "careers") else segs
@@ -7347,7 +7355,11 @@ def detect_board(url):
         return ("https://%s.pinpointhq.com" % sub, "pinpoint", _name_from(sub))
 
     if host == "ats.rippling.com" and segs:
-        return ("https://ats.rippling.com/%s/jobs" % segs[0], "rippling", _name_from(segs[0]))
+        # /en-GB/<slug>/jobs/<id> puts a locale in front, the same shape as jobvite's "careers"
+        # prefix above. Matched as xx-XX only, so a two-letter company slug is not eaten.
+        rest = segs[1:] if re.fullmatch(r"[a-z]{2}-[A-Za-z]{2}", segs[0]) else segs
+        if rest:
+            return ("https://ats.rippling.com/%s/jobs" % rest[0], "rippling", _name_from(rest[0]))
 
     if host.endswith(".avature.net"):
         portal = segs[0] if segs else "jobs"                # <tenant>.avature.net/<portal>/SearchJobs
