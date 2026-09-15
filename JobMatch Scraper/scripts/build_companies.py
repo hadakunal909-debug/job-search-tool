@@ -1176,6 +1176,9 @@ _CURATED_LIVE = {
         "Lynker", "PROtect", "VSC Fire", "Hermanson Company", "USIC", "Pkaza",
     ],
     "Software & Internet": [
+        # Adopted 2026-09-15 from the unscrapeable retry. ERP, so it sits with SAP and
+        # Epicor rather than in IT Services -- Infor sells the software, not the project.
+        "Infor",
         "Gartner", "Proofpoint", "PaloAlto Networks", "Arctic Wolf", "Genesys", "UKG",
         "LiveRamp", "Mixpanel", "Bullhorn", "Blueprint", "OneSpan", "Synaptics",
         "SquareTrade", "PAR Technology", "Wolters Kluwer", "EBSCO Information Services",
@@ -1249,6 +1252,9 @@ _CURATED_LIVE = {
         "Tri-Coastal", "FBS MANAGEMENT LLC", "Sorrel River Ranch", "Parkade",
     ],
     "Retail, Consumer & Hospitality": [
+        # Adopted 2026-09-15. Agribusiness/food, filed where CHS Inc. and Ardent Mills
+        # already are -- not Transport, which is where ADM and Bunge ended up.
+        "Cargill",
         "7-Eleven", "Gapinc", "Homedepot", "CHS Inc.", "Ardent Mills", "The Wonderful Company",
         "Fabletics", "HUGO BOSS", "Pair Eyewear", "Indie Campers", "Lindblad Expeditions",
         "Big Geyser, Inc", "Giftogram", "Sorrel River Ranch", "Trove Brands",
