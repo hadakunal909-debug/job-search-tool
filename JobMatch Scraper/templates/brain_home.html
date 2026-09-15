@@ -108,12 +108,11 @@
       <div class="rvbox-h">Your Library</div>
       <a class="rvlink" href="{{ url_for('brain_teach') }}#stories">
         <span class="rvlink-t">Stories <b>{{ stories|length }}</b></span>
-        <span class="rvlink-d">Things you did, written once. Tailoring pulls the ones that fit.</span>
+        <span class="rvlink-d">Experience and achievements for tailored résumés.</span>
       </a>
       <a class="rvlink" href="{{ url_for('brain_teach') }}#lessons">
         <span class="rvlink-t">Lessons <b>{{ lessons|length }}</b></span>
-        <span class="rvlink-d">Rules you&rsquo;ve taught it &mdash; &ldquo;for fintech, lead with the
-          reconciliation work&rdquo;.</span>
+        <span class="rvlink-d">Preferences for future résumé drafts.</span>
       </a>
     </section>
   </aside>
@@ -123,16 +122,7 @@
     {% if not report %}
       <div class="panel">
         <h1>Start with a résumé</h1>
-        <p class="sub">Upload one on the left &mdash; PDF, Word, LaTeX or text. You get a score
-          against what recruiters screen on, the text an ATS reads, and every problem marked in the
-          document.</p>
-        <ul class="rvsell">
-          <li><b>Every bullet, scored</b> &mdash; which lines lack a verb, scope or result, and what
-              number to add.</li>
-          <li><b>Keywords your roles expect</b> &mdash; from the real postings in your feed, not a
-              generic list.</li>
-          <li><b>Nothing leaves your account.</b> No AI, no uploads, instant.</li>
-        </ul>
+        <p class="sub">Upload a résumé to review its structure, experience, and skills, or paste the text below.</p>
         <form method="post" action="{{ url_for('resume') }}">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
           <textarea name="resume" rows="16" placeholder="…or paste your résumé here"></textarea>
@@ -164,7 +154,7 @@
              what the word means on this scale and what moves it. #}
           {% if r.band_note %}<div class="rvbandnote">{{ r.band_note }}</div>{% endif %}
           <div class="muted">{{ r.checks|length }} checks against a <strong>{{ r.level }}-level</strong>
-            standard. This scale is ours alone — not comparable to any other tool's number.</div>
+            standard. </div>
           <div class="rs-levels">Grade as:
             {% for lv in levels %}
               {% if lv == r.level %}<span class="pill ok">{{ lv }}</span>
@@ -177,13 +167,7 @@
       {% if r.impact_gated %}
       {# A capped score has to explain itself. Without this the user sees clean group tiles, a low
          total, and no way to reconcile the two except by diffing them and guessing. #}
-      <div class="banner rvgate">
-        <strong>Capped at {{ r.impact_ceiling }} by quantified impact.</strong>
-        Everything else could be perfect and this r&eacute;sum&eacute; still wouldn&rsquo;t beat
-          {{ r.impact_ceiling }}, because it lists duties, not results. Fifteen tidy checks don&rsquo;t
-          outweigh one missing number &mdash; recruiters don&rsquo;t average, and nor does this. Add
-          metrics and the ceiling lifts.
-      </div>
+      <div class="banner rvgate"><strong>Quantified impact: {{ r.impact_ceiling }}/100 maximum.</strong> Add measurable results to your experience bullets to improve this score.</div>
       {% endif %}
 
       {# role="tab" on its own is decoration. aria-controls, aria-selected, matching tabpanels and

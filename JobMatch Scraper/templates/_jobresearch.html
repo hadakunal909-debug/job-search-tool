@@ -17,21 +17,15 @@
 <p class="coprose small"><strong>Mission.</strong> {{ about.research.mission }}</p>
 {% endif %}
 {% if about.site %}
-<p class="coprose small"><a href="{{ about.site }}" target="_blank" rel="noopener nofollow">Their
-  site<span class="ic ic-external" aria-hidden="true"></span></a>
+<p class="coprose small"><a href="{{ about.site }}" target="_blank" rel="noopener nofollow">Company website<span class="ic ic-external" aria-hidden="true"></span></a>
   {%- if about.fetched_at %} <span class="muted">Researched {{ about.fetched_at }}</span>{% endif %}</p>
 {% endif %}
 
 {% elif researching %}
 {# The crawl is running in a background thread. jobpage.js polls this same endpoint and swaps
    the result in, so this state resolves without a reload. #}
-<p class="coprose"><span class="spin" aria-hidden="true"></span> Reading
-  {{ row.company }}'s own site for what they do. This takes a few seconds.</p>
+<p class="coprose"><span class="spin" aria-hidden="true"></span> Loading company information…</p>
 
 {% else %}
-<p class="coprose">Nothing researched for this employer yet. What they do, their mission, values
-  and initiatives come from Resume Brain, which crawls a company's own site.
-  <a href="{{ url_for('brain_tailor_page') }}?job={{ row.url|urlencode }}">Tailor for {{ row.company }}</a>
-  and it lands here. Everything else on this page is read from their live postings and needs no
-  research.</p>
+
 {% endif %}

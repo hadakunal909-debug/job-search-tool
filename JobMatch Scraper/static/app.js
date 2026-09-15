@@ -5,6 +5,16 @@
   "use strict";
   var feed = document.getElementById("feed");
   if (!feed) return;
+  var cardSize = document.getElementById("card-size");
+  if (cardSize) {
+    cardSize.value = document.documentElement.getAttribute("data-card-size") || "comfortable";
+    cardSize.addEventListener("change", function () {
+      var size = cardSize.value;
+      if (["compact", "comfortable", "roomy"].indexOf(size) < 0) return;
+      document.documentElement.setAttribute("data-card-size", size);
+      try { localStorage.setItem("jm-card-size", size); } catch (e) {}
+    });
+  }
   var DATA = [];
   var dataEl = document.getElementById("feeddata");
   try { DATA = JSON.parse(dataEl ? dataEl.textContent : "[]") || []; } catch (e) { DATA = []; }
@@ -435,7 +445,7 @@
   // cost a grey chip on 15% of cards. The monogram stays where it has a fixed-width box and no
   // adjacent name at the same size: /companies tiles and the page headers.
   function companyMark(j) {
-    if (!j.logo) return '';
+    if (!j.logo) return '<span class="company-initials" aria-hidden="true">' + H(j.initials || '') + '</span>';
     return '<img class="cmark" src="' + H(j.logo) + '" alt="" loading="lazy" decoding="async"' +
       ' height="32" width="' + Math.round(Math.min(32 * (j.logo_ar || 1), 176)) + '"' +
       (j.logo_mono ? ' data-mono="1"' : '') + '>';
@@ -712,7 +722,8 @@
       // what lets every title in the grid start at the same x without reserving a fixed slot
       // for a mark that is 39px wide for Mastercard and absent on 15% of rows.
       '<div class="cardbody">' +
-      '<div class="cardlede">' + companyMark(j) + newFlag + '</div>' +
+      '<div class="cardlede">' + companyMark(j) + newFlag +
+        '<div class="cardmatch">' + scoreCell(j) + matchLabel(j) + '</div></div>' +
       // A REAL LINK to a real page. It was a <button> that opened the modal, which was itself a
       // fix for the card being an <article> with a click handler and no tabindex — the feed used
       // to be mouse-only. An <a href> keeps all of that and adds what a button structurally
@@ -762,7 +773,7 @@
       '</div>' +
       '<div class="cardact">' +
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>' +
-        '<a class="btn sm" href="/brain?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
+        '<a class="btn sm" href="/brain/tailor?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
         '<span class="spacer"></span>' +
         // No title= here: each button's visible text already IS the tooltip, and this block
         // renders once per card, so the duplication was three tooltips on every row of the feed.
@@ -786,11 +797,7 @@
       // The chip comes WITH the score rather than sitting under the facts, because it is the
       // same kind of claim -- our reading of a federal filing history, not something the posting
       // says. It is still exactly one chip; only its address changed.
-      '<div class="cardverdict">' +
-        scoreCell(j) +
-        matchLabel(j) +
-        (badges ? '<div class="cbadges">' + badges + '</div>' : '') +
-      '</div>' +
+      (badges ? '<div class="cardverdict"><div class="cbadges">' + badges + '</div></div>' : '') +
     '</article>';
   }
 
@@ -1592,6 +1599,7 @@
   }
   function renderEmpty(relax) {
     if (!emptyEl) return;
+    setShown(emptyEl, true);
     var own = TAB_EMPTY[tab];
     if (own) {
       emptyEl.innerHTML = '<p class="empty-h">' + esc(own[0]) + "</p><p>" + esc(own[1]) +
@@ -1648,7 +1656,10 @@
     if (getComputedStyle(el).position === "fixed") {
       el.style.left = "";
       var bar = document.getElementById("filterbar");
-      el.style.top = Math.round((bar ? bar.getBoundingClientRect().bottom : 56) + 6) + "px";
+      // Keep a useful reading area even when wrapped chips occupy most of a phone.
+      var top = Math.max(12, Math.min(Math.round((bar ? bar.getBoundingClientRect().bottom : 56) + 6), window.innerHeight - 560));
+      el.style.top = top + "px";
+      el.style.maxHeight = Math.max(0, window.innerHeight - top - 12) + "px";
       return;
     }
     var host = feedLayout || el.offsetParent || document.body;
@@ -2003,9 +2014,9 @@
 
 
 
-  // ---- "Clear" — reset every NARROWING filter, leaving search text and track alone ----
+  // ---- "Clear" resets search and every filter; the display sort is preserved. ----
   var clearBtn = document.getElementById("clearfilters");
-  if (clearBtn) clearBtn.addEventListener("click", function () {
+  function clearFilters() {
     // Captured BEFORE the resets: how many filters were stacked when someone gave up is the
     // interesting number. A high value means people over-filter into an empty feed, which
     // argues for a "no results — loosen these?" affordance rather than more filters.
@@ -2016,6 +2027,7 @@
     // search is not a filter, but then the label should not say ALL. Clearing it is the smaller
     // surprise of the two.
     if (q) q.value = "";
+    if (trackSel) trackSel.value = "any";
     if (minR) { minR.value = 0; minVal = 0; setFill(); }
     if (locInp) locInp.value = "";
     if (minSalSel) minSalSel.value = "";
@@ -2036,7 +2048,8 @@
     if (expStated) expStated.checked = false;
     if (showClosed) showClosed.checked = false;
     render(true);
-  });
+  }
+  if (clearBtn) clearBtn.addEventListener("click", clearFilters);
   // "Save as default" — remember the current toolbar as this user's search, which also
   // decides what lands in their email digest. Search text is deliberately NOT saved: it's a
   // one-off lookup, not a standing preference.

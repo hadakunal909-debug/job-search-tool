@@ -5,8 +5,7 @@
 {% include "_brainnav.html" %}
 
 <h1>Tailor to a Job</h1>
-<p class="sub">Paste a job description. This reads it against your whole profile: which
-résumé fits, which stories to feature, and what the posting wants that you haven't said.</p>
+<p class="sub">Match your experience to a role and prepare a tailored résumé.</p>
 
 {# Caps the FORM at a readable width while the results below it use the full two columns. #}
 <div class="brainform">
@@ -15,7 +14,7 @@ résumé fits, which stories to feature, and what the posting wants that you hav
   <p class="muted small u-m0">Search your feed for a job, or paste a description below.</p>
 
   {% if not have_resumes %}
-    <div class="note warn">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in your Library</a> so the brain has material to match.</div>
+    <div class="note warn">No résumés yet. <a href="{{ url_for('brain_teach') }}">Add one in your Library</a> to match your experience to this role.</div>
   {% endif %}
 
   <label>Find a job from the feed <span class="muted">(search title or company)</span>
@@ -85,7 +84,7 @@ résumé fits, which stories to feature, and what the posting wants that you hav
 
   <div class="card">
     <h2>Stories to Feature</h2>
-    <p class="muted small">Check the ones you'll use; the brain weights them for jobs like this from now on. Add a note to teach it something specific.</p>
+    <p class="muted small">Select the experiences to include. Add any drafting preferences below.</p>
     <form method="post" action="{{ url_for('brain_feedback') }}">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="jd_terms" value="{{ r.jd_terms | join(',') }}">
@@ -100,15 +99,15 @@ résumé fits, which stories to feature, and what the posting wants that you hav
           {% endfor %}
         </ul>
       {% else %}<p class="muted">No stories yet. <a href="{{ url_for('brain_teach') }}">Add some in your Library</a>.</p>{% endif %}
-      <label>Teach the brain <span class="muted">optional, and it becomes a lasting lesson</span>
+      <label>Drafting preferences <span class="muted">optional; saved for future drafts</span>
         <input type="text" name="feedback" placeholder="e.g. For fintech roles, lead with the automation project."></label>
       <div class="row"><button type="submit" class="btn primary">Save What I Taught</button></div>
     </form>
   </div>
 
   <div class="card ai">
-    <h2>Write it for me <span class="muted small">(optional AI)</span></h2>
-    <p class="muted small">Turn the plan into a finished résumé <em>and</em> cover letter, from your real material. Your key, your account only; matching and scoring stay AI-free.</p>
+    <h2>Create a draft <span class="muted small">(optional AI)</span></h2>
+    <p class="muted small">Create a résumé and cover letter using your saved experience. Review the draft before applying.</p>
     <form method="post" action="{{ url_for('brain_rewrite') }}" id="rewriteForm">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="company" value="{{ inputs.company }}">

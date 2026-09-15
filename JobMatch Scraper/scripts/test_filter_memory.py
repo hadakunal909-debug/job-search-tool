@@ -100,8 +100,17 @@ function reset(page, vals) {
 }
 var document = {
   querySelectorAll: function (s) { return s.indexOf("data-vt") >= 0 ? VISABOXES : []; },
-  querySelector: function () { return null; }
+  querySelector: function () { return null; },
+  getElementById: function (id) {
+    return id === "roleclear" ? { click: function () { rolesSel.value = ""; } } : null;
+  }
 };
+
+function EV() {}
+function activeFilterCount() { return 10; }
+function setFill() {}
+function render() { saveFilterState(); }
+var minVal = 0;
 
 // ---- lifted verbatim from static/app.js ---------------------------------------
 var FILTER_KEY = "jm_filters:" + (feed.getAttribute("data-user") || ""), FILTER_V = 1;
@@ -112,7 +121,8 @@ var out = {};
 reset(PAGE, IN.set);
 if (IN.seed) { for (var sk in IN.seed) STORE[sk] = JSON.stringify(IN.seed[sk]); }
 if (IN.store !== null) STORE[FILTER_KEY] = JSON.stringify(IN.store);
-if (IN.action === "save") { saveFilterState(); out.stored = JSON.parse(STORE[FILTER_KEY] || "{}"); }
+if (IN.action === "clear") { clearFilters(); out.stored = JSON.parse(STORE[FILTER_KEY] || "{}"); }
+else if (IN.action === "save") { saveFilterState(); out.stored = JSON.parse(STORE[FILTER_KEY] || "{}"); }
 else {
   var s = applyFilterState();
   out.applied = s;
@@ -129,7 +139,7 @@ console.log(JSON.stringify(out));
 """
 
 FUNCS = "\n".join(js_function(SRC, n) for n in ("_ctlMap", "_readStore",
-                                                "saveFilterState", "applyFilterState"))
+                                                "saveFilterState", "applyFilterState", "clearFilters"))
 
 
 def run(page, action, set_vals=None, store=None, user="kunal", seed=None):
@@ -224,6 +234,56 @@ got = run("feed", "apply", {"min": "45", "date": "30"}, store={"v": 1, "sort": "
 check("untouched control keeps its seeded value", got["dom"]["min"] == "45"
       and got["dom"]["date"] == "30")
 check("present key still applies", got["dom"]["sort"] == "newest")
+
+print("\nClear resets every filter and preserves the selected sort")
+cleared = run("feed", "clear", {
+    "q": "engineer", "track": "dev", "roles": "swe", "min": "45", "loc": "Boston",
+    "date": "7", "exp": "2", "intern": "only", "minsal": "100000", "visatags": "h1b",
+    "hidenospon": True, "verifiedonly": True, "remoteonly": True, "hideagency": True,
+    "expstated": True, "showclosed": True, "sort": "newest"
+})["stored"]
+for key, value in {"q": "", "track": "any", "roles": "", "min": 0, "loc": "",
+                   "date": "any", "exp": "any", "intern": "any", "minsal": "",
+                   "visatags": "", "hidenospon": False, "verifiedonly": False,
+                   "remoteonly": False, "hideagency": False, "expstated": False,
+                   "showclosed": False, "sort": "newest"}.items():
+    check("Clear persists %s=%r" % (key, value), cleared.get(key) == value)
+
+# Zero results must reveal the recovery action on both ordinary and status tabs.
+empty_js = js_function(SRC, "renderEmpty") + r"""
+var emptyEl = {innerHTML: "", visible: false}, tab = "recommended";
+var TAB_EMPTY = {liked: ["No saved jobs", "Save a job to find it here."]};
+var esc = function (value) { return value; };
+var setShown = function (el, visible) { el.visible = visible; };
+var relaxBody = function () { return "Remove a filter"; };
+var results = [null, [{key: "date"}], "liked"].map(function (value) {
+  emptyEl.visible = false;
+  tab = value === "liked" ? "liked" : "recommended";
+  renderEmpty(value === "liked" ? null : value);
+  return emptyEl.visible && emptyEl.innerHTML.length > 0;
+});
+console.log(JSON.stringify(results));
+"""
+empty_results = json.loads(subprocess.check_output(["node", "-e", empty_js], text=True))
+check("zero-result and empty saved tabs reveal recovery controls", all(empty_results))
+
+# A wrapped mobile toolbar must not push the filter footer below the screen.
+geometry_js = js_function(SRC, "placePop") + r"""
+var window = {innerHeight: 850};
+var getComputedStyle = function () { return {position: "fixed"}; };
+var document = {getElementById: function () { return {getBoundingClientRect: function () { return {bottom: 510}; }}; }};
+var results = [850, 600, 360].map(function (height) {
+  window.innerHeight = height;
+  var el = {style: {}, hidden: true};
+  placePop(el, {});
+  return {height: height, top: parseFloat(el.style.top), max: parseFloat(el.style.maxHeight)};
+});
+console.log(JSON.stringify(results));
+"""
+geometry = json.loads(subprocess.check_output(["node", "-e", geometry_js], text=True))
+for case in geometry:
+    check("mobile panel fits %spx viewport" % case["height"],
+          case["top"] >= 12 and case["top"] + case["max"] <= case["height"] - 12)
 
 print("\n" + ("ALL FILTER-MEMORY CHECKS PASS" if not FAILS else "FAILED: %s" % FAILS))
 sys.exit(1 if FAILS else 0)

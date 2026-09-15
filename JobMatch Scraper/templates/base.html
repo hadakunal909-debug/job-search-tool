@@ -31,6 +31,7 @@
      query here would have told a dark phone to paint dark chrome around a white app. #}
   <meta id="themecolor" name="theme-color" content="#fbfbfc">
   <link rel="stylesheet" href="{{ static_v('style.css') }}">
+  <link rel="stylesheet" href="{{ static_v('ui.css') }}">
   {# Pre-paint, so the page never flashes the wrong theme. LIGHT IS THE DEFAULT and the OS is
      never consulted: only an explicit 'dark', chosen in Appearance on /profile, turns the
      lights down. Every other stored value — including the 'system' this used to write, which
@@ -46,6 +47,10 @@
     document.documentElement.setAttribute('data-theme',d?'dark':'light');
     var m=document.getElementById('themecolor');if(m)m.content=d?'#0c0e14':'#fbfbfc';};
   try{window.__themeSet(localStorage.getItem('theme'));}catch(e){window.__themeSet('light');}
+  try{var size=localStorage.getItem('jm-card-size');
+    if(['compact','comfortable','roomy'].indexOf(size)>=0)
+      document.documentElement.setAttribute('data-card-size',size);
+  }catch(e){}
   </script>
 </head>
 {# data-sid carries the SERVER's session id to the client beacons, so events from both sides
@@ -68,14 +73,14 @@
     <span>Job<b>Match</b></span>
   </a>
   {% if not setup %}
-  <nav>
-    <a href="{{ url_for('feed') }}" class="{{ 'active' if ep == 'feed' }}">Jobs</a>
+  <nav aria-label="Main navigation">
+    <a href="{{ url_for('feed') }}" class="{{ 'active' if ep in ('feed', 'job_page') }}">Jobs</a>
     <a href="{{ url_for('applications') }}" class="{{ 'active' if ep == 'applications' }}">Applications</a>
-    <a href="{{ url_for('brain_home') }}" class="{{ 'active' if ep.startswith('brain') }}">Resume Brain</a>
-    <a href="{{ url_for('companies') }}" class="{{ 'active' if ep == 'companies' }}">Companies</a>
+    <a href="{{ url_for('brain_home') }}" class="{{ 'active' if ep.startswith('brain') }}">Résumés</a>
+    <a href="{{ url_for('companies') }}" class="{{ 'active' if ep in ('companies', 'company') }}">Companies</a>
     {# board_delete, not the never-existing 'add_board_post' this guarded until 2026-08-22: it
        is the endpoint that actually redirects back here, so the pill stays lit after a remove. #}
-    <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','board_delete') }}">Add a Company</a>
+    <a href="{{ url_for('add_board') }}" class="{{ 'active' if ep in ('add_board','board_delete') }}">Add company</a>
     {% if is_admin() %}<a href="{{ url_for('admin') }}" class="{{ 'active' if ep == 'admin' }}">Admin</a>{% endif %}
   </nav>
   {% endif %}
@@ -150,9 +155,10 @@ if(window.ResizeObserver){window.__topbarRO=new ResizeObserver(set);window.__top
     requestAnimationFrame(function(){b.style.transition='width 10s cubic-bezier(.05,.9,.3,1)';b.style.width='85%';});
   }
   complete();
+  window.addEventListener('pageshow',function(e){if(e.persisted){b.style.width='0';b.style.opacity='0';}});
   document.addEventListener('click',function(e){
     var a=e.target.closest('a[href]');
-    if(!a||a.target||!a.href)return;
+    if(!a||a.target||!a.href||e.defaultPrevented||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
     var href=a.getAttribute('href')||'';
     if(href.charAt(0)==='#'||a.hostname!==location.hostname)return;
     /* data-apply is an OUTBOUND link to an employer, so the progress bar would run for a

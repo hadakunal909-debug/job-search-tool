@@ -3,7 +3,7 @@
 <div class="feedwrap">
 <div class="feedhead">
   <div class="feedrow">
-    <h1>Jobs Feed</h1>
+    <div><span class="page-kicker">YOUR JOB SEARCH</span><h1>Find your next role</h1></div>
     {# NO OPERATOR CONTROLS ON THIS PAGE, and the empty .feedtools div that used to hold them
        is gone with them. Reload lived here behind {% if is_admin() %} until 2026-09-06; it is
        on /admin now, beside Re-Read DB and Update Jobs, at the owner's direction. Being
@@ -15,7 +15,7 @@
        If you are adding an operator control, it goes in admin.html's admin_tools block. #}
   </div>
   {% if not has_resume %}
-  <div class="banner">Showing baseline scores. <a href="{{ url_for('brain_home') }}">Build your profile in Resume Brain</a> for personalized matches.</div>
+  <div class="banner"><a href="{{ url_for('brain_home') }}">Add your résumé</a> to see personalized match scores.</div>
   {% endif %}
   {# The work-authorization deadline strip went with the dates on /profile that fed it.
      web.py still passes `visa`, so restoring this is one block, not a rebuild. #}
@@ -71,16 +71,25 @@
          reading "24,918 of 24,918 jobs" is noise. app.js still parses #count back out as an
          integer (afterAction decrements it), so the numerator stays alone in its own span. #}
       <div class="count"><span id="count">{{ default_total }}</span><span id="counttot"> of {{ total }}</span> jobs</div>
-      <select id="sort" class="sel">
+      <div class="results-controls">
+        <label class="card-size-control" for="card-size">Card size
+          <select id="card-size" class="sel">
+            <option value="compact">Compact</option>
+            <option value="comfortable" selected>Comfortable</option>
+            <option value="roomy">Roomy</option>
+          </select>
+        </label>
+      <select id="sort" class="sel" aria-label="Sort jobs">
         <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best Match</option>
         <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
         {# "Sponsorship" did not say which direction. core.sponsor_rank sorts LOWEST first,
            meaning "show me the jobs I can actually take", so the label says that. #}
         <option value="sponsor"{{ ' selected' if prefs.sort == 'sponsor' else '' }}>Sort: Most Likely to Sponsor</option>
       </select>
+      </div>
     </div>
 
-    {% set empty_note = "No matches. Lower the match floor or clear the search." %}
+    {% set empty_note = "No matches. Lower the minimum match score or clear the search." %}
     {% include "_feedgrid.html" %}
   </div>
 </div>
