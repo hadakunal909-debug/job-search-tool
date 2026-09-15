@@ -54,8 +54,8 @@ def _reachable(url, timeout=5):
         return False
 
 
-def _resolve_origin(url, timeout=5):
-    """(reachable, the origin worth probing) -- the redirect TARGET, not what we guessed.
+def _resolve_url(url, timeout=5):
+    """(reachable, final URL), preserving the path that identifies an ATS tenant.
 
     _reachable() already follows redirects and then throws the answer away, and that discard
     was the single biggest class of missed board here: a guessed careers host very often 301s
@@ -64,9 +64,9 @@ def _resolve_origin(url, timeout=5):
     4,239 postings, while the same call against jobs.lowes.com gets a Cloudflare 301, is not
     200, and reads as "no ATS lives here". 1,506 H-1B filings behind that one redirect.
 
-    The ORIGIN, deliberately, not the final URL: every detector appends its own path
-    (/widgets, /api/...) to scheme+host, so carrying a redirect's path through would aim them
-    at the wrong place.
+    Linked-ATS detection needs the whole landing URL: a Workday host can expose several
+    boards, and its bare origin may return 404. Own-host API detectors still receive just
+    the origin in discover(), because /widgets and /api/... belong at the host root.
     """
     try:
         r = scraper.SESSION.get(url, headers=_H, timeout=timeout,
@@ -77,9 +77,19 @@ def _resolve_origin(url, timeout=5):
         p = urlparse(r.url or url)
         if not p.scheme or not p.netloc:
             return True, url
-        return True, "%s://%s" % (p.scheme, p.netloc)
+        return True, r.url or url
     except Exception:
         return False, url
+
+
+def _resolve_origin(url, timeout=5):
+    """(reachable, redirect origin), for callers that need a host-level API probe."""
+    ok, target = _resolve_url(url, timeout=timeout)
+    if ok:
+        p = urlparse(target)
+        if p.scheme and p.netloc:
+            target = "%s://%s" % (p.scheme, p.netloc)
+    return ok, target
 
 # Large US employers / federal contractors NOT already in SOURCES and overwhelmingly
 # E-Verify enrolled. The tool dedupes against SOURCES, so harmless overlap is fine.
@@ -441,22 +451,28 @@ def discover(company):
         return (company, hit[0], hit[1], hit[2], "low")
     # 2) careers-page detect chain on the company's OWN domain — HIGH confidence.
     #    Precheck reachability so a dead/hanging guessed host isn't fetched 4x.
-    # Deduped on the RESOLVED origin, not on the guessed URL: the extra slug variants mean
-    # several candidates now land on the same host, and running five detectors against it
-    # twice is pure network time. This is what pays for the wider candidate list.
+    # Link scans are per landing PAGE; host-level API probes are per ORIGIN. Two careers
+    # paths on one host can link to different boards, while /widgets remains the same API.
+    seen_pages = set()
     seen_origins = set()
     for url in _careers_candidates(company):
-        ok, url = _resolve_origin(url)
-        if not ok or url in seen_origins:
+        ok, url = _resolve_url(url)
+        if not ok or url in seen_pages:
             continue
-        seen_origins.add(url)
+        seen_pages.add(url)
+        p = urlparse(url)
+        origin = "%s://%s" % (p.scheme, p.netloc)
+        detectors = [(scraper.detect_linked_ats, url)]
+        if origin not in seen_origins:
+            seen_origins.add(origin)
+            detectors += [(fn, origin) for fn in
+                          (scraper.detect_phenom, scraper.detect_successfactors,
+                           scraper.detect_jibe, scraper.detect_eightfold)]
         # detect_eightfold is last: it is the only one that can be true for a host no other
         # detector claims, and Eightfold gates most tenants, so it fails often and cheaply.
-        for fn in (scraper.detect_linked_ats, scraper.detect_phenom,
-                   scraper.detect_successfactors, scraper.detect_jibe,
-                   scraper.detect_eightfold):
+        for fn, target in detectors:
             try:
-                det = fn(url)
+                det = fn(target)
             except Exception:
                 det = None
             if det:

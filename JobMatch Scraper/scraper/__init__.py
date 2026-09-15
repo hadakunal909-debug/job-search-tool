@@ -4899,7 +4899,7 @@ def scrape_bamboohr(board_url):
 def scrape_pinpoint(board_url):
     """Pinpoint: https://{slug}.pinpointhq.com/postings.json — the feed carries the
     FULL description/responsibilities/skills inline (score_jobs reuses them as JDs)."""
-    d = _get_json("https://%s.pinpointhq.com/postings.json" % _sub(board_url))
+    d = _get_json(urljoin(board_url, '/postings.json'))
     rows = []
     for j in (d.get("data") or []):
         loc = j.get("location") or {}
@@ -5199,6 +5199,14 @@ def _avature_location(card, href, title=""):
     el = card.select_one(".article__header__text__subtitle")
     if el:
         txt = el.get_text(" ", strip=True)
+        # Lenovo puts location, requisition ID and date in separate subtitle spans.
+        # Testing the combined text discarded the real location along with metadata.
+        for span in el.find_all('span', recursive=False):
+            candidate = span.get_text(' ', strip=True)
+            if (re.search(r'[,·•|]', candidate) and not _META_SUB.search(candidate)
+                    and not re.search(r'\breq(?:uisition)?\s*#', candidate, re.I)):
+                txt = candidate
+                break
         if not _META_SUB.search(txt):
             parts = [p.strip().rstrip(".").strip()
                      for p in re.split(r"[·•|]", txt) if p.strip()]
@@ -7057,7 +7065,17 @@ def scrape_apple(board_url):
     return rows
 
 
+from scraper.infosys import scrape_infosys
+from scraper.radancy import scrape_radancy
+from scraper.box import scrape_box
+from scraper.peopleadmin import scrape_peopleadmin
+
+
 SCRAPERS = {
+    "peopleadmin": scrape_peopleadmin,
+    "box": scrape_box,
+    "radancy": scrape_radancy,
+    "infosys": scrape_infosys,
     "greenhouse": scrape_greenhouse,
     "eightfold": scrape_eightfold,
     "google": scrape_google,
@@ -7240,6 +7258,21 @@ def detect_board(url):
     p = urlparse(url)
     host = p.netloc.lower()
     segs = [s for s in p.path.split("/") if s]
+
+    if host_is(host, 'peopleadmin.com') and host != 'peopleadmin.com':
+        return ('https://%s/postings/search' % host, 'peopleadmin', _name_from(host.split('.')[0]))
+
+    if host_is(host, "digitalcareers.infosys.com", "careers.infosys.com"):
+        from scraper.infosys import BOARD
+        return (BOARD, "infosys", "Infosys")
+
+    if host == "careers.box.com":
+        from scraper.box import BOARD
+        return (BOARD, "box", "Box")
+
+    # Verified public TalentBrew tenants. Other employers are detected by page markup.
+    if host in ("jobs.intuit.com", "jobs.takeda.com"):
+        return ("https://%s/search-jobs" % host, "radancy", "Intuit" if "intuit" in host else "Takeda")
 
     if host_is(host, "greenhouse.io"):
         slug = (parse_qs(p.query).get("for") or [None])[0]      # embed link: ?for=slug
@@ -7527,6 +7560,7 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.bamboohr\.com/careers
       | [a-z0-9-]+\.pinpointhq\.com
       | ats\.rippling\.com/[A-Za-z0-9_-]+
+      | [a-z0-9-]+\.peopleadmin\.com(?:/postings(?:/search)?)?
       | [a-z0-9-]+\.avature\.net/[A-Za-z0-9_-]+
       | www\d*\.jobdiva\.com/portal/\?a=[A-Za-z0-9]+
       | recruiting\.paylocity\.com/recruiting/jobs/All/[0-9a-fA-F-]{36}/[A-Za-z0-9_-]+
@@ -7549,6 +7583,22 @@ _ATS_LINK_RE = re.compile(
 #               _oracle_parts already parsed it -- the board read 10,172 postings while
 #               detect_board called it 'not an ATS'. The PATH is the product-specific
 #               part, so match on that instead.
+
+
+def avature_from_html(html, url):
+    """Identify vanity-domain Avature portals using their explicit public metadata."""
+    soup = BeautifulSoup(html, 'html.parser')
+    portal = soup.select_one('meta[name="avature.portal.urlPath"]')
+    language = soup.select_one('meta[name="avature.portal.lang"]')
+    if portal is None:
+        return None
+    path = portal.get('content', '').strip('/')
+    lang = language.get('content', '').strip('/') if language else ''
+    if not path or not re.fullmatch(r'[A-Za-z0-9_-]+', path) or (lang and not re.fullmatch(r'[A-Za-z_-]+', lang)):
+        return None
+    name = soup.select_one('meta[name="avature.portal.name"]')
+    target = urljoin(url, '/' + '/'.join(p for p in (lang, path, 'SearchJobs') if p))
+    return target, 'avature', name.get('content', '') if name else ''
 
 
 def detect_linked_ats(url):
@@ -7580,6 +7630,21 @@ def detect_linked_ats(url):
     det = detect_board(str(getattr(r, 'url', '') or url))
     if det:
         return det
+    if 'pinpoint-block--jobs' in html_text:
+        return urljoin(str(getattr(r, 'url', '') or url), '/'), 'pinpoint', ''
+    if 'avature.portal.urlPath' in html_text:
+        det = avature_from_html(html_text, str(getattr(r, 'url', '') or url))
+        if det:
+            return det
+    if 'data-search-results-module-name' in html_text and '/search-jobs/results' in html_text:
+        det = detect_radancy(str(getattr(r, 'url', '') or url))
+        if det:
+            return det
+    if '/postings/all_jobs.atom' in html_text:
+        from scraper.peopleadmin import listing_info
+        feed, _total = listing_info(html_text, str(getattr(r, 'url', '') or url))
+        if feed:
+            return urljoin(feed, '/postings/search'), 'peopleadmin', ''
     seen = set()
     for m in _ATS_LINK_RE.finditer(html_text):
         cand = m.group(0)
@@ -7593,6 +7658,29 @@ def detect_linked_ats(url):
             det = detect_jibe(cand)
             if det:
                 return det
+    # Employer marketing pages can link to a separate public TalentBrew listing.
+    # Fingerprint the linked page before claiming a platform; a URL path alone is insufficient.
+    linked_search_pages = set()
+    for anchor in BeautifulSoup(html_text, "html.parser").select("a[href]"):
+        target = urljoin(str(getattr(r, "url", "") or url), anchor.get("href", ""))
+        if target not in linked_search_pages and re.search(r"/search-jobs/?$", urlparse(target).path):
+            linked_search_pages.add(target)
+            det = detect_radancy(target)
+            if det:
+                return det
+            if len(linked_search_pages) >= 3:
+                break
+    return None
+
+
+def detect_radancy(url):
+    """Fingerprint an employer's public Radancy/TalentBrew listing."""
+    from scraper.radancy import detect_radancy as detect
+    hit = detect(url)
+    if hit:
+        host = urlparse(hit[0]).hostname or ""
+        label = [p for p in host.split(".") if p not in ("www", "jobs", "careers", "com")]
+        return hit[0], hit[1], _name_from(label[0]) if label else host
     return None
 
 
@@ -7678,6 +7766,25 @@ def probe_board(board_url, ats_type):
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
     try:
         slug = board_url.rstrip("/").split("/")[-1]
+        if ats_type == "peopleadmin":
+            from scraper.peopleadmin import listing_info
+            r = _safe_get(urljoin(board_url, '/postings/search'), timeout=15)
+            return listing_info(r.text, r.url)[1] if r.status_code == 200 else None
+        if ats_type == "infosys":
+            from scraper.infosys import parse_page
+            r = _safe_get(board_url, timeout=15)
+            if r.status_code != 200:
+                return None
+            return parse_page(r.text, board_url)[2]
+        if ats_type == "box":
+            from scraper.box import BOARD, parse_page
+            r = _safe_get(BOARD, timeout=15)
+            return parse_page(r.text, BOARD)[2] if r.status_code == 200 else None
+        if ats_type == "radancy":
+            from scraper.radancy import _listing, _block, _number
+            _url, soup = _listing(board_url)
+            block = _block(soup)
+            return _number(block, "data-total-job-results", _number(block, "data-total-results"))
         if ats_type == "greenhouse":
             r = SESSION.get("https://boards-api.greenhouse.io/v1/boards/%s/jobs" % slug,
                             headers=HEADERS, timeout=10)
@@ -8905,7 +9012,7 @@ def _run_with_timeout(fn, url, secs):
         raise TimeoutError("no response after %ss (abandoned, still running)" % secs)
     if "err" in box:
         raise box["err"]
-    return box.get("rows") or []
+    return box["rows"] if box.get("rows") is not None else []
 
 
 # Hosts needing a tighter gate than SCRAPE_PER_HOST. LinkedIn rate-limits an unauthenticated IP
@@ -8982,11 +9089,18 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
             for r in rows:
                 r.setdefault("company", company)        # keep a per-row company if the scraper set
                                                          # one (aggregator search spans many firms)
-            return entry, company, rows, None, time.monotonic() - b0
+            err = None if getattr(rows, "complete", True) else (getattr(rows, "incomplete_reason", "") or getattr(rows, "reason", "") or "incomplete pagination")
+            return entry, company, rows, err, time.monotonic() - b0
         except Exception as e:
             # Timed even on failure: a board that fails SLOWLY is the expensive kind, and the
             # one most worth finding.
-            return entry, company, None, str(e), time.monotonic() - b0
+            partial = getattr(e, "rows", None)
+            if isinstance(partial, list):
+                for row in partial:
+                    row.setdefault("company", company)
+            else:
+                partial = None
+            return entry, company, partial, str(e), time.monotonic() - b0
 
     all_jobs = []
     total = len(sources) if hasattr(sources, "__len__") else 0
@@ -8997,6 +9111,8 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
             done += 1
             if err is not None:
                 print(f"  FAIL {company:<26} {err}")
+                if rows is not None:
+                    all_jobs.extend(rows)
             elif rows is None:
                 out_of_time += 1                         # budget spent; not fetched, not failed
             else:
@@ -9008,7 +9124,7 @@ def scrape_all(sources, workers=None, progress=None, board_results=None, budget_
                 print(f"  OK   {company:<26} {len(rows):>3} postings{slow}")
             if board_results is not None:
                 board_results.append({
-                    "entry": entry, "company": company, "ok": rows is not None,
+                    "entry": entry, "company": company, "ok": rows is not None and err is None,
                     # A board the budget never STARTED is not a board that failed, and `ok`
                     # cannot carry that difference: reconcile_closed needs it False for both,
                     # because an unfetched board proves nothing about its postings. So the third

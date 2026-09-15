@@ -1022,6 +1022,9 @@ def detail_jd(url):
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""
+    if scraper.urlparse(url).hostname == "digitalcareers.infosys.com":
+        from scraper.infosys import detail_jd as infosys_detail_jd
+        jd = infosys_detail_jd(url)
     if "metacareers.com" in url:
         jd = metacareers_detail_jd(url)
     if not jd and "smartrecruiters.com" in url:
