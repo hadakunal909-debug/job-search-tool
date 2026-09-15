@@ -73,6 +73,39 @@ def test_already_plain_text_is_left_alone():
         assert _alnum(out) == _alnum(s), (s, out)
 
 
+def test_plain_and_markdown_keep_their_readable_structure():
+    for text in ("Required Qualifications\n- 2 years of experience\n\nPreferred Qualifications\n- 5 years of experience",
+                 "## Responsibilities\n\n* Build APIs\n* Use <SQL> and Python"):
+        assert core.html_to_text(text) == text
+        assert core.html_to_text(core.html_to_text(text)) == text
+
+
+def test_closing_blocks_separate_following_unwrapped_text():
+    text = core.html_to_text("<h2>Required Qualifications</h2>2 years of experience"
+                             "<h2>Preferred Qualifications</h2>5 years of experience")
+    assert text.splitlines() == ["Required Qualifications", "2 years of experience",
+                                "Preferred Qualifications", "5 years of experience"]
+    assert core.experience_floors(text) == (2, 5)
+    body, _about, jumps = jdrender.render_split(text)
+    assert 'id="jdsec-req"' in body and 'id="jdsec-pref"' in body
+    assert ("req", "Required Qualifications") in jumps
+
+
+def test_microdata_keeps_lists_and_headings():
+    from scraper import score_jobs as sj
+    original = sj.scraper._safe_get
+    class Response:
+        status_code = 200
+        text = '<section itemprop="description">' + _HTML + '<p>' + 'Build reliable services. ' * 12 + '</p></section>'
+    sj.scraper._safe_get = lambda *a, **k: Response()
+    try:
+        text, _date = sj.microdata_jd("https://example.test/job")
+    finally:
+        sj.scraper._safe_get = original
+    assert "\nMinimum Qualifications\n" in text
+    assert "\n• Manage budgets" in text
+
+
 def test_source_formatting_is_not_structure():
     """HTML is indented. A newline inside a text node is the author's wrapping, not a break."""
     out = core.html_to_text("<p>One sentence that\n   wrapped in the source</p>")

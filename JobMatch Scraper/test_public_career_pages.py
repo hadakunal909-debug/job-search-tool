@@ -2,6 +2,7 @@ import os
 os.environ['EV_OFF'] = '1'
 import json
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 from bs4 import BeautifulSoup
 import scraper
@@ -118,6 +119,25 @@ class PublicCareerTests(unittest.TestCase):
             self.assertIn('Build systems.', jd)
             self.assertNotIn('Log in', jd)
             self.assertEqual(date, '2026-09-01')
+
+    def test_icims_request_clock_is_not_a_posting_date(self):
+        now = datetime(2026, 9, 15, 23, 1, 35, 222000, tzinfo=timezone.utc)
+        job = {'datePosted': '2024-09-15T23:01:35.222Z',
+               'validThrough': '2027-09-15T23:01:35.222Z'}
+        self.assertEqual(icims.posting_date(job, now), '')
+        # Real, stable dates must not be discarded just because the window is long.
+        self.assertEqual(icims.posting_date(job, now.replace(day=16)), '2024-09-15')
+        self.assertEqual(icims.posting_date({'datePosted': '2026-09-01'}, now), '2026-09-01')
+        self.assertNotIn('found_date', icims.parse_page(ic_page(), IC)[0][0])
+
+    def test_icims_detail_uses_the_date_validation(self):
+        job = {'@type': 'JobPosting', 'description': '<p>A complete posting.</p>',
+               'datePosted': '2024-09-15T23:01:35.222Z'}
+        markup = '<script type="application/ld+json">' + json.dumps(job) + '</script>'
+        with patch.object(icims, 'page', return_value=soup(markup)), patch.object(icims, 'posting_date', return_value=''):
+            text, date = icims.detail_jd(IC)
+        self.assertEqual(text, 'A complete posting.')
+        self.assertEqual(date, '')
 
     def test_icims_all_description_sections_without_talent_network(self):
         html = '<div class="iCIMS_JobContent"><h2>Overview</h2>Build.</div><div class="iCIMS_JobContent"><h2>Qualifications</h2>Five years.</div><div class="iCIMS_JobContent"><h2>Connect With Us!</h2>Join our network.</div>'

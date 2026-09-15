@@ -854,7 +854,7 @@ def sponsor_signal(job):
     return _sponsor_cache[u]
 
 
-_JOBS_TTL = 3600             # jobs change only on the daily scrape; force-refresh paths exist
+_JOBS_TTL = 60               # revalidate edits within a minute; unchanged revisions reuse the snapshot
 
 # Snapshot of the feed rows, SHARED BY EVERY PASSENGER WORKER.
 #
@@ -1135,26 +1135,16 @@ def _invalidate_jobs():
     All three lines matter:
       * at=0 alone would not work — the next get_jobs() falls through to the snapshot file,
         whose mtime is fresh, and serves back exactly the rows we just invalidated.
-      * fp=None is what makes a PATCH visible. jobs_fingerprint() is (row count, max
-        first_seen) and update_job_fields moves neither, so the probe would report "unchanged"
-        and keep the stale rows indefinitely. None can never compare equal to a real
-        fingerprint, so the probe falls through to the re-read.
+      * fp=None forces this worker to re-read immediately. The database revision in
+        jobs_fingerprint() also catches edits made by other workers and scripts when
+        they revalidate after _JOBS_TTL.
       * dropping the snapshot is best-effort like every other write to it; the first worker
         past here re-reads and writes it back for the others.
     """
     _jobs_cache["at"] = 0
     _jobs_cache["fp"] = None
-    # A FOURTH line, and it is here for the reason the fp=None note above gives. _base_rows_cache
-    # is keyed on jobs_fingerprint(), which is (row count, max first_seen, scored count) -- and
-    # the extension's JD patch moves NONE of the three. It writes jd, location and found_date;
-    # jd_terms, which is what the third component counts, is the scorer's column and this route
-    # never sets it. So a re-read would come back with an fp EQUAL to the stored one and
-    # the built rows would keep serving jd_admit / score_pending / sponsor badges derived from
-    # descriptions that have since changed. Clearing it here covers every caller at once.
-    #
-    # The FILE has to go with it, and more urgently: an in-memory cache dies with the worker, so
-    # it self-heals within minutes. A file keyed on an unchanged fingerprint would outlive the
-    # patch indefinitely.
+    # Clear built rows and their shared file too, so this caller sees the edit immediately.
+    # The versioned fingerprint invalidates other workers' built rows on their next check.
     _base_rows_cache.update(fp=None, sig=None, rows=None, by_url=None, fresh=0,
                             persisted=None, meta=None)
     _rows_clear()
@@ -4232,6 +4222,7 @@ def _posting_asks(row, jd):
     return {
         "verdict": verdict, "unread": unread,
         "exp_req": exp_req, "exp_pref": exp_pref, "exp_inferred": inferred,
+        "exp_evidence": core.experience_evidence(clean),
         "level": level, "level_src": level_src,
         "edu_req": edu_req, "edu_pref": edu_pref,
     }

@@ -31,6 +31,9 @@ def test_digits_the_original_behaviour():
     _eq("3-5 years of professional experience", 3)      # a range states its floor
     _eq("3 to 5 years of industry experience", 3)
     _eq("7 yrs experience", 7)
+    _eq("2-3 yearsof experience in accounting", 2)
+    _eq("two yearsof experience in accounting", 2)
+    _eq("2 yearsoftware development", None)
 
 
 def test_a_bare_year_count_is_not_a_requirement():
@@ -41,6 +44,7 @@ def test_a_bare_year_count_is_not_a_requirement():
     _eq(None, None)
     # >20 is a company statistic, not a person's career.
     _eq("Tapestry Solutions brings over 30 years of industry experience", None)
+    _eq("Our company brings over 100 years of industry experience", None)
 
 
 def test_spelled_out_numbers():
@@ -76,6 +80,65 @@ def test_required_beats_preferred():
     _eq("10+ years of experience preferred", 10)
 
 
+def test_required_and_preferred_sections_keep_their_meaning():
+    for sep in ("\n", "\n\n", " "):
+        text = sep.join(["Required Qualifications", "2 years of experience",
+                         "Preferred Qualifications", "5 years of experience"])
+        assert core.experience_floors(text) == (2, 5)
+        _eq(text, 2)
+        evidence = core.experience_evidence(text)
+        assert [(e["years"], e["kind"]) for e in evidence] == [(2, "required"), (5, "preferred")]
+        assert all(e["quote"] in text for e in evidence)
+    _eq("Preferred Qualifications\n5 years of experience\nRequired Qualifications\n2 years of experience", 2)
+    _eq("Basic Qualifications\n2 years in analytics\nPreferred Qualifications\n5 years in analytics", 2)
+    _eq("Required Qualifications\n2 years of experience\nBenefits\nPaid sabbatical after 5 years", 2)
+    _eq("Preferred Qualifications\nMinimum 3 years of experience required", 3)
+    assert core.experience_floors("Preferred Qualifications\n3-5 years of experience, "
+                                 "with at least 2 years supporting products") == (None, 3)
+    assert core.experience_floors("Preferred Qualifications\nMinimum 5 years of experience") == (None, 5)
+    _eq("Basic Qualifications 5+ years building React applications", 5)
+    assert core.experience_floors("Apply even if you do not meet all preferred qualifications. "
+                                 "2 years of experience required.") == (2, None)
+    assert core.experience_floors("We welcome applicants who lack some preferred qualifications. "
+                                 "2 years of experience.") == (2, None)
+
+
+def test_year_contracts_are_not_experience_requirements():
+    _eq("Required Qualifications\nThis is a 2 year contract in software development.", None)
+    _eq("Required Qualifications\n2 years of experience on contract projects", 2)
+    _eq("Requirements: Must be at least 18 years of age", None)
+    _eq("Minimum 18 years old. Required Qualifications\n2 years of experience", 2)
+    _eq("Required Qualifications 2 years of non-internship design or architecture work", 2)
+
+
+def test_parser_rule_changes_restart_the_scoring_cursor():
+    import re
+    from scraper.score_jobs import _score_rev
+    before = _score_rev("test resume")
+    assert before != "norev"
+    original = core._EXP_SECTION_RE
+    try:
+        core._EXP_SECTION_RE = re.compile(original.pattern + "|new heading", original.flags)
+        assert _score_rev("test resume") != before
+    finally:
+        core._EXP_SECTION_RE = original
+    assert _score_rev("test resume") == before
+
+
+def test_audit_requires_the_same_description_and_checks_actual_values():
+    from scripts.audit_experience import inspect_row
+    import db
+    text = "Required Qualifications\n2 years of experience\nPreferred Qualifications\n5 years of experience"
+    row = {"url": "https://example.test/job", "jd_fp": db.jd_fingerprint(text), "exp_max_years": 5}
+    finding = inspect_row(row, text)
+    assert finding["status"] == "mismatch"
+    assert finding["parsed_years"] == 2 and finding["preferred_years"] == 5
+    assert inspect_row(dict(row, exp_max_years=2), text)["status"] == "consistent"
+    assert inspect_row(row, text + " updated")["status"] == "different_description"
+    assert inspect_row(dict(row, jd_fp=None), text)["status"] == "unverified_text"
+    assert inspect_row(row, "")["status"] == "missing_description"
+
+
 def test_an_and_list_keeps_its_maximum():
     """The case the strict reading was built for, and the ladder rule must not touch it: two
     requirements that both apply. No degree words, no alternation."""
@@ -91,6 +154,9 @@ def test_the_degree_ladder_collapses_to_its_lowest_rung():
     _eq("Required Qualifications: Bachelor's Degree with 8+ years of experience in Engineering "
         "or related field or master's degree with 7+ years of experience or Doctorate Degree "
         "with 2+ years of experience", 2)
+    _eq("Preferred Qualifications: Bachelor of Science and 2+ years of related work experience "
+        "OR Bachelor's Degree and 6+ years of directly related work experience OR 10+ years "
+        "of related, relevant experience. 2+ years of experience with Java.", 2)
 
 
 def test_the_ladder_rule_does_not_over_fire():

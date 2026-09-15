@@ -114,6 +114,8 @@ button,input,select,textarea{font-family:inherit}
 .job-detail>summary{font-size:15px;font-weight:600;padding:18px 22px;cursor:pointer;color:var(--text-primary)}
 .detail-content{padding:0 22px 22px;font-size:14px;line-height:1.7}
 .job-detail .jobsec{margin-top:18px}
+.experience-evidence li{margin:0 0 12px;line-height:1.7;overflow-wrap:anywhere}
+.experience-evidence ul{padding-left:20px;margin-bottom:0}
 .jobaside{padding:20px;background:var(--bg-surface);border:1px solid var(--border-card);border-radius:12px;align-self:start}
 .jobaside-act{position:static;margin:0 0 24px;padding:0}
 .jobaside-apply{margin:0}

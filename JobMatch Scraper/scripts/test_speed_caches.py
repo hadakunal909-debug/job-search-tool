@@ -1240,13 +1240,13 @@ def score_write_visibility():
     # ---- 1. the probe itself ----
     saved = (db.has_remote_db, db.table_count, db._http)
     try:
-        state = {"n": 100, "scored": 60, "down": None}
+        state = {"n": 100, "scored": 60, "down": None, "revision": "1"}
 
         class _Resp(object):
             status_code = 200
 
             def json(self):
-                return [{"first_seen": "2026-09-04"}]
+                return [{"first_seen": "2026-09-04", "version": state["revision"]}]
 
         class _Http(object):
             def get(self, *a, **k):
@@ -1259,13 +1259,18 @@ def score_write_visibility():
         db._http = _Http()
 
         fp1 = db.jobs_fingerprint()
-        want("the fingerprint carries three parts", len(fp1) == 3, str(fp1))
+        want("the fingerprint carries four parts", len(fp1) == 4, str(fp1))
         want("...and the third is the scored count", fp1[2] == 60)
 
         state["scored"] = 61                        # one score write lands, nothing is inserted
         fp2 = db.jobs_fingerprint()
         want("a SCORE WRITE moves it", fp2 != fp1, "%s -> %s" % (fp1, fp2))
         want("...though the count and the date sat still", fp2[:2] == fp1[:2])
+        state["revision"] = "2"
+        fp3 = db.jobs_fingerprint()
+        want("an existing posting edit moves the fingerprint", fp3 != fp2 and fp3[:3] == fp2[:3])
+        state["revision"] = None
+        want("an unavailable data revision cannot validate a stale cache", db.jobs_fingerprint() == db.FP_UNKNOWN)
 
         # ALL OR NOTHING. A partial tuple would let two different unknown scoring states compare
         # equal, which is the trap _base_rows and _snapshot_fp both already document.

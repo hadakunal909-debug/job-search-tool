@@ -143,6 +143,16 @@ cold_worker()
 web.get_jobs()
 check("_invalidate_jobs forces a re-read on the next render", reads["n"] == before + 1)
 
+# An edit to an existing posting changes only the database revision, not row/score counts.
+install(fp=(5, "2026-08-13", 5, "100"), rows=[dict(r, exp_max_years=5) for r in ROWS])
+web.get_jobs(force=True)
+age_snapshot(2 * web._JOBS_TTL)
+web._jobs_cache["at"] = 0
+install(fp=(5, "2026-08-13", 5, "101"), rows=[dict(r, exp_max_years=2) for r in ROWS])
+check("corrected experience reaches an already-warm worker",
+      all(r["exp_max_years"] == 2 for r in web.get_jobs()))
+check("data updates are revalidated within one minute", web._JOBS_TTL <= 60)
+
 try:
     os.remove(_SNAP)
 except OSError:

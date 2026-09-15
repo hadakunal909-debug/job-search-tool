@@ -60,6 +60,18 @@
           {%- else %}<span class="nil">&mdash;</span>{% endif %}</dd></div>
       </dl>
 
+      {% if asks.exp_evidence %}
+      <details class="job-detail experience-evidence">
+        <summary>Experience in the posting{% if asks.exp_req is not none and asks.exp_pref is not none %} · {{ asks.exp_req }}+ years required, {{ asks.exp_pref }}+ preferred{% endif %}</summary>
+        <div class="detail-content">
+          <p class="coprose small">The experience filter uses the highest required minimum, or the preferred minimum when no required years are stated. Degree alternatives use the lowest stated option.</p>
+          <ul>{% for item in asks.exp_evidence %}
+            <li><strong>{{ 'Preferred' if item.kind == 'preferred' else 'Required' }}:</strong> <q>{{ item.quote }}</q></li>
+          {% endfor %}</ul>
+        </div>
+      </details>
+      {% endif %}
+
       <div class="jobrail">
         <div class="jobrail-facts">
           <div class="jobroute">
