@@ -86,6 +86,7 @@ SUITES = (
     Suite("test_box",               "test_box.py",                       "root",   "offline"),
     Suite("test_radancy",           "test_radancy.py",                   "root",   "offline"),
     Suite("test_peopleadmin",       "test_peopleadmin.py",               "root",   "offline"),
+    Suite("test_public_career_pages", "test_public_career_pages.py", "root", "offline"),
     Suite("test_trinethire", "test_trinethire.py", "root", "offline"),
     Suite("test_paycom", "test_paycom.py", "root", "offline"),
     Suite("test_adp", "test_adp.py", "root", "offline"),

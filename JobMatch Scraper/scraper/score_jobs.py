@@ -1022,6 +1022,16 @@ def detail_jd(url):
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""
+    host = scraper.urlparse(url).hostname or ""
+    for suffix, module in ((".applytojob.com", "jazzhr"), (".icims.com", "icims"), (".csod.com", "cornerstone")):
+        if host.endswith(suffix):
+            try:
+                from importlib import import_module
+                text, date = import_module("scraper." + module).detail_jd(url)
+                if text:
+                    return url, text, date
+            except Exception:
+                pass
     if scraper.urlparse(url).hostname == "app.trinethire.com":
         from scraper.trinethire import detail_jd as trinet_detail_jd
         try:

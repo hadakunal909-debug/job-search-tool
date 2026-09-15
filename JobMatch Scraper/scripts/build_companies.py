@@ -1322,6 +1322,24 @@ _DISCOVERED_SECTORS = {
 for _sector, _names in _DISCOVERED_SECTORS.items():
     _CURATED_LISTS.setdefault(_sector, []).extend(_names)
 
+# Sectors for the public-board support batch. Broad holding companies remain
+# Unsorted where a single sector would misrepresent their portfolio.
+_SUPPORTED_PUBLIC_SECTORS = {
+    "Healthcare, Pharma & Biotech": ["Gummi World", "Samaritan Daytop Village"],
+    "Hospitals & Health Systems": ["Ascension"],
+    "Banking, Finance & Insurance": ["Partnership HealthPlan of California"],
+    "Energy & Utilities": ["Ferrellgas", "Lewis Resource Management"],
+    "Engineering, Construction & Real Estate": ["Keller North America, Inc.", "Chadwell Supply", "NV5", "Cajun Industries, LLC"],
+    "Aerospace, Defense & Industrial": ["RoviSys", "Daifuku", "Marvin", "Scientific Research Corporation", "Alexandria Insights", "Astrion"],
+    "IT Services & Consulting": ["Connection", "Markon", "The Cadmus Group, Inc.", "FWI (FedWriters, Inc.)", "i2G Systems"],
+    "Transport, Logistics & Automotive": ["Advatix"],
+    "Retail, Consumer & Hospitality": ["Oak View Group", "Urban Outfitters", "Spencer's and Spirit Halloween"],
+    "Media, Telecom & Gaming": ["Nebo Agency"],
+    "Universities & Research": ["Mathematica"],
+}
+for _sector, _names in _SUPPORTED_PUBLIC_SECTORS.items():
+    _CURATED_LISTS.setdefault(_sector, []).extend(_names)
+
 CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
 # The tail loses to the corrections block on a collision: _CURATED_LISTS was written against
 # measured traffic, the sweep was written from a name.
