@@ -144,7 +144,16 @@ class Canvas:
 # 1. THE THREE SURFACES  -- what are the moving parts, and what do they all share?
 # =============================================================================================
 def surfaces(f):
-    c = Canvas(980, 560, "The three runtime surfaces and the shared spine")
+    # Declared up here because the canvas HEIGHT is derived from it. Fixed at 560, the closing
+    # line's baseline sat at 562 and the viewBox clipped it -- a sentence that is present in the
+    # source, absent on screen, and reported by nothing.
+    rows = [("PG_DSN set", "pgrest.Session -- direct psycopg", "this is the cPanel app", "sched"),
+            ("DB_PROXY_URL + DB_PROXY_SECRET", "dbproxy.Session -- HMAC over HTTPS",
+             "GitHub Actions, and your laptop", "sched"),
+            ("only one of that pair", "RuntimeError", "refuses rather than guessing", "trap"),
+            ("neither", "the local CSV fallback", "a laptop with no credentials", "client")]
+    c = Canvas(980, 418 + len(rows) * 36 + 14,
+               "The three runtime surfaces and the shared spine")
     cols = [(0, "web", "FLASK APP", [
                 "Serves every page and API",
                 "web.py  %s lines" % f["web_lines"],
@@ -172,18 +181,13 @@ def surfaces(f):
         "core.py  %s lines, %s sections  --  filtering, scoring, sponsorship, visa tags,"
         % (f["core_lines"], f["core_sections"]),
         "   location, salary, role tracks, saved-search prefs, work-auth timelines",
-        "db.py  %s lines  --  one interface, four backends, chosen at first use"
+        "db.py  %s lines  --  one interface, two transports + a CSV fallback"
         % (f["db_lines"]),
     ], mono_from=0)
     c.arrow(480, 350, 480, 386)
 
     c.text(0, 380, "Which database you get  --  db.py::_LazyHTTP, line %s" % f["lazyhttp_line"],
            12.5, colour=INK, weight="600")
-    rows = [("PG_DSN set", "pgrest.Session -- direct psycopg", "this is the cPanel app", "sched"),
-            ("DB_PROXY_URL + DB_PROXY_SECRET", "dbproxy.Session -- HMAC over HTTPS",
-             "GitHub Actions, and your laptop", "sched"),
-            ("only one of that pair", "RuntimeError", "refuses rather than guessing", "trap"),
-            ("neither", "Supabase, then local CSV", "vestigial since 2026-08-15", "client")]
     y = 400
     for cond, got, why, kind in rows:
         _f, stroke, ink = HEX[kind]
@@ -194,8 +198,9 @@ def surfaces(f):
         c.text(330, y + 20, "->  " + got, 12, mono=True, colour=INK)
         c.text(660, y + 20, why, 12, colour=DIM)
         y += 36
-    c.text(0, y + 18, "has_remote_db() answers True for the first three. backend_name() is the "
-           "one that tells you which.", 12.5, colour=HEX["trap"][2], weight="600")
+    c.text(0, y + 18, "has_remote_db() answers True for the first two. backend_name() is the "
+           "one that tells you which. The Supabase default was deleted 2026-09-01.", 12.5,
+           colour=HEX["trap"][2], weight="600")
     return c.render()
 
 
@@ -218,7 +223,7 @@ def surfaces_mermaid(f):
         '    A["static/app.js<br/>the client feed"]',
         "  end",
         '  SPINE["<b>THE SPINE</b> — imported by all three<br/>'
-        'core.py · %s lines · %s sections<br/>db.py · %s lines · four backends"]'
+        'core.py · %s lines · %s sections<br/>db.py · %s lines · two transports + CSV"]'
         % (f["core_lines"], f["core_sections"], f["db_lines"]),
         "  REQ --> SPINE",
         "  SCH --> SPINE",
@@ -227,7 +232,7 @@ def surfaces_mermaid(f):
         '  D -->|"PG_DSN"| P["pgrest — direct psycopg<br/><i>the cPanel app</i>"]',
         '  D -->|"DB_PROXY_URL + SECRET"| X["dbproxy — HMAC HTTPS<br/><i>Actions, your laptop</i>"]',
         '  D -->|"half a pair"| R["RuntimeError<br/><i>refuses rather than guessing</i>"]',
-        '  D -->|"neither"| V["Supabase → local CSV<br/><i>vestigial</i>"]',
+        '  D -->|"neither"| V["local CSV<br/><i>no credentials: the laptop fallback</i>"]',
         "  classDef web fill:#e0e4fe,stroke:#4f46e5,color:#101319",
         "  classDef sched fill:#cfe8e3,stroke:#0f766e,color:#101319",
         "  classDef client fill:#e4e7ec,stroke:#5f6573,color:#101319",
@@ -314,7 +319,11 @@ def funnel_mermaid(f):
 # 3. DEPLOY REALITY  -- I pushed. Why is the site unchanged?
 # =============================================================================================
 def deploy(f):
-    c = Canvas(980, 520, "How this app actually deploys, and the path that looks like it does")
+    # Height is DERIVED from the schedule, not typed: the rows below grew from three to seven
+    # and a fixed 520 drew the closing note off the bottom of the canvas, where it is invisible
+    # in the source and simply missing on screen.
+    h = 328 + len(f["schedule"]) * 40 + 62
+    c = Canvas(980, h, "How this app actually deploys, and the path that looks like it does")
     c.text(0, 20, "THE PATH THAT LOOKS LIKE A DEPLOY AND IS NOT", 12, mono=True,
            colour=DEAD, weight="600")
     c.box(0, 32, 190, 56, "plain", "your laptop", ["git push"], mono_from=0)
@@ -331,14 +340,17 @@ def deploy(f):
 
     c.text(0, 172, "THE PATH THAT IS THE DEPLOY", 12, mono=True, colour=HEX["sched"][2],
            weight="600")
-    steps = [("python scripts/build_deploy_zip.py", ["%s modules + %s dirs" % (f["zip_files"],
-                                                     f["zip_dirs"])]),
+    # FIVE steps, not four. A restart empties every per-process cache, so without the last
+    # one the first visitor after a deploy rebuilds the corpus, the rows and the 29 MB IDF
+    # table on their own request -- measured at several seconds. It is part of the deploy.
+    steps = [("build_deploy_zip.py", ["%s modules + %s dirs" % (f["zip_files"], f["zip_dirs"])]),
              ("stemjobs1_deploy.zip", ["flat archive"]),
-             ("File Manager: upload, extract", ["cPanel"]),
-             ("touch tmp/restart.txt", ["Passenger reloads"])]
+             ("upload + extract", ["cPanel File Manager"]),
+             ("touch tmp/restart.txt", ["Passenger reloads"]),
+             ("curl /warm?t=...", ["else visitor 1 pays"])]
     x = 0
     for i, (head, lines) in enumerate(steps):
-        w = 232
+        w = 184
         c.box(x, 186, w, 62, "sched", None, [head] + lines, mono_from=0)
         if i < len(steps) - 1:
             c.arrow(x + w, 217, x + w + 10, 217)
@@ -347,7 +359,7 @@ def deploy(f):
            "about a module web.py imports.", 12.5, colour=DIM)
     c.rule(0, 288, 960)
 
-    c.text(0, 314, "AND IT RUNS ITSELF THREE TIMES A WEEKDAY, ON TWO DIFFERENT RUNNERS", 12,
+    c.text(0, 314, "AND THE PIPELINE RUNS ITSELF ON A SCHEDULE, ACROSS TWO RUNNERS", 12,
            mono=True, colour=INK, weight="600")
     y = 328
     for when, runner, what, kind in f["schedule"]:
@@ -359,9 +371,10 @@ def deploy(f):
         c.text(120, y + 22, runner, 12, mono=True, colour=INK)
         c.text(400, y + 22, what, 12, colour=DIM)
         y += 40
-    c.text(0, y + 18, "The two cron rows live in cPanel -> Cron Jobs and nowhere else. The repo "
+    c.text(0, y + 18, "The cron rows live in the live crontab and nowhere else. The repo "
            "cannot enforce them, so they are", 12.5, colour=HEX["trap"][2])
-    c.text(0, y + 34, "recorded in the header of bin/cron_scrape.sh.", 12.5,
+    c.text(0, y + 34, "recorded in the header of bin/cron_scrape.sh -- and a scheduled Actions "
+           "event is not a guarantee, which is what the watchdog is for.", 12.5,
            colour=HEX["trap"][2])
     return c.render()
 
@@ -376,12 +389,14 @@ def deploy_mermaid(f):
          '    B["build_deploy_zip.py<br/>%s modules + %s dirs"] --> Z["stemjobs1_deploy.zip"]'
          % (f["zip_files"], f["zip_dirs"]),
          '    Z --> U["File Manager<br/>upload + extract"]',
-         '    U --> T["touch tmp/restart.txt"] --> LIVE["stemjobs1.astrochakra.co"]',
+         '    U --> T["touch tmp/restart.txt"] --> W["curl /warm?t=…<br/>'
+         '<i>or the first visitor rebuilds every cache</i>"] --> LIVE'
+         '["stemjobs1.astrochakra.co"]',
          "  end",
          "  classDef trap fill:#f9edcd,stroke:#a8781a,color:#101319",
          "  classDef sched fill:#cfe8e3,stroke:#0f766e,color:#101319",
          "  classDef plain fill:#ffffff,stroke:#d3d7df,color:#101319",
-         "  class C trap", "  class B,Z,U,T,LIVE sched", "  class L,G plain"]
+         "  class C trap", "  class B,Z,U,T,W,LIVE sched", "  class L,G plain"]
     return "\n".join(L)
 
 

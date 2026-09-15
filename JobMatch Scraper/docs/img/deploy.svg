@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 520" width="980" height="520" role="img" aria-label="How this app actually deploys, and the path that looks like it does">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 670" width="980" height="670" role="img" aria-label="How this app actually deploys, and the path that looks like it does">
 <title>How this app actually deploys, and the path that looks like it does</title>
 <text class="t-dim" x="0" y="20" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#b3261e" text-anchor="start" font-weight="600">THE PATH THAT LOOKS LIKE A DEPLOY AND IS NOT</text>
 <rect class="s-plain" x="0" y="32" width="190" height="65" rx="10" fill="#ffffff" stroke="#d3d7df" stroke-width="1.5"/>
@@ -21,35 +21,41 @@
 <text class="t-dim" x="0" y="124" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462" text-anchor="start" font-weight="400">Nothing on the server ever hears about a push. Verified 2026-08-09 by pushing a release and polling the served CSS.</text>
 <path class="edge" d="M0 146 L960 146" stroke="#d3d7df" stroke-width="1"/>
 <text class="t-dim" x="0" y="172" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">THE PATH THAT IS THE DEPLOY</text>
-<rect class="s-sched" x="0" y="186" width="232" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
+<rect class="s-sched" x="0" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
 <text class="t-sched" x="14" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
-<text class="t-dim" x="14" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">python scripts/build_deploy_zip.py</text>
+<text class="t-dim" x="14" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">build_deploy_zip.py</text>
 <text class="t-dim" x="14" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">19 modules + 4 dirs</text>
-<path class="edge" d="M232 217 L242 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
-<path class="arrowhead" d="M236 213 L236 221 L242 217 Z" fill="#d3d7df"/>
-<rect class="s-sched" x="242" y="186" width="232" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
-<text class="t-sched" x="256" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
-<text class="t-dim" x="256" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">stemjobs1_deploy.zip</text>
-<text class="t-dim" x="256" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">flat archive</text>
-<path class="edge" d="M474 217 L484 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
-<path class="arrowhead" d="M478 213 L478 221 L484 217 Z" fill="#d3d7df"/>
-<rect class="s-sched" x="484" y="186" width="232" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
-<text class="t-sched" x="498" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
-<text class="t-dim" x="498" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">File Manager: upload, extract</text>
-<text class="t-dim" x="498" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">cPanel</text>
-<path class="edge" d="M716 217 L726 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
-<path class="arrowhead" d="M720 213 L720 221 L726 217 Z" fill="#d3d7df"/>
-<rect class="s-sched" x="726" y="186" width="232" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
-<text class="t-sched" x="740" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
-<text class="t-dim" x="740" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">touch tmp/restart.txt</text>
-<text class="t-dim" x="740" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">Passenger reloads</text>
+<path class="edge" d="M184 217 L194 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M188 213 L188 221 L194 217 Z" fill="#d3d7df"/>
+<rect class="s-sched" x="194" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
+<text class="t-sched" x="208" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
+<text class="t-dim" x="208" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">stemjobs1_deploy.zip</text>
+<text class="t-dim" x="208" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">flat archive</text>
+<path class="edge" d="M378 217 L388 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M382 213 L382 221 L388 217 Z" fill="#d3d7df"/>
+<rect class="s-sched" x="388" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
+<text class="t-sched" x="402" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
+<text class="t-dim" x="402" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">upload + extract</text>
+<text class="t-dim" x="402" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">cPanel File Manager</text>
+<path class="edge" d="M572 217 L582 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M576 213 L576 221 L582 217 Z" fill="#d3d7df"/>
+<rect class="s-sched" x="582" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
+<text class="t-sched" x="596" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
+<text class="t-dim" x="596" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">touch tmp/restart.txt</text>
+<text class="t-dim" x="596" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">Passenger reloads</text>
+<path class="edge" d="M766 217 L776 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
+<path class="arrowhead" d="M770 213 L770 221 L776 217 Z" fill="#d3d7df"/>
+<rect class="s-sched" x="776" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
+<text class="t-sched" x="790" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
+<text class="t-dim" x="790" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">curl /warm?t=...</text>
+<text class="t-dim" x="790" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">else visitor 1 pays</text>
 <text class="t-dim" x="0" y="268" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#4e5462" text-anchor="start" font-weight="400">The script refuses to build when its own file list and .cpanel.yml disagree about a module web.py imports.</text>
 <path class="edge" d="M0 288 L960 288" stroke="#d3d7df" stroke-width="1"/>
-<text class="t-dim" x="0" y="314" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="600">AND IT RUNS ITSELF THREE TIMES A WEEKDAY, ON TWO DIFFERENT RUNNERS</text>
+<text class="t-dim" x="0" y="314" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="600">AND THE PIPELINE RUNS ITSELF ON A SCHEDULE, ACROSS TWO RUNNERS</text>
 <rect class="s-trap" x="0" y="328" width="960" height="34" rx="6" fill="#f9edcd" stroke="#a8781a" stroke-width="1"/>
-<text class="t-dim" x="14" y="350" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#8a5a08" text-anchor="start" font-weight="600">09:00 M-F</text>
+<text class="t-dim" x="14" y="350" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#8a5a08" text-anchor="start" font-weight="600">~08-09:00 M-F</text>
 <text class="t-dim" x="120" y="350" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">.github/workflows/scrape.yml</text>
-<text class="t-dim" x="400" y="350" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">heavy: sweep, full score, verify_dates, analytics, digest email</text>
+<text class="t-dim" x="400" y="350" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">heavy: sweep, full score, verify_dates, analytics, reposts, digest email</text>
 <rect class="s-sched" x="0" y="368" width="960" height="34" rx="6" fill="#cfe8e3" stroke="#0f766e" stroke-width="1"/>
 <text class="t-dim" x="14" y="390" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">13:00 M-F</text>
 <text class="t-dim" x="120" y="390" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">bin/cron_scrape.sh</text>
@@ -58,6 +64,22 @@
 <text class="t-dim" x="14" y="430" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">16:00 M-F</text>
 <text class="t-dim" x="120" y="430" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">bin/cron_scrape.sh</text>
 <text class="t-dim" x="400" y="430" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">sweep, new-only score, reposts</text>
-<text class="t-dim" x="0" y="466" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="400">The two cron rows live in cPanel -&gt; Cron Jobs and nowhere else. The repo cannot enforce them, so they are</text>
-<text class="t-dim" x="0" y="482" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="400">recorded in the header of bin/cron_scrape.sh.</text>
+<rect class="s-sched" x="0" y="448" width="960" height="34" rx="6" fill="#cfe8e3" stroke="#0f766e" stroke-width="1"/>
+<text class="t-dim" x="14" y="470" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">:30 hourly M-F</text>
+<text class="t-dim" x="120" y="470" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">bin/cron_scrape.sh --analyze-only</text>
+<text class="t-dim" x="400" y="470" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">writes jd_terms, then refills the stored user scores</text>
+<rect class="s-sched" x="0" y="488" width="960" height="34" rx="6" fill="#cfe8e3" stroke="#0f766e" stroke-width="1"/>
+<text class="t-dim" x="14" y="510" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#0b5c56" text-anchor="start" font-weight="600">every 5 min</text>
+<text class="t-dim" x="120" y="510" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">crontab: curl /warm x4</text>
+<text class="t-dim" x="400" y="510" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">one call warms one worker; flock-guarded so a sweep is not re-fattened</text>
+<rect class="s-trap" x="0" y="528" width="960" height="34" rx="6" fill="#f9edcd" stroke="#a8781a" stroke-width="1"/>
+<text class="t-dim" x="14" y="550" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#8a5a08" text-anchor="start" font-weight="600">hourly</text>
+<text class="t-dim" x="120" y="550" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">.github/workflows/scrape-watchdog.yml</text>
+<text class="t-dim" x="400" y="550" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">dispatches scrape.yml when the scheduled event never arrived</text>
+<rect class="s-client" x="0" y="568" width="960" height="34" rx="6" fill="#e4e7ec" stroke="#5f6573" stroke-width="1"/>
+<text class="t-dim" x="14" y="590" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#3c414d" text-anchor="start" font-weight="600">16:00 Tue+Thu</text>
+<text class="t-dim" x="120" y="590" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">.github/workflows/jobspy-sweep.yml</text>
+<text class="t-dim" x="400" y="590" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">aggregator sidecar -&gt; jobspy_findings; never the feed</text>
+<text class="t-dim" x="0" y="626" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="400">The cron rows live in the live crontab and nowhere else. The repo cannot enforce them, so they are</text>
+<text class="t-dim" x="0" y="642" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="400">recorded in the header of bin/cron_scrape.sh -- and a scheduled Actions event is not a guarantee, which is what the watchdog is for.</text>
 </svg>
