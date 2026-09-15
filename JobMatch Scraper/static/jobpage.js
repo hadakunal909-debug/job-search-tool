@@ -45,6 +45,33 @@
     });
   }
 
+  // Reading preferences affect presentation only; employer wording stays intact.
+  var description = document.getElementById("job-description");
+  var readingControls = document.querySelector(".reading-controls");
+  if (description && readingControls) {
+    readingControls.hidden = false;
+    function readingOption(id, className, key) {
+      var button = document.getElementById(id);
+      if (!button) return;
+      function set(on) {
+        description.classList.toggle(className, on);
+        button.setAttribute("aria-pressed", String(on));
+        if (id === "jd-highlight") {
+          var legend = document.getElementById("jd-legend");
+          if (legend) legend.hidden = !on;
+        }
+      }
+      try { set(localStorage.getItem(key) === "true"); } catch (e) { set(false); }
+      button.addEventListener("click", function () {
+        var on = button.getAttribute("aria-pressed") !== "true";
+        set(on);
+        try { localStorage.setItem(key, String(on)); } catch (e) {}
+      });
+    }
+    readingOption("jd-size", "is-large", "jd-large-text");
+    readingOption("jd-highlight", "show-highlights", "jd-highlight-skills");
+  }
+
   // ---- company research --------------------------------------------------------------------
   var box = document.getElementById("coresearch");
   if (!box) return;

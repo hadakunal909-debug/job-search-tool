@@ -292,6 +292,9 @@ check("the tooltip says where the number comes from",
       "different URLs" in _row and "90 days" in _row,
       "otherwise 'Posted 5x' is unfalsifiable")
 
+check("card Tailor opens the tailoring route with the job",
+      'href="/brain/tailor?job=' in js_function(SRC, "cardHTML"))
+
 print("\nTHE 'MATCHED ON DESCRIPTION' CHIP, added 2026-08-20 — now on /job")
 # Wording and provenance, asserted against the template it now lives in. There is no
 # arithmetic here — a plain `{%- if row.jd_admit %}` — so there was never anything to evaluate,
@@ -300,7 +303,7 @@ check("the chip exists and reads as provenance",
       "row.jd_admit" in JOBHTML and "Matched on description" in JOBHTML,
       "the whole point of the wider net is that you can see which rule admitted a row")
 check("its tooltip explains the rule rather than asserting quality",
-      "description reads like" in JOBHTML and "matched none of our role" in JOBHTML,
+      "description matches your selected role" in JOBHTML and "title does not" in JOBHTML,
       "'matched on description' alone tells the reader nothing they can act on")
 # The CHIP moved; the FIELD stays. rolesMatch() reads j.jd_admit to decide which role
 # families a title-less row may answer (see core.roles_match), so asserting the field were gone
@@ -342,7 +345,7 @@ for _gone in ("years not stated", "years not read yet", "years unknown"):
 # sentences carried survives as one .jdstate line on the description itself.
 check("...and /job still names which of the three it is",
       "asks.verdict == 'not-a-posting'" in JOBHTML and "not has_jd" in JOBHTML
-      and "rather than a posting" in JOBHTML and "No description stored yet" in JOBHTML,
+      and 'data-description-state="invalid"' in JOBHTML and 'data-description-state="missing"' in JOBHTML,
       "'the employer did not say' and 'we have not read it' are opposite facts, and only one "
       "of them changes on its own")
 check("...and an empty fact is a dash, not a sentence about the posting",
@@ -417,11 +420,12 @@ check("...and is absolute, never a percentile",
 check("...and says nothing when there is no ring",
       "!HAS_RESUME || (j && (j.jd_unavailable || j.score_pending))" in CODE,
       "a label under a dashed placeholder would name a number that is not there")
-check("the verdict is its own element, separable from the posting's facts",
-      "'<div class=\"cardverdict\">'" in CODE and ".cardverdict{" in CSS,
-      "it was a ruled side column while the feed was full-width rows and is the top-right "
-      "corner at three to a line; what must survive either way is that it is ONE element "
-      "holding everything that depends on who is asking")
+card_source = js_function(SRC, "cardHTML")
+check("match score and label appear once in the card header",
+      'class="cardmatch"' in card_source
+      and card_source.count('scoreCell(j)') == 1
+      and card_source.count('matchLabel(j)') == 1
+      and card_source.index('scoreCell(j)') < card_source.index('class="ctitle"'))
 check("the chip cap survived the redesign",
       CODE.count('class="spon"') == 1 and CODE.count('class="nospon"') == 1,
       "one hedged sponsorship verdict, still, plus Closed")

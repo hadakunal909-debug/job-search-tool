@@ -329,18 +329,18 @@ body = r.data.decode("utf-8", "replace")
 # DISTINCTION below, not the wording: pending promises a score, blocked must not.
 check("a pending row renders and says it is not scored yet",
       r.status_code == 200 and "Not scored yet" in body, str(r.status_code))
-check("a pending row promises a score is still coming",
-      "match score after the next scoring run" in body)
+check("a pending row identifies the pending analysis",
+      'data-score-state="pending"' in body and "Awaiting description analysis" in body)
 check("a pending row does NOT claim the employer publishes nothing",
       "doesn" not in body.split("Profile Match")[-1][:400].replace("doesn't publish", "X"))
 
 r = get(BLOCKED)
 body = r.data.decode("utf-8", "replace")
 check("a blocked row renders", r.status_code == 200, str(r.status_code))
-check("a blocked row says the employer publishes nothing we can read",
-      "publish a description we can read" in body)
+check("a blocked row identifies an inaccessible description",
+      'data-score-state="unavailable"' in body and "could not be accessed" in body)
 check("a blocked row does NOT promise a score is coming",
-      "match score after the next scoring run" not in body and "Not scored yet" not in body,
+      'data-score-state="pending"' not in body and "Not scored yet" not in body,
       "the pending copy promises a score; for a blocked employer one never arrives")
 
 rows = {j["url"]: web._build_row(j, 0) for j in JOBS if j["url"] in (PENDING, BLOCKED)}
@@ -404,7 +404,7 @@ check("and it is one a scoring run would also accept",
 check("and so is a real percentage", re.search(r'class="meter-\w+">\d+%<', body) is not None,
       "the page analysed this description; it must show what that came to")
 check("it does NOT also say it has not been read",
-      "Not scored yet" not in body and "match score after the next scoring run" not in body,
+      "Not scored yet" not in body and 'data-score-state="pending"' not in body,
       "a page cannot render a description and call itself unread in the same breath")
 # The event has to agree with the page for the same reason: "how many of the jobs I open have no
 # score" is one of the few numbers here worth trusting.

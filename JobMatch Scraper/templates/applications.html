@@ -2,7 +2,7 @@
 {% block content %}
 
 <h1>Applications</h1>
-<p class="sub">Every job you've applied to, from here or any other site. Private to your account. Marking a job “Applied” in the feed logs it here automatically (with the résumé you have on file).</p>
+<p class="sub">Track applications, interview stages, and follow-ups.</p>
 
 <div class="appstats">
   <span><b>{{ total }}</b> total</span>
@@ -14,7 +14,7 @@
 <datalist id="rnames">{% for n in resume_names %}<option value="{{ n }}">{% endfor %}</datalist>
 
 <details class="addapp">
-  <summary>Add an application (from LinkedIn, a company site, anywhere)</summary>
+  <summary>Add an application</summary>
   <form method="post" action="{{ url_for('application_save') }}" class="appform">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input type="hidden" name="id" value="">
@@ -26,9 +26,9 @@
         <input name="resume_name" list="rnames" value="{{ default_resume or '' }}" placeholder="e.g. Kunal_PM_Resume.pdf">
       </label>
       <label>Status
-        <select name="status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == 'applied' else '' }}>{{ s }}</option>{% endfor %}</select>
+        <select name="status" aria-label="Application status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == 'applied' else '' }}>{{ s|replace("_", " ")|title }}</option>{% endfor %}</select>
       </label>
-      <label>Date applied<input type="date" name="applied_date"></label>
+      <label>Date applied<input type="date" aria-label="Date applied" name="applied_date"></label>
     </div>
     <label>Notes (recruiter, referral, login email used…)<textarea name="notes" rows="2"></textarea></label>
     <button class="btn primary" type="submit">Add Application</button>
@@ -44,7 +44,7 @@
   <div class="appcard">
     <div class="apphead">
       <div>
-        <div class="appco">{{ a.company or 'None' }}</div>
+        <div class="appco">{{ a.company or 'Company not specified' }}</div>
         {# TWO destinations, because they answer different questions. The title goes INWARD to
            /job -- the description, the keywords, the match, the sponsorship read -- which is
            the one thing an applied row could not reach before: it linked straight out to the
@@ -62,6 +62,8 @@
       </div>
       <span class="stbadge st-{{ a.status or 'saved' }}">{{ a.status or 'saved' }}</span>
     </div>
+    {% if a.notes %}<p class="application-note">{{ a.notes }}</p>{% endif %}
+    <details class="application-edit"><summary>Update application</summary>
     <div class="approw">
       <form method="post" action="{{ url_for('application_save') }}" class="appedit">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
@@ -69,10 +71,10 @@
         <input type="hidden" name="company" value="{{ a.company or '' }}">
         <input type="hidden" name="title" value="{{ a.title or '' }}">
         <input type="hidden" name="url" value="{{ a.url or '' }}">
-        <select name="status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == a.status else '' }}>{{ s }}</option>{% endfor %}</select>
-        <input class="u-max-170" name="resume_name" list="rnames" value="{{ a.resume_name or '' }}" placeholder="résumé file">
-        <input type="date" name="applied_date" value="{{ a.applied_date[:10] if a.applied_date else '' }}">
-        <input name="notes" value="{{ a.notes or '' }}" placeholder="notes" class="appnotes">
+        <select name="status" aria-label="Application status">{% for s in statuses %}<option value="{{ s }}"{{ ' selected' if s == a.status else '' }}>{{ s|replace("_", " ")|title }}</option>{% endfor %}</select>
+        <input class="u-max-170" aria-label="Résumé used" name="resume_name" list="rnames" value="{{ a.resume_name or '' }}" placeholder="résumé file">
+        <input type="date" aria-label="Date applied" name="applied_date" value="{{ a.applied_date[:10] if a.applied_date else '' }}">
+        <input name="notes" aria-label="Application notes" value="{{ a.notes or '' }}" placeholder="notes" class="appnotes">
         <button class="btn sm" type="submit">Save</button>
       </form>
       <form method="post" action="{{ url_for('application_delete') }}" class="dform">
@@ -81,15 +83,12 @@
         <button class="btn sm danger" type="submit">Delete</button>
       </form>
     </div>
+    </details>
   </div>
 {% endfor %}
 </div>
 
-<details class="setup">
-  <summary>First Time? One-Time Database Setup</summary>
-  <p>If saving doesn't stick, the <code>applications</code> table is missing. Run this once against the database:</p>
-  <pre>{{ sql }}</pre>
-</details>
+
 {% endblock %}
 
 {% block scripts %}

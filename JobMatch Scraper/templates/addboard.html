@@ -4,7 +4,7 @@
 {# The 18-name ATS list that used to be here is the authoritative one in web.py's error
    message, which is where it belongs: it is what you need AFTER a URL is rejected, not
    before you paste one. #}
-<p class="sub">Paste a company's careers link. If it's a readable job board its roles join the next scrape; if not, the company is listed as apply-direct so it still shows in Companies.</p>
+<p class="sub">Add a company’s careers page to track its openings.</p>
 {% if result %}
   <div class="result {{ result[0] }}">
     {% if result[0]=='sql' %}
@@ -41,8 +41,7 @@
    `requests`, so the ones people keep asking for are at the top. #}
 {% if wishes %}
 <h3>Wish list <span class="muted">— we can't scrape these yet</span></h3>
-<p class="sub">Companies you or someone else asked for that don't expose a readable job board.
-  They're kept so they can be looked at, not lost.</p>
+<p class="sub">Company requests awaiting support for their careers pages.</p>
 {% for w in wishes %}
 <div class="brow">
   <div>

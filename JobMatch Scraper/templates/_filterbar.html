@@ -30,6 +30,9 @@
       <button type="button" class="fchip" id="chip-roles" data-pop="pop-roles" aria-expanded="false" aria-haspopup="true">
         <span class="fchip-l">Roles</span><span class="fchip-v" id="chipv-roles"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
       </button>
+      <button type="button" class="fchip" id="chip-loc" data-pop="pop-loc" aria-expanded="false" aria-haspopup="true">
+        <span class="fchip-l">Location</span><span class="fchip-v" id="chipv-loc"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+      </button>
       <button type="button" class="fchip" id="chip-spon" data-pop="pop-spon" aria-expanded="false" aria-haspopup="true">
         <span class="fchip-l">Sponsorship</span><span class="fchip-v" id="chipv-spon"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
       </button>
@@ -53,10 +56,14 @@
     </button>
   </div>
 
-  {# LOCATION IS GONE, at Kunal's request: the chip, the popover, the #loc box and the
-     Remote-only checkbox. app.js null-guards every control it reads, so with #loc absent no
-     loc argument is sent and nothing narrows by place. The server-side filter and the
-     profile's own location field stay — they still drive the daily email digest. #}
+  {# Location and remote controls use the same preference keys as the feed and digest. #}
+  <div class="fpop" id="pop-loc" hidden role="group" aria-labelledby="lab-loc">
+    <h3 class="flab" id="lab-loc">Location</h3>
+    <label class="field-label" for="loc">City or state</label>
+    <input id="loc" class="sel" value="{{ prefs.loc or '' }}" placeholder="e.g. Boston or CA" autocomplete="off">
+    <label class="ck"><input type="checkbox" id="remoteonly"{{ ' checked' if prefs.remote else '' }}>Remote only</label>
+  </div>
+
   <div class="fpop" id="pop-spon" hidden role="group" aria-labelledby="lab-visa">
     <h3 class="flab" id="lab-visa">Sponsorship</h3>
     {# The tag set is carried in ONE hidden input rather than read off five checkboxes, because
@@ -185,11 +192,7 @@
            every posting we had not finished reading. Now the card carries all three answers as
            ink on its identity line, and the two sentences below describe what the filter really
            does with each. #}
-        <p class="field-help"><b>Entry Level / Associate</b> asks what the posting IS: the level
-          read from the description, or from the title when the description gives no number.
-          The year options ask something else &mdash; the most experience the employer demands,
-          so they keep every posting that could consider you, including the many that state no
-          number at all. Either way an internship is never removed by a year figure.</p>
+        <p class="field-help">Filter by seniority or required years of experience. Jobs without a stated year requirement are included unless hidden below.</p>
         <label class="ck" title="Hides every posting we have no experience answer for — whether the description names no number, we have not read it yet, or the employer publishes nothing readable. Postings whose seniority was read from the title are kept.">
           <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Hide postings with no experience answer</label>
       </div>
@@ -202,7 +205,7 @@
           {% endfor %}
         </select>
         {# Kept, shortened: without it the control looks broken rather than designed. #}
-        <p class="field-help">Only a third of postings state pay. Any minimum hides the rest.</p>
+        <p class="field-help">A minimum excludes jobs with no published salary.</p>
       </div>
 
       {# JOB TYPE. It used to be one dropdown mixing two grammars: "Intern + full-time" is
@@ -233,7 +236,7 @@
             <input type="checkbox" id="jt-intern" data-jt="intern"
                    {{ ' checked' if prefs.intern != 'no' else '' }}> Internships &amp; co-ops</label>
         </div>
-        <p class="field-help">Both OPT and STEM-OPT eligible.</p>
+
       </div>
     </div>
 
@@ -247,7 +250,7 @@
 
     <div class="fpopfoot">
       <button id="clearfilters" class="btn sm ghost" type="button"
-              title="Resets the filters. Search and track stay.">Clear</button>
+              title="Clear search and all filters.">Clear</button>
       <span class="spacer"></span>
       {% if show_saveprefs %}
       <button id="saveprefs" class="btn sm" type="button"
