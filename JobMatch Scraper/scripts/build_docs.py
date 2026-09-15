@@ -1101,11 +1101,23 @@ def diagram_facts(data):
         "gates": _gates(scr_src),
         "zip_files": len(zip_consts.get("FILES") or ()),
         "zip_dirs": len(zip_consts.get("DIRS") or ()),
+        # TYPED IN, and the only fact here that is. A crontab lives on the box and a
+        # workflow cron lives in YAML at the REPO ROOT, neither of which this script can read
+        # -- so this is a transcription, kept in step with docs/OPERATIONS.md section 3 by hand.
+        # Verified against `crontab -l` on 2026-09-07 and the workflow files on 2026-09-14.
         "schedule": (
-            ("09:00 M-F", ".github/workflows/scrape.yml",
-             "heavy: sweep, full score, verify_dates, analytics, digest email", "trap"),
+            ("~08-09:00 M-F", ".github/workflows/scrape.yml",
+             "heavy: sweep, full score, verify_dates, analytics, reposts, digest email", "trap"),
             ("13:00 M-F", "bin/cron_scrape.sh", "sweep, new-only score, reposts", "sched"),
             ("16:00 M-F", "bin/cron_scrape.sh", "sweep, new-only score, reposts", "sched"),
+            (":30 hourly M-F", "bin/cron_scrape.sh --analyze-only",
+             "writes jd_terms, then refills the stored user scores", "sched"),
+            ("every 5 min", "crontab: curl /warm x4",
+             "one call warms one worker; flock-guarded so a sweep is not re-fattened", "sched"),
+            ("hourly", ".github/workflows/scrape-watchdog.yml",
+             "dispatches scrape.yml when the scheduled event never arrived", "trap"),
+            ("16:00 Tue+Thu", ".github/workflows/jobspy-sweep.yml",
+             "aggregator sidecar -> jobspy_findings; never the feed", "client"),
         ),
         "max_age": _env_default(scr_src, "MAX_AGE_DAYS") or consts_scr.get("MAX_AGE_DAYS", "?"),
     }

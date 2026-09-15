@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" width="980" height="560" role="img" aria-label="The three runtime surfaces and the shared spine">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 576" width="980" height="576" role="img" aria-label="The three runtime surfaces and the shared spine">
 <title>The three runtime surfaces and the shared spine</title>
 <rect class="s-web" x="0" y="44" width="300" height="150" rx="10" fill="#e0e4fe" stroke="#4f46e5" stroke-width="1.5"/>
 <text class="t-web" x="14" y="60" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#3730a3">▣ REQUEST</text>
@@ -35,7 +35,7 @@
 <text class="t-ink" x="14" y="268" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="14.5" font-weight="600" fill="#101319">THE SPINE  --  imported by all three</text>
 <text class="t-dim" x="14" y="287" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">core.py  5,608 lines, 40 sections  --  filtering, scoring, sponsorship, visa tags,</text>
 <text class="t-dim" x="14" y="303" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">   location, salary, role tracks, saved-search prefs, work-auth timelines</text>
-<text class="t-dim" x="14" y="319" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">db.py  4,091 lines  --  one interface, four backends, chosen at first use</text>
+<text class="t-dim" x="14" y="319" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">db.py  4,091 lines  --  one interface, two transports + a CSV fallback</text>
 <path class="edge" d="M480 350 L480 386" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
 <path class="arrowhead" d="M476 380 L484 380 L480 386 Z" fill="#d3d7df"/>
 <text class="t-dim" x="0" y="380" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#101319" text-anchor="start" font-weight="600">Which database you get  --  db.py::_LazyHTTP, line 47</text>
@@ -53,7 +53,7 @@
 <text class="t-dim" x="660" y="492" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">refuses rather than guessing</text>
 <rect class="s-client" x="0" y="508" width="960" height="30" rx="6" fill="#e4e7ec" stroke="#5f6573" stroke-width="1"/>
 <text class="t-dim" x="14" y="528" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#3c414d" text-anchor="start" font-weight="600">neither</text>
-<text class="t-dim" x="330" y="528" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">-&gt;  Supabase, then local CSV</text>
-<text class="t-dim" x="660" y="528" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">vestigial since 2026-08-15</text>
-<text class="t-dim" x="0" y="562" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="600">has_remote_db() answers True for the first three. backend_name() is the one that tells you which.</text>
+<text class="t-dim" x="330" y="528" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#101319" text-anchor="start" font-weight="400">-&gt;  the local CSV fallback</text>
+<text class="t-dim" x="660" y="528" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12" fill="#4e5462" text-anchor="start" font-weight="400">a laptop with no credentials</text>
+<text class="t-dim" x="0" y="562" font-family=""InterVariable",Inter,-apple-system,"Segoe UI",Roboto,sans-serif" font-size="12.5" fill="#8a5a08" text-anchor="start" font-weight="600">has_remote_db() answers True for the first two. backend_name() is the one that tells you which. The Supabase default was deleted 2026-09-01.</text>
 </svg>
