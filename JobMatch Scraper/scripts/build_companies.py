@@ -91,6 +91,37 @@ UNSORTED_CEILING = 5.0
 # the only thing in it worth keeping, and ~50 of them (Google, Microsoft, Apple) name companies
 # with no readable board at all, so nothing else can supply them.
 NATIVE = {
+    # Official URLs researched on 2026-09-15; see the discovery evidence CSV.
+    "Charles Schwab": "https://www.schwabjobs.com/",
+    "Cox Automotive Inc.": "https://jobs.coxenterprises.com/en/learn-about-us/businesses/cox-automotive/",
+    "Health Care Service Corporation": "https://careers.hcsc.com/",
+    "Broadridge": "https://broadridge.wd5.myworkdayjobs.com/Careers",
+    "Copart": "https://www.copart.com/content/us/en/careers",
+    "LexisNexis Risk Solutions": "https://risk.lexisnexis.com/about-us/careers",
+    "Smith+Nephew": "https://www.smith-nephew.com/en-us/careers",
+    "AQR Capital Management": "https://www.aqr.com/our-firm/careers",
+    "NCR Voyix": "https://www.ncr.com/about/careers",
+    "Corewell Health": "https://corewellhealth.org/careers",
+    "Tempus AI": "https://www.tempus.com/careers/",
+    "Orange Logic": "https://www.orangelogic.com/careers",
+    "Tools for Humanity": "https://www.toolsforhumanity.com/careers",
+    "FieldAI": "https://www.fieldai.com/careers",
+    "HarbourVest Partners": "https://harbourvest.com/us/en/about-harbourvest/careers",
+    "Fresenius Kabi USA": "https://www.fresenius-kabi.com/us/careers",
+    "Mathematica": "https://mathematica.org/career-opportunities",
+    "Sony Pictures Entertainment": "https://www.sonypicturesjobs.com/",
+    "TORY BURCH": "https://toryburch.wd1.myworkdayjobs.com/en-US/toryburchcareers",
+    "Burns & McDonnell": "https://burnsmcd.jobs/",
+    "RELX": "https://www.relx.com/careers/join-us",
+    "Bank OZK": "https://careers.ozk.com/career-home/",
+    "Suffolk Construction": "https://suffolk.com/careers/job-opportunities/",
+    "Nebo Agency": "https://www.neboagency.com/careers/",
+    "Cosm": "https://www.cosm.com/careers/positions",
+    "Sail Biomedicines": "https://www.sail.bio/careers/",
+    "Milken Institute": "https://milkeninstitute.org/about/careers",
+    "MillerKnoll": "https://www.millerknoll.com/about/careers",
+    "Venture Global LNG": "https://ventureglobal.com/careers/",
+    "Publicis Health Media": "https://www.publicishealthmedia.com/careers/",
     "Samsara": "https://job-boards.greenhouse.io/samsara",
     "Stripe": "https://job-boards.greenhouse.io/stripe",
     "Verkada": "https://job-boards.greenhouse.io/verkada",
@@ -1278,6 +1309,18 @@ _CURATED_LIVE = {
 }
 for _sector, _names in _CURATED_LIVE.items():
     _CURATED_TAIL.setdefault(_sector, []).extend(_names)
+
+# Official employer pages reviewed with the September 15 URL-discovery batch.
+_DISCOVERED_SECTORS = {
+    "Banking, Finance & Insurance": ["Health Care Service Corporation", "AQR Capital Management", "HarbourVest Partners"],
+    "Healthcare, Pharma & Biotech": ["Smith+Nephew", "Tempus AI", "Fresenius Kabi USA"],
+    "Hospitals & Health Systems": ["Corewell Health"],
+    "Software & Internet": ["NCR Voyix", "Tools for Humanity", "FieldAI"],
+    "Retail, Consumer & Hospitality": ["TORY BURCH", "MillerKnoll"],
+    "Universities & Research": ["Milken Institute"],
+}
+for _sector, _names in _DISCOVERED_SECTORS.items():
+    _CURATED_LISTS.setdefault(_sector, []).extend(_names)
 
 CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
 # The tail loses to the corrections block on a collision: _CURATED_LISTS was written against

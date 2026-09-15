@@ -2004,6 +2004,31 @@ RECOVERED_BOARDS = [
     ('https://app.trinethire.com/companies/18422-beko-technologies-corporation/jobs', 'trinethire', 'Beko Technologies'),
 ]
 
+# Official employer links researched and live-verified on 2026-09-15.
+# Evidence: docs/data/discovered_careers_2026-09-15.csv
+DISCOVERED_BOARDS = [
+    ('https://www.schwabjobs.com/search-jobs', 'radancy', 'Charles Schwab'),
+    ('https://hcsc.wd1.myworkdayjobs.com/HCSC_External', 'workday', 'Health Care Service Corporation'),
+    ('https://broadridge.wd5.myworkdayjobs.com/Careers', 'workday', 'Broadridge'),
+    ('https://relx.wd3.myworkdayjobs.com/RiskSolutions', 'workday', 'LexisNexis Risk Solutions'),
+    ('https://smithnephew.wd5.myworkdayjobs.com/External', 'workday', 'Smith+Nephew'),
+    ('https://job-boards.greenhouse.io/aqr', 'greenhouse', 'AQR Capital Management'),
+    ('https://ncr.wd1.myworkdayjobs.com/ext_us', 'workday', 'NCR Voyix'),
+    ('https://ncr.wd1.myworkdayjobs.com/ext_intern', 'workday', 'NCR Voyix'),
+    ('https://spectrumhealth.wd5.myworkdayjobs.com/CorewellHealthCareers', 'workday', 'Corewell Health'),
+    ('https://tempus.wd5.myworkdayjobs.com/Tempus_Careers', 'workday', 'Tempus AI'),
+    ('https://jobs.ashbyhq.com/Tools%20for%20Humanity', 'ashby', 'Tools for Humanity'),
+    ('https://jobs.lever.co/field-ai', 'lever', 'FieldAI'),
+    ('https://harbourvest.wd5.myworkdayjobs.com/HVP', 'workday', 'HarbourVest Partners'),
+    ('https://freseniusglobal.wd3.myworkdayjobs.com/FK_Careers', 'workday', 'Fresenius Kabi USA'),
+    ('https://www.sonypicturesjobs.com/search-jobs', 'radancy', 'Sony Pictures Entertainment'),
+    ('https://toryburch.wd1.myworkdayjobs.com/toryburchcareers', 'workday', 'TORY BURCH'),
+    ('https://careers.ozk.com', 'jibe', 'Bank OZK'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=4ab5cf12-22e4-443e-947d-24b517b6ad82&ccId=19000101_000001', 'adp', 'Milken Institute'),
+    ('https://millerknoll.wd1.myworkdayjobs.com/MillerKnoll', 'workday', 'MillerKnoll'),
+    ('https://venturegloballng.wd108.myworkdayjobs.com/External_Careers', 'workday', 'Venture Global LNG'),
+]
+
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ROBERTHALF_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
@@ -2011,7 +2036,7 @@ SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + JOBSPY_BOARDS + JOBRIGHT_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
            + AQUENT_BOARDS
            + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
-           + JOBVITE_BOARDS + WERFEN_BOARDS + RECOVERED_BOARDS)
+           + JOBVITE_BOARDS + WERFEN_BOARDS + RECOVERED_BOARDS + DISCOVERED_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -7632,10 +7657,10 @@ def detect_successfactors(url):
 # detect_linked_ats() fetches the page and follows the first of these it finds.
 _ATS_LINK_RE = re.compile(
     r"""https?://(?:
-        (?:job-boards|boards)\.greenhouse\.io/[A-Za-z0-9_-]+
-      | boards\.greenhouse\.io/embed/job_board\?for=[A-Za-z0-9_-]+
+        boards\.greenhouse\.io/embed/job_board(?:/js)?\?for=[A-Za-z0-9_-]+
+      | (?:job-boards|boards)\.greenhouse\.io/[A-Za-z0-9_-]+
       | jobs\.lever\.co/[A-Za-z0-9_-]+
-      | jobs\.ashbyhq\.com/[A-Za-z0-9_-]+
+      | jobs\.ashbyhq\.com/[A-Za-z0-9_%.-]+
       | jobs\.smartrecruiters\.com/[A-Za-z0-9_-]+
       | [a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/[A-Za-z0-9_/-]+
       | wd\d+\.myworkdaysite\.com/recruiting/[A-Za-z0-9_/-]+

@@ -17,6 +17,17 @@ def response(url, text="", data=None, status=200):
 
 
 class DiscoveryRedirectTests(TestCase):
+    def test_greenhouse_script_embed_keeps_tenant(self):
+        self.get.return_value = response("https://careers.aqr.com/", '<script src="https://boards.greenhouse.io/embed/job_board/js?for=aqr"></script>')
+        hit = scraper.detect_linked_ats("https://careers.aqr.com/")
+        self.assertEqual(hit[:2], ("https://job-boards.greenhouse.io/aqr", "greenhouse"))
+
+    def test_ashby_encoded_spaces_keep_complete_tenant(self):
+        url = "https://jobs.ashbyhq.com/Tools%20For%20Humanity"
+        self.get.return_value = response("https://example.com/careers", '<iframe src="' + url + '"></iframe>')
+        hit = scraper.detect_linked_ats("https://example.com/careers")
+        self.assertEqual(hit[:2], (url, "ashby"))
+
     def test_avature_location_is_not_discarded_with_requisition_metadata(self):
         from bs4 import BeautifulSoup
         card = BeautifulSoup('<article><div class="article__header__text__subtitle"><span>India, Karnataka, BANGALORE</span><br><span>Req #: WD123</span><br><span>Posted 15-Sep-2026</span></div></article>', 'html.parser')
