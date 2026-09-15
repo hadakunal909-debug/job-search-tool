@@ -13,7 +13,7 @@ Completed and deployed: September 15, 2026.
 ## Changes
 
 - Shared navigation, typography, buttons, borders, spacing, and panel styling.
-- Job cards with consistent logo space, an initials fallback, clearer titles, a compact top-right match score, and a sponsorship footer.
+- Job cards with consistent logo space, an initials fallback, clearer titles, a compact top-right match score, and a sponsorship label within the main card content.
 - Persistent Compact, Comfortable, and Roomy card sizes. Responsive grids use up to five, four, or three columns respectively, with a 1920px feed cap on ultrawide monitors.
 - Description reading panel with constrained line length, larger body text, section links, and improved paragraph/list spacing.
 - Persistent Larger text and Highlight skills controls. Skills are unhighlighted by default; the optional legend distinguishes terms present and absent in the resume.

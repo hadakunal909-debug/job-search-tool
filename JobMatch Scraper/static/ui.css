@@ -71,10 +71,9 @@ button,input,select,textarea{font-family:inherit}
 .feedgrid .cardmatch .score-pending{font-size:10px;line-height:1.2;text-align:center}
 .feedgrid .cardmatch .cvlabel{font-size:10px;line-height:1.4;letter-spacing:.02em;max-width:52px;color:var(--accent-text)}
 .feedgrid .cardmatch .score-ring{--ring-color:var(--accent-text);--ring-track:var(--border-subtle);--match-pill:var(--bg-surface)}
-.feedgrid .cardverdict{order:0;flex:0 0 auto;width:auto;min-width:0;flex-direction:row;justify-content:flex-start;padding:10px 22px;border-left:0;border-top:1px solid var(--verdict-line);text-align:left}
-.feedgrid .cardverdict .cbadges{margin:0;min-width:0}
-.feedgrid .cardverdict .cbadges>*{font-size:11px;white-space:normal;line-height:1.4}
-.feedgrid .cardverdict .cbadges>*::before{content:none}
+.feedgrid .card-sponsorship{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px;width:auto;margin:0;padding:0;border:0;text-align:left}
+.feedgrid .card-sponsorship>*{font-size:11px;line-height:1.4;white-space:normal;background:none;border:0;padding:0;color:var(--text-secondary)}
+.feedgrid .card-sponsorship>*::before{content:none}
 .jobwrap{max-width:1280px;padding-top:4px}
 .backlink{margin:12px 0 24px;font-size:13px}
 .jobhead{margin-bottom:28px;gap:20px;align-items:center}
@@ -190,7 +189,6 @@ textarea{line-height:1.65}
 :root[data-card-size="compact"] .feedgrid .cardbody{padding:18px;gap:8px}
 :root[data-card-size="compact"] .feedgrid .ctitle{font-size:15px;min-height:42px}
 :root[data-card-size="compact"] .feedgrid .cfact{font-size:11.5px}
-:root[data-card-size="compact"] .feedgrid .cardverdict{padding:9px 18px}
 :root[data-card-size="roomy"] .feedgrid .cardbody{padding:26px;gap:12px}
 :root[data-card-size="roomy"] .feedgrid .ctitle{font-size:19px;min-height:53px}
 :root[data-card-size="roomy"] .feedgrid .cfact{font-size:14px}
