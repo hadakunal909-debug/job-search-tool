@@ -707,20 +707,7 @@
       // decoration rather than as data, and the paint containment that makes a long grid cheap
       // to scroll would have clipped it.
       //
-      // THE LEDE: who is hiring on the left, what we make of it on the right.
-      //
-      // .cardverdict is the only part of a card that is about the READER rather than about the
-      // job -- invariant 7's line, drawn in pixels. At three cards to a line there is no room
-      // for it to be a ruled column down the side, so it holds the top-right corner and the
-      // label under the ring carries the separation that the rule used to.
-      //
-      // The mark leads the row (owner's direction 2026-09-02; the cap in companyMark is what
-      // makes the corner survivable) and the New flag follows it. margin-left:auto on the
-      // verdict holds the right edge and does not care how many children precede it.
-      //
-      // The title is NOT in here. It spans the card's full width on the next line, which is
-      // what lets every title in the grid start at the same x without reserving a fixed slot
-      // for a mark that is 39px wide for Mastercard and absent on 15% of rows.
+      // Employer and match share the header; the title spans the card below it.
       '<div class="cardbody">' +
       '<div class="cardlede">' + companyMark(j) + newFlag +
         '<div class="cardmatch">' + scoreCell(j) + matchLabel(j) + '</div></div>' +
@@ -771,6 +758,7 @@
         factCell('cf-rem', j.remote ? 'Remote' : '',
                  j.remote ? 'This posting is remote.' : '') +
       '</div>' +
+      (badges ? '<div class="cbadges card-sponsorship">' + badges + '</div>' : '') +
       '<div class="cardact">' +
         '<a class="btn primary sm" href="' + H(applyHref) + '" target="_blank" rel="noopener" data-apply="1">Apply<span class="ic ic-external" aria-hidden="true"></span></a>' +
         '<a class="btn sm" href="/brain/tailor?job=' + encodeURIComponent(j.url) + '">Tailor</a>' +
@@ -784,20 +772,6 @@
         '</span>' +
       '</div>' +
       '</div>' +
-      // THE VERDICT PANEL. Everything the READER's own profile decides -- the score, that score
-      // in words, and the one sponsorship claim -- in a tinted column down the trailing edge,
-      // against a white card carrying only what the EMPLOYER published. That is invariant 7
-      // drawn in pixels, and it is why the blue moved here: the whole card used to be washed in
-      // it, which spent the one hue on a distinction it was not making.
-      //
-      // A TINT, not a slab. The first cut was #1d4ed8 with white on it and read as a dark block
-      // bolted to a white card; the panel only has to mark a different KIND of claim, and a tint
-      // does that without shouting.
-      //
-      // The chip comes WITH the score rather than sitting under the facts, because it is the
-      // same kind of claim -- our reading of a federal filing history, not something the posting
-      // says. It is still exactly one chip; only its address changed.
-      (badges ? '<div class="cardverdict"><div class="cbadges">' + badges + '</div></div>' : '') +
     '</article>';
   }
 
