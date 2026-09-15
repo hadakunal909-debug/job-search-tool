@@ -2029,6 +2029,51 @@ DISCOVERED_BOARDS = [
     ('https://venturegloballng.wd108.myworkdayjobs.com/External_Careers', 'workday', 'Venture Global LNG'),
 ]
 
+# Live-verified public HTML/API adapters; evidence in docs/data/supported_public_boards_2026-09-15.csv.
+SUPPORTED_PUBLIC_BOARDS = [
+    ('https://bowheadcareers-uicalaska.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'UIC Alaska'),
+    ('https://uscareers-fujifilm.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'FujiFilm'),
+    ('https://careers-fhcrc.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Fred Hutchinson Cancer Center'),
+    ('https://uscareers-kellerna.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Keller North America, Inc.'),
+    ('https://teamwork-ovg.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Oak View Group'),
+    ('https://careers-centralnm-ymca.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'YMCA of Central New Mexico'),
+    ('https://intivahealth.applytojob.com/apply', 'jazzhr', 'Gummi World'),
+    ('https://careers-quanta.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Quanta Services'),
+    ('https://careers-osuphysicians.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Ohio State University Physicians'),
+    ('https://careers-reisystems.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'REI Systems'),
+    ('https://careers-partnershiphp.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Partnership HealthPlan of California'),
+    ('https://careers-lynker.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Lynker'),
+    ('https://advatixinc.applytojob.com/apply', 'jazzhr', 'Advatix'),
+    ('https://chadwellsupply.applytojob.com/apply', 'jazzhr', 'Chadwell Supply'),
+    ('https://careers-ferrellgas.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Ferrellgas'),
+    ('https://careers-rovisysbuildingtechnologies.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'RoviSys'),
+    ('https://careers-gdms.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'General Dynamics Mission Systems'),
+    ('https://careers-samaritanvillage.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Samaritan Daytop Village'),
+    ('https://careers-cadmusgroup.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'The Cadmus Group, Inc.'),
+    ('https://careers-connection.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Connection'),
+    ('https://careers-daifuku-america.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Daifuku'),
+    ('https://talent-marvin.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Marvin'),
+    ('https://careers-markon.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Markon'),
+    ('https://homeoffice-na-urbn.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Urban Outfitters'),
+    ('https://careers-scires.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Scientific Research Corporation'),
+    ('https://careers-spencersandspirit.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', "Spencer's and Spirit Halloween"),
+    ('https://careers-fedwriters.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'FWI (FedWriters, Inc.)'),
+    ('https://alexandriainsights.applytojob.com/apply', 'jazzhr', 'Alexandria Insights'),
+    ('https://careers-allnativegroup.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'All Native Group'),
+    ('https://ascensionjobs1-ascension.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Ascension'),
+    ('https://careers-i2gsystems.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'i2G Systems'),
+    ('https://careers-tatitlek.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'The Tatitlek Corporation'),
+    ('https://careers-clarkson.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Clarkson University'),
+    ('https://careers-nv5.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'NV5'),
+    ('https://uscareers-lewisenergy.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Lewis Resource Management'),
+    ('https://talent-cajunusa.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Cajun Industries, LLC'),
+    ('https://neboagency.applytojob.com/apply', 'jazzhr', 'Nebo Agency'),
+    ('https://careers-suffolkconstruction.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Suffolk Construction'),
+    ('https://careers.astrion.us', 'jibe', 'Astrion'),
+    ('https://www.towercareers.org', 'jibe', 'Tower Health'),
+    ('https://mathematica.csod.com/ux/ats/careersite/4/home', 'cornerstone', 'Mathematica'),
+]
+
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ROBERTHALF_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
@@ -2036,7 +2081,7 @@ SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + JOBSPY_BOARDS + JOBRIGHT_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
            + AQUENT_BOARDS
            + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
-           + JOBVITE_BOARDS + WERFEN_BOARDS + RECOVERED_BOARDS + DISCOVERED_BOARDS)
+           + JOBVITE_BOARDS + WERFEN_BOARDS + RECOVERED_BOARDS + DISCOVERED_BOARDS + SUPPORTED_PUBLIC_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -7161,9 +7206,15 @@ from scraper.peopleadmin import scrape_peopleadmin
 from scraper.adp import scrape_adp
 from scraper.paycom import scrape_paycom
 from scraper.trinethire import scrape_trinethire
+from scraper.jazzhr import scrape_jazzhr
+from scraper.icims import scrape_icims
+from scraper.cornerstone import scrape_cornerstone
 
 
 SCRAPERS = {
+    "cornerstone": scrape_cornerstone,
+    "jazzhr": scrape_jazzhr,
+    "icims": scrape_icims,
     "adp": scrape_adp,
     "paycom": scrape_paycom,
     "trinethire": scrape_trinethire,
@@ -7220,11 +7271,9 @@ SCRAPERS = {
 # Not every careers site exposes a feed we can read, and detect_board() returns None for the
 # ones that do not — the app routes those to careers links instead. The list of exceptions has
 # shrunk: Oracle (ORC), Phenom, SuccessFactors, Avature, Paylocity, PeopleSoft and now Eightfold
-# all turned out to have one, and Jobvite joined them on 2026-08-20 -- see scrape_jobvite, whose
-# listing page is a plain server-rendered table. What genuinely remains unread: Taleo, Teamtailor,
-# Cornerstone, Google/Meta-style bespoke portals, and NATIVE iCIMS portals -- those answer 405 +
-# "Human Verification" on every path, and the only way past one is a branded CMS in front of it
-# that republishes the reqs (scrape_digitas, scrape_werfen).
+# all turned out to have one. JazzHR and readable native iCIMS portals now have
+# dedicated adapters too. Some portals still serve verification pages; availability
+# must be checked per employer, not inferred from the ATS brand.
 _LOCALES = {"en-us", "en-gb", "en", "us", "global", "en-us"}
 
 
@@ -7354,6 +7403,18 @@ def detect_board(url):
     host = p.netloc.lower()
     segs = [s for s in p.path.split("/") if s]
 
+    if re.fullmatch(r"[a-z0-9-]+\.csod\.com", host):
+        from scraper.cornerstone import board_url
+        try:
+            return (board_url(url), "cornerstone", _name_from(host.split('.')[0]))
+        except ValueError:
+            return None
+    if re.fullmatch(r"[a-z0-9-]+\.applytojob\.com", host):
+        from scraper.jazzhr import board_url
+        return (board_url(url), "jazzhr", _name_from(host.split('.')[0]))
+    if re.fullmatch(r"[a-z0-9-]+\.icims\.com", host):
+        from scraper.icims import board_url
+        return (board_url(url), "icims", "")
     if host == "app.trinethire.com":
         from scraper.trinethire import board_url
         try:
@@ -7676,6 +7737,9 @@ _ATS_LINK_RE = re.compile(
       | ats\.rippling\.com/[A-Za-z0-9_-]+
       | workforcenow(?:\.cloud)?\.adp\.com/mascsr/[^\s<>\"\']+
       | (?:www\.)?paycomonline\.net/v4/ats/web\.php/portal/[a-f0-9]{32}[^\s<>\"\']*
+      | [a-z0-9-]+\.csod\.com/ux/ats/careersite/[0-9]+/home[^\s<>\"\']*
+      | [a-z0-9-]+\.applytojob\.com/apply[^\s<>\"\']*
+      | [a-z0-9-]+\.icims\.com/jobs/[^\s<>\"\']*
       | app\.trinethire\.com/companies/[0-9]+-[a-z0-9-]+/jobs
       | [a-z0-9-]+\.peopleadmin\.com(?:/postings(?:/search)?)?
       | [a-z0-9-]+\.avature\.net/[A-Za-z0-9_-]+
@@ -7883,6 +7947,14 @@ def probe_board(board_url, ats_type):
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
     try:
         slug = board_url.rstrip("/").split("/")[-1]
+        if ats_type == "cornerstone":
+            return len(scrape_cornerstone(board_url))
+        if ats_type in ("jazzhr", "icims"):
+            # One public page is enough for validation; scheduled scraping follows all pages.
+            from importlib import import_module
+            adapter = import_module("scraper." + ats_type)
+            url = adapter.board_url(board_url)
+            return len(adapter.parse_page(adapter.page(url), url)[0])
         if ats_type == "trinethire":
             return len(scrape_trinethire(board_url))
         if ats_type == "paycom":
@@ -8405,7 +8477,18 @@ def _fetch_jd_queue(items, secs_left, label, score_jobs):
             jid, origin = j.get("_phenom_jid"), j.get("_phenom_origin")
             if jid and origin:
                 return j, score_jobs.phenom_jd_by_id(origin, jid)
-            _u, jd, _d = score_jobs.detail_jd(canonical_url(j.get("url", "")))
+            url = canonical_url(j.get("url", ""))
+            if re.fullmatch(r"[a-z0-9-]+\.icims\.com", urlparse(url).hostname or ""):
+                from scraper.icims import detail_fields
+                jd, posted, location = detail_fields(url)
+                # Native cards can omit both fields. Apply the actual posting
+                # metadata BEFORE intake evaluates its country and age gates.
+                if posted and not j.get("found_date"):
+                    j["found_date"] = posted
+                if location and not j.get("location"):
+                    j["location"] = location
+                return j, jd
+            _u, jd, _d = score_jobs.detail_jd(url)
             return j, jd or ""
         except Exception:
             return j, ""
