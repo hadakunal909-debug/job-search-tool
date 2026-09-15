@@ -1022,6 +1022,28 @@ def detail_jd(url):
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""
+    if scraper.urlparse(url).hostname == "app.trinethire.com":
+        from scraper.trinethire import detail_jd as trinet_detail_jd
+        try:
+            jd, date = trinet_detail_jd(url)
+            if jd:
+                return url, jd, date
+        except Exception:
+            pass
+    if scraper.urlparse(url).hostname in ("www.paycomonline.net", "paycomonline.net"):
+        from scraper.paycom import detail_jd as paycom_detail_jd
+        try:
+            jd, date = paycom_detail_jd(url)
+            if jd:
+                return url, jd, date
+        except Exception:
+            pass
+    if scraper.urlparse(url).hostname in ("workforcenow.adp.com", "workforcenow.cloud.adp.com"):
+        from scraper.adp import detail_jd as adp_detail_jd
+        try:
+            jd, date = adp_detail_jd(url)
+        except Exception:
+            pass
     if scraper.urlparse(url).hostname == "digitalcareers.infosys.com":
         from scraper.infosys import detail_jd as infosys_detail_jd
         jd = infosys_detail_jd(url)

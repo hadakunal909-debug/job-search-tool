@@ -1940,6 +1940,70 @@ ROBERTHALF_SITEMAP = ("https://www.roberthalf.com/content/"
 # scrape_roberthalf for why the client is never named and what that costs.
 ROBERTHALF_BOARDS = [(ROBERTHALF_SITEMAP, "roberthalf", "Robert Half")]
 
+# Recovered from saved unresolved/timeout/fetch-error records; see
+# docs/SCRAPE_RECOVERY_2026-09-15.md and its per-employer evidence CSV.
+# Keep readable empty boards: company coverage is independent of today's vacancies.
+RECOVERED_BOARDS = [
+    ('https://workforcenow.cloud.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=2c2a8163-4eba-4e7d-a9f6-389500db9da2&ccId=19000101_000001', 'adp', 'Boys & Girls Clubs of Sarasota & DeSoto Counties'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=f0c6dca6-29ba-4cc4-ac7f-ed135497a773&ccId=19000101_000001', 'adp', 'KMS Solutions, LLC'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=70593cbb-73d8-4eab-af03-f823114a449c&ccId=19000101_000001', 'adp', 'Quest International, Inc.'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=ee0463b8-ef3c-433b-94c8-5e2a33319a45&ccId=19000101_000001', 'adp', 'The Paslin Company'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=e4f8b9ad-dfe3-4e97-9504-6afef1e3281f&ccId=19000101_000001', 'adp', 'AKAM Associates Inc.'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=1b4fa2f3-f716-4f84-ab6c-617cbf317c7b&ccId=19000101_000001', 'adp', "St. John's Community Health"),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=98bc5085-da7f-4583-8e58-cfea65332c30&ccId=19000101_000001', 'adp', 'Advanced Technology Systems Company'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=002cdd05-5ee1-4962-99ad-52745759fbd4&ccId=19000101_000003', 'adp', 'Museum of Life and Science'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a6473ed1-cdd4-45f8-bc74-747398481523&ccId=19000101_000001', 'adp', 'Fastener Distribution Holdings'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=aa154704-1acf-448b-a694-74cddcfe4899&ccId=19000101_000001', 'adp', 'Medical Technology Associates'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=38575bc6-542b-464d-b966-c55fe9668ccf&ccId=19000101_000001', 'adp', 'Strategic Insight, Ltd.'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=ec120d67-f610-401b-951f-1d3eed3b8c81&ccId=19000101_000001', 'adp', 'AC Martin'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=8c2ce031-179d-42b4-a000-63d144542ca1&ccId=19000101_000001', 'adp', 'Alliance Global Group LLC'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=192c7ab1-36a7-48c9-9186-174a757f98b7&ccId=19000101_000001', 'adp', 'Cadogan Tate Fine Art'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=4184cb67-fb9d-40ea-8c3c-8a85d93caa67&ccId=19000101_000001', 'adp', 'CRL Technologies'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=5b62f5eb-3ce4-4e86-a6be-8f21bd42f616&ccId=19000101_000001', 'adp', 'J. KOKOLAKIS CONTRACTING'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=7421b050-ddd7-4ade-98d4-ab789c0e7a2f&ccId=19000101_000001', 'adp', 'Lincoln Center'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=06c001b7-4190-429f-a7c9-066fe6eab95e&ccId=19000101_000001', 'adp', 'U.S. Ski and Snowboard Association'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=38d65de7-85eb-475d-bb5c-7d593bfeacc7&ccId=19000101_000001', 'adp', 'Wooddale Church'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=6d193cfe-9ce7-4dac-9ccc-c8a4c3a6c3d0&ccId=19000101_000001', 'adp', 'Crystal Taylor Systems Inc'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=5588a3f1-8a58-42f6-bca4-c9f5830f9517&ccId=19000101_000001', 'adp', 'ICM Ventures Inc'),
+    ('https://workforcenow.cloud.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=df51eab9-9a3a-48f5-8440-c6187a31b733&ccId=19000101_000001', 'adp', 'Maylor Foundation Contractors LLC'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=e5e982ff-c68b-47fb-8a91-74bb4dd79879&ccId=19000101_000001', 'adp', 'AI Signal Research Inc (ASRI)'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=0d8aa8d2-61de-4f86-9246-49b6b8e29002&ccId=9202333123210_3', 'adp', 'Blackrock Strategy'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=23354965-305e-4328-8f00-d2192aa6b2d5&ccId=19000101_000001', 'adp', 'Niterra'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=d5856577-2c4f-400c-bcf3-4f80afedad61&ccId=19000101_000001', 'adp', 'Salute Mission Inc.'),
+    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=85cdd3b9-1f58-4083-a839-c7b7d0a15ff1&ccId=19000101_000001', 'adp', 'TRAFFIC MANAGEMENT SOLUTIONS'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/EB515929FFEA5D1503321C87D47C0876/career-page', 'paycom', 'Woodson YMCA'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/10A3DE6511E7D6C24F2144B34E6A7836/career-page', 'paycom', 'Amenity Health Services, PLLC.'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/95CACB007211B4A999FBE2ED52E7762E/career-page', 'paycom', 'Ebara Technologies'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/A987FA0B5A5040C44E5381F270D181DA/career-page', 'paycom', 'Metropolitan Family Service'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/9AF6C1D7527E8578CBEF8630E33831A5/career-page', 'paycom', 'Northeast Kingdom Human Services'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/F22E334739B721BD200B05E79DC87DE5/career-page', 'paycom', 'People, Technology & Processes'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/C503D6406644FAA84F64688532B162A3/career-page', 'paycom', 'Western Reserve Area Agency on Aging'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/F631D597336939B4041FBF6F99B99804/career-page', 'paycom', 'Index Analytics LLC'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/E208574E271D180B27F578654032D107/career-page', 'paycom', 'Regional One Health'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/773B2F332BBDB512D5F0E5A3DE12FA5A/career-page', 'paycom', 'Shamin Hotels'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/A0EC44FF0B0DFB12FBD46DE2D6CD7840/career-page', 'paycom', 'CHATSWORTH PRODUCTS INC'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/DF538077F48B76E38E0573E7E1515349/career-page', 'paycom', 'Romark Logistics'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/5FFFB17A9D8CC9E9684BD5D9EAD3B5D3/career-page', 'paycom', 'Community Interactions, Inc'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/16C9052FE9DB320C85CE0280C58B20C2/career-page', 'paycom', 'Goodwill of Southern Nevada'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/D62F7706797AADC2B785E7DECD13D9E7/career-page', 'paycom', 'Health Union'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/957B67314D085A633E5C9C5568F3BC04/career-page', 'paycom', 'Miracorp'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/4044E391B514AC0B5A7D9467CAC134FB/career-page', 'paycom', 'Southeastern Comp Consultants Inc'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/6E954C497BEB1CC1EFFCD161606A4897/career-page', 'paycom', 'North East Medical Services'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/D7AFD5E5DDFA3EC5B7FC1240E9133375/career-page', 'paycom', 'Statewide Conditioning'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/8BD2A9F20EC13EEBB1B75F7FB00ECF6D/career-page', 'paycom', 'College Now Greater Cleveland'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/E9FC411F9EDB32C85FC1D36012AA72CB/career-page', 'paycom', 'Cowlitz Indian Tribe'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/6A65D4839EABF00DA6E56F51C81B899C/career-page', 'paycom', 'Interagency Readiness Solutions'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/F66DA4C9BEA0EACD7DBC7D0B5614FC61/career-page', 'paycom', 'My Wireless'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/11441B547980B6EB5236C97B4061C0C5/career-page', 'paycom', 'Symons Fire Protection, Inc'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/8A22DA8A0419AFE6C8D4F473787B2945/career-page', 'paycom', 'Comprehend Inc'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/A2D0C837FF0A7B96B06455120E2BB479/career-page', 'paycom', 'Four Oaks Family And Childrens Services'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/A3D1DDFDE6DE09EAAF2A6FE53D4C6A02/career-page', 'paycom', 'Lake Region Healthcare'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/BBB61291218588DA1B7C2B47B7D7CAE7/career-page', 'paycom', 'Lutheran Services Carolinas'),
+    ('https://www.paycomonline.net/v4/ats/web.php/portal/428A3AD7FBD86DF84355911DEA1C1FF2/career-page', 'paycom', 'PLANTERS BANK'),
+    ('https://app.trinethire.com/companies/20533-all-weather-insulated-panels/jobs', 'trinethire', 'All Weather Insulated Panels'),
+    ('https://app.trinethire.com/companies/18422-beko-technologies-corporation/jobs', 'trinethire', 'Beko Technologies'),
+]
+
 SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + ROBERTHALF_BOARDS
            + ORACLE_BOARDS + PHENOM_BOARDS + AVATURE_BOARDS + ULTIPRO_BOARDS + JOBDIVA_BOARDS
@@ -1947,7 +2011,7 @@ SOURCES = (AMAZON + ATS_BOARDS + EXTRA_BOARDS + WORKDAY_BOARDS + JIBE_BOARDS
            + JOBSPY_BOARDS + JOBRIGHT_BOARDS + METACAREERS_BOARDS + MICHAELPAGE_BOARDS
            + AQUENT_BOARDS
            + WORKATASTARTUP_BOARDS + EIGHTFOLD_BOARDS + DIGITAS_BOARDS
-           + JOBVITE_BOARDS + WERFEN_BOARDS)
+           + JOBVITE_BOARDS + WERFEN_BOARDS + RECOVERED_BOARDS)
 
 OUTPUT_CSV    = "jobs.csv"        # master list; only new jobs get appended
 LOG_NOTE_FILE = "log.txt"         # the scheduler writes run output here (see README)
@@ -7069,9 +7133,15 @@ from scraper.infosys import scrape_infosys
 from scraper.radancy import scrape_radancy
 from scraper.box import scrape_box
 from scraper.peopleadmin import scrape_peopleadmin
+from scraper.adp import scrape_adp
+from scraper.paycom import scrape_paycom
+from scraper.trinethire import scrape_trinethire
 
 
 SCRAPERS = {
+    "adp": scrape_adp,
+    "paycom": scrape_paycom,
+    "trinethire": scrape_trinethire,
     "peopleadmin": scrape_peopleadmin,
     "box": scrape_box,
     "radancy": scrape_radancy,
@@ -7258,6 +7328,25 @@ def detect_board(url):
     p = urlparse(url)
     host = p.netloc.lower()
     segs = [s for s in p.path.split("/") if s]
+
+    if host == "app.trinethire.com":
+        from scraper.trinethire import board_url
+        try:
+            return (board_url(url), "trinethire", "")
+        except ValueError:
+            return None
+    if host in ("www.paycomonline.net", "paycomonline.net"):
+        from scraper.paycom import board_url
+        try:
+            return (board_url(url), "paycom", "")
+        except ValueError:
+            return None
+    if host in ("workforcenow.adp.com", "workforcenow.cloud.adp.com"):
+        from scraper.adp import board_url
+        try:
+            return (board_url(url), "adp", "")
+        except ValueError:
+            return None
 
     if host_is(host, 'peopleadmin.com') and host != 'peopleadmin.com':
         return ('https://%s/postings/search' % host, 'peopleadmin', _name_from(host.split('.')[0]))
@@ -7560,6 +7649,9 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.bamboohr\.com/careers
       | [a-z0-9-]+\.pinpointhq\.com
       | ats\.rippling\.com/[A-Za-z0-9_-]+
+      | workforcenow(?:\.cloud)?\.adp\.com/mascsr/[^\s<>\"\']+
+      | (?:www\.)?paycomonline\.net/v4/ats/web\.php/portal/[a-f0-9]{32}[^\s<>\"\']*
+      | app\.trinethire\.com/companies/[0-9]+-[a-z0-9-]+/jobs
       | [a-z0-9-]+\.peopleadmin\.com(?:/postings(?:/search)?)?
       | [a-z0-9-]+\.avature\.net/[A-Za-z0-9_-]+
       | www\d*\.jobdiva\.com/portal/\?a=[A-Za-z0-9]+
@@ -7766,6 +7858,14 @@ def probe_board(board_url, ats_type):
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
     try:
         slug = board_url.rstrip("/").split("/")[-1]
+        if ats_type == "trinethire":
+            return len(scrape_trinethire(board_url))
+        if ats_type == "paycom":
+            from scraper.paycom import listing_page
+            return listing_page(board_url, page_size=1)[1]
+        if ats_type == "adp":
+            from scraper.adp import listing_page
+            return listing_page(board_url, page_size=1)[1]
         if ats_type == "peopleadmin":
             from scraper.peopleadmin import listing_info
             r = _safe_get(urljoin(board_url, '/postings/search'), timeout=15)
@@ -9649,7 +9749,11 @@ def reconcile_closed(board_results, apply=False):
             # Too broad to scope safely (a bare host would span every company on it).
             continue
 
-        mine = [r for r in rows if _norm_url(r.get("url")).startswith(prefix)]
+        if ats == "adp":
+            from scraper.adp import owns_url
+            mine = [r for r in rows if owns_url(br["entry"][0], r.get("url") or "")]
+        else:
+            mine = [r for r in rows if _norm_url(r.get("url")).startswith(prefix)]
         if not mine:
             continue
         # A board that suddenly returns a fraction of what we have is having a bad day
