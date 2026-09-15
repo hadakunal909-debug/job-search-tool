@@ -120,3 +120,10 @@ company_domains_discovered.csv
 # by /warm whenever idf.json's content hash stops matching the one stamped inside it.
 idf.json.idx
 *.idx.*.tmp
+
+# scripts/retry_unscrapeable.py writes a run folder per attempt here: raw board HTML, the
+# pagination JS it had to read to find the real listing, per-employer evidence and the raw
+# postings. Tens of MB a run, and regenerable by re-running the retry. The durable outputs are
+# the adapters and the board urls in final/new_board_candidates.csv -- committed as code and
+# adopted into the boards table, never as a dump.
+outputs/
