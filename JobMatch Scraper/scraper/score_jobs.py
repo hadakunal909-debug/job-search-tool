@@ -948,9 +948,9 @@ def microdata_jd(url):
         date = page_posted_date(soup)
         el = soup.select_one("[itemprop=description]")
         if el:
-            txt = el.get_text(" ", strip=True)
+            txt = _text(str(el))
             if len(txt) > 200:
-                return re.sub(r"\s{2,}", " ", txt), date
+                return txt, date
         for tag in soup.find_all("script", type="application/ld+json"):
             try:
                 data = json.loads(tag.string or "", strict=False)   # see page_posted_date
@@ -1592,7 +1592,9 @@ def _score_rev(resume):
         # have skipped rows whose answer had just changed. Named individually rather than
         # hashing core.py whole, for the reason the docstring above gives.
         for fn in (core.analyze_jd, core.score_against, core.job_meta,
-                   core.clean_jd, core.experience_years):
+                   core.clean_jd, core.experience_years, core._experience_floors_split,
+                   core._reads_as_preferred, core._collapse_ladders, core._experience_sections,
+                   core._clause_before, core._clause_after):
             try:
                 src += inspect.getsource(fn).encode("utf-8", "replace")
             except Exception:
@@ -1617,6 +1619,14 @@ def _score_rev(resume):
         src += repr((getattr(core, "CORE_WEIGHT_FRACTION", ""), getattr(core, "MIN_SCALE", ""),
                      getattr(core, "_MIN_JD_CHARS", ""),
                      sorted(getattr(core, "ATS_KEYWORDS", ())))).encode("utf-8")
+        # Experience regexes and windows also change the stored filter values.
+        src += repr(sorted((name, getattr(value, "pattern", value),
+                            getattr(value, "flags", None))
+                           for name, value in vars(core).items()
+                           if (name.startswith("_EXP_") or name in (
+                               "_DEGREE_RE", "_ALTERNATIVE_RE", "_LADDER_GAP", "_CLAUSE_SPLIT_RE"))
+                           and isinstance(value, (str, int, re.Pattern)))).encode("utf-8")
+        src += repr(sorted(core._WORD_NUM.items())).encode("utf-8")
         src += (resume or "").encode("utf-8", "replace")
         return hashlib.sha1(src).hexdigest()[:12]
     except Exception:

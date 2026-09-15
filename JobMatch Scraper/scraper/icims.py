@@ -6,7 +6,7 @@ empty board. Follow the published pagination and keep incomplete runs partial.
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -85,8 +85,11 @@ def parse_page(soup, url):
                 date = datetime.strptime(posted['title'].split()[0], '%m/%d/%Y').date().isoformat()
             except ValueError:
                 pass
-        rows.append({"title": title, "url": "https://" + p.hostname + p.path,
-                     "location": location_text(loc), "found_date": date})
+        row = {"title": title, "url": "https://" + p.hostname + p.path,
+               "location": location_text(loc)}
+        if date:
+            row['found_date'] = date
+        rows.append(row)
     if not rows:
         text = soup.get_text(" ", strip=True).lower()
         if not any(x in text for x in ("no jobs found", "no matching jobs", "no jobs are currently available",
@@ -153,6 +156,28 @@ def scrape_icims(url):
     return rows
 
 
+def posting_date(job, now=None):
+    """Reject iCIMS template dates generated from the request clock.
+
+    Ascension's detail page emits now minus two years / now plus one year on
+    every request. Those moving timestamps are not dates for this posting.
+    A separately stated listing date remains usable.
+    """
+    raw = str(job.get('datePosted') or '')
+    try:
+        posted = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        expires = datetime.fromisoformat(str(job.get('validThrough') or '').replace('Z', '+00:00'))
+        clock = now or datetime.now(timezone.utc)
+        if (posted.tzinfo and expires.tzinfo
+                and posted.year == clock.year - 2 and expires.year == clock.year + 1
+                and posted.replace(year=clock.year) == expires.replace(year=clock.year)
+                and abs((posted.replace(year=clock.year) - clock).total_seconds()) < 300):
+            return ''
+    except (ValueError, TypeError):
+        pass
+    return raw[:10]
+
+
 def detail_fields(url):
     soup = page(url)
     from scraper.score_jobs import _jobposting_nodes
@@ -176,7 +201,7 @@ def detail_fields(url):
                     value = ', '.join(str(x) for x in (address.get('addressLocality'), address.get('addressRegion'), country) if x)
                     if value and value not in locations:
                         locations.append(value)
-                return description, (job.get("datePosted") or "")[:10], '; '.join(locations)
+                return description, posting_date(job), '; '.join(locations)
     # Keep the actual JD sections; omit apply/login controls and talent networks.
     sections = []
     for content in soup.select(".iCIMS_JobContent"):

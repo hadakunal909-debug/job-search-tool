@@ -503,7 +503,19 @@ def jobs_fingerprint():
         if r.status_code >= 400:
             return FP_UNKNOWN
         rows = r.json() or []
-        return (n, (rows[0].get("first_seen") or "") if rows else "", scored)
+        # Count/date/analysis coverage cannot see an edit to an existing job. The
+        # statement triggers in MIGRATION_job_data_version.sql cover every writer,
+        # including posting-date verification and repairs outside the scraper.
+        version = _http.get(_rest("data_versions"), headers=_headers(),
+                            params={"select": "version", "name": "eq.job_data", "limit": 1},
+                            timeout=15)
+        if version.status_code >= 400:
+            return FP_UNKNOWN
+        versions = version.json() or []
+        if not versions or not versions[0].get("version"):
+            return FP_UNKNOWN  # uninstalled migration is not proof of an unchanged corpus
+        return (n, (rows[0].get("first_seen") or "") if rows else "", scored,
+                versions[0]["version"])
     except Exception:
         return FP_UNKNOWN
 

@@ -908,6 +908,8 @@ def _soup_text(soup):
         tag.decompose()
     for tag in soup.find_all(_BLOCK_TAGS):
         tag.insert_before(_LI_CUT if tag.name == "li" else _CUT)
+        if tag.name != "br":
+            tag.insert_after(_CUT)
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     # One bullet per RUN, not per sentinel, so nesting cannot multiply it: <li><ul><li>a
     # gave "\u2022\n\u2022 a" before and gives "\u2022 a" now.
@@ -927,7 +929,12 @@ def html_to_text(raw):
     """
     if not raw:
         return ""
-    return _soup_text(BeautifulSoup(html.unescape(raw), "lxml"))
+    decoded = html.unescape(raw)
+    # Plain/Markdown ATS fields already carry paragraph and list boundaries. Parsing
+    # them as HTML flattens those boundaries and can even swallow '<SQL>' as a tag.
+    if not re.search(r"</?(?:p|div|br|ul|ol|li|h[1-6]|span|b|strong|em|i|a|table|section|article|html|body|script|style)\b[^>]*>", decoded, re.I):
+        return decoded.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return _soup_text(BeautifulSoup(decoded, "lxml"))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -4480,7 +4487,7 @@ def visa_alert(timeline):
 # reading, which is the point of that script -- the range branch below already consumed a hyphen
 # but only when a SECOND number followed it, so "3-5 years" read and "3-year" did not.
 _EXP_YEARS_RE = re.compile(
-    r"(\d{1,2})\s*(?:\+|(?:\s*(?:-|–|—|to)\s*\d{1,2})\s*\+?)?\s*[-–—]?\s*(?:years?|yrs?)\b",
+    r"(?<![\d.])(\d{1,2})\s*(?:\+|(?:\s*(?:-|–|—|to)\s*\d{1,2})\s*\+?)?\s*[-–—]?\s*(?:years?|yrs?)(?=\b|of\b)",
     re.I)
 
 # The same mention SPELLED OUT, with or without the digit repeated in brackets beside it:
@@ -4497,7 +4504,7 @@ _EXP_WORD_YEARS_RE = re.compile(
     r"\b(" + "|".join(_WORD_NUM) + r")\b"
     r"\s*(?:\(\s*\d{1,2}\s*\))?"                       # "eight (8)"
     r"(?:\s*(?:-|–|—|to|or)\s*(?:" + "|".join(_WORD_NUM) + r"|\d{1,2})\b)?"   # "two to three"
-    r"\s*(?:\+|plus)?\s*(?:years?|yrs?)\b", re.I)
+    r"\s*(?:\+|plus)?\s*(?:years?|yrs?)(?=\b|of\b)", re.I)
 
 # A RANGE, in any mix of the two notations, read as its FLOOR. This runs BEFORE the other two
 # and claims the whole span, which is what stops them disagreeing about it. Without it each
@@ -4509,7 +4516,7 @@ _EXP_RANGE_RE = re.compile(
     r"\b(\d{1,2}|" + "|".join(_WORD_NUM) + r")\b"
     r"\s*(?:-|–|—|to)\s*"
     r"(?:\d{1,2}|" + "|".join(_WORD_NUM) + r")\b"
-    r"\s*(?:\+|plus)?\s*(?:years?|yrs?)\b", re.I)
+    r"\s*(?:\+|plus)?\s*(?:years?|yrs?)(?=\b|of\b)", re.I)
 
 # Experience stated in MONTHS. Floor-divided, so "6 months" is 0 years and "18 months" is 1 --
 # the honest reading for a filter whose only job is to separate entry-level from not.
@@ -4654,7 +4661,32 @@ def _reads_as_preferred(clause_before, clause_after):
     return preferred
 
 
-def _experience_floors_split(text):
+_EXP_SECTION_RE = re.compile(
+    r"\b(?:(?P<soft>preferred|desired|desirable|bonus)\s+(?:qualifications|requirements)"
+    r"|(?P<hard>minimum|basic|required|essential)\s+(?:qualifications|requirements)"
+    r"|(?P<reset>responsibilities|benefits|compensation|about us|about the company))\b", re.I)
+_EXP_EXPLICIT_REQUIRED_RE = re.compile(r"\brequired\b|\brequire\b|must have|mandatory", re.I)
+_EXP_AGE_RE = re.compile(r"^\s*(?:of\s+age|old)\b", re.I)
+_EXP_YEAR_DURATION_RE = re.compile(
+    r"^\s*[-–—]?\s*(?:long\s+)?(?:contract|assignment|rotation|internship|secondment|"
+    r"fixed[- ]term|probation|notice period|programme)\b", re.I)
+
+
+def _experience_sections(text):
+    """Recognise headings, not prose such as 'even if you lack preferred qualifications'."""
+    out = []
+    for m in _EXP_SECTION_RE.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        line_end = text.find("\n", m.end())
+        line = text[line_start:line_end if line_end >= 0 else len(text)].strip(" #*_: \t\r")
+        label = m.group()
+        if line.lower() == label.lower() or label.isupper() or all(
+                w[0].isupper() or w in ("the", "us") for w in label.split()):
+            out.append(m)
+    return out
+
+
+def _experience_floors_split(text, evidence=None):
     """(hard, soft) — the floors the employer insists on, and the ones it merely prefers.
 
     A year count only counts when an experience-ish word sits near it, so '10-key' and '401k
@@ -4663,6 +4695,7 @@ def _experience_floors_split(text):
     """
     text = text or ""
     hard, soft = [], []
+    sections = _experience_sections(text)
     seen = set()                      # a span can match both the digit and the word pattern
     # RANGES FIRST, then words, then digits. Order is load-bearing: whichever pattern matches a
     # span first claims it, and a range is the case where the three of them would otherwise
@@ -4678,22 +4711,36 @@ def _experience_floors_split(text):
             # again the expensive direction -- it reads a range as its ceiling.
             if any(m.start() < e and s < m.end() for s, e in seen):
                 continue
-            before = text[max(0, m.start() - _EXP_BEFORE):m.start()]
-            after = text[m.end():m.end() + _EXP_AFTER]
+            previous = next((h for h in reversed(sections) if h.end() <= m.start()), None)
+            following = next((h for h in sections if h.start() >= m.end()), None)
+            section_start = previous.end() if previous else 0
+            section_end = following.start() if following else len(text)
+            section_kind = previous.lastgroup if previous else None
+            before = text[max(section_start, m.start() - _EXP_BEFORE):m.start()]
+            after = text[m.end():min(section_end, m.end() + _EXP_AFTER)]
             # CLAUSE-SCOPED, like the soft check below and for the same reason. A raw window
             # reads straight across a full stop, and the four generic context words this parser
             # needs in order to read a bulleted requirements list ("engineering", "development",
             # "management", "leadership") are ordinary enough in company prose that "Acme has
             # been delivering engineering services for 15 years." became a fifteen-year floor.
             clause_before, clause_after = _clause_before(before), _clause_after(after)
+            if _EXP_AGE_RE.search(clause_after):
+                continue
             ctx = (_EXP_CTX_RE.search(clause_after) or _EXP_CTX_RE.search(clause_before)
                    or _EXP_MIN_RE.search(clause_before))
+            if not ctx and section_kind in ("hard", "soft") and (
+                    m.start() - section_start <= _EXP_BEFORE
+                    or re.match(r"\s+(?:in|as)\s+", clause_after, re.I)):
+                ctx = True
             if not ctx and (_EXP_CTX_GENERIC_RE.search(clause_after)
                             or _EXP_CTX_GENERIC_RE.search(clause_before)):
                 ctx = not _EXP_TENURE_RE.search(
                     _clause_before(text[max(0, m.start() - _EXP_TENURE_BEFORE):m.start()]))
             if kind == "m" and _EXP_DURATION_RE.search(clause_before + " " + clause_after):
                 continue                # a contract length, a rotation, a notice period
+            if kind != "m" and _EXP_YEAR_DURATION_RE.search(clause_after) \
+                    and not re.search(r"experien|\bexp\b", clause_before + " " + clause_after, re.I):
+                continue
             if _EXP_EDU_YEARS_RE.search(before):
                 continue                # "Bachelors Degree (± 16 years)" -- schooling, not work
             if kind == "r":                       # either notation; group(1) is the floor
@@ -4716,12 +4763,37 @@ def _experience_floors_split(text):
             # "5 years of experience required; 10+ years preferred" marked the five-year floor
             # soft as well, both floors became soft, and the maximum came back as ten -- the
             # exact ten-year reading this rule was added to prevent.
-            bucket = soft if _reads_as_preferred(clause_before, clause_after) else hard
+            local_modifier = _EXP_SOFT_RE.search(clause_before + " " + clause_after) \
+                or _EXP_HARD_RE.search(clause_before + " " + clause_after)
+            preferred = (_reads_as_preferred(clause_before, clause_after) if local_modifier
+                         else section_kind == "soft")
+            # A minimum INSIDE a preference is still a preference. "At least" describes
+            # its number; only an explicit "required" can override the section's scope.
+            if section_kind == "soft" and not _EXP_EXPLICIT_REQUIRED_RE.search(
+                    clause_before + " " + clause_after):
+                preferred = True
+            bucket = soft if preferred else hard
             bucket.append((m.start(), m.end(), n, bool(ctx)))
+            if evidence is not None and ctx:
+                lo = max(section_start, max(text.rfind(c, section_start, m.start())
+                                            for c in "\n;•") + 1)
+                ends = [p for c in "\n;•" if (p := text.find(c, m.end(), section_end)) >= 0]
+                hi = min(ends) if ends else section_end
+                # Bounded verbatim excerpts, including the matched years even in flattened JDs.
+                lo, hi = max(lo, m.start() - 100), min(hi, m.end() + 180)
+                evidence.append({"years": n, "kind": "preferred" if preferred else "required",
+                                 "quote": text[lo:hi].strip(), "start": m.start()})
 
     hard = _collapse_ladders(text, hard)
     soft = _collapse_ladders(text, soft)
     return hard, soft
+
+
+def experience_evidence(text):
+    """Source excerpts from the same parsing pass used by the filter; no invented wording."""
+    evidence = []
+    _experience_floors_split(text, evidence)
+    return sorted(evidence, key=lambda item: item["start"])
 
 
 # How much text may sit between two rungs of the same ladder. Amgen's widest gap is ~70
@@ -4779,8 +4851,10 @@ def _collapse_ladders(text, hits):
             # ...and within ONE sentence. Without this, "9 years of leadership experience.
             # Separately, our CEO has a degree or two and 2 years here" reads as a ladder and
             # answers 2. A real alternation is punctuated with commas and slashes, never a stop.
+            continues_ladder = len(group) > 1 and re.search(r"\bor\s*$", between, re.I)
             if (len(between) <= _LADDER_GAP and not _CLAUSE_SPLIT_RE.search(between)
-                    and _ALTERNATIVE_RE.search(between) and _DEGREE_RE.search(near)):
+                    and _ALTERNATIVE_RE.search(between)
+                    and (_DEGREE_RE.search(near) or continues_ladder)):
                 group.append(cur)
                 continue
         flush()

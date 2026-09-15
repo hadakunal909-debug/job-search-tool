@@ -77,7 +77,7 @@ JD_ORPHAN_BULLET = re.compile(r"^[\u2022\u00b7\u25aa\u25cf\u25e6\u2023\u2043]\s*
 JD_HEAD = re.compile(
     r"^(?:about|responsibilit|qualificat|requirement|what you|who you|the role|your role|"
     r"benefit|perks|compensation|skills|experience|education|duties|essential|preferred|"
-    r"minimum|basic|nice to have|equal (?:employment )?opportunity|eeo|how to apply|why join|"
+    r"minimum|basic|required qualifications|required skills|nice to have|equal (?:employment )?opportunity|eeo|how to apply|why join|"
     r"our team|job (?:summary|description|details))", re.I)
 
 
@@ -108,7 +108,7 @@ def is_jd_heading(t):
 # ordinary words that appear constantly in prose ("5 years of experience"), so they need a colon.
 JD_SECTION_STRONG = (
     "job description|position purpose|position summary|role summary|"
-    "essential (?:functions?|duties)|basic qualifications|minimum qualifications|"
+    "essential (?:functions?|duties)|basic qualifications|minimum qualifications|required qualifications|"
     "preferred qualifications|additional qualifications|key responsibilities|"
     "primary responsibilities|what you(?:'|\u2019)ll (?:do|bring)|what you will do|"
     "what you bring|what we(?:'|\u2019)re looking for|what we offer|who you are|"

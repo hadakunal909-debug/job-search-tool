@@ -76,7 +76,7 @@ GROUND_TRUTH = re.compile(
 # The phrases those alternatives must NOT be counting. Checked in the same clause as the hit --
 # a posting may perfectly well mention a 12-month contract elsewhere and still state a floor.
 NOT_A_REQUIREMENT = re.compile(
-    r"vest|401|equity|tenure|anniversar|founded|has been|have been|celebrat|"
+    r"years?\s+(?:of\s+age|old)\b|vest|401|equity|tenure|anniversar|founded|has been|have been|celebrat|"
     r"over \d+ years|more than \d+ years|drawing on|our history", re.I)
 
 

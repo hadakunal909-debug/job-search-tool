@@ -446,6 +446,20 @@ check("a THIN description still says it is not scored",
 
 print()
 print("LIST COPY")
+_original_jd = JOBS[0]["jd"]
+try:
+    JOBS[0]["jd"] = ("Required Qualifications\n2 years of experience using Python & SQL.\n"
+                     "Preferred Qualifications\n5 years of experience managing projects.\n"
+                     "Responsibilities\nBuild reliable services for our customers. ")
+    evidence_body = get(LIVE).data.decode("utf-8", "replace")
+    check("experience summary uses the required section's two years",
+          re.search(r'data-fact="exp">\s*2\+ years', evidence_body) is not None)
+    check("required and preferred evidence is visible and escaped",
+          '2+ years required, 5+ preferred' in evidence_body
+          and '<q>2 years of experience using Python &amp; SQL.</q>' in evidence_body
+          and '<q>5 years of experience managing projects.</q>' in evidence_body)
+finally:
+    JOBS[0]["jd"] = _original_jd
 check("_and_list uses commas and one 'and'",
       web._and_list(["H-1B", "Green Card", "E-3", "H-1B1"]) == "H-1B, Green Card, E-3 and H-1B1",
       web._and_list(["H-1B", "Green Card", "E-3", "H-1B1"]))
