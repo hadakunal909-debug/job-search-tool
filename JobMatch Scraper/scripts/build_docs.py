@@ -293,7 +293,7 @@ INDEX = (
         "gazetteer; do not guess it.",
         "python test_us_location.py"),
     Row("Y", "A whole board suddenly returns nothing",
-        "the adapter for its ATS in {scraper/__init__.py::SCRAPERS} -- 40 entries, ats_type -> "
+        "the adapter for its ATS in {scraper/__init__.py::SCRAPERS} -- ats_type -> "
         "function",
         "{scraper/__init__.py::SOURCES} holds the built-in boards; app-added ones come from the "
         "boards table and are merged on top. {scraper/__init__.py::save_board_health} keeps an "
