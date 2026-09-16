@@ -65,11 +65,11 @@ def _sentences(text):
     return [s.strip() for s in _SENT_SPLIT.split(text) if len(s.strip()) > 20]
 
 
-def symphony(jd_text):
+def symphony(jd_text, sentences=None):
     """The JD's writing voice — so a tailored résumé can echo it."""
     low = (jd_text or "").lower()
     tones = [name for name, cues in _TONE.items() if any(c in low for c in cues)]
-    sents = _sentences(jd_text)
+    sents = _sentences(jd_text) if sentences is None else sentences
     words = re.findall(r"[a-zA-Z']+", low)
     avg_len = round(len(words) / max(1, len(sents)), 1)
     you = len(re.findall(r"\byou\b|\byour\b|\byou'll\b", low))
@@ -90,12 +90,16 @@ def analyze(jd_text, idf=None):
     # salient JD terms, importance-sorted (used for matching + 'mirror these phrases')
     terms = sorted(analyzed["terms"], key=lambda t: -analyzed["weight"].get(t, 0))
     req_text = core._requirements_text(jd_text) or jd_text
-    looking_for = [s for s in _sentences(req_text) if _REQ_CUE.search(s)][:12]
-    culture_lines = [s for s in _sentences(jd_text) if _CULTURE_CUE.search(s)][:8]
+    # Reuse this analysis's sentence list for culture and voice; when there is no
+    # separate requirements section, it also supplies the requirement cues.
+    sentences = _sentences(jd_text)
+    req_sentences = sentences if req_text == jd_text else _sentences(req_text)
+    looking_for = [s for s in req_sentences if _REQ_CUE.search(s)][:12]
+    culture_lines = [s for s in sentences if _CULTURE_CUE.search(s)][:8]
     return {
         "analyzed": analyzed,
         "terms": terms,
         "looking_for": looking_for,
         "culture_lines": culture_lines,
-        "symphony": symphony(jd_text),
+        "symphony": symphony(jd_text, sentences=sentences),
     }

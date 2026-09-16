@@ -179,6 +179,7 @@ SUITES = (
     # when there is not -- so CI checks the logic and a laptop checks it against all ~22k
     # real rows.
     Suite("test_speed_caches",      "scripts/test_speed_caches.py",      "scripts", "offline"),
+    Suite("test_speed_work",        "scripts/test_speed_work.py",        "scripts", "offline"),
     Suite("test_transport",         "scripts/test_transport.py",         "scripts", "offline"),
     Suite("test_visa",              "scripts/test_visa.py",              "scripts", "offline"),
 

@@ -2477,7 +2477,9 @@ def main():
         # A too-thin/truncated JD can't be scored honestly (it's what produced the fake ~100%s):
         # store 0 so it sorts/filters low and the feed shows it as "JD pending" (the web layer
         # keys off the same `thin` flag) instead of a misleading number.
-        scores[u] = 0 if m["analyzed"].get("thin") else core.score_against(resume_low, m["analyzed"])[0]
+        # Only the percentage is stored here; score_pct preserves the exact number
+        # without constructing and sorting keyword lists that this pipeline discards.
+        scores[u] = 0 if m["analyzed"].get("thin") else core.score_pct(resume_low, m["analyzed"])
         last_key = _skey(u)
         if len(scores) >= ANALYZE_CHUNK:
             _bank()
