@@ -2966,9 +2966,10 @@ def searchRank(row, q):
     return band * 100 + cov
 
 
-def _filter_rows(rows, statuses, p):
+def _filter_rows(rows, statuses, p, count_only=False):
     """Server-side mirror of app.js matches() + sort: filter the ranked rows by the feed
-    controls and return a list of (row, status) in display order. `p` is the query args."""
+    controls and return a list of (row, status) in display order. `p` is the query args.
+    count_only uses the same predicates but skips allocating and ordering the result list."""
     q = (p.get("q") or "").strip().lower()
     searching = bool(q)
     tab = p.get("tab") or "recommended"
@@ -2993,7 +2994,13 @@ def _filter_rows(rows, statuses, p):
         minsal = int(p.get("minsal") or 0)
     except Exception:
         minsal = 0
+    # With no narrowing controls, search rejects rows sooner than the remaining
+    # checks. Defer it only when those controls can first shrink its input.
+    defer_search = bool(cut or hide_no or verified_only or want_roles or want_visa or
+                        loc or remote_only or minsal or hide_agency or exp_stated or
+                        intern != "any" or track != "any" or exp != "any")
     out = []
+    count = 0
     for r in rows:
         st = statuses.get(r["url"], "")
         if tab in ("liked", "applied", "hidden"):
@@ -3011,8 +3018,7 @@ def _filter_rows(rows, statuses, p):
                 continue
             if not (searching or r["score"] >= minv):   # search bypasses the match floor
                 continue
-        # Search covers LOCATION too — "boston" and "remote" are things people type here.
-        if searching:
+        if searching and not defer_search:
             _hay, _words = _row_haystack(r)
             if not searchHit(_hay, q, _words):
                 continue
@@ -3134,7 +3140,18 @@ def _filter_rows(rows, statuses, p):
                             5 if exp == "senior"
                             else (int(exp) if str(exp).isdigit() else 99)):
                         continue
-        out.append((r, st))
+        # Narrowing filters run before fuzzy search. All predicates are ANDed, so
+        # membership is unchanged; search still includes title, company and location.
+        if searching and defer_search:
+            _hay, _words = _row_haystack(r)
+            if not searchHit(_hay, q, _words):
+                continue
+        if count_only:
+            count += 1
+        else:
+            out.append((r, st))
+    if count_only:
+        return count
     sort = p.get("sort") or "score"
     if sort == "newest":
         # Date, then core.ROLE_PRIORITY, then score. A board is scraped in one pass, so dozens
@@ -4743,7 +4760,7 @@ def _relax_suggestions(rows, statuses, args, top=2):
         probe = dict(base)
         probe[key] = default
         try:
-            n = len(_filter_rows(rows, statuses, probe))
+            n = _filter_rows(rows, statuses, probe, count_only=True)
         except Exception:
             continue                              # a suggestion is a nicety, never a blocker
         if n > 0:
