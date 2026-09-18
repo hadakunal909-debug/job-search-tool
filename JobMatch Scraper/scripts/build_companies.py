@@ -1340,6 +1340,33 @@ _SUPPORTED_PUBLIC_SECTORS = {
 for _sector, _names in _SUPPORTED_PUBLIC_SECTORS.items():
     _CURATED_LISTS.setdefault(_sector, []).extend(_names)
 
+# September 18 backlog additions: explicit employer mappings using existing sectors.
+_BACKLOG_SECTORS = {
+    "Software & Internet": ["Applied Intuition", "Pegasystems"],
+    "IT Services & Consulting": [
+        "BV Teck", "BerryDunn", "Delan Associates Inc", "KPIT Technologies", "Miracorp",
+        "People Technology & Processes", "Perficient", "RSA Tech", "Sparksoft Corporation",
+        "TekSynap", "Zifo",
+    ],
+    "Banking, Finance & Insurance": ["Ally", "BNY", "Fannie Mae", "T Rowe Price", "Wellington Management"],
+    "Healthcare, Pharma & Biotech": ["GRAIL"],
+    "Hospitals & Health Systems": ["PeaceHealth"],
+    "Universities & Research": ["The Jackson Laboratory"],
+    "Aerospace, Defense & Industrial": [
+        "AeroVironment", "Daikin Comfort", "Nightwing", "Saalex", "Teledyne FLIR",
+        "UIC Alaska", "Vantor", "Xometry",
+    ],
+    "Energy & Utilities": ["New York Power Authority"],
+    "Engineering, Construction & Real Estate": [
+        "CPH", "Faith Technologies Incorporated", "Linesight", "Perkins&Will", "The Weitz Company",
+    ],
+    "Retail, Consumer & Hospitality": ["BJ's Wholesale Club", "Niagara Bottling", "Royal Caribbean Group", "Sysco"],
+    "Transport, Logistics & Automotive": ["Pitney Bowes", "Turo"],
+    "Media, Telecom & Gaming": ["Encore Global"],
+}
+for _sector, _names in _BACKLOG_SECTORS.items():
+    _CURATED_LISTS.setdefault(_sector, []).extend(_names)
+
 CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
 # The tail loses to the corrections block on a collision: _CURATED_LISTS was written against
 # measured traffic, the sweep was written from a name.

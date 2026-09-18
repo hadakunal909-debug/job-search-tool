@@ -74,6 +74,14 @@ Suite = collections.namedtuple("Suite", "name path group needs")
 #                 is exactly why test_ext_contract sat outside CI for months.
 # ---------------------------------------------------------------------------------------------
 SUITES = (
+    Suite("test_tiktok", "test_tiktok.py", "root", "offline"),
+    Suite("test_tcs", "test_tcs.py", "root", "offline"),
+    Suite("test_avature_links", "test_avature_links.py", "root", "offline"),
+    Suite("test_applicantpro", "test_applicantpro.py", "root", "offline"),
+    Suite("test_backlog_adoption_safety", "test_backlog_adoption_safety.py", "root", "offline"),
+    Suite("test_taleo", "test_taleo.py", "root", "offline"),
+    Suite("test_schooljobs", "test_schooljobs.py", "root", "offline"),
+    Suite("test_university", "scripts/test_university.py", "scripts", "offline"),
     # ---- root -------------------------------------------------------------------------------
     Suite("test_backend_intent",    "test_backend_intent.py",            "root",   "offline"),
     Suite("test_board_health",      "test_board_health.py",              "root",   "offline"),

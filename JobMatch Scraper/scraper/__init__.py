@@ -5603,13 +5603,28 @@ def _peoplesoft_parts(url):
     return "%s://%s" % (p.scheme or "https", p.netloc), m.group(1)
 
 
-def _ps_job_url(origin, site, job_id, gbl=None):
+def _peoplesoft_site_id(url):
+    """Employer/campus selector within a shared PeopleSoft installation.
+
+    The portal path is not an employer identity: Georgia institutions and the
+    University of Missouri campuses share one path but use distinct SiteId values.
+    """
+    values = [v for k, vals in parse_qs(urlparse(url or "").query).items()
+              if k.lower() == "siteid" for v in vals]
+    if not values:
+        return "1"
+    if len(set(values)) != 1 or not re.fullmatch(r"[0-9]{1,10}", values[0]):
+        raise ValueError("Invalid or conflicting PeopleSoft SiteId")
+    return values[0]
+
+
+def _ps_job_url(origin, site, job_id, gbl=None, site_id="1"):
     """Deep link to one posting. Verified to render server-side from a COLD session (no
     cookie, no prior search), so it works both as the link we store for the user and as the
     URL score_jobs fetches the description from."""
     return ("%s/psc/%s%s?Page=HRS_APP_JBPST_FL&Action=U&FOCUS=Applicant"
-            "&SiteId=1&JobOpeningId=%s&PostingSeq=1"
-            % (origin, site, gbl or PEOPLESOFT_GBL, job_id))
+            "&SiteId=%s&JobOpeningId=%s&PostingSeq=1"
+            % (origin, site, gbl or PEOPLESOFT_GBL, site_id, job_id))
 
 
 def _ps_date(s):
@@ -5637,17 +5652,31 @@ def _ps_state(html_text, prev="1"):
     return (m.group(1) if m else str(int(prev) + 1)), (s.group(1) if s else "")
 
 
+_PEOPLESOFT_LOCKS = {}
+_PEOPLESOFT_LOCKS_GUARD = threading.Lock()
+
+
 def scrape_peoplesoft(board_url):
-    """PeopleSoft Candidate Gateway. Anonymous, no API key, no browser — see the block above."""
+    """Keep a shared host's guest-session state isolated between campus runs."""
+    host = urlparse(board_url).netloc.lower()
+    with _PEOPLESOFT_LOCKS_GUARD:
+        lock = _PEOPLESOFT_LOCKS.setdefault(host, threading.Lock())
+    with lock:
+        return _scrape_peoplesoft(board_url)
+
+
+def _scrape_peoplesoft(board_url):
+    """PeopleSoft Candidate Gateway. Anonymous, no API key, no browser."""
     origin, site = _peoplesoft_parts(board_url)
     if not origin:
         return []
     gbl = _peoplesoft_gbl(board_url)
-    listing = "%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U" % (origin, site, gbl)
+    site_id = _peoplesoft_site_id(board_url)
+    listing = "%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=%s&FOCUS=Applicant" % (origin, site, gbl, site_id)
     try:
-        # Guest session first: this GET is what makes everything after it visible.
-        _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=1&FOCUS=Applicant"
-                  % (origin, site, gbl), timeout=25)
+        # Guest session and component must preserve the same employer/campus scope.
+        _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=%s&FOCUS=Applicant"
+                  % (origin, site, gbl, site_id), timeout=25)
         r = _safe_get(listing, timeout=30)
     except ValueError:
         return []                                   # non-public host -> refuse (SSRF guard)
@@ -5689,12 +5718,15 @@ def scrape_peoplesoft(board_url):
         title, jid = row.get("title", ""), row.get("job_id", "")
         if not (title and jid):
             continue
-        job = {"title": title, "url": _ps_job_url(origin, site, jid, gbl),
+        job = {"title": title, "url": _ps_job_url(origin, site, jid, gbl, site_id),
                "location": row.get("location", "")}
         d = _ps_date(row.get("opened"))             # a REAL posting date, not a found-date
         if d:
             job["found_date"] = d
         out.append(job)
+    if total is not None and len(out) != total:
+        from scraper.infosys import PartialScrapeError
+        raise PartialScrapeError("PeopleSoft returned %d of %d advertised postings" % (len(out), total), out)
     return out
 
 
@@ -7200,9 +7232,16 @@ def scrape_apple(board_url):
 
 
 from scraper.infosys import scrape_infosys
+from scraper.tcs import scrape_tcs
+from scraper.tiktok import scrape_tiktok
+from scraper.avature_links import scrape_avature_links
 from scraper.radancy import scrape_radancy
 from scraper.box import scrape_box
 from scraper.peopleadmin import scrape_peopleadmin
+from scraper.applicantpro import scrape_applicantpro
+from scraper.university import scrape_pageup, scrape_umich, scrape_ku
+from scraper.taleo import scrape_taleo
+from scraper.schooljobs import scrape_schooljobs
 from scraper.adp import scrape_adp
 from scraper.paycom import scrape_paycom
 from scraper.trinethire import scrape_trinethire
@@ -7212,6 +7251,9 @@ from scraper.cornerstone import scrape_cornerstone
 
 
 SCRAPERS = {
+    "avature_links": scrape_avature_links,
+    "tcs": scrape_tcs,
+    "tiktok": scrape_tiktok,
     "cornerstone": scrape_cornerstone,
     "jazzhr": scrape_jazzhr,
     "icims": scrape_icims,
@@ -7219,6 +7261,12 @@ SCRAPERS = {
     "paycom": scrape_paycom,
     "trinethire": scrape_trinethire,
     "peopleadmin": scrape_peopleadmin,
+    "applicantpro": scrape_applicantpro,
+    "pageup": scrape_pageup,
+    "umich": scrape_umich,
+    "ku": scrape_ku,
+    "taleo": scrape_taleo,
+    "schooljobs": scrape_schooljobs,
     "box": scrape_box,
     "radancy": scrape_radancy,
     "infosys": scrape_infosys,
@@ -7434,8 +7482,51 @@ def detect_board(url):
         except ValueError:
             return None
 
+    if host_is(host, "applicantpro.com", "isolvedhire.com"):
+        from scraper.applicantpro import board_url
+        try:
+            return (board_url(url), "applicantpro", "")
+        except ValueError:
+            return None
+
+    if host == "careers.pageuppeople.com" and len(segs) >= 3 and segs[0].isdigit():
+        if re.fullmatch(r"[A-Za-z0-9_-]+", segs[1]) and re.fullmatch(r"[a-z]{2}-[a-z]{2}", segs[2], re.I):
+            return ("https://%s/%s/%s/%s/listing/" % (host, segs[0], segs[1], segs[2]), "pageup", "")
+
+    if host in ("schooljobs.com", "www.schooljobs.com", "governmentjobs.com", "www.governmentjobs.com"):
+        from scraper.schooljobs import board_url
+        board = board_url(url)
+        return (board, "schooljobs", _name_from(board.rsplit("/", 1)[-1])) if board else None
+
+    if re.fullmatch(r"[a-z0-9-]+\.taleo\.net", host):
+        from scraper.taleo import board_url
+        board = board_url(url)
+        return (board, "taleo", _name_from(host.split('.')[0])) if board else None
+
+    if host == "employment.ku.edu":
+        return ("https://employment.ku.edu/jobs", "ku", "The University of Kansas")
+
+    if host == "careers.umich.edu":
+        return ("https://careers.umich.edu/search-jobs?position=All", "umich", "University of Michigan")
+
     if host_is(host, 'peopleadmin.com') and host != 'peopleadmin.com':
         return ('https://%s/postings/search' % host, 'peopleadmin', _name_from(host.split('.')[0]))
+
+    if host == "jobs.siemens-energy.com":
+        from scraper.avature_links import SIEMENS_ENERGY_BOARD
+        return (SIEMENS_ENERGY_BOARD, "avature_links", "Siemens Energy")
+
+    if host == "jobs.siemens.com":
+        from scraper.avature_links import SIEMENS_BOARD
+        return (SIEMENS_BOARD, "avature_links", "Siemens")
+
+    if host in ("lifeattiktok.com", "careers.tiktok.com"):
+        from scraper.tiktok import BOARD
+        return (BOARD, "tiktok", "TikTok")
+
+    if host == "ibegin.tcsapps.com":
+        from scraper.tcs import BOARD, COMPANY
+        return (BOARD, "tcs", COMPANY)
 
     if host_is(host, "digitalcareers.infosys.com", "careers.infosys.com"):
         from scraper.infosys import BOARD
@@ -7593,7 +7684,12 @@ def detect_board(url):
             # These are mostly universities, whose domain label IS an acronym — _name_from
             # would title-case "fsu" into "Fsu". Anything this short is an initialism.
             name = name.upper() if (len(name) <= 4 and name.isalpha()) else _name_from(name)
-            return ("%s/psc/%s%s" % (origin, site, _peoplesoft_gbl(url)),
+            try:
+                site_id = _peoplesoft_site_id(url)
+            except ValueError:
+                return None
+            scoped = ("?SiteId=" + site_id) if site_id != "1" else ""
+            return ("%s/psc/%s%s%s" % (origin, site, _peoplesoft_gbl(url), scoped),
                     "peoplesoft", name)
 
     return None
@@ -7742,6 +7838,8 @@ _ATS_LINK_RE = re.compile(
       | [a-z0-9-]+\.icims\.com/jobs/[^\s<>\"\']*
       | app\.trinethire\.com/companies/[0-9]+-[a-z0-9-]+/jobs
       | [a-z0-9-]+\.peopleadmin\.com(?:/postings(?:/search)?)?
+      | (?:www\.)?(?:schooljobs|governmentjobs)\.com/careers/[a-z0-9_-]+(?:/jobs/\d+(?:/[^/\s"<>]+)?)?
+      | [a-z0-9-]+\.taleo\.net/careersection/[^/\s"<>]+/(?:jobsearch|joblist|moresearch|jobdetail)\.ftl(?:\?[^\s"<>]*)?
       | [a-z0-9-]+\.avature\.net/[A-Za-z0-9_-]+
       | www\d*\.jobdiva\.com/portal/\?a=[A-Za-z0-9]+
       | recruiting\.paylocity\.com/recruiting/jobs/All/[0-9a-fA-F-]{36}/[A-Za-z0-9_-]+
@@ -7792,6 +7890,9 @@ def detect_linked_ats(url):
         return None
     if not re.match(r"^https?://", url, re.I):
         url = "https://" + url
+    from scraper.linked_accounts import is_account_link, resolve_linked_account
+    if is_account_link(url):
+        return resolve_linked_account(url)
     try:
         r = _safe_get(url, timeout=15)
         if r.status_code != 200:
@@ -7963,10 +8064,34 @@ def probe_board(board_url, ats_type):
         if ats_type == "adp":
             from scraper.adp import listing_page
             return listing_page(board_url, page_size=1)[1]
+        if ats_type == "applicantpro":
+            return len(scrape_applicantpro(board_url))
+        if ats_type == "pageup":
+            return len(scrape_pageup(board_url))
+        if ats_type == "schooljobs":
+            from scraper.schooljobs import probe_schooljobs
+            return probe_schooljobs(board_url)
+        if ats_type == "taleo":
+            from scraper.taleo import probe_taleo
+            return probe_taleo(board_url)
+        if ats_type == "umich":
+            return len(scrape_umich(board_url))
+        if ats_type == "ku":
+            return len(scrape_ku(board_url))
         if ats_type == "peopleadmin":
             from scraper.peopleadmin import listing_info
             r = _safe_get(urljoin(board_url, '/postings/search'), timeout=15)
             return listing_info(r.text, r.url)[1] if r.status_code == 200 else None
+        if ats_type == "avature_links":
+            from scraper.avature_links import parse_page
+            r = _safe_get(board_url, timeout=20)
+            return parse_page(r.text, board_url)[2] if r.status_code == 200 else None
+        if ats_type == "tiktok":
+            from scraper.tiktok import listing_page, us_city_codes
+            return listing_page(us_city_codes())[1]
+        if ats_type == "tcs":
+            from scraper.tcs import HOST, listing_page
+            return listing_page()[1] if urlparse(board_url).hostname == HOST else None
         if ats_type == "infosys":
             from scraper.infosys import parse_page
             r = _safe_get(board_url, timeout=15)

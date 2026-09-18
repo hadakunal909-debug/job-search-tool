@@ -21,13 +21,15 @@ reversible with a DELETE and never touches the 366 KB module.
 
     python -m scraper.adopt_everify_boards --dry-run     # grade + report, write nothing
     python -m scraper.adopt_everify_boards               # add the confirmed ones
-    python -m scraper.adopt_everify_boards --include-bodyshops
+    python -m scraper.adopt_everify_boards --allow-tcs --require-remote
+    python -m scraper.adopt_everify_boards --include-bodyshops   # explicit broad override
     python -m scraper.adopt_everify_boards --no-yield-check   # skip the big-board sampling
     python -m scraper.adopt_everify_boards --csv discovered_board_probe.csv --added-by discover:2026-08 --out discovered_adoption.csv
 """
 import os
 import sys
 import csv
+import json
 import concurrent.futures
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -179,11 +181,78 @@ def _arg(flag, default=None, cast=str):
     return default
 
 
+def _remote_adoption_rows(table, column):
+    """Read and validate every remote page; even an empty JSON object is an error."""
+    import db
+    rows, offset, page_size = [], 0, 1000
+    while True:
+        response = db._http.get(db._rest(table), headers=db._headers(),
+                                params={"select": column, "order": column,
+                                        "limit": page_size, "offset": offset}, timeout=30)
+        response.raise_for_status()
+        batch = response.json()
+        if not isinstance(batch, list) or any(
+                not isinstance(row, dict) or not isinstance(row.get(column), str)
+                or not row[column].strip() for row in batch):
+            raise RuntimeError("invalid %s response; refusing adoption" % table)
+        rows.extend(batch)
+        if len(batch) < page_size:
+            return rows
+        offset += page_size
+
+
+def _adoption_state(require_remote=False):
+    """Read the real blocklist and known boards, failing closed on unavailable storage.
+
+    The ordinary db readers intentionally turn a query failure into []. That is useful for
+    feed availability, but would let an adoption run re-add an explicitly blocked employer.
+    Remote reads therefore validate each page before combining them. Local mode is retained
+    for the documented development workflow, announced by main(), and forbidden by
+    --require-remote.
+    """
+    import db
+    if not db.PG_DSN:
+        db._check_backend_intent()
+    remote = db.has_remote_db()
+    if require_remote and not remote:
+        raise RuntimeError("--require-remote needs PG_DSN or both DB_PROXY_URL and DB_PROXY_SECRET")
+    if remote:
+        blocks = _remote_adoption_rows(db.BLOCKED_TABLE, "name_key")
+        boards = _remote_adoption_rows(db.BOARDS_TABLE, "url")
+    else:
+        # Missing local files are a new local installation. Malformed files are NOT empty
+        # tables: allow JSON and type errors to abort before any board can be written.
+        def read_local(path, default):
+            if not os.path.exists(path):
+                return default
+            with open(path, encoding="utf-8") as source:
+                return json.load(source)
+        block_map = read_local(db.BLOCKED_FILE, {})
+        if not isinstance(block_map, dict):
+            raise RuntimeError("local blocklist is not an object")
+        blocks = list(block_map.values())
+        boards = read_local(db.BOARDS_FILE, [])
+    for rows, key, label in ((blocks, "name_key", "blocklist"), (boards, "url", "boards")):
+        if not isinstance(rows, list) or any(
+                not isinstance(row, dict) or not isinstance(row.get(key), str)
+                or not row[key].strip() for row in rows):
+            raise RuntimeError("invalid %s response; refusing adoption" % label)
+    return ({row["name_key"] for row in blocks}, {row["url"] for row in boards})
+
+
+def _tcs_exception(name):
+    """The named employer exception does not waive an explicit admin block."""
+    import db
+    return db._block_core(db.block_key(name)) in {"tcs", "tata consultancy services"}
+
+
 def main():
     src = _arg("--csv", PROBE_CSV)
     workers = _arg("--workers", 12, int)
     dry = "--dry-run" in sys.argv
     keep_bodyshops = "--include-bodyshops" in sys.argv
+    allow_tcs = "--allow-tcs" in sys.argv
+    require_remote = "--require-remote" in sys.argv
     skip_yield_check = "--no-yield-check" in sys.argv
     skip_location_check = "--no-location-check" in sys.argv
     # Tag rows with the run that produced them. Adoption is meant to be reversible with a
@@ -209,37 +278,23 @@ def main():
     finally:
         scraper.SESSION = orig
 
-    # Never add the same board URL twice, and never re-add something already in SOURCES.
-    # SOURCES *and* the boards table. custom_sources() is the half this missed: a board
-    # adopted by any earlier run lives only in that table, never in SOURCES, so it read as
-    # unknown and was re-verified and re-added on every subsequent run. db.add_board upserts
-    # on url so nothing was duplicated, but the counts were inflated and the yield check
-    # spent real network time on boards we already had. Same bug find_everify_boards
-    # ._known_sources() documents; see its docstring.
-    known = {u for u, _a, _c in scraper.SOURCES}
-    try:
-        known |= {u for u, _a, _c in scraper.custom_sources()}
-    except Exception:
-        pass                                   # no DB is not a reason to skip the run
-
-    # Honour the admin blocklist. The zero-yield check below catches boards that are provably
-    # worthless (Whataburger: 0 of 4,640 survive the title filter), but it cannot catch a board
-    # whose survivors are simply the WRONG KIND of job: Family Dollar keeps 16 of 3,000 and
-    # Dollar General keeps 13 of 2,000 — statistically identical, yet Dollar General's are
-    # Principal Data Engineer and Product Manager (Data & AI) while Family Dollar's are
-    # Assistant Operations Manager and Store Construction PM. Only the titles distinguish them,
-    # so that call stays human — and blocked_companies is where it is recorded, once.
+    # Read after identity verification and immediately before the adoption decisions. Never
+    # substitute an empty blocklist or the local fallback for a failed remote database read.
     try:
         import db as _db
-        blocked = {b.get("name_key") for b in (_db.list_blocked() or []) if b.get("name_key")}
-    except Exception:
-        blocked = set()
+        blocked, stored_urls = _adoption_state(require_remote=require_remote)
+    except Exception as exc:
+        print("ERROR: cannot read adoption state: %s" % str(exc)[:200])
+        return 1
+    print("adoption backend: %s" % _db.backend_name(), flush=True)
+    known = {u for u, _a, _c in scraper.SOURCES} | stored_urls
+
     order = {"confirmed": 0, "unverified": 1, "guess": 2, "review": 3}
     hits.sort(key=lambda r: (order.get(r["verdict"], 9),
                              -(int(r["job_count"]) if str(r["job_count"]).isdigit() else 0)))
 
     added, skipped_dupe, skipped_body, skipped_yield, skipped_blocked = 0, 0, 0, 0, 0
-    skipped_foreign = 0
+    skipped_foreign, failed = 0, 0
     seen = set()
     for r in hits:
         r["added"] = "no"
@@ -250,14 +305,12 @@ def main():
         if r["board_url"] in known or r["board_url"] in seen:
             skipped_dupe += 1
             continue
-        try:
-            if blocked and _db.is_blocked(r["employer"], blocked):
-                r["added"] = "no — company is on the admin blocklist"
-                skipped_blocked += 1
-                continue
-        except Exception:
-            pass
-        if r.get("bodyshop") == "yes" and not keep_bodyshops:
+        if _db.is_blocked(r["employer"], blocked):
+            r["added"] = "no — company is on the admin blocklist"
+            skipped_blocked += 1
+            continue
+        if (r.get("bodyshop") == "yes" and not keep_bodyshops
+                and not (allow_tcs and _tcs_exception(r["employer"]))):
             skipped_body += 1
             continue
         if not skip_yield_check:
@@ -285,18 +338,22 @@ def main():
                     r["added"] = "no — all %d postings name a non-US place" % fetched
                     skipped_foreign += 1
                     continue
-        seen.add(r["board_url"])
         if dry:
+            seen.add(r["board_url"])
             r["added"] = "would-add"
             added += 1
             continue
         try:
-            import db
-            db.add_board(r["board_url"], r["ats_type"], r["employer"], added_by=added_by)
+            ok, error = _db.add_board(r["board_url"], r["ats_type"], r["employer"],
+                                      added_by=added_by)
+            if not ok:
+                raise RuntimeError(error or "database refused board")
+            seen.add(r["board_url"])
             r["added"] = "yes"
             added += 1
         except Exception as e:
-            r["added"] = "ERROR: %s" % str(e)[:80]
+            r["added"] = "ERROR: %s" % str(e)[:200]
+            failed += 1
 
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLS, extrasaction="ignore")
@@ -313,10 +370,12 @@ def main():
     print()
     print("  %s: %d board(s)%s" % ("would add" if dry else "ADDED", added,
                                    "  [dry run]" if dry else ""))
+    if failed:
+        print("  FAILED database writes: %d (see output CSV)" % failed)
     if skipped_dupe:
         print("  skipped, already a source: %d" % skipped_dupe)
     if skipped_body:
-        print("  skipped, body-shop name: %d  (pass --include-bodyshops to keep)" % skipped_body)
+        print("  skipped, body-shop name: %d  (--allow-tcs permits only TCS; --include-bodyshops permits all)" % skipped_body)
     if skipped_yield:
         print("  skipped, title filter keeps ZERO of the board: %d  (--no-yield-check to keep)"
               % skipped_yield)
@@ -335,7 +394,7 @@ def main():
             if r["verdict"] == "review":
                 print("   %-30s slug says %-34s (score %s)"
                       % (r["employer"][:30], (r["reported_name"] or "?")[:34], r["score"]))
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
