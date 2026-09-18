@@ -78,6 +78,38 @@ check("detect: other PeopleSoft app is not a board",
 check("peoplesoft is wired into SCRAPERS",
       scraper.SCRAPERS.get("peoplesoft"), scraper.scrape_peoplesoft)
 
+# Shared installations must keep the institutional SiteId throughout a run.
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
+USG = "https://careers.hprod.onehcm.usg.edu/psc/careers/CAREERS/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL"
+check("detect keeps institution SiteId", scraper.detect_board(USG + "?FOCUS=Applicant&SiteId=03000")[0], USG + "?SiteId=03000")
+check("different campus has different canonical board", scraper.detect_board(USG + "?SiteId=30000")[0], USG + "?SiteId=30000")
+check("default SiteId keeps existing canonical boards", scraper.detect_board(FSU + "?SiteId=1")[0], FSU)
+check("conflicting SiteId is rejected", scraper.detect_board(USG + "?SiteId=03000&SiteId=30000"), None)
+check("non-numeric SiteId is rejected", scraper.detect_board(USG + "?SiteId=unknown"), None)
+
+class FakeResponse:
+    status_code = 200
+    text = GRID + " 2 jobs found"
+
+with patch.object(scraper, "_safe_get", return_value=FakeResponse()) as get:
+    scoped_rows = scraper.scrape_peoplesoft(USG + "?SiteId=03000")
+    check("scoped board still produces public jobs", len(scoped_rows), 2)
+    check("guest and listing requests keep institution", [parse_qs(urlparse(c.args[0]).query).get("SiteId") for c in get.call_args_list], [["03000"], ["03000"]])
+    check("every posting link keeps institution", [parse_qs(urlparse(r["url"]).query).get("SiteId") for r in scoped_rows], [["03000"], ["03000"]])
+
+class IncompleteResponse:
+    status_code = 200
+    text = GRID + " 3 jobs found"
+
+from scraper.infosys import PartialScrapeError
+with patch.object(scraper, "_safe_get", return_value=IncompleteResponse()), patch.object(scraper, "_safe_form_post", return_value=IncompleteResponse()):
+    try:
+        scraper.scrape_peoplesoft(USG + "?SiteId=03000")
+        check("incomplete known total is not a successful run", True, False)
+    except PartialScrapeError as exc:
+        check("incomplete known total retains readable jobs", len(exc.rows), 2)
+
 print("\n%s" % ("All %d PeopleSoft checks passed." % len(ran)
                 if not fails else "%d of %d FAILED: %s" % (len(fails), len(ran), ", ".join(fails))))
 sys.exit(1 if fails else 0)

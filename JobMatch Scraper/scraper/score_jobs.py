@@ -1054,6 +1054,38 @@ def detail_jd(url):
             jd, date = adp_detail_jd(url)
         except Exception:
             pass
+    if host in ("jobs.siemens.com", "jobs.siemens-energy.com"):
+        from scraper.avature_links import detail_jd as avature_link_detail_jd
+        try:
+            jd, date = avature_link_detail_jd(url)
+            if jd:
+                return url, jd, date
+        except Exception:
+            pass
+    if scraper.host_is(host, "applicantpro.com", "isolvedhire.com"):
+        from scraper.applicantpro import detail_jd as applicantpro_detail_jd
+        try:
+            jd, date = applicantpro_detail_jd(url)
+            if jd:
+                return url, jd, date
+        except Exception:
+            pass
+    if host == "lifeattiktok.com":
+        from scraper.tiktok import detail_jd as tiktok_detail_jd
+        try:
+            jd, date = tiktok_detail_jd(url)
+            if jd:
+                return url, jd, date
+        except Exception:
+            pass
+    if host == "ibegin.tcsapps.com":
+        from scraper.tcs import detail_jd as tcs_detail_jd
+        try:
+            jd, date = tcs_detail_jd(url)
+            if jd:
+                return url, jd, date
+        except Exception:
+            pass
     if scraper.urlparse(url).hostname == "digitalcareers.infosys.com":
         from scraper.infosys import detail_jd as infosys_detail_jd
         jd = infosys_detail_jd(url)

@@ -15,7 +15,7 @@ def listing_info(html, url):
                  if urlparse(urljoin(url, a['href'])).path == '/postings/all_jobs.atom'
                  and urlparse(urljoin(url, a['href'])).netloc == urlparse(url).netloc), '')
     text = ' '.join(h.get_text(' ', strip=True) for h in soup.select('h1,h2'))
-    count = re.search(r'Search\s+Postings\s*\(([\d,]+)\)', text, re.I)
+    count = re.search(r'(?:Search\s+(?:Position\s+)?(?:Postings|Requisitions)|View\s+Results)\s*\(\s*([\d,]+)\s*\)', text, re.I)
     return feed, int(count[1].replace(',', '')) if count else None
 
 

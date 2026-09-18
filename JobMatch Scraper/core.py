@@ -2594,6 +2594,12 @@ def is_agency(company):
     c = (company or "").lower()
     if not c:
         return False
+    # Owner-requested direct-employer exception. Keep the exact name boundary:
+    # other consultancy services and the separate admin blocklist remain intact.
+    if re.sub(r"[^a-z0-9]+", " ", c).strip() in (
+            "tcs", "tata consultancy services", "tata consultancy services ltd",
+            "tata consultancy services limited"):
+        return False
     if any(n in c for n in _AGENCY_NAMES):
         return True
     return bool(_AGENCY_RE.search(c))
@@ -5318,6 +5324,16 @@ def fetch_jd(url, limit=8000):
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
         r.raise_for_status()
+        # Taleo renders empty spans from public, percent-encoded field arrays. Decode
+        # those fields before generic cleanup removes the containing form and scripts.
+        if re.match(r"^https?://(?:www\.)?(?:schooljobs|governmentjobs)\.com/careers/[^/]+/jobs/\d+(?:/|$|\?)", url, re.I):
+            from scraper.schooljobs import description_html
+            decoded = description_html(r.text)
+            return html_to_text(decoded)[:limit] if decoded else ""
+        if re.match(r"^https?://[a-z0-9-]+\.taleo\.net/careersection/[^/]+/jobdetail\.ftl(?:\?|$)", url, re.I):
+            from scraper.taleo import description_html
+            decoded = description_html(r.text)
+            return html_to_text(decoded)[:limit] if decoded else ""
         soup = BeautifulSoup(r.text, "lxml")
         # aside/noscript/svg and aria-hidden were not in the list; a "Related jobs" rail is
         # almost always an <aside>, and an aria-hidden node is furniture by its own admission.
