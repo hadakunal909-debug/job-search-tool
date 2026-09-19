@@ -21,11 +21,23 @@ jdmeta.json
 # parser's answers straight back) -- and the renamed copy is not matched by the line above. One
 # `git add -A` on 2026-09-03 committed a 71 MB jdmeta.json.pre-cleanjd for exactly that reason.
 jdmeta.json.*
-# THE RESUME IS THE OWNER'S, and resume.txt is tracked deliberately (the scraper scores against
-# it) -- but a hand-made backup of it is not, and .gitignore had no rule that would catch one.
-# The same `git add -A` also committed resume.txt.local-may30-backup.
+# THE RESUME IS THE OWNER'S, AND IT IS NO LONGER TRACKED. It WAS tracked deliberately for most
+# of this project's life -- the scraper scores against it, and a private repo was a defensible
+# place to keep it. Going public on 2026-09-19 inverted that reasoning: the file carries a real
+# name, phone number and email address, and a public repo makes those permanently searchable by
+# people the owner is not applying to. It was purged from all 630 commits of history at the same
+# time, because deleting it at the tip would have left every earlier copy readable.
+#
+# WHERE IT COMES FROM NOW. Actions writes it from the RESUME_TXT secret -- see "Materialise
+# resume.txt" in .github/workflows/scrape.yml, which FAILS the run when that secret is unset.
+# The cPanel box and the owner's laptop keep their own local copy, and THAT is what the rule
+# below protects: score_jobs reads resume.txt from the working directory and aborts without it
+# while exiting 0, so the file has to exist at runtime even though git must never see it again.
+#
+# A hand-made backup of it is covered too -- one `git add -A` committed
+# resume.txt.local-may30-backup once already.
+resume.txt
 resume.txt.*
-!resume.txt
 # Written by the running web app to share the feed rows across Passenger workers. Runtime
 # state, regenerated on demand — must never be deployed or committed.
 jobs_snapshot.json.gz

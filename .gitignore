@@ -68,6 +68,12 @@ JobMatch Scraper/*_local.json
 JobMatch Scraper/new_board_jobs.csv
 JobMatch Scraper/adopted_companies_*.csv
 
+# Hand-exported backups of the "Applied" list -- one row per job the owner actually applied to,
+# filed under their username. Personal data, and the same `git add -A` hazard the resume note in
+# JobMatch Scraper/.gitignore describes: one of these was sitting untracked in the repo root on
+# 2026-09-19, the day the repository went public. Preventive only; none has ever been tracked.
+applied_backup_*.json
+
 # Generated spreadsheets handed to the user, alongside jobmatch_companies.xlsx above.
 JobMatch Scraper/*_report*.xlsx
 JobMatch Scraper/STEM_OPT_report*.xlsx
