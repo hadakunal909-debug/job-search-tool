@@ -8,9 +8,22 @@ name: Scrape jobs
 # sibling projects), so every run step works from that directory. This file must
 # stay at the repo root — GitHub only reads workflows from /.github/workflows/.
 #
-# SCHEDULE: 2 feed updates per WEEKDAY — 12pm and 4pm ET — and nothing on Sat/Sun.
-# That's 2 x ~22 = ~44 scheduled runs a month, so it sits well inside the free
-# 2,000 Actions-minutes/month.
+# SCHEDULE: EVERY 3 HOURS, EVERY DAY — eight runs a day, and exactly ONE of them is heavy.
+# Changed 2026-09-19, and what made it affordable is that this repository is PUBLIC: GitHub
+# bills no minutes for Actions on a public repo using standard runners, so the 2,000-minute
+# free allowance this file spent three months rationing no longer applies. The cost note on
+# timeout-minutes below is kept as history, not as a live constraint.
+#
+# WHAT IS NOT FREE is other people's servers. Eight sweeps a day is 5.6x the outbound volume
+# the two-a-weekday schedule put on employers' ATS hosts, and bot-walling — not billing — is
+# now the binding constraint. If boards start failing in numbers the lever is this cron line,
+# and the measurement that justifies pulling it is the board-health block the sweep prints
+# (20 failed / 27 silent of 3,247 boards on 2026-09-19, the day before this change).
+#
+# THE CPANEL CRON STILL SWEEPS AT 13:00 AND 16:00 ET and now duplicates this workflow.
+# Retiring those two lines is a change to the box's crontab, which lives nowhere in this repo
+# — see bin/cron_scrape.sh's header. The hourly --analyze-only line should STAY: it does not
+# scrape, it writes jd_terms, and it is what keeps a card from reading "Not scored".
 #
 # GitHub cron is UTC and does NOT track DST, so these two fixed UTC times are exactly
 # 12pm/4pm ET during EDT (Mar-Nov) and land an hour earlier — 11am/3pm ET — under EST.
@@ -22,14 +35,15 @@ name: Scrape jobs
 # Day-of-week is written 1-5 rather than MON-FRI purely because the numeric form is
 # unambiguous in every cron parser. Sunday is 0.
 #
-# The heavy verify/email pass runs on the midday run each weekday, PLUS the Friday
-# afternoon run so a Friday PM batch is emailed before the weekend instead of waiting
-# until Monday. That's ~26 heavy passes a month. The gate step below decides, keyed off
-# the Eastern hour and weekday rather than the cron line. Manual dispatch always does the
-# full pass. Nothing at all runs Sat/Sun, so the digest is weekdays only.
+# HEAVY vs LIGHT, because eight identical runs would mean eight digest emails a day. The
+# gate step below gives HEAVY to the FIRST run of each Eastern day and to every manual
+# dispatch; the other seven are light. Heavy is unchanged from what the single daily run did:
+# JobSpy, the full-corpus re-score, verify_dates, close_dead_jds, the facts rebuild and the
+# ONE digest email. Light is sweep + new-only scoring + score_users — the same work
+# bin/cron_scrape.sh does on the box.
 #
-# (Scoring is NOT part of that split — it runs on both, because an unscored job is
-# invisible to the match filter. Only the second run scores in cheap new-only mode.)
+# (Scoring is NOT part of that split — it runs on every pass, because an unscored job is
+# invisible to the match filter. The light runs just score in cheap new-only mode.)
 on:
   schedule:
     # ONE run a day now, not two. The database moved to cPanel and a cron on that box covers the
@@ -72,8 +86,25 @@ on:
     # what guarantees the run happens: it checks whether today's scrape landed and fires a
     # workflow_dispatch if it did not, and dispatch is delivered immediately rather than queued
     # with the world's crons. This line is now the fast path, not the guarantee.
-    - cron: "47 12 * * 1-5"     # ~9am ET Mon-Fri (~8am under EST) — the heavy pass
+    # :47 rather than :00, and that stays load-bearing at this cadence. The top of the hour
+    # is when the world's crons queue; the drift table above was measured against an on-the-
+    # hour line and reached +9h42. Every third hour, off the hour, is the fast path.
+    - cron: "47 */3 * * *"      # every 3 hours, every day — the gate picks which is heavy
   workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
+
+# ONE SCRAPE AT A TIME. There was no guard here at all until 2026-09-19, which was safe only
+# because the schedule fired once a day against a job capped at 180 minutes. At a 3-hour
+# cadence those two numbers touch: a run that uses its full cap is still sweeping when the
+# next one starts, and two concurrent sweeps would hit the same 3,225 boards and upsert the
+# same URLs.
+#
+# cancel-in-progress is FALSE deliberately. Cancelling a running sweep to start a fresh one
+# throws away work already banked slice by slice; queueing costs nothing now that minutes are
+# free. A queued run is not a wasted one either — when it starts, the gate below sees a
+# scrape that succeeded inside the last 150 minutes and no-ops it in seconds.
+concurrency:
+  group: scrape-jobs
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -188,17 +219,16 @@ jobs:
         run: |
           H=$(TZ=America/New_York date +%-H)          # current Eastern hour, no leading zero
           D=$(TZ=America/New_York date +%u)           # Eastern day of week, 1=Mon .. 7=Sun
-          # EVERY run here is the heavy pass now. This workflow used to fire twice a day and the
-          # gate picked which half was heavy off the Eastern hour; the afternoon slot has moved
-          # to the cPanel cron, so there is exactly one scheduled run and it is always the heavy
-          # one. The hour/day arithmetic that chose between them — including the Friday-afternoon
-          # special case that existed only to digest the Friday PM batch before the weekend — is
-          # deleted rather than left to evaluate to the right answer by accident. A dead branch
-          # in a gate is worse than no gate: the next person to change the cron time reads it as
-          # load-bearing and reasons from it.
+          # A SECOND SLOT WAS ADDED BACK — seven of them — so this is the "real decision"
+          # the previous comment here asked for, made on 2026-09-19.
           #
-          # If a second scheduled slot is ever added back here, this needs a real decision again.
-          RUN=yes; HEAVY=yes
+          # The default is now LIGHT, and heavy is earned by being first. Defaulting the other
+          # way is the version that mails eight digests a day: `heavy` gates notify, JobSpy,
+          # verify_dates, close_dead_jds and the facts rebuild, and not one of those is a cost
+          # that divides by eight.
+          #
+          # A manual dispatch is still always heavy — see the else branch below.
+          RUN=yes; HEAVY=no
 
           # ...with ONE real branch, and it is load-bearing rather than decorative.
           #
@@ -223,10 +253,34 @@ jobs:
                      --jq "[.[] | select(.createdAt >= \"$SINCE\")
                                 | select(.conclusion == \"success\")
                                 | select(.databaseId != ${{ github.run_id }})] | length" 2>/dev/null || echo 0)
-            if [ "${DONE:-0}" -gt 0 ]; then
-              RUN=no; HEAVY=no
-              echo "::notice::A scrape already succeeded today ($DONE run(s) since $SINCE). This late cron fire is a no-op."
+            # RECENT, and this is what replaced "has one succeeded TODAY". That test was right
+            # for a once-a-day cron and is fatal to this one: after the day's first run succeeds
+            # it would no-op all seven that follow — not a schedule change so much as a way of
+            # keeping the old schedule while appearing to change it.
+            #
+            # What the old test was FOR survives here. GitHub delivers a dropped cron late
+            # rather than cancelling it (up to +9h42 on this repo), so a stale event can land
+            # beside a fresh run. 150 minutes suppresses exactly that, and cannot suppress a
+            # legitimate fire, because those are 180 minutes apart.
+            RECENT_SINCE=$(date -u -d '150 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+            RECENT=$(gh run list --workflow=scrape.yml --limit 50 \
+                     --json createdAt,conclusion,databaseId \
+                     --jq "[.[] | select(.createdAt >= \"$RECENT_SINCE\")
+                                | select(.conclusion == \"success\")
+                                | select(.databaseId != ${{ github.run_id }})] | length" 2>/dev/null || echo 0)
+            if [ "${RECENT:-0}" -gt 0 ]; then
+              RUN=no
+              echo "::notice::A scrape already succeeded in the last 150 min ($RECENT run(s) since $RECENT_SINCE). This fire is a no-op."
+            elif [ "${DONE:-0}" = 0 ]; then
+              # Nothing has succeeded since Eastern midnight, so this is the day's first run
+              # and it carries the heavy pass — including the single digest email.
+              HEAVY=yes
+              echo "::notice::First run of the ET day — taking the heavy pass."
             fi
+          else
+            # workflow_dispatch: a person, the app's "Update jobs" button, or
+            # scrape-watchdog.yml. An explicit request gets the full pass, unchanged.
+            HEAVY=yes
           fi
 
           echo "run=$RUN"     >> "$GITHUB_OUTPUT"
@@ -248,6 +302,30 @@ jobs:
       # This is one HTTP round trip and it answers the only question that matters first: is this
       # run pointed at the database the app actually reads? DB_REQUIRE=proxy above makes db.py
       # raise rather than fall back, so this step is where that surfaces.
+      # resume.txt IS NOT IN THE REPOSITORY ANY MORE. It was removed from the tree and purged
+      # from history on 2026-09-19, when this repo went public: it is a real resume carrying a
+      # real name, phone number and email, and a public repo makes those permanently
+      # searchable. The scrape needs its TEXT, not a tracked file, so it arrives as a secret
+      # and is written here. The deploy zip and the cPanel box keep their own local copy.
+      #
+      # THIS STEP FAILS THE RUN WHEN THE SECRET IS EMPTY, deliberately and loudly, because
+      # score_jobs does the opposite: "No resume.txt found — scores would all be 0. Aborting."
+      # (score_jobs.py:1889) and then EXITS 0. A run with no resume therefore reports SUCCESS
+      # while scoring nothing at all — the whole intake lands with a NULL match_score and is
+      # invisible to the feed's filter. An unset secret has to break the build, not the feed.
+      - name: Materialise resume.txt from the RESUME_TXT secret
+        if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 2
+        env:
+          RESUME_TXT: ${{ secrets.RESUME_TXT }}
+        run: |
+          if [ -z "$RESUME_TXT" ]; then
+            echo "::error::RESUME_TXT secret is unset or empty. Scoring would silently write zeros, so this run is refusing to continue. Set it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          printf '%s' "$RESUME_TXT" > resume.txt
+          echo "resume.txt written: $(wc -c < resume.txt) bytes, $(wc -l < resume.txt) lines."
+
       - name: Preflight — confirm the database
         id: preflight
         if: steps.gate.outputs.run == 'yes'
@@ -615,6 +693,31 @@ jobs:
       # fine. It must never be the reason the digest below doesn't send. !cancelled() for the
       # reason on Score jobs above: a backfill of rows that already exist does not become
       # pointless because the sweep that ran before it overran its cap.
+      # REFILLING user_scores, which this workflow never did. The stored per-(user,job) score
+      # table is written by scraper.score_users, and until 2026-09-19 that ran ONLY from the
+      # box's weekday cron — acceptable when Actions scraped once a weekday, wrong at eight
+      # runs a day across seven days.
+      #
+      # The coupling lives in the writer: score_jobs DELETES a job's user_scores rows whenever
+      # it rewrites that job's jd_terms ("Stored user scores dropped for N re-analysed job(s)"),
+      # so every pass above, heavy or light, leaves a hole. Unfilled, web.user_scores falls back
+      # to computing those rows per user per request, which is the slow path the table exists to
+      # avoid. Measured 2026-09-19: 235 re-analysed jobs -> 1,452 rows refilled across 6
+      # accounts in 2m27s. Cheap enough to run every time.
+      #
+      # continue-on-error: a missed refill degrades to the pre-table behaviour rather than
+      # breaking the feed, so it must never fail a run that scraped and scored correctly.
+      - name: Refill stored per-user match scores
+        if: steps.gate.outputs.run == 'yes' && !cancelled()
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          EV_OFF: "1"
+        # --budget-min 6 is the value bin/cron_scrape.sh uses. An account that cannot finish
+        # inside it resumes on the next run instead of blocking the pipeline: score_users writes
+        # as it goes and picks up where it stopped, which is what makes a cap safe here.
+        run: python -m scraper.score_users --budget-min 6
+
       - name: Verify posting dates (budgeted)
         if: >-
           steps.gate.outputs.run == 'yes' && steps.gate.outputs.heavy == 'yes'
