@@ -28,8 +28,11 @@ For an existing deployment:
 5. Run `python scripts/repair_clipped_jds.py --cache-only` to review recoverable cached
    copies, then `--apply` to restore them. Omit `--cache-only` to try the source.
    Limits, checkpoints and retry delays bound each pass; changed source text requiring
-   review is never blindly substituted. Successful writes rederive facts and terms,
-   invalidate stored match scores and verify the stored full text.
+   review is never blindly substituted. An explicit `--url` also repairs missing or
+   unusable descriptions. A readable replacement can replace a proven non-posting
+   shell; usable content must be retained, with equivalent HTML entities normalized
+   only for comparison. Successful writes rederive facts and terms, invalidate stored
+   match scores and verify the stored full text.
 6. Warm the app after the backfill using the existing operator procedure.
 
 Regression coverage: `test_job_categories.py`, `scripts/test_category_storage.py`,

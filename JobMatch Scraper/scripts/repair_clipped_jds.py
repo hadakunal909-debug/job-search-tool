@@ -2,7 +2,8 @@
 """Recover descriptions suspected of hitting the former 8k/12k character caps.
 
 Dry run by default; --apply persists text, re-derives facts/terms/categories and
-invalidates scores. Only a longer text retaining the entire old text is accepted.
+invalidates scores. Usable text must be retained; missing or proven non-posting
+text can be replaced by a readable description. Explicit URLs may target those gaps.
 Candidates and progress are bounded; a checkpoint resumes interrupted writes.
 
     python scripts/repair_clipped_jds.py --cache-only --limit 100 --report work/jd-repair.json
@@ -31,19 +32,23 @@ LEGACY_CAPS = (8000, 12000)
 
 
 def replacement_reason(stored, candidate):
-    """Empty means safe extension; length alone cannot establish the same posting."""
+    """Empty means a safe recovery; never discard usable incumbent job content."""
     candidate = str(candidate or "")
     if not candidate.strip():
         return "source_unavailable"
     if core.jd_read_status(candidate)["status"] != "readable":
         return "source_unusable_or_still_clipped"
+    # There is no usable incumbent content to preserve in these two cases.
+    # The caller obtains candidates from this job's URL or URL-keyed cache.
+    if not (stored or "").strip() or core.clean_jd(stored)[1] == "not-a-posting":
+        return ""
+    # Formatting/entities may differ from the old capture. Require the entire
+    # old content in order plus more content, even if its HTML used more bytes.
+    if core.jd_extends(stored, candidate):
+        return ""
     if len(candidate) <= len(stored or ""):
         return "not_longer"
-    # Formatting may have improved since capture. Compare every letter/number in
-    # order, including the final partial word, so added bullets do not look like loss.
-    if not core.jd_extends(stored, candidate):
-        return "source_changed_requires_review"
-    return ""
+    return "source_changed_requires_review"
 
 
 def repair_fields(row, text, idf):
@@ -250,7 +255,7 @@ def run(args):
             elif previous.get("status") == "pending" and db.jd_fingerprint(stored) == previous.get("new_fp"):
                 replacements[url] = stored
                 rec.update(status="recovered", source="resume_pending_write", new_chars=len(stored))
-            elif len(stored) not in LEGACY_CAPS:
+            elif core.jd_read_status(stored)["status"] not in ("missing", "unusable", "suspected_truncated"):
                 rec["status"] = "not_at_legacy_cap"
             else:
                 candidate = cache.get(url) or ""

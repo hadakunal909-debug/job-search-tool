@@ -11,7 +11,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-CATEGORY_VERSION = VERSION = "2026-09-22.2"
+CATEGORY_VERSION = VERSION = "2026-09-22.3"
 CATEGORY_LABELS = {
     "construction": "Construction & Built Environment",
     "it": "IT & Software",

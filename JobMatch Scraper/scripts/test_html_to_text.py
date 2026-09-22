@@ -404,6 +404,52 @@ def test_repair_cache_stream_preserves_entries_and_large_unicode_text():
         assert actual == dict(existing, **{"https://example.test/c": "repaired", "https://example.test/new": "new"})
 
 
+def test_repair_accepts_missing_or_proven_nonposting_incumbents():
+    from scripts.repair_clipped_jds import replacement_reason
+    good = "Design software services, test code, and maintain cloud infrastructure. " * 12
+    dead = "This job is no longer available. Search all careers and create an alert. " * 180
+    assert core.clean_jd(dead)[1] == "not-a-posting"
+    assert len(good) < len(dead)
+    for old in (None, "", " \n\t", dead):
+        assert replacement_reason(old, good) == ""
+        assert replacement_reason(old, "Loading...") == "source_unusable_or_still_clipped"
+    assert replacement_reason(good, "Different readable duties. " * 50) == "source_changed_requires_review"
+
+
+def test_repair_compares_decoded_entities_without_losing_skill_text():
+    import html
+    from scripts.repair_clipped_jds import replacement_reason
+    old = "Design&#xa;software&#xA0;with&#32;&lt;SQL&gt; and deliver releases. " * 40
+    good = html.unescape(old) + " Required: seven years of engineering experience."
+    assert len(good) < len(old), "the fixture must remove markup bytes while adding job content"
+    assert core.jd_extends(old, good)
+    assert replacement_reason(old, good) == ""
+    assert not core.jd_extends(old, good.replace("<SQL>", ""))
+    assert not core.jd_extends(old, html.unescape(old)), "formatting alone is not recovered content"
+
+
+def test_repair_explicit_url_handles_missing_and_unusable_descriptions():
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from scripts import repair_clipped_jds as repair
+    url = "https://example.test/jobs/repair-gap"
+    good = "Design software services, test code, and maintain cloud infrastructure. " * 12
+    for old in ("", " \n", "This job is no longer available. " * 40):
+        with tempfile.TemporaryDirectory() as folder:
+            args = SimpleNamespace(state=str(Path(folder) / "state.json"),
+                                   report=str(Path(folder) / "report.json"), apply=False,
+                                   url=[url], host=[], retry_after_hours=24, limit=1,
+                                   batch_size=1, max_seconds=60, cache_only=True)
+            with patch.object(repair, "_selected_cache", return_value={url: good}), \
+                 patch.object(repair.db, "load_jobs_by_urls", return_value=[{"url": url, "jd": old}]), \
+                 patch.object(repair, "persist_repairs") as write:
+                report = repair.run(args)
+                assert report["counts"] == {"would_recover": 1}, report
+                write.assert_not_called()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

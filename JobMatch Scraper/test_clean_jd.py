@@ -85,6 +85,31 @@ check("the role summary between the menu and the first heading SURVIVES",
       "this is the 37%-of-rows regression the first cut rule caused")
 
 print("\nA CLEAN DESCRIPTION IS RETURNED UNTOUCHED")
+# Google internship pages put real application instructions immediately after their
+# share controls. "the role" in the final sentence is prose, not a section heading.
+APPLICATION = (
+    "Please complete your application before October 9, 2026.\n"
+    "Applications will be reviewed on a rolling basis and candidates should apply early.\n"
+    "Timing on when you can hear back can take upwards of 90 days. "
+    "If you have not heard from us, we likely proceeded with other candidates for the role.\n"
+    "Participation requires that you are located in the United States during the internship.\n"
+)
+for name, separator in (("multiline", "\n"), ("flattened", " ")):
+    application = APPLICATION if separator == "\n" else APPLICATION.replace("\n", " ")
+    posting = "Google Intern\nCopy link\nEmail a friend" + separator + application + BODY
+    cleaned, verdict = core.clean_jd(posting)
+    check("%s application deadline survives navigation cleaning" % name,
+          cleaned.startswith("Please complete your application before October 9, 2026."), cleaned[:90])
+    check("%s application instructions remain complete" % name,
+          application.strip() in cleaned and "90 days" in cleaned)
+    check("%s Google posting stays readable and idempotent" % name,
+          verdict == "chrome-stripped" and core.clean_jd(cleaned) == (cleaned, "ok"))
+# A real heading can follow introductory prose too; proximity alone must not erase it.
+intro = "Applications close September 30. The team works on payment systems. "
+cleaned, _ = core.clean_jd("Email a friend " + intro + BODY)
+check("a nearby genuine heading does not erase preceding application prose",
+      cleaned.startswith(intro) and BODY in cleaned)
+
 c, cv = core.clean_jd(BODY)
 check("verdict is ok", cv == "ok", cv)
 check("not one character is removed", c == BODY.strip())

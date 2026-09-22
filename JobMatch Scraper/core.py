@@ -1155,10 +1155,14 @@ def _strip_chrome(text, spans):
         if start - cut > _CHROME_RUN_GAP:
             break
         cut = max(cut, end)
-    snap = _POSTING_START.search(text, cut, cut + _SNAP_CHARS)
-    if snap is not None:
+    # A navigation label ending its own line already gives us a clean boundary.
+    # Searching past it can mistake prose such as "other candidates for the role."
+    # for a heading and discard application deadlines or the opening summary.
+    line_boundary = re.match(r"[^\S\r\n]*(?:\r?\n)", text[cut:])
+    snap = None if line_boundary else _POSTING_START.search(text, cut, cut + _SNAP_CHARS)
+    if snap is not None and not re.search(r"[.!?](?:\s|$)", text[cut:snap.start()]):
         cut = snap.start()
-    else:
+    elif not line_boundary and snap is None:
         # NO HEADING TIDIED THIS CUT, so make sure it at least lands on a boundary. A menu label
         # can occur inside a real sentence -- "you'll be invited to create a profile, which will
         # let you see your application status" -- and cutting at the label opened 73 descriptions
@@ -1218,10 +1222,13 @@ def jd_read_status(text):
 
 def jd_extends(stored, candidate):
     """A readable, longer copy retaining the incumbent's ordered letters and numbers."""
-    if len(candidate or "") <= len(stored or "") or jd_read_status(candidate)["status"] != "readable":
+    if jd_read_status(candidate)["status"] != "readable":
         return False
-    old = re.sub(r"[^\w]+", "", stored or "", flags=re.UNICODE).casefold()
-    new = re.sub(r"[^\w]+", "", candidate or "", flags=re.UNICODE).casefold()
+    # Old HTML captures can store numeric whitespace entities literally. Decode
+    # for comparison only; the stored source stays untouched and skill names such
+    # as &lt;SQL&gt; retain their letters. Compare content length, not HTML length.
+    old = re.sub(r"[^\w]+", "", html.unescape(stored or ""), flags=re.UNICODE).casefold()
+    new = re.sub(r"[^\w]+", "", html.unescape(candidate or ""), flags=re.UNICODE).casefold()
     return bool(old and new.startswith(old) and len(new) > len(old))
 
 
