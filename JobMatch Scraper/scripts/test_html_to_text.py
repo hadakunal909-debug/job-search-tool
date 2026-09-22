@@ -498,6 +498,90 @@ def test_repair_explicit_url_handles_missing_and_unusable_descriptions():
                 write.assert_not_called()
 
 
+def _google_detail_fixture(job_id="123456789", long=False):
+    import json
+    row = [None] * 22
+    row[0:2] = [job_id, "Software Engineer, Networks"]
+    row[3] = [None, "<ul><li>Design network services and maintain production systems.</li></ul>" * (220 if long else 8)
+              + "<p>FINAL DUTY: maintain the packet capture service.</p>"]
+    row[4] = [None, "<h3>Minimum qualifications</h3><p>Unique engineering degree requirement.</p>"
+              "<h3>Preferred qualifications</h3><p>Experience with network protocols.</p>"]
+    row[7] = "Google"
+    row[9] = [["Mountain View, CA, USA"], ["New York, NY, USA"]]
+    row[10] = [None, "<p>Build reliable infrastructure for our users. Salary: $120,000 - $150,000 per year.</p>"]
+    row[12] = [1234567890]
+    row[15] = [None, "<p>Submit your transcript by October 31.</p>"]
+    row[18] = [None, "<p>You may select your preferred office.</p>"]
+    row[19] = [None, "<p>Unique engineering degree requirement.</p>"]
+    row[21] = [None, "<p>ADDITIONAL SOURCE NOTE: keep the complete application instructions.</p>"]
+    return row, "<nav>Search all jobs and sign in</nav><script>AF_initDataCallback({key:'ds:0',data:" + json.dumps([row]) + "});</script>"
+
+
+def test_google_exact_record_preserves_full_jd_and_application_notes_once():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    row, page = _google_detail_fixture(long=True)
+    url = "https://careers.google.com/jobs/results/123456789-software-engineer"
+    canonical = "https://www.google.com/about/careers/applications/jobs/results/123456789-software-engineer"
+    response = SimpleNamespace(status_code=200, text=page, url=canonical)
+    with patch.object(sj.scraper, "_safe_get", return_value=response) as fetch, \
+         patch.object(sj, "microdata_jd") as microdata, patch.object(sj.core, "fetch_jd") as generic:
+        result = sj.google_detail_record(url)
+        fetch.assert_called_once_with(canonical, timeout=25)
+        assert result["source_id"] == row[0] and result["title"] == row[1]
+        assert result["company"] == "Google"
+        assert result["location"] == "Mountain View, CA, USA; New York, NY, USA"
+        jd = result["jd"]
+        assert len(jd) > 12000 and "FINAL DUTY" in jd
+        for marker in ("October 31", "preferred office", "Preferred qualifications", "ADDITIONAL SOURCE NOTE"):
+            assert marker in jd, marker
+        assert jd.count("Unique engineering degree requirement.") == 1
+        assert "Search all jobs" not in jd
+        fetch.reset_mock()
+        assert sj.detail_jd(url) == (url, jd, "")
+        fetch.assert_called_once()
+        microdata.assert_not_called()
+        generic.assert_not_called()
+
+
+def test_google_rejects_wrong_incomplete_ambiguous_or_redirected_records():
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    row, _ = _google_detail_fixture()
+    url = "https://www.google.com/about/careers/applications/jobs/results/123456789-software-engineer"
+    incomplete = list(row)
+    incomplete[3] = None
+    wrong_id = list(row)
+    wrong_id[0] = "999999999"
+    cases = [([wrong_id], url), ([incomplete], url), ([row, row], url),
+             ([5, None, ["ErrorDetails"]], url), ([row], url.replace("123456789", "999999999"))]
+    for payload, final_url in cases:
+        page = "AF_initDataCallback({key:'ds:0',data:" + json.dumps(payload) + "});"
+        response = SimpleNamespace(status_code=200, text=page, url=final_url)
+        with patch.object(sj.scraper, "_safe_get", return_value=response), \
+             patch.object(sj, "microdata_jd") as microdata, patch.object(sj.core, "fetch_jd") as generic:
+            assert sj.detail_jd(url) == (url, "", "")
+            microdata.assert_not_called()
+            generic.assert_not_called()
+
+
+def test_workday_apply_suffix_uses_the_posting_detail_endpoint():
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    payload = {"jobPostingInfo": {"jobDescription": "<p>Manage construction schedules and contractors.</p>",
+                                  "startDate": "2026-09-01"}}
+    cases = [("https://acme.wd5.myworkdayjobs.com/en-US/External/job/Boston/Project-Manager_R123/apply", "acme.wd5.myworkdayjobs.com"),
+             ("https://wd5.myworkdaysite.com/recruiting/acme/External/job/Boston/Project-Manager_R123/apply", "wd5.myworkdaysite.com")]
+    for url, host in cases:
+        with patch.object(sj.scraper, "_get_json", return_value=payload) as fetch:
+            jd, date = sj.wd_detail_jd(url)
+            assert "construction schedules" in jd and date == "2026-09-01"
+            fetch.assert_called_once_with("https://%s/wday/cxs/acme/External/job/Boston/Project-Manager_R123" % host)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

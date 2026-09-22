@@ -433,6 +433,8 @@ def wd_detail_jd(url):
     try:
         host, tenant, site = scraper._workday_parts(url)
         segs = [x for x in urlparse(url).path.split("/") if x]
+        if segs and segs[-1] == "apply" and "job" in segs:
+            segs = segs[:-1]  # application UI suffix is not part of the CXS posting path
         jobpath = "/".join(segs[segs.index("job"):]) if "job" in segs else (segs[-1] if segs else "")
         d = scraper._get_json("https://%s/wday/cxs/%s/%s/%s" % (host, tenant, site, jobpath))
         info = d.get("jobPostingInfo") or {}
@@ -1030,11 +1032,87 @@ def metacareers_detail_jd(url):
         return ""
 
 
+_GOOGLE_DETAIL_RE = re.compile(r"/(?:about/careers/applications/)?jobs/results/(\d+)(?:-[^/]+)?/?$")
+_GOOGLE_DS0_RE = re.compile(r"key:\s*['\"]ds:0['\"].{0,200}?data:\s*", re.S)
+
+
+def _google_detail_id(url):
+    parsed = scraper.urlparse(url)
+    if parsed.hostname not in ("careers.google.com", "www.google.com", "google.com"):
+        return ""
+    match = _GOOGLE_DETAIL_RE.search(parsed.path)
+    return match.group(1) if match else ""
+
+
+def google_detail_record(url):
+    """Read one exact-ID Google posting once, including its application notes.
+
+    The public ds:0 JSON contains qualifications, overview and duties. Error or
+    related-job records never substitute for the requested posting. Field19
+    duplicates the minimum qualifications already contained in field4.
+    """
+    job_id = _google_detail_id(url)
+    if not job_id:
+        return {}
+    path = scraper.urlparse(url).path
+    if path.startswith("/jobs/"):
+        path = "/about/careers/applications" + path
+    canonical = "https://www.google.com" + path
+    try:
+        response = scraper._safe_get(canonical, timeout=25)
+        if response.status_code != 200:
+            return {}
+        final_url = getattr(response, "url", "") or canonical
+        if _google_detail_id(final_url) != job_id:
+            return {}
+        records, decoder = [], json.JSONDecoder()
+        for match in _GOOGLE_DS0_RE.finditer(response.text):
+            try:
+                payload = decoder.raw_decode(response.text[match.end():])[0]
+            except ValueError:
+                continue
+            if isinstance(payload, list):
+                records.extend(row for row in payload if isinstance(row, list)
+                               and len(row) >= 11 and row[0] == job_id
+                               and isinstance(row[1], str))
+        if len(records) != 1:
+            return {}
+        record = records[0]
+        def rich(index):
+            value = record[index] if len(record) > index else None
+            return value[1] if (isinstance(value, list) and len(value) == 2
+                                and value[0] is None and isinstance(value[1], str)) else ""
+        if not (rich(3) and rich(4) and rich(10)):
+            return {}  # incomplete/unknown schema must not masquerade as a full JD
+        parts = []
+        for index, heading in ((18, ""), (15, ""), (4, ""),
+                               (10, "About the job"), (3, "Responsibilities")):
+            value = rich(index)
+            if value:
+                parts.append(("<h2>" + heading + "</h2>" if heading else "") + value)
+        for index in range(len(record)):
+            if index not in (3, 4, 10, 15, 18, 19) and rich(index):
+                parts.append(rich(index))
+        text = _text("\n".join(parts))
+        if core.jd_read_status(text)["status"] != "readable":
+            return {}
+        locations = record[9] if isinstance(record[9], list) else []
+        location = "; ".join(value[0] for value in locations
+                             if isinstance(value, list) and value and isinstance(value[0], str))
+        return {"jd": text, "title": record[1], "company": record[7],
+                "location": location, "source_id": job_id, "source_url": final_url}
+    except Exception:
+        return {}
+
+
 def detail_jd(url):
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""
     host = scraper.urlparse(url).hostname or ""
+    if _google_detail_id(url):
+        record = google_detail_record(url)
+        return url, record.get("jd", ""), ""  # embedded timestamp meanings are unproven
     if _native_greenhouse_parts(url):
         jd, date = native_greenhouse_detail_jd(url)
         return url, jd, date
