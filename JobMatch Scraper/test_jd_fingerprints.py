@@ -46,16 +46,13 @@ def test_absence_is_not_a_fingerprint():
 
 
 def test_it_hashes_what_the_column_will_actually_hold():
-    # update_jds truncates to JD_MAX_CHARS before storing. The scoring pass fingerprints the text
-    # it FETCHED, which can be longer -- 8,879 chars is the longest measured on the live corpus.
-    # Hash the uncapped copy at one end and the capped one at the other and every freshly fetched
-    # long description reads as stale for ever, which is a tripwire that cries permanently.
-    cap = real_db.JD_MAX_CHARS
-    long_text = "x" * (cap + 900)
-    _check("text over the cap fingerprints as its stored prefix",
-           real_db.jd_fingerprint(long_text) == real_db.jd_fingerprint("x" * cap))
-    _check("...and update_jds really does truncate to the same constant",
-           "[:JD_MAX_CHARS]" in open(os.path.join(APP, "db.py"), encoding="utf-8").read())
+    # Long postings keep their full text: duties after character 8,000 must affect the hash.
+    prefix = "x" * 8000
+    long_text = prefix + " Required: seven years of cloud migration experience."
+    _check("full text gets a different fingerprint from its old truncated prefix",
+           real_db.jd_fingerprint(long_text) != real_db.jd_fingerprint(prefix))
+    _check("the full text hash is stable",
+           real_db.jd_fingerprint(long_text) == real_db.resume_fp(long_text))
 
 
 def test_different_text_different_fingerprint():
@@ -182,11 +179,9 @@ def test_the_backfill_agrees_with_the_python_fingerprint():
     """
     mig = open(os.path.join(APP, "MIGRATION_jd_fp_backfill.sql"), encoding="utf-8").read()
 
-    # 1. THE CAP. 158 stored descriptions are longer than JD_MAX_CHARS. Hash the untruncated
-    #    text here and Python's capped text there, and those 158 read stale for ever.
-    _check("the backfill truncates to JD_MAX_CHARS (%d)" % real_db.JD_MAX_CHARS,
-           "left(d.jd, %d)" % real_db.JD_MAX_CHARS in mig,
-           "constant moved and the SQL did not")
+    # SQL and Python both fingerprint every stored character, including long descriptions.
+    _check("the backfill fingerprints the complete stored description",
+           "md5(d.jd)" in mig and "md5(left(" not in mig)
 
     # 2. IT MUST NEVER WRITE facts_fp. We know what text a row STORES; we do not know what text
     #    its exp_max_years was read from. Setting facts_fp = jd_fp would assert every derived

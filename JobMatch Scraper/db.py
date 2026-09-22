@@ -176,6 +176,9 @@ PG_DSN = os.environ.get("PG_DSN") or ""
 JOBS_CSV = "jobs.csv"
 ACTIONS_FILE = "user_jobs.json"
 TABLE = "jobs"
+JOB_CATEGORIES_TABLE = "job_categories"
+CATEGORY_COLS = ("category", "category_label", "category_source", "category_confidence",
+                 "category_evidence", "category_version", "category_input_fp", "category_jd_fp")
 FIELDS = ["found_date", "title", "company", "location", "url",
           "sponsors_h1b", "match_score", "status",
           "posted_verified", "posted_confidence",
@@ -624,10 +627,11 @@ def _read_csv():
 
 def _write_csv(rows):
     with open(JOBS_CSV, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
+        csv_fields = list(dict.fromkeys(FIELDS + ["jd", "jd_fp"] + list(CATEGORY_COLS)))
+        w = csv.DictWriter(f, fieldnames=csv_fields)
         w.writeheader()
         for r in rows:
-            w.writerow({k: r.get(k, "") for k in FIELDS})
+            w.writerow({k: r.get(k, "") for k in csv_fields})
 
 
 def _load_actions():
@@ -653,7 +657,7 @@ _FEED_COLS_CORE = "url,found_date,title,company,location,sponsors_h1b,match_scor
 # job_terms, so naming them in the `jobs` select would 400. The degrade-to-CORE fallback
 # that used to pop from the end of this tuple went with them -- see load_jobs.
 _FEED_COLS_OPT = ("posted_verified", "is_active", "last_seen", "miss_count",
-                  "first_seen", "posted_confidence")
+                  "first_seen", "posted_confidence", "jd_fp")
 _FEED_COLS = _FEED_COLS_CORE + "," + ",".join(_FEED_COLS_OPT)
 
 
@@ -676,9 +680,9 @@ with the feature dormant it keeps the narrow existing_urls() path and costs noth
 COLS_VERIFY = "url,posted_verified,posted_confidence,found_date"
 """scraper.verify_dates._candidates — reads exactly these four (verify_dates.py:132-145)."""
 
-COLS_SCORE = ("url,found_date,location,first_seen,match_score,"
+COLS_SCORE = ("url,title,company,jd_fp,found_date,location,first_seen,match_score,"
               "loc_state,loc_metro,remote,salary_min,salary_max,salary_period,"
-              "exp_max_years,sponsor_jd,sponsor_reason")
+              "exp_max_years,sponsor_jd,sponsor_reason," + ",".join(CATEGORY_COLS))
 """scraper.score_jobs in new-only mode. The first four are read directly; the last NINE exist
 because the same `rows` are passed to _persist_derived(current_rows=...), which diffs against
 them to decide what to re-write (score_jobs.py:566-582). Drop those and every run would think
@@ -758,7 +762,9 @@ def _route_cols(cols):
     facts = [c for c in want if c in _FACTS_SET]
     terms = "jd_terms" in want
     jd = "jd" in want
-    base = [c for c in want if c not in MOVED_OFF_JOBS]
+    base = [c for c in want if c not in MOVED_OFF_JOBS and c not in CATEGORY_COLS]
+    if any(c in CATEGORY_COLS for c in want):
+        base += [c for c in ("url", "title", "company", "jd_fp") if c not in base]
     if (facts or terms or jd) and "url" not in base:
         base.append("url")
     return base, facts, terms, jd
@@ -797,6 +803,12 @@ def load_jobs(include_jd=True, cols=None):
                     texts = _jd_rows()
                     for r in rows:
                         r["jd"] = texts.get(r.get("url"), "")
+                category_cols = [c.strip() for c in cols.split(",") if c.strip() in CATEGORY_COLS]
+                if category_cols:
+                    _merge_job_categories(rows)
+                    for row in rows:
+                        for col in category_cols:
+                            row.setdefault(col, None)
                 return rows
             except Exception:
                 # NEVER ESCALATE A NARROW READ TO select=*. include_jd defaults to True, so
@@ -857,6 +869,7 @@ def load_jobs(include_jd=True, cols=None):
                 packed = _terms_rows()
                 for r in base:
                     r["jd_terms"] = packed.get(r.get("url"), "")
+            _merge_job_categories(base)
             return base
         # NO NON-MERGE PATH ANY MORE. The branch above fires on jd_table_ready() /
         # job_facts_ready() / job_terms_ready(), and since the contract step all three
@@ -1060,6 +1073,126 @@ def _side_rows(table, sel, urls, pick=None):
         return {r["url"]: r for r in rows if r.get("url")}
     return {r["url"]: (r.get(pick) or "") for r in rows if r.get("url")}
 
+
+
+
+# ---- Versioned, JD-first job categories -----------------------------------------------
+_category_table = {"missing_at": 0.0}
+
+
+def category_input_fingerprint(row, jd_fp=None):
+    """Bind a stored classification to its exact text, title, employer and rules."""
+    from job_categories import CATEGORY_VERSION, company_type_for
+    company = row.get("company") or ""
+    company_type = row.get("company_type") or company_type_for(company)
+    values = [CATEGORY_VERSION, row.get("title") or "", company, company_type,
+              (row.get("jd_fp") if jd_fp is None else jd_fp) or ""]
+    return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def category_record(row, jd=None):
+    """Classify one complete input row; callers must not substitute absent JD for stored JD."""
+    from job_categories import classify_job, company_type_for
+    text = (row.get("jd") or "") if jd is None else jd
+    company = row.get("company") or ""
+    result = classify_job(row.get("title") or "", text, company,
+                          row.get("company_type") or company_type_for(company))
+    fingerprint = jd_fingerprint(text)
+    return dict(result, url=row["url"], category_jd_fp=fingerprint,
+                category_input_fp=category_input_fingerprint(row, fingerprint or ""))
+
+
+def load_job_category_inputs(urls=None, include_jd=False):
+    """Metadata for classification without pulling terms, facts or unrelated descriptions."""
+    if not has_remote_db():
+        wanted = None if urls is None else set(urls)
+        return [r for r in _read_csv() if wanted is None or r.get("url") in wanted]
+    rows = list(_side_rows(TABLE, "url,title,company,jd_fp", urls).values())
+    if include_jd:
+        texts = _jd_rows(urls)
+        for row in rows:
+            row["jd"] = texts.get(row["url"], "")
+    return rows
+
+
+def job_category_rows(urls=None, strict=False):
+    """Read the optional category table; missing schema is an explicit deploy fallback."""
+    if not has_remote_db():
+        wanted = None if urls is None else set(urls)
+        return {r["url"]: {k: r.get(k) for k in ("url",) + CATEGORY_COLS}
+                for r in _read_csv() if r.get("category") and
+                (wanted is None or r["url"] in wanted)}
+    if not strict and time.time() - _category_table["missing_at"] < 60:
+        return {}
+    try:
+        return _side_rows(JOB_CATEGORIES_TABLE, "url," + ",".join(CATEGORY_COLS), urls)
+    except Exception as exc:
+        if _table_missing(exc):
+            _category_table["missing_at"] = time.time()
+            if not strict:
+                return {}
+        raise
+
+
+def _merge_job_categories(rows, urls=None):
+    """Never serve a label computed from an old JD, title, company or rule version."""
+    if not rows:
+        return
+    stored = job_category_rows(urls)
+    for row in rows:
+        got = stored.get(row.get("url")) or {}
+        if not got or (got.get("category_jd_fp") or "") != (row.get("jd_fp") or ""):
+            continue
+        if got.get("category_input_fp") != category_input_fingerprint(row):
+            continue
+        row.update({k: got.get(k) for k in CATEGORY_COLS})
+
+
+def save_job_categories(records):
+    """Persist complete category records. Raises on failure so a backfill cannot claim success."""
+    records = [r for r in records if r.get("url")]
+    if not records:
+        return 0
+    if has_remote_db():
+        _upsert(records, keys=("url",) + CATEGORY_COLS, table=JOB_CATEGORIES_TABLE)
+        _category_table["missing_at"] = 0.0
+    else:
+        by_url = {r["url"]: r for r in records}
+        rows = _read_csv()
+        for row in rows:
+            row.update(by_url.get(row.get("url")) or {})
+        _write_csv(rows)
+    return len(records)
+
+
+def refresh_job_categories(rows, jds=None, strict=False):
+    """Recompute changed categories from supplied complete inputs, using no network JD reads.
+
+    Intake and JD repair call this automatically. The scoring pass also retries stale/missing
+    records, so a deploy-before-migration window or transient write failure is recoverable.
+    """
+    rows = [r for r in rows if r.get("url") and "title" in r]
+    if not rows:
+        return 0
+    if not strict and has_remote_db() and time.time() - _category_table["missing_at"] < 60:
+        return 0
+    try:
+        records = []
+        for row in rows:
+            if jds is not None and row["url"] not in jds:
+                continue  # omitted text must never replace a reading of a stored description
+            record = category_record(row, None if jds is None else jds[row["url"]])
+            if any((record.get(k) or "") != (row.get(k) or "") for k in CATEGORY_COLS):
+                records.append(record)
+        return save_job_categories(records)
+    except Exception as exc:
+        if _table_missing(exc):
+            _category_table["missing_at"] = time.time()
+        if strict:
+            raise
+        print("  (job categories not saved; retry scoring/backfill after "
+              "MIGRATION_job_categories.sql: %s)" % str(exc)[:140])
+        return 0
 
 
 def job_terms_ready():
@@ -1319,6 +1452,7 @@ def load_jobs_by_urls(urls, include_jd=True):
             texts = _jd_rows([r.get("url") for r in rows if r.get("url")])
             for r in rows:
                 r["jd"] = texts.get(r.get("url"), "")
+        _merge_job_categories(rows, urls=urls)
         return rows
     want = set(urls)
     rows = [r for r in _read_csv() if r.get("url") in want]
@@ -1468,6 +1602,7 @@ def add_jobs(rows):
         # we already recorded. The column's DEFAULT + triggers own it; we never send it.
         _upsert([{k: r[k] for k in FIELDS if k != "first_seen" and k in r and r[k] != ""}
                  for r in rows])
+        refresh_job_categories(rows)
         return
     existing = existing_urls()
     # A CSV has no column defaults, so stamp it here. Safe: this branch only appends URLs that
@@ -1476,6 +1611,7 @@ def add_jobs(rows):
     new = [dict(r, first_seen=(r.get("first_seen") or today))
            for r in rows if r.get("url") not in existing]
     _write_csv(_read_csv() + new)
+    refresh_job_categories(new)
 
 
 def update_job_fields(rows, keys=None):
@@ -1500,6 +1636,12 @@ def update_job_fields(rows, keys=None):
         # nothing.
         mirror_job_facts(rows, keys)
         mirror_job_terms(rows, keys)
+        changed = [r["url"] for r in rows if "title" in r or "company" in r]
+        if changed:
+            try:
+                refresh_job_categories(load_job_category_inputs(changed, include_jd=True))
+            except Exception as exc:
+                print("  (job categories need retry after metadata update: %s)" % str(exc)[:120])
         return
     by_url = {r["url"]: r for r in rows}
     out = _read_csv()
@@ -1510,6 +1652,8 @@ def update_job_fields(rows, keys=None):
                 if k != "url" and v:
                     r[k] = v
     _write_csv(out)
+    changed = {r["url"] for r in rows if "title" in r or "company" in r}
+    refresh_job_categories([r for r in out if r.get("url") in changed])
 
 
 def update_scores(scores):
@@ -2227,12 +2371,9 @@ def resume_fp(text):
     return hashlib.md5((text or "").encode("utf-8")).hexdigest()
 
 
-# The cap update_jds applies before storing a description. Hoisted out of that function
-# because jd_fingerprint below MUST hash the same bytes the column actually holds: the
-# scoring pass analyses the text it fetched, which can be longer (measured max 8,879 chars),
-# and hashing the uncapped copy at one end and the capped one at the other would mark every
-# freshly fetched row as stale for ever.
-JD_MAX_CHARS = 8000
+# Compatibility name for callers that slice text using this constant. None means no
+# truncation: qualifications and duties near the end of long postings are essential.
+JD_MAX_CHARS = None
 
 
 def jd_fingerprint(text):
@@ -2257,7 +2398,7 @@ def jd_fingerprint(text):
     """
     if not (text or "").strip():
         return None
-    return hashlib.md5((text or "")[:JD_MAX_CHARS].encode("utf-8")).hexdigest()
+    return hashlib.md5((text or "").encode("utf-8")).hexdigest()
 
 
 # A missing COLUMN, which is not the same question as a missing table even though Postgres
@@ -2480,13 +2621,13 @@ def set_user_status(username, url, status):
 # ---- job description text (shared; lets us score any resume against any job) ----
 def update_jds(jds):
     """{url: jd_text} -> persist each job's description (used for per-user scoring).
-    JD text is large, so cap each one and write in small CHUNKS — a single bulk POST
+    JD text is large, so preserve every character and write in small CHUNKS — a single bulk POST
     of all of them is multiple MB and gets the connection reset."""
     # THE FINGERPRINT RIDES WITH THE TEXT, in the same row of the same statement, so there
     # is no window in which the column and its stamp disagree. Every writer that can replace
     # a description goes through here -- the sweep's listing JDs, refetch_thin_jds,
     # close_dead_jds, the extension import -- so this is the only place that has to know.
-    rows = [{"url": u, "jd": (jd or "")[:JD_MAX_CHARS],
+    rows = [{"url": u, "jd": jd or "",
              "jd_fp": jd_fingerprint(jd)} for u, jd in jds.items() if u]
     if not rows:
         return
@@ -2520,8 +2661,23 @@ def update_jds(jds):
                 print("  (jobs.jd_fp not migrated yet — storing descriptions without the "
                       "provenance stamp. Run MIGRATION_jd_fingerprints.sql.)")
                 _upsert([{k: v for k, v in r.items() if k != "jd_fp"} for r in chunk])
+        try:
+            inputs = load_job_category_inputs([r["url"] for r in rows])
+            refresh_job_categories(inputs, jds={r["url"]: r["jd"] for r in rows})
+        except Exception as exc:
+            print("  (job categories need retry after JD update: %s)" % str(exc)[:120])
         return
-    _dump_json(JDS_FILE, jds)
+    # Preserve previously fetched descriptions across incremental local writes.
+    saved = _load_json(JDS_FILE)
+    saved.update({r["url"]: r["jd"] for r in rows})
+    _dump_json(JDS_FILE, saved)
+    by_url = {r["url"]: r for r in rows}
+    current = _read_csv()
+    for row in current:
+        if row.get("url") in by_url:
+            row.update(by_url[row["url"]])
+    _write_csv(current)
+    refresh_job_categories([r for r in current if r.get("url") in by_url])
 
 
 # Whether public.job_descriptions exists at all. Same optimistic shape as _fp_col: a fresh
@@ -2546,8 +2702,18 @@ def _mirror_jds(rows):
     payload = [{"url": r["url"], "jd": r["jd"], "jd_chars": len(r["jd"] or ""),
                 "updated_at": _now()} for r in rows]
     try:
-        for i in range(0, len(payload), 30):
-            _upsert(payload[i:i + 30], table=JD_TABLE, pk="url")
+        # Full descriptions vary widely in length. Bound JSON bytes as well as row count
+        # now that text is no longer silently cut at 8k (the proxy accepts at most 6 MB).
+        batch, size = [], 2
+        for record in payload:
+            cost = len(json.dumps(record).encode("utf-8")) + 2
+            if batch and (len(batch) >= 30 or size + cost > 3 * 1024 * 1024):
+                _upsert(batch, table=JD_TABLE, pk="url")
+                batch, size = [], 2
+            batch.append(record)
+            size += cost
+        if batch:
+            _upsert(batch, table=JD_TABLE, pk="url")
     except Exception as e:
         # A MISSING TABLE IS FATAL NOW, where it used to be a degrade. There is no jobs.jd to
         # fall back to, so "carry on without it" would mean running a scrape that stores no

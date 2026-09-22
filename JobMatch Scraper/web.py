@@ -58,6 +58,7 @@ from flask import (Flask, request, session, redirect, url_for,
                    render_template, flash, g, Response, abort)
 
 import core
+import job_categories
 import db
 import dbproxy
 import auth
@@ -1824,7 +1825,9 @@ def _build_row(j, score):
     speriod = j.get("salary_period") or ""
     active = j.get("is_active")
     # `or ""` not .get(k, "") throughout: a NULL column comes back as None, not a missing key.
-    return {"title": j.get("title") or "", "company": c,
+    category = job_categories.category_for_job(j)
+    return {**category, "category_tip": job_categories.category_tip(category),
+            "title": j.get("title") or "", "company": c,
             "location": core.tidy_location(j.get("location") or ""),
             "loc_state": lstate, "loc_metro": lmetro, "remote": bool(lremote),
             "salary_min": smin, "salary_max": smax, "salary_period": speriod,
@@ -2112,7 +2115,9 @@ def _derived_signature():
     """
     paths = (_LOGO_MANIFEST_PATH,
              os.path.join(_APP_DIR, "sponsor_counts.json"),
-             os.path.join(_APP_DIR, "visa_tags.json"))
+             os.path.join(_APP_DIR, "visa_tags.json"),
+             os.path.join(_APP_DIR, "job_categories.py"),
+             os.path.join(_APP_DIR, "companies.json"))
     stat_key = []
     for p in paths:
         try:
@@ -2607,6 +2612,7 @@ def _prefs_as_params(prefs):
         "verifiedonly": "1" if prefs.get("verifiedonly") else "",
         "expstated": "1" if prefs.get("expstated") else "",
         "roles": prefs.get("roles") or "",
+        "category": prefs.get("category") or "any",
     }
 
 
@@ -2981,6 +2987,7 @@ def _filter_rows(rows, statuses, p, count_only=False):
     want_visa = core.parse_visa_pref(p.get("visatags"))
     hide_no = (p.get("hidenospon") or "") in ("1", "true", "yes", "on")
     verified_only = (p.get("verifiedonly") or "") in ("1", "true", "yes", "on")
+    want_category = job_categories.normalize_category(p.get("category"))
     want_roles = core.parse_roles_pref(p.get("roles"))
     exp = p.get("exp") or "any"
     intern = p.get("intern") or "any"      # any | only (intern/co-op only) | no (exclude them)
@@ -3034,6 +3041,8 @@ def _filter_rows(rows, statuses, p, count_only=False):
         # Python call per row to be told nothing. Gating on the parsed pref is exactly
         # equivalent and skips ~2 calls x the whole corpus on the common path. The condition
         # stays a single expression per line so the app.js twin still reads as a mirror.
+        if want_category != "any" and (r.get("category") or job_categories.category_for_job(r)["category"]) != want_category:
+            continue
         if want_roles and not core.roles_match(r.get("roles"), want_roles, r.get("jd_admit")):
             continue
         # The third argument is the POSTING's own verdict: an empty tag set means
@@ -3224,6 +3233,7 @@ def login_required(f):
 @app.context_processor
 def _inject():
     return {"current_user": session.get("user"),
+            "category_options": job_categories.CATEGORY_LABELS.items(),
             "csp_nonce": getattr(g, "csp_nonce", "")}
 
 
@@ -4295,6 +4305,10 @@ def job_page():
 
     company = row.get("company") or ""
     jd = db.get_job_jd(url) or ""
+    row = dict(row)
+    row.update(job_categories.classify_job(row.get("title"), jd, company))
+    row["category_tip"] = job_categories.category_tip(row)
+    row["jd_read_status"] = core.jd_read_status(jd)
     # The card's OWN analysis wherever we have it, so the number here is the number the card
     # showed and the keywords are the terms that produced it. Only a job the scorer never
     # reached falls back to analysing the JD we just fetched.
@@ -4736,6 +4750,7 @@ _RELAX = [
     ("verifiedonly", "0",   lambda v: "Confirmed posting date"),
     ("hideagency",   "0",   lambda v: "Hide staffing agencies"),
     ("roles",        "",    lambda v: "the role filter"),
+    ("category",     "any", lambda v: "the job category"),
     ("track",        "any", lambda v: "the career track"),
 ]
 
@@ -10076,7 +10091,7 @@ def ext_jds():
         if isinstance(jd, str):
             jd, verdict = core.clean_jd(core.html_to_text(jd))
             if verdict != "not-a-posting" and len(jd) >= core._MIN_JD_CHARS:
-                clean[u] = jd[:12000]
+                clean[u] = jd
         if isinstance(val, dict):
             patch = {"url": u}
             loc = (val.get("location") or "").strip()[:300]

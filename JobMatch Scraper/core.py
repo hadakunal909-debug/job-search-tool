@@ -9,6 +9,7 @@ import html
 import logging
 import os
 import re
+import job_categories
 import json
 import math
 import sys
@@ -929,10 +930,17 @@ def html_to_text(raw):
     """
     if not raw:
         return ""
+    # Real HTML must reach the parser with its entities intact. Unescaping it first
+    # turns the literal skill &lt;SQL&gt; into an element and silently deletes SQL.
+    # Only decode the whole string first when its structural markup is itself escaped,
+    # as in Greenhouse's &lt;p&gt;...&lt;/p&gt; API fields.
+    markup = r"</?(?:p|div|br|ul|ol|li|h[1-6]|span|b|strong|em|i|a|table|section|article|html|body|script|style)\b[^>]*>"
+    if re.search(markup, raw, re.I):
+        return _soup_text(BeautifulSoup(raw, "lxml"))
     decoded = html.unescape(raw)
     # Plain/Markdown ATS fields already carry paragraph and list boundaries. Parsing
     # them as HTML flattens those boundaries and can even swallow '<SQL>' as a tag.
-    if not re.search(r"</?(?:p|div|br|ul|ol|li|h[1-6]|span|b|strong|em|i|a|table|section|article|html|body|script|style)\b[^>]*>", decoded, re.I):
+    if not re.search(markup, decoded, re.I):
         return decoded.replace("\r\n", "\n").replace("\r", "\n").strip()
     return _soup_text(BeautifulSoup(decoded, "lxml"))
 
@@ -1187,6 +1195,34 @@ def clean_jd(text):
     if any(cut <= s[0] < cut + _CHROME_LEAD_WINDOW for s in spans):
         return body, "not-a-posting"   # the cut did not clear the furniture; still a page
     return body, ("chrome-stripped" if cut else "ok")
+
+
+def jd_read_status(text):
+    """Describe what we can verify locally; readable is not a completeness guarantee.
+
+    The old storage/fetch cap was 8,000 characters and extension ingest capped at
+    12,000. Exact boundary lengths are suspects, not proof the employer wrote more.
+    """
+    raw = str(text or "")
+    cleaned, verdict = clean_jd(raw)
+    if not raw.strip():
+        status, label = "missing", "Description missing"
+    elif verdict == "not-a-posting" or len(cleaned) < _MIN_JD_CHARS:
+        status, label = "unusable", "Description unavailable or too short"
+    elif len(raw) in (8000, 12000):
+        status, label = "suspected_truncated", "Description may be truncated"
+    else:
+        status, label = "readable", "Description readable"
+    return {"status": status, "label": label, "chars": len(cleaned)}
+
+
+def jd_extends(stored, candidate):
+    """A readable, longer copy retaining the incumbent's ordered letters and numbers."""
+    if len(candidate or "") <= len(stored or "") or jd_read_status(candidate)["status"] != "readable":
+        return False
+    old = re.sub(r"[^\w]+", "", stored or "", flags=re.UNICODE).casefold()
+    new = re.sub(r"[^\w]+", "", candidate or "", flags=re.UNICODE).casefold()
+    return bool(old and new.startswith(old) and len(new) > len(old))
 
 
 # A PLACE IS NOT A SKILL. Pay-transparency notices enumerate the states and cities a range
@@ -2838,7 +2874,7 @@ def _jd_says_remote(jd):
     which is common — doesn't flip the flag on."""
     if not jd:
         return False
-    for m in _REMOTE_POS_RE.finditer(jd[:20000]):
+    for m in _REMOTE_POS_RE.finditer(jd):
         before = jd[max(0, m.start() - 45):m.start()]
         if not _REMOTE_NEG_RE.search(before):
             return True
@@ -2884,7 +2920,7 @@ def parse_salary(jd):
     empty = {"min": None, "max": None, "period": ""}
     if not jd:
         return empty
-    head = jd[:40000]
+    head = jd
 
     for m in _SALARY_RANGE_RE.finditer(head):
         lo, hi = _money_to_int(m.group(1)), _money_to_int(m.group(2))
@@ -3985,6 +4021,7 @@ DEFAULT_PREFS = {
     # csv subset of ROLE_KEYS — "what kind of job do you want", the thing `track` only ever
     # answered two ways. Empty = every role, so an untouched account sees the whole corpus.
     "roles": "",
+    "category": "any",  # posting domain, independent of role family
     "exp": "any",         # any | entry | 2 | 5   ("senior" is legacy)
     # Drop postings whose description states NO year count. Off by default, deliberately: the
     # keep-on-unknown rule below exists because many genuine entry-level posts state no number,
@@ -4038,6 +4075,7 @@ _PREF_CHOICES = {
     "exp": ("any", "entry", "2", "5", "senior"),
     "intern": ("any", "only", "no"),
     "track": ("any", "dev", "mgmt"),
+    "category": ("any",) + tuple(job_categories.CATEGORY_LABELS),
     "date": ("any", "1", "7", "30", "90"),
     "sort": ("score", "newest", "sponsor"),
     "alerts": ("off", "daily"),
@@ -4169,6 +4207,9 @@ def prefs_match(row, prefs):
         return False
     if intern == "no" and row.get("intern"):
         return False
+    category = job_categories.normalize_category(p.get("category"))
+    if category != "any" and (row.get("category") or job_categories.category_for_job(row)["category"]) != category:
+        return False
     track = p.get("track") or "any"
     # Fall back to classifying the title: rows cached before `track` existed won't carry it.
     if track != "any" and (row.get("track") or role_track(row.get("title"))) != track:
@@ -4287,6 +4328,7 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
                                   _sv, _sreason)
     _st, _sn = sponsor_strength(company, counts_index) if counts_index else ("", 0)
     return {
+        **job_categories.category_for_job(job),
         "visa": vtags,
         "title": job.get("title") or "", "company": company,
         "url": job.get("url") or "", "location": job.get("location") or "",
@@ -5311,8 +5353,114 @@ def _main_region(soup):
     return None
 
 
-def fetch_jd(url, limit=8000):
+def _jobposting_nodes(data, depth=0):
+    """Read bounded schema.org wrappers, including ListItem.item and namespaced types."""
+    if depth > 8:
+        return
+    if isinstance(data, list):
+        for item in data:
+            yield from _jobposting_nodes(item, depth + 1)
+    elif isinstance(data, dict):
+        types = data.get("@type", [])
+        if isinstance(types, str):
+            types = [types]
+        if any(str(t).rstrip("/").rsplit("/", 1)[-1] == "JobPosting" for t in types):
+            yield data
+            return
+        for key in ("mainEntity", "@graph", "mainEntityOfPage", "itemListElement", "item"):
+            if key in data:
+                yield from _jobposting_nodes(data[key], depth + 1)
+
+
+def _posting_url_key(value, base):
+    """Compare job identities without losing meaningful query IDs such as ?job=123."""
+    from urllib.parse import urljoin, urlsplit, parse_qsl
+    try:
+        p = urlsplit(urljoin(base, value))
+        query = tuple(sorted((k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+                             if not k.lower().startswith("utm_") and k.lower() not in
+                             ("gclid", "fbclid", "msclkid", "source", "sourceid", "ref")))
+        return ((p.hostname or "").lower().removeprefix("www."),
+                p.path.rstrip("/") or "/", query)
+    except (TypeError, ValueError):
+        return None
+
+
+def _posting_identity(node):
+    """The posting's declared URL; a local @id must not override a conflicting url."""
+    for key in ("url", "mainEntityOfPage", "@id"):
+        value = node.get(key)
+        if isinstance(value, dict):
+            value = value.get("@id") or value.get("url")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def page_jobposting(soup, url):
+    """(matching JSON-LD record, unsafe fallback). Never use the first related job.
+
+    A single record without a URL remains usable. Multiple distinct jobs, or an explicit
+    URL for a different job, are ambiguous: returning page text afterwards would simply
+    reintroduce those unrelated descriptions through a less structured reader.
+    """
+    nodes = []
+    for tag in soup.find_all("script", type="application/ld+json"):
+        try:
+            nodes.extend(_jobposting_nodes(json.loads(tag.string or tag.get_text() or "", strict=False)))
+        except (TypeError, ValueError):
+            continue
+    if not nodes:
+        return None, False
+    target = _posting_url_key(url, url)
+    matches = [node for node in nodes if _posting_identity(node)
+               and _posting_url_key(_posting_identity(node), url) == target]
+    if matches:
+        # Distinct fragment IDs on one listing page are not distinct URL identities.
+        # Only repeated copies of the same description can be safely folded together.
+        best = max(matches, key=lambda n: len(str(n.get("description") or "")))
+        text = str(best.get("description") or "")
+        if all(text.startswith(str(node.get("description") or "")) for node in matches):
+            return best, False
+        return None, True
+    anonymous = [node for node in nodes if not _posting_identity(node)]
+    if len(nodes) == 1 and anonymous:
+        return anonymous[0], False
+    # Identical copies with no declared URL are still one posting, not competing jobs.
+    if len(anonymous) == len(nodes) and len({str(n.get("description") or "") for n in nodes}) == 1:
+        return nodes[0], False
+    return None, True
+
+
+def page_job_scope(soup, url):
+    """(matching microdata scope, unsafe fallback), shared by structured/plain readers."""
+    scopes = soup.find_all(attrs={"itemtype": re.compile(r"(?:^|/)JobPosting(?:\s|$)")})
+    if not scopes:
+        return None, False
+    matches, anonymous = [], []
+    for scope in scopes:
+        link = scope.select_one("[itemprop=url]")
+        declared = scope.get("itemid") or (link.get("href") or link.get("content")
+                    or link.get_text(strip=True) if link else "")
+        if not declared:
+            anonymous.append(scope)
+        elif _posting_url_key(declared, url) == _posting_url_key(url, url):
+            matches.append(scope)
+    if not matches and len(scopes) == 1 and anonymous:
+        matches = anonymous
+    if len(matches) == 1:
+        return matches[0], False
+    if matches and len({node.get_text(" ", strip=True) for node in matches}) == 1:
+        return matches[0], False
+    return None, True
+
+
+def fetch_jd(url, limit=None):
     """Last-resort page scrape: the branch score_jobs.detail_jd reaches for hosts with no API.
+
+    Full text is preserved by default: an 8,000-character cap silently discarded late
+    requirements, experience floors and sponsorship restrictions. Explicit callers may
+    still request a preview with limit; stored descriptions must leave it unset.
 
     THE ONLY STEP IN THAT CHAIN THAT CAN SUCCEED AT READING THE WRONG THING -- see the note at
     score_jobs.py:988. It used to take get_text over the ENTIRE document with no notion of a
@@ -5335,9 +5483,25 @@ def fetch_jd(url, limit=8000):
             decoded = description_html(r.text)
             return html_to_text(decoded)[:limit] if decoded else ""
         soup = BeautifulSoup(r.text, "lxml")
+        posting, ambiguous = page_jobposting(soup, url)
+        if posting is not None:
+            description = html_to_text(posting.get("description") or "")
+            if description:
+                return description[:limit]
+        if ambiguous:
+            return ""                        # related jobs/listings are not this posting
+        scope, ambiguous = page_job_scope(soup, url)
+        if ambiguous:
+            return ""
+        if scope is not None:
+            # Restrict generic selection to this job before selecting itemprop text.
+            soup = scope
         # aside/noscript/svg and aria-hidden were not in the list; a "Related jobs" rail is
         # almost always an <aside>, and an aria-hidden node is furniture by its own admission.
-        for tag in soup(["nav", "header", "footer", "form", "aside", "noscript", "svg"]):
+        # A form can wrap the entire posting (ASP.NET and application embeds). Drop
+        # its controls, not its description; removing the form used to erase the JD.
+        for tag in soup(["nav", "header", "footer", "aside", "noscript", "svg",
+                         "input", "textarea", "select", "button"]):
             tag.decompose()
         for tag in soup.select('[aria-hidden="true"]'):
             tag.decompose()

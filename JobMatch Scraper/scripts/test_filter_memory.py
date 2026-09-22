@@ -71,7 +71,7 @@ var feed = { getAttribute: function (a) {
 // controls are absent. Modelling it the old way (everything null) would have let the scratchpad
 // rule pass vacuously.
 var q, minR, sortSel, dateSel, expSel, internSel, minSalSel, locInp, visaSel, rolesSel,
-    trackSel, hideNo, verifiedOnly, remoteOnly, hideAgency, expStated, showClosed,
+    trackSel, categorySel, hideNo, verifiedOnly, remoteOnly, hideAgency, expStated, showClosed,
     feedOnly, tabBtns, tab;
 var VISABOXES = [];
 function reset(page, vals) {
@@ -84,6 +84,7 @@ function reset(page, vals) {
   dateSel = ctl(vals.date || "any"); expSel = ctl(vals.exp || "any");
   internSel = ctl(vals.intern || "any"); minSalSel = ctl(vals.minsal || "");
   locInp = ctl(vals.loc || ""); visaSel = ctl(vals.visatags || "");
+  categorySel = ctl(vals.category || "any");
   rolesSel = ctl(vals.roles || ""); trackSel = ctl(vals.track || "any");
   hideNo = box(vals.hidenospon); verifiedOnly = box(vals.verifiedonly);
   remoteOnly = box(vals.remoteonly);
@@ -130,6 +131,7 @@ else {
               min: minR && minR.value, date: dateSel && dateSel.value,
               loc: locInp && locInp.value, visatags: visaSel && visaSel.value,
               roles: rolesSel && rolesSel.value,
+              category: categorySel && categorySel.value,
               hideagency: hideAgency && hideAgency.checked,
               verifiedonly: verifiedOnly && verifiedOnly.checked,
               showclosed: showClosed && showClosed.checked };
@@ -163,8 +165,9 @@ print("saving from the feed")
 got = run("feed", "save", {"min": "45", "date": "7", "loc": "Boston", "hideagency": True,
                            "visatags": "h1b,stem_opt", "sort": "sponsor", "tab": "liked",
                            "q": "analyst", "verifiedonly": True,
-                           "roles": "pm,dataeng"})["stored"]
+                           "roles": "pm,dataeng", "category": "construction"})["stored"]
 check("verified-date filter captured", got.get("verifiedonly") is True)
+check("category captured", got.get("category") == "construction")
 check("role selection captured", got.get("roles") == "pm,dataeng")
 check("every control captured", got.get("min") == "45" and got.get("date") == "7"
       and got.get("loc") == "Boston" and got.get("sort") == "sponsor")
@@ -180,6 +183,7 @@ check("sort restored", got["dom"]["sort"] == "sponsor")
 check("location restored", got["dom"]["loc"] == "Boston")
 check("checkbox restored", got["dom"]["hideagency"] is True)
 check("verified-date filter restored", got["dom"]["verifiedonly"] is True)
+check("category restored", got["dom"]["category"] == "construction")
 check("role selection restored", got["dom"]["roles"] == "pm,dataeng")
 check("visa hidden input restored", got["dom"]["visatags"] == "h1b,stem_opt")
 check("the five visa checkboxes re-ticked to match",
@@ -246,7 +250,7 @@ for key, value in {"q": "", "track": "any", "roles": "", "min": 0, "loc": "",
                    "date": "any", "exp": "any", "intern": "any", "minsal": "",
                    "visatags": "", "hidenospon": False, "verifiedonly": False,
                    "remoteonly": False, "hideagency": False, "expstated": False,
-                   "showclosed": False, "sort": "newest"}.items():
+                   "showclosed": False, "category": "any", "sort": "newest"}.items():
     check("Clear persists %s=%r" % (key, value), cleared.get(key) == value)
 
 # Zero results must reveal the recovery action on both ordinary and status tabs.

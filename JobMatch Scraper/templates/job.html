@@ -23,6 +23,7 @@
     {% else %}<div class="colock"><span class="comono" aria-hidden="true">{{ row.initials }}</span></div>{% endif %}
     <div class="u-grow-min">
       <h1>{{ row.title }}</h1>
+      <p class="jobcategory" title="{{ row.category_tip }}">{{ row.category_label }}{% if row.category_source in ('company', 'title') %} <span class="nil">· Inferred</span>{% elif row.category_source == 'unknown' %} <span class="nil">· Needs review</span>{% endif %}</p>
       <div class="jobident">
         <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">{{ row.company }}</a>
         {%- if row.location %}<span class="sep" aria-hidden="true">·</span><span>{{ row.location }}</span>{% endif %}
@@ -59,6 +60,11 @@
           {%- elif asks.edu_pref %}{{ asks.edu_pref }} preferred
           {%- else %}<span class="nil">&mdash;</span>{% endif %}</dd></div>
       </dl>
+
+      <details class="job-detail category-evidence">
+        <summary>Why this category?</summary>
+        <div class="detail-content"><p>{{ row.category_tip }}</p><p class="coprose small">Job duties take priority over the title and company background.</p></div>
+      </details>
 
       {% if asks.exp_evidence %}
       <details class="job-detail experience-evidence">
@@ -121,6 +127,9 @@
       </div>
 
       <section class="reading-panel" aria-labelledby="description-heading">
+      {% if row.jd_read_status %}
+      <p class="jdstate" data-read-status="{{ row.jd_read_status.status }}">{{ row.jd_read_status.label }}{% if row.jd_read_status.chars %} · {{ row.jd_read_status.chars }} characters{% endif %}</p>
+      {% endif %}
       <div class="reading-toolbar"><h2 id="description-heading">Job Description</h2>
         <div class="reading-controls" hidden>
           <button type="button" class="btn sm" id="jd-size" aria-pressed="false" aria-controls="job-description">Larger text</button>

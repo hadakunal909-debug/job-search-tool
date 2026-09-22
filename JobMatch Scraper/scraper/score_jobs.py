@@ -737,24 +737,15 @@ def page_posted_date(soup):
         d = _parse_date_any(el.get("content") or el.get_text(strip=True))
         if d:
             return d
+    nodes = []
     for tag in soup.find_all("script", type="application/ld+json"):
         try:
-            # strict=False, and it is not cosmetic: JSON forbids a raw newline inside a
-            # string, and a site that pastes an HTML job description straight into its
-            # JSON-LD emits exactly that. Michael Page does, on every posting — the block
-            # parses as far as the description and then raises, so with strict parsing this
-            # loop skipped a perfectly good datePosted (and, below, a 4.8k-char JD) and the
-            # job silently read as "JD pending" forever. Browsers and Google's parser are
-            # equally lenient here; matching them costs nothing on well-formed data.
-            data = json.loads(tag.string or "", strict=False)
-        except Exception:
+            nodes.extend(_jobposting_nodes(json.loads(tag.string or "", strict=False)))
+        except (TypeError, ValueError):
             continue
-        for it in (data if isinstance(data, list) else [data]):
-            if isinstance(it, dict) and it.get("@type") == "JobPosting":
-                d = _parse_date_any(str(it.get("datePosted") or ""))
-                if d:
-                    return d
-    return ""
+    # A page with several jobs cannot contribute the date of whichever one came first.
+    dates = {_parse_date_any(str(it.get("datePosted") or "")) for it in nodes}
+    return dates.pop() if len(dates) == 1 else ""
 
 
 _GH_JID_RE = re.compile(r"[?&]gh_jid=(\d+)")
@@ -901,65 +892,50 @@ def greenhouse_detail_jd(url):
     return re.sub(r"\s{2,}", " ", soup.get_text(" ", strip=True))
 
 
-# How deep a JobPosting may be nested before we stop looking. Two is enough for every shape
-# seen (mainEntity, @graph, a bare list) and stops a pathological document walking forever.
-_LD_MAX_DEPTH = 4
-
-
 def _jobposting_nodes(data, depth=0):
-    """Every JobPosting in a JSON-LD document, however it is wrapped.
-
-    THE TOP LEVEL IS NOT WHERE IT ALWAYS IS. This used to test `data["@type"] == "JobPosting"`
-    on the root only, and roberthalf.com wraps its posting in a WebPage whose `mainEntity` is
-    the JobPosting -- so the extractor found nothing, fell through to core.fetch_jd, and stored
-    7,921 characters of the site's own navigation as the description. `@graph` is the other
-    common wrapper. Both are ordinary schema.org, not quirks.
-    """
-    if depth > _LD_MAX_DEPTH:
-        return
-    if isinstance(data, list):
-        for x in data:
-            for hit in _jobposting_nodes(x, depth + 1):
-                yield hit
-        return
-    if not isinstance(data, dict):
-        return
-    t = data.get("@type")
-    if t == "JobPosting" or (isinstance(t, list) and "JobPosting" in t):
-        yield data
-        return
-    for key in ("mainEntity", "@graph", "mainEntityOfPage", "itemListElement"):
-        if key in data:
-            for hit in _jobposting_nodes(data[key], depth + 1):
-                yield hit
+    """Shared with the raw-page fallback, so both recognize the same structured jobs."""
+    yield from core._jobposting_nodes(data, depth)
 
 
 def microdata_jd(url):
-    """Generic deep fallback: many career sites (incl. every SuccessFactors CSB job
-    page) mark the JD up with schema.org microdata (itemprop=description) or embed a
-    JobPosting JSON-LD — both survive when nav noise would drown plain page text.
-    Returns (jd_text, posting_date) — the page often carries the date too, which the
-    list view (e.g. SAP) omits."""
+    """Read the requested JobPosting, with its own date, before page-level microdata.
+
+    Related jobs can precede the requested job in JSON-LD or use itemprop=description
+    for a company overview. Match the posting URL before selecting either text or date.
+    """
     try:
         r = scraper._safe_get(url, timeout=20)
         if r.status_code != 200:
             return "", ""
         soup = BeautifulSoup(r.text, "lxml")
-        date = page_posted_date(soup)
-        el = soup.select_one("[itemprop=description]")
-        if el:
+        posting, ambiguous = core.page_jobposting(soup, url)
+        if ambiguous:
+            return "", ""
+        date = ""
+        if posting is not None:
+            date = _parse_date_any(str(posting.get("datePosted") or ""))
+            txt = _text(posting.get("description") or "")
+            if len(txt) > 200:
+                return txt, date
+        region, ambiguous = core.page_job_scope(soup, url)
+        if ambiguous:
+            return "", ""
+        if region is not None:
+            date = page_posted_date(region) or date
+            elements = region.select("[itemprop=description]")
+        else:
+            # Unscoped description is common on SuccessFactors. Reject organization
+            # overviews and multiple competing descriptions instead of taking the first.
+            elements = [el for el in soup.select("[itemprop=description]")
+                        if not el.find_parent(attrs={"itemtype": True})]
+            if len(elements) != 1:
+                return "", date
+            if posting is None:
+                date = page_posted_date(soup)
+        for el in elements:
             txt = _text(str(el))
             if len(txt) > 200:
                 return txt, date
-        for tag in soup.find_all("script", type="application/ld+json"):
-            try:
-                data = json.loads(tag.string or "", strict=False)   # see page_posted_date
-            except Exception:
-                continue
-            for it in _jobposting_nodes(data):
-                txt = _text(it.get("description") or "")
-                if len(txt) > 200:
-                    return txt, date
         return "", date
     except Exception:
         return "", ""
@@ -1225,6 +1201,11 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
     except Exception as e:
         print("  (derived fields skipped, could not reload jobs: %s)" % str(e)[:90])
         return
+
+    category_count = db.refresh_job_categories(
+        [current[u] for u in row_loc if u in current], jds=row_jd)
+    if category_count:
+        print("Job categories: updated %d job(s)." % category_count)
 
     payload, jd_payload = [], []
     # URLs whose ANALYSIS changed in this batch, which is not the same set as jd_payload: a row
@@ -1513,7 +1494,12 @@ def _is_thin_jd(jd):
     renders "description pending", so a second number here could only ever disagree with it.
     """
     t = (jd or "").strip()
-    return 0 < len(t) < core._MIN_JD_CHARS
+    # Legacy app/storage caps silently removed requirements at the tail. Reuse the
+    # existing bounded host retry/backoff queue, rather than leaving these permanently
+    # "present" and therefore never fetched again. A cap length is only a suspicion;
+    # _accept_jd requires a proven extension before replacing it.
+    return (0 < len(t) < core._MIN_JD_CHARS
+            or len(jd or "") in (8000, 12000))
 
 
 def _accept_jd(url, jd, thin_len, stored=None):
@@ -1543,6 +1529,8 @@ def _accept_jd(url, jd, thin_len, stored=None):
     old = thin_len.get(url, 0)
     if not old:
         return True
+    if stored and core.jd_read_status(stored)["status"] == "suspected_truncated":
+        return core.jd_extends(stored, jd)
     return len(jd) >= core._MIN_JD_CHARS and len(jd) >= 3 * old
 
 

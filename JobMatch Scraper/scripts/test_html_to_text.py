@@ -174,6 +174,214 @@ def test_fetch_jd_falls_back_to_the_whole_document():
     assert "roadmap" in out and len(out) > core._MAIN_MIN_CHARS, out
 
 
+def _fetch_page(page, url="https://example.test/jobs/42", limit=None):
+    from unittest.mock import patch
+    with patch.object(core.requests, "get", return_value=_Resp(page)):
+        return core.fetch_jd(url, limit=limit)
+
+
+def _microdata_page(page, url="https://example.test/jobs/42"):
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    response = _Resp(page)
+    response.status_code = 200
+    with patch.object(sj.scraper, "_safe_get", return_value=response):
+        return sj.microdata_jd(url)
+
+
+def _ld(record):
+    import json
+    return '<script type="application/ld+json">' + json.dumps(record) + '</script>'
+
+
+def test_html_entities_preserve_literal_skills_and_symbols():
+    # Decoding real HTML before parsing used to swallow SQL as if it were a tag.
+    raw = '<p>Use &lt;SQL&gt; and C&amp;C; evaluate a &lt; b and 5 &gt; 2.</p>'
+    want = 'Use <SQL> and C&C; evaluate a < b and 5 > 2.'
+    assert core.html_to_text(raw) == want
+    import html
+    assert core.html_to_text(html.escape(raw)) == want
+
+
+def test_full_page_jd_tail_is_preserved_and_extractable():
+    body = '<p>Develop reliable services and own release quality. </p>' * 220
+    tail = '<h2>Required Qualifications</h2><p>7 years of experience in project management.</p>'
+    text = _fetch_page('<main>' + body + tail + '</main>')
+    assert len(text) > 8000
+    assert text.endswith('7 years of experience in project management.')
+    assert core.experience_floors(text)[0] == 7
+    assert len(_fetch_page('<main>' + body + tail + '</main>', limit=100)) == 100
+
+
+def test_application_form_does_not_erase_the_description():
+    body = 'Manage the construction schedule and coordinate subcontractors. ' * 12
+    text = _fetch_page('<form><div class="job-description"><h2>Duties</h2><p>' + body
+                       + '</p></div><input value="noise"><button>Apply now</button></form>')
+    assert body.strip() in text
+    assert 'Apply now' not in text
+
+
+def test_jsonld_matches_requested_job_and_keeps_its_own_date():
+    wrong = {'@type': 'JobPosting', 'url': '/jobs/7', 'datePosted': '2026-09-01',
+             'description': 'Construction superintendent coordinates concrete works. ' * 15}
+    right = {'@type': ['Thing', 'https://schema.org/JobPosting'], 'url': '/jobs/42/',
+             'datePosted': '2026-09-20', 'description': '<h2>Responsibilities</h2><p>'
+             + 'Deliver software releases and manage cloud migrations. ' * 180 + '</p>'}
+    page = ('<div itemscope itemtype="https://schema.org/Organization">'
+            '<div itemprop="description">' + 'Company construction history. ' * 20 + '</div></div>'
+            + _ld({'@graph': [{'@type': 'ItemList', 'itemListElement':
+                    [{'@type': 'ListItem', 'item': wrong}, {'@type': 'ListItem', 'item': right}]}]}))
+    text, date = _microdata_page(page, 'https://example.test/jobs/42?utm_source=test')
+    assert 'cloud migrations' in text and len(text) > 8000
+    assert 'concrete works' not in text and 'Company construction' not in text
+    assert date == '2026-09-20', date
+    assert _fetch_page(page) == text
+
+
+def test_ambiguous_related_jobs_are_not_a_description_or_date():
+    page = _ld([{'@type': 'JobPosting', 'url': '/jobs/' + str(i),
+                 'datePosted': '2026-09-01', 'description': 'Unrelated posting. ' * 40}
+                for i in (7, 8)]) + '<main>' + 'Unrelated posting. ' * 40 + '</main>'
+    assert _microdata_page(page) == ('', '')
+    assert _fetch_page(page) == ''
+
+
+def test_query_job_identifier_is_not_discarded_as_tracking():
+    page = _ld([{'@type': 'JobPosting', 'url': '/job?job=' + str(i),
+                 'description': ('Correct job. ' if i == 42 else 'Unrelated job. ') * 40}
+                for i in (7, 42)])
+    text, _ = _microdata_page(page, 'https://example.test/job?utm_source=test&job=42')
+    assert 'Correct job' in text and 'Unrelated job' not in text
+
+
+def test_single_anonymous_jsonld_and_nested_date_remain_supported():
+    record = {'@type': 'JobPosting', 'datePosted': '2026-09-20',
+              'description': 'Manage subcontractors and construction schedules. ' * 20}
+    page = _ld({'@type': 'WebPage', 'mainEntity': record})
+    text, date = _microdata_page(page)
+    assert 'subcontractors' in text and date == '2026-09-20'
+    from scraper import score_jobs as sj
+    assert sj.page_posted_date(core.BeautifulSoup(page, 'lxml')) == '2026-09-20'
+
+
+def test_microdata_scopes_match_job_identity():
+    page = ''
+    for i in (7, 42):
+        body = ('Correct job. ' if i == 42 else 'Unrelated job. ') * 40
+        page += ('<article itemscope itemtype="https://schema.org/JobPosting" '
+                 'itemid="/jobs/%s"><div itemprop="description">%s</div>'
+                 '<meta itemprop="datePosted" content="2026-09-20"></article>' % (i, body))
+    text, date = _microdata_page(page)
+    assert 'Correct job' in text and 'Unrelated job' not in text
+    assert date == '2026-09-20'
+    assert _fetch_page(page) == text
+    assert _microdata_page(page, 'https://example.test/jobs/999') == ('', '')
+    assert _fetch_page(page, 'https://example.test/jobs/999') == ''
+
+
+def test_jd_read_status_reports_limits_without_claiming_completeness():
+    assert core.jd_read_status('')['status'] == 'missing'
+    assert core.jd_read_status('Loading...')['status'] == 'unusable'
+    text = ('Deliver software and coordinate cloud release schedules. ' * 300)
+    assert core.jd_read_status(text[:8000])['status'] == 'suspected_truncated'
+    assert core.jd_read_status(text[:12000])['status'] == 'suspected_truncated'
+    assert core.jd_read_status(text)['status'] == 'readable'
+
+
+def test_repair_requires_retaining_all_existing_job_text():
+    from scripts.repair_clipped_jds import replacement_reason
+    original = ('Manage construction programs and coordinate contractors. ' * 200)[:8000]
+    assert replacement_reason(original, original + ' Manage the project budget and quality controls.') == ''
+    assert replacement_reason(original, original) == 'source_unusable_or_still_clipped'
+    assert replacement_reason(original, 'Unrelated software job description. ' * 400) == 'source_changed_requires_review'
+    assert replacement_reason(original, '') == 'source_unavailable'
+    assert replacement_reason(original, original[:500]) == 'not_longer'
+
+
+def test_repair_rederives_requirements_from_recovered_tail():
+    from scripts.repair_clipped_jds import repair_fields
+    jd = ('Deliver software releases and coordinate cloud migrations. ' * 170
+          + '\nRequired Qualifications\n7 years of experience in project management.')
+    fields = repair_fields({'url': 'https://example.test/job', 'location': 'Boston, MA'}, jd, {})
+    assert fields['exp_max_years'] == 7
+    assert fields['facts_fp']
+    assert fields['jd_terms']
+    assert fields['loc_state'] == 'MA'
+
+
+def test_repair_dry_run_is_bounded_and_does_not_write_database():
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from scripts import repair_clipped_jds as repair
+    old = ('Manage construction programs and coordinate contractors. ' * 200)[:8000]
+    new = old + ' Manage the project budget and quality controls.'
+    with tempfile.TemporaryDirectory() as folder:
+        args = SimpleNamespace(state=str(Path(folder) / 'state.json'), report=str(Path(folder) / 'report.json'),
+                               apply=False, url=[], host=[], retry_after_hours=24, limit=1,
+                               batch_size=10, max_seconds=60, cache_only=True)
+        with patch.object(repair, 'candidate_urls', return_value=['https://example.test/1', 'https://example.test/2']), \
+             patch.object(repair.sj, '_load_jd_cache', return_value={'https://example.test/1': new}), \
+             patch.object(repair.db, 'load_jobs_by_urls', return_value=[{'url': 'https://example.test/1', 'jd': old}]), \
+             patch.object(repair, 'persist_repairs') as write, \
+             patch.object(repair.sj, 'detail_jd') as fetch:
+            report = repair.run(args)
+            assert report['eligible'] == 2 and report['selected'] == 1
+            assert report['counts'] == {'would_recover': 1}
+            write.assert_not_called()
+            fetch.assert_not_called()
+
+
+def test_repair_resumes_analysis_after_text_was_already_saved():
+    import json
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from scripts import repair_clipped_jds as repair
+    url = 'https://example.test/42'
+    full = 'Manage construction programs and coordinate contractors. ' * 200
+    with tempfile.TemporaryDirectory() as folder:
+        args = SimpleNamespace(state=str(Path(folder) / 'state.json'), report=str(Path(folder) / 'report.json'),
+                               apply=True, url=[], host=[], retry_after_hours=24, limit=1,
+                               batch_size=10, max_seconds=60, cache_only=True)
+        Path(args.state).write_text(json.dumps({'apply': {url: {'status': 'pending', 'attempt_at': 0,
+                                      'new_fp': repair.db.jd_fingerprint(full)}}}), encoding='utf-8')
+        with patch.object(repair, 'candidate_urls', return_value=[]), \
+             patch.object(repair.sj, '_load_jd_cache', return_value={}), \
+             patch.object(repair.core, 'load_idf', return_value={}), \
+             patch.object(repair.db, 'load_jobs_by_urls', return_value=[{'url': url, 'jd': full}]), \
+             patch.object(repair, 'persist_repairs') as write, \
+             patch.object(repair.sj, 'detail_jd') as fetch:
+            report = repair.run(args)
+            assert report['counts'] == {'recovered': 1}
+            assert write.call_args.args[1] == {url: full}
+            fetch.assert_not_called()
+            assert json.loads(Path(args.state).read_text())['apply'][url]['status'] == 'recovered'
+
+
+def test_scheduled_retry_repairs_caps_without_replacing_better_text():
+    from scraper import score_jobs as sj
+    url = "https://example.test/jobs/42"
+    old = ("Manage construction programs and coordinate contractors. " * 200)[:8000]
+    good = old + " Manage the project budget and quality controls."
+    assert sj._is_thin_jd(old)
+    assert not sj._is_thin_jd(good)
+    assert sj._accept_jd(url, good, {url: len(old)}, old)
+    assert not sj._accept_jd(url, "Different job content. " * 500, {url: len(old)}, old)
+    assert not sj._accept_jd(url, old, {url: len(old)}, old)
+
+
+def test_long_jd_tail_retains_remote_pay_and_experience_facts():
+    body = "Design reliable services and maintain deployment pipelines. " * 850
+    assert len(body) > 40000
+    text = body + "\nThis is a fully remote position.\nSalary range: $120,000 - $150,000 per year.\nRequired Qualifications\n7 years of experience in project management."
+    assert core.parse_location("", text)["remote"] is True
+    assert core.parse_salary(text) == {"min": 120000, "max": 150000, "period": "year"}
+    assert core.experience_floors(text)[0] == 7
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

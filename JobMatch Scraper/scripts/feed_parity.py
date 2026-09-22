@@ -71,7 +71,7 @@ ROW_KEYS = {
     "title", "company", "location", "loc_state", "loc_metro", "remote",
     "salary_min", "salary_max", "salary_period", "closed", "url", "score",
     "score_pending", "date", "date_verified", "date_trusted", "first_seen", "sponsor_jd",
-    "sponsors_h1b", "everify", "visa", "roles", "agency", "cap_exempt", "intern", "track",
+    "sponsors_h1b", "everify", "visa", "roles", "agency", "cap_exempt", "intern", "track", "category",
     "exp_years", "exp_level",
     # The three the experience filter COMPARES. exp_years and exp_level above are read by the
     # card, not by matches() -- listing only those is what made every exp case vacuous.
@@ -150,6 +150,7 @@ def _row(rng, n, title, company, state, **over):
         # Classified from the title exactly as _build_row does, so the track filter is
         # exercised against the real partition rather than a hand-written label.
         "track": web.core.role_track(title),
+        "category": list(web.job_categories.CATEGORY_LABELS)[n % len(web.job_categories.CATEGORY_LABELS)],
         "exp_years": exp_y, "exp_level": "",
         # THE THREE FIELDS THE EXPERIENCE FILTER ACTUALLY COMPARES, and none of them was here.
         # _filter_rows and matches() read exp_eff, exp_src and level; ROW_KEYS listed only
@@ -330,6 +331,9 @@ def build_corpus():
     for i in range(60):                        # long tail of genuine one-offs
         add("Specialist %d" % i, "Company %d" % i, STATES[i % len(STATES)])
 
+    add("IT Project Manager", "Category Fixture", "TX", category="it", agency=False, closed=False, roles=["pm"], score=60)
+    add("Construction Project Manager", "Category Fixture", "TX", category="construction", agency=False, closed=False, roles=["pm"], score=60)
+
     # ranked_rows hands the filters a score-sorted list; both sides must start from the same
     # order -- and since 2026-09-10 that order is web._sort_key, not the bare score. Leaving
     # this as a score sort would not FAIL the run, it would make the role tie-break untested:
@@ -383,6 +387,10 @@ def build_cases():
         ("interns only", {"intern": "only"}),
         ("exclude interns", {"intern": "no"}),
         ("track: software & data", {"track": "dev", "min": "0", "date": "any"}),
+        ("category: construction", {"category": "construction", "min": "0", "date": "any"}),
+        ("category: IT", {"category": "it", "min": "0", "date": "any"}),
+        ("category with roles", {"category": "it", "roles": "pm", "min": "0", "date": "any"}),
+        ("category: unclear", {"category": "other", "min": "0", "date": "any"}),
         ("track: management", {"track": "mgmt", "min": "0", "date": "any"}),
         ("exp <=2 yrs", {"exp": "2"}),
         ("exp hide senior", {"exp": "senior"}),
@@ -574,7 +582,7 @@ var tab = "recommended", minVal = 0, sortBy = "score", COMPANY = "";
 function ctl(v) { return { value: v }; }
 function chk(v) { return { checked: !!v }; }
 var q = ctl(""), dateSel = ctl("any"), expSel = ctl("any"), internSel = ctl("any"),
-    trackSel = ctl("any"),
+    trackSel = ctl("any"), categorySel = ctl("any"),
     locInp = ctl(""), minSalSel = ctl(""), sortSel = ctl("score"),
     hideNo = chk(false), verifiedOnly = chk(false), visaSel = ctl(""), rolesSel = ctl(""),
     remoteOnly = chk(false),
@@ -609,6 +617,7 @@ IN.cases.forEach(function (cs) {
   expSel.value = p.exp || "any";
   internSel.value = p.intern || "any";
   trackSel.value = p.track || "any";
+  categorySel.value = p.category || "any";
   locInp.value = p.loc || "";
   minSalSel.value = p.minsal || "";
   hideNo.checked = p.hidenospon === "1";

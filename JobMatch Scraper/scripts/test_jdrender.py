@@ -685,6 +685,25 @@ check("a heading that merely CONTAINS a colon is left alone",
       "Why Join Us: The Team" in [v for k, v in jdrender.jd_nodes(ASHEAD) if k == "h"],
       "not every 'x: y' is a field — only a known field name is")
 
+# A flattened Abbott-style posting puts the real role after its benefits preamble.
+# Both headings must reset custody, or the summary and duties inherit Compensation.
+OPPORTUNITY = ("Benefits Employees receive tuition reimbursement and medical coverage. "
+               "THE OPPORTUNITY This engineer will build secure services for customers. "
+               "What You'll Work On Design reliable APIs and maintain deployment pipelines. "
+               "Required Qualifications 7 years of engineering experience.")
+opp_sections = {key: " ".join(head + " " + " ".join(jdrender._node_text(n) for n in nodes)
+                             for head, nodes, _inferred in groups)
+                for key, groups in jdrender.jd_sections(OPPORTUNITY)}
+check("an uppercase opportunity heading resets the benefits section",
+      "build secure services" in opp_sections.get("summary", ""), repr(opp_sections))
+check("What You'll Work On labels responsibilities",
+      "Design reliable APIs" in opp_sections.get("resp", ""))
+check("duties and opportunity do not stay in compensation",
+      "engineer" not in opp_sections.get("ben", "") and "APIs" not in opp_sections.get("ben", ""))
+check("opportunity regrouping preserves every word",
+      sorted(re.findall(r"[a-z0-9]+", " ".join(opp_sections.values()).lower())) ==
+      sorted(re.findall(r"[a-z0-9]+", OPPORTUNITY.lower())))
+
 print()
 if FAILS:
     print("FAILURES (%d):" % len(FAILS))

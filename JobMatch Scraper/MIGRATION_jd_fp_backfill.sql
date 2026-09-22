@@ -23,10 +23,7 @@
 -- THREE THINGS MAKE THE SQL AGREE WITH db.jd_fingerprint, and each is a way it could silently
 -- disagree instead:
 --
---   * left(jd, 8000) -- db.JD_MAX_CHARS. 158 stored descriptions are LONGER than the cap.
---     Hash the untruncated text and those 158 rows read stale against every future scoring
---     pass, for ever. (MIGRATION_jd_fingerprints' own note: "both ends must hash the capped
---     text" -- stated for update_jds, and just as true here.)
+--   * Full stored text, including duties and requirements after character 8,000.
 --   * md5 over UTF-8 -- confirmed: this database is UTF8, so md5(text) hashes the same bytes
 --     Python's .encode("utf-8") produces.
 --   * the whitespace class -- db.jd_fingerprint returns None, not a hash, when .strip() leaves
@@ -53,7 +50,7 @@
 -- Re-runnable: the WHERE clause only touches rows that have no fingerprint yet.
 
 update public.jobs j
-   set jd_fp = md5(left(d.jd, 8000))
+   set jd_fp = md5(d.jd)
   from public.job_descriptions d
  where d.url = j.url
    and j.jd_fp is null

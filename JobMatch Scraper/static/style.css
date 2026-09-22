@@ -1,3 +1,7 @@
+.ccategory{font-size:var(--text-xs);line-height:1.45;margin:4px 0 8px;color:var(--ink);font-weight:600}
+.ccategory span{font-weight:400;opacity:.72}
+.jobcategory{margin:6px 0;font-size:var(--text-sm);font-weight:600}
+
 /* ==================================================================
    FONTS, SELF-HOSTED. Two families, six files, 187 KB on disk.
 

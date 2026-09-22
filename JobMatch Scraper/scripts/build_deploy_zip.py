@@ -61,7 +61,7 @@ import zipfile
 # Mirrors the /bin/cp list in .cpanel.yml. Keep the two in sync — the check below fails the
 # build if they drift, because a bundle missing a module web.py imports is a dead site.
 FILES = [
-    "web.py", "core.py", "db.py", "auth.py", "analytics.py", "jdrender.py",
+    "web.py", "core.py", "job_categories.py", "db.py", "auth.py", "analytics.py", "jdrender.py",
     "passenger_wsgi.py",
     # The two storage transports. db.py imports pgrest when PG_DSN is set and web.py
     # imports dbproxy unconditionally, so a bundle without them is a site that ImportErrors
@@ -94,6 +94,8 @@ FILES = [
     # DIRS, because that directory also holds a gitignored 50 MB tectonic.exe that DIRS (which
     # walks the filesystem, not git) would cheerfully bundle.
     "bin/cron_scrape.sh",
+    "scripts/backfill_job_categories.py", "scripts/repair_clipped_jds.py",
+    "MIGRATION_job_categories.sql", "MIGRATION_jd_full_text.sql",
 ]
 # Present-if-built data files. Each feature stays dormant without its file, which is the
 # contract core.load_sponsor_counts / load_everify already have — so a missing one is fine.

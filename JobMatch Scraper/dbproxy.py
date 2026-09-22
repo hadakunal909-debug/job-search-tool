@@ -68,7 +68,7 @@ ALLOWED_TABLES = {
     # that looks like an auth problem rather than an allowlist one.
     "companies", "data_versions",
     # The description, split out of jobs. Same reasoning as the two above.
-    "job_descriptions", "job_facts", "job_terms",
+    "job_descriptions", "job_facts", "job_terms", "job_categories",
     # Employers someone asked for that we could NOT read a board from. See
     # MIGRATION_wishlist.sql. Listed for the same asymmetric reason as companies above:
     # the cPanel app reaches Postgres directly and would work without this line, so a

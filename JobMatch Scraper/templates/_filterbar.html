@@ -30,6 +30,9 @@
       <button type="button" class="fchip" id="chip-roles" data-pop="pop-roles" aria-expanded="false" aria-haspopup="true">
         <span class="fchip-l">Roles</span><span class="fchip-v" id="chipv-roles"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
       </button>
+      <button type="button" class="fchip" id="chip-category" data-pop="pop-category" aria-expanded="false" aria-haspopup="true">
+        <span class="fchip-l">Category</span><span class="fchip-v" id="chipv-category"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
+      </button>
       <button type="button" class="fchip" id="chip-loc" data-pop="pop-loc" aria-expanded="false" aria-haspopup="true">
         <span class="fchip-l">Location</span><span class="fchip-v" id="chipv-loc"></span><span class="ic ic-chevron fchip-c" aria-hidden="true"></span>
       </button>
@@ -57,6 +60,17 @@
   </div>
 
   {# Location and remote controls use the same preference keys as the feed and digest. #}
+  <div class="fpop" id="pop-category" hidden role="group" aria-labelledby="lab-category">
+    <h3 class="flab" id="lab-category">Job category</h3>
+    <select id="category" class="sel" aria-labelledby="lab-category">
+      <option value="any">All categories</option>
+      {% for key, label in category_options %}
+      <option value="{{ key }}"{{ ' selected' if prefs.category == key else '' }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="fnote">Based on job duties, then title, then company background. Inferred categories are marked on each card.</p>
+  </div>
+
   <div class="fpop" id="pop-loc" hidden role="group" aria-labelledby="lab-loc">
     <h3 class="flab" id="lab-loc">Location</h3>
     <label class="field-label" for="loc">City or state</label>

@@ -41,7 +41,7 @@ JOBS_ONLY = {"url": "u/1", "title": "T", "company": "C", "found_date": "2026-09-
              "location": "Boston, MA", "sponsors_h1b": "yes", "match_score": 42,
              "status": "", "posted_verified": "", "posted_confidence": "",
              "is_active": True, "last_seen": "2026-09-06", "miss_count": 0,
-             "first_seen": "2026-09-01"}
+             "first_seen": "2026-09-01", "jd_fp": "fp1"}
 FACTS = {"url": "u/1", "loc_state": "MA", "loc_metro": "Boston", "remote": False,
          "salary_min": 90000, "salary_max": 120000, "salary_period": "year",
          "exp_max_years": 5, "sponsor_jd": "", "sponsor_reason": "", "facts_fp": "fp1"}

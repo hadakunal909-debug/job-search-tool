@@ -58,6 +58,7 @@
       // Same hidden-input trick as #visatags and #track: the checkboxes are the UI, this is the
       // state every filter path reads, so feed_parity can stub one control not a NodeList.
       rolesSel = document.getElementById("roles"),
+      categorySel = document.getElementById("category"),
       expSel = document.getElementById("exp"),
       // Visa-route filter. Same hidden-input trick as trackSel below: the five checkboxes only
       // write into this, and every filter path reads its `.value`, so the parity harness can
@@ -133,7 +134,7 @@
     if (feed && feed.getAttribute("data-company")) return { sort: sortSel };
     return { q: q, min: minR, sort: sortSel, date: dateSel, exp: expSel,
              intern: internSel, minsal: minSalSel, loc: locInp, visatags: visaSel,
-             track: trackSel, roles: rolesSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
+             category: categorySel, track: trackSel, roles: rolesSel, hidenospon: hideNo, verifiedonly: verifiedOnly,
              remoteonly: remoteOnly, hideagency: hideAgency, expstated: expStated,
              showclosed: showClosed };
   }
@@ -719,6 +720,8 @@
       // existing early return for <a> (below) means navigation is native and no JS runs.
       '<a class="ctitle" href="/job?u=' + H(encodeURIComponent(j.url)) + '">' +
         esc(j.title) + '</a>' +
+      '<div class="ccategory" title="' + H(j.category_tip || '') + '">' + esc(j.category_label || 'Other / Unclear') +
+        ((j.category_source === 'company' || j.category_source === 'title') ? ' <span>· Inferred</span>' : (j.category_source === 'unknown' ? ' <span>· Needs review</span>' : '')) + '</div>' +
       // TWO parts, not one inline run. Identity (company, place, when) is a single line that
       // truncates; the chips are a wrapping row below it.
       //
@@ -1126,6 +1129,7 @@
     if (ok && internSel && internSel.value === "no" && j.intern) ok = false;
     // Career track: "dev" (software/data/infra) vs "mgmt" (project/product/ops). Every row
     // carries exactly one, so the two settings partition the feed — see core.role_track.
+    if (ok && categorySel && categorySel.value !== "any" && j.category !== categorySel.value) ok = false;
     if (ok && trackSel && trackSel.value !== "any" && j.track !== trackSel.value) ok = false;
     // "Only postings whose experience we could read." Twin of _filter_rows' exp_stated clause;
     // off by default. Drops rows with NO answer (exp_src ""), so a seniority read off the title
@@ -1342,7 +1346,7 @@
   // Nothing in the filter pipeline knows this layer exists, which is why feed_parity.py and
   // test_filter_memory.py still drive the same functions with the same stubbed controls. Same
   // arrangement #trackseg already had over #track, applied to the whole bar.
-  var POPS = ["pop-roles", "pop-loc", "pop-spon", "pop-date", "pop-more"];
+  var POPS = ["pop-category", "pop-roles", "pop-loc", "pop-spon", "pop-date", "pop-more"];
   var openPop = null;
 
   // Show the denominator only when it differs from the numerator. "24,918 of 24,918 jobs" is
@@ -1394,6 +1398,9 @@
     chipSet("roles", roles.length,
             roles.length === 1 && rl ? rl.textContent.trim() : roles.length + " picked");
 
+    var category = categorySel ? categorySel.value : "any";
+    var catOption = categorySel && categorySel.options ? categorySel.options[categorySel.selectedIndex] : null;
+    chipSet("category", category !== "any", catOption ? catOption.textContent : category);
     var loc = locInp ? locInp.value.trim() : "";
     var rem = remoteOnly && remoteOnly.checked;
     chipSet("loc", loc || rem, loc && rem ? loc + " + remote" : (loc || "Remote only"));
@@ -1447,6 +1454,7 @@
       for (var r = 0; r < rb.length; r++) rb[r].checked = false;
       document.dispatchEvent(new CustomEvent("roles:sync"));   // let rolepick.js relabel
     },
+    category: function () { if (categorySel) categorySel.value = "any"; },
     track: function () { if (trackSel) trackSel.value = "any"; },
     // Reachable from a relax suggestion as well as from Clear all -- see the note on the Clear
     // button for why the search box counts as a filter here.
@@ -1524,6 +1532,7 @@
     verifiedonly: function () { return "Confirmed posting date"; },
     hideagency: function () { return "Hide staffing agencies"; },
     roles: function () { return "the role filter"; },
+    category: function () { return "the job category"; },
     track: function () { return "the career track"; },
     q: function (v) { return '\u201c' + v + '\u201d'; }
   };
@@ -1536,6 +1545,7 @@
       minsal: [minSalSel, minSalSel && minSalSel.value, ""],
       exp: [expSel, expSel && expSel.value, "any"],
       intern: [internSel, internSel && internSel.value, "any"],
+      category: [categorySel, categorySel && categorySel.value, "any"],
       track: [trackSel, trackSel && trackSel.value, "any"],
       roles: [rolesSel, rolesSel && rolesSel.value, ""],
       visatags: [visaSel, visaSel && visaSel.value, ""],
@@ -1703,6 +1713,7 @@
     var rw = rolesWanted();
     if (rw.length) ps.push("roles=" + encodeURIComponent(rw.join(",")));
     if (internSel && internSel.value !== "any") ps.push("intern=" + encodeURIComponent(internSel.value));
+    if (categorySel && categorySel.value !== "any") ps.push("category=" + encodeURIComponent(categorySel.value));
     if (trackSel && trackSel.value !== "any") ps.push("track=" + encodeURIComponent(trackSel.value));
     if (locInp && locInp.value.trim()) ps.push("loc=" + encodeURIComponent(locInp.value.trim()));
     if (remoteOnly && remoteOnly.checked) ps.push("remote=1");
@@ -1907,6 +1918,7 @@
   }
   if (sortSel) sortSel.addEventListener("change", function () { sortBy = sortSel.value; render(true); });
   if (dateSel) dateSel.addEventListener("change", function () { render(true); });
+  if (categorySel) categorySel.addEventListener("change", function () { render(true); });
   if (expSel) expSel.addEventListener("change", function () { render(true); });
   if (internSel) internSel.addEventListener("change", function () { render(true); });
   // One delegated listener over the visa group: the checkboxes are the UI, visaSel.value is
@@ -2002,6 +2014,7 @@
     // surprise of the two.
     if (q) q.value = "";
     if (trackSel) trackSel.value = "any";
+    if (categorySel) categorySel.value = "any";
     if (minR) { minR.value = 0; minVal = 0; setFill(); }
     if (locInp) locInp.value = "";
     if (minSalSel) minSalSel.value = "";
@@ -2040,6 +2053,7 @@
       roles: rolesWanted().join(","),
       exp: expSel ? expSel.value : "any", intern: internSel ? internSel.value : "any",
       expstated: !!(expStated && expStated.checked),
+      category: categorySel ? categorySel.value : "any",
       track: trackSel ? trackSel.value : "any",
       date: dateSel ? dateSel.value : "any", sort: sortBy
     };

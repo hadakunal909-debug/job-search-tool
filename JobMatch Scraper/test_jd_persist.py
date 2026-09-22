@@ -79,6 +79,16 @@ class _FakeDB(object):
             if u in self.rows:
                 self.rows[u]["jd"] = jd
 
+    def refresh_job_categories(self, rows, jds=None, strict=False):
+        # Category persistence has its own storage tests; this fake records the same verdict
+        # without reaching the real database while scoring fixtures exercise the JD pipeline.
+        count = 0
+        for row in rows:
+            if row.get("url") in self.rows and "title" in row and row["url"] in (jds or {}):
+                self.rows[row["url"]].update(real_db.category_record(row, jds[row["url"]]))
+                count += 1
+        return count
+
     def update_scores(self, scores):
         self.score_calls.append(sorted(scores))
         for u, s in scores.items():

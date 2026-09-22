@@ -603,7 +603,7 @@ _SEC = [
     ("resp", re.compile(
         r"responsibilit|what you.?ll do|what you will do|essential (?:functions?|duties)|"
         r"duties|day in the life|key responsibilities|primary responsibilities|"
-        r"what you.?ll be doing|in this role you|you will\b", re.I)),
+        r"what you.?ll be doing|what you.?ll work on|what you will work on|in this role you|you will\b", re.I)),
     ("pref", re.compile(
         r"preferred|preferable|nice to have|nice-to-have|desired|desirable|"
         r"additional qualificat|bonus|a plus|good to have|pluses|we prefer", re.I)),
@@ -906,7 +906,7 @@ def split_boilerplate(nodes):
 SPLIT_PHRASE = re.compile(
     r"(?:\A|(?<=[.!?;:])\s+)("
     r"What You(?:'|\u2019)?ll (?:Do|Need|Bring|Be Doing|Own|Work On)|What You Need to Have|"
-    r"The Opportunity|Preferred Experience|Preferred Skills|Education and Experience|"
+    r"The Opportunity|THE OPPORTUNITY|Preferred Experience|Preferred Skills|Education and Experience|"
     r"Your Responsibilities|Core Responsibilities|What Y[Oo][Uu](?:'|\u2019)?LL DO|"
     r"What You Bring|What We(?:'|\u2019)?re Looking For|What We Offer|What You Will Do|"
     r"These Will Help You Stand Out|Work Model|Job Description|About Us|About the Role|"

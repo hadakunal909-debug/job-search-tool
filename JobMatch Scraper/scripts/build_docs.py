@@ -62,6 +62,7 @@ MODULES = (
     ("web.py",                  "The Flask app: every route, every request hook, the feed."),
     ("core.py",                 "The shared domain library. Imported by the app, the scraper, "
                                 "the scorer and the digest, so nothing presentational lives here."),
+    ("job_categories.py",       "Posting domain: JD duties, then title, then company background."),
     ("db.py",                   "Storage. One PostgREST-shaped interface over four backends."),
     ("scraper/__init__.py",     "The sweep and the intake filter, plus every ATS adapter."),
     ("scraper/score_jobs.py",   "Fetches descriptions and scores them against the resume."),
@@ -1146,7 +1147,7 @@ TRUTH = (
      "a SHIPPED RUNTIME ASSET, not a doc; feeds scripts/build_companies.py, markers from scripts/build_careers_md.py"),
     ("companies.json", "the /companies directory",
      "built by scripts/build_companies.py; the sector map is curated -- run --report before editing it"),
-    ("resume.txt", "the resume the scraper widens its terms from", "hand-edited, no generator"),
+    ("resume.txt", "the resume the scraper widens its terms from", "private operator input; deliberately gitignored, no generator"),
 )
 CACHE = (
     ("jd_cache.json.gz", "fetched descriptions", "second store of jobs.jd; they have diverged"),
@@ -1175,7 +1176,7 @@ def ledger(errors):
     ignored = _gitignored([n for n, _w, _x in TRUTH] + [n for n, _w, _x in CACHE])
     if ignored is not None:
         for name, _w, _x in TRUTH:
-            if name in ignored:
+            if name in ignored and name != "resume.txt":  # private operator input
                 errors.append("ledger says %s is source-of-truth, but .gitignore excludes it"
                               % name)
         for name, _w, _x in CACHE:

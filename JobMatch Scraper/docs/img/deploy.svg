@@ -24,7 +24,7 @@
 <rect class="s-sched" x="0" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>
 <text class="t-sched" x="14" y="202" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" letter-spacing="0.08em" fill="#0b5c56">◷ SCHEDULED</text>
 <text class="t-dim" x="14" y="222" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">build_deploy_zip.py</text>
-<text class="t-dim" x="14" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">19 modules + 4 dirs</text>
+<text class="t-dim" x="14" y="238" font-family=""IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11.5" fill="#4e5462">24 modules + 4 dirs</text>
 <path class="edge" d="M184 217 L194 217" stroke="#d3d7df" stroke-width="1.5" fill="none"/>
 <path class="arrowhead" d="M188 213 L188 221 L194 217 Z" fill="#d3d7df"/>
 <rect class="s-sched" x="194" y="186" width="184" height="76" rx="10" fill="#cfe8e3" stroke="#0f766e" stroke-width="1.5"/>

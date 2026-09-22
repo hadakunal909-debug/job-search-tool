@@ -86,6 +86,9 @@ SUITES = (
     Suite("test_backend_intent",    "test_backend_intent.py",            "root",   "offline"),
     Suite("test_board_health",      "test_board_health.py",              "root",   "offline"),
     Suite("test_canonical_url",     "test_canonical_url.py",             "root",   "offline"),
+    Suite("test_job_categories", "test_job_categories.py", "root", "offline"),
+    Suite("test_category_storage", "scripts/test_category_storage.py", "scripts", "offline"),
+    Suite("test_category_feed", "scripts/test_category_feed.py", "scripts", "offline"),
     Suite("test_clean_jd",          "test_clean_jd.py",                  "root",   "offline"),
     Suite("test_date_sources",      "test_date_sources.py",              "root",   "offline"),
     Suite("test_discover_screen",   "test_discover_screen.py",           "root",   "offline"),
@@ -234,6 +237,8 @@ EXTRA_TOUCHES = {
     "test_search_and_similar": ("static/app.js",),
     "test_onboarding":         ("templates/", "static/style.css"),
     "test_job_page":           ("templates/",),
+    "test_category_feed":       ("templates/", "static/app.js"),
+    "test_category_storage":    ("MIGRATION_job_categories.sql",),
     # The directory renders from a data file and a template, and its sector map lives in
     # a script it imports at runtime rather than at module scope -- neither is reachable
     # from the import walk below.
@@ -303,7 +308,8 @@ def _changed_paths():
     there), so the prefix has to come off before anything matches SUITES.
     """
     out = set()
-    for args in (["diff", "--name-only", "HEAD"], ["diff", "--name-only", "--cached"]):
+    for args in (["diff", "--name-only", "HEAD"], ["diff", "--name-only", "--cached"],
+                 ["ls-files", "--others", "--exclude-standard"]):
         try:
             r = subprocess.run(["git"] + args, cwd=APP, capture_output=True,
                                text=True, timeout=30)

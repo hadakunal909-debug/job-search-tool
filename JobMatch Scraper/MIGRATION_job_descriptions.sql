@@ -34,9 +34,8 @@
 
 create table if not exists public.job_descriptions (
     url        text primary key,
-    -- Capped at db.JD_MAX_CHARS (8,000) by the writer, not by a constraint here: the cap is a
-    -- policy about how much of a posting is worth storing, and a database-level truncation would
-    -- silently disagree with the fingerprint, which hashes exactly what update_jds sends.
+    -- Preserve the complete posting, including qualifications beyond the former 8,000-char
+    -- application cap. update_jds and jd_fingerprint now use exactly the same full text.
     jd         text,
     -- Length WITHOUT reading the text. The thin-JD machinery (core._MIN_JD_CHARS,
     -- score_jobs._is_thin_jd, refetch_thin_jds) currently answers "is this a shell rather than a
