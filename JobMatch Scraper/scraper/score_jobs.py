@@ -650,33 +650,52 @@ def bamboo_detail_jd(url):
         return ""
 
 
-def rippling_detail_jd(url):
-    """Rippling job pages are server-rendered Next.js; the posting (incl. description)
-    rides in __NEXT_DATA__. Shapes vary by tenant, so just take the longest
-    description-ish string anywhere in the blob."""
+def rippling_detail_record(url):
+    """Read the exact public posting, excluding translations and application forms."""
     try:
+        parsed = scraper.urlparse(url)
+        match = re.fullmatch(r"/[^/]+/jobs/([\w-]+)/?", parsed.path)
+        if parsed.hostname != "ats.rippling.com" or not match:
+            return {}
         r = scraper._safe_get(url, timeout=20)
         if r.status_code != 200:
-            return ""
+            return {}
         m = scraper._NEXT_DATA_RE.search(r.text)
         if not m:
-            return ""
-        best = [""]
-
-        def walk(node):
-            if isinstance(node, dict):
-                for k, v in node.items():
-                    if isinstance(v, str) and "description" in k.lower() and len(v) > len(best[0]):
-                        best[0] = v
-                    else:
-                        walk(v)
-            elif isinstance(node, list):
-                for v in node:
-                    walk(v)
-        walk(json.loads(m.group(1)))
-        return _text(best[0])
+            return {}
+        data = json.loads(m.group(1))
+        post = data.get("props", {}).get("pageProps", {}).get("apiData", {}).get("jobPost") or {}
+        if post.get("uuid") != match.group(1) or not post.get("name"):
+            return {}
+        source_url = post.get("url") or url
+        if scraper.urlparse(source_url).hostname != "ats.rippling.com" or scraper.urlparse(source_url).path.rstrip("/") != parsed.path.rstrip("/"):
+            return {}
+        description = post.get("description")
+        if isinstance(description, dict):
+            if not isinstance(description.get("role"), str) or not description["role"].strip():
+                return {}
+            # The publisher separates its company overview and role; retain both,
+            # plus any additional plain HTML sections within this description only.
+            keys = [k for k in ("company", "role") if k in description]
+            keys += [k for k in description if k not in keys]
+            body = "\n".join(description[k] for k in keys if isinstance(description[k], str))
+        elif isinstance(description, str):
+            body = description
+        else:
+            return {}
+        text = _text(body)
+        if core.jd_read_status(text)["status"] != "readable":
+            return {}
+        locations = post.get("workLocations") or []
+        return {"jd": text, "title": post["name"], "company": post.get("companyName") or "",
+                "location": "; ".join(x for x in locations if isinstance(x, str)),
+                "source_id": post["uuid"], "source_url": source_url}
     except Exception:
-        return ""
+        return {}
+
+
+def rippling_detail_jd(url):
+    return rippling_detail_record(url).get("jd", "")
 
 
 import datetime
@@ -1113,6 +1132,8 @@ def detail_jd(url):
     if _google_detail_id(url):
         record = google_detail_record(url)
         return url, record.get("jd", ""), ""  # embedded timestamp meanings are unproven
+    if host == "ats.rippling.com":
+        return url, rippling_detail_jd(url), ""
     if _native_greenhouse_parts(url):
         jd, date = native_greenhouse_detail_jd(url)
         return url, jd, date

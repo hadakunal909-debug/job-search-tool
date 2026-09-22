@@ -498,6 +498,37 @@ def test_repair_explicit_url_handles_missing_and_unusable_descriptions():
                 write.assert_not_called()
 
 
+def test_rippling_reads_exact_posting_sections_not_form_or_translation_text():
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    url = "https://ats.rippling.com/acme/jobs/abc-123"
+    role = "<p>Design aircraft systems and test engineering prototypes.</p>" * 300 + "<p>TAIL: flight test qualification.</p>"
+    post = {"uuid": "abc-123", "name": "Aircraft Engineer", "url": url, "companyName": "Acme",
+            "workLocations": ["Boston, MA"], "description": {"company": "<p>Our company builds aircraft.</p>", "role": role},
+            "activeJobApplication": {"description": "DO NOT READ THIS FORM AS DUTIES. " * 1000}}
+    page_props = {"apiData": {"jobPost": post}, "_nextI18Next": {"description": "TRANSLATION NOTICE. " * 2000}}
+    def page():
+        return '<script id="__NEXT_DATA__" type="application/json">' + json.dumps({"props": {"pageProps": page_props}}) + '</script>'
+    with patch.object(sj.scraper, "_safe_get", side_effect=lambda *a, **k: SimpleNamespace(status_code=200, text=page())), \
+         patch.object(sj, "microdata_jd") as microdata, patch.object(sj.core, "fetch_jd") as generic:
+        result = sj.rippling_detail_record(url)
+        assert result["source_id"] == "abc-123" and result["title"] == "Aircraft Engineer"
+        assert result["location"] == "Boston, MA" and len(result["jd"]) > 12000
+        assert "Our company builds aircraft." in result["jd"] and "TAIL: flight test qualification." in result["jd"]
+        assert "TRANSLATION" not in result["jd"] and "DO NOT READ" not in result["jd"]
+        assert sj.detail_jd(url) == (url, result["jd"], "")
+        for change in ({"uuid": "different"}, {"url": url.replace("abc-123", "different")},
+                       {"description": {"company": "Only company background."}}, {"description": None}):
+            before = dict(post)
+            post.update(change)
+            assert sj.detail_jd(url) == (url, "", "")
+            post.clear(); post.update(before)
+        microdata.assert_not_called()
+        generic.assert_not_called()
+
+
 def _google_detail_fixture(job_id="123456789", long=False):
     import json
     row = [None] * 22
