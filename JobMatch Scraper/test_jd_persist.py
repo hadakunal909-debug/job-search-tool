@@ -378,6 +378,41 @@ def test_repaired_database_heals_capped_actions_cache_without_refetching():
     assert fake.rows[url]["jd"] == complete
 
 
+def test_long_noncap_dead_page_enters_heavy_retry_and_accepts_readable_replacement():
+    rows = _thin_rows(1)
+    url = rows[0]["url"]
+    dead = "This link is no longer active. Please search again. " * 110
+    assert len(dead) > 400 and len(dead) not in (8000, 12000)
+    assert sj.core.jd_read_status(dead)["status"] == "unusable"
+    rows[0]["jd"] = dead
+    fake, tried = _run_with_fetch(rows, {url: dead}, [], lambda _url: _JD)
+    assert tried == [url], "long unusable page never entered the bounded retry queue"
+    assert fake.rows[url]["jd"] == _JD
+    assert fake.kv[sj.THIN_LEDGER_KEY]["hosts"]["shell.com"]["ok"] == 1
+    assert not sj._is_thin_jd("") and not sj._is_thin_jd("  ")
+    assert not sj._accept_jd(url, "We are hiring.", {url: len(dead)}, stored=dead)
+    assert not sj._accept_jd(url, dead * 4, {url: len(dead)}, stored=dead)
+
+
+def test_extractor_revision_includes_core_helpers_but_ignores_runtime_stubs():
+    from pathlib import Path
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as temp:
+        scorer_file, core_file = Path(temp)/"score_jobs.py", Path(temp)/"core.py"
+        scorer_file.write_text("def detail_jd(): pass\n", encoding="utf8")
+        core_file.write_text("def clean_jd(): return 'before'\n", encoding="utf8")
+        with patch.object(sj, "__file__", str(scorer_file)), patch.object(sj.core, "__file__", str(core_file)):
+            before = sj._extractor_rev()
+            with patch.object(sj.core, "fetch_jd", lambda *args: "stub"), \
+                 patch.object(sj, "detail_jd", lambda *args: "stub"):
+                assert sj._extractor_rev() == before, "runtime stubs changed the source fingerprint"
+            core_file.write_text("def clean_jd(): return 'after'\n", encoding="utf8")
+            changed = sj._extractor_rev()
+            assert changed != before and changed != "nosrc", "core helper edits did not reopen extraction"
+            scorer_file.write_text("def detail_jd(): return 'after'\n", encoding="utf8")
+            assert sj._extractor_rev() != changed
+
+
 def test_expired_fetch_budget_does_not_back_off_an_unattempted_capped_host():
     from unittest.mock import patch
     rows = _thin_rows(1)

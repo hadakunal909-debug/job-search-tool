@@ -37,6 +37,54 @@ def test_entities_are_unescaped_before_the_parse():
     assert "Design APIs" in out and "ship" in out, out
 
 
+def test_native_greenhouse_reads_full_description_without_application_questions():
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    text = "<p>Build and operate payment services with Python and SQL.</p>" * 200
+    for host in ("boards.greenhouse.io", "job-boards.greenhouse.io",
+                 "boards.eu.greenhouse.io", "job-boards.eu.greenhouse.io"):
+        url = "https://%s/acme/jobs/123?gh_src=example" % host
+        response = {"id": 123, "absolute_url": url, "content": text,
+                    "first_published": "2026-09-01T12:00:00Z", "updated_at": "2026-09-21T12:00:00Z",
+                    "questions": [{"label": "Do you need visa sponsorship?"}],
+                    "demographic_questions": {"description": "Do not copy application questions"}}
+        with patch.object(sj.scraper, "_get_json", return_value=response) as fetch, \
+             patch.object(sj, "microdata_jd", side_effect=AssertionError("page fallback called")), \
+             patch.object(core, "fetch_jd", side_effect=AssertionError("page fallback called")):
+            got_url, description, date = sj.detail_jd(url)
+        assert got_url == url and description == core.html_to_text(text)
+        assert len(description) > 8000 and "sponsorship" not in description
+        assert date == "2026-09-01"
+        assert fetch.call_args.args[0] == "https://boards-api.greenhouse.io/v1/boards/acme/jobs/123"
+
+
+def test_native_greenhouse_rejects_wrong_identity_without_page_fallback():
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    url = "https://job-boards.greenhouse.io/acme/jobs/123"
+    for response in ({"id": 999, "content": _HTML},
+                     {"id": 123, "absolute_url": "https://job-boards.greenhouse.io/other/jobs/123", "content": _HTML},
+                     {"id": 123, "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/999", "content": _HTML},
+                     {"content": _HTML}, []):
+        with patch.object(sj.scraper, "_get_json", return_value=response), \
+             patch.object(sj, "microdata_jd", side_effect=AssertionError("unsafe fallback")), \
+             patch.object(core, "fetch_jd", side_effect=AssertionError("unsafe fallback")):
+            assert sj.detail_jd(url) == (url, "", "")
+    with patch.object(sj.scraper, "_get_json", side_effect=RuntimeError("unavailable")), \
+         patch.object(sj, "microdata_jd", side_effect=AssertionError("unsafe fallback")):
+        assert sj.detail_jd(url) == (url, "", "")
+
+
+def test_native_greenhouse_does_not_turn_edit_date_into_posting_date():
+    from unittest.mock import patch
+    from scraper import score_jobs as sj
+    url = "https://job-boards.greenhouse.io/acme/jobs/123"
+    with patch.object(sj.scraper, "_get_json", return_value={
+            "id": 123, "content": _HTML, "updated_at": "2026-09-21T12:00:00Z"}):
+        assert sj.detail_jd(url) == (url, core.html_to_text(_HTML), "")
+    assert sj._native_greenhouse_parts("https://job-boards.greenhouse.io.example.test/acme/jobs/123") is None
+
+
 def test_block_boundaries_become_newlines():
     out = core.html_to_text(_HTML)
     assert "\n" in out, "structure was flattened: %r" % out

@@ -757,6 +757,42 @@ _GH_PATH_RE = re.compile(r"/job-board/([A-Za-z0-9_-]+)/")
 _GH_BOARDS = {}          # stored-url host -> greenhouse board token, resolved once per process
 
 
+def _native_greenhouse_parts(url):
+    """Board and posting ID from a native Greenhouse URL, including EU boards."""
+    parsed = scraper.urlparse(url or "")
+    if parsed.hostname not in ("boards.greenhouse.io", "job-boards.greenhouse.io",
+                               "boards.eu.greenhouse.io", "job-boards.eu.greenhouse.io"):
+        return None
+    match = re.fullmatch(r"/([A-Za-z0-9_-]+)/jobs/(\d+)/?", parsed.path)
+    return match.groups() if match else None
+
+
+def native_greenhouse_detail_jd(url):
+    """Read the named posting's content, never its application questionnaires.
+
+    Both US and EU hosted boards use the public boards-api.greenhouse.io endpoint.
+    The page fallback includes div-rendered application fields, so a failed native
+    API read must remain retryable instead of falling back to the whole page.
+    """
+    parts = _native_greenhouse_parts(url)
+    if not parts:
+        return "", ""
+    board, jid = parts
+    try:
+        data = scraper._get_json(
+            "https://boards-api.greenhouse.io/v1/boards/%s/jobs/%s" % (board, jid))
+        if not isinstance(data, dict) or str(data.get("id")) != jid:
+            return "", ""
+        declared = _native_greenhouse_parts(data.get("absolute_url") or "")
+        if declared and declared != parts:
+            return "", ""
+        description = _text(data.get("content") or "")
+        # updated_at describes edits, not when the posting first became available.
+        return description, _parse_date_any(str(data.get("first_published") or ""))
+    except Exception:
+        return "", ""
+
+
 def _gh_embed_html(jid):
     """Greenhouse's tokenless embed page for one job id, or "". Works for ANY job id without
     knowing the board, which is what makes it both the board-token oracle and the fallback."""
@@ -999,6 +1035,9 @@ def detail_jd(url):
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""
     host = scraper.urlparse(url).hostname or ""
+    if _native_greenhouse_parts(url):
+        jd, date = native_greenhouse_detail_jd(url)
+        return url, jd, date
     for suffix, module in ((".applytojob.com", "jazzhr"), (".icims.com", "icims"), (".csod.com", "cornerstone")):
         if host.endswith(suffix):
             try:
@@ -1498,8 +1537,7 @@ def _is_thin_jd(jd):
     # existing bounded host retry/backoff queue, rather than leaving these permanently
     # "present" and therefore never fetched again. A cap length is only a suspicion;
     # _accept_jd requires a proven extension before replacing it.
-    return (0 < len(t) < core._MIN_JD_CHARS
-            or len(jd or "") in (8000, 12000))
+    return bool(t) and core.jd_read_status(jd)["status"] in ("unusable", "suspected_truncated")
 
 
 def _accept_jd(url, jd, thin_len, stored=None):
@@ -1523,9 +1561,8 @@ def _accept_jd(url, jd, thin_len, stored=None):
     """
     if not jd:
         return False
-    if stored and core.clean_jd(stored)[1] == "not-a-posting" \
-            and core.clean_jd(jd)[1] != "not-a-posting":
-        return True
+    if stored and core.clean_jd(stored)[1] == "not-a-posting":
+        return core.jd_read_status(jd)["status"] == "readable"
     old = thin_len.get(url, 0)
     if not old:
         return True
@@ -1538,7 +1575,7 @@ def _extractor_rev():
     """A fingerprint of the JD-extraction code, so shipping a working extractor re-opens every
     host that had backed off, without anyone having to remember to clear a flag.
 
-    Hashes THIS FILE plus core.fetch_jd, rather than inspect.getsource over a list of extractor
+    Hashes THIS FILE plus core.py, rather than inspect.getsource over a list of extractor
     functions. Two reasons, in order of importance:
 
       * a name list is a thing to forget. Add branch nine to detail_jd, leave it out of the
@@ -1555,13 +1592,12 @@ def _extractor_rev():
     """
     try:
         import hashlib
-        with open(__file__, "rb") as fh:
-            src = fh.read()
-        try:
-            import inspect
-            src += inspect.getsource(core.fetch_jd).encode("utf-8", "replace")
-        except Exception:
-            pass
+        src = b""
+        # Cleanup, structured-posting identity and HTML helpers affect extraction
+        # without changing fetch_jd itself. Read source files, not live callables.
+        for path in (__file__, core.__file__):
+            with open(path, "rb") as fh:
+                src += fh.read() + b"\0"
         return hashlib.sha1(src).hexdigest()[:12]
     except Exception:
         return "nosrc"        # stable: fingerprint invalidation off, timed backoff still on
