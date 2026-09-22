@@ -50,7 +50,11 @@ def fake_users(users, profiles, texts):
     db.profile_text = lambda u: texts.get(u, "")
 
 
-PM_RESUME = open("resume.txt", encoding="utf-8").read()
+# Keep CI independent of an operator's private, ignored resume.txt.
+PM_RESUME = """Program Manager with experience leading cross-functional delivery.
+Plan milestones, manage budgets and risks, coordinate stakeholders, and deliver
+software and healthcare programs using Agile, Scrum, SQL, and reporting tools.
+"""
 
 print("=" * 78)
 print("recipients(): opt-in required, and an email is required")

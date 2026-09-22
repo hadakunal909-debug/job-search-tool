@@ -349,6 +349,34 @@ def test_a_thin_row_is_probed_when_its_host_is_due():
     assert led["f"] == 0 and led["ok"] == 1, led
 
 
+
+def test_capped_description_enters_heavy_retry_and_repairs_after_deploy():
+    """Exercise main(), including eligibility, old backoff, fetching and persistence."""
+    rows = _thin_rows(1)
+    url = rows[0]["url"]
+    clipped = ("Manage construction programs and coordinate contractors. " * 200)[:8000]
+    complete = clipped + " Required Qualifications: 7 years of project management experience."
+    rows[0]["jd"] = clipped
+    ledger = {"rev": "before-full-jd-fix", "hosts": {
+        "shell.com": {"f": 4, "next": "2099-01-01", "ok": 0}}}
+    fake, tried = _run_with_fetch(rows, {url: clipped}, [], lambda _url: complete, ledger=ledger)
+    assert tried == [url], "capped row was stranded behind the heavy-pass eligibility gates"
+    assert fake.rows[url]["jd"] == complete
+    assert fake.kv[sj.THIN_LEDGER_KEY]["hosts"]["shell.com"]["ok"] == 1
+
+
+def test_repaired_database_heals_capped_actions_cache_without_refetching():
+    rows = _thin_rows(1)
+    url = rows[0]["url"]
+    clipped = ("Manage construction programs and coordinate contractors. " * 200)[:8000]
+    complete = clipped + " Required Qualifications: 7 years of project management experience."
+    rows[0]["jd"] = complete
+    def no_fetch(_url):
+        raise AssertionError("already-repaired database should heal the old Actions cache")
+    fake, tried = _run_with_fetch(rows, {url: clipped}, [], no_fetch)
+    assert not tried
+    assert fake.rows[url]["jd"] == complete
+
 def test_a_backed_off_host_is_not_probed_at_all():
     """The waste this whole mechanism exists to prevent. The fetcher raises, so REACHING the
     end of this test is the assertion."""

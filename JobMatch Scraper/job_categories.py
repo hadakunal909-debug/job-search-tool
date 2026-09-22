@@ -11,7 +11,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-CATEGORY_VERSION = VERSION = "2026-09-22.1"
+CATEGORY_VERSION = VERSION = "2026-09-22.2"
 CATEGORY_LABELS = {
     "construction": "Construction & Built Environment",
     "it": "IT & Software",
@@ -63,6 +63,9 @@ _DUTIES = {
         r"(?:Linux kernel|device drivers?|operating systems?|embedded (?:Linux|software))",
         r"(?:programming|coding|debugging|source code|codebase|C/C\+\+|C\+\+ code|software solutions)",
         r"(?:HRIS|systems? configurations?|configuration support|user acceptance testing|UAT|technical requirements)",
+        r"(?:Active Directory|Azure AD|Microsoft Entra|Windows servers?|Linux servers?)",
+        r"(?:DNS|DHCP|VPN) (?:connectivity|configuration|administration|services?|servers?)",
+        r"(?:configur(?:e|ing)|administer(?:ing)?|maintain(?:ing)?) (?:[\w-]+ ){0,3}(?:firewalls?|routers?|Microsoft 365 tenant|M365 tenant)",
     ),
     "data": (
         r"(?:data (?:science|engineering|analytics|pipelines?|warehouses?|modeling|modelling))",
@@ -153,7 +156,7 @@ _ROLE_TITLE_RX = {
     "marketing": _rx(r"(?:marketing|sales|brand) (?:analyst|manager|coordinator|director)"),
     "education": _rx(r"(?:academic|education|curriculum|instructional) (?:program )?(?:manager|coordinator|designer)|teacher"),
 }
-_DUTY_HEADING = re.compile(r"^(?:key |primary |essential |core )?(?:responsibilities|duties|essential functions|what you(?:'ll| will) (?:do|work on)|your (?:role|impact|responsibilities)|the (?:role|opportunity)|position summary|job (?:summary|description)|about (?:the|this) (?:role|job))\b", re.I)
+_DUTY_HEADING = re.compile(r"^(?:key |primary |essential |core )?(?:responsibilities|duties|essential functions|what you(?:'ll| will) (?:do|work on)|your (?:role|impact|responsibilities)|the (?:role|opportunity)|in this (?:role|position)|position summary|job (?:summary|description)|about (?:the|this) (?:role|job))\b", re.I)
 _SKIP_HEADING = re.compile(r"^(?:about (?!the (?:role|job)|this (?:role|job))|who we are|company (?:overview|profile)|our (?:company|mission)|benefits|perks|compensation|equal (?:opportunity|employment)|what we offer)\b", re.I)
 _OTHER_HEADING = re.compile(r"^(?:(?:(?:required|preferred|minimum|basic|desired) )?(?:qualifications|requirements|education|experience)|what you(?:'ll| will) (?:bring|need)|(?:required|essential|additional) (?:technical )?skills|skills (?:and|&) qualifications|the qualifications)\b", re.I)
 _VERB = _rx(r"manag(?:e[sd]?|ing)|lead(?:s|ing)?|oversee(?:s|ing)?|coordinat(?:e[sd]?|ing)|deliver(?:s|ing)?|develop(?:s|ing)?|build(?:s|ing)?|implement(?:s|ing)?|design(?:s|ing)?|maintain(?:s|ing)?|execut(?:e[sd]?|ing)|support(?:s|ing)?|ensur(?:e[sd]?|ing)|driv(?:es?|ing)|gather(?:s|ing)?|defin(?:e[sd]?|ing)|perform(?:s|ing)?|deploy(?:s|ing)?|configur(?:e[sd]?|ing)|administer(?:s|ing)?|responsible")

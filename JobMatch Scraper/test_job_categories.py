@@ -235,6 +235,26 @@ def test_employer_about_text_cannot_outvote_role_duties_by_repetition():
     expect("it", "Project Manager", jd, "Example Health", "Healthcare, Pharma & Biotech", source="jd")
 
 
+def test_role_introduction_after_company_overview_does_not_need_a_heading():
+    # Reproduced against the deployed classifier: it remained in company-skip mode
+    # and inferred construction even though this paragraph names clear software work.
+    jd = ("About us\nWe are a construction company building commercial offices and managing subcontractors.\n"
+          "In this role, you will lead software implementation and cloud migration projects. "
+          "You will oversee software development, API integrations and cybersecurity reviews.")
+    expect("it", "Project Manager", jd, "Example Builders",
+           "Engineering, Construction & Real Estate", source="jd")
+
+
+def test_hands_on_system_administration_at_builder_is_it():
+    # These are actual administrative duties, not a request to be familiar with
+    # ordinary office software. "Systems Engineer" alone cannot establish a domain.
+    jd = ("Responsibilities\nMaintain Windows servers and Active Directory. "
+          "Troubleshoot DNS, DHCP and VPN connectivity. Configure firewalls and routers. "
+          "Provision user access and administer the Microsoft 365 tenant.")
+    expect("it", "Systems Engineer", jd, "Example Builders",
+           "Engineering, Construction & Real Estate", source="jd")
+
+
 def test_actual_duties_after_old_eight_thousand_character_boundary_are_read():
     preamble = "About the team\n" + ("We work together and value our colleagues. " * 230)
     assert len(preamble) > 8000

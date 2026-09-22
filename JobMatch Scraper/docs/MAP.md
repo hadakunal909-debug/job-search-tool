@@ -10,7 +10,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 - [`web.py`](#webpy) — 10328 lines, 415 symbols — The Flask app: every route, every request hook, the feed.
 - [`core.py`](#corepy) — 5862 lines, 345 symbols — The shared domain library. Imported by the app, the scraper, the scorer and the digest, so nothing presentational lives here.
-- [`job_categories.py`](#job_categoriespy) — 309 lines, 28 symbols — Posting domain: JD duties, then title, then company background.
+- [`job_categories.py`](#job_categoriespy) — 312 lines, 28 symbols — Posting domain: JD duties, then title, then company background.
 - [`db.py`](#dbpy) — 4269 lines, 247 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 10664 lines, 422 symbols — The sweep and the intake filter, plus every ATS adapter.
 - [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2638 lines, 84 symbols — Fetches descriptions and scores them against the resume.
@@ -173,7 +173,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Posting domain: JD duties, then title, then company background.*
 
-309 lines · 28 top-level symbols · 0 sections
+312 lines · 28 top-level symbols · 0 sections
 
 *No banner comments in this file.*
 
@@ -1601,27 +1601,27 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `normalize_category` | def | [32](../job_categories.py#L32) |  |
 | `_rx` | def | [36](../job_categories.py#L36) |  |
 | `_DUTIES` | const | [42](../job_categories.py#L42) |  |
-| `_DUTY_RX` | const | [114](../job_categories.py#L114) |  |
-| `_DIRECT_DOMAIN` | const | [117](../job_categories.py#L117) |  |
-| `_DIRECT_RX` | const | [129](../job_categories.py#L129) |  |
-| `_TITLE_RX` | const | [131](../job_categories.py#L131) |  |
-| `_ROLE_TITLE_RX` | const | [145](../job_categories.py#L145) |  |
-| `_DUTY_HEADING` | const | [156](../job_categories.py#L156) |  |
-| `_SKIP_HEADING` | const | [157](../job_categories.py#L157) |  |
-| `_OTHER_HEADING` | const | [158](../job_categories.py#L158) |  |
-| `_VERB` | const | [159](../job_categories.py#L159) |  |
-| `_COMPANY_SENTENCE` | const | [160](../job_categories.py#L160) |  |
-| `_INLINE_HEADING` | const | [161](../job_categories.py#L161) |  |
-| `_plain` | def | [164](../job_categories.py#L164) |  |
-| `_duty_text` | def | [175](../job_categories.py#L175) | Keep role statements; do not categorize by benefits or employer boilerplate. |
-| `_company_key` | def | [199](../job_categories.py#L199) |  |
-| `_company_index` | def | [205](../job_categories.py#L205) |  |
-| `company_type_for` | def | [216](../job_categories.py#L216) |  |
-| `_company_category` | def | [225](../job_categories.py#L225) |  |
-| `_result` | def | [245](../job_categories.py#L245) |  |
-| `classify_job` | def | [251](../job_categories.py#L251) |  |
-| `category_for_job` | def | [293](../job_categories.py#L293) | Use stored JD-based classification on light feed rows without fetching text. |
-| `category_tip` | def | [304](../job_categories.py#L304) |  |
+| `_DUTY_RX` | const | [117](../job_categories.py#L117) |  |
+| `_DIRECT_DOMAIN` | const | [120](../job_categories.py#L120) |  |
+| `_DIRECT_RX` | const | [132](../job_categories.py#L132) |  |
+| `_TITLE_RX` | const | [134](../job_categories.py#L134) |  |
+| `_ROLE_TITLE_RX` | const | [148](../job_categories.py#L148) |  |
+| `_DUTY_HEADING` | const | [159](../job_categories.py#L159) |  |
+| `_SKIP_HEADING` | const | [160](../job_categories.py#L160) |  |
+| `_OTHER_HEADING` | const | [161](../job_categories.py#L161) |  |
+| `_VERB` | const | [162](../job_categories.py#L162) |  |
+| `_COMPANY_SENTENCE` | const | [163](../job_categories.py#L163) |  |
+| `_INLINE_HEADING` | const | [164](../job_categories.py#L164) |  |
+| `_plain` | def | [167](../job_categories.py#L167) |  |
+| `_duty_text` | def | [178](../job_categories.py#L178) | Keep role statements; do not categorize by benefits or employer boilerplate. |
+| `_company_key` | def | [202](../job_categories.py#L202) |  |
+| `_company_index` | def | [208](../job_categories.py#L208) |  |
+| `company_type_for` | def | [219](../job_categories.py#L219) |  |
+| `_company_category` | def | [228](../job_categories.py#L228) |  |
+| `_result` | def | [248](../job_categories.py#L248) |  |
+| `classify_job` | def | [254](../job_categories.py#L254) |  |
+| `category_for_job` | def | [296](../job_categories.py#L296) | Use stored JD-based classification on light feed rows without fetching text. |
+| `category_tip` | def | [307](../job_categories.py#L307) |  |
 
 ## `db.py` — symbols
 
