@@ -75,15 +75,96 @@ def _read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _cache_entries(path):
+    """Stream the flat gzip JSON map; full cache loads exceed shared-host memory."""
+    path = Path(path)
+    if not path.exists():
+        return
+    decoder = json.JSONDecoder()
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        buf, pos, eof = "", 0, False
+
+        def fill():
+            nonlocal buf, pos, eof
+            chunk = fh.read(65536)
+            buf, pos = buf[pos:] + chunk, 0
+            eof = not chunk
+
+        def peek():
+            nonlocal pos
+            while True:
+                while pos < len(buf) and buf[pos].isspace():
+                    pos += 1
+                if pos < len(buf):
+                    return buf[pos]
+                if eof:
+                    return ""
+                fill()
+
+        def consume(char):
+            nonlocal pos
+            if peek() != char:
+                raise ValueError("Malformed JD cache; refused to overwrite it")
+            pos += 1
+
+        def value():
+            nonlocal pos
+            peek()
+            while True:
+                try:
+                    result, pos = decoder.raw_decode(buf, pos)
+                    return result
+                except json.JSONDecodeError:
+                    if eof:
+                        raise
+                    fill()
+
+        consume("{")
+        if peek() == "}":
+            consume("}")
+            return
+        while True:
+            key = value()
+            consume(":")
+            text = value()
+            if not isinstance(key, str) or not isinstance(text, str):
+                raise ValueError("JD cache must map URLs to text")
+            yield key, text
+            if peek() == "}":
+                consume("}")
+                if peek():
+                    raise ValueError("Unexpected data after JD cache")
+                return
+            consume(",")
+
+
+def _selected_cache(wanted):
+    return {url: text for url, text in _cache_entries(sj.JD_CACHE_FILE) if url in wanted}
+
+
 def _save_cache(replacements):
-    # Reload before merging so a cache updated during retrieval is not overwritten
-    # with our older snapshot. Use an atomic write and propagate any failure.
-    bank = sj._load_jd_cache()
-    bank.update(replacements)
+    """Merge from the latest cache with bounded memory and an atomic final rename."""
     path = Path(sj.JD_CACHE_FILE)
     tmp = path.with_name(path.name + ".repair.tmp")
+    pending = dict(replacements)
     with gzip.open(tmp, "wt", encoding="utf-8") as fh:
-        json.dump(bank, fh, ensure_ascii=False)
+        fh.write("{")
+        first = True
+        for url, text in _cache_entries(path):
+            if not first:
+                fh.write(",")
+            first = False
+            json.dump(url, fh, ensure_ascii=False)
+            fh.write(":")
+            json.dump(pending.pop(url, text), fh, ensure_ascii=False)
+        for url, text in pending.items():
+            if not first:
+                fh.write(",")
+            first = False
+            json.dump(url, fh, ensure_ascii=False)
+            fh.write(":")
+            json.dump(text, fh, ensure_ascii=False)
+        fh.write("}")
     os.replace(tmp, path)
 
 
@@ -135,7 +216,7 @@ def run(args):
     eligible_count = len(urls)
     urls = urls[:args.limit]
     wanted = set(urls)
-    cache = {u: text for u, text in sj._load_jd_cache().items() if u in wanted}
+    cache = _selected_cache(wanted)
     idf = core.load_idf() if args.apply else None
     records = []
     report = {"mode": mode, "eligible": eligible_count, "selected": len(urls), "results": records,

@@ -322,7 +322,7 @@ def test_repair_dry_run_is_bounded_and_does_not_write_database():
                                apply=False, url=[], host=[], retry_after_hours=24, limit=1,
                                batch_size=10, max_seconds=60, cache_only=True)
         with patch.object(repair, 'candidate_urls', return_value=['https://example.test/1', 'https://example.test/2']), \
-             patch.object(repair.sj, '_load_jd_cache', return_value={'https://example.test/1': new}), \
+             patch.object(repair, '_selected_cache', return_value={'https://example.test/1': new}), \
              patch.object(repair.db, 'load_jobs_by_urls', return_value=[{'url': 'https://example.test/1', 'jd': old}]), \
              patch.object(repair, 'persist_repairs') as write, \
              patch.object(repair.sj, 'detail_jd') as fetch:
@@ -349,7 +349,7 @@ def test_repair_resumes_analysis_after_text_was_already_saved():
         Path(args.state).write_text(json.dumps({'apply': {url: {'status': 'pending', 'attempt_at': 0,
                                       'new_fp': repair.db.jd_fingerprint(full)}}}), encoding='utf-8')
         with patch.object(repair, 'candidate_urls', return_value=[]), \
-             patch.object(repair.sj, '_load_jd_cache', return_value={}), \
+             patch.object(repair, '_selected_cache', return_value={}), \
              patch.object(repair.core, 'load_idf', return_value={}), \
              patch.object(repair.db, 'load_jobs_by_urls', return_value=[{'url': url, 'jd': full}]), \
              patch.object(repair, 'persist_repairs') as write, \
@@ -380,6 +380,28 @@ def test_long_jd_tail_retains_remote_pay_and_experience_facts():
     assert core.parse_location("", text)["remote"] is True
     assert core.parse_salary(text) == {"min": 120000, "max": 150000, "period": "year"}
     assert core.experience_floors(text)[0] == 7
+
+
+def test_repair_cache_stream_preserves_entries_and_large_unicode_text():
+    import gzip
+    import json
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+    from scripts import repair_clipped_jds as repair
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "cache.json.gz"
+        existing = {"https://example.test/a": "quotes \" braces {} accents é " * 5000,
+                    "https://example.test/b": "keep me", "https://example.test/c": "old"}
+        with gzip.open(path, "wt", encoding="utf-8") as fh:
+            json.dump(existing, fh, ensure_ascii=False)
+        assert dict(repair._cache_entries(path)) == existing
+        with patch.object(repair.sj, "JD_CACHE_FILE", str(path)):
+            assert repair._selected_cache({"https://example.test/b"}) == {"https://example.test/b": "keep me"}
+            repair._save_cache({"https://example.test/c": "repaired", "https://example.test/new": "new"})
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            actual = json.load(fh)
+        assert actual == dict(existing, **{"https://example.test/c": "repaired", "https://example.test/new": "new"})
 
 
 if __name__ == "__main__":
