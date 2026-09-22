@@ -309,6 +309,117 @@ def test_output_explains_the_decision_and_is_deterministic():
     assert result == classify_job("Project Manager", CONSTRUCTION_DUTIES), result
 
 
+def test_real_autodesk_gsoc_is_physical_security_not_it_support():
+    # Workday26WD100947: systems operated for physical security, not software development.
+    jd = """Responsibilities
+Maintain monitoring of access control, CCTV, visitor management and alarm management systems.
+Verify alarm authenticity before response escalation.
+Execute the initial phases of emergency response procedures.
+Process standard badge and physical access requests for employees and visitors.
+Technology Operations
+Follow procedures for system restarts and escalation to technical support when issues arise.
+"""
+    expect("operations", "GSOC Operations Analyst", jd, "Autodesk", "Software & Internet", source="jd")
+
+
+def test_real_bd_marketing_duties_outweigh_engineering_partners():
+    # WorkdayR-547752: marketing strategy and commercialization for medical equipment.
+    jd = """Job Description
+Lead development and execution of upstream marketing strategy.
+Drive Voice of Customer strategy and customer discovery efforts.
+Conduct market analysis including competitive intelligence, market sizing and segmentation.
+Support global launch readiness and market adoption strategies.
+Partner closely with systems engineering, software engineering and clinical teams.
+Support cybersecurity and digital health ecosystem strategy initiatives.
+"""
+    expect("marketing", "Sr. Product Manager, Global Marketing", jd, "BD", "Healthcare", source="jd")
+
+
+def test_real_bti_scm_operations_outweigh_generic_hr_collaboration():
+    # WorkdayJR101937: same requisition now titled Logistics Operations Manager.
+    jd = """Position Summary
+Develop and execute the SCM operations strategy.
+Lead capacity planning, shuttle scheduling and yard planning.
+Monitor inbound and outbound material flow and maintain inventory integrity.
+Identify and implement process improvements.
+Partner with Human Resources regarding employee relations and staffing.
+Job Qualifications & Requirements
+Bachelor's degree in Supply Chain, Logistics, Business, or related field.
+Experience in software engineering, cybersecurity and cloud infrastructure is preferred.
+"""
+    expect("operations", "Korean Bilingual Logistics Operations Manager", jd, "BTI Solutions", source="jd")
+
+
+def test_real_casella_revenue_analytics_outweigh_employer_industry():
+    # iCIMS10375: reporting and analysis work inside a waste/recycling company.
+    jd = """Position Summary
+Develops, maintains, and enhances dashboards, scorecards, reports and key performance indicators.
+Maintains KPI definitions, data standards and reporting methodologies.
+Serves as a subject matter expert in pricing analysis, revenue reporting and performance analytics.
+Partners with Sales Operations to validate data and support revenue initiatives.
+Identify process improvement activities and opportunities to improve margin performance.
+"""
+    expect("data", "Revenue Operations Analyst", jd, "Casella Waste Systems", "Energy & Utilities", source="jd")
+
+
+def test_collaboration_mentions_cannot_overturn_actual_construction_duties():
+    jd = CONSTRUCTION_DUTIES + "\nPartner with software engineering and cybersecurity teams. " \
+         "Escalate issues to technical support and network administration."
+    expect("construction", "Project Manager", jd, source="jd")
+    expect("it", "Systems Engineer", "Responsibilities\nProvide technical support and network administration. "
+           "Maintain Windows servers and Active Directory.", source="jd")
+
+
+def test_fresh_hardware_bench_and_food_quality_roles_are_engineering():
+    # Restored Atoms hardware-in-the-loop posting and HEB Own Brand quality role.
+    bench = """About the role
+Own the design and construction of system benches, electrical architecture, schematic capture,
+component selection, harness design and fabrication, physical build and commissioning.
+Design automated test frameworks that gate software releases.
+Lead root-cause analysis and debugging of system-level failures across sensor timing and harnessing.
+What we're looking for
+Experience in software engineering, cloud infrastructure and cybersecurity.
+"""
+    expect("engineering", "Staff Systems Integration Engineer, Hardware-in-the-Loop", bench, source="jd")
+    quality = """Responsibilities
+Perform quality assurance activities to mitigate product risk.
+Ensure product specifications meet requirements and perform supplier assessments.
+Conduct product safety risk assessments and statistical process control.
+"""
+    expect("engineering", "Own Brand Product Quality Mgr II - Food", quality, "HEB", source="jd")
+    expect("other", "Own Brand Product Quality Mgr II - Food")
+
+
+def test_fresh_finance_work_uses_dashboards_without_becoming_data_science():
+    # CDM Smith financial analyst: reporting tools support a financial planning role.
+    jd = """Job Description
+Lead budgeting, forecasting, financial modeling and long-range planning.
+Monitor project financial performance and support financial controls.
+Develop and maintain executive dashboards, KPI reporting and performance reporting.
+"""
+    expect("finance", "Senior Financial Analyst", jd, "CDM Smith", "Construction", source="jd")
+    expect("finance", "Intern Finance Specialist (SAP)", "Responsibilities\n"
+           "Apply accounting knowledge to financial reporting, general ledger and financial modeling.",
+           "IBM", "Technology", source="jd")
+
+
+def test_fresh_business_ai_enablement_and_events_are_their_actual_work():
+    business = """Job Summary
+Own the operational engine of the Legal department.
+Design the intake and triage model and matter management systems.
+Establish service-level expectations and maintain dashboards for department reporting.
+This is not a software engineering role.
+"""
+    expect("business", "Business Operations and AI Enablement Manager", business,
+           "Allvue Systems", "Software & Internet", source="jd")
+    events = """Responsibilities
+Coordinate event operations and meeting coordination, room bookings and catering.
+Manage crew schedule assignments, event materials and onsite event logistics.
+"""
+    expect("operations", "Onsite Meeting and Event Production Coordinator", events,
+           "AVI-SPL", "IT Services & Consulting", source="jd")
+
+
 if __name__ == "__main__":
     tests = sorted((name, fn) for name, fn in globals().items() if name.startswith("test_") and callable(fn))
     failed = 0

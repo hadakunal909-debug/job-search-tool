@@ -11,7 +11,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-CATEGORY_VERSION = VERSION = "2026-09-22.3"
+CATEGORY_VERSION = VERSION = "2026-09-22.4"
 CATEGORY_LABELS = {
     "construction": "Construction & Built Environment",
     "it": "IT & Software",
@@ -72,6 +72,9 @@ _DUTIES = {
         r"(?:machine learning|predictive model(?:s|ing)?|statistical (?:analysis|model(?:s|ing)?))",
         r"(?:business intelligence|ETL|data visualization|data visualisation)",
         r"(?:train|deploy|develop|build) (?:\w+ ){0,3}(?:ML models?|AI models?|language models?)",
+        r"(?:develop|build|maintain|enhance)(?:s|ing)?\b[^\n.;]{0,80}\b(?:dashboards|scorecards)",
+        r"(?:pricing|revenue|performance|business|sales) (?:analytics|analysis|reporting)",
+        r"(?:KPI (?:definitions|governance|reporting)|data standards|reporting methodologies)",
     ),
     "engineering": (
         r"(?:manufacturing|production) (?:processes|lines?|operations|engineering|equipment|facilities)",
@@ -79,6 +82,11 @@ _DUTIES = {
         r"(?:product validation|process engineering|quality engineering|design verification)",
         r"(?:semiconductors?|embedded systems?|circuit design|printed circuit|robotics|firmware)",
         r"(?:power generation|power systems?|utility infrastructure|renewable energy)",
+        r"(?:hardware-in-the-loop|system benches|test benches)",
+        r"(?:schematic capture|electrical architecture|bench schematics)",
+        r"(?:harness design|harness fabrication|harness documentation)",
+        r"(?:product safety|food safety|product quality|supplier assessments)",
+        r"(?:product specifications|quality assurance activities|statistical process control)",
     ),
     "healthcare": (
         r"(?:clinical (?:trials?|research|operations|programs?|studies)|patient care|patient safety)",
@@ -91,17 +99,29 @@ _DUTIES = {
         r"(?:accounting|accounts payable|accounts receivable|general ledger|tax compliance)",
         r"(?:credit risk|underwriting|banking operations|loan (?:operations|processing)|actuarial)",
         r"(?:audit procedures|GAAP|financial controls|FP&A)",
+        r"(?:financial modeling|financial modelling|variance analysis|revenue recognition)",
+        r"(?:budgeting,? (?:and )?forecasting|project financial (?:management|performance)|financial compliance)",
     ),
     "operations": (
         r"(?:supply chain|logistics|procurement|strategic sourcing)",
         r"(?:warehouse (?:operations|management)|inventory (?:planning|management|control))",
         r"(?:distribution centers?|freight|transportation operations|fulfillment operations)",
         r"(?:demand planning|supply planning|purchase orders|supplier performance)",
+        r"SCM operations", r"(?:yard|shuttle|logistics) (?:operations|planning|scheduling|management)",
+        r"(?:material flows?|inbound and outbound material|inventory integrity)",
+        r"(?:physical security|physical access requests|badge (?:issuance|administration))",
+        r"(?:CCTV|surveillance|security alarms|alarm authenticity)",
+        r"(?:emergency response procedures|emergency communication workflows|security system monitoring)",
+        r"(?:event operations|event logistics|event production|meeting coordination)",
+        r"(?:room bookings|catering|crew schedule assignments|event materials)",
     ),
     "marketing": (
         r"(?:marketing campaigns?|digital marketing|brand strategy|brand management)",
         r"(?:sales (?:pipeline|targets?|operations|enablement)|lead generation|customer acquisition)",
         r"(?:advertising|media buying|search engine optimization|content strategy)",
+        r"(?:(?:upstream|downstream|product|go-to-market) marketing|marketing strategy)",
+        r"(?:market analysis|market sizing|customer discovery|voice of customer)",
+        r"(?:commercialization|commercialisation|market adoption|global launch readiness)",
     ),
     "education": (
         r"(?:curriculum (?:development|design)|student (?:services|affairs|advising|success))",
@@ -112,6 +132,10 @@ _DUTIES = {
         r"(?:business operations|business transformation|organizational change|management consulting)",
         r"(?:corporate strategy|business strategy|process improvement|operational excellence)",
         r"(?:human resources|talent acquisition|employee relations)",
+        r"(?:legal (?:operations|department|workflows)|matter management|outside counsel)",
+        r"(?:intake (?:and |& )?triage|intake model|contract workflows)",
+        r"(?:people management|performance reviews|succession planning)",
+        r"(?:operational ownership|delivery management|service-level expectations)",
     ),
 }
 _DUTY_RX = {k: tuple(_rx(v) for v in values) for k, values in _DUTIES.items()}
@@ -139,8 +163,9 @@ _TITLE_RX = {
     "healthcare": _rx(r"clinical|healthcare|medical|patient|pharmaceutical|biotech|nursing"),
     "finance": _rx(r"financial|finance|accounting|accountant|tax|credit|underwriting|investment|banking|actuarial|audit"),
     "operations": _rx(r"supply chain|logistics|procurement|warehouse|inventory|sourcing|transportation|fulfillment"),
-    "marketing": _rx(r"marketing|sales|advertising|brand|content strategist"),
+    "marketing": _rx(r"marketing|sales|advertising|brand (?:manager|management|director|strategy|strategist|analyst|coordinator)|content strategist"),
     "education": _rx(r"academic|curriculum|student|education|instructional|teacher|faculty|research administration"),
+    "business": _rx(r"(?:business|legal|strategy) operations|human resources|management consulting"),
 }
 # The named occupation is stronger than a client sector or product in the title:
 # "Software Engineer - Medical" and "Data Analyst, Finance" describe software and
@@ -151,14 +176,15 @@ _ROLE_TITLE_RX = {
     "data": _rx(r"(?:data|analytics|business intelligence|machine learning|AI|ML) (?:scientist|engineer(?:ing)?|analyst|architect|manager)"),
     "engineering": _rx(r"(?:mechanical|electrical|hardware|manufacturing|aerospace|industrial) engineer(?:ing)?"),
     "healthcare": _rx(r"clinical (?:project |program )?(?:manager|coordinator)|(?:nurse|nursing|physician|therapist)"),
-    "finance": _rx(r"(?:finance|financial|accounting|investment|credit) (?:analyst|manager|director)|accountant|actuary"),
+    "finance": _rx(r"(?:finance|financial|accounting|investment|credit) (?:analyst|manager|director|specialist)|accountant|actuary"),
     "operations": _rx(r"(?:supply chain|logistics|procurement|warehouse|inventory) (?:analyst|manager|coordinator|director)"),
     "marketing": _rx(r"(?:marketing|sales|brand) (?:analyst|manager|coordinator|director)"),
     "education": _rx(r"(?:academic|education|curriculum|instructional) (?:program )?(?:manager|coordinator|designer)|teacher"),
+    "business": _rx(r"(?:business|legal|strategy) operations (?:and [\w ]+ )?(?:manager|specialist|director)"),
 }
 _DUTY_HEADING = re.compile(r"^(?:key |primary |essential |core )?(?:responsibilities|duties|essential functions|what you(?:'ll| will) (?:do|work on)|your (?:role|impact|responsibilities)|the (?:role|opportunity)|in this (?:role|position)|position summary|job (?:summary|description)|about (?:the|this) (?:role|job))\b", re.I)
 _SKIP_HEADING = re.compile(r"^(?:about (?!the (?:role|job)|this (?:role|job))|who we are|company (?:overview|profile)|our (?:company|mission)|benefits|perks|compensation|equal (?:opportunity|employment)|what we offer)\b", re.I)
-_OTHER_HEADING = re.compile(r"^(?:(?:(?:required|preferred|minimum|basic|desired) )?(?:qualifications|requirements|education|experience)|what you(?:'ll| will) (?:bring|need)|(?:required|essential|additional) (?:technical )?skills|skills (?:and|&) qualifications|the qualifications)\b", re.I)
+_OTHER_HEADING = re.compile(r"^(?:(?:job )?(?:(?:required|preferred|minimum|basic|desired) )?(?:qualifications|requirements|education|experience)|what you(?:'ll| will) (?:bring|need)|what we(?:'re|’re| are) looking for|what is your background|(?:required|preferred) professional and technical expertise|(?:required|essential|additional) (?:technical )?skills|skills (?:and|&) qualifications|the qualifications)\b", re.I)
 _VERB = _rx(r"manag(?:e[sd]?|ing)|lead(?:s|ing)?|oversee(?:s|ing)?|coordinat(?:e[sd]?|ing)|deliver(?:s|ing)?|develop(?:s|ing)?|build(?:s|ing)?|implement(?:s|ing)?|design(?:s|ing)?|maintain(?:s|ing)?|execut(?:e[sd]?|ing)|support(?:s|ing)?|ensur(?:e[sd]?|ing)|driv(?:es?|ing)|gather(?:s|ing)?|defin(?:e[sd]?|ing)|perform(?:s|ing)?|deploy(?:s|ing)?|configur(?:e[sd]?|ing)|administer(?:s|ing)?|responsible")
 _COMPANY_SENTENCE = re.compile(r"\b(?:we are|our company|is a (?:global |leading |world)|equal opportunity|regardless of|all qualified applicants|we offer|our benefits)\b", re.I)
 _INLINE_HEADING = re.compile(r"(?<!\w)(?=(?:(?:key |primary |essential |core )?responsibilities:?|(?:required|preferred|minimum|basic) qualifications:?|(?:essential|additional|required) skills|job description:?|what you(?:'ll| will) (?:do|work on):|benefits:))", re.I)
@@ -197,6 +223,23 @@ def _duty_text(text):
         elif mode == "loose" and _VERB.search(line):
             loose.append(line)
     return "\n".join(sections or loose)
+
+
+def _duty_hits(patterns, duties):
+    """Count domains of work performed, excluding named partners and escalation targets."""
+    hits = []
+    for pattern in patterns:
+        for match in pattern.finditer(duties):
+            prefix = re.split(r"[\n.!?;]", duties[:match.start()])[-1]
+            if re.search(r"\b(?:partner(?:s|ing)?|collaborat(?:e|es|ing)|work(?:s|ing)?)\b[^.;]{0,35}\bwith\b[^.;]*$", prefix, re.I):
+                continue
+            if re.search(r"\b(?:escalat(?:e|es|ing|ion)|refer(?:ral|ring)?)\b[^.;]{0,35}\bto\b[^.;]*$", prefix, re.I):
+                continue
+            if re.search(r"\b(?:not|rather than|unrelated to)\s+(?:\w+\s+){0,2}$", prefix, re.I):
+                continue
+            hits.append(match.group(0))
+            break
+    return hits
 
 
 def _company_key(name):
@@ -258,8 +301,7 @@ def classify_job(title, jd="", company="", company_type=""):
     from core import clean_jd
     cleaned, verdict = clean_jd(_plain(jd))
     duties = "" if verdict == "not-a-posting" else _duty_text(cleaned)
-    hits = {key: [m.group(0) for rx in patterns if (m := rx.search(duties))]
-            for key, patterns in _DUTY_RX.items()}
+    hits = {key: _duty_hits(patterns, duties) for key, patterns in _DUTY_RX.items()}
     ranked = sorted(hits, key=lambda k: len(hits[k]), reverse=True)
     first, second = ranked[:2]
     title_keys = [k for k, rx in _TITLE_RX.items() if rx.search(title)]
