@@ -13,7 +13,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`job_categories.py`](#job_categoriespy) — 312 lines, 28 symbols — Posting domain: JD duties, then title, then company background.
 - [`db.py`](#dbpy) — 4269 lines, 247 symbols — Storage. One PostgREST-shaped interface over four backends.
 - [`scraper/__init__.py`](#scraper__init__py) — 10664 lines, 422 symbols — The sweep and the intake filter, plus every ATS adapter.
-- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2638 lines, 84 symbols — Fetches descriptions and scores them against the resume.
+- [`scraper/score_jobs.py`](#scraperscore_jobspy) — 2653 lines, 84 symbols — Fetches descriptions and scores them against the resume.
 - [`scraper/score_users.py`](#scraperscore_userspy) — 165 lines, 3 symbols — Stores every user's score for every job, in user_scores.
 - [`resume_score.py`](#resume_scorepy) — 1616 lines, 131 symbols — The offline resume rubric -- no network, no model.
 - [`resume_keywords.py`](#resume_keywordspy) — 222 lines, 12 symbols — Which curated skills a track is expected to show.
@@ -270,11 +270,11 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 *Fetches descriptions and scores them against the resume.*
 
-2638 lines · 84 top-level symbols · 1 sections
+2653 lines · 84 top-level symbols · 1 sections
 
 | Lines | Section | Symbols |
 |---|---|---|
-| [1446–2638](../scraper/score_jobs.py#L1446) | Thin descriptions: a bounded, self-scheduling retry | 22 |
+| [1446–2653](../scraper/score_jobs.py#L1446) | Thin descriptions: a bounded, self-scheduling retry | 22 |
 
 ## `scraper/score_users.py`
 
@@ -2387,9 +2387,9 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | `_host_window` | def | [1683](../scraper/score_jobs.py#L1683) | The `n` rows to probe on this host today, ROTATED so it is a different `n` tomorrow. |
 | `_thin_retry_plan` | def | [1716](../scraper/score_jobs.py#L1716) | (urls to probe, hosts probed) for this run. |
 | `_record_thin_outcomes` | def | [1762](../scraper/score_jobs.py#L1762) | Update the ledger from what the run actually managed. Mutates and returns it. |
-| `_jd_corpus` | def | [1791](../scraper/score_jobs.py#L1791) | (row_jd, missing, db_missing) for a pass that needs EVERY stored description. |
-| `_new_only_targets` | def | [1833](../scraper/score_jobs.py#L1833) | URLs worth (re)scoring when we're not doing the whole corpus. |
-| `main` | def | [1863](../scraper/score_jobs.py#L1863) |  |
+| `_jd_corpus` | def | [1797](../scraper/score_jobs.py#L1797) | (row_jd, missing, db_missing) for a pass that needs EVERY stored description. |
+| `_new_only_targets` | def | [1839](../scraper/score_jobs.py#L1839) | URLs worth (re)scoring when we're not doing the whole corpus. |
+| `main` | def | [1869](../scraper/score_jobs.py#L1869) |  |
 
 ## `scraper/score_users.py` — symbols
 

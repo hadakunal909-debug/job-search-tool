@@ -1769,6 +1769,12 @@ def _record_thin_outcomes(ledger, probed_hosts, thin_urls, repaired, rev, today)
         h = _thin_host(u)
         counts[h] = counts.get(h, 0) + 1
     d0 = _dt.date.fromisoformat(today)
+    # A new extractor makes every still-pending host due once. The global revision
+    # stamp must not bury hosts this bounded pass never reached behind an old backoff.
+    if (ledger.get("rev") or "") != rev:
+        for h, rec in hosts.items():
+            if h in counts and (rec.get("next") or "") > today:
+                rec["next"] = today
     for h in probed_hosts:
         rec = hosts.setdefault(h, {})
         rec["n"] = counts.get(h, 0)
@@ -2035,7 +2041,7 @@ def main():
     # Heavy pass only. --new-only never loads the corpus, runs on a smaller budget and fires
     # more often; giving it a second queue would be spending the cheap pass's budget on the
     # expensive pass's problem.
-    thin_len, thin_probed = {}, []
+    thin_len, thin_probed, thin_attempted = {}, [], set()
     ledger, rev, today = None, "", ""
     if not new_only and not full:
         thin = {u: len(jd.strip()) for u, jd in row_jd.items() if _is_thin_jd(jd)}
@@ -2185,6 +2191,8 @@ def main():
                 # simply retried next run — nothing is recorded either way.
                 if deadline and time.time() >= deadline:
                     return u, "", ""
+                if u in thin_len:
+                    thin_attempted.add(u)
                 return detail_jd(u)
 
             # Newest first here too. The cap decides WHICH urls are in play; this decides the
@@ -2238,10 +2246,17 @@ def main():
     # a crash in between costs only the schedule — never a repair.
     if ledger is not None and thin_probed:
         repaired = [u for u in thin_len if u in fetched]
-        _record_thin_outcomes(ledger, thin_probed, sorted(thin_len), repaired, rev, today)
-        _save_thin_ledger(ledger)
-        print("Thin probe: repaired %d of %d; %d host(s) rescheduled."
-              % (len(repaired), len(thin_len), len(thin_probed)))
+        # An expired budget is not a failed source. Bulk successes also count even
+        # when no detail request was needed; untouched hosts remain due next time.
+        attempted_hosts = {_thin_host(u) for u in thin_attempted | set(repaired)}
+        actual_probed = [h for h in thin_probed if h in attempted_hosts]
+        if actual_probed:
+            # The WHOLE pending set is needed for pruning/counts, not merely this
+            # run's selected window, or unselected hosts lose their retry history.
+            _record_thin_outcomes(ledger, actual_probed, sorted(thin), repaired, rev, today)
+            _save_thin_ledger(ledger)
+        print("Thin probe: repaired %d of %d attempted; %d host(s) rescheduled."
+              % (len(repaired), len(thin_attempted | set(repaired)), len(actual_probed)))
 
     # 4) IDF over the whole JD corpus (so common terms count less), then score.
     #    The FULL pass rebuilds it from every JD — it is a property of the corpus, and

@@ -377,6 +377,34 @@ def test_repaired_database_heals_capped_actions_cache_without_refetching():
     assert not tried
     assert fake.rows[url]["jd"] == complete
 
+
+def test_expired_fetch_budget_does_not_back_off_an_unattempted_capped_host():
+    from unittest.mock import patch
+    rows = _thin_rows(1)
+    url = rows[0]["url"]
+    rows[0]["jd"] = ("Manage construction programs and coordinate contractors. " * 200)[:8000]
+    ledger = {"rev": sj._extractor_rev(), "hosts": {
+        "shell.com": {"f": 4, "next": "2000-01-01", "ok": 0}}}
+    before = json.loads(json.dumps(ledger))
+    with patch.object(sj, "time", _Clock(60)):
+        fake, tried = _run_with_fetch(rows, {url: rows[0]["jd"]}, ["--budget-min=0.001"],
+                                     lambda _url: "", ledger=ledger)
+    assert not tried, "the fixture must exhaust its fetch budget before any source request"
+    assert fake.kv[sj.THIN_LEDGER_KEY] == before, "unattempted host was incorrectly penalized"
+
+
+def test_extractor_revision_keeps_untried_pending_hosts_due():
+    ledger = {"rev": "old", "hosts": {
+        "tried.com": {"f": 2, "next": "2099-01-01"},
+        "waiting.com": {"f": 4, "next": "2099-01-01"}}}
+    sj._record_thin_outcomes(ledger, ["tried.com"],
+                            ["https://tried.com/1", "https://waiting.com/2"],
+                            [], "new", "2026-09-22")
+    assert ledger["hosts"]["waiting.com"]["f"] == 4
+    assert ledger["hosts"]["waiting.com"]["next"] == "2026-09-22"
+    due, hosts = sj._thin_retry_plan(["https://waiting.com/2"], ledger, "new", "2026-09-22")
+    assert due == ["https://waiting.com/2"] and hosts == ["waiting.com"]
+
 def test_a_backed_off_host_is_not_probed_at_all():
     """The waste this whole mechanism exists to prevent. The fetcher raises, so REACHING the
     end of this test is the assertion."""
