@@ -59,6 +59,9 @@ on:
         description: "posting age window"
         required: true
         default: "24"
+      budget_min:
+        description: "network budget in minutes (up to 20)"
+        default: "20"
       jobright:
         description: "also try jobright (usually Cloudflare-blocked from a runner)"
         type: boolean
@@ -143,6 +146,7 @@ jobs:
           # ranking. A manual run keeps the 24-hour default declared above: that path is for
           # smoke-testing, where a tight window is the point.
           IN_HOURS: ${{ inputs.hours || '48' }}
+          IN_BUDGET_MIN: ${{ inputs.budget_min || '20' }}
           # On by default on the SCHEDULE, same shape as IN_APPLY below. Expect it to
           # contribute ~nothing from here: jobright sits behind Cloudflare and answers a
           # datacenter IP with a 200 carrying a challenge page, which the sweep reports
@@ -158,12 +162,13 @@ jobs:
           echo "Runner egress IP (datacenter reputation decides what answers us):"
           curl -s --max-time 10 https://api.ipify.org || echo "(lookup failed, not fatal)"
           echo
-          python scripts/jobspy_sweep.py \
+          python -u scripts/jobspy_sweep.py \
             --sites "$IN_SITES" \
             --phrases "$IN_PHRASES" \
             --hours "$IN_HOURS" \
             --results 50 \
             --probe-limit 60 \
+            --budget-min "$IN_BUDGET_MIN" --query-timeout 90 \
             --out "jobspy_findings_$(date -u +%F).xlsx" \
             $IN_JOBRIGHT $IN_APPLY -v 2>&1 | tee sweep-report.txt
 

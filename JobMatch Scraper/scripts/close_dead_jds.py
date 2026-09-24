@@ -36,6 +36,7 @@ import concurrent.futures
 import datetime
 import os
 import sys
+import time
 from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -109,11 +110,16 @@ def main():
     ap.add_argument("--per-host", type=int, default=0,
                     help="rows to probe per host (0 = all of them; per-row decisions need this)")
     ap.add_argument("--workers", type=int, default=10)
+    ap.add_argument("--budget-min", type=float, default=0,
+                    help="stop starting probes after N minutes, then save completed results")
     ap.add_argument("--host", action="append", default=[], help="only this host (repeatable)")
     ap.add_argument("--no-close", action="store_true", help="skip is_active=false")
     ap.add_argument("--no-clear", action="store_true", help="skip blanking junk descriptions")
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args()
+    if a.budget_min < 0:
+        ap.error("--budget-min must not be negative")
+    deadline = time.monotonic() + a.budget_min * 60 if a.budget_min else None
 
     # title and location are here ONLY for the Amazon re-match in _probe; every other check
     # works off the URL alone.
@@ -143,6 +149,8 @@ def main():
     recovered = {}
 
     def _one(hu):
+        if deadline is not None and time.monotonic() >= deadline:
+            return None  # Unattempted rows are neither closed nor cleared.
         u = hu[1]
         t, loc = meta.get(u, ("", ""))
         return _probe(u, t, loc)
@@ -150,12 +158,17 @@ def main():
     per_row = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=a.workers) as ex:
         for i, ((h, u), out) in enumerate(zip(sample, ex.map(_one, sample)), 1):
+            if out is None:
+                continue
             results[h].append(out)
             per_row[u] = out[0]
             if out[0] == "readable":
                 recovered[u] = out[3]
             if i % 200 == 0:
                 print("   ... probed %d/%d" % (i, len(sample)), flush=True)
+    if len(per_row) < len(sample):
+        print("Probe budget reached: %d checked, %d left for another run."
+              % (len(per_row), len(sample) - len(per_row)), flush=True)
 
     verdicts, today = {}, datetime.date.today().isoformat()
     print("%-42s %6s  %-10s %-18s %s" % ("HOST", "ROWS", "VERDICT", "statuses", "note"))

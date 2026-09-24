@@ -836,7 +836,7 @@ jobs:
         # does not bound the CLOCK (a dead URL still costs a full timeout), which is why the step
         # carries timeout-minutes as well.
         run: |
-          python scripts/close_dead_jds.py --apply --per-host 60 --workers 10
+          python -u scripts/close_dead_jds.py --apply --per-host 60 --workers 10 --budget-min 8
 
       - name: Rebuild the employer facts table
         if: >-

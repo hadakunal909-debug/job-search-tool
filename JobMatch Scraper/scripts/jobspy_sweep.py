@@ -31,9 +31,11 @@ import argparse
 import collections
 import csv
 import datetime
+import importlib.util
 import os
 import re
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if hasattr(sys.stdout, "reconfigure"):
@@ -43,6 +45,7 @@ import core
 import db
 import scraper
 from scraper import find_everify_boards as feb
+from scraper.bounded_call import call as bounded_call
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discover_companies as dc                                          # noqa: E402
@@ -86,15 +89,26 @@ def known_companies():
     return known, bool(boards)
 
 
-def harvest(sites, phrases, location, hours, results, verbose):
+def harvest(sites, phrases, location, hours, results, verbose, deadline=None, query_timeout=90):
     """Aggregator postings as {company,title,url,location,posted,channel,phrase} records."""
     rows = []
-    if sites:
-        rows.extend(dc.harvest_jobspy(sites, phrases, location, hours, results, verbose=verbose))
+    # Interleave sources so a blocked source cannot consume every query slot.
+    for phrase in phrases:
+        for site in sites:
+            remaining = deadline - time.monotonic() if deadline else query_timeout
+            if remaining <= 0:
+                print("  Harvest budget reached; keeping %d posting(s)." % len(rows), flush=True)
+                return rows
+            try:
+                rows.extend(bounded_call("scripts.discover_companies", "harvest_jobspy",
+                            ([site], [phrase], location, hours, results),
+                            {"verbose": verbose}, timeout=min(query_timeout, remaining)))
+            except (TimeoutError, RuntimeError) as exc:
+                print("  %s / %s: %s; continuing." % (site, phrase, exc), flush=True)
     return rows
 
 
-def harvest_jobright(roles, city, verbose):
+def harvest_jobright(roles, city, verbose, deadline=None, query_timeout=90):
     """jobright's public landing pages, best effort.
 
     Kept separate from the JobSpy channels because its failure mode is different and matters:
@@ -105,8 +119,12 @@ def harvest_jobright(roles, city, verbose):
     """
     out, blocked = [], 0
     for role in roles:
+        remaining = deadline - time.monotonic() if deadline else query_timeout
+        if remaining <= 0:
+            break
         try:
-            got = scraper.scrape_jobright("jobright:%s|%s" % (role, city))
+            got = bounded_call("scraper", "scrape_jobright", ("jobright:%s|%s" % (role, city),),
+                               timeout=min(query_timeout, remaining))
         except Exception as e:
             if verbose:
                 print("  jobright %s: %s" % (role, str(e)[:70]))
@@ -168,12 +186,21 @@ def main():
     p.add_argument("--jobright", action="store_true", help="also try jobright's landing pages")
     p.add_argument("--probe-limit", type=int, default=60,
                    help="how many NEW companies to probe for a board (0 = none)")
+    p.add_argument("--budget-min", type=float, default=20,
+                   help="total network budget; completed results are still saved")
+    p.add_argument("--query-timeout", type=float, default=90,
+                   help="maximum seconds for one external query or board probe")
     p.add_argument("--out", default="", help="report path (.xlsx or .csv)")
     p.add_argument("--apply", action="store_true", help="write to the jobspy_findings table")
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args()
+    if a.budget_min <= 0 or a.query_timeout <= 0:
+        p.error("--budget-min and --query-timeout must be positive")
+    deadline = time.monotonic() + a.budget_min * 60
 
     sites = [s.strip() for s in a.sites.replace(",", " ").split() if s.strip()]
+    if sites and importlib.util.find_spec("jobspy") is None:
+        p.error("python-jobspy is required; install requirements.txt before running the sweep")
     if a.phrases == "entry":
         phrases = list(ENTRY_PHRASES)
     elif a.phrases == "all":
@@ -185,9 +212,11 @@ def main():
     print("jobspy_sweep %s — sites=%s phrases=%d hours=%d" %
           (run_date, ",".join(sites) or "(none)", len(phrases), a.hours))
 
-    rows = harvest(sites, phrases, a.location, a.hours, a.results, a.verbose)
+    rows = harvest(sites, phrases, a.location, a.hours, a.results, a.verbose,
+                   deadline, a.query_timeout)
     if a.jobright:
-        rows += harvest_jobright(JOBRIGHT_ROLES, "united-states", a.verbose)
+        rows += harvest_jobright(JOBRIGHT_ROLES, "united-states", a.verbose,
+                                 deadline, a.query_timeout)
     print("  harvested %d posting(s)" % len(rows))
     if not rows:
         print("  nothing harvested — every channel returned empty. NOT the same as a quiet day; "
@@ -240,6 +269,14 @@ def main():
         })
 
     print("  %d unique posting(s); %d company/ies not already scraped" % (len(findings), len(new_names)))
+    # Bank the harvest before optional company discovery; the report also survives
+    # an unrelated database/probe failure later in the run.
+    out = a.out or ("jobspy_findings_%s.xlsx" % run_date)
+    write_report(findings, out)
+    if a.apply:
+        _written, error = db.add_findings(findings)
+        if error:
+            raise RuntimeError("Could not persist harvested findings: %s" % error)
 
     came_with_board = [n for n in new_names if _norm(n) in from_url]
     print("  %d new company/ies came with a readable board url of their own" % len(came_with_board))
@@ -252,7 +289,16 @@ def main():
         print("  probing %d of %d new companies with no board url for a board…"
               % (len(todo), len(unresolved)))
         for name in todo:
-            cp, burl, ats = probe(name)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print("  Probe budget reached; saving completed findings.", flush=True)
+                break
+            try:
+                cp, burl, ats = bounded_call("scripts.jobspy_sweep", "probe", (name,),
+                                            timeout=min(a.query_timeout, remaining))
+            except (TimeoutError, RuntimeError) as exc:
+                print("  Probe %s: %s; continuing." % (name, exc), flush=True)
+                continue
             if burl:
                 boards[_norm(name)] = (cp, burl, ats)
                 if a.verbose:
@@ -266,7 +312,6 @@ def main():
         if hit and not f["board_url"]:
             f["career_page"], f["board_url"], f["ats_type"] = hit
 
-    out = a.out or ("jobspy_findings_%s.xlsx" % run_date)
     write_report(findings, out)
 
     if a.apply:
@@ -274,9 +319,7 @@ def main():
         print("  wrote %d row(s) to %s%s" % (written, db.FINDINGS_TABLE,
                                              (" — ERROR: " + err) if err else ""))
         if err:
-            print("  (the report file above is unaffected)")
-            print("  if the table does not exist yet, run db.FINDINGS_SQL once:")
-            print(db.FINDINGS_SQL)
+            raise RuntimeError("Could not persist enriched findings: %s" % err)
     else:
         print("  --apply not given, so nothing was written to the database.")
 

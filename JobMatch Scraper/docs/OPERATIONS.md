@@ -111,6 +111,22 @@ transports — the name is historical. `db.backend_name()` is the one that tells
 
 ## 3. The schedule — four slots, two runners
 
+### Scoring recovery and network failures (2026-09-24)
+
+The **Recover job scores** Actions workflow can be dispatched manually after a failed
+score pass. It processes missing job analysis, refills per-user scores and warms the app.
+It shares the regular scrape's concurrency lock and sends no digest. Its success does
+not count as a completed scrape in the watchdog's history.
+
+Individual JD fetch failures are logged and left retryable; they cannot abort the score
+batch. Database and analysis failures still fail the run. The aggregator sidecar gives
+each external query a disposable process with a 90-second timeout and shares a 20-minute
+network budget across queries and probes. It saves harvested findings before optional
+board discovery. The scheduled dead-posting cleanup stops starting probes after eight
+minutes and saves only results it actually checked; unvisited postings stay unchanged.
+
+The schedule details below are historical; the workflow files and live crontab are authoritative.
+
 | When (ET) | Runner | What it does |
 |---|---|---|
 | **~08:00-09:00** Mon–Fri | GitHub Actions — `.github/workflows/scrape.yml`, at the **repo root** | The heavy pass: sweep, **full** score, `verify_dates`, analytics rollup, repost detection, digest email |
