@@ -1,0 +1,77 @@
+name: Recover job scores
+
+# Recovery does not count as a successful scrape in the scrape/watchdog gates.
+# The shared concurrency group prevents writes overlapping the regular pipeline.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: scrape-jobs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: JobMatch Scraper
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DB_PROXY_URL: ${{ secrets.DB_PROXY_URL }}
+      DB_PROXY_SECRET: ${{ secrets.DB_PROXY_SECRET }}
+      DB_REQUIRE: proxy
+      EV_OFF: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: JobMatch Scraper/requirements.txt
+      - name: Install dependencies
+        timeout-minutes: 6
+        run: pip install -r requirements.txt
+      - name: Prepare resume and confirm database
+        timeout-minutes: 2
+        env:
+          RESUME_TXT: ${{ secrets.RESUME_TXT }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import db
+          resume = os.environ.get("RESUME_TXT", "")
+          if not resume.strip():
+              raise SystemExit("RESUME_TXT is empty; refusing to write zero scores")
+          Path("resume.txt").write_text(resume, encoding="utf-8")
+          print("backend:", db.backend_name())
+          if not db.load_jobs(include_jd=False, cols="url"):
+              raise SystemExit("Live corpus is empty; refusing to continue")
+          PY
+      - name: Recover missing job analysis and scores
+        timeout-minutes: 28
+        env:
+          SCORE_NEW_ONLY: "yes"
+          SCORE_MAX_FETCH: "800"
+          SCORE_BUDGET_MIN: "3"
+          SCORE_ANALYZE_BUDGET_MIN: "12"
+          SCORE_THIN_PROBE: "150"
+          SCORE_THIN_PER_HOST: "3"
+          SCORE_THIN_DRAIN: "400"
+        run: python -m scraper.score_jobs
+      - name: Refill per-user match scores
+        timeout-minutes: 8
+        run: python -m scraper.score_users --budget-min 6
+      - name: Warm the app
+        timeout-minutes: 6
+        env:
+          WARM_TOKEN: ${{ secrets.WARM_TOKEN }}
+        run: |
+          if [ -n "$WARM_TOKEN" ]; then
+            curl -fsS -m 300 "https://stemjobs1.astrochakra.co/warm?t=$WARM_TOKEN"
+          fi

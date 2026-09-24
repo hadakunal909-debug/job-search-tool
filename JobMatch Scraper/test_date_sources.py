@@ -133,7 +133,10 @@ def test_wd_detail_jd_returns_a_pair_and_detail_jd_forwards_it():
     assert 'info.get("startDate")' in src, "the free date must come off startDate"
     assert 'return "", ""' in src, "the failure path must keep the (jd, date) shape"
     # detail_jd's contract is (url, jd, date); the workday branch used to drop the date.
-    assert "jd, date = wd_detail_jd(url)" in inspect.getsource(score_jobs.detail_jd)
+    from unittest.mock import patch
+    url = "https://example.wd1.myworkdayjobs.com/en-US/jobs/job/Project-Manager_R1"
+    with patch.object(score_jobs, "wd_detail_jd", return_value=("full posting text", "2026-09-24")):
+        assert score_jobs.detail_jd(url) == (url, "full posting text", "2026-09-24")
 
 
 def test_startdate_is_run_through_the_shared_parser():

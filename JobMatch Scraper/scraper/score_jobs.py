@@ -1125,6 +1125,27 @@ def google_detail_record(url):
 
 
 def detail_jd(url):
+    """Fetch one posting without letting its upstream failure abort the scoring batch.
+
+    Missing text stays retryable. Database writes and scoring remain outside this
+    boundary so persistence or analysis failures still fail the run.
+    """
+    try:
+        return _detail_jd(url)
+    except Exception as exc:
+        # Do not print the exception/URL: query strings can contain access tokens.
+        try:
+            host = scraper.urlparse(url).hostname or "unknown host"
+        except ValueError:
+            host = "invalid URL"
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        print("  JD fetch failed for %s: %s%s; left queued for retry."
+              % (host, type(exc).__name__, " HTTP %s" % status if status else ""),
+              flush=True)
+        return url, "", ""
+
+
+def _detail_jd(url):
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""

@@ -53,7 +53,7 @@ flowchart TB
   end
   subgraph SCH["&#9719; scheduled"]
     S["<b>scraper/__init__.py</b><br/>10,664 lines · 59 ATS adapters<br/>1,336 boards"]
-    J["score_jobs.py · 2,788 lines"]
+    J["score_jobs.py · 2,809 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
