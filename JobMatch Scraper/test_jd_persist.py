@@ -35,6 +35,7 @@ class _FakeDB(object):
 
     COLS_SCORE = "url,found_date,location,first_seen"
     JOBS_DERIVED_SQL = ""
+    SCRAPE_STATUS_TABLE = "scrape_status"
     JD_MAX_CHARS = real_db.JD_MAX_CHARS
 
     # DELEGATED, NOT REIMPLEMENTED. jd_fingerprint is a pure function of the text -- no
@@ -62,6 +63,20 @@ class _FakeDB(object):
 
     def load_jobs_by_urls(self, urls, include_jd=True):
         return [dict(self.rows[u]) for u in urls if u in self.rows]
+
+    def _jd_rows(self, urls):
+        return {u: self.rows[u].get("jd", "") for u in urls if u in self.rows}
+
+    def _terms_rows(self, urls):
+        return {u: self.rows[u].get("jd_terms", "") for u in urls if u in self.rows}
+
+    def _facts_rows(self, urls):
+        return {u: {k: self.rows[u].get(k) for k in
+                    ("facts_fp", "exp_max_years", "sponsor_jd", "sponsor_reason")}
+                for u in urls if u in self.rows}
+
+    def clear_scores_for_urls(self, urls):
+        return len(urls)
 
     def urls_missing_jd(self):
         return {u for u, r in self.rows.items() if not (r.get("jd") or "").strip()}
@@ -122,6 +137,11 @@ class _FakeDB(object):
 
     def put_kv(self, key, obj):
         self.kv[key] = dict(obj or {})
+
+    def _upsert(self, rows, **kwargs):
+        assert kwargs.get("table") == self.SCRAPE_STATUS_TABLE
+        for row in rows:
+            self.put_kv(row["id"], row["data"])
 
     def get_scrape_status(self):
         return {}
@@ -652,7 +672,7 @@ def _budget_rows(score=11):
 
 
 def _run_budget(rows=None, budget="4", step=60, chunk=2, prior_meta=None, resume=None,
-                kv=None, argv=None, fake=None):
+                kv=None, argv=None, fake=None, run_budget=None):
     """main() over `rows` with a fake clock. Returns (fake db, list of jdmeta maps saved).
 
     budget=4 with step=60 scores exactly THREE rows: the deadline is set on the first clock call
@@ -678,7 +698,7 @@ def _run_budget(rows=None, budget="4", step=60, chunk=2, prior_meta=None, resume
     # Hermetic: these are read at CALL time, so a value in the developer's shell would otherwise
     # decide what the test measures.
     env_keys = ("SCORE_NEW_ONLY", "SCORE_MAX_FETCH", "SCORE_BUDGET_MIN",
-                "SCORE_ANALYZE_BUDGET_MIN", "SCORE_RESET_CURSOR")
+                "SCORE_ANALYZE_BUDGET_MIN", "SCORE_RESET_CURSOR", "SCORE_RUN_BUDGET_MIN")
     saved_env = {k: os.environ.get(k) for k in env_keys}
     metas = []
 
@@ -690,6 +710,8 @@ def _run_budget(rows=None, budget="4", step=60, chunk=2, prior_meta=None, resume
             os.environ.pop(k, None)
         if budget is not None:
             os.environ["SCORE_ANALYZE_BUDGET_MIN"] = str(budget)
+        if run_budget is not None:
+            os.environ["SCORE_RUN_BUDGET_MIN"] = str(run_budget)
         sj.db = fake
         sj.JD_CACHE_FILE = cache_path
         sj.NEW_JOBS_FILE = os.path.join(tmp, "no_such_new_jobs.json")
@@ -848,13 +870,76 @@ def test_a_failed_flush_does_not_advance_the_cursor_past_it():
             fake.rows[u]["match_score"] = s
 
     fake.update_scores = _flaky
-    _run_budget(rows=rows, chunk=2, fake=fake)
+    try:
+        _run_budget(rows=rows, chunk=2, fake=fake)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("a failed durable batch must fail the run")
     assert len(calls) > 1, "only one flush happened; this test needs a failing LATER chunk"
     cur = fake.kv.get(sj.CURSOR_KEY) or {}
     assert cur.get("key"), "no cursor stored at all"
     assert cur["key"][2] == _url("b"), \
         "cursor names %r, but only a..b were written — c would be skipped forever" \
         % (cur["key"][2],)
+
+
+def test_slow_derived_writes_consume_the_analysis_budget():
+    fake = _FakeDB(_budget_rows())
+    write = fake.update_job_fields
+
+    def slow_write(rows, keys=None):
+        write(rows, keys=keys)
+        sj.time.now += 240
+
+    fake.update_job_fields = slow_write
+    _run_budget(fake=fake, step=1)
+    assert fake.score_calls == [[_url("a"), _url("b")]]
+    assert fake.kv[sj.CURSOR_KEY]["key"][2] == _url("b")
+    for ch in "ab":
+        assert fake.rows[_url(ch)].get("jd_terms")
+        assert fake.rows[_url(ch)].get("facts_fp")
+    for ch in "cdef":
+        assert not fake.rows[_url(ch)].get("jd_terms")
+
+
+def test_checkpoint_is_saved_only_after_complete_analysis_is_durable():
+    fake = _FakeDB(_budget_rows())
+    save = fake.put_kv
+    observed = []
+
+    def checkpoint(key, value):
+        if key == sj.CURSOR_KEY and value.get("key"):
+            row = fake.rows[value["key"][2]]
+            assert row.get("jd_terms") and row.get("facts_fp")
+            assert row.get("match_score") != 11
+            observed.append(value["key"][2])
+        save(key, value)
+
+    fake.put_kv = checkpoint
+    _run_budget(fake=fake)
+    assert observed[0] == _url("b"), "first complete chunk must checkpoint before final flush"
+
+
+def test_new_only_budget_never_derives_unvisited_backlog():
+    fake, _ = _run_budget(rows=_budget_rows(score=None), argv=["--new-only"])
+    touched = {u for call in fake.field_calls for u in call["urls"]}
+    assert touched == {_url(ch) for ch in "def"}
+
+
+def test_total_budget_includes_loading_and_preserves_an_existing_cursor():
+    first, _ = _run_budget()
+    fake = _FakeDB(_budget_rows())
+    load = fake.load_jobs
+
+    def slow_load(*args, **kwargs):
+        sj.time.now += 300
+        return load(*args, **kwargs)
+
+    fake.load_jobs = slow_load
+    _run_budget(fake=fake, kv=first.kv, run_budget=2, step=1)
+    assert not fake.score_calls
+    assert fake.kv[sj.CURSOR_KEY]["key"] == first.kv[sj.CURSOR_KEY]["key"]
 
 
 def test_a_truncated_pass_does_not_blank_the_jdmeta_cache():

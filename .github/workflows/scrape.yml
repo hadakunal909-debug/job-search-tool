@@ -360,7 +360,7 @@ jobs:
         # since has carried a deprecation annotation for it — which is noise on a green run and
         # camouflage on a red one, where it sat directly above the real errors on 2026-09-03.
         # Nothing about the cache's behaviour or key format changes between these majors.
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: JobMatch Scraper/jd_cache.json.gz
           key: jd-corpus-${{ github.run_id }}
@@ -581,6 +581,9 @@ jobs:
         if: steps.gate.outputs.run == 'yes' && !cancelled()
         timeout-minutes: 26
         env:
+          # Counts corpus loading, fetching, analysis AND writes. Leave four minutes
+          # below the hard timeout for an in-flight request/batch and final cache save.
+          SCORE_RUN_BUDGET_MIN: "22"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SCORE_MAX_FETCH: ${{ steps.gate.outputs.heavy == 'yes' && '3000' || '800' }}
@@ -679,7 +682,18 @@ jobs:
           # unbudgeted and off the clock (`python -m scraper.score_jobs` with no budget set,
           # ~80 min), which is what the 2026-08-18 re-score did.
           SCORE_ANALYZE_BUDGET_MIN: "4"
-        run: python -m scraper.score_jobs
+        run: python -u -m scraper.score_jobs
+
+      # Save even when a prior scrape step failed. The combined cache action only saved
+      # on success, repeatedly restoring the same stale corpus after scoring timeouts.
+      - name: Save the updated JD corpus cache
+        if: >-
+          !cancelled() && steps.gate.outputs.run == 'yes'
+          && hashFiles('JobMatch Scraper/jd_cache.json.gz') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: JobMatch Scraper/jd_cache.json.gz
+          key: jd-corpus-${{ github.run_id }}
 
       # Real posting dates -> posted_verified. The lookup service allows 60 requests a
       # minute per IP and the script paces itself just under that, so throughput is ~54/min

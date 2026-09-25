@@ -9,6 +9,26 @@ changed most recently and what is still open.
 
 ---
 
+## Scoring timeout recovery
+
+The September 24 failure at 26 minutes happened after the analysis timer stopped: derived
+fields and score invalidation were still being written outside that timer. Scoring now banks
+500 complete rows (terms, facts, invalidation, score, then a durable cursor) before starting
+another batch. `SCORE_ANALYZE_BUDGET_MIN` includes these writes. `SCORE_RUN_BUDGET_MIN=22`
+also counts initial reads and fetching, leaving room below the workflow's 26-minute hard stop
+for an in-flight batch. Remaining rows resume on later runs; database failures remain errors.
+The new cursor revision restarts checkpoints produced by the incomplete-write implementation.
+
+The JD cache restores and saves through separate Actions steps, including after an earlier
+scrape failure. Missing cache entries are read from the JD table alone. Per-user scoring also
+includes reads and 500-row writes in its budget, leaving missing scores queued for the next run.
+
+Use **Actions → Recover job scores → Run workflow** for a recovery without scraping or email.
+Choose **heavy** to exercise the same scoring limits and full-corpus mode as the heavy scrape;
+the default **new-only** handles missing analysis. Confirm `durable scoring progress`, a saved
+cache, and the per-user refill in its logs. A partial pass is successful only for the reported
+durable rows; it does not claim the entire corpus has finished.
+
 ## 1. Deploy
 
 **`git push` does not deploy. Nothing on the server hears about a push.**

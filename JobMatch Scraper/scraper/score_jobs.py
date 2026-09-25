@@ -1332,7 +1332,8 @@ JD_DERIVED_COLS = ("url", "exp_max_years", "sponsor_jd", "sponsor_reason", "jd_t
 JD_WRITE_CHUNK = int(os.environ.get("SCORE_JD_WRITE_CHUNK") or 2000)
 
 
-def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
+def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None,
+                     strict=False):
     """Derive each job's state/metro/remote flag, pay range and JD signals, and write them to
     the jobs table. Only rows whose values actually CHANGED are sent, so the daily run costs
     one small upsert instead of re-writing the whole corpus.
@@ -1350,19 +1351,50 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
     exp/sponsor COLUMNS and jdmeta.json come from one core.job_meta call and are structurally
     incapable of disagreeing.
 
-    Never raises: the columns don't exist until someone runs db.JOBS_DERIVED_SQL once, and a
-    missing column must not throw away a completed scoring pass.
+    The default tolerates unavailable derived columns for legacy callers. Strict callers
+    checkpoint only after this returns, so every read and write must succeed in that mode.
     """
     try:
         if current_rows is None:
-            current_rows = db.load_jobs()
+            if strict and db.has_remote_db():
+                current_rows = []
+                for batch in db._url_batches(list(row_loc)):
+                    current_rows.extend(db._fetch_all(db.TABLE, {
+                        "select": "url,title,company,jd_fp", "url": db._in_list(batch)}))
+            else:
+                current_rows = db.load_jobs_by_urls(list(row_loc), include_jd=False)
         current = {r["url"]: r for r in current_rows if r.get("url")}
+        # COLS_SCORE omits these large/comparison fields. An omitted value is not a
+        # changed value: fetch only this batch's previous readings before diffing it.
+        need_terms = [u for u in row_loc if "jd_terms" not in current.get(u, {})]
+        need_facts = [u for u in row_loc if "facts_fp" not in current.get(u, {})]
+        if need_terms or need_facts:
+            if db.has_remote_db():
+                if need_terms:
+                    terms = db._terms_rows(need_terms)
+                    for u in need_terms:
+                        current.setdefault(u, {"url": u})["jd_terms"] = terms.get(u)
+                if need_facts:
+                    facts = db._facts_rows(need_facts)
+                    for u in need_facts:
+                        previous = facts.get(u) or {}
+                        current.setdefault(u, {"url": u}).update(previous)
+                        current[u]["facts_fp"] = previous.get("facts_fp")
+            else:
+                for r in db.load_jobs_by_urls(list(set(need_terms + need_facts)), include_jd=False):
+                    u = r.get("url")
+                    if u in row_loc:
+                        current.setdefault(u, {"url": u}).update(
+                            {k: r.get(k) for k in ("jd_terms", "facts_fp")})
     except Exception as e:
+        if strict:
+            raise
         print("  (derived fields skipped, could not reload jobs: %s)" % str(e)[:90])
         return
 
-    category_count = db.refresh_job_categories(
-        [current[u] for u in row_loc if u in current], jds=row_jd)
+    category_rows = [current[u] for u in row_loc if u in current]
+    category_count = (db.refresh_job_categories(category_rows, jds=row_jd, strict=True)
+                      if strict else db.refresh_job_categories(category_rows, jds=row_jd))
     if category_count:
         print("Job categories: updated %d job(s)." % category_count)
 
@@ -1378,6 +1410,20 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
     stats = {"state": 0, "remote": 0, "salary": 0, "exp": 0, "spon": 0, "terms": 0}
     jd_write = {"sent": 0, "lost": 0, "hint": True, "stale": 0}
 
+    def _invalidate():
+        if not jd_dirty:
+            return
+        try:
+            cleared = db.clear_scores_for_urls(jd_dirty)
+            if strict and db.has_remote_db() and cleared < len(jd_dirty):
+                raise RuntimeError("user-score invalidation incomplete: %d of %d URLs"
+                                   % (cleared, len(jd_dirty)))
+            jd_write["stale"] += cleared
+        except Exception as e:
+            if strict:
+                raise
+            print("  (stored user scores not cleared: %s)" % str(e)[:80])
+
     def _flush_jd(force=False):
         """Bank the JD columns built so far, then forget them. A batch is what a kill costs.
 
@@ -1389,16 +1435,19 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
         if not jd_payload or (len(jd_payload) < JD_WRITE_CHUNK and not force):
             return
         n = len(jd_payload)
-        if _send_derived(jd_payload, "JD fields", keys=JD_DERIVED_COLS, hint=jd_write["hint"]):
+        # A failed invalidation must not leave a newly written analysis looking current
+        # on the retry while old user scores survive. In strict mode remove those scores
+        # before replacing the analysis; an interrupted batch remains safe to retry.
+        if strict:
+            _invalidate()
+        if _send_derived(jd_payload, "JD fields", keys=JD_DERIVED_COLS,
+                         hint=jd_write["hint"], strict=strict):
             jd_write["sent"] += n
             # ONLY after the analysis itself landed. Dropping the scores first and then failing
             # to write the terms they were stale against would throw away good numbers and put
             # nothing in their place.
-            if jd_dirty:
-                try:
-                    jd_write["stale"] += db.clear_scores_for_urls(jd_dirty)
-                except Exception as e:
-                    print("  (stored user scores not cleared: %s)" % str(e)[:80])
+            if not strict:
+                _invalidate()
         else:
             jd_write["lost"] += n
             jd_write["hint"] = False
@@ -1471,12 +1520,8 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
             stats["spon"] += 1
         if terms:
             stats["terms"] += 1
-        # NOTE on the diff: jd_terms is deliberately NOT in db.COLS_SCORE, so in new-only mode
-        # `have` never carries it and every row here writes. That is correct rather than
-        # wasteful — new-only narrows row_loc to `todo` (a few hundred rows it just analyzed),
-        # and putting an 11 MB column into that read to save writing them would cost far more
-        # than it saves. The daily FULL pass reads select=* and diffs it properly, so the
-        # steady state is still ~0 writes.
+        # The batch's previous terms were loaded above, so identical analysis preserves
+        # stored user scores and avoids rewriting the facts and terms tables.
         if any(_norm_cmp(k, v) != _norm_cmp(k, have.get(k)) for k, v in want_jd.items()):
             jd_payload.append(dict(want_jd, url=u))
             if _norm_cmp("jd_terms", want_jd["jd_terms"]) != _norm_cmp(
@@ -1492,10 +1537,10 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
     # The location/pay group stays ONE write, and that is measured rather than assumed: it only
     # ever carries rows whose parse CHANGED -- 1,809 of ~46k on the run that died, and it had
     # already landed when the process was killed. The JD group is the big one because jd_terms is
-    # deliberately not in db.COLS_SCORE, so every row a pass analyses diffs as changed.
+    # compared against the batch's stored values before anything is written.
     _send_derived(payload, "Derived fields",
                   "%d state, %d remote, %d with pay"
-                  % (stats["state"], stats["remote"], stats["salary"]))
+                  % (stats["state"], stats["remote"], stats["salary"]), strict=strict)
     _flush_jd(force=True)
     jd_summary = ("%d with an experience floor, %d with a sponsorship verdict, %d scoreable"
                   % (stats["exp"], stats["spon"], stats["terms"]))
@@ -1515,7 +1560,7 @@ def _persist_derived(row_loc, row_jd, current_rows=None, jdmeta=None, idf=None):
               "scripts/score_users.py to refill." % jd_write["stale"])
 
 
-def _send_derived(payload, label, summary=None, keys=None, hint=True):
+def _send_derived(payload, label, summary=None, keys=None, hint=True, strict=False):
     """One diffed payload -> the jobs table, or a self-serve migration hint if the columns
     aren't there yet. Split out so the location/pay and JD groups can be written separately, and
     so the JD group can be written in batches as its loop builds it.
@@ -1558,7 +1603,7 @@ def _send_derived(payload, label, summary=None, keys=None, hint=True):
             break
         except Exception as e:
             err = e
-            if retried or not db._column_missing(e, "facts_fp"):
+            if strict or retried or not db._column_missing(e, "facts_fp"):
                 break
             retried = True
             print("  (jobs.facts_fp not migrated yet — writing the readings without their "
@@ -1566,6 +1611,8 @@ def _send_derived(payload, label, summary=None, keys=None, hint=True):
             body = [{k: v for k, v in r.items() if k != "facts_fp"} for r in body]
             cols = tuple(c for c in (cols or ()) if c != "facts_fp") or None
     if err is not None:
+        if strict:
+            raise err
         print("  (%s write failed: %s)" % (label.lower(), str(err)[:160]))
         if hint:
             print("  If that mentions an unknown column, run this once in the SQL editor:")
@@ -1759,7 +1806,8 @@ def _score_rev(resume):
     try:
         import hashlib
         import inspect
-        src = b""
+        # Old cursors could advance before terms/facts were saved. Restart that cycle once.
+        src = b"durable-analysis-batches-v2"
         # HOW A DESCRIPTION IS READ IS PART OF WHAT THE SCORE MEANS, and these two were not in
         # the list. clean_jd decides which characters analyze_jd ever sees and experience_years
         # produces exp_max_years outright, but getsource(analyze_jd) returns only its OWN body,
@@ -1827,8 +1875,16 @@ def _load_cursor(rev):
 
 
 def _save_cursor(rev, key):
-    """Store where to resume, or clear it when the pass completed (key=None)."""
-    db.put_kv(CURSOR_KEY, {} if key is None else {"rev": rev, "key": list(key)})
+    """Persist a checkpoint remotely; a local fallback cannot resume the next CI runner."""
+    value = {} if key is None else {"rev": rev, "key": list(key)}
+    if not db.has_remote_db():
+        db.put_kv(CURSOR_KEY, value)
+        return
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    value["updated_at"] = now
+    db._upsert([{"id": CURSOR_KEY, "data": value, "updated_at": now}],
+               table=db.SCRAPE_STATUS_TABLE, pk="id")
 
 
 def _thin_host(url):
@@ -1959,9 +2015,8 @@ def _jd_corpus(all_urls, full):
     ever writes newly-fetched text. So the corpus is cached on disk and CI restores it from
     actions/cache; a normal run then pulls only the JDs added since the last one.
 
-    This is the single biggest item on the egress bill — the full read measured ~128 MB at
-    19,268 rows, daily. A cold or evicted cache falls back to exactly that read, so the worst
-    case is today's cost and every subsequent run is near-free.
+    Only missing description text is downloaded. Reading complete job rows also joins the
+    facts, terms and categories tables, which this phase neither needs nor uses.
 
     `missing` and `db_missing` are DIFFERENT SETS and both are returned because they answer
     different questions — see the reconciliation in main(). `missing` is "no description on
@@ -1977,15 +2032,16 @@ def _jd_corpus(all_urls, full):
     need = have_jd - set(cache)
     print("JD corpus: %d cached, %d dropped as pruned, %d to pull."
           % (len(cache), dropped, len(need)))
-    if len(need) > 5000:
-        # Cold cache. One paged walk beats ~%d by-url round-trips, so pay for the full read
-        # once and let the next run reuse it.
-        print("  cold cache — one full corpus read (~128 MB); later runs reuse the cache.")
-        cache.update({r["url"]: (r.get("jd") or "")
-                      for r in (db.load_jobs() or []) if r.get("url")})
-    elif need:
-        cache.update({r["url"]: (r.get("jd") or "")
-                      for r in db.load_jobs_by_urls(sorted(need)) if r.get("url")})
+    if need:
+        if db.has_remote_db():
+            # A partially warm cache must not re-download every description merely
+            # because more than 5,000 URLs are missing. When most descriptions are
+            # uncached, one paged JD-only read avoids thousands of URL-filter trips.
+            pulled = db._jd_rows(sorted(need) if len(need) <= len(cache) else None)
+            cache.update({u: jd for u, jd in pulled.items() if u in need and jd})
+        else:
+            cache.update({r["url"]: (r.get("jd") or "")
+                          for r in db.load_jobs_by_urls(sorted(need)) if r.get("url") in need})
     cache = {u: jd for u, jd in cache.items() if jd}
     # `missing` keeps its original meaning: rows with no stored description (or every row on
     # --full, which deliberately refetches the lot from the boards).
@@ -2023,6 +2079,10 @@ def _new_only_targets(known_urls, fetched, unscored=()):
 
 
 def main():
+    # Includes initial reads and every persistence phase. Stage budgets below reserve
+    # analysis time; this ceiling leaves GitHub room to finish an in-flight batch.
+    run_budget_min = float(os.environ.get("SCORE_RUN_BUDGET_MIN") or 0)
+    run_deadline = time.time() + run_budget_min * 60 if run_budget_min > 0 else 0
     full = "--full" in sys.argv
     # Score only what this run actually pulled, instead of re-deriving all ~20k rows. The
     # full pass is not wasted work — it re-scores against the CURRENT résumé and a freshly
@@ -2102,6 +2162,9 @@ def main():
             except ValueError:
                 pass
     deadline = (time.time() + budget_min * 60) if budget_min > 0 else 0
+    if run_deadline:
+        fetch_ceiling = run_deadline - 6 * 60
+        deadline = min(deadline, fetch_ceiling) if deadline else fetch_ceiling
     for _a in sys.argv:
         if _a.startswith("--max="):
             try:
@@ -2280,6 +2343,18 @@ def main():
                     return company, {}, None      # out of time: skip, retry next run
                 try:
                     time.sleep(random.uniform(0, 0.8))
+                    if run_deadline:
+                        # Pagination can outlive individual request timeouts and keep
+                        # the executor waiting. Reap the whole board worker at the
+                        # remaining fetch deadline, including its internal threads.
+                        from scraper.bounded_call import call as bounded_call
+                        remaining = min(90.0, deadline - time.time())
+                        if remaining <= 0:
+                            return company, {}, None
+                        result = bounded_call("scraper.score_jobs", "jd_map_for",
+                                              args=(board_url, ats, missing),
+                                              timeout=remaining)
+                        return company, result, None
                     return company, jd_map_for(board_url, ats, missing), None
                 except Exception as e:
                     return company, {}, str(e)
@@ -2427,8 +2502,9 @@ def main():
             # Building from this run's handful of JDs would mis-weight every score, so pay
             # for the one full read and let the next run reuse what we save here.
             print("No idf.json to reuse — reading the full JD corpus once to build it.")
-            row_jd = {r["url"]: (r.get("jd") or "")
-                      for r in (db.load_jobs() or []) if r.get("url")}
+            corpus, _, _ = _jd_corpus(all_urls, False)
+            corpus.update(row_jd)
+            row_jd = corpus
         idf = core.build_idf([j for j in row_jd.values() if j])
         core.save_idf(idf)
     # Which jobs get re-analyzed. The full pass does all of them (and so also picks up résumé
@@ -2549,6 +2625,9 @@ def main():
             except ValueError:
                 pass
     analyze_deadline = (time.time() + analyze_min * 60) if analyze_min > 0 else 0
+    if run_deadline:
+        analyze_ceiling = run_deadline - 60
+        analyze_deadline = min(analyze_deadline, analyze_ceiling) if analyze_deadline else analyze_ceiling
 
     # Compute each job's résumé-INDEPENDENT analysis ONCE, reuse it for the score, AND persist
     # it to jdmeta.json so the web app never recomputes it at request time (kills cold-load
@@ -2627,25 +2706,36 @@ def main():
     # from inside _bank().
     progress = {"key": None}
 
+    rows_by_url = {r["url"]: r for r in rows if r.get("url")}
+
     def _bank():
-        """Flush what we have. Called every ANALYZE_CHUNK and once at the end, so a run that is
-        killed or times out keeps everything up to its last flush."""
+        """A checkpoint includes analysis, invalidation and scores, within the same clock."""
         if not scores:
-            return
+            return True
         try:
+            batch = set(scores)
+            _persist_derived(
+                {u: row_loc.get(u, "") for u in batch},
+                {u: row_jd[u] for u in batch},
+                current_rows=[rows_by_url[u] for u in batch if u in rows_by_url],
+                jdmeta={u: jdmeta[u] for u in batch}, idf=idf, strict=True)
             db.update_scores(scores)
             banked.update(scores)
         except Exception as e:
-            # Keep them for the next flush rather than dropping: a transient proxy error must
-            # not silently cost the analysis we already paid ~200 ms/row for.
-            print("  (score flush of %d failed, retrying next chunk: %s)"
-                  % (len(scores), str(e)[:110]))
-            return
+            # Stop accumulating work on a failed database. Retry this bounded batch once
+            # at final flush, then fail visibly without advancing past it.
+            print("  (complete score batch of %d failed: %s)"
+                  % (len(scores), str(e)[:110]), flush=True)
+            return False
         progress["key"] = last_key
         scores.clear()
+        if not new_only:
+            _save_cursor(rev, progress["key"])
+        print("  durable scoring progress: %d/%d rows" % (len(banked), len(todo_order)), flush=True)
         db.set_scrape_status({"phase": "scoring", "done": len(banked), "total": len(todo_order),
                               "found": _prev.get("found", 0), "new": _prev.get("new", 0),
                               "started_at": _started, "run": _prev.get("run", "")})
+        return True
 
     for i, u in enumerate(todo_order):
         # Checked BEFORE the work, so the deadline is the last moment we START a row rather
@@ -2673,11 +2763,16 @@ def main():
         scores[u] = 0 if m["analyzed"].get("thin") else core.score_pct(resume_low, m["analyzed"])
         last_key = _skey(u)
         if len(scores) >= ANALYZE_CHUNK:
-            _bank()
+            if not _bank():
+                unscored_left, stopped_at = len(todo_order) - i - 1, i + 1
+                break
 
     # 5) Persist all scores. JDs were already uploaded incrementally in the fetch phase
     #    (guaranteeing forward progress on a timeout); this banks the final chunk.
-    _bank()
+    if scores and run_deadline and time.time() >= run_deadline:
+        raise RuntimeError("Scoring deadline reached before final batch; checkpoint retained for retry")
+    if not _bank():
+        raise RuntimeError("Failed to persist a complete scoring batch; checkpoint retained for retry")
     truncated = bool(unscored_left)
     if truncated:
         print("  analysis budget reached — %d row(s) left for next run (they keep their stored "
@@ -2709,7 +2804,7 @@ def main():
         # Cleared on ANY completed full pass, not just a budgeted one: an unlimited run (a manual
         # backfill) leaves the whole corpus fresh, and a cursor surviving that would make the
         # next budgeted run resume mid-corpus and skip the newest rows for a whole cycle.
-        _save_cursor(rev, progress["key"] if truncated else None)
+        _save_cursor(rev, (progress["key"] or cursor) if truncated else None)
 
     # jdmeta is the web app's cache for the WHOLE corpus and save_jdmeta REPLACES the file, so a
     # truncated pass must not write its partial map — that would blank the rows it never reached
@@ -2734,38 +2829,8 @@ def main():
     if dates:                       # fill in real posting dates the list view omitted (e.g. SAP)
         db.update_job_fields([{"url": u, "found_date": d} for u, d in dates.items()])
 
-    # 6) Derived fields the FEED filters on — location, pay, AND the JD signals (experience
-    #    floor, sponsorship verdict). These live in real columns rather than jdmeta.json
-    #    because jdmeta.json is gitignored and never deployed: it is built HERE, on an
-    #    ephemeral GitHub Actions runner whose filesystem is discarded when the run ends, so
-    #    there is no host holding a fresh copy to ship. A column reaches the live site through
-    #    Supabase with no file deploy, the same way match_score already does. Until the JD
-    #    group moved into columns, the live feed's experience and no-sponsorship filters were
-    #    silent no-ops — every row read as "states nothing", which both filters keep.
-    #    Narrowed to the same set in new-only mode: these are parsed from a row's own location
-    #    and JD, so a row nobody touched this run can only re-derive to what it already holds.
-    #
-    #    A PARTIAL pass narrows for the same reason PLUS a sharper one: this function
-    #    recomputes core.job_meta for any row absent from `jdmeta`, at the ~206 ms/row we just
-    #    spent a budget bounding. The merge above keeps that from biting while jdmeta.json is
-    #    warm, but on a cold cache (fresh checkout, a CI runner) every unreached row would be
-    #    re-analyzed here — handing the derived phase the whole cost the budget just refused.
-    #    Walked rows only, so the clock cannot escape through the back door.
-    #
-    #    AND `partial` IS WHAT CLOSES THAT BACK DOOR, because `truncated` left it open on every
-    #    cursor-resumed run that finished its slice: this fell through to `row_loc`, the whole
-    #    corpus, and the phase has no budget of its own. Measured on the 2026-09-11 run -- the
-    #    write goes at ~2,000 rows per 80 s through the proxy, so 53,247 rows is ~35 minutes
-    #    behind a 26-minute cap. It banked 26,000 and was killed. The walked-rows branch is
-    #    ~19,700 rows at worst (what a 4-minute analysis budget reaches), which is the ~11
-    #    minutes the runs that passed actually spent here.
-    if new_only:
-        _derive_src = {u: row_loc[u] for u in todo if u in row_loc}
-    elif partial:
-        _derive_src = {u: row_loc[u] for u in todo_order[:stopped_at] if u in row_loc}
-    else:
-        _derive_src = row_loc
-    _persist_derived(_derive_src, row_jd, current_rows=rows, jdmeta=jdmeta, idf=idf)
+    # Derived fields were saved with each score batch above. Never re-analyze or write
+    # unvisited rows after the budget has expired.
     # vals/where were assigned only under `if scores:` while the sign-off below sits outside it,
     # so a run that scored NOTHING died with UnboundLocalError on its own summary line — after
     # every JD and score it did produce had already been written. Reachable in production any

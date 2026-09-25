@@ -4,6 +4,14 @@ name: Recover job scores
 # The shared concurrency group prevents writes overlapping the regular pipeline.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Scoring mode (heavy matches the scheduled full-corpus pass)
+        type: choice
+        options:
+          - new-only
+          - heavy
+        default: new-only
 
 concurrency:
   group: scrape-jobs
@@ -53,21 +61,37 @@ jobs:
           if not db.load_jobs(include_jd=False, cols="url"):
               raise SystemExit("Live corpus is empty; refusing to continue")
           PY
-      - name: Recover missing job analysis and scores
-        timeout-minutes: 28
+      - name: Restore the JD corpus cache
+        uses: actions/cache/restore@v6
+        with:
+          path: JobMatch Scraper/jd_cache.json.gz
+          key: jd-corpus-${{ github.run_id }}
+          restore-keys: |
+            jd-corpus-
+      - name: Recover job analysis and scores
+        timeout-minutes: 26
         env:
-          SCORE_NEW_ONLY: "yes"
-          SCORE_MAX_FETCH: "800"
-          SCORE_BUDGET_MIN: "3"
-          SCORE_ANALYZE_BUDGET_MIN: "12"
+          SCORE_RUN_BUDGET_MIN: "22"
+          SCORE_NEW_ONLY: ${{ inputs.mode == 'heavy' && 'no' || 'yes' }}
+          SCORE_MAX_FETCH: ${{ inputs.mode == 'heavy' && '3000' || '800' }}
+          SCORE_BUDGET_MIN: ${{ inputs.mode == 'heavy' && '9' || '5' }}
+          SCORE_ANALYZE_BUDGET_MIN: "4"
           SCORE_THIN_PROBE: "150"
           SCORE_THIN_PER_HOST: "3"
           SCORE_THIN_DRAIN: "400"
-        run: python -m scraper.score_jobs
+        run: python -u -m scraper.score_jobs
+      - name: Save the updated JD corpus cache
+        if: "!cancelled() && hashFiles('JobMatch Scraper/jd_cache.json.gz') != ''"
+        uses: actions/cache/save@v6
+        with:
+          path: JobMatch Scraper/jd_cache.json.gz
+          key: jd-corpus-${{ github.run_id }}
       - name: Refill per-user match scores
+        if: "!cancelled()"
         timeout-minutes: 8
         run: python -m scraper.score_users --budget-min 6
       - name: Warm the app
+        if: "!cancelled()"
         timeout-minutes: 6
         env:
           WARM_TOKEN: ${{ secrets.WARM_TOKEN }}

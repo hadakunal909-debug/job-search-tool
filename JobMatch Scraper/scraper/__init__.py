@@ -10275,6 +10275,9 @@ def main():
     listing_jds = {}
     # NOT a tally key: tally is printed as the run's DROP reasons, and this is a keep.
     kept_on_jd = 0
+    # Recoveries do not drop another posting; the duplicate already has its own tally.
+    # Initialize both paths before the sweep so the first recovered JD cannot abort it.
+    rescued_descriptions = {"same URL": 0, "posting fingerprint": 0}
     tally = {"already known": 0, "off-target function title": 0,
              "no matching role keyword": 0, "non-US location": 0,
              "blocked company": 0,
@@ -10371,7 +10374,7 @@ def main():
                 if rescued:
                     listing_jds[incumbent] = rescued
                     jd_hungry.discard(incumbent)     # one write per url per run
-                    tally["description rescued for a row we already hold"] += 1
+                    rescued_descriptions["same URL"] += 1
                 continue                       # already in jobs.csv from a past run
             # Right after the dedupe and before any title work: this is the cheapest position, and
             # putting it in the tally makes the drop visible in the run summary. A blocklist you
@@ -10475,7 +10478,7 @@ def main():
                 if rescued:
                     listing_jds[dupe_of] = rescued
                     jd_hungry.discard(dupe_of)       # one write per url per run
-                    tally["description transplanted onto a row we hold"] += 1
+                    rescued_descriptions["posting fingerprint"] += 1
                 if VERBOSE or not JOBSPY_FINGERPRINT_ENFORCE:
                     print("  %s %-44s\n        we already hold %s"
                           % ("dupe " if JOBSPY_FINGERPRINT_ENFORCE else "dupe?",
@@ -10638,6 +10641,10 @@ def main():
 
     dropped = ", ".join("%d %s" % (n, k) for k, n in tally.items() if n)
     print(f"\nScanned {scanned_total} postings ({dropped or 'nothing dropped'}).")
+    if any(rescued_descriptions.values()):
+        recovered = ", ".join("%d by %s" % (n, k)
+                              for k, n in rescued_descriptions.items() if n)
+        print("Recovered descriptions for existing postings: %s." % recovered)
     if kept_on_jd:
         print("%d kept on the DESCRIPTION alone -- the title matched nothing." % kept_on_jd)
     if DUMP_REJECTS:

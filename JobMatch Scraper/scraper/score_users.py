@@ -48,7 +48,14 @@ import core                                       # noqa: E402
 import db                                         # noqa: E402
 
 
-def _profiles(only=None):
+SCORE_BATCH_SIZE = 500
+
+
+def _expired(deadline):
+    return deadline is not None and time.monotonic() >= deadline
+
+
+def _profiles(only=None, deadline=None):
     """[(username, profile_text, fp)] for users who have something to score against.
 
     A user with no resume gets no score anywhere in the product -- the feed shows an empty ring
@@ -57,6 +64,8 @@ def _profiles(only=None):
     """
     out = []
     for u in db.list_users():
+        if _expired(deadline):
+            break
         name = u.get("username") if isinstance(u, dict) else u
         if only and name != only:
             continue
@@ -74,12 +83,39 @@ def _profiles(only=None):
 
 def score_user(name, text, fp, rows, full=False, dry=False, deadline=None):
     """Write this user's missing scores. Returns (written, skipped, unscoreable)."""
+    if _expired(deadline):
+        return 0, 0, 0
     have = {} if full else db.get_user_scores(name, fp)
+    had = len(have)
     resume_low = text.lower()
-    todo, unscoreable = {}, 0
-    for j in rows:
+    todo, unscoreable, written = {}, 0, 0
+    visited = set(have)
+    # The local fallback replaces a profile's JSON map instead of upserting it.
+    # Carry its already stored scores forward when banking several batches.
+    local_store = None if db.has_remote_db() else dict(have)
+
+    def bank():
+        if not todo or _expired(deadline):
+            return 0
+        if dry:
+            count = len(todo)
+        else:
+            payload = todo if local_store is None else dict(local_store, **todo)
+            count = db.save_user_scores(name, fp, payload, chunk=SCORE_BATCH_SIZE)
+            if local_store is not None:
+                if count != len(payload):
+                    raise RuntimeError("local user score write was incomplete")
+                local_store.update(todo)
+                count = len(todo)
+        todo.clear()
+        return count
+
+    for index, j in enumerate(rows):
+        if _expired(deadline):
+            print("    budget reached with %d still to look at" % (len(rows) - index))
+            break
         url = j.get("url")
-        if not url or (url in have and not full):
+        if not url or url in visited:
             continue
         # CLOSED JOBS ARE NOT STORED. The feed hides them by default, and they were 59,445 of
         # 239,225 rows -- a quarter of the table, and of every index over it -- for postings
@@ -96,22 +132,22 @@ def score_user(name, text, fp, rows, full=False, dry=False, deadline=None):
             continue
         try:
             todo[url] = core.score_pct(resume_low, analyzed)
+            visited.add(url)
         except Exception:
             unscoreable += 1
-        if deadline and time.time() > deadline:
-            print("    budget reached with %d still to look at" % (len(rows) - len(todo)))
-            break
-    # A dry run reports what it WOULD write, which is the only number anyone runs it for.
+        if len(todo) >= SCORE_BATCH_SIZE:
+            written += bank()
+            if written and written % 5000 == 0:
+                print("    %s %d" % ("would write" if dry else "wrote", written))
+    # No new write starts after the deadline. Anything left in todo is still absent
+    # from storage and is picked up by the next run's missing-score query.
     if dry:
-        return len(todo), len(have), unscoreable
-    if not todo:
-        return 0, len(have), unscoreable
-
-    def tick(done, total):
-        if done % 5000 == 0 or done == total:
-            print("    wrote %d/%d" % (done, total))
-
-    return db.save_user_scores(name, fp, todo, progress=tick), len(have), unscoreable
+        written += len(todo)
+    else:
+        written += bank()
+    if written:
+        print("    %s %d" % ("would write" if dry else "wrote", written))
+    return written, had, unscoreable
 
 
 def main():
@@ -130,20 +166,26 @@ def main():
         print("WARNING: no remote database -- scores go to %s and reach nobody."
               % db.USER_SCORES_FILE)
 
-    users = _profiles(a.user)
+    t0 = time.monotonic()
+    deadline = (t0 + a.budget_min * 60) if a.budget_min > 0 else None
+    users = _profiles(a.user, deadline=deadline)
+    if _expired(deadline):
+        print("budget reached while reading profiles; missing scores remain queued")
+        return 0
     if not users:
         print("no users with a resume; nothing to do")
         return 0
     print("scoring for: %s" % ", ".join(n for n, _t, _f in users))
 
-    t0 = time.time()
     rows = db.load_jobs(include_jd=False, cols="url,jd_terms,is_active")
-    print("corpus: %d rows in %.1f s" % (len(rows), time.time() - t0))
+    print("corpus: %d rows in %.1f s" % (len(rows), time.monotonic() - t0))
 
-    deadline = (time.time() + a.budget_min * 60) if a.budget_min else None
     total = 0
     for name, text, fp in users:
-        t1 = time.time()
+        if _expired(deadline):
+            print("budget reached; the rest are still missing and the next run picks them up")
+            break
+        t1 = time.monotonic()
         try:
             wrote, had, bad = score_user(name, text, fp, rows, a.full, a.dry_run, deadline)
         except RuntimeError as e:
@@ -151,12 +193,12 @@ def main():
             return 1
         total += wrote
         print("  %-16s wrote %-6d had %-6d unscoreable %-5d  %.1f s"
-              % (name, wrote, had, bad, time.time() - t1))
-        if deadline and time.time() > deadline:
+              % (name, wrote, had, bad, time.monotonic() - t1))
+        if _expired(deadline):
             print("budget reached; the rest are still missing and the next run picks them up")
             break
     print("\n%s %d row(s) in %.1f s"
-          % ("would write" if a.dry_run else "wrote", total, time.time() - t0))
+          % ("would write" if a.dry_run else "wrote", total, time.monotonic() - t0))
     return 0
 
 
