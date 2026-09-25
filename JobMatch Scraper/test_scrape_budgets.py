@@ -3,9 +3,9 @@ import multiprocessing
 import sys
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from scraper.bounded_call import call
+from scraper.bounded_call import _worker, call
 from scripts import close_dead_jds as cleanup
 from scripts import jobspy_sweep as sweep
 
@@ -26,6 +26,32 @@ class BoundedCallTests(unittest.TestCase):
     def test_worker_failure_is_visible(self):
         with self.assertRaisesRegex(RuntimeError, "ValueError"):
             call("builtins", "int", ("not-a-number",), timeout=10)
+
+    def test_worker_sends_only_once_when_parent_has_disconnected(self):
+        for error in (BrokenPipeError, EOFError, ConnectionResetError):
+            for function, args, expected in (
+                    ("len", ([1, 2],), (True, 2)),
+                    ("int", ("not-a-number",), (False, "ValueError"))):
+                with self.subTest(error=error, function=function):
+                    connection = Mock()
+                    connection.send.side_effect = error("receiver closed")
+                    _worker(connection, "builtins", function, args, {})
+                    connection.send.assert_called_once_with(expected)
+                    connection.close.assert_called_once_with()
+
+    def test_worker_preserves_callable_error_type_on_open_pipe(self):
+        connection = Mock()
+        _worker(connection, "builtins", "int", ("not-a-number",), {})
+        connection.send.assert_called_once_with((False, "ValueError"))
+        connection.close.assert_called_once_with()
+
+    def test_worker_does_not_hide_unrelated_send_errors(self):
+        connection = Mock()
+        connection.send.side_effect = ValueError("serialization failed")
+        with self.assertRaisesRegex(ValueError, "serialization failed"):
+            _worker(connection, "builtins", "len", ([1, 2],), {})
+        connection.send.assert_called_once_with((True, 2))
+        connection.close.assert_called_once_with()
 
     def test_harvest_retains_success_after_timed_out_query(self):
         record = {"url": "https://example.test/job", "company": "Example"}

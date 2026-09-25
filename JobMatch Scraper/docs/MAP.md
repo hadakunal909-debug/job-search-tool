@@ -31,7 +31,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 - [`scraper/adp.py`](#scraperadppy) — 135 lines, 13 symbols
 - [`scraper/applicantpro.py`](#scraperapplicantpropy) — 103 lines, 5 symbols
 - [`scraper/avature_links.py`](#scraperavature_linkspy) — 146 lines, 7 symbols
-- [`scraper/bounded_call.py`](#scraperbounded_callpy) — 52 lines, 2 symbols
+- [`scraper/bounded_call.py`](#scraperbounded_callpy) — 59 lines, 2 symbols
 - [`scraper/box.py`](#scraperboxpy) — 53 lines, 3 symbols
 - [`scraper/build_everify.py`](#scraperbuild_everifypy) — 187 lines, 9 symbols
 - [`scraper/build_sponsor_counts.py`](#scraperbuild_sponsor_countspy) — 544 lines, 11 symbols
@@ -427,7 +427,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 
 ## `scraper/bounded_call.py`
 
-52 lines · 2 top-level symbols · 0 sections
+59 lines · 2 top-level symbols · 0 sections
 
 *No banner comments in this file.*
 
@@ -3112,7 +3112,7 @@ Tier 1 answers *which 300-line neighbourhood of a 7,000-line file do I want*. Ti
 | Symbol | Kind | Line | What |
 |---|---|---|---|
 | `_worker` | def | [10](../scraper/bounded_call.py#L10) |  |
-| `call` | def | [21](../scraper/bounded_call.py#L21) | Return the call result, or raise TimeoutError/RuntimeError; always reap the child. |
+| `call` | def | [28](../scraper/bounded_call.py#L28) | Return the call result, or raise TimeoutError/RuntimeError; always reap the child. |
 
 ## `scraper/box.py` — symbols
 

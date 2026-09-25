@@ -9,11 +9,18 @@ import multiprocessing
 
 def _worker(connection, module, function, args, kwargs):
     try:
-        target = getattr(importlib.import_module(module), function)
-        connection.send((True, target(*args, **kwargs)))
-    except BaseException as exc:
-        # Error messages from external clients can embed credentials or query URLs.
-        connection.send((False, type(exc).__name__))
+        try:
+            target = getattr(importlib.import_module(module), function)
+            result = (True, target(*args, **kwargs))
+        except BaseException as exc:
+            # Error messages from external clients can embed credentials or query URLs.
+            result = (False, type(exc).__name__)
+        try:
+            connection.send(result)
+        except (BrokenPipeError, EOFError, ConnectionResetError):
+            # The parent may have timed out and closed its receiver while the call
+            # finished. Reporting that disconnect through the same pipe cannot work.
+            pass
     finally:
         connection.close()
 
