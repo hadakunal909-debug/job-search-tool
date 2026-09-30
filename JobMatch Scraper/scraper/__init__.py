@@ -5287,7 +5287,11 @@ def _avature_base(board_url):
     (drop a trailing slash, query, keyword segment, or /JobDetail/... path)."""
     p = urlparse(board_url)
     segs = [s for s in p.path.split("/") if s]
-    if "SearchJobs" in segs:
+    if "OpenRoles" in segs:
+        # Some Avature tenants expose the listing under OpenRoles and return
+        # 404 for SearchJobs (Two Sigma). Preserve an explicit listing route.
+        segs = segs[:segs.index("OpenRoles") + 1]
+    elif "SearchJobs" in segs:
         segs = segs[:segs.index("SearchJobs") + 1]          # keep up through SearchJobs
     elif segs:
         segs = [segs[0], "SearchJobs"]                      # <portal>/JobDetail/... -> <portal>/SearchJobs
@@ -5315,6 +5319,11 @@ def _avature_location(card, href, title=""):
     el = card.select_one(".list-item-location")
     if el:
         return el.get_text(" ", strip=True).rstrip(".").strip()
+    # The OpenRoles layout separates the location from department and seniority
+    # in direct paragraph spans; only the first direct span is the place.
+    el = card.select_one(".article__header__content__text > .paragraph_inner-span")
+    if el and not _META_SUB.search(el.get_text(" ", strip=True)):
+        return el.get_text(" ", strip=True)
     # A THIRD placement, found on lululemon 2026-08-16: same article--result template, but the
     # location sits in the header subtitle as "country · region · city" rather than in
     # .list-item-location. Without this the card read as location-''; blank passes
@@ -7248,9 +7257,13 @@ from scraper.trinethire import scrape_trinethire
 from scraper.jazzhr import scrape_jazzhr
 from scraper.icims import scrape_icims
 from scraper.cornerstone import scrape_cornerstone
+from scraper.gem import scrape_gem
+from scraper.dayforce import scrape_dayforce
 
 
 SCRAPERS = {
+    "gem": scrape_gem,
+    "dayforce": scrape_dayforce,
     "avature_links": scrape_avature_links,
     "tcs": scrape_tcs,
     "tiktok": scrape_tiktok,
@@ -7372,6 +7385,13 @@ def board_display_name(board_url, ats_type, timeout=15):
     and Ashby put a real company name. Workday and UltiPro render their titles client-side and
     so answer nothing -- hence the "" contract rather than a guess dressed up as an answer.
     """
+    if ats_type in ("gem", "dayforce"):
+        from importlib import import_module
+        identity_text = import_module("scraper." + ats_type).identity_text
+        try:
+            return identity_text(board_url)
+        except Exception:
+            return ""
     ep = _NAME_ENDPOINTS.get(ats_type)
     if ep:
         api, field = ep
@@ -7450,6 +7470,15 @@ def detect_board(url):
     p = urlparse(url)
     host = p.netloc.lower()
     segs = [s for s in p.path.split("/") if s]
+
+    if host in ("jobs.gem.com", "jobs.dayforcehcm.com"):
+        from importlib import import_module
+        module = "gem" if host == "jobs.gem.com" else "dayforce"
+        try:
+            board = import_module("scraper." + module).board_url(url)
+            return (board, module, _name_from(segs[0]) if module == "gem" else "")
+        except (ValueError, IndexError):
+            return None
 
     if re.fullmatch(r"[a-z0-9-]+\.csod\.com", host):
         from scraper.cornerstone import board_url
@@ -7818,6 +7847,8 @@ _ATS_LINK_RE = re.compile(
       | (?:job-boards|boards)\.greenhouse\.io/[A-Za-z0-9_-]+
       | jobs\.lever\.co/[A-Za-z0-9_-]+
       | jobs\.ashbyhq\.com/[A-Za-z0-9_%.-]+
+      | jobs\.gem\.com/[A-Za-z0-9_-]+
+      | jobs\.dayforcehcm\.com/(?:[a-z]{2}-[a-z]{2,4}/)?[A-Za-z0-9_-]+/[A-Za-z0-9_-]+
       | jobs\.smartrecruiters\.com/[A-Za-z0-9_-]+
       | [a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/[A-Za-z0-9_/-]+
       | wd\d+\.myworkdaysite\.com/recruiting/[A-Za-z0-9_/-]+
@@ -7876,6 +7907,15 @@ def avature_from_html(html, url):
     if not path or not re.fullmatch(r'[A-Za-z0-9_-]+', path) or (lang and not re.fullmatch(r'[A-Za-z_-]+', lang)):
         return None
     name = soup.select_one('meta[name="avature.portal.name"]')
+    # Portal metadata names the portal, not its listing page. Prefer an
+    # explicitly linked same-host OpenRoles listing when one is present.
+    for anchor in soup.select('a[href]'):
+        linked = urljoin(url, anchor.get('href', ''))
+        parsed = urlparse(linked)
+        if (parsed.netloc == urlparse(url).netloc
+                and parsed.path.rstrip('/').split('/')[-2:] == [path, 'OpenRoles']):
+            return (urljoin(linked, parsed.path), 'avature',
+                    name.get('content', '') if name else '')
     target = urljoin(url, '/' + '/'.join(p for p in (lang, path, 'SearchJobs') if p))
     return target, 'avature', name.get('content', '') if name else ''
 
@@ -8048,6 +8088,11 @@ def probe_board(board_url, ats_type):
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
     try:
         slug = board_url.rstrip("/").split("/")[-1]
+        if ats_type == "gem":
+            return len(scrape_gem(board_url))
+        if ats_type == "dayforce":
+            from scraper.dayforce import probe_dayforce
+            return probe_dayforce(board_url)
         if ats_type == "cornerstone":
             return len(scrape_cornerstone(board_url))
         if ats_type in ("jazzhr", "icims"):
@@ -9982,8 +10027,9 @@ def reconcile_closed(board_results, apply=False):
             # Too broad to scope safely (a bare host would span every company on it).
             continue
 
-        if ats == "adp":
-            from scraper.adp import owns_url
+        if ats in ("adp", "gem", "dayforce"):
+            from importlib import import_module
+            owns_url = import_module("scraper." + ats).owns_url
             mine = [r for r in rows if owns_url(br["entry"][0], r.get("url") or "")]
         else:
             mine = [r for r in rows if _norm_url(r.get("url")).startswith(prefix)]

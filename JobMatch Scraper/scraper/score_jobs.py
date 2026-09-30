@@ -1146,6 +1146,15 @@ def detail_jd(url):
 
 
 def _detail_jd(url):
+    if scraper.urlparse(url).hostname in ("jobs.gem.com", "jobs.dayforcehcm.com"):
+        from importlib import import_module
+        module = "gem" if scraper.urlparse(url).hostname == "jobs.gem.com" else "dayforce"
+        public_detail_jd = import_module("scraper." + module).detail_jd
+        try:
+            jd, date = public_detail_jd(url)
+            return url, jd, date
+        except Exception:
+            return url, "", ""
     """JD + posting date for ONE job via its ATS detail endpoint, else the posting page.
     Returns (url, jd, date) — date is '' unless the page/feed exposed one."""
     jd, date = "", ""

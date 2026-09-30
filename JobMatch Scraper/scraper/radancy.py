@@ -104,6 +104,11 @@ def _rows(soup, base_url):
         title_node = anchor.select_one('h2, h3, .job-title, .title')
         title = (title_node.get_text(" ", strip=True) if title_node is not None
                  else (anchor.get("data-title") or "").strip())
+        # Some TalentBrew layouts put the link inside the heading (Moody's),
+        # rather than the heading inside the link. Only use visible anchor text
+        # when it is a heading so auxiliary links cannot become job titles.
+        if not title and anchor.find_parent(["h2", "h3"]) is not None:
+            title = anchor.get_text(" ", strip=True)
         if not title:
             continue
         card = anchor.find_parent("li") or anchor

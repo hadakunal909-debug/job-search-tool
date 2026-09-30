@@ -50,6 +50,32 @@ class RadancyTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertIn("page 2", rows.reason)
 
+    def test_heading_wrapped_job_links_paginate_and_keep_locations(self):
+        def heading_page(page, job_id):
+            original = html(page, [job_id])
+            return original.replace(
+                '<a href="/job/city/engineer/1/%s"><h2>Engineer %s</h2>' % (job_id, job_id),
+                '<h2><a class="search-results-list__job-link" '
+                'href="/job/city/engineer/1/%s">Engineer %s</a></h2>' % (job_id, job_id),
+            ).replace('</span></a>', '</span>')
+
+        first, second = heading_page(1, 1), heading_page(2, 2)
+        responses = [Response(first), Response(payload={"results": first}),
+                     Response(payload={"results": second})]
+        with patch.object(radancy, "_get", side_effect=responses):
+            rows = radancy.scrape_radancy(URL)
+        self.assertTrue(rows.complete)
+        self.assertEqual([r["title"] for r in rows], ["Engineer 1", "Engineer 2"])
+        self.assertEqual([r["location"] for r in rows], ["Austin, Texas"] * 2)
+
+        with patch.object(radancy, "_get", side_effect=[
+            Response(first), Response(payload={"results": first}), RuntimeError("403")
+        ]), patch("scraper.note_truncation"):
+            partial = radancy.scrape_radancy(URL)
+        self.assertFalse(partial.complete)
+        self.assertEqual(len(partial), 1)
+        self.assertIn("page 2", partial.reason)
+
     def test_wrong_page_cannot_claim_completeness(self):
         with patch.object(radancy, "_get", side_effect=[Response(html(1, [1])), Response(payload={"results": html(1, [1])}), Response(payload={"results": html(1, [2])})]), patch("scraper.note_truncation"):
             rows = radancy.scrape_radancy(URL)
