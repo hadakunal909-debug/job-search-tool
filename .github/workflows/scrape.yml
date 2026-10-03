@@ -20,10 +20,17 @@ name: Scrape jobs
 # and the measurement that justifies pulling it is the board-health block the sweep prints
 # (20 failed / 27 silent of 3,247 boards on 2026-09-19, the day before this change).
 #
-# THE CPANEL CRON STILL SWEEPS AT 13:00 AND 16:00 ET and now duplicates this workflow.
-# Retiring those two lines is a change to the box's crontab, which lives nowhere in this repo
-# — see bin/cron_scrape.sh's header. The hourly --analyze-only line should STAY: it does not
-# scrape, it writes jd_terms, and it is what keeps a card from reading "Not scored".
+# THE CPANEL CRONTAB IS EMPTY AS OF 2026-09-20, at the owner's direction. ALL THREE lines went
+# — both scrape slots and the hourly --analyze-only line, which this comment previously said
+# should STAY. THIS WORKFLOW IS NOW THE ONLY THING THAT SCRAPES and there is no backstop on the
+# box, which matters because GitHub's scheduler demonstrably drops fires (it dropped every one
+# on 2026-09-19 and delivered 2 of 8 on 09-20). Two things degrade silently: jd_terms is written
+# only by the heavy pass, so a fresh job can read "Not scored" for longer; and the warm step
+# below is now the ONLY thing that warms the app after a scrape — measured 48.7 s of rebuild on
+# 2026-09-20, which is what the first visitor pays if it does not run.
+#
+# The crontab lives nowhere in this repo; `ssh <box> crontab -l` is the only copy. The removed
+# lines survive in that file's comment block and in ~/crontab.backup.20260920_1701 on the box.
 #
 # GitHub cron is UTC and does NOT track DST, so these two fixed UTC times are exactly
 # 12pm/4pm ET during EDT (Mar-Nov) and land an hour earlier — 11am/3pm ET — under EST.
@@ -46,15 +53,17 @@ name: Scrape jobs
 # invisible to the match filter. The light runs just score in cheap new-only mode.)
 on:
   schedule:
-    # ONE run a day now, not two. The database moved to cPanel and a cron on that box covers the
-    # other two slots, so the day is split three ways rather than both halves landing here:
+    # THE DAY WAS SPLIT THREE WAYS UNTIL 2026-09-20. It is not any more — the cPanel crontab was
+    # emptied that day, so the two rows marked GONE do not run and this workflow is the whole
+    # schedule:
     #
-    #   09:00 ET  THIS workflow      heavy pass — verify_dates, analytics rollup, digest email
-    #   13:00 ET  cPanel cron        scrape + new-only score
-    #   16:00 ET  cPanel cron        scrape + new-only score
+    #   every 3h  THIS workflow      8 fires a day; the first of each ET day is the heavy pass
+    #   13:00 ET  cPanel cron        GONE 2026-09-20 — was scrape + new-only score
+    #   16:00 ET  cPanel cron        GONE 2026-09-20 — was scrape + new-only score
     #
-    # All three slots are Mon-Fri. THE CPANEL SLOTS LIVE IN THREE PLACES -- this table, the
-    # header of bin/cron_scrape.sh, and the box's actual crontab -- and only the crontab is
+    # The rest of this block is kept because the LESSON outlives the schedule. THE CPANEL SLOTS
+    # LIVED IN THREE PLACES -- this table, the header of bin/cron_scrape.sh, and the box's actual
+    # crontab -- and only the crontab was
     # load-bearing. `ssh <box> crontab -l` reads it; an earlier version of this comment said the
     # schedule "existed nowhere but that web form", which sent everyone to a cPanel web page for
     # a value SSH will print.
@@ -82,15 +91,28 @@ on:
     # delivery itself. Moving to :47 buys back the top-of-hour queue and puts a typically
     # delayed run at roughly 9:00-9:15 ET instead of 9:45.
     #
-    # It does NOT make the schedule reliable, because nothing here can. scrape-watchdog.yml is
-    # what guarantees the run happens: it checks whether today's scrape landed and fires a
-    # workflow_dispatch if it did not, and dispatch is delivered immediately rather than queued
-    # with the world's crons. This line is now the fast path, not the guarantee.
+    # It does NOT make the schedule reliable, because nothing here can. MEASURED on this cron:
+    # GitHub delivered 5 of 8 slots on 2026-09-20 and 3 of 8 on 09-21, every one of them 36 to
+    # 152 minutes late. This line is the fast path, not the guarantee.
+    #
+    # scrape-watchdog.yml is the guarantee, and as of 2026-09-21 it guarantees EVERY slot rather
+    # than one a day: it probes 90 minutes behind each of these eight fires, asks whether a
+    # scrape has succeeded in the last 150 minutes, and converts a no into a workflow_dispatch —
+    # which is delivered immediately instead of queueing with the world's crons. It used to ask
+    # "did today's scrape land", which goes true at the first green run of the day and stays
+    # true, so it watched this slot and ignored the other seven.
     # :47 rather than :00, and that stays load-bearing at this cadence. The top of the hour
     # is when the world's crons queue; the drift table above was measured against an on-the-
     # hour line and reached +9h42. Every third hour, off the hour, is the fast path.
     - cron: "47 */3 * * *"      # every 3 hours, every day — the gate picks which is heavy
-  workflow_dispatch: {}             # on-demand (Actions tab + the app's "Update jobs" button)
+  workflow_dispatch:                # on-demand (Actions tab + the app's "Update jobs" button)
+    inputs:
+      # Set ONLY by this workflow's own "Retry on a fresh runner" step below. A person, the
+      # app's button and the watchdog all leave it at 0, so their behaviour is unchanged.
+      hop:
+        description: "Firewall-retry depth (internal; leave at 0)"
+        required: false
+        default: "0"
 
 # ONE SCRAPE AT A TIME. There was no guard here at all until 2026-09-19, which was safe only
 # because the schedule fired once a day against a job capped at 180 minutes. At a 3-hour
@@ -100,8 +122,9 @@ on:
 #
 # cancel-in-progress is FALSE deliberately. Cancelling a running sweep to start a fresh one
 # throws away work already banked slice by slice; queueing costs nothing now that minutes are
-# free. A queued run is not a wasted one either — when it starts, the gate below sees a
-# scrape that succeeded inside the last 150 minutes and no-ops it in seconds.
+# free. A queued run is not wasted either: the gate below tests the PREDECESSOR'S createdAt,
+# not its finish time, so a run that waited out a 64-minute scrape is usually already outside
+# the 60-minute window by the time it starts and does a real sweep rather than a no-op.
 concurrency:
   group: scrape-jobs
   cancel-in-progress: false
@@ -120,7 +143,7 @@ jobs:
     # `|| echo 0`, i.e. the duplicate-suppression quietly stops working and nothing says so.
     permissions:
       contents: read                # actions/checkout
-      actions: read                 # gh run list, in the gate
+      actions: write                # gh run list in the gate; gh workflow run in the firewall retry
     # 45 -> 58. MEASURED, and the job cap was the real ceiling, not the step's. On 2026-08-20 the
     # whole job ran 40.5 min of 45: scrape 19.5 + score 11.7 + verify 8.4. So raising the scrape
     # step alone would just move the kill from the step to the job.
@@ -242,7 +265,11 @@ jobs:
           # button) asking for a scrape right now, and an explicit request must never be answered
           # with silence — the watchdog does its own has-it-run-today check before dispatching,
           # so gating dispatch here would just duplicate that in the place where it is wrong.
-          if [ "${{ github.event_name }}" = "schedule" ]; then
+          #
+          # A firewall retry (hop > 0, dispatched by this workflow itself) is gated like the
+          # schedule it stands in for: it is a replacement for a slot, not a person asking, so
+          # it must not take a second heavy pass and mail a second digest.
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.hop || '0' }}" != "0" ]; then
             # Two date calls for the reason scrape-watchdog.yml spells out: -u sets the
             # zone for parsing too, so the one-call form silently reads Eastern midnight
             # as UTC midnight and starts the window four hours early.
@@ -260,9 +287,26 @@ jobs:
             #
             # What the old test was FOR survives here. GitHub delivers a dropped cron late
             # rather than cancelling it (up to +9h42 on this repo), so a stale event can land
-            # beside a fresh run. 150 minutes suppresses exactly that, and cannot suppress a
-            # legitimate fire, because those are 180 minutes apart.
-            RECENT_SINCE=$(date -u -d '150 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+            # beside a fresh run. This window suppresses exactly that.
+            #
+            # 150 -> 60, BECAUSE THE 150 WAS SUPPRESSING REAL FIRES. The sentence that used to
+            # end this comment — "cannot suppress a legitimate fire, because those are 180
+            # minutes apart" — is false, and run #320 is the counter-example: it arrived 149
+            # minutes after #319 and no-opped in six seconds. Fires are 180 minutes apart AT
+            # THE CRON; they ARRIVE whenever GitHub drains its queue, measured at +36 to +152
+            # minutes over 2026-09-20/-21, so consecutive ARRIVALS are 180 plus-or-minus the
+            # spread in that lag and land inside 150 routinely. Compare wall-clock arrivals
+            # with a window sized for the cadence and the test throws away the scarcest thing
+            # here: a fire GitHub actually delivered. Of eight slots on 09-21 it delivered
+            # three.
+            #
+            # 60 is short enough that no realistically-delayed fire trips it and long enough
+            # to still catch what this is for — a true double-delivery of one slot, and the
+            # watchdog's dispatch racing a cron fire for the same slot. The duplicate it no
+            # longer suppresses is a redundant LIGHT scrape, which at eight a day is what was
+            # asked for anyway; the expensive half is gated on `heavy`, and heavy is still
+            # earned once per Eastern day, so there is still exactly one digest email.
+            RECENT_SINCE=$(date -u -d '60 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
             RECENT=$(gh run list --workflow=scrape.yml --limit 50 \
                      --json createdAt,conclusion,databaseId \
                      --jq "[.[] | select(.createdAt >= \"$RECENT_SINCE\")
@@ -270,7 +314,7 @@ jobs:
                                 | select(.databaseId != ${{ github.run_id }})] | length" 2>/dev/null || echo 0)
             if [ "${RECENT:-0}" -gt 0 ]; then
               RUN=no
-              echo "::notice::A scrape already succeeded in the last 150 min ($RECENT run(s) since $RECENT_SINCE). This fire is a no-op."
+              echo "::notice::A scrape already succeeded in the last 60 min ($RECENT run(s) since $RECENT_SINCE). This fire is a no-op."
             elif [ "${DONE:-0}" = 0 ]; then
               # Nothing has succeeded since Eastern midnight, so this is the day's first run
               # and it carries the heavy pass — including the single digest email.
@@ -326,20 +370,71 @@ jobs:
           printf '%s' "$RESUME_TXT" > resume.txt
           echo "resume.txt written: $(wc -c < resume.txt) bytes, $(wc -l < resume.txt) lines."
 
+      # THE HOST'S FIREWALL SOMETIMES CHALLENGES THIS RUNNER, and that is not a LiteSpeed blip.
+      # The box runs Imunify360, which greylists datacenter IPs; a greylisted runner gets a
+      # self-reloading JavaScript page (`setTimeout(... window.location.reload()`) instead of
+      # the proxy's JSON, on every request, for hours. dbproxy's 3 quick retries cannot outlast
+      # that. Measured: 2026-09-26 05:33 and 2026-10-03 12:04 + 16:45 UTC all died here, the
+      # site's access log held ZERO /api/db lines for them (they never reached Flask), the laptop
+      # got the proxy's normal 401 at the same moment, and a fresh dispatch at 17:48 sailed
+      # through. This account cannot whitelist (the box only lets users override proactive
+      # defence), so the cure is a DIFFERENT runner: the step below re-dispatches on a challenge.
+      #
+      # So this step tells the two failures apart. `blocked=yes` means "the firewall answered,
+      # not the database" — the only case where a re-dispatch can help.
       - name: Preflight — confirm the database
         id: preflight
         if: steps.gate.outputs.run == 'yes'
-        timeout-minutes: 2
+        timeout-minutes: 4
         run: |
           python - <<'PY'
+          import os, time
           import db
           print("backend:", db.backend_name())
-          n = len(db.load_jobs(include_jd=False, cols="url") or [])
+
+          def challenged(err):
+              s = str(err)
+              return "window.location.reload" in s or "non-JSON: <!DOCTYPE" in s
+
+          # Three tries over ~1 min. A blip clears inside that; a greylist does not, and that
+          # is the point — wait long enough to tell them apart, then hand off to a new runner.
+          for attempt in range(3):
+              try:
+                  n = len(db.load_jobs(include_jd=False, cols="url") or [])
+                  break
+              except Exception as e:
+                  if attempt == 2:
+                      if challenged(e):
+                          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                              fh.write("blocked=yes\n")
+                          print("::error::The host's firewall (Imunify360) served this runner a "
+                                "bot challenge instead of the database proxy. Not a code fault; "
+                                "a fresh runner usually gets through.")
+                      raise
+                  print("attempt %d failed (%s); retrying in 30s"
+                        % (attempt + 1, "firewall challenge" if challenged(e) else type(e).__name__))
+                  time.sleep(30)
           print("reachable: %d row(s) already stored" % n)
           if n == 0:
               raise SystemExit("connected but the corpus is EMPTY — that is a fresh or wrong "
                                "database, not the live one. Refusing to scrape into it.")
           PY
+
+      # BOUNDED at two hops: a challenged schedule fire -> hop 1 -> hop 2, then it stays red and
+      # the watchdog's next probe (and the failure email) take over. Without the bound, a
+      # firewall that blocks every runner would chain dispatches forever.
+      #
+      # The new run queues behind this one (concurrency below), which ends within a minute.
+      - name: Retry on a fresh runner (firewall challenge only)
+        if: failure() && steps.preflight.outputs.blocked == 'yes' && fromJSON(inputs.hop || '0') < 2
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          NEXT=$(( ${{ inputs.hop || '0' }} + 1 ))
+          gh workflow run scrape.yml --ref main -f hop=$NEXT
+          echo "::notice::Firewall challenged this runner; dispatched a replacement run (hop $NEXT of 2)."
 
       # The stored job DESCRIPTIONS, carried between runs.
       #
@@ -886,9 +981,13 @@ jobs:
       #
       # heavy is not required either -- a light run still writes rows.
       #
-      # NO SECRET, NO STEP. WARM_TOKEN is not a secret this repo has ever needed before; until
-      # it is added this prints what to do and exits 0 rather than failing a green run. Use the
-      # same value as the `?t=` in the five-minute keep-warm crontab line on the box.
+      # NO SECRET, NO STEP -- but the secret EXISTS now. WARM_TOKEN was set 2026-09-20, taken
+      # from the `?t=` on the five-minute keep-warm crontab line just before that crontab was
+      # emptied. THIS STEP IS NOW THE ONLY THING THAT WARMS THE APP: the box no longer pings
+      # /warm every five minutes, and a scrape moves jobs_fingerprint() so every row cache and
+      # score file is invalidated. Measured that day, warming a 71,425-row corpus cost 48.7 s
+      # (base_rows 22.4 s, user score files 24.4 s). That is what a visitor pays if this is
+      # skipped, so do not let it regress to a no-op.
       - name: Warm the app's caches (closes the post-scrape rebuild window)
         if: steps.gate.outputs.run == 'yes' && !cancelled()
         timeout-minutes: 6
@@ -898,9 +997,10 @@ jobs:
           WARM_URL: https://stemjobs1.astrochakra.co/warm
         run: |
           if [ -z "${WARM_TOKEN:-}" ]; then
-            echo "No WARM_TOKEN secret set, so the caches this run just invalidated stay cold"
-            echo "until the box's five-minute keep-warm cron gets there. Add the repository"
-            echo "secret WARM_TOKEN with the same value as the ?t= in that crontab line."
+            echo "No WARM_TOKEN secret set, so the caches this run just invalidated stay COLD"
+            echo "and the next visitor pays the full rebuild -- ~49 s when last measured. The"
+            echo "box's keep-warm cron is GONE (2026-09-20), so nothing else will do it. The"
+            echo "value is the ?t= in ~/crontab.backup.20260920_1701 on the box."
             exit 0
           fi
           # -f so an HTTP error is an error; the per-stage JSON is the point of the output.
@@ -921,8 +1021,12 @@ jobs:
       # continue-on-error on the alert itself, so a bad SMTP secret cannot turn one red run into
       # a confusing two. The script also swallows its own send errors; this is the belt to that
       # brace, covering the case where python itself cannot start.
+      # Not when the firewall retry above has handed off to a replacement — that run reports for
+      # itself. On the last hop (2) a challenge still mails, because nothing retries after it.
       - name: Say that it failed
-        if: failure()
+        if: >-
+          failure() && !(steps.preflight.outputs.blocked == 'yes'
+          && fromJSON(inputs.hop || '0') < 2)
         timeout-minutes: 3
         continue-on-error: true
         env:

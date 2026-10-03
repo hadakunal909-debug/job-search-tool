@@ -35,11 +35,24 @@ name: Scrape watchdog
 
 on:
   schedule:
-    # Off the top of the hour on purpose — see the same note in scrape.yml. These are ET-morning
-    # through early afternoon so a dispatched scrape still finishes inside the working day.
-    - cron: "23 14 * * 1-5"     # 10:23 ET  — after a normally-congested 12:47 fire would have started
-    - cron: "23 16 * * 1-5"     # 12:23 ET
-    - cron: "23 18 * * 1-5"     #  2:23 ET
+    # Off the top of the hour on purpose — see the same note in scrape.yml.
+    #
+    # ONE PROBE PER SCRAPE SLOT, 90 MINUTES BEHIND IT, EVERY DAY. This used to be three
+    # weekday-morning probes, which was right when scrape.yml fired once a day and wrong the
+    # moment it went to eight: a workflow that can only ask "did today's scrape land" can only
+    # ever guarantee ONE, and it answered yes by mid-morning and then watched the other seven
+    # slots go by. Measured 2026-09-21, GitHub delivered three of eight.
+    #
+    # scrape.yml fires at H:47 for H in 0,3,...,21. These sit at H+1:17 — 90 minutes later,
+    # which is past the MEDIAN delivery lag (+36 to +152 min measured over 09-20/-21) so a
+    # merely-late fire is usually already here and does not get doubled, and early enough that
+    # a dispatched replacement still lands well inside the slot.
+    #
+    # These fires are dropped exactly as often as any other cron; that is fine and is the point
+    # of having two independent chances at each slot rather than one. What makes the dispatch
+    # worth anything is that workflow_dispatch, once this workflow does run, is delivered
+    # immediately instead of queueing behind the world's crons.
+    - cron: "17 1,4,7,10,13,16,19,22 * * *"
   workflow_dispatch: {}         # so the check itself can be run by hand while debugging
 
 # One at a time. Two watchdogs racing could each read "no scrape today" and each dispatch one.
@@ -56,12 +69,23 @@ jobs:
       actions: write              # read the run history, and dispatch scrape.yml
 
     steps:
-      - name: Did today's scrape run?
+      - name: Has a scrape landed recently?
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          MAX_RUNS_PER_DAY: 2
+          # 2 -> 12. The old value was sized for a schedule of ONE run a day, where a third
+          # run meant something was wrong. At eight nominal fires plus a top-up for the ones
+          # GitHub drops, 2 is reached before breakfast and the watchdog is disarmed for the
+          # rest of the day — which is exactly what it was doing. This is still the whole
+          # anti-loop argument: it counts EVERY scrape run created since Eastern midnight,
+          # whatever its conclusion, so a scrape that is broken costs a bounded number of
+          # retries and not the day.
+          MAX_RUNS_PER_DAY: 12
+          # The question this workflow asks. 150 min against a 180-minute cadence: long enough
+          # that a fire delivered anywhere inside its own slot counts as answered, short enough
+          # that a DROPPED slot is noticed within it.
+          RECENT_MIN: 150
         run: |
           set -euo pipefail
 
@@ -81,9 +105,11 @@ jobs:
           # will read.
           ET_MIDNIGHT=$(TZ=America/New_York date +%Y-%m-%dT00:00:00%:z)
           SINCE=$(date -u -d "$ET_MIDNIGHT" +%Y-%m-%dT%H:%M:%SZ)
+          RECENT_SINCE=$(date -u -d "$RECENT_MIN minutes ago" +%Y-%m-%dT%H:%M:%SZ)
           echo "Eastern day starts at $SINCE (UTC).  Now: $(TZ=America/New_York date '+%a %F %H:%M %Z')"
+          echo "Recent window starts at $RECENT_SINCE (UTC), $RECENT_MIN min back."
 
-          TODAY=$(gh run list --workflow=scrape.yml --limit 50 \
+          TODAY=$(gh run list --workflow=scrape.yml --limit 60 \
                     --json createdAt,status,conclusion,event,databaseId \
                     --jq "[.[] | select(.createdAt >= \"$SINCE\")]")
 
@@ -91,26 +117,41 @@ jobs:
           LIVE=$(echo "$TODAY"    | jq '[.[] | select(.status != "completed")]        | length')
           WON=$(echo "$TODAY"     | jq '[.[] | select(.conclusion == "success")]      | length')
 
-          echo "runs today: $TOTAL   still running: $LIVE   succeeded: $WON"
+          # RECENT is its own query rather than a filter over TODAY, because the two windows are
+          # not nested: at the 01:17 and 04:17 UTC probes, 150 minutes back reaches into the
+          # PREVIOUS Eastern day. Counting it out of TODAY would miss a scrape that succeeded at
+          # 23:40 ET and dispatch a duplicate on top of it.
+          RECENT=$(gh run list --workflow=scrape.yml --limit 60 \
+                    --json createdAt,conclusion \
+                    --jq "[.[] | select(.createdAt >= \"$RECENT_SINCE\")
+                               | select(.conclusion == \"success\")] | length")
+
+          echo "runs today: $TOTAL   still running: $LIVE   succeeded: $WON   succeeded in window: $RECENT"
           echo "$TODAY" | jq -r '.[] | "  \(.createdAt)  \(.event)  \(.status)/\(.conclusion // "-")  #\(.databaseId)"'
 
           DISPATCH=no; WHY=""
-          if [ "$WON" -gt 0 ]; then
-            WHY="a scrape already succeeded today"
+          # RECENT, not WON. "Has one succeeded TODAY" is the test that made this workflow a
+          # once-a-day guarantee: it goes true at the first green run and stays true, so every
+          # slot after it is unwatched. Asking about a WINDOW instead is what lets the same
+          # workflow cover all eight.
+          if [ "$RECENT" -gt 0 ]; then
+            WHY="a scrape succeeded within the last $RECENT_MIN min"
           elif [ "$LIVE" -gt 0 ]; then
-            # Deliberately not "dispatch anyway in case it fails". A heavy pass takes ~40 minutes
-            # and the next watchdog window is two hours out, which is the right place to notice a
-            # failure — dispatching alongside a live run just doubles a run that may well succeed.
+            # Deliberately not "dispatch anyway in case it fails". A heavy pass takes ~40-108
+            # minutes and the next probe is three hours out, which is the right place to notice
+            # a failure — dispatching alongside a live run just doubles a run that may well
+            # succeed, and `concurrency` in scrape.yml would queue it behind that one anyway.
             WHY="a scrape is in flight right now"
           elif [ "$TOTAL" -ge "$MAX_RUNS_PER_DAY" ]; then
-            WHY="$TOTAL run(s) today already, all unsuccessful — this is broken, not un-triggered"
+            WHY="$TOTAL run(s) today already — the day's dispatch budget is spent"
           else
-            DISPATCH=yes; WHY="no successful scrape today and nothing in flight"
+            DISPATCH=yes; WHY="no scrape has succeeded in $RECENT_MIN min and nothing is in flight"
           fi
 
           echo "dispatch=$DISPATCH" >> "$GITHUB_OUTPUT"
           echo "why=$WHY"           >> "$GITHUB_OUTPUT"
           echo "total=$TOTAL"       >> "$GITHUB_OUTPUT"
+          echo "won=$WON"           >> "$GITHUB_OUTPUT"
           echo "-> dispatch=$DISPATCH  ($WHY)"
 
       - name: Start the scrape
@@ -129,12 +170,16 @@ jobs:
       # A watchdog that stays silent when it gives up is a watchdog you find out about in a week.
       # This is the ONE case worth an annotation: the retry budget is spent and the scrape is
       # still not green, so a person has to look.
+      #
+      # SPENDING THE BUDGET IS NO LONGER EVIDENCE OF ANYTHING. Under MAX_RUNS_PER_DAY: 2 it was
+      # — a third run meant two had failed. At 12 against eight nominal fires a busy, healthy
+      # day reaches it, so the error is conditioned on `won == 0` instead of on the budget.
       - name: Say so when the retry budget is spent
         if: steps.check.outputs.dispatch == 'no' && steps.check.outputs.total != '0'
         run: |
-          case "${{ steps.check.outputs.why }}" in
-            *broken*)
-              echo "::error::Scrape has failed ${{ steps.check.outputs.total }} time(s) today and the watchdog will not retry again. Check the latest run." ;;
+          case "${{ steps.check.outputs.why }}:${{ steps.check.outputs.won }}" in
+            *budget*spent:0)
+              echo "::error::Scrape has run ${{ steps.check.outputs.total }} time(s) today and not one succeeded; the watchdog will not retry again. Check the latest run." ;;
             *)
               echo "::notice::Nothing to do — ${{ steps.check.outputs.why }}." ;;
           esac
