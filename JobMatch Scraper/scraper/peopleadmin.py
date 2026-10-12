@@ -28,7 +28,9 @@ def parse_feed(content, feed_url):
         fields = {e.tag.split('}')[-1]: (e.text or '').strip() for e in entry}
         link = next((e.get('href') for e in entry.findall(ATOM+'link') if e.get('rel') == 'alternate'), fields.get('id', ''))
         url = urljoin(feed_url, link)
-        if not fields.get('title') or not re.search(r'/postings/\d+$', urlparse(url).path) or urlparse(url).netloc != urlparse(feed_url).netloc:
+        # Public evergreen pool applications are included in the advertised
+        # search count and feed, alongside ordinary requisitions.
+        if not fields.get('title') or not re.fullmatch(r'/(?:postings|pools)/\d+', urlparse(url).path) or urlparse(url).netloc != urlparse(feed_url).netloc:
             continue
         if url in seen:
             continue
@@ -69,7 +71,7 @@ def scrape_peopleadmin(board_url):
                     if link is None:
                         continue
                     url = urljoin(listing_url, link['href'])
-                    if url not in by_url and re.search(r'/postings/\d+$', urlparse(url).path) and urlparse(url).netloc == urlparse(feed).netloc:
+                    if url not in by_url and re.fullmatch(r'/(?:postings|pools)/\d+', urlparse(url).path) and urlparse(url).netloc == urlparse(feed).netloc:
                         row = {'url': url, 'title': link.get_text(' ', strip=True), 'location': '', 'source': 'peopleadmin'}
                         by_url[url] = row
                         rows.append(row)

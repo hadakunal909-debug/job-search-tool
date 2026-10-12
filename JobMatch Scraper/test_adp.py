@@ -70,9 +70,10 @@ class ADPTests(unittest.TestCase):
     def test_empty_requires_explicit_zero_total(self):
         with patch.object(adp, "request_json", return_value={"jobRequisitions": [], "meta": {"totalNumber": 0}}):
             self.assertEqual(adp.scrape_adp(URL), [])
-        with patch.object(adp, "request_json", return_value={}):
-            with self.assertRaises(PartialScrapeError):
-                adp.scrape_adp(URL)
+        for missing_total in ({}, {"jobRequisitions": []}):
+            with patch.object(adp, "request_json", return_value=missing_total):
+                with self.assertRaises(PartialScrapeError):
+                    adp.scrape_adp(URL)
 
     def test_detail_rejects_another_posting(self):
         with patch.object(adp, "request_json", return_value=job(999)):

@@ -87,34 +87,12 @@ def _phenom_jd_map(board_url, needed):
     So: page the cheap search feed to pair applyUrl -> jobId, then fetch details ONLY for the
     URLs this run is actually missing, capped so one big board cannot eat the whole budget.
     """
-    origin = board_url.rstrip("/")
-    pairs = {}
-    for off in range(0, scraper.PHENOM_MAX_JOBS, 50):
-        try:
-            r = scraper._safe_post(origin + "/widgets", scraper._phenom_body(off, 50), timeout=20)
-            if r.status_code != 200:
-                break
-            jobs = (((r.json() or {}).get("refineSearch") or {}).get("data") or {}).get("jobs") or []
-        except Exception:
-            break
-        if not jobs:
-            break
-        for j in jobs:
-            u, jid = (j.get("applyUrl") or "").strip(), j.get("jobId")
-            if u and jid:
-                # Key on the CANONICAL url. The scraper canonicalises before storing, and for
-                # Actalent the feed and the stored row differ by exactly one character —
-                # ".../v1/s/?opco=" from the feed against ".../v1/s?opco=" in the table. A raw
-                # key matches nothing at all, which is how this returned 0 JDs on the first try.
-                pairs[scraper.canonical_url(u)] = jid
-        if len(jobs) < 50:
-            break
-        # Stop paging once we already have a full run's worth of jobs we actually need. A
-        # board like Actalent advertises 5,219 postings; without this the cheap feed alone
-        # costs 104 requests every run just to rediscover pairs we will not use.
-        if needed is not None and \
-                sum(1 for u in pairs if u in needed) >= PHENOM_JD_DETAILS_MAX:
-            break
+    parsed = scraper.urlparse(board_url)
+    origin = "%s://%s" % (parsed.scheme or "https", parsed.netloc)
+    # Reuse the listing adapter's complete public facet traversal. A separate
+    # offset-only path lost CVS jobs after the search engine's result window.
+    pairs = {scraper.canonical_url(row["url"]): row["_phenom_jid"]
+             for row in scraper.scrape_phenom(board_url) if row.get("_phenom_jid")}
 
     want = [(u, jid) for u, jid in pairs.items() if needed is None or u in needed]
     want = want[:PHENOM_JD_DETAILS_MAX]
@@ -294,7 +272,7 @@ def _canonical_keys(jd_map):
 # jd_map_for and a case in _board_has_missing; a name without one is a board that gets asked and
 # silently answers nothing, which is indistinguishable from a board that has no backlog.
 BULK_JD_ATS = ("greenhouse", "lever", "ashby", "amazon", "jibe", "pinpoint", "jobdiva",
-               "phenom", "ibm")
+               "phenom", "ibm", "wordpressjobs", "darwinbox")
 # HOW MANY BOARD MAPS MAY BE IN MEMORY AT ONCE. Not a worker count -- workers stay at 8, which
 # is a THROTTLING decision about outbound concurrency on shared hosting and is deliberately not
 # traded for a memory one. This bounds how many COMPLETED maps can pile up waiting to be
@@ -323,6 +301,18 @@ def jd_map_for(board_url, ats, needed=None):
     """
     slug = scraper._slug(board_url)
     out = {}
+    if ats in ("wordpressjobs", "darwinbox"):
+        if needed is not None and not needed:
+            return {}
+        wanted = {scraper.canonical_url(url) for url in needed} if needed is not None else None
+        # These adapters enforce public ownership, advertised totals and page caps.
+        # Let failed/partial reads propagate to the scorer's existing failure log;
+        # an unreadable catalog must never look like a successful empty JD map.
+        for row in scraper.SCRAPERS[ats](board_url):
+            url, jd = row.get("url"), row.get("jd")
+            if url and isinstance(jd, str) and jd.strip() and (wanted is None or scraper.canonical_url(url) in wanted):
+                out[url] = jd.strip()
+        return _canonical_keys(out)
     if ats == "phenom":
         return _canonical_keys(_phenom_jd_map(board_url, needed))
     if ats == "greenhouse":
@@ -449,6 +439,28 @@ def _board_has_missing(board_url, ats, missing_urls):
     on the board slug / host), so we only bulk-fetch boards that can actually help."""
     if ats == "amazon":
         return any("amazon.jobs" in u for u in missing_urls)
+    if ats == "wordpressjobs":
+        from scraper.wordpressjobs import board_parts
+        from urllib.parse import urlparse
+        try:
+            origin, config = board_parts(board_url)
+        except ValueError:
+            return False
+        return any(urlparse(url).scheme == "https" and urlparse(url).netloc == urlparse(origin).netloc
+                   and urlparse(url).path.startswith(config[2]) for url in missing_urls)
+    if ats == "darwinbox":
+        from scraper.darwinbox import board_url as canonical_board
+        try:
+            target = canonical_board(board_url)
+        except ValueError:
+            return False
+        for url in missing_urls:
+            try:
+                if "/jobDetails/" in url and canonical_board(url) == target:
+                    return True
+            except ValueError:
+                continue
+        return False
     if ats == "jobdiva":
         return any("jobdiva.com" in u for u in missing_urls)
     if ats == "ibm":
@@ -1146,6 +1158,13 @@ def detail_jd(url):
 
 
 def _detail_jd(url):
+    if scraper.host_is(scraper.urlparse(url).hostname or "", "darwinbox.com"):
+        from scraper.darwinbox import detail_jd as darwinbox_detail_jd
+        try:
+            jd, date = darwinbox_detail_jd(url)
+            return url, jd, date
+        except Exception:
+            return url, "", ""
     if scraper.urlparse(url).hostname in ("jobs.gem.com", "jobs.dayforcehcm.com"):
         from importlib import import_module
         module = "gem" if scraper.urlparse(url).hostname == "jobs.gem.com" else "dayforce"

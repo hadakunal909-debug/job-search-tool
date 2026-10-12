@@ -155,7 +155,7 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/pinterest",   "greenhouse", "Pinterest"),
     ("https://job-boards.greenhouse.io/block",       "greenhouse", "Block"),
     ("https://job-boards.greenhouse.io/dropbox",     "greenhouse", "Dropbox"),
-    ("https://job-boards.greenhouse.io/linkedin",    "greenhouse", "LinkedIn"),
+    ('https://careers.smartrecruiters.com/linkedin3', 'smartrecruiters', 'LinkedIn'),
     ("https://jobs.ashbyhq.com/snowflake",           "ashby", "Snowflake"),
     ("https://jobs.smartrecruiters.com/ServiceNow",  "smartrecruiters", "ServiceNow"),
     # Visa MOVED OFF SmartRecruiters, 2026-09-06. jobs.smartrecruiters.com/Visa still answers
@@ -635,7 +635,7 @@ EXTRA_BOARDS = [
     ("https://jobs.ashbyhq.com/stepful", "ashby", "Stepful"),                                # ~37
     ("https://job-boards.greenhouse.io/doubleverify", "greenhouse", "DoubleVerify"),         # ~36
     ("https://job-boards.greenhouse.io/kikoff", "greenhouse", "Kikoff"),                     # ~36
-    ("https://job-boards.greenhouse.io/amplitude", "greenhouse", "Amplitude"),               # ~35
+    ('https://jobs.ashbyhq.com/amplitude', 'ashby', 'Amplitude'),               # ~35
     ("https://jobs.lever.co/cellares", "lever", "Cellares"),                                 # ~35
     ("https://job-boards.greenhouse.io/oportun", "greenhouse", "Oportun"),                   # ~35
     ("https://job-boards.greenhouse.io/vixxo", "greenhouse", "Vixxo"),                       # ~35
@@ -782,7 +782,7 @@ EXTRA_BOARDS = [
     ("https://veev.breezy.hr", "breezy", "Lennar"),                                          # ~13
     ("https://job-boards.greenhouse.io/syndigo", "greenhouse", "Syndigo"),                   # ~13
     ("https://job-boards.greenhouse.io/voxmedia", "greenhouse", "Vox Media"),                # ~13
-    ("https://jobs.ashbyhq.com/amigo", "ashby", "AMIGO"),                                    # ~12
+    ('https://jobs.ashbyhq.com/concurrence', 'ashby', 'AMIGO'),                                    # ~12
     ("https://jobs.lever.co/calstart", "lever", "CALSTART"),                                 # ~12
     ("https://job-boards.greenhouse.io/capstoneinvestmentadvisors", "greenhouse", "Capstone Investment Advisors"), # ~12
     ("https://jobs.lever.co/duetti", "lever", "Duetti"),                                     # ~12
@@ -1131,7 +1131,7 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/KatalystHealthcaresLifeSciences", "smartrecruiters", "Katalyst Healthcares & Life Sciences"), # ~10
     ("https://careers.keyence.com", "successfactors", "Keyence"),                            # ~10
     ("https://job-boards.greenhouse.io/pdtpartners", "greenhouse", "PDT Partners"),          # ~10
-    ("https://job-boards.greenhouse.io/supernal", "greenhouse", "Supernal"),                 # ~10
+    ('https://jobs.dayforcehcm.com/en-US/supernal/CANDIDATEPORTAL', 'dayforce', 'Supernal'),                 # ~10
     ("https://jobs.ashbyhq.com/zello", "ashby", "Zello"),                                    # ~10
     ("https://job-boards.greenhouse.io/elsevier", "greenhouse", "Elsevier"),                 # ~9
     ("https://job-boards.greenhouse.io/flash", "greenhouse", "Flash"),                       # ~9
@@ -1236,9 +1236,9 @@ WORKDAY_BOARDS = [
     # Accenture (2026-06-11): one of the largest H1B sponsors, period. Found behind
     # accenture.com/careers via the detect chain (~2k+ postings).
     ("https://accenture.wd103.myworkdayjobs.com/AccentureCareers",   "workday", "Accenture"),
-    # CVS Health (2026-06-12): jobs.cvshealth.com is a Phenom front-end whose apply
-    # links go to Workday — detect_phenom resolved it (~16k postings, incl. Aetna).
-    ("https://cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers",   "workday", "CVS Health"),
+    # CVS Health: use the official Phenom search and complete category partitions.
+    # Its Workday listing times out; the public search verifies the entire catalog.
+    ('https://jobs.cvshealth.com/us/en/search-results', 'phenom', 'CVS Health'),
     # --- Added 2026-06-13: major sponsors found by detect_linked_ats over their public
     # careers pages (each followed a real "view jobs" link to its Workday board). ---
     ("https://adobe.wd5.myworkdayjobs.com/external_experienced",        "workday", "Adobe"),
@@ -1956,7 +1956,7 @@ RECOVERED_BOARDS = [
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=aa154704-1acf-448b-a694-74cddcfe4899&ccId=19000101_000001', 'adp', 'Medical Technology Associates'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=38575bc6-542b-464d-b966-c55fe9668ccf&ccId=19000101_000001', 'adp', 'Strategic Insight, Ltd.'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=ec120d67-f610-401b-951f-1d3eed3b8c81&ccId=19000101_000001', 'adp', 'AC Martin'),
-    ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=8c2ce031-179d-42b4-a000-63d144542ca1&ccId=19000101_000001', 'adp', 'Alliance Global Group LLC'),
+    ('https://www.aggteam.com/careers/', 'wordpressjobs', 'Alliance Global Group LLC'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=192c7ab1-36a7-48c9-9186-174a757f98b7&ccId=19000101_000001', 'adp', 'Cadogan Tate Fine Art'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=4184cb67-fb9d-40ea-8c3c-8a85d93caa67&ccId=19000101_000001', 'adp', 'CRL Technologies'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=5b62f5eb-3ce4-4e86-a6be-8f21bd42f616&ccId=19000101_000001', 'adp', 'J. KOKOLAKIS CONTRACTING'),
@@ -1965,7 +1965,7 @@ RECOVERED_BOARDS = [
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=38d65de7-85eb-475d-bb5c-7d593bfeacc7&ccId=19000101_000001', 'adp', 'Wooddale Church'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=6d193cfe-9ce7-4dac-9ccc-c8a4c3a6c3d0&ccId=19000101_000001', 'adp', 'Crystal Taylor Systems Inc'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=5588a3f1-8a58-42f6-bca4-c9f5830f9517&ccId=19000101_000001', 'adp', 'ICM Ventures Inc'),
-    ('https://workforcenow.cloud.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=df51eab9-9a3a-48f5-8440-c6187a31b733&ccId=19000101_000001', 'adp', 'Maylor Foundation Contractors LLC'),
+    ('https://maylorusa.com/company/careers/', 'wordpressjobs', 'Maylor Foundation Contractors LLC'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=e5e982ff-c68b-47fb-8a91-74bb4dd79879&ccId=19000101_000001', 'adp', 'AI Signal Research Inc (ASRI)'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=0d8aa8d2-61de-4f86-9246-49b6b8e29002&ccId=9202333123210_3', 'adp', 'Blackrock Strategy'),
     ('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=23354965-305e-4328-8f00-d2192aa6b2d5&ccId=19000101_000001', 'adp', 'Niterra'),
@@ -2064,7 +2064,7 @@ SUPPORTED_PUBLIC_BOARDS = [
     ('https://careers-i2gsystems.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'i2G Systems'),
     ('https://careers-tatitlek.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'The Tatitlek Corporation'),
     ('https://careers-clarkson.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Clarkson University'),
-    ('https://careers-nv5.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'NV5'),
+    ('https://uscareers-nv5jobs.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'NV5'),
     ('https://uscareers-lewisenergy.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Lewis Resource Management'),
     ('https://talent-cajunusa.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Cajun Industries, LLC'),
     ('https://neboagency.applytojob.com/apply', 'jazzhr', 'Nebo Agency'),
@@ -4214,81 +4214,235 @@ def scrape_jobright(board_url):
     return rows
 
 
-# ---- Meta (metacareers.com): no public feed, so drive a headless browser ----
-# Meta's careers site is a Facebook Relay/GraphQL app: a plain HTTP request gets a 400,
-# the jobs aren't in the page HTML, and the job-search query needs a CSRF token + a
-# doc_id that rotates on every Meta deploy. Rather than reverse-engineer (and constantly
-# re-fix) that, we load the page in a headless browser and CAPTURE the GraphQL response
-# it fires on load — which returns the whole default board (~500 postings, US + intl) in
-# ONE payload. main()'s title + US filter then trims it down. Needs Playwright — the same
-# optional dep the Workday boards used to need:
-#     pip install playwright && playwright install chromium
+# ---- Meta: read the public site's own unfiltered count and complete catalog ----
+# Discover rotating Relay IDs in scripts linked by the anonymous careers page.
+# Use a browser only when that public HTTP bootstrap becomes unavailable.
+# Python 3.9 hosts need Playwright 1.60.0 (newer releases require Python 3.10).
 METACAREERS_JOBS_URL = "https://www.metacareers.com/jobs/"
 
 
+class _MetaBootstrapError(RuntimeError):
+    """The anonymous page's current public query configuration is unavailable."""
+
+
+def _metacareers_http_payloads():
+    """Replay only the site's anonymous public queries; never persist session tokens."""
+    from scraper.infosys import PartialScrapeError
+    origin, target = "https://www.metacareers.com", "https://www.metacareers.com/jobsearch/"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            "(KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+               "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+               "Accept-Language": "en-US,en;q=0.9", "Sec-Fetch-Dest": "document",
+               "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Upgrade-Insecure-Requests": "1"}
+    # A fresh anonymous session avoids importing applicant/account cookies from the
+    # pipeline's shared Session. LSD is a public page token, used only in memory.
+    with requests.Session() as session:
+        try:
+            response = session.get(target, headers=headers, timeout=20, allow_redirects=False)
+            response.raise_for_status()
+            token = re.search(r'\["LSD",\[\],\{"token":"([^"\\]+)"', response.text)
+            if not token:
+                raise ValueError("public page token missing")
+            soup = BeautifulSoup(response.text, "html.parser")
+            names = ("CareersJobSearchHideFiltersBarV2Query", "CareersJobSearchResultsV2DataQuery")
+            queries = {}
+            scripts = []
+            for tag in soup.find_all("script", src=True):
+                url = tag["src"]
+                parsed = urlparse(url)
+                if (parsed.scheme == "https" and parsed.hostname == "static.xx.fbcdn.net"
+                        and parsed.path.startswith("/rsrc.php/") and not parsed.port
+                        and not parsed.username and not parsed.password and url not in scripts):
+                    scripts.append(url)
+            for url in scripts[:12]:
+                script = session.get(url, headers=headers, timeout=20, allow_redirects=False)
+                script.raise_for_status()
+                for name in names:
+                    match = re.search(re.escape(name) + r'_candidate_portalRelayOperation"[^\n]{0,250}?exports="(\d+)"', script.text)
+                    if match:
+                        queries[name] = match[1]
+                if len(queries) == len(names):
+                    break
+            if len(queries) != len(names):
+                raise ValueError("current public count/catalog query IDs missing")
+        except Exception as exc:
+            raise _MetaBootstrapError("Meta public HTTP bootstrap unavailable: %s" % type(exc).__name__) from exc
+        search = {"q": None, "divisions": [], "offices": [], "roles": [], "leadership_levels": [],
+                  "saved_jobs": [], "saved_searches": [], "sub_teams": [], "teams": [],
+                  "is_leadership": False, "is_remote_only": False, "sort_by_new": False,
+                  "results_per_page": None}
+        query_variables = [{"search_input": dict(search, page=1)},
+                           {"search_input": search, "viewasUserID": None, "isLoggedIn": False}]
+        api_headers = dict(headers, **{"X-FB-LSD": token[1], "Origin": origin, "Referer": target,
+                                      "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors",
+                                      "Sec-Fetch-Site": "same-origin", "Accept": "*/*"})
+        payloads = []
+        try:
+            for name, variables in zip(names, query_variables):
+                response = session.post(origin + "/graphql", headers=api_headers, timeout=25,
+                                        data={"av": "0", "__user": "0", "__a": "1",
+                                              "fb_api_caller_class": "RelayModern", "fb_api_req_friendly_name": name,
+                                              "variables": json.dumps(variables, separators=(",", ":")),
+                                              "server_timestamps": "true", "doc_id": queries[name], "lsd": token[1]},
+                                        allow_redirects=False)
+                response.raise_for_status()
+                payloads.append(response.text)
+        except Exception as exc:
+            try:
+                rows = _metacareers_payload_rows(payloads)
+            except PartialScrapeError as partial:
+                rows = partial.rows
+            raise PartialScrapeError("Meta public query incomplete: %s" % type(exc).__name__, rows) from exc
+        return payloads
+
+
+def _metacareers_payload_rows(payloads):
+    """Require the advertised all-jobs count; retain every readable row on failure."""
+    from scraper.infosys import PartialScrapeError
+    rows, seen, all_ids, counts, errors = [], {}, set(), set(), []
+    have_catalog = False
+    for body in payloads:
+        for line in body.split("\n"):
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ValueError("non-object GraphQL response")
+                if value.get("errors"):
+                    errors.append("GraphQL returned errors")
+                data = value.get("data")
+                if not isinstance(data, dict):
+                    raise ValueError("missing GraphQL data")
+                for key in ("job_search_with_featured_jobs", "job_search_with_featured_jobs_v2"):
+                    if key not in data:
+                        continue
+                    block = data[key]
+                    if not isinstance(block, dict):
+                        raise ValueError("missing job-search object")
+                    if "job_count" in block:
+                        count = block["job_count"]
+                        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                            errors.append("invalid job count")
+                        else:
+                            counts.add(count)
+                    for list_key in ("all_jobs", "featured_jobs"):
+                        if list_key not in block:
+                            continue
+                        jobs = block[list_key]
+                        if not isinstance(jobs, list):
+                            errors.append("invalid %s list" % list_key)
+                            continue
+                        if list_key == "all_jobs":
+                            have_catalog = True
+                        page_ids = set()
+                        for job in jobs:
+                            try:
+                                if not isinstance(job, dict):
+                                    raise ValueError("non-object posting")
+                                jid, title, locs = job.get("id"), job.get("title"), job.get("locations")
+                                if not isinstance(jid, str) or not re.fullmatch(r"\d+", jid):
+                                    raise ValueError("invalid public job ID")
+                                if not isinstance(title, str) or not title.strip():
+                                    raise ValueError("missing posting title")
+                                if not isinstance(locs, list) or any(not isinstance(loc, str) for loc in locs):
+                                    raise ValueError("invalid posting locations")
+                                if jid in page_ids:
+                                    errors.append("duplicate ID inside %s" % list_key)
+                                page_ids.add(jid)
+                                locs = [loc.strip() for loc in locs if loc.strip()]
+                                loc = next((loc for loc in locs if is_us_location(loc)), "; ".join(locs))
+                                row = {"title": title.strip(), "url": "https://www.metacareers.com/jobs/%s/" % jid,
+                                       "location": loc}
+                                if list_key == "all_jobs":
+                                    all_ids.add(jid)
+                                if jid in seen and seen[jid] != row:
+                                    errors.append("conflicting posting for ID %s" % jid)
+                                if jid not in seen:
+                                    seen[jid] = row
+                                    rows.append(row)
+                            except (TypeError, ValueError) as exc:
+                                errors.append(str(exc))
+            except (TypeError, ValueError) as exc:
+                errors.append(str(exc))
+    if not have_catalog:
+        errors.append("no all-jobs catalog payload")
+    if len(counts) != 1:
+        errors.append("missing or changing advertised count")
+    elif len(all_ids) != next(iter(counts)):
+        errors.append("read %d of %d advertised all-jobs postings" % (len(all_ids), next(iter(counts))))
+    if errors:
+        raise PartialScrapeError("Meta listing incomplete: " + "; ".join(dict.fromkeys(errors))[:240], rows)
+    # Featured jobs can be additional postings outside all_jobs. Preserve those too,
+    # while comparing the count against only the catalog it describes.
+    return rows
+
+
 def scrape_metacareers(board_url):
-    """Meta's own careers site via headless-browser GraphQL capture (Meta has no public
-    job API). board_url is the metacareers jobs page; returns [{title,url,location}, ...].
-    NOTE: this grabs Meta's DEFAULT job payload (~500 roles), not its full multi-thousand
-    catalogue — that's plenty for the entry-level PM/analyst/ops titles the filter keeps."""
+    """Capture Meta's public unfiltered catalog and independently advertised count."""
+    from scraper.infosys import PartialScrapeError
+    parsed = urlparse(board_url or METACAREERS_JOBS_URL)
+    if (parsed.scheme != "https" or parsed.hostname not in {"www.metacareers.com", "metacareers.com"}
+            or parsed.path.rstrip("/") not in {"/jobs", "/jobsearch"} or parsed.query or parsed.fragment
+            or parsed.username or parsed.password or parsed.port):
+        raise ValueError("Meta requires its public unfiltered jobs page")
+    try:
+        return _metacareers_payload_rows(_metacareers_http_payloads())
+    except _MetaBootstrapError:
+        pass
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         raise RuntimeError(
             "Meta needs a browser. Install it once:\n"
-            "    pip install playwright && playwright install chromium")
-    target = board_url if "metacareers.com" in (board_url or "") else METACAREERS_JOBS_URL
+            "    pip install playwright==1.60.0 && python -m playwright install chromium")
     payloads = []
+    capture_errors = []
 
     def _grab(resp):
-        # Read the body of every careers GraphQL POST; keep the one carrying the job list.
+        # Only the exact public careers endpoint, with no account requests or tokens saved.
+        endpoint = urlparse(resp.url)
+        if (endpoint.hostname != "www.metacareers.com" or endpoint.path != "/graphql"
+                or resp.request.method != "POST"):
+            return
         try:
-            if "/graphql" in resp.url and resp.request.method == "POST":
-                body = resp.text()
-                if "all_jobs" in body or "job_search_with_featured_jobs" in body:
-                    payloads.append(body)
-        except Exception:
-            pass
+            body = resp.text()
+            if "job_search_with_featured_jobs" in body or "all_jobs" in body:
+                payloads.append(body)
+                if resp.status != 200:
+                    capture_errors.append("job-search HTTP %d" % resp.status)
+        except Exception as exc:
+            capture_errors.append("unreadable GraphQL response: %s" % type(exc).__name__)
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        try:
-            page = browser.new_page(user_agent=HEADERS["User-Agent"])
-            page.on("response", _grab)
-            page.goto(target, wait_until="domcontentloaded", timeout=45000)
-            for _ in range(60):                 # poll up to ~30s for the jobs payload
-                if payloads:
-                    break
-                page.wait_for_timeout(500)
-        finally:
-            browser.close()
-
-    rows, seen = [], set()
-    for body in payloads:
-        for line in body.splitlines():          # Meta can stream >1 JSON object (@defer)
-            line = line.strip()
-            if not line:
-                continue
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
             try:
-                d = json.loads(line)
-            except Exception:
-                continue
-            block = (d.get("data") or {}).get("job_search_with_featured_jobs") or {}
-            jobs = (block.get("all_jobs") or []) + (block.get("featured_jobs") or [])
-            for j in jobs:
-                jid = str(j.get("id") or "")
-                if not jid or jid in seen:
-                    continue
-                seen.add(jid)
-                locs = [str(x).strip() for x in (j.get("locations") or []) if x]
-                # Many Meta roles are multi-city; surface a US location when there is one
-                # so the US filter keeps the role, else show them all and let it drop.
-                loc = next((l for l in locs if is_us_location(l)), "; ".join(locs))
-                rows.append({
-                    "title": (j.get("title") or "").strip(),
-                    "url": "https://www.metacareers.com/jobs/%s/" % jid,
-                    "location": loc,
-                })
+                page = browser.new_page()
+                page.on("response", _grab)
+                response = page.goto(METACAREERS_JOBS_URL, wait_until="domcontentloaded", timeout=45000)
+                if response is None or response.status != 200:
+                    raise RuntimeError("public jobs page unavailable")
+                for _ in range(60):
+                    if payloads:
+                        try:
+                            _metacareers_payload_rows(payloads)
+                            break
+                        except PartialScrapeError:
+                            pass  # The count and catalog arrive in separate responses.
+                    page.wait_for_timeout(500)
+            finally:
+                browser.close()
+    except Exception as exc:
+        capture_errors.append("browser capture failed: %s: %s" % (type(exc).__name__, str(exc)[:120]))
+    try:
+        rows = _metacareers_payload_rows(payloads)
+    except PartialScrapeError as exc:
+        if capture_errors:
+            raise PartialScrapeError(str(exc) + "; " + "; ".join(capture_errors)[:160], exc.rows) from exc
+        raise
+    if capture_errors:
+        raise PartialScrapeError("Meta listing incomplete: " + "; ".join(capture_errors)[:240], rows)
     return rows
 
 
@@ -4496,72 +4650,10 @@ def _phenom_body(offset, size):
             "global": True, "selected_fields": {}, "locationData": {}}
 
 
-# Phenom results come back "Most recent" first, so even when a giant tenant exceeds
-# the cap we only lose its OLDEST tail (Actalent: 5.2k postings — cap audited 2026-06-11).
-PHENOM_MAX_JOBS = 6000
-
-
 def scrape_phenom(board_url):
-    """Phenom People career sites (careers.<company>.com / jobs.<company>.com) via the
-    public POST /widgets JSON their own search uses. board_url is the careers origin.
-    NOTE: many Phenom tenants are a front-end for Workday — their applyUrl points at
-    myworkdayjobs — and detect_phenom() returns the Workday board instead in that case
-    (better data + JD support). This scraper is for tenants that are Phenom-native."""
-    p = urlparse(board_url)
-    base = "%s://%s" % (p.scheme or "https", p.netloc)
-    rows, seen, offset, total = [], set(), 0, None
-    while offset < PHENOM_MAX_JOBS:
-        try:
-            r = _safe_post(base + "/widgets", _phenom_body(offset, 100), timeout=25)
-        except ValueError:
-            break                                     # non-public host -> refuse (SSRF guard)
-        if r.status_code != 200:
-            break
-        d = (r.json() or {}).get("refineSearch") or {}
-        if total is None:
-            total = d.get("totalHits") or 0
-        jobs = (d.get("data") or {}).get("jobs") or []
-        if not jobs:
-            break
-        for j in jobs:
-            url = j.get("applyUrl") or ""
-            if not is_http_url(url):                  # native tenants: build the job-page link
-                jid = j.get("jobId") or ""
-                url = "%s/us/en/job/%s" % (base, jid) if jid else ""
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            loc = ", ".join(x for x in (j.get("city"), j.get("state"), j.get("country")) if x) \
-                  or (j.get("cityState") or "")
-            row = {"title": (j.get("title") or "").strip(), "url": url,
-                   "location": loc,
-                   "found_date": (str(j.get("postedDate") or j.get("dateCreated") or ""))[:10]}
-            # CARRY THE ID FORWARD, because for a Phenom tenant with an external applyUrl the
-            # stored url is the ONLY thing about this posting that cannot be read later.
-            #
-            # Actalent is the case that proves it. Its applyUrl is a Salesforce Lightning app
-            # that serves one 448,446-byte shell for every job -- byte-identical across four
-            # postings, measured -- so detail_jd gets nothing from the row we store. The
-            # description is available the whole time from this tenant's own jobDetail widget,
-            # keyed by exactly the id sitting in this response.
-            #
-            # And the window is SHORT. Measured 2026-09-01 against the live board: of 755
-            # Actalent rows the feed was calling "JD pending", only 31 (4.1%) were still listed.
-            # 724 had already left. Coming back for the description a few hours later loses that
-            # race ~96% of the time, which is why this is captured here rather than queued for
-            # score_jobs. FIELDNAMES filters the row on the way into the database, so these two
-            # keys never reach a column.
-            if j.get("jobId"):
-                row["_phenom_jid"] = j["jobId"]
-                row["_phenom_origin"] = base
-            rows.append(row)
-        offset += len(jobs)
-        if total and offset >= total:
-            break
-        time.sleep(random.uniform(0.2, 0.5))
-    else:
-        note_truncation(board_url, offset, PHENOM_MAX_JOBS, total)
-    return rows
+    """Read the complete public Phenom listing, preserving rows on partial failure."""
+    from scraper.phenom import scrape_phenom as native_scrape
+    return native_scrape(board_url)
 
 
 # ---- Oracle Cloud Recruiting (ORC) — {tenant}.oraclecloud.com career sites ----
@@ -5592,6 +5684,7 @@ PEOPLESOFT_MAX_HOPS = 40
 _PS_ROW_FIELDS = (("title", "SCH_JOB_TITLE"),
                   ("location", "LOCATION"),
                   ("job_id", "HRS_APP_JBSCH_I_HRS_JOB_OPENING_ID"),
+                  ("company", "TX_TAM_JSCH_WRK_TX_TAM_AGENCY_NAME"),
                   ("opened", "SCH_OPENED"))
 _PS_TOTAL_RE = re.compile(r"([\d,]+)\s+jobs?\s+found", re.I)
 
@@ -5625,6 +5718,54 @@ def _peoplesoft_site_id(url):
     if len(set(values)) != 1 or not re.fullmatch(r"[0-9]{1,10}", values[0]):
         raise ValueError("Invalid or conflicting PeopleSoft SiteId")
     return values[0]
+
+
+def _peoplesoft_company(url):
+    """Our persisted scope selector, applied through the public Company checkbox.
+
+    PeopleSoft does not consume this GET parameter. Resolve the exact employer
+    label from the current public facet on every run; never reuse checkbox IDs.
+    """
+    values = [v for k, vals in parse_qs(urlparse(url or "").query, keep_blank_values=True).items()
+              if k.lower() == "company" for v in vals]
+    if not values:
+        return ""
+    if len(values) != 1 or not values[0].strip() or len(values[0]) > 200:
+        raise ValueError("Invalid or conflicting PeopleSoft Company scope")
+    return " ".join(values[0].split())
+
+
+def _ps_markup(text):
+    """Ajax responses carry the updated HTML in CDATA fields."""
+    return "\n".join(re.findall(r"<!\[CDATA\[(.*?)\]\]>", text or "", re.S)) or text or ""
+
+
+def _ps_facets(text):
+    groups = []
+    for group in BeautifulSoup(_ps_markup(text), "html.parser").select("div.facet_group_box"):
+        heading = group.select_one("h2")
+        options = []
+        for box in group.select('input[type="checkbox"]'):
+            label = box.get("title") or ""
+            match = re.fullmatch(r"(.*?)\s*\(([\d,]+)\)\s*", label)
+            action = box.get("id") or ""
+            if match and re.fullmatch(r"PTS_SELECT\$\d+", action):
+                options.append({"label": match[1].strip(), "count": int(match[2].replace(",", "")),
+                                "action": action})
+        if heading and options:
+            groups.append((heading.get_text(" ", strip=True), options))
+    return groups
+
+
+def _ps_total(text):
+    match = _PS_TOTAL_RE.search(re.sub(r"<[^>]+>", " ", text or ""))
+    return int(match[1].replace(",", "")) if match else None
+
+
+def _ps_cap(text):
+    plain = re.sub(r"<[^>]+>", " ", text or "")
+    match = re.search(r"Only\s+the\s+first\s+([\d,]+)\s+jobs?\s+can\s+be\s+displayed", plain, re.I)
+    return int(match[1].replace(",", "")) if match else None
 
 
 def _ps_job_url(origin, site, job_id, gbl=None, site_id="1"):
@@ -5676,67 +5817,149 @@ def scrape_peoplesoft(board_url):
 
 def _scrape_peoplesoft(board_url):
     """PeopleSoft Candidate Gateway. Anonymous, no API key, no browser."""
+    from html import unescape
+    from scraper.infosys import PartialScrapeError
     origin, site = _peoplesoft_parts(board_url)
     if not origin:
         return []
     gbl = _peoplesoft_gbl(board_url)
     site_id = _peoplesoft_site_id(board_url)
+    company = _peoplesoft_company(board_url)
+    company_key = " ".join(unescape(company).split()).casefold()
     listing = "%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=%s&FOCUS=Applicant" % (origin, site, gbl, site_id)
     try:
         # Guest session and component must preserve the same employer/campus scope.
         _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=%s&FOCUS=Applicant"
                   % (origin, site, gbl, site_id), timeout=25)
         r = _safe_get(listing, timeout=30)
-    except ValueError:
-        return []                                   # non-public host -> refuse (SSRF guard)
+    except (ValueError, requests.RequestException) as exc:
+        raise PartialScrapeError("PeopleSoft guest/listing request failed: %s" % type(exc).__name__, []) from exc
     if r.status_code != 200:
-        return []
-    rows = _ps_rows(r.text)
-    m = _PS_TOTAL_RE.search(re.sub(r"<[^>]+>", " ", r.text))
-    total = int(m.group(1).replace(",", "")) if m else None
+        raise PartialScrapeError("PeopleSoft listing HTTP %s" % r.status_code, [])
+    total = _ps_total(r.text)
+    if total is None:
+        raise PartialScrapeError("PeopleSoft public advertised count is absent", [])
     snum, sid = _ps_state(r.text)
-
+    combined = {}
     hops = 0
-    while (rows and len(rows) < PEOPLESOFT_MAX_ROWS and hops < PEOPLESOFT_MAX_HOPS
-           and (not total or len(rows) < total)):
+
+    def converted():
+        out = []
+        for row in combined.values():
+            job = {"title": row["title"], "url": _ps_job_url(origin, site, row["job_id"], gbl, site_id),
+                   "location": row.get("location", "")}
+            if company:
+                job["company"] = company
+            elif row.get("company"):
+                job["company"] = row["company"]
+            date = _ps_date(row.get("opened"))
+            if date:
+                job["found_date"] = date
+            out.append(job)
+        return out
+
+    def fail(message):
+        raise PartialScrapeError(message, converted())
+
+    def post(action, checkbox=None, checked=True):
+        nonlocal snum, sid, hops
+        if hops >= PEOPLESOFT_MAX_HOPS:
+            note_truncation(board_url, len(combined), PEOPLESOFT_MAX_ROWS, total)
+            fail("PeopleSoft reached its interaction limit before completing the board")
+        fields = {
+            "ICAJAX": "1", "ICNAVTYPEDROPDOWN": "0", "ICType": "Panel", "ICElementNum": "0",
+            "ICStateNum": snum, "ICAction": action, "ICModelCancel": "0",
+            "ICXPos": "0", "ICYPos": "0", "ResponsetoDiffFrame": "-1",
+            "TargetFrameName": "None", "FacetPath": "None", "ICFocus": "",
+            "ICSaveWarningFilter": "0", "ICChanged": "-1", "ICResubmit": "0", "ICSID": sid,
+        }
+        if checkbox:
+            fields[checkbox.replace("$", "$chk$", 1)] = "Y" if checked else "N"
+            if checked:
+                fields[checkbox] = "Y"
         hops += 1
         try:
-            more = _safe_form_post(listing, {
-                "ICAJAX": "1", "ICNAVTYPEDROPDOWN": "0", "ICType": "Panel", "ICElementNum": "0",
-                "ICStateNum": snum, "ICAction": "HRS_AGNT_RSLT_I$hdown$0", "ICModelCancel": "0",
-                "ICXPos": "0", "ICYPos": "0", "ResponsetoDiffFrame": "-1",
-                "TargetFrameName": "None", "FacetPath": "None", "ICFocus": "",
-                "ICSaveWarningFilter": "0", "ICChanged": "-1", "ICResubmit": "0", "ICSID": sid,
-            }, headers=dict(HEADERS, **{"X-Requested-With": "XMLHttpRequest", "Referer": listing}))
-        except ValueError:
-            break
+            more = _safe_form_post(listing, fields,
+                headers=dict(HEADERS, **{"X-Requested-With": "XMLHttpRequest", "Referer": listing}))
+        except (ValueError, requests.RequestException) as exc:
+            raise PartialScrapeError("PeopleSoft pagination failed: %s" % type(exc).__name__, converted()) from exc
         if more.status_code != 200:
-            break
-        grown = _ps_rows(more.text)
-        if len(grown) <= len(rows):                 # the grid stopped growing = end of list
-            break
-        rows = grown
+            fail("PeopleSoft pagination HTTP %s" % more.status_code)
         snum, sid2 = _ps_state(more.text, snum)
         sid = sid2 or sid
         time.sleep(random.uniform(0.2, 0.5))
-    if len(rows) >= PEOPLESOFT_MAX_ROWS or hops >= PEOPLESOFT_MAX_HOPS:
-        note_truncation(board_url, len(rows), PEOPLESOFT_MAX_ROWS, total)
+        return more.text
 
-    out = []
-    for row in rows:
-        title, jid = row.get("title", ""), row.get("job_id", "")
-        if not (title and jid):
-            continue
-        job = {"title": title, "url": _ps_job_url(origin, site, jid, gbl, site_id),
-               "location": row.get("location", "")}
-        d = _ps_date(row.get("opened"))             # a REAL posting date, not a found-date
-        if d:
-            job["found_date"] = d
-        out.append(job)
-    if total is not None and len(out) != total:
-        from scraper.infosys import PartialScrapeError
-        raise PartialScrapeError("PeopleSoft returned %d of %d advertised postings" % (len(out), total), out)
-    return out
+    def read_grid(text, expected):
+        previous = set()
+        while True:
+            if _ps_total(text) not in (None, expected):
+                fail("PeopleSoft advertised count changed during pagination")
+            rows = _ps_rows(text)
+            current = set()
+            for row in rows:
+                jid = row.get("job_id", "")
+                if not row.get("title") or not re.fullmatch(r"\d+", jid):
+                    fail("PeopleSoft result row is missing posting identity")
+                if company_key and " ".join(unescape(row.get("company", "")).split()).casefold() != company_key:
+                    fail("PeopleSoft result row disagrees with the selected Company")
+                current.add(jid)
+                combined[jid] = row
+            if len(current) == expected:
+                return
+            if len(combined) >= PEOPLESOFT_MAX_ROWS:
+                note_truncation(board_url, len(combined), PEOPLESOFT_MAX_ROWS, total)
+                fail("PeopleSoft reached its row limit before completing the board")
+            if not current or len(current) <= len(previous):
+                fail("PeopleSoft returned %d of %d advertised postings" % (len(current), expected))
+            previous = current
+            text = post("HRS_AGNT_RSLT_I$hdown$0")
+
+    text = r.text
+    if company:
+        options = [option for heading, options in _ps_facets(text) if heading.casefold() == "company"
+                   for option in options if " ".join(unescape(option["label"]).split()).casefold() == company_key]
+        if len(options) != 1:
+            fail("PeopleSoft requested Company is absent or ambiguous in the public facet")
+        option = options[0]
+        text = post(option["action"], option["action"])
+        total = _ps_total(text)
+        if total != option["count"]:
+            fail("PeopleSoft selected Company count disagrees with its public facet")
+
+    cap = _ps_cap(text)
+    if cap and total > cap:
+        plans = [(heading, options) for heading, options in _ps_facets(text)
+                 if len(options) > 1 and sum(o["count"] for o in options) == total
+                 and all(0 < o["count"] <= cap for o in options)]
+        if not plans:
+            # Preserve the readable first slice while keeping reconciliation blocked.
+            read_grid(text, total)
+            return converted()
+        heading, plan = min(plans, key=lambda group: len(group[1]))
+        for original in plan:
+            current = [option for name, options in _ps_facets(text) if name == heading
+                       for option in options if option["label"] == original["label"] and option["count"] == original["count"]]
+            if len(current) != 1:
+                fail("PeopleSoft partition facet changed during retrieval")
+            option = current[0]
+            selected = post(option["action"], option["action"])
+            if _ps_total(selected) != option["count"]:
+                fail("PeopleSoft partition count disagrees with its public facet")
+            # IDs in later facet groups change when an earlier group is filtered.
+            reset = [o for name, options in _ps_facets(selected) if name == heading
+                     for o in options if o["label"] == option["label"]]
+            if len(reset) != 1:
+                fail("PeopleSoft selected partition cannot be safely deselected")
+            read_grid(selected, option["count"])
+            text = post(reset[0]["action"], reset[0]["action"], checked=False)
+            if _ps_total(text) != total:
+                fail("PeopleSoft partition reset changed the original board scope/count")
+    else:
+        read_grid(text, total)
+    if len(combined) != total:
+        fail("PeopleSoft returned %d distinct postings of %d advertised postings" % (len(combined), total))
+    return converted()
 
 
 # ============================================================
@@ -7252,6 +7475,7 @@ from scraper.university import scrape_pageup, scrape_umich, scrape_ku
 from scraper.taleo import scrape_taleo
 from scraper.schooljobs import scrape_schooljobs
 from scraper.adp import scrape_adp
+from scraper.wordpressjobs import scrape_wordpressjobs
 from scraper.paycom import scrape_paycom
 from scraper.trinethire import scrape_trinethire
 from scraper.jazzhr import scrape_jazzhr
@@ -7259,9 +7483,11 @@ from scraper.icims import scrape_icims
 from scraper.cornerstone import scrape_cornerstone
 from scraper.gem import scrape_gem
 from scraper.dayforce import scrape_dayforce
+from scraper.darwinbox import scrape_darwinbox
 
 
 SCRAPERS = {
+    "darwinbox": scrape_darwinbox,
     "gem": scrape_gem,
     "dayforce": scrape_dayforce,
     "avature_links": scrape_avature_links,
@@ -7271,6 +7497,7 @@ SCRAPERS = {
     "jazzhr": scrape_jazzhr,
     "icims": scrape_icims,
     "adp": scrape_adp,
+    "wordpressjobs": scrape_wordpressjobs,
     "paycom": scrape_paycom,
     "trinethire": scrape_trinethire,
     "peopleadmin": scrape_peopleadmin,
@@ -7385,7 +7612,7 @@ def board_display_name(board_url, ats_type, timeout=15):
     and Ashby put a real company name. Workday and UltiPro render their titles client-side and
     so answer nothing -- hence the "" contract rather than a guess dressed up as an answer.
     """
-    if ats_type in ("gem", "dayforce"):
+    if ats_type in ("gem", "dayforce", "darwinbox"):
         from importlib import import_module
         identity_text = import_module("scraper." + ats_type).identity_text
         try:
@@ -7471,6 +7698,13 @@ def detect_board(url):
     host = p.netloc.lower()
     segs = [s for s in p.path.split("/") if s]
 
+    if host in ("www.aggteam.com", "maylorusa.com"):
+        from scraper.wordpressjobs import BOARDS, board_url
+        try:
+            return (board_url(url), "wordpressjobs", BOARDS[host][3])
+        except ValueError:
+            return None
+
     if host in ("jobs.gem.com", "jobs.dayforcehcm.com"):
         from importlib import import_module
         module = "gem" if host == "jobs.gem.com" else "dayforce"
@@ -7478,6 +7712,13 @@ def detect_board(url):
             board = import_module("scraper." + module).board_url(url)
             return (board, module, _name_from(segs[0]) if module == "gem" else "")
         except (ValueError, IndexError):
+            return None
+
+    if host_is(host, "darwinbox.com"):
+        from scraper.darwinbox import board_url
+        try:
+            return (board_url(url), "darwinbox", "")
+        except ValueError:
             return None
 
     if re.fullmatch(r"[a-z0-9-]+\.csod\.com", host):
@@ -7715,9 +7956,12 @@ def detect_board(url):
             name = name.upper() if (len(name) <= 4 and name.isalpha()) else _name_from(name)
             try:
                 site_id = _peoplesoft_site_id(url)
+                company = _peoplesoft_company(url)
             except ValueError:
                 return None
             scoped = ("?SiteId=" + site_id) if site_id != "1" else ""
+            if company:
+                scoped += ("&" if scoped else "?") + urlencode({"Company": company})
             return ("%s/psc/%s%s%s" % (origin, site, _peoplesoft_gbl(url), scoped),
                     "peoplesoft", name)
 
@@ -7849,6 +8093,7 @@ _ATS_LINK_RE = re.compile(
       | jobs\.ashbyhq\.com/[A-Za-z0-9_%.-]+
       | jobs\.gem\.com/[A-Za-z0-9_-]+
       | jobs\.dayforcehcm\.com/(?:[a-z]{2}-[a-z]{2,4}/)?[A-Za-z0-9_-]+/[A-Za-z0-9_-]+
+      | [a-z0-9-]+\.darwinbox\.com/ms/candidatev2/main/careers/(?:allJobs|home|jobDetails/[A-Za-z0-9_-]+)
       | jobs\.smartrecruiters\.com/[A-Za-z0-9_-]+
       | [a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/[A-Za-z0-9_/-]+
       | wd\d+\.myworkdaysite\.com/recruiting/[A-Za-z0-9_/-]+
@@ -8090,6 +8335,8 @@ def probe_board(board_url, ats_type):
         slug = board_url.rstrip("/").split("/")[-1]
         if ats_type == "gem":
             return len(scrape_gem(board_url))
+        if ats_type == "darwinbox":
+            return len(scrape_darwinbox(board_url))
         if ats_type == "dayforce":
             from scraper.dayforce import probe_dayforce
             return probe_dayforce(board_url)
@@ -8109,6 +8356,8 @@ def probe_board(board_url, ats_type):
         if ats_type == "adp":
             from scraper.adp import listing_page
             return listing_page(board_url, page_size=1)[1]
+        if ats_type == "wordpressjobs":
+            return len(scrape_wordpressjobs(board_url))
         if ats_type == "applicantpro":
             return len(scrape_applicantpro(board_url))
         if ats_type == "pageup":
@@ -8261,19 +8510,9 @@ def probe_board(board_url, ats_type):
         if ats_type == "paylocity":
             return len(scrape_paylocity(board_url)) or None
         if ats_type == "peoplesoft":
-            origin, site = _peoplesoft_parts(board_url)
-            ps_gbl = _peoplesoft_gbl(board_url)
-            if not origin:
-                return None
-            _safe_get("%s/psp/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U&SiteId=1&FOCUS=Applicant"
-                      % (origin, site, ps_gbl), timeout=15)   # guest cookie first
-            r = _safe_get("%s/psc/%s%s?Page=HRS_APP_SCHJOB_FL&Action=U"
-                          % (origin, site, ps_gbl), timeout=20)
-            if r.status_code != 200:
-                return None
-            m = _PS_TOTAL_RE.search(re.sub(r"<[^>]+>", " ", r.text))
-            # The stated total beats the row count: the grid only renders its first 50.
-            return int(m.group(1).replace(",", "")) if m else (len(_ps_rows(r.text)) or None)
+            # A shared portal's preview must apply the same exact Company/SiteId
+            # scope and completeness checks as the scheduled listing adapter.
+            return len(scrape_peoplesoft(board_url))
         if ats_type == "jobdiva":
             token = _jobdiva_token(board_url)
             jh = _jobdiva_session(token) if token else None
