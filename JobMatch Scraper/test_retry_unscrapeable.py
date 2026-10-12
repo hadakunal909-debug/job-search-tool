@@ -32,6 +32,15 @@ class RetryTests(unittest.TestCase):
             retry.append_json(p, {"complete": True})
             self.assertEqual(retry.read_jsonl(p), [{"complete": True}])
 
+    def test_unicode_separators_in_employer_and_title_are_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "checkpoint.jsonl"
+            evidence = {"company": "Acme\u2029Foods", "title": "Operations\u0085Coordinator\u2028II"}
+            following = {"complete": True}
+            p.write_text(json.dumps(evidence, ensure_ascii=False) + "\n" +
+                         json.dumps(following) + "\n", encoding="utf-8")
+            self.assertEqual(retry.read_jsonl(p), [evidence, following])
+
     def test_resume_recovers_completed_workers_once(self):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)

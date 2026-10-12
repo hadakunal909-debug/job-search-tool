@@ -879,7 +879,7 @@ EXTRA_BOARDS = [
     ("https://jobs.smartrecruiters.com/CEDSystems", "smartrecruiters", "CED Systems"),       # ~1
     ("https://jobs.smartrecruiters.com/ComfortKeepers", "smartrecruiters", "Comfort Keepers"), # ~1
     ("https://jobs.smartrecruiters.com/DGNTechnologies", "smartrecruiters", "DGN Technologies"), # ~1
-    ("https://job-boards.greenhouse.io/invoca", "greenhouse", "Invoca"),                     # ~1
+    ("https://careers.kula.ai/invoca", "kula", "Invoca"),                     # ~1
     ("https://jobs.smartrecruiters.com/LambWeston", "smartrecruiters", "Lamb Weston"),       # ~1
     ("https://jobs.smartrecruiters.com/MaineHealth", "smartrecruiters", "MaineHealth"),      # ~1
     ("https://jobs.smartrecruiters.com/Masimo", "smartrecruiters", "Masimo"),                # ~1
@@ -1016,7 +1016,7 @@ EXTRA_BOARDS = [
     ("https://jobs.ashbyhq.com/decagon", "ashby", "Decagon"),                                # ~125
     ("https://job-boards.greenhouse.io/lilasciences", "greenhouse", "Lila Sciences"),        # ~122
     ("https://jobs.smartrecruiters.com/StanfordMedicineChildrensHealth", "smartrecruiters", "Stanford Medicine Children's Health"), # ~116
-    ("https://job-boards.greenhouse.io/wayve", "greenhouse", "Wayve"),                       # ~106
+    ("https://jobs.ashbyhq.com/wayve", "ashby", "Wayve"),                       # ~106
     ("https://job-boards.greenhouse.io/thinkacademyus", "greenhouse", "Think Academy US"),   # ~105
     ("https://careers.andersen.com", "jibe", "Andersen Corporation"),                        # ~104
     ("https://meadhunt.jibeapply.com", "jibe", "Mead & Hunt, Inc."),                         # ~103

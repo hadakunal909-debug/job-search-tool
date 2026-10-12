@@ -81,7 +81,8 @@ def read_jsonl(path):
     if not Path(path).exists():
         return []
     rows = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    # JSONL uses LF boundaries; Unicode line separators can be valid field text.
+    for line in Path(path).read_text(encoding="utf-8").split("\n"):
         try:
             rows.append(json.loads(line))
         except json.JSONDecodeError:
