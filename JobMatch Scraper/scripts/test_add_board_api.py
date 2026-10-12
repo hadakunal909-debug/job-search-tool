@@ -14,7 +14,8 @@ refuses only None, and it prints the reason — so this is a PARITY test as much
 test: the two entry points to db.add_board must agree.
 
 Four things are asserted, all of them decisions the route makes rather than data it fetches, so
-probe_board / board_display_name / db.add_board are stubbed and nothing here needs the network:
+probe_board / board_display_name / board and wish writes are stubbed; live detectors
+are disabled so nothing here needs the network or touches application data:
 
   * every non-add carries a non-empty `error`   <- the actual bug
   * count None refuses, count 0 adds            <- parity with /add-board
@@ -44,7 +45,7 @@ def check(label, ok, extra=""):
 
 
 # ---------------------------------------------------------------------------------------------
-# Stubs. The route's job is to DECIDE; the three things it decides from are faked so this suite
+# Stubs. The route's job is to DECIDE; its fetches and writes are faked so this suite
 # stays offline and deterministic. _account_state is stubbed because CI has no database and
 # _ext_user checks the account only after the HMAC verifies — the token itself is real.
 # ---------------------------------------------------------------------------------------------
@@ -67,6 +68,7 @@ web._account_state = lambda u: {}
 web._rate_hit = lambda *a, **k: None
 
 writes = []
+wishes = []
 probe = {"n": 7}
 display = {"name": "Probe Fixture Inc"}
 
@@ -74,6 +76,16 @@ db.add_board = lambda url, ats, company, added_by="": (
     writes.append({"url": url, "ats": ats, "company": company}), (True, ""))[1]
 scraper.probe_board = lambda burl, ats: probe["n"]
 scraper.board_display_name = lambda burl, ats, timeout=15: display["name"]
+db.add_wish = lambda url, company="", reason="", source="", user="", note="": (
+    wishes.append({"url": url, "company": company, "reason": reason,
+                   "source": source, "user": user, "note": note}), True)[1]
+
+# Keep detect_board's pure URL rules real. Its fallback detectors fetch live pages,
+# and a failed ADD records a wish even when add_board is never reached. Stub both
+# boundaries so running this script with production credentials remains offline.
+for detector in ("detect_paylocity", "detect_jibe", "detect_phenom",
+                 "detect_successfactors", "detect_linked_ats", "detect_jsonld"):
+    setattr(scraper, detector, lambda *a, **k: None)
 
 with web.app.test_request_context():
     TOKEN = web._ext_token("probe-user")
@@ -111,6 +123,7 @@ del writes[:]
 _, j = call(url="https://example.com/not-a-board")
 check("no board found carries an error too", j.get("found") is False and bool(j.get("error")),
       "error=%r" % (j.get("error") or "")[:50])
+check("a check click does not request a wish", not wishes, "wishes=%r" % wishes)
 
 builtin = next(u for u, t, _ in scraper.SOURCES if t == "greenhouse")
 _, j = call(url=builtin, add=True, board_url=builtin, ats="greenhouse")
@@ -209,13 +222,23 @@ _, j = call(url="https://example.com/junk-page", add=True, board_url=GH, ats="no
 check("a pinned ats that is not a real scraper is refused",
       j.get("added") is not True and not writes,
       "added=%r writes=%r" % (j.get("added"), writes))
+check("an unreadable add records a wish only in memory",
+      j.get("can_wish") is True and j.get("wished") is True and wishes == [{
+          "url": "https://example.com/junk-page", "company": "X",
+          "reason": "no readable job board", "source": "extension",
+          "user": "probe-user", "note": ""}], "wishes=%r" % wishes)
 
 del writes[:]
+del wishes[:]
 _, j = call(url="https://example.com/junk", add=True,
             board_url="javascript:alert(1)", ats="greenhouse", name="X")
 check("a pinned board_url that is not a board is refused",
       j.get("added") is not True and not writes,
       "added=%r writes=%r" % (j.get("added"), writes))
+check("an invalid pinned board retains the original page as an in-memory wish",
+      j.get("wished") is True and len(wishes) == 1
+      and wishes[0]["url"] == "https://example.com/junk"
+      and wishes[0]["company"] == "X", "wishes=%r" % wishes)
 
 print()
 if fails:

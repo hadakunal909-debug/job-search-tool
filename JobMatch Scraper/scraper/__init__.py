@@ -8138,11 +8138,8 @@ def probe_board(board_url, ats_type):
             from scraper.tcs import HOST, listing_page
             return listing_page()[1] if urlparse(board_url).hostname == HOST else None
         if ats_type == "infosys":
-            from scraper.infosys import parse_page
-            r = _safe_get(board_url, timeout=15)
-            if r.status_code != 200:
-                return None
-            return parse_page(r.text, board_url)[2]
+            from scraper.infosys import probe_infosys
+            return probe_infosys(board_url)
         if ats_type == "box":
             from scraper.box import BOARD, parse_page
             r = _safe_get(BOARD, timeout=15)
