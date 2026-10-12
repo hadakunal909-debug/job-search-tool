@@ -123,6 +123,13 @@ def detail_jd(url):
     if r.status_code != 200:
         raise ValueError('Cornerstone detail endpoint redirected')
     result = r.json()
-    if result.get('status') != 'Success' or not isinstance(result.get('data'), dict):
-        raise ValueError('Cornerstone description schema is missing')
-    return BeautifulSoup(result['data'].get('externalDescription') or '', 'html.parser').get_text('\n', strip=True), ''
+    detail = result.get('data')
+    status = result.get('status')
+    numeric_success = type(status) is int and status == 0
+    if (not isinstance(detail, dict) or not (status == 'Success' or numeric_success)
+            or numeric_success and (detail.get('ref') != 'req' + match[1]
+                                    or not isinstance(detail.get('displayTitle'), str)
+                                    or not detail['displayTitle'].strip())
+            or detail.get('ref') is not None and detail['ref'] != 'req' + match[1]):
+        raise ValueError('Cornerstone description identity or schema is missing')
+    return BeautifulSoup(detail.get('externalDescription') or '', 'html.parser').get_text('\n', strip=True), ''

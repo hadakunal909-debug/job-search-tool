@@ -1158,6 +1158,13 @@ def detail_jd(url):
 
 
 def _detail_jd(url):
+    host = scraper.urlparse(url).hostname or ""
+    module = "clearcompany" if scraper.host_is(host, "hrmdirect.com") else (
+        "silkroad" if host in ("jobs.silkroad.com", "firstcommand.silkroad.com") else "")
+    if module:
+        from importlib import import_module
+        jd, date = import_module("scraper." + module).detail_jd(url)
+        return url, jd, date
     if scraper.host_is(scraper.urlparse(url).hostname or "", "darwinbox.com"):
         from scraper.darwinbox import detail_jd as darwinbox_detail_jd
         try:
@@ -1258,7 +1265,7 @@ def _detail_jd(url):
         jd = sr_detail_jd(url)
     if not jd and ("myworkdayjobs.com" in url or "myworkdaysite.com" in url):
         jd, date = wd_detail_jd(url)      # the CXS response carries the posting date too
-    if not jd and "oraclecloud.com" in url:
+    if not jd and scraper.host_is(host, "oraclecloud.com", "oraclegovcloud.com"):
         jd = oracle_detail_jd(url)
     if not jd and "apply.workable.com" in url and "/j/" in url:
         jd = workable_detail_jd(url)

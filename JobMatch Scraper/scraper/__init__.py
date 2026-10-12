@@ -479,7 +479,7 @@ EXTRA_BOARDS = [
     ("https://jobs.ashbyhq.com/etched", "ashby", "Etched"),                                  # ~109
     ("https://job-boards.greenhouse.io/geotab", "greenhouse", "Geotab"),                     # ~108
     ("https://jobs.ashbyhq.com/plaid", "ashby", "Plaid"),                                    # ~106
-    ("https://job-boards.greenhouse.io/postman", "greenhouse", "Postman"),                   # ~106
+    ("https://postman.wd108.myworkdayjobs.com/careers", "workday", "Postman"),                   # ~106
     ("https://job-boards.greenhouse.io/advancedtechnologyservices", "greenhouse", "Advanced Technology Services"), # ~105
     ("https://job-boards.greenhouse.io/freedomcare", "greenhouse", "Freedom Care"),          # ~102
     ("https://job-boards.greenhouse.io/nuro", "greenhouse", "Nuro"),                         # ~102
@@ -783,7 +783,7 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/syndigo", "greenhouse", "Syndigo"),                   # ~13
     ("https://job-boards.greenhouse.io/voxmedia", "greenhouse", "Vox Media"),                # ~13
     ('https://jobs.ashbyhq.com/concurrence', 'ashby', 'AMIGO'),                                    # ~12
-    ("https://jobs.lever.co/calstart", "lever", "CALSTART"),                                 # ~12
+    ("https://jobs.lever.co/CatalystMobility", "lever", "Catalyst Mobility"),                                 # ~12
     ("https://job-boards.greenhouse.io/capstoneinvestmentadvisors", "greenhouse", "Capstone Investment Advisors"), # ~12
     ("https://jobs.lever.co/duetti", "lever", "Duetti"),                                     # ~12
     ("https://job-boards.greenhouse.io/juullabs", "greenhouse", "Juul Labs"),                # ~12
@@ -1090,7 +1090,7 @@ EXTRA_BOARDS = [
     ("https://job-boards.greenhouse.io/oculartherapeutix", "greenhouse", "Ocular Therapeutix, Inc."), # ~24
     # OFI (olam food ingredients): REMOVED 2026-09-06. 30 postings, all Netherlands, China,
     # Ghana, India. Zero US rows on every run.
-    ("https://job-boards.greenhouse.io/berkadia", "greenhouse", "Berkadia"),                 # ~23
+    ("https://berkadia.wd1.myworkdayjobs.com/Berkadia", "workday", "Berkadia"),                 # ~23
     ("https://jobs.ashbyhq.com/oscilar", "ashby", "Oscilar"),                                # ~23
     ("https://job-boards.greenhouse.io/tebra", "greenhouse", "Tebra"),                       # ~23
     ("https://jobs.ashbyhq.com/versemedical", "ashby", "Verse Medical"),                     # ~23
@@ -2060,7 +2060,7 @@ SUPPORTED_PUBLIC_BOARDS = [
     ('https://careers-fedwriters.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'FWI (FedWriters, Inc.)'),
     ('https://alexandriainsights.applytojob.com/apply', 'jazzhr', 'Alexandria Insights'),
     ('https://careers-allnativegroup.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'All Native Group'),
-    ('https://ascensionjobs1-ascension.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Ascension'),
+    ('https://jobs.ascension.org/us/en/all-jobs', 'phenom', 'Ascension'),
     ('https://careers-i2gsystems.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'i2G Systems'),
     ('https://careers-tatitlek.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'The Tatitlek Corporation'),
     ('https://careers-clarkson.icims.com/jobs/search?ss=1&in_iframe=1', 'icims', 'Clarkson University'),
@@ -7484,10 +7484,14 @@ from scraper.cornerstone import scrape_cornerstone
 from scraper.gem import scrape_gem
 from scraper.dayforce import scrape_dayforce
 from scraper.darwinbox import scrape_darwinbox
+from scraper.clearcompany import scrape_clearcompany
+from scraper.silkroad import scrape_silkroad
 
 
 SCRAPERS = {
     "darwinbox": scrape_darwinbox,
+    "clearcompany": scrape_clearcompany,
+    "silkroad": scrape_silkroad,
     "gem": scrape_gem,
     "dayforce": scrape_dayforce,
     "avature_links": scrape_avature_links,
@@ -7612,7 +7616,13 @@ def board_display_name(board_url, ats_type, timeout=15):
     and Ashby put a real company name. Workday and UltiPro render their titles client-side and
     so answer nothing -- hence the "" contract rather than a guess dressed up as an answer.
     """
-    if ats_type in ("gem", "dayforce", "darwinbox"):
+    if ats_type == "clearcompany":
+        from scraper.clearcompany import board_name
+        try:
+            return board_name(board_url)
+        except Exception:
+            return ""
+    if ats_type in ("gem", "dayforce", "darwinbox", "silkroad"):
         from importlib import import_module
         identity_text = import_module("scraper." + ats_type).identity_text
         try:
@@ -7713,6 +7723,17 @@ def detect_board(url):
             return (board, module, _name_from(segs[0]) if module == "gem" else "")
         except (ValueError, IndexError):
             return None
+
+    if host_is(host, "hrmdirect.com"):
+        from scraper.clearcompany import board_url
+        try:
+            return (board_url(url), "clearcompany", "")
+        except ValueError:
+            return None
+    if host in ("jobs.silkroad.com", "firstcommand.silkroad.com", "firstcommand-careers.silkroad.com"):
+        from scraper.silkroad import board_url
+        board = board_url(url)
+        return (board, "silkroad", "") if board else None
 
     if host_is(host, "darwinbox.com"):
         from scraper.darwinbox import board_url
@@ -8094,6 +8115,9 @@ _ATS_LINK_RE = re.compile(
       | jobs\.gem\.com/[A-Za-z0-9_-]+
       | jobs\.dayforcehcm\.com/(?:[a-z]{2}-[a-z]{2,4}/)?[A-Za-z0-9_-]+/[A-Za-z0-9_-]+
       | [a-z0-9-]+\.darwinbox\.com/ms/candidatev2/main/careers/(?:allJobs|home|jobDetails/[A-Za-z0-9_-]+)
+      | [a-z0-9-]+\.hrmdirect\.com/employment/(?:index|job-openings|job-opening|view)\.php(?:\?[^\s<>"\']*)?
+      | jobs\.silkroad\.com/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+
+      | firstcommand\.silkroad\.com/epostings/\?[^\s<>"\']*
       | jobs\.smartrecruiters\.com/[A-Za-z0-9_-]+
       | [a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/[A-Za-z0-9_/-]+
       | wd\d+\.myworkdaysite\.com/recruiting/[A-Za-z0-9_/-]+
@@ -8333,6 +8357,8 @@ def probe_board(board_url, ats_type):
     (0 = reachable but empty; None = couldn't read it). Used to validate before saving."""
     try:
         slug = board_url.rstrip("/").split("/")[-1]
+        if ats_type in ("clearcompany", "silkroad"):
+            return len(SCRAPERS[ats_type](board_url))
         if ats_type == "gem":
             return len(scrape_gem(board_url))
         if ats_type == "darwinbox":
@@ -8884,6 +8910,12 @@ def _fetch_jd_queue(items, secs_left, label, score_jobs):
             if jid and origin:
                 return j, score_jobs.phenom_jd_by_id(origin, jid)
             url = canonical_url(j.get("url", ""))
+            if host_is(urlparse(url).hostname or "", "hrmdirect.com"):
+                from scraper.clearcompany import detail_job
+                detail = detail_job(url, expected_title=j.get("title", ""))
+                if detail.get("location") and not j.get("location"):
+                    j["location"] = detail["location"]
+                return j, detail["jd"]
             if re.fullmatch(r"[a-z0-9-]+\.icims\.com", urlparse(url).hostname or ""):
                 from scraper.icims import detail_fields
                 jd, posted, location = detail_fields(url)

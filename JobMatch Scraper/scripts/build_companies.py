@@ -1367,6 +1367,81 @@ _BACKLOG_SECTORS = {
 for _sector, _names in _BACKLOG_SECTORS.items():
     _CURATED_LISTS.setdefault(_sector, []).extend(_names)
 
+# October 12 company-backlog feeds: exact reviewed employer identities only.
+# Official employer profiles and full native JDs establish business sectors;
+# an ATS title/acronym is not a new employer or a broad keyword/alias rule.
+_OCTOBER_12_BACKLOG_SECTORS = {
+    'Software & Internet': [
+        'Postman',
+    ],
+    'IT Services & Consulting': [
+        'Steampunk',
+        'Boston Government Services, LLC',
+        'Dynamo Technologies',
+        'Castalia Systems',
+        'Ad Hoc',
+        'DSI Tech',
+        'Metric5',
+        'Sandoval Technology Solutions',
+        'Slipstream IT',
+        'The Marlin Alliance',
+        'Core4ce',
+    ],
+    'Banking, Finance & Insurance': [
+        'Berkadia',
+        'Blue Shield of California',
+        'First Command Financial Services',
+        'Wright-Patt Credit Union',
+    ],
+    'Healthcare, Pharma & Biotech': [
+        'The Henry M. Jackson Foundation for the Advancement of Military Medicine',
+        'JBS INTERNATIONAL, INC',
+        'National Association of County and City Health Officials',
+    ],
+    'Hospitals & Health Systems': [
+        'Ascension',
+        'NYU Langone Health',
+    ],
+    'Aerospace, Defense & Industrial': [
+        'Applied Research Solutions',
+        'Janus Research Group',
+        'Technical Consulting Solutions (TCS), Inc.',
+        'The Amatriot Group',
+        'Precise Systems',
+        'AmSpec LLC',
+        'Trex Company',
+    ],
+    'Energy & Utilities': [
+        'HomeWorks Energy, Inc',
+    ],
+    'Engineering, Construction & Real Estate': [
+        'EMCOR',
+        'Kimley-Horn',
+        'Dewberry',
+        'Gilbane',
+        'Partner Engineering and Science, Inc',
+        'Knobelsdorff (KE)',
+        'Barge Design Solutions, Inc.',
+        'Thermo Systems LLC',
+        'Ameritech Facility Services',
+        'Servpro Industries',
+        'Johnson, Mirmiran & Thompson',
+    ],
+    'Retail, Consumer & Hospitality': [
+        'King Arthur Baking Company',
+    ],
+    'Transport, Logistics & Automotive': [
+        'Catalyst Mobility',
+        'Dejana Truck and Utility Equipment',
+    ],
+    'Government & Public Sector': [
+        'State of Iowa',
+        'Pennsylvania Higher Education Assistance Agency (PHEAA)',
+    ],
+}
+for _sector, _names in _OCTOBER_12_BACKLOG_SECTORS.items():
+    _CURATED_LISTS.setdefault(_sector, []).extend(_names)
+
 CURATED = {core.norm_company(n): s for s, names in _CURATED_LISTS.items() for n in names}
 # The tail loses to the corrections block on a collision: _CURATED_LISTS was written against
 # measured traffic, the sweep was written from a name.
