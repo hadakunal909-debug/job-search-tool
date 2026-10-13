@@ -192,11 +192,10 @@ def test_the_second_rung_is_mid_and_not_senior():
         assert core.title_level(title) == "mid", (title, core.title_level(title))
 
 
-def test_a_mid_level_fails_a_two_year_ceiling_and_passes_a_five():
-    """Which is exactly what exp_level_for would have said from a year count: mid is 3-5."""
+def test_a_title_band_alone_cannot_satisfy_a_year_ceiling():
     r = {"title": "Software Engineer II", "level": "mid", "exp_eff": "", "exp_years": ""}
-    assert not core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="2", min=0))
-    assert core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="5", min=0))
+    for band in ("entry", "2", "3", "5"):
+        assert not core.prefs_match(r, dict(core.DEFAULT_PREFS, exp=band, min=0))
 
 
 def test_a_senior_word_still_beats_the_numeral():
@@ -213,20 +212,22 @@ def test_the_level_bands_are_the_inverse_of_exp_level_for():
 
 def test_a_stated_year_count_still_wins_over_the_title():
     """The employer's own number beats anything read off the title -- unchanged."""
-    r = {"title": "Technical Program Manager V", "level": "senior", "exp_eff": 1}
+    r = {"title": "Technical Program Manager V", "level": "senior", "exp_eff": 1, "exp_src": "stated"}
     assert core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="2", min=0))
 
 
-def test_a_row_we_could_not_read_at_all_is_still_kept():
-    """A posting with NEITHER signal is always kept -- many genuine entry-level posts state no
-    number. Only a row we have actually decided is SENIOR is dropped."""
+def test_unknown_experience_requires_any_experience():
     r = {"title": "Project Coordinator", "level": "", "exp_eff": ""}
-    assert core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="2", min=0))
+    assert not core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="2", min=0))
+    assert core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="any", min=0))
 
 
-def test_an_internship_is_exempt_however_it_is_titled():
-    r = {"title": "Program Manager Intern", "level": "entry", "exp_eff": "", "intern": True}
-    assert core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="2", min=0))
+def test_an_internship_must_satisfy_the_year_ceiling():
+    for years in (None, 5, 6, 7):
+        r = {"title": "Program Manager Intern", "level": "entry", "exp_eff": years,
+             "exp_src": "stated" if years is not None else "", "intern": True}
+        assert not core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="2", min=0))
+        assert not core.prefs_match(r, dict(core.DEFAULT_PREFS, exp="entry", min=0))
 
 
 def test_title_level_has_no_unreachable_second_half():

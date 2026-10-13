@@ -39,7 +39,31 @@ def check(name, cond, extra=""):
 # Keep every write in memory: this must never touch the real profiles table.
 db.get_profile = lambda u: dict(STORE)
 db.save_profile = lambda u, fields: (STORE.update(fields), (True, ""))[1]
-db.save_resume = lambda u, rec: (RESUMES.append(rec), (True, "id"))[1]
+def save_resume(u, rec):
+    rid = rec.get("id") or "id-%d" % (len(RESUMES) + 1)
+    target = next((r for r in RESUMES if r.get("id") == rid), None)
+    if target is None:
+        target = {"id": rid}
+        RESUMES.append(target)
+    target.update(rec)
+    return True, rid
+
+
+def set_active_resume(u, rid):
+    selected = next((row for row in RESUMES if row.get("id") == rid), None)
+    if selected is None:
+        return None
+    for row in RESUMES:
+        row["active"] = row.get("id") == rid
+    return dict(selected)
+
+
+db.save_resume = save_resume
+db.get_active_resume = lambda u: next((dict(r) for r in RESUMES if r.get("active")), {})
+db.set_active_resume = set_active_resume
+db.list_resumes = lambda u: [dict(r) for r in RESUMES]
+db.set_user_resume = lambda u, text: True
+web.current_resume = lambda: (db.get_active_resume(USER) or {}).get("content", "")
 web.current_profile = lambda: ""
 web._bust_profile = lambda user=None: None
 # login_required re-checks per request that the account still exists and is enabled. Stubbed
@@ -222,6 +246,25 @@ check("the rest of the saved search survives",
       sp.get("min") == 60 and sp.get("loc") == "boston" and sp.get("hideagency") is True,
       json.dumps({k: sp.get(k) for k in ("min", "loc", "hideagency")}))
 
+# A rejected role save must not look like an answered question or advance. In particular,
+# preserve a previously skipped question in extra until the preference write succeeds.
+STORE["extra"] = {"ev_off": True, "onboarding_unanswered": [2]}
+before_roles = dict(STORE)
+before_rows_cache = dict(web._rows_cache)
+saved_save_profile = web._save_profile
+try:
+    web._save_profile = lambda u, fields: (False, "rejected by in-memory store")
+    response = post(c, 2, roles=["ba"])
+    check("a rejected role save stays on question 2", "step=2" in response.headers.get("Location", ""))
+    check("a rejected role save leaves preferences and onboarding bookkeeping untouched", STORE == before_roles)
+    check("a rejected role save does not invalidate the current feed cache", web._rows_cache == before_rows_cache)
+finally:
+    web._save_profile = saved_save_profile
+
+response = post(c, 2, all_roles="1", roles=["ba"])
+check("Show me everything overrides previously checked roles and advances", (STORE.get("search_prefs") or {}).get("roles") == "" and "step=3" in response.headers.get("Location", ""))
+check("Show me everything records the role question as answered", 2 not in (STORE.get("extra") or {}).get("onboarding_unanswered", []))
+
 print("\n" + "=" * 74)
 print("a floor saved before the score was calibrated is not reinterpreted")
 print("=" * 74)
@@ -358,6 +401,106 @@ try:
     check("an empty submit saves nothing", not RESUMES)
 except ImportError:
     print("  (skipped — python-docx not installed)")
+
+print("\n" + "=" * 74)
+print("saved résumé correction: text survives, writes replace, errors stay put")
+print("=" * 74)
+from bs4 import BeautifulSoup
+
+RESUMES.clear()
+web._resume_cache.clear()
+STORE.clear()
+STORE.update({"notes": "keep this unrelated profile answer"})
+c = client()
+original = "Project coordinator\nSQL & Excel\n</textarea><script>fictional()</script>"
+
+# Exercise failure responses through the real helper, including the first library row.
+# Neither failure can update the cached resume or silently fall back to the legacy column.
+web._resume_cache[USER] = ("prior cached resume", 123.0)
+before_cache = dict(web._resume_cache)
+legacy_writes = []
+activation_calls = []
+saved_set_user_resume = db.set_user_resume
+try:
+    db.set_user_resume = lambda u, text: (legacy_writes.append((u, text)), True)[1]
+    db.save_resume = lambda u, rec: (False, "initial creation rejected")
+    db.set_active_resume = lambda u, rid: (activation_calls.append((u, rid)), None)[1]
+    response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": original})
+    check("a rejected first library creation is an API error without a success echo", response.get_json().get("ok") is False and "text" not in response.get_json())
+    check("a rejected creation preserves the prior cache without activation or legacy fallback", web._resume_cache == before_cache and not activation_calls and not legacy_writes and not RESUMES)
+
+    db.save_resume = save_resume
+    response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": original})
+    check("an activation returning None is an API error without a success echo", response.get_json().get("ok") is False and "text" not in response.get_json())
+    check("a failed activation preserves the prior cache without legacy fallback", web._resume_cache == before_cache and len(activation_calls) == 1 and not legacy_writes)
+finally:
+    db.save_resume = save_resume
+    db.set_active_resume = set_active_resume
+    db.set_user_resume = saved_set_user_resume
+    RESUMES.clear()
+    web._resume_cache.clear()
+
+response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": original})
+echo = response.get_json() or {}
+check("the API returns the exact saved text for editing", echo.get("ok") and echo.get("text") == original)
+check("the echo count describes that same text", echo.get("chars") == len(original))
+check("the saved résumé becomes active", web.current_resume() == original)
+
+# The fallback must remain useful when the bundle fails, and must not confuse résumé text
+# with the broader profile/story text used for scoring. HTML-significant input also checks
+# that correction content cannot break out of its textarea or JSON props block.
+web.current_profile = lambda: original + "\nA separate profile story must not enter the editor."
+soup = BeautifulSoup(c.get("/welcome?step=1").data, "html.parser")
+editor = soup.find("textarea", attrs={"name": "resume"})
+check("the no-JS editor contains the full existing text", editor is not None and editor.get_text() == original)
+check("the saved fallback offers both correction actions", {s.get_text(strip=True) for s in soup.find_all("summary")} >= {"Edit pasted text", "Replace file"})
+props = json.loads(soup.find("script", id="page-props").string)
+check("React props carry the active résumé, not profile stories", props.get("resumeText") == original and props.get("hasResume") is True)
+cancel_links = soup.find_all("a", string=lambda s: s and s.startswith("Cancel "))
+check("cancel links return without a write", len(cancel_links) == 2 and all(a.get("href") == "/welcome?step=1" for a in cancel_links))
+before = [dict(r) for r in RESUMES]
+c.get("/welcome?step=1")
+check("returning or cancelling leaves the saved résumé alone", RESUMES == before)
+web.current_profile = lambda: ""
+
+corrected = "Updated project coordinator résumé with Excel and SQL."
+response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": corrected})
+check("editing updates the existing active row instead of adding a duplicate", response.get_json().get("text") == corrected and len(RESUMES) == 1 and web.current_resume() == corrected)
+
+uploaded_text = "Replacement project coordinator résumé\nSQL, Excel, stakeholder communication."
+response = c.post("/api/onboard/resume", data={"resume_file": (io.BytesIO(uploaded_text.encode("utf-8")), "replacement.txt")}, headers={"X-CSRF-Token": token(c)}, content_type="multipart/form-data")
+check("an uploaded file returns extracted text ready for the same editor", response.get_json().get("text") == uploaded_text and web.current_resume() == uploaded_text and len(RESUMES) == 1)
+
+long_text = "Project coordinator SQL " + "x" * 60020
+response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": long_text})
+echo = response.get_json() or {}
+check("truncation and the editable echo agree with what was saved", echo.get("text") == long_text[:60000] and echo.get("chars") == 60000 and web.current_resume() == long_text[:60000])
+
+before = [dict(r) for r in RESUMES]
+before_cache = dict(web._resume_cache)
+db.save_resume = lambda u, rec: (False, "rejected by in-memory store")
+response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": "a failed replacement"})
+check("a false replacement write is an API error, never a success echo", response.get_json().get("ok") is False and "text" not in response.get_json())
+check("a failed replacement retains the selected résumé and cache", RESUMES == before and web._resume_cache == before_cache)
+response = post(c, 1, resume="a failed no-JS replacement")
+check("a failed fallback save stays on question 1", "step=1" in response.headers.get("Location", ""))
+check("the fallback failure preserves résumé and unrelated answers", RESUMES == before and STORE.get("notes") == "keep this unrelated profile answer")
+db.save_resume = save_resume
+
+response = c.post("/api/onboard/resume", data={"resume": "without CSRF"})
+check("the correction API rejects a missing CSRF token", response.status_code == 400 and RESUMES == before)
+response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume": "  "})
+check("an empty correction does not erase saved text", response.get_json().get("ok") is False and RESUMES == before)
+response = c.post("/api/onboard/resume", data={"_csrf": token(c), "resume_file": (io.BytesIO(b"unreadable pdf"), "replacement.pdf")}, content_type="multipart/form-data")
+check("an unreadable replacement file leaves the prior text selected", response.get_json().get("ok") is False and RESUMES == before)
+
+response = c.post("/welcome", data={"_csrf": token(c), "step": "1", "action": "next", "resume": web.current_resume(), "resume_file": (io.BytesIO(b"unreadable pdf"), "replacement.pdf")}, content_type="multipart/form-data")
+check("an unreadable fallback replacement with unchanged saved text stays on question 1", "step=1" in response.headers.get("Location", "") and RESUMES == before)
+response = c.post("/welcome", data={"_csrf": token(c), "step": "1", "action": "next", "resume": corrected, "resume_file": (io.BytesIO(b"unreadable pdf"), "replacement.pdf")}, content_type="multipart/form-data")
+check("a genuinely changed pasted fallback still saves and advances after a file parse error", "step=2" in response.headers.get("Location", "") and web.current_resume() == corrected)
+
+response = post(c, 1, resume=corrected)
+check("Continue saves corrected text through the fallback and advances", "step=2" in response.headers.get("Location", "") and web.current_resume() == corrected)
 
 print("\n" + "=" * 74)
 print("no résumé, no score — never somebody else's number")

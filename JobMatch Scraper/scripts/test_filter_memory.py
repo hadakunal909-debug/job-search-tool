@@ -99,7 +99,9 @@ function reset(page, vals) {
     tabBtns = []; tab = "recommended";    // no status tabs on an employer page
   }
 }
+var CustomEvent = function (name) { this.type = name; };
 var document = {
+  dispatchEvent: function () {},
   querySelectorAll: function (s) { return s.indexOf("data-vt") >= 0 ? VISABOXES : []; },
   querySelector: function () { return null; },
   getElementById: function (id) {
@@ -254,9 +256,9 @@ for key, value in {"q": "", "track": "any", "roles": "", "min": 0, "loc": "",
     check("Clear persists %s=%r" % (key, value), cleared.get(key) == value)
 
 # Zero results must reveal the recovery action on both ordinary and status tabs.
-empty_js = js_function(SRC, "renderEmpty") + r"""
+empty_copy = re.search(r"var TAB_EMPTY = (\{.*?\n  \});", SRC, re.S).group(1)
+empty_js = "var TAB_EMPTY = " + empty_copy + ";\n" + js_function(SRC, "renderEmpty") + r"""
 var emptyEl = {innerHTML: "", visible: false}, tab = "recommended";
-var TAB_EMPTY = {liked: ["No saved jobs", "Save a job to find it here."]};
 var esc = function (value) { return value; };
 var setShown = function (el, visible) { el.visible = visible; };
 var relaxBody = function () { return "Remove a filter"; };
@@ -264,7 +266,10 @@ var results = [null, [{key: "date"}], "liked"].map(function (value) {
   emptyEl.visible = false;
   tab = value === "liked" ? "liked" : "recommended";
   renderEmpty(value === "liked" ? null : value);
-  return emptyEl.visible && emptyEl.innerHTML.length > 0;
+  return emptyEl.visible && emptyEl.innerHTML.length > 0 &&
+    (tab !== "liked" || (emptyEl.innerHTML.includes("No saved jobs right now.") &&
+     emptyEl.innerHTML.includes('data-gotab="applied"') &&
+     emptyEl.innerHTML.includes("View Applied")));
 });
 console.log(JSON.stringify(results));
 """

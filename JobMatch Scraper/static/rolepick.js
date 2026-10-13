@@ -59,6 +59,18 @@
       document.dispatchEvent(new CustomEvent("roles:change", { detail: { roles: on } }));
   }
 
+  // app.js restores remembered filters after this picker seeds the server selection.
+  // Read that restored hidden value back into the UI before quietly relabelling it.
+  // The wizard posts its own named checkboxes and has no hidden input to restore.
+  function restoreFromHidden() {
+    if (!hidden) return;
+    var wanted = String(hidden.value || "").split(","), t = tiles(), i;
+    for (i = 0; i < t.length; i++)
+      t[i].querySelector("input").checked = wanted.indexOf(t[i].getAttribute("data-role")) >= 0;
+    sync(true);
+  }
+  if (hidden) document.addEventListener("roles:sync", restoreFromHidden);
+
   if (list) list.addEventListener("change", function (e) {
     if (!e.target || e.target.type !== "checkbox") return;
     // In the modal the feed re-renders on "Show these roles", so don't thrash it per tick.

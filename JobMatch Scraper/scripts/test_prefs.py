@@ -78,7 +78,7 @@ for minv in (0, 30, 45, 60):
     grid.append({"min": minv})
 for minsal in (0, 80000, 130000):
     grid.append({"minsal": minsal})
-for exp in ("any", "2", "5", "senior"):
+for exp in ("any", "entry", "2", "3", "5", "senior"):
     grid.append({"exp": exp})
 for intern in ("any", "only", "no"):
     grid.append({"intern": intern})

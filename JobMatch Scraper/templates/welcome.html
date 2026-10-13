@@ -27,9 +27,6 @@
   {% if step == 1 %}
     <h1 class="qtitle">Add Your Résumé.</h1>
     <p class="qsub">Every match score is against it. Without one, every job scores the same.</p>
-    {% if has_resume %}
-      <div class="callout">You already have a résumé. Adding one replaces it.</div>
-    {% endif %}
     {# Three doors, weighted. Upload is the large primary target, paste is a disclosure rather
        than a second giant textarea competing with it, and skipping is a plain button in the
        footer. The old screen gave upload and paste equal weight, which made it look like twice
@@ -39,24 +36,45 @@
        enhanced version, whose only real addition is the parse echo; if the bundle fails to
        load, this is what the user gets and onboarding still completes. #}
     <div id="resume-island">
+      {% if resume_text %}
+      <div class="echo" role="status">
+        <p class="echo-h">Your résumé is saved.</p>
+        <p class="dim">{{ resume_text | length }} characters saved. You can edit the text or replace the file below.</p>
+      </div>
+      <details class="pastebox">
+        <summary>Edit pasted text</summary>
+        <textarea name="resume" rows="12" aria-label="Paste your résumé"
+                  placeholder="Paste the whole thing. Plain text is fine.">{{ resume_text }}</textarea>
+        <p class="dim">Continue saves your changes and moves to the next question.</p>
+        <a class="btn ghost" href="{{ url_for('welcome', step=1) }}">Cancel editing</a>
+      </details>
+      <details class="pastebox">
+        <summary>Replace file</summary>
+        <p class="dim">Your saved résumé stays in place until you save a replacement.</p>
+      {% endif %}
       <label class="dropzone" for="resume_file">
         <span class="ic ic-upload dz-icon" aria-hidden="true"></span>
         <span class="dz-main">Choose a File, or Drop One Here</span>
         <span class="dz-sub">PDF, Word, or plain text</span>
         <input type="file" id="resume_file" name="resume_file" accept=".pdf,.docx,.txt,.md,.tex">
       </label>
+      {% if resume_text %}
+        <a class="btn ghost" href="{{ url_for('welcome', step=1) }}">Cancel replacement</a>
+      </details>
+      {% else %}
       <details class="pastebox">
         <summary>Or Paste the Text Instead</summary>
         <textarea name="resume" rows="12" aria-label="Paste your résumé"
                   placeholder="Paste the whole thing. Plain text is fine."></textarea>
       </details>
+      {% endif %}
       <p class="dim">We read the words out and don't keep the file. A scanned or photographed PDF
               has no text — paste the text instead. All of this can change later.</p>
     </div>
 
   {% elif step == 2 %}
     <h1 class="qtitle">What Kind of Work?</h1>
-    <p class="qsub">Pick everything that fits. This orders the feed; nothing is hidden.</p>
+    <p class="qsub">Pick the roles you want to see. Pick none to see all roles.</p>
     {# The same picker the feed uses, so a choice made here is editable later from exactly one
        place. form_post makes the checkboxes submit themselves: relying on JS to fill a hidden
        input is what made the first version of this screen save nothing. #}

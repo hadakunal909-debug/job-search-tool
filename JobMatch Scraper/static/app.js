@@ -5,6 +5,14 @@
   "use strict";
   var feed = document.getElementById("feed");
   if (!feed) return;
+  var displayOptions = document.getElementById("display-options");
+  if (displayOptions && window.matchMedia) {
+    var phoneDisplay = window.matchMedia("(max-width: 700px)");
+    function syncDisplayOptions() { displayOptions.open = !phoneDisplay.matches; }
+    syncDisplayOptions();
+    if (phoneDisplay.addEventListener) phoneDisplay.addEventListener("change", syncDisplayOptions);
+    else if (phoneDisplay.addListener) phoneDisplay.addListener(syncDisplayOptions);
+  }
   var cardSize = document.getElementById("card-size");
   if (cardSize) {
     cardSize.value = document.documentElement.getAttribute("data-card-size") || "comfortable";
@@ -165,6 +173,9 @@
       if (m[k].type === "checkbox") m[k].checked = !!s[k];
       else m[k].value = s[k] == null ? "" : String(s[k]);
     }
+    // Restoring the hidden value must also restore the picker's visible choices and labels.
+    if (rolesSel && ("roles" in m) && "roles" in s)
+      document.dispatchEvent(new CustomEvent("roles:sync"));
     // The five visa checkboxes are the UI for the hidden #visatags input, so re-tick them to
     // match the value we just restored or the group would read as empty.
     // Gated on _ctlMap TOO, not just on the control existing: on an employer page visatags is
@@ -1085,6 +1096,18 @@
     return m ? m.getAttribute("content") : "";
   }
 
+  // Twin of core.experience_matches: unknown years cannot satisfy a ceiling.
+  function experienceMatches(j, selection) {
+    if (!selection || selection === "any") return true;
+    if (j.exp_src !== "stated") return false;
+    var value = j.exp_eff === undefined ? j.exp_years : j.exp_eff;
+    if (value === "" || value == null || typeof value === "boolean" || (typeof value === "string" && !value.trim())) return false;
+    var years = Number(value);
+    var ceiling = selection === "entry" ? 3 : (selection === "senior" ? 5 : Number(selection));
+    if (!Number.isFinite(years) || !Number.isFinite(ceiling) || years < 0 || years > ceiling) return false;
+    return selection !== "entry" || j.level === "entry" || j.level === "mid";
+  }
+
   function matches(j, cut, ignoreMin) {
     var st = j.status || "", sc = j.score || 0, ok;
     var searching = q && q.value.trim();
@@ -1135,42 +1158,7 @@
     // off by default. Drops rows with NO answer (exp_src ""), so a seniority read off the title
     // survives it. See core.DEFAULT_PREFS.expstated.
     if (ok && expStated && expStated.checked && !j.exp_src) ok = false;
-    // THREE ANSWERS, and they are different questions. Mirrors web._filter_rows exactly --
-    // scripts/feed_parity.py diffs the two row for row.
-    //
-    // The numeric values are a CEILING on what the employer demands ("could I be
-    // considered"). exp_eff is the highest year count the DESCRIPTION states, or the floor the
-    // TITLE implies when it states none, so "8+ years required; 2 years of SQL preferred" is
-    // an 8-year job. A job with NEITHER signal is ALWAYS kept.
-    //
-    // "entry" is a LEVEL and cannot be written as a ceiling: measured, "0 to 2 Years" returns
-    // 417 product rows and only 176 are entry-level by their own description.
-    //
-    // An INTERNSHIP is exempt from the ceiling outright -- 4 of 43 internship-titled product
-    // rows were dropped by "0 to 2 Years" because their text names 3 years somewhere.
-    //
-    // The inference itself is server-side in web._build_row, so this stays one comparison.
-    if (ok && expSel && expSel.value !== "any") {
-      if (expSel.value === "entry") {
-        if ((j.level || "") !== "" && (j.level || "") !== "entry") ok = false;
-      } else if (!j.intern) {
-        var ev = j.exp_eff;
-        if (ev !== "" && ev != null) {
-          var yrs = parseInt(ev, 10);
-          if (!isNaN(yrs)) {
-            if (expSel.value === "senior") { if (yrs >= 6) ok = false; }
-            else if (yrs > (parseInt(expSel.value, 10) || 99)) ok = false;
-          }
-        } else {
-          // No year count anywhere, so the LEVEL answers the ceiling — the same thing the
-          // "entry" branch above does with the same field. Twin of web._filter_rows and
-          // core.prefs_match; the long note at the server copy has the measurement.
-          var floor = LEVEL_MIN_YEARS[j.level || ""];
-          var ceil = expSel.value === "senior" ? 5 : (parseInt(expSel.value, 10) || 99);
-          if (floor !== undefined && floor > ceil) ok = false;
-        }
-      }
-    }
+    if (ok && expSel && !experienceMatches(j, expSel.value)) ok = false;
     return ok;
   }
   // ---- arrival: skeletons, then a staggered fade for whatever just landed ----------------
@@ -1396,7 +1384,9 @@
     var roles = rolesWanted();
     var rl = document.getElementById("rolebtn-t");
     chipSet("roles", roles.length,
-            roles.length === 1 && rl ? rl.textContent.trim() : roles.length + " picked");
+            rl ? rl.textContent.trim() : roles.length + " picked");
+    var roleChip = document.getElementById("chip-roles");
+    if (roleChip) roleChip.title = roles.length && rl ? rl.textContent.trim() : "All roles";
 
     var category = categorySel ? categorySel.value : "any";
     var catOption = categorySel && categorySel.options ? categorySel.options[categorySel.selectedIndex] : null;
@@ -1469,8 +1459,8 @@
   // correctly produced nothing here -- there is no filter that can be relaxed into existence --
   // and the fallback took over without knowing which tab it was on.
   var TAB_EMPTY = {
-    liked: ["You haven't saved any job yet.",
-            "Tap Save on a card and it will show up here."],
+    liked: ["No saved jobs right now.",
+            "Tap Save on a card to keep it here. Jobs you mark applied move to Applied."],
     applied: ["You haven't marked any job as applied yet.",
               "Mark one applied and it moves here, and out of Recommended."],
     hidden: ["You haven't hidden any job.",
@@ -1588,7 +1578,8 @@
     if (own) {
       emptyEl.innerHTML = '<p class="empty-h">' + esc(own[0]) + "</p><p>" + esc(own[1]) +
         '</p><div class="empty-acts">' +
-        '<button type="button" class="btn sm" data-gotab="recommended">Browse Recommended</button></div>';
+        '<button type="button" class="btn sm" data-gotab="recommended">Browse Recommended</button>' +
+        (tab === "liked" ? '<button type="button" class="btn sm ghost" data-gotab="applied">View Applied</button>' : '') + '</div>';
       return;
     }
     var h;

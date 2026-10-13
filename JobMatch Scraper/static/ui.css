@@ -213,3 +213,56 @@ textarea{line-height:1.65}
  .feedgrid .cardmatch{gap:6px}.feedgrid .cardmatch .cvlabel{font-size:9px;max-width:45px}
  :root[data-card-size="roomy"] .feedgrid .cardbody{padding:20px}
 }
+
+/* Phone density: keep search, selected filters and sort close to the first role.
+   Card size remains an open native control on desktop and a disclosure on phones. */
+.results-display{margin:0;min-width:0}
+@media(min-width:701px){
+ .results-display>summary{display:none}
+}
+@media(max-width:700px){
+ .topbar{padding:8px 14px;gap:4px 8px}
+ .topbar nav{padding-bottom:0;gap:2px}
+ .topbar nav a{display:flex;align-items:center;min-height:38px;padding:7px 10px}
+ .feedwrap,.jobwrap{margin-top:-6px}
+ .feedhead{padding-top:0;margin-bottom:12px}
+ .feedhead .page-kicker{margin-bottom:5px}
+ .feedhead h1{font-size:25px}
+ .feedwrap .filterbar{padding:8px;gap:6px}
+ .feedwrap .fsearch input{min-height:42px;font-size:16px}
+ .feedwrap .fchips{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;padding-bottom:4px;gap:6px}
+ .feedwrap .fchip{flex:0 0 auto;height:auto;min-height:40px;padding:7px 9px}
+ .feedwrap .fchip-v{max-width:19ch}
+ .feedwrap #fmore{position:sticky;right:0;margin-left:auto;z-index:1;background:var(--bg-surface);box-shadow:-8px 0 8px var(--bg-surface)}
+ .feedwrap #fmore.on{background:var(--accent-bg);color:var(--accent-text)}
+ .feedwrap .tabs{margin-top:12px;padding-bottom:6px;gap:2px}
+ .feedwrap .tab{min-height:40px;padding:8px 5px}
+ .feedwrap .countrow{margin:8px 0 4px;gap:6px 8px}
+ .feedwrap .count{margin:0;white-space:nowrap}
+ .feedwrap .results-controls{flex:1 1 220px;width:auto;min-width:0;justify-content:flex-end;gap:6px}
+ .feedwrap .results-controls>#sort{flex:1 1 120px;width:auto;max-width:160px;min-height:40px;font-size:12px}
+ .feedwrap .results-display{position:relative;flex:0 0 auto}
+ .feedwrap .results-display>summary{display:flex;align-items:center;gap:7px;list-style:none;min-height:40px;padding:7px 9px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-surface);color:var(--text-secondary);font-size:11px;font-weight:500;cursor:pointer}
+ .feedwrap .results-display>summary::-webkit-details-marker{display:none}
+ .feedwrap .results-display>summary::after{content:"";width:6px;height:6px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg);margin-top:-3px}
+ .feedwrap .results-display[open]>summary::after{transform:rotate(225deg);margin-top:3px}
+ .feedwrap .results-display>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+ .feedwrap .results-display>.card-size-control{position:absolute;top:calc(100% + 6px);left:0;z-index:var(--z-dropdown);width:210px;max-width:calc(100vw - 36px);padding:12px;justify-content:space-between;border:1px solid var(--border-card);border-radius:10px;background:var(--bg-surface);box-shadow:var(--shadow-md);font-size:12px;white-space:nowrap}
+ .feedwrap .results-display>.card-size-control .sel{width:120px;max-width:none;min-height:40px;font-size:12px}
+ .feedwrap .sponkey{margin:6px 0 8px}
+ .jobwrap .backlink{margin:6px 0 14px}
+ .jobwrap .jobhead{margin-bottom:16px}
+ .jobwrap .jobident{margin-top:6px;gap:4px}
+ .jobwrap .jobident-location,.jobwrap .jobident-location-sep{display:none}
+ .jobwrap .jobglance{padding:12px;gap:12px;margin-bottom:12px}
+ .jobwrap .job-detail{margin:10px 0}
+ .jobwrap .job-detail>summary{padding:14px 16px}
+ .jobwrap .detail-content{padding:0 16px 16px}
+ .jobwrap .jobrail{padding:14px;margin-bottom:16px}
+}
+
+/* Preserve distinct tab labels on the narrowest phones. */
+@media(max-width:360px){
+ .feedwrap .tabs{overflow-x:auto;flex-wrap:nowrap;gap:6px;overscroll-behavior-x:contain;scrollbar-width:thin}
+ .feedwrap .tab{flex:0 0 auto;min-width:auto;padding:8px 10px}
+}

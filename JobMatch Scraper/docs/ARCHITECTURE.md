@@ -48,18 +48,18 @@ All three import `core.py`. That's why nothing presentational lives in it — re
 ```mermaid
 flowchart TB
   subgraph REQ["&#9635; request-scoped"]
-    W["<b>web.py</b><br/>10,328 lines · 88 routes / 87 handlers<br/>no blueprints"]
+    W["<b>web.py</b><br/>10,280 lines · 88 routes / 87 handlers<br/>no blueprints"]
     T["templates/ · 33 files"]
   end
   subgraph SCH["&#9719; scheduled"]
     S["<b>scraper/__init__.py</b><br/>10,985 lines · 65 ATS adapters<br/>1,336 boards"]
-    J["score_jobs.py · 2,909 lines"]
+    J["score_jobs.py · 2,920 lines"]
   end
   subgraph CLI["&#9723; browser"]
     E["<b>extension/</b><br/>10 files · 15 /api/ext/* routes"]
     A["static/app.js<br/>the client feed"]
   end
-  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 5,869 lines · 40 sections<br/>db.py · 4,269 lines · two transports + CSV"]
+  SPINE["<b>THE SPINE</b> — imported by all three<br/>core.py · 5,897 lines · 40 sections<br/>db.py · 4,269 lines · two transports + CSV"]
   REQ --> SPINE
   SCH --> SPINE
   CLI --> SPINE
@@ -325,13 +325,13 @@ worth of context, and all three must agree.
 
 ```mermaid
 flowchart TB
-  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2975</i>"]
-  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 1087</i>"]
+  S["<b>the server feed</b><br/>web.py::_filter_rows<br/><i>line 2978</i>"]
+  C["<b>the client feed</b><br/>static/app.js::matches()<br/><i>line 1110</i>"]
   S <-->|"_FEED_INLINE_MAX = 4000<br/>below → browser filters<br/>above → server filters"| C
   GUARD["&#128274; scripts/feed_parity.py<br/><i>lifts the JS by source text and runs it in node<br/>— the only thing keeping these two in step</i>"]
   S --- GUARD
   C --- GUARD
-  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 4175 — shares the filters, skips \"posted within\"</i>"]
+  D["<b>the email digest</b><br/>core.py::prefs_match<br/><i>line 4227 — shares the filters, skips \"posted within\"</i>"]
   GUARD -.-> D
   classDef web fill:#e0e4fe,stroke:#4f46e5,color:#101319
   classDef client fill:#e4e7ec,stroke:#5f6573,color:#101319

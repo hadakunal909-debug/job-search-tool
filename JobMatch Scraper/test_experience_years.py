@@ -39,7 +39,7 @@ def test_digits_the_original_behaviour():
 def test_a_bare_year_count_is_not_a_requirement():
     """The context gate. Without it a benefits page becomes a seniority bar."""
     _eq("401k vesting after 3 years", None)
-    _eq("No experience necessary", None)
+    _eq("No experience necessary", 0)
     _eq("", None)
     _eq(None, None)
     # >20 is a company statistic, not a person's career.
@@ -49,7 +49,7 @@ def test_a_bare_year_count_is_not_a_requirement():
 
 def test_spelled_out_numbers():
     """1,623 descriptions state their floor ONLY in words. A digits-only rule read every one of
-    them as 'no requirement stated', and None means KEEP."""
+    them as 'no requirement stated'; strict ceilings now exclude unknowns."""
     _eq("Minimum of five years of construction project management experience", 5)
     _eq("Four (4) years of experience in continuous improvement", 4)
     _eq("Minimum of eight (8) years of experience in medical device development", 8)
@@ -58,9 +58,9 @@ def test_spelled_out_numbers():
 
 
 def test_months():
-    """Floor-divided: under a year is a floor of zero, and that is a real answer."""
-    _eq("6 months of healthcare scheduling experience is required", 0)
-    _eq("18 months of relevant experience", 1)
+    """Round up so a whole-year ceiling cannot understate required months."""
+    _eq("6 months of healthcare scheduling experience is required", 1)
+    _eq("18 months of relevant experience", 2)
 
 
 def test_requirements_heading_counts_as_context():
@@ -228,7 +228,7 @@ def test_a_duration_is_not_experience():
     _eq("This is a 12 month contract role in software development.", None)
     _eq("You will complete a 6 month rotation through our engineering organisation.", None)
     _eq("A 24 month fixed-term assignment in our development team.", None)
-    _eq("18 months of relevant experience", 1)          # a real floor still reads
+    _eq("18 months of relevant experience", 2)          # a real floor still reads
 
 
 def test_a_field_LABELLED_years_is_context_enough():

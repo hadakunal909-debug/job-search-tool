@@ -180,21 +180,15 @@
        "senior" — so 5 keeps jobs asking up to 5, and senior keeps jobs asking up to 5.
        Identical behaviour, two labels, one of them phrased as if it did something else.
 
-       Reframed as a fact about the READER rather than a rule about jobs, which is what
-       someone actually knows about themselves: how much experience do you have. The stored
-       values are untouched, so nothing about the filtering changes, and a saved "senior"
-       still lands on the option that behaves identically to it. #}
+       Experience is the maximum stated requirement. Entry/associate adds a seniority
+       check; a saved legacy "senior" still means a five-year ceiling. #}
     <div class="fgroup">
       <div class="field">
-        <label class="field-label" for="exp">Your Experience</label>
+        <label class="field-label" for="exp">Experience Required</label>
         <select id="exp" class="sel">
-          {# 'entry' is a LEVEL and the other three are CEILINGS on what the employer asks,
-             which is a different question -- see core.DEFAULT_PREFS. Measured: '0 to 2
-             Years' returns 417 product rows and only 176 are entry-level by their own
-             description, because a posting that states no number at all is kept (and
-             should be). This option asks for the population instead of the ceiling. #}
-          {% for v, lab in [('any', 'Any Amount'), ('entry', 'Entry Level / Associate'),
-                            ('2', '0 to 2 Years'), ('5', '3 to 5 Years')] %}
+          {# Every ceiling requires stated years; entry also excludes senior roles. #}
+          {% for v, lab in [('any', 'Any Amount'), ('entry', 'Entry / Associate — 0–3 years'),
+                            ('2', 'Up to 2 Years'), ('3', 'Up to 3 Years'), ('5', 'Up to 5 Years')] %}
           {# A stored exp=senior selects this option rather than rendering a fourth one that
              would claim to be a different filter. It IS this filter. #}
           <option value="{{ v }}"{{ ' selected' if prefs.exp == v or (v == '5' and prefs.exp == 'senior') else '' }}>{{ lab }}</option>
@@ -206,7 +200,7 @@
            every posting we had not finished reading. Now the card carries all three answers as
            ink on its identity line, and the two sentences below describe what the filter really
            does with each. #}
-        <p class="field-help">Filter by seniority or required years of experience. Jobs without a stated year requirement are included unless hidden below.</p>
+        <p class="field-help">Entry / Associate shows non-senior roles requiring at most 3 years. Experience limits exclude jobs whose required years are unknown. Select Any Amount to include them.</p>
         <label class="ck" title="Hides every posting we have no experience answer for — whether the description names no number, we have not read it yet, or the employer publishes nothing readable. Postings whose seniority was read from the title are kept.">
           <input type="checkbox" id="expstated"{{ ' checked' if prefs.expstated else '' }}> Hide postings with no experience answer</label>
       </div>

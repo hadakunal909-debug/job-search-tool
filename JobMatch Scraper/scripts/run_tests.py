@@ -147,6 +147,7 @@ SUITES = (
     Suite("test_scrape_slice",      "test_scrape_slice.py",              "root",   "offline"),
     # Offline by its own docstring ("No database and no network -- the indexes are built
     # inline") and yet it appeared in NEITHER loop in python-tests.yml. It has never run in CI.
+    Suite("test_sponsorship", "test_sponsorship.py", "root", "offline"),
     Suite("test_sponsor_flag",      "test_sponsor_flag.py",              "root",   "offline"),
     Suite("test_templates_parse",   "test_templates_parse.py",           "root",   "offline"),
     Suite("test_table_gates",      "test_table_gates.py",               "root",   "offline"),
@@ -192,6 +193,7 @@ SUITES = (
     # and web._break_employer_runs as the pass after it. feed_parity proves the client agrees;
     # this proves what they agree ON, which parity alone would not notice.
     Suite("test_feed_order",        "scripts/test_feed_order.py",        "scripts", "offline"),
+    Suite("test_experience_filter", "scripts/test_experience_filter.py", "scripts", "node"),
     Suite("test_norms",             "scripts/test_norms.py",             "scripts", "offline"),
     Suite("test_onboarding",        "scripts/test_onboarding.py",        "scripts", "offline"),
     Suite("test_paylocity",         "scripts/test_paylocity.py",         "scripts", "offline"),
@@ -215,6 +217,8 @@ SUITES = (
     # web.py::_filter_rows and static/app.js::matches() are deliberate twins and the feed
     # switches between them at 4,000 jobs. Nothing but these three keeps them in step.
     Suite("test_card_meta",         "scripts/test_card_meta.py",         "parity", "node"),
+    Suite("test_ux_feed", "scripts/test_ux_feed.py", "scripts", "offline"),
+    Suite("test_role_picker", "scripts/test_role_picker.py", "parity", "node"),
     Suite("test_filter_memory",     "scripts/test_filter_memory.py",     "parity", "node"),
     Suite("feed_parity",            "scripts/feed_parity.py",            "parity", "node"),
 
@@ -249,6 +253,9 @@ EXTRA_TOUCHES = {
     "test_card_meta":          ("static/app.js", "templates/"),
     "test_apply_confirm":      ("static/app.js", "static/applyask.js",
                                 "scripts/reset_autologged_applies.py"),
+    "test_role_picker": ("static/rolepick.js", "static/app.js", "templates/_rolepicker.html"),
+    "test_ux_feed": ("templates/feed.html", "templates/_rolepicker.html"),
+    "test_sponsorship": ("templates/job.html",),
     "test_filter_memory":      ("static/app.js",),
     "feed_parity":             ("static/app.js",),
     "test_search_and_similar": ("static/app.js",),

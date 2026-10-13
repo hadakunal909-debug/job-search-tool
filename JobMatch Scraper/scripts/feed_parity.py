@@ -55,7 +55,9 @@ JS_FUNCS = ["locHit", "annualize", "rowDate", "rolesWanted", "roleHit", "visaWan
             # decides WHERE it lands. Both are mirrored in web.py and both are lifted here rather
             # than re-typed, for the same reason sortCmp is.
             "searchSplit", "_within", "_withinMemo", "searchTol", "termHit", "searchHit", "searchRank",
-            "matches",
+            # The strict experience predicate is a dependency of matches(), so lift it from
+            # the shipped app too rather than inventing a test-side version.
+            "experienceMatches", "matches",
             # The sort comparator, lifted rather than re-typed. It used to be hand-copied into
             # DRIVER_MAIN below, which meant a third implementation nobody remembered to update
             # — exactly the drift this harness exists to catch, sitting inside the harness.

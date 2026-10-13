@@ -1,5 +1,7 @@
 """Scoring checkpoints require durable derived fields and bounded comparison reads."""
 import copy
+import inspect
+import re
 import unittest
 from unittest.mock import patch
 
@@ -278,6 +280,82 @@ class CursorPersistenceTests(unittest.TestCase):
             sj._save_cursor("revision", None)
         self.assertEqual(fake.remote_calls, [])
         self.assertEqual(fake.local_calls, [(sj.CURSOR_KEY, {})])
+
+
+class SponsorshipRevisionTests(unittest.TestCase):
+    def setUp(self):
+        self.before = sj._score_rev("fictional test resume")
+        self.assertNotEqual(self.before, "norev")
+
+    def test_new_block_rule_changes_answer_and_invalidates_old_cursor(self):
+        text = "This role is not eligible for employer visa assistance."
+        self.assertEqual(core.sponsorship_from_jd(text)[0], "")
+        rule = ("no_sponsor", "JD says no visa sponsorship", ("visa",), re.compile(re.escape(text), re.I))
+        with patch.object(core, "_SPONSOR_BLOCK", core._SPONSOR_BLOCK + [rule]):
+            self.assertEqual(core.sponsorship_from_jd(text)[0], "blocked")
+            changed = sj._score_rev("fictional test resume")
+            self.assertNotEqual(changed, self.before)
+            with patch.object(db, "get_kv", return_value={"rev": self.before, "key": ["2026-10-12", "", URL]}):
+                self.assertIsNone(sj._load_cursor(changed))
+        self.assertEqual(sj._score_rev("fictional test resume"), self.before)
+
+    def test_open_rule_source_and_flags_change_revision(self):
+        text = "Employer sponsor candidates."
+        self.assertEqual(core.sponsorship_from_jd(text)[0], "")
+        old = core._SPONSOR_OPEN
+        with patch.object(core, "_SPONSOR_OPEN", re.compile(old.pattern + "|" + re.escape(text), old.flags)):
+            self.assertEqual(core.sponsorship_from_jd(text)[0], "open")
+            self.assertNotEqual(sj._score_rev("fictional test resume"), self.before)
+        with patch.object(core, "_SPONSOR_OPEN", re.compile(old.pattern, old.flags & ~re.I)):
+            self.assertEqual(core.sponsorship_from_jd("Visa Sponsorship Is Available.")[0], "")
+            self.assertNotEqual(sj._score_rev("fictional test resume"), self.before)
+
+    def test_sponsorship_reading_helper_source_changes_restart_revision(self):
+        original = inspect.getsource
+        for target in (core.sponsorship_from_jd, core._sponsorship_signal, core._sponsorship_text,
+                       core.html_to_text, core._soup_text):
+            def source(fn, target=target):
+                return original(fn) + ("\n# revised reading\n" if fn is target else "")
+            with self.subTest(function=target.__name__), patch.object(inspect, "getsource", side_effect=source):
+                self.assertNotEqual(sj._score_rev("fictional test resume"), self.before)
+
+    def test_answer_constants_are_revision_inputs(self):
+        for name in ("_SPONSOR_ROLE_ANSWER", "_SPONSOR_ANSWER_END"):
+            with self.subTest(name=name), patch.object(core, name, getattr(core, name) + "|new-form"):
+                self.assertNotEqual(sj._score_rev("fictional test resume"), self.before)
+
+    def test_rule_order_is_semantic_but_unrelated_dict_order_is_not(self):
+        with patch.object(core, "_SPONSOR_BLOCK", list(reversed(core._SPONSOR_BLOCK))):
+            self.assertNotEqual(sj._score_rev("fictional test resume"), self.before)
+        with patch.object(core, "_WORD_NUM", dict(reversed(list(core._WORD_NUM.items())))):
+            self.assertEqual(sj._score_rev("fictional test resume"), self.before)
+        with patch.object(core, "sponsorship_evidence", return_value={"verdict": "", "reason": "", "excerpt": "presentation"}):
+            self.assertEqual(sj._score_rev("fictional test resume"), self.before)
+
+    def test_fresh_analysis_replaces_old_empty_sponsorship_without_jd_refetch(self):
+        text = JD + "\nRole can be filled by a candidate requiring sponsorship: No"
+        meta = core.job_meta(text, {})
+        meta["jd_fp"] = db.jd_fingerprint(text)
+        parsed = core.parse_location("Boston, MA", text)
+        salary = core.parse_salary(text)
+        row = {
+            "url": URL, "title": "Project Manager", "company": "Example", "location": "Boston, MA",
+            "jd_fp": meta["jd_fp"], "facts_fp": meta["jd_fp"],
+            "loc_state": parsed["state"], "loc_metro": parsed["metro"], "remote": bool(parsed["remote"]),
+            "salary_min": salary["min"], "salary_max": salary["max"], "salary_period": salary["period"],
+            "exp_max_years": meta["exp_years"], "jd_terms": core.pack_analyzed(meta["analyzed"]),
+            "sponsor_jd": "", "sponsor_reason": "",
+        }
+        fake = FakeDB(row)
+        selected = {k: v for k, v in row.items() if k not in ("jd_terms", "facts_fp")}
+        with patch.object(sj, "db", fake):
+            sj._persist_derived({URL: "Boston, MA"}, {URL: text}, current_rows=[selected],
+                                jdmeta={URL: meta}, idf={}, strict=True)
+        self.assertEqual(fake.row["sponsor_jd"], "blocked")
+        self.assertEqual(fake.row["sponsor_reason"], "JD says no visa sponsorship")
+        self.assertEqual(fake.row["facts_fp"], row["facts_fp"])
+        self.assertEqual(fake.invalidations, [])
+        self.assertTrue(fake.writes)
 
 
 if __name__ == "__main__":

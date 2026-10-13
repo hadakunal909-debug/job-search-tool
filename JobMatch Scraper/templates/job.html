@@ -11,6 +11,7 @@
   <p class="coprose"><a class="btn primary" href="{{ url_for('feed') }}">Back to the Feed</a></p>
 </div>
 {% else %}
+{% set posting_sponsorship = posting_sponsorship|default({'verdict': '', 'reason': '', 'excerpt': ''}) %}
 
 <div class="jobwrap" data-route="{{ route }}"
      data-job-url="{{ row.url }}" data-job-title="{{ row.title }}"
@@ -26,7 +27,7 @@
       <p class="jobcategory" title="{{ row.category_tip }}">{{ row.category_label }}{% if row.category_source in ('company', 'title') %} <span class="nil">· Inferred</span>{% elif row.category_source == 'unknown' %} <span class="nil">· Needs review</span>{% endif %}</p>
       <div class="jobident">
         <a href="{{ url_for('company') }}?c={{ row.company|urlencode }}">{{ row.company }}</a>
-        {%- if row.location %}<span class="sep" aria-hidden="true">·</span><span>{{ row.location }}</span>{% endif %}
+        {%- if row.location %}<span class="sep jobident-location-sep" aria-hidden="true">·</span><span class="jobident-location">{{ row.location }}</span>{% endif %}
         {%- if row.date %}<span class="sep" aria-hidden="true">·</span>
         <span class="jobdate" title="{{ row.date[:10] }}">{{ 'Posted' if row.date_trusted else 'Approximately' }} {{ row.date | ago }}</span>
         {%- elif row.first_seen %}<span class="sep" aria-hidden="true">·</span>
@@ -81,8 +82,9 @@
       <div class="jobrail">
         <div class="jobrail-facts">
           <div class="jobroute">
-            <span class="eyebrow">Sponsorship</span>
-            <b>{{ chip_label }}</b>
+            <span class="eyebrow">Posting sponsorship</span>
+            <b data-posting-sponsorship="{{ posting_sponsorship.verdict or 'unknown' }}">{{ 'No' if posting_sponsorship.verdict == 'blocked' else ('Yes' if posting_sponsorship.verdict == 'open' else 'Unknown') }}</b>
+            <p class="jobnote">{{ 'This posting rules sponsorship out.' if posting_sponsorship.verdict == 'blocked' else ('This posting explicitly offers sponsorship.' if posting_sponsorship.verdict == 'open' else 'No explicit sponsorship statement found in the available description.') }}</p>
           </div>
           <div class="jobstat">
             <span class="eyebrow">Profile Match</span>
@@ -99,6 +101,9 @@
             {% endif %}
           </div>
         </div>
+        {% if posting_sponsorship.excerpt %}
+        <p class="coprose small" data-sponsorship-evidence><strong>Posting evidence:</strong> <q>{{ posting_sponsorship.excerpt }}</q></p>
+        {% endif %}
         <div class="jobacts">
           {% if row.apply_url and row.apply_url != '#' %}
           <a class="btn primary" href="{{ row.apply_url }}" target="_blank" rel="noopener"
@@ -189,20 +194,14 @@
       </p>
 
       </div></details>
-      <details class="job-detail"><summary>Sponsorship History</summary><div class="detail-content">
+      <details class="job-detail"><summary>Employer Sponsorship History</summary><div class="detail-content">
       <p class="coprose">
         {%- if filed %}{{ row.company }} has a federal filing history for {{ filed }}.
         {%- else %}There is no federal filing record on file for {{ row.company }}.{% endif %}
         {%- if about.strength_n %} {{ '{:,}'.format(about.strength_n) }} H-1B approvals across
         {{ sponsor_window() }}.{% endif %}
       </p>
-      <p class="coprose">
-        {%- if row.sponsor_jd == 'blocked' %}<strong>This posting rules sponsorship out.</strong>
-        {%- if narrowed %} The history above is about the company, not this job.{% endif %}
-        {%- elif row.sponsor_jd == 'open' %}<strong>This posting offers sponsorship.</strong>
-        {%- else %}This posting says nothing either way about sponsorship.{% endif %}
-        {%- if sponsor_reason_plain %} <span class="muted">({{ sponsor_reason_plain }}.)</span>{% endif %}
-      </p>
+      <p class="coprose small">These federal filings describe the employer's past activity. They do not establish sponsorship for this posting.</p>
       {% if about.bars %}
       <div class="cochart" role="img"
            aria-label="H-1B approvals by fiscal year, {{ about.hist_from }} to {{ about.hist_to }}">

@@ -1853,7 +1853,9 @@ def _score_rev(resume):
         for fn in (core.analyze_jd, core.score_against, core.job_meta,
                    core.clean_jd, core.experience_years, core._experience_floors_split,
                    core._reads_as_preferred, core._collapse_ladders, core._experience_sections,
-                   core._clause_before, core._clause_after):
+                   core._clause_before, core._clause_after,
+                   core.sponsorship_from_jd, core._sponsorship_text, core._sponsorship_signal,
+                   core.html_to_text, core._soup_text):
             try:
                 src += inspect.getsource(fn).encode("utf-8", "replace")
             except Exception:
@@ -1886,6 +1888,15 @@ def _score_rev(resume):
                                "_DEGREE_RE", "_ALTERNATIVE_RE", "_LADDER_GAP", "_CLAUSE_SPLIT_RE"))
                            and isinstance(value, (str, int, re.Pattern)))).encode("utf-8")
         src += repr(sorted(core._WORD_NUM.items())).encode("utf-8")
+        # Posting restrictions affect stored feed filters even when the JD text is
+        # unchanged. Keep rule order (negative precedence is semantic), and serialize
+        # regex source/flags rather than process-dependent object representations.
+        src += repr((
+            tuple((category, reason, tuple(gates), rx.pattern, rx.flags)
+                  for category, reason, gates, rx in core._SPONSOR_BLOCK),
+            core._SPONSOR_OPEN.pattern, core._SPONSOR_OPEN.flags,
+            core._SPONSOR_ROLE_ANSWER, core._SPONSOR_ANSWER_END,
+        )).encode("utf-8")
         src += (resume or "").encode("utf-8", "replace")
         return hashlib.sha1(src).hexdigest()[:12]
     except Exception:

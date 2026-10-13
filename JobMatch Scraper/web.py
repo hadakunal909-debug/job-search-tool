@@ -617,7 +617,10 @@ def _jd_fields(j):
     c_sv = j.get("sponsor_jd")
     sv, sreason = ((c_sv, j.get("sponsor_reason") or "") if c_sv is not None else (m_sv, m_sr))
     c_exp = j.get("exp_max_years")
-    exp_y = c_exp if c_exp is not None else meta.get("exp_years")
+    # A present NULL is an authoritative unknown, including a parser correction.
+    # Falling back to old metadata can resurrect a stale low requirement and admit
+    # a job under a strict ceiling. Only legacy rows missing the column may fall back.
+    exp_y = c_exp if "exp_max_years" in j else meta.get("exp_years")
     # exp_level is DERIVED, never stored: two columns that can disagree is a bug generator,
     # and the level is one comparison away from the number.
     return exp_y, core.exp_level_for(exp_y), sv, sreason
@@ -3085,70 +3088,8 @@ def _filter_rows(rows, statuses, p, count_only=False):
         # not say so.
         if exp_stated and not r.get("exp_src"):
             continue
-        if exp != "any":
-            # THREE ANSWERS, and they are different questions.
-            #
-            # The numeric values are a CEILING on what the employer demands, which answers
-            # "could I be considered". exp_eff is the highest year count the DESCRIPTION states,
-            # or the floor the TITLE implies when it states none -- so "8+ years required; 2
-            # years of SQL preferred" is an 8-year job and "<=2 yrs" drops it. A posting with
-            # NEITHER signal is always kept; many genuine entry-level posts state no number.
-            #
-            # "entry" is a LEVEL and cannot be expressed as a ceiling. Measured 2026-09-08:
-            # "0 to 2 Years" returns 417 product rows and only 176 are entry-level by their own
-            # description -- the other 241 have no readable number and are kept, which is
-            # correct and is exactly why the ceiling cannot answer the level question.
-            #
-            # And an INTERNSHIP is exempt from the ceiling entirely: 4 of the 43
-            # internship-titled product rows were dropped by "0 to 2 Years" because their text
-            # names 3 years somewhere (Amex "Campus Graduate Masters Summer Internship
-            # Program", Amazon's "2027 Leadership Accelerator"). An internship IS the entry
-            # rung, whatever number appears further down.
-            #
-            # Mirrored in app.js matches() and core.prefs_match().
-            if exp == "entry":
-                if (r.get("level") or "") not in ("", "entry"):
-                    continue
-            elif r.get("intern"):
-                pass
-            else:
-                ev = r.get("exp_eff")
-                if ev != "" and ev is not None:
-                    try:
-                        yrs = int(ev)
-                    except Exception:
-                        yrs = None
-                    if yrs is not None:
-                        if exp == "senior":
-                            if yrs >= 6:
-                                continue
-                        elif yrs > (int(exp) if str(exp).isdigit() else 99):
-                            continue
-                # NO YEAR COUNT ANYWHERE -- SO ASK THE LEVEL, which is the same thing the
-                # "entry" branch six lines above already does. A ceiling cannot be satisfied by
-                # a job we have decided is senior, and every option here IS a ceiling ("0 to 2
-                # Years", "3 to 5 Years", and the stored legacy "senior" that renders as the
-                # second one). Without this the card printed "Senior" while the row sat inside
-                # "0 to 2 Years": measured 2026-09-10 over 38,826 active rows, `level` says
-                # senior on 15,300 of them and title_experience_tier answers None on 2,172 --
-                # the roman numerals and the Group/Advanced/Expert forms, which live in
-                # core._TITLE_SENIOR_LEVEL_RE and which the years tier deliberately refuses
-                # because a LEVEL is not a year COUNT. It is still not a year count. It is
-                # simply enough to answer a ceiling.
-                #
-                # exp_eff STILL WINS wherever it exists: a description that states two years is
-                # the employer's own number and beats anything read off the title.
-                #
-                # THE COMPARISON IS BAND AGAINST CEILING, not a senior/not-senior flag, because
-                # "Software Engineer II" is the rung ABOVE entry and not the top one: mid
-                # implies 3 years, so it fails "0 to 2 Years" and passes "3 to 5 Years", which
-                # is exactly what exp_level_for would have said from a year count.
-                else:
-                    floor = core.LEVEL_MIN_YEARS.get(r.get("level") or "")
-                    if floor is not None and floor > (
-                            5 if exp == "senior"
-                            else (int(exp) if str(exp).isdigit() else 99)):
-                        continue
+        if not core.experience_matches(r, exp):
+            continue
         # Narrowing filters run before fuzzy search. All predicates are ANDed, so
         # membership is unchanged; search still includes title, company and location.
         if searching and defer_search:
@@ -3760,6 +3701,7 @@ def feed():
                            visa_tag_controls=_VISA_TAG_CONTROLS,
                            role_groups=core.role_families_grouped(), role_counts=role_counts(),
                            role_max=ROLE_PICK_MAX,
+                           chosen=core.parse_roles_pref(prefs.get("roles")),
                            visa=visa, visa_ctx=visa_ctx, prefs=prefs)
 
 
@@ -4352,6 +4294,12 @@ def job_page():
     # One clean, shared by the block above and the rendered description below, so the two can
     # never be reading different text about the same posting.
     jd_clean = core.clean_jd(jd)[0] if asks["verdict"] != "not-a-posting" else ""
+    # The current posting is the evidence for this opening; stored analysis may predate it.
+    posting_sponsorship = core.sponsorship_evidence(jd_clean)
+    row["sponsor_jd"] = posting_sponsorship["verdict"]
+    row["sponsor_reason"] = posting_sponsorship["reason"]
+    row["visa"] = core.visa_tags_for_posting(
+        core.visa_tags(company, visa_index()), row["sponsor_jd"], row["sponsor_reason"])
 
     # WHAT THE CORPUS KNOWS THAT THIS POSTING CANNOT SAY. Three questions no single description
     # answers: what this KIND of job usually asks for, which tools this EMPLOYER leans on beyond
@@ -4469,7 +4417,8 @@ def job_page():
         norms_postings=norms.built(_norms).get("postings") or 0,
         about=brief, researching=research_pending, research_pending=research_pending,
         chip_label=chip_label, absence_note=core.VISA_ABSENCE_NOTE,
-        sponsor_reason_plain=_plain_reason(row.get("sponsor_reason"))))
+        sponsor_reason_plain=_plain_reason(row.get("sponsor_reason")),
+        posting_sponsorship=posting_sponsorship))
     # NO Cache-Control here, and it is a deliberate refusal. `private, max-age=30` makes the
     # prefetched copy serve the click outright — measured in a real browser as transferSize
     # 352 -> 0 and TTFB 0, so the open really is free. But a navigation served from cache never
@@ -7010,16 +6959,17 @@ def save_active_resume(user, text, rid=None):
             target = next((r for r in (db.list_resumes(user) or []) if r.get("id") == rid), None)
         target = target or db.get_active_resume(user)
         if target and target.get("id"):
-            db.save_resume(user, {"id": target["id"], "content": text,
-                                  "created_at": target.get("created_at")})
-            db.set_active_resume(user, target["id"])      # also mirrors into users.resume
+            ok, _ = db.save_resume(user, {"id": target["id"], "content": text,
+                                         "created_at": target.get("created_at")})
+            if not ok:
+                return False
+            if not db.set_active_resume(user, target["id"]):  # also mirrors into users.resume
+                return False
         else:
             ok, new_id = db.save_resume(user, {"name": "My résumé", "content": text,
                                                "active": True})
-            if ok:
-                db.set_active_resume(user, new_id)
-            else:
-                db.set_user_resume(user, text)            # pre-migration: cache only, still usable
+            if not ok or not db.set_active_resume(user, new_id):
+                return False
         _resume_cache[user] = (text, time.time())         # not the cookie (size cap)
         # THIS USER, not everybody. A bare _score_cache.clear() here reclaimed nothing and cost
         # a great deal: the cache is keyed on (username, md5(resume)), so a new résumé is
@@ -8980,18 +8930,16 @@ def api_onboard_resume():
         return {"ok": False,
                 "error": err or ("That file has no text in it. A scanned or photographed "
                                  "PDF has none to extract, so paste the text instead.")}
-    try:
-        db.save_resume(user, {"name": "My résumé", "content": text[:60000]})
-        _bust_profile(user)
-    except Exception as ex:
-        return {"ok": False, "error": "Couldn't save that résumé: " + str(ex)[:120]}
+    text = text[:60000]
+    if not save_active_resume(user, text):
+        return {"ok": False, "error": "Couldn't save that résumé. Try again."}
 
     low = text.lower()
     skills = sorted((k for k in core.ATS_KEYWORDS if k in low), key=lambda k: (-len(k), k))[:8]
     roles = [{"key": k, "label": lab}
              for k, lab, _g, _p in core.ROLE_FAMILIES
              if k in core.roles_for_title(text)][:ROLE_PICK_MAX]
-    out = {"ok": True, "chars": len(text), "skills": skills, "roles": roles}
+    out = {"ok": True, "text": text, "chars": len(text), "skills": skills, "roles": roles}
     yrs = core.experience_years(text)
     if yrs:
         out["years"] = yrs
@@ -9057,14 +9005,12 @@ def welcome():
                 flash(err)
             if not text:
                 text = (f.get("resume") or "").strip()
-            if err and not text:
-                return redirect(url_for("welcome", step=step))     # let them try again
+            if err and (not text or text == (current_resume() or "").strip()):
+                return redirect(url_for("welcome", step=step))     # keep a failed replacement here
             if text:
-                try:
-                    db.save_resume(user, {"name": "My résumé", "content": text[:60000]})
-                    _bust_profile(user)
-                except Exception as ex:
-                    flash("Couldn't save that résumé: " + str(ex)[:120])
+                if not save_active_resume(user, text[:60000]):
+                    flash("Couldn't save that résumé. Try again.")
+                    return redirect(url_for("welcome", step=step))
             else:
                 answered = bool(current_profile())
         elif step == 2:
@@ -9072,9 +9018,13 @@ def welcome():
             # digest, so they have to live where every other filter lives and go through
             # normalize_prefs. Merged over the stored prefs the same way POST /profile merges
             # the alert settings, or saving here would reset the rest of the search.
-            picked = ",".join(core.parse_roles_pref(f.getlist("roles") or f.get("roles")))
-            _save_profile(user, {"search_prefs": core.normalize_prefs(
+            picked = "" if f.get("all_roles") == "1" else ",".join(
+                core.parse_roles_pref(f.getlist("roles") or f.get("roles")))
+            ok, msg = _save_profile(user, {"search_prefs": core.normalize_prefs(
                 dict(_user_prefs(user), roles=picked))})
+            if not ok:
+                flash("Couldn't save those roles. Try again.")
+                return redirect(url_for("welcome", step=step))
             _rows_cache.clear()                # the first-paint count is derived from prefs
             answered = bool(picked) or f.get("all_roles") == "1"
         elif step == 3:
@@ -9110,6 +9060,7 @@ def welcome():
                 and want["requires_sponsorship_future"].lower() == fut):
             sponsorship = key
             break
+    resume_text = current_resume() if step == 1 else ""
     return render_template("welcome.html", step=step, steps=ONBOARD_STEPS, prof=prof,
                            questions=ONBOARD_QUESTIONS,
                            role_groups=core.role_families_grouped(), role_counts=role_counts(),
@@ -9118,9 +9069,10 @@ def welcome():
                            sponsorship=sponsorship,
                            metros=_feed_metros(_onboard_rows()),
                            states=_feed_states(_onboard_rows()),
-                           has_resume=bool(current_profile()),
+                           has_resume=bool(resume_text), resume_text=resume_text,
                            entry=vite_entry("src/entries/welcome.tsx"),
-                           props={"csrf": csrf_token(), "hasResume": bool(current_profile())})
+                           props={"csrf": csrf_token(), "hasResume": bool(resume_text),
+                                  "resumeText": resume_text})
 
 
 @app.route("/profile", methods=["GET", "POST"])

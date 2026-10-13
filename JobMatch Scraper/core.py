@@ -2004,9 +2004,17 @@ def unpack_analyzed(packed, intern=None):
 # these literals, so when none is present we can skip the regex entirely without changing
 # the verdict. This is the whole optimization — most JDs name none of these, so a single
 # .lower() + a few `in` checks replaces five full-text regex scans. (See sponsorship_from_jd.)
+# Some ATS descriptions publish this as a labelled Yes/No answer. Match the complete
+# employer question, not an unrelated sponsorship mention followed by a distant "no".
+_SPONSOR_ROLE_ANSWER = (
+    r"\b(?:this\s+)?(?:role|position|job)\s+can\s+be\s+filled\s+by\s+"
+    r"(?:a\s+)?candidate\s+(?:requiring|who\s+requires)\s+"
+    r"(?:(?:visa|employment|work)\s+)?sponsorship\s*[:?]\s*")
+_SPONSOR_ANSWER_END = r"\b(?=\s*(?:[.!?;,]|\n|$))"
 _SPONSOR_BLOCK = [
     ("no_sponsor", "JD says no visa sponsorship", ("sponsor",), re.compile(
-        r"(?:will|are|is|can|do(?:es)?)?\s*(?:not|n't|unable|never)\b[^.]{0,40}\bsponsor"
+        _SPONSOR_ROLE_ANSWER + r"no" + _SPONSOR_ANSWER_END
+        + r"|(?:will|are|is|can|do(?:es)?)?\s*(?:not|n't|unable|never)\b[^.]{0,40}\bsponsor"
         r"|\bno\b[^.]{0,15}\bsponsorship"
         r"|\bwithout[^.]{0,30}\bsponsorship"
         r"|\bsponsorship[^.]{0,20}\bnot\b[^.]{0,20}(?:available|offered|provided|considered)"
@@ -2029,7 +2037,8 @@ _SPONSOR_BLOCK = [
         r"|must be (?:a )?(?:green card holder|permanent resident)", re.I)),
 ]
 _SPONSOR_OPEN = re.compile(
-    r"(?:visa|h-?1b|employment|work)?\s*sponsorship (?:is |may be |are |can be )?"
+    _SPONSOR_ROLE_ANSWER + r"yes" + _SPONSOR_ANSWER_END
+    + r"|(?:visa|h-?1b|employment|work)?\s*sponsorship (?:is |may be |are |can be )?"
     r"(?:available|offered|provided|possible|considered|supported)"
     r"|(?:will|can|do|happy to|open to|able to|willing to|we)\s+(?:gladly |certainly )?sponsor\b"
     r"|(?:offer|provide|support)[^.]{0,20}(?:visa |h-?1b )?sponsorship"
@@ -2037,28 +2046,66 @@ _SPONSOR_OPEN = re.compile(
     r"|\bsponsor[^.]{0,15}(?:visa|h-?1b|work authorization)", re.I)
 
 
-def sponsorship_from_jd(jd_text):
-    """Read a JD for an explicit sponsorship signal. Returns (verdict, reason):
-      'blocked' = the JD says it won't work for a visa candidate (no sponsorship, or it
-                  requires U.S. citizenship / a security clearance / a green card)
-      'open'    = the JD explicitly offers visa sponsorship
-      ''        = no clear signal (most postings)
-    Checks the 'blocked' phrasings first since those are the ones that waste your time.
+def _sponsorship_text(jd_text):
+    """Visible source text, with ATS whitespace normalised and block breaks retained."""
+    jd = str(jd_text or "")
+    if "<" in jd or "&" in jd:
+        jd = html_to_text(jd)
+    jd = jd.replace("\r\n", "\n").replace("\r", "\n")
+    return re.sub(r"[^\S\n]+", " ", jd).strip()
 
-    Each regex is gated behind a cheap substring test (a literal every one of its
-    alternatives must contain): ~70% of JDs mention none of these words, so they return
-    immediately instead of running five `[^.]{0,N}`-window regexes over the full text.
-    The regexes themselves are unchanged, so the verdict is identical to scanning always."""
-    jd = jd_text or ""
-    if not jd:
-        return "", ""
+
+def _sponsorship_signal(jd):
+    """One matcher for both the pipeline verdict and its source evidence."""
     low = jd.lower()
-    for _cat, msg, gates, rx in _SPONSOR_BLOCK:
-        if any(g in low for g in gates) and rx.search(jd):
-            return "blocked", msg
-    if "sponsor" in low and _SPONSOR_OPEN.search(jd):
-        return "open", "JD offers visa sponsorship"
-    return "", ""
+    for _cat, reason, gates, rx in _SPONSOR_BLOCK:
+        if any(g in low for g in gates):
+            match = rx.search(jd)
+            if match:
+                return "blocked", reason, match
+    if "sponsor" in low:
+        match = _SPONSOR_OPEN.search(jd)
+        if match:
+            return "open", "JD offers visa sponsorship", match
+    return "", "", None
+
+
+def sponsorship_from_jd(jd_text):
+    """Read explicit posting signals: ('blocked'/'open'/'', reason).
+
+    Restrictions take precedence over offers, including citizenship, clearance and
+    residency requirements. Employer filing history is not an input to this reading.
+    Cheap substring gates avoid regex scans when no relevant words are present.
+    """
+    verdict, reason, _match = _sponsorship_signal(_sponsorship_text(jd_text))
+    return verdict, reason
+
+
+def sponsorship_evidence(jd_text):
+    """Posting verdict plus a bounded, visible excerpt from the same matched source.
+
+    A silent or missing description stays Unknown; filing records do not turn it
+    into Yes. The tuple reader above deliberately keeps its existing public contract.
+    """
+    jd = _sponsorship_text(jd_text)
+    verdict, reason, match = _sponsorship_signal(jd)
+    excerpt = ""
+    if match:
+        # Keep the matching sentence/line where possible. A very long sentence gets
+        # honest ellipses around the match, rather than an invented summary as a quote.
+        sentence_start = jd.rfind(". ", 0, match.start())
+        left = max(jd.rfind("\n", 0, match.start()) + 1,
+                   sentence_start + 2 if sentence_start >= 0 else 0)
+        stop = re.search(r"[.!?](?=\s|$)|\n", jd[match.end():])
+        right = match.end() + stop.start() + 1 if stop else len(jd)
+        clip_left = max(left, match.start() - 120)
+        clip_right = min(right, max(match.end(), clip_left + 420))
+        excerpt = re.sub(r"\s+", " ", jd[clip_left:clip_right]).strip()
+        if clip_left > left:
+            excerpt = "…" + excerpt
+        if clip_right < right:
+            excerpt += "…"
+    return {"verdict": verdict, "reason": reason, "excerpt": excerpt}
 
 
 # ------------------------------------------------------------
@@ -4029,25 +4076,9 @@ DEFAULT_PREFS = {
     # answered two ways. Empty = every role, so an untouched account sees the whole corpus.
     "roles": "",
     "category": "any",  # posting domain, independent of role family
-    "exp": "any",         # any | entry | 2 | 5   ("senior" is legacy)
-    # Drop postings whose description states NO year count. Off by default, deliberately: the
-    # keep-on-unknown rule below exists because many genuine entry-level posts state no number,
-    # and dropping them silently would hide real jobs.
-    #
-    # It exists because the unknown rate makes the years control mean very little on its own.
-    # Measured live on Recommended with the match floor at 0: "Experience = any" returned 20,618
-    # jobs of which 18% of a 60-card sample carried no years badge; "0-2 yrs" returned 10,514 of
-    # which 72% carried none. The comparison itself is CORRECT -- not one card stating more than
-    # 2 years survived -- but roughly 7 in 10 results are "we could not tell", presented
-    # indistinguishably from the ones that genuinely qualify. That is why a posting demanding 6+
-    # years in its text shows up under a 0-2 filter: the requirement is in the JD,
-    # experience_years missed it, and keep-on-unknown waved it through.
-    #
-    # Raising experience_years' recall is the real fix and is a separate measurement job. This
-    # gives the reader a way to see only the population the filter can actually reason about,
-    # and the card badge names the other one.
-    # FEED ONLY, like verifiedonly: prefs_match ignores it, because every digest candidate is a
-    # job we just discovered and applying this to the email would quietly shrink it.
+    "exp": "any",         # any | entry (0-3, non-senior) | 2 | 3 | 5
+    # Optional additional narrowing for Any experience. Specific experience limits
+    # always require stated years; an unknown is never evidence of eligibility.
     "expstated": False,
     "intern": "any",      # any | only | no
     "track": "any",       # any | dev (software/data) | mgmt (project/product/ops) — see role_track
@@ -4071,15 +4102,9 @@ DEFAULT_PREFS = {
     "alert_min": 0,       # extra match floor for the email only; 0 = use `min`
 }
 _PREF_CHOICES = {
-    # "entry" filters on the LEVEL (core.level_for), not on a year ceiling: the numeric
-    # values answer "could I be considered", which is a different question from "is this
-    # an entry-level job". Measured -- "0 to 2 Years" returns 417 product rows and 176 of
-    # them are entry by description; the rest have no readable number and are kept, which
-    # is right and is also why the ceiling cannot answer the level question.
-    #
-    # "senior" is LEGACY, kept so a saved search still round-trips. It filtered identically
-    # to "5" -- both keep yrs <= 5 -- and no option has ever rendered it.
-    "exp": ("any", "entry", "2", "5", "senior"),
+    # Entry/associate is a strict 0-3-year ceiling with a senior-title veto.
+    # The legacy "senior" value remains an alias for a five-year ceiling.
+    "exp": ("any", "entry", "2", "3", "5", "senior"),
     "intern": ("any", "only", "no"),
     "track": ("any", "dev", "mgmt"),
     "category": ("any",) + tuple(job_categories.CATEGORY_LABELS),
@@ -4172,6 +4197,33 @@ def _level_of(row):
     return lv or ""
 
 
+def experience_matches(row, selection):
+    """A year limit needs a stated requirement, never an unknown or a title guess.
+
+    Entry/associate adds a seniority veto to the three-year ceiling. Three-year
+    roles belong here even though the display's broad 3-5 band calls them mid.
+    Internships must satisfy the same requirement as every other posting.
+    Mirrored by experienceMatches in app.js and exercised by feed_parity.py.
+    """
+    if not selection or selection == "any":
+        return True
+    if row.get("exp_src") != "stated":
+        return False
+    value = row.get("exp_eff", row.get("exp_years"))
+    if value in (None, "") or isinstance(value, bool):
+        return False
+    try:
+        years = float(value)
+        ceiling = 3 if selection == "entry" else (5 if selection == "senior" else int(selection))
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not 0 <= years <= ceiling:
+        return False
+    if selection == "entry":
+        return row.get("level") in ("entry", "mid")
+    return True
+
+
 def prefs_match(row, prefs):
     """Does this job match the user's saved search?
 
@@ -4221,44 +4273,8 @@ def prefs_match(row, prefs):
     # Fall back to classifying the title: rows cached before `track` existed won't carry it.
     if track != "any" and (row.get("track") or role_track(row.get("title"))) != track:
         return False
-    exp = p.get("exp") or "any"
-    r_intern = bool(row.get("intern"))
-    if exp == "entry":
-        # THE LEVEL, not a ceiling -- see DEFAULT_PREFS. Kept when we could not tell, the
-        # same keep-on-unknown contract the numeric values have. Falls back to reading the
-        # title so a digest row cached before `level` existed still filters.
-        lv = row.get("level")
-        if lv is None:
-            lv = title_level(row.get("title") or "")
-        if (lv or "") not in ("", "entry"):
-            return False
-        return True
-    if exp != "any":
-        # exp_eff: the highest year count the DESCRIPTION states, or the floor the TITLE implies
-        # when it states none. A posting with neither is always kept — same rule as
-        # web._filter_rows and app.js matches(). Falls back to exp_years for a row built before
-        # exp_eff existed, so an old cached digest row still filters rather than passing.
-        ev = row.get("exp_eff", row.get("exp_years"))
-        if ev not in ("", None):
-            try:
-                yrs = int(ev)
-            except (TypeError, ValueError):
-                yrs = None
-            if yrs is not None:
-                if r_intern:
-                    pass                       # see web._filter_rows: an internship IS entry
-                elif exp == "senior":
-                    if yrs >= 6:
-                        return False
-                elif yrs > (int(exp) if str(exp).isdigit() else 99):
-                    return False
-        elif not r_intern:
-            # No year count anywhere, so the LEVEL answers the ceiling. See web._filter_rows.
-            floor = LEVEL_MIN_YEARS.get(_level_of(row))
-            if floor is not None and floor > (5 if exp == "senior"
-                                              else (int(exp) if str(exp).isdigit() else 99)):
-                return False
-    return True
+    return experience_matches(row, p.get("exp") or "any")
+
 
 
 HOURS_PER_YEAR = 2080          # 40 h/wk x 52; web.py imports this so one constant governs both
@@ -4364,6 +4380,7 @@ def digest_row(job, score, everify_index=None, visa_index=None, counts_index=Non
         # exp_eff / exp_src are web._build_row's twins, and prefs_match compares exp_eff — so
         # leaving them out would silently make the email a laxer filter than the feed.
         "exp_eff": _exp_eff if _exp_eff is not None else "", "exp_src": _exp_src,
+        "level": level_from_exp(_exp_eff, _exp_src, job.get("title") or "")[0],
         "intern": bool(INTERN_RE.search(job.get("title") or "")),
         "closed": active is False or str(active).strip().lower() == "false",
     }
@@ -4741,12 +4758,17 @@ def _experience_sections(text):
     return out
 
 
+_EXP_ZERO_RE = re.compile(
+    r"\bno\s+(?:(?:prior|previous|professional|work|relevant)\s+){0,2}"
+    r"experience\s+(?:is\s+)?(?:required|necessary|needed)\b", re.I)
+
+
 def _experience_floors_split(text, evidence=None):
     """(hard, soft) — the floors the employer insists on, and the ones it merely prefers.
 
     A year count only counts when an experience-ish word sits near it, so '10-key' and '401k
     vesting after 3 years' don't masquerade as a requirement. Three notations are read: digits
-    ('5+ years'), words ('eight (8) years') and months ('18 months', floor-divided to 1).
+    ('5+ years'), words ('eight (8) years') and months ('18 months', rounded up to 2 for whole-year limits).
     """
     text = text or ""
     hard, soft = [], []
@@ -4806,9 +4828,8 @@ def _experience_floors_split(text, evidence=None):
             elif kind == "w":
                 n = _WORD_NUM[m.group(1).lower()]
             else:
-                n = int(m.group(1)) // 12
-                if n <= 0:            # under a year: a real floor, and it is zero
-                    n = 0
+                # Whole-year ceilings must not admit 37-47 months as "3 years".
+                n = (int(m.group(1)) + 11) // 12
             if n > 20:                # noise ('30 years combined', a company-tenure stat)
                 continue
             seen.add((m.start(), m.end()))
@@ -4841,6 +4862,13 @@ def _experience_floors_split(text, evidence=None):
 
     hard = _collapse_ladders(text, hard)
     soft = _collapse_ladders(text, soft)
+    # Explicitly no experience is a confirmed zero, rather than an unknown.
+    # Other required year counts still win; preferences cannot override this.
+    for m in _EXP_ZERO_RE.finditer(text):
+        hard.append(0)
+        if evidence is not None:
+            evidence.append({"years": 0, "kind": "required",
+                             "quote": m.group(), "start": m.start()})
     return hard, soft
 
 
@@ -4931,7 +4959,7 @@ def experience_years(text):
     experience; 2 years of SQL preferred" has floors [8, 2] — it is an 8-year job, and
     reading the floor instead let a senior req hide behind its most junior line item, so
     "Entry · <=2 yrs" returned eight-year roles. A JD that states no year count at all
-    returns None and is always KEPT by the filter (many genuine entry-level posts state none).
+    returns None and is excluded by an active experience limit.
 
     REQUIRED beats PREFERRED, which is the 2026-09-03 correction and the only loosening here.
     Taking the maximum over both readings turned "5 years required, 10+ preferred" into a

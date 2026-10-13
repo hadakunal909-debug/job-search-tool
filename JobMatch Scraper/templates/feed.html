@@ -72,13 +72,16 @@
          integer (afterAction decrements it), so the numerator stays alone in its own span. #}
       <div class="count"><span id="count">{{ default_total }}</span><span id="counttot"> of {{ total }}</span> jobs</div>
       <div class="results-controls">
-        <label class="card-size-control" for="card-size">Card size
-          <select id="card-size" class="sel">
-            <option value="compact">Compact</option>
-            <option value="comfortable" selected>Comfortable</option>
-            <option value="roomy">Roomy</option>
-          </select>
-        </label>
+        <details class="results-display" id="display-options" open>
+          <summary>Display options</summary>
+          <label class="card-size-control" for="card-size">Card size
+            <select id="card-size" class="sel">
+              <option value="compact">Compact</option>
+              <option value="comfortable" selected>Comfortable</option>
+              <option value="roomy">Roomy</option>
+            </select>
+          </label>
+        </details>
       <select id="sort" class="sel" aria-label="Sort jobs">
         <option value="score"{{ ' selected' if prefs.sort == 'score' else '' }}>Sort: Best Match</option>
         <option value="newest"{{ ' selected' if prefs.sort == 'newest' else '' }}>Sort: Newest</option>
